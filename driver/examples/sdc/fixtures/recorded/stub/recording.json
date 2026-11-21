@@ -6,6 +6,7 @@
       "case": "IDEA-1.intake",
       "id": "llm/001-idea.dissect",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1"
       },
       "kind": "work",
@@ -14,7 +15,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/001/out",
-      "prompt": "717fe598a52d1b6ee9abd08d1b5982e017563d105136e28f38176c48d431af17",
+      "prompt": "fe32c2461e7745db66f70586123d126629a911a397747d7ac23053a678a1b2d7",
       "request": {
         "case": "IDEA-1.intake",
         "effort": "high",
@@ -49,6 +50,7 @@
       "case": "IDEA-1.intake",
       "id": "llm/002-questions.write",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1"
       },
@@ -58,7 +60,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/002/out",
-      "prompt": "2d1cb3af6eeb1e8321803e2834d26f8b1c5c8a661a4b55cc36bebd37fddd8e1b",
+      "prompt": "54d7652be2d2d80cd1df68b23e971b9bdfd5ea218f92e753b57339bda9878d96",
       "request": {
         "case": "IDEA-1.intake",
         "effort": "high",
@@ -93,6 +95,7 @@
       "case": "IDEA-1.intake",
       "id": "llm/003-questions.answer",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/questions.yaml": "f246657ff1e97ebcacd8dbf9c1e983b80f141cd6f749119e25630e08cbca0d4f"
@@ -103,7 +106,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/003/out",
-      "prompt": "17bd46e9910599fd7fbb53625d8d702bdff556b8944173ca4f09d4eaf2fd6b76",
+      "prompt": "87b0cb1d9100bdc7024822adf168a113685c6fce590d6188ddb4a9d29c9e78c4",
       "request": {
         "case": "IDEA-1.intake",
         "effort": "high",
@@ -138,6 +141,7 @@
       "case": "IDEA-1.intake",
       "id": "llm/004-requirements.normalise",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2"
@@ -148,7 +152,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/004/out",
-      "prompt": "cf206c250b35f593d14a5239978ba90203234f782e107c3473cda81dd681da29",
+      "prompt": "51ce6f138fe7b6e3e9a13a8459cbfbf256979a52ddf836a61ee42bb17c2864e8",
       "request": {
         "case": "IDEA-1.intake",
         "effort": "high",
@@ -183,6 +187,7 @@
       "case": "IDEA-1.direction",
       "id": "llm/005-context.default",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0"
       },
@@ -192,7 +197,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/005/out",
-      "prompt": "c4fd85f33264c144356a907c67a0792e9bf74217ff007511f21b7c9f59171c21",
+      "prompt": "a6c47adce331a4eb8df86b84053608831e739df6e80388d7e46d1fabc218d5bc",
       "request": {
         "case": "IDEA-1.direction",
         "effort": "high",
@@ -227,6 +232,7 @@
       "case": "IDEA-1.billing.spec",
       "id": "llm/006-spec.author",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/example-spec/README.md": "555fbcae2149dca63c8b222b25deb2a499de0092d8a9f91f14eaf06c6f7e6c80",
         "in/example-spec/components.yaml": "ee4986381f8dbb44f76ab05c44742f4654795e369ef46c0ed3aab8e3b85f2583",
@@ -244,7 +250,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/006/out",
-      "prompt": "1668deb49f6891f830b93c1601f1e25288166a22b30de4796fca7880f48c8a8d",
+      "prompt": "236b50cf5d51a4917b044fbc86acab498282e23e9ad3e35165481b039c719afb",
       "request": {
         "case": "IDEA-1.billing.spec",
         "effort": "high",
@@ -333,6 +339,7 @@
       "id": "llm/008-change.implement",
       "inputs": {
         "in/aep/story/invoices.md": "97e4eecbc8a90dad3bd1f00a8ecedfacf62fb66529e58146016e24cd7d010b8e",
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0",
         "in/spec/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
@@ -350,7 +357,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/008/out",
-      "prompt": "859c6e1a4fc85c480e54d1bc179b3dabbdff97f4b02f41ed3a2ee8065a9f40e0",
+      "prompt": "2dd34c024ec8ee8f99ff680a778def1ee2f9ae56fbc484ff9089763e1b844afc",
       "request": {
         "case": "IDEA-1.billing.invoices",
         "effort": "high",
@@ -438,6 +445,7 @@
       "case": "IDEA-1.direction",
       "id": "decider/001-context.approve",
       "inputs": {
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/checks.json": "aad492c1d6ed2849e72f059e98816b79a24182998a915fe771bcd4dfb45f6cab",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/decision.json": "7e4b0ed6c22caa6163fd92d2da4a3356eff61359d24b513ba49528ce75ed45cc",
@@ -453,7 +461,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/010/out",
-      "prompt": "38d76c850563c630ecd2f5f518672e12de284482a2f8b9fcbf992a78464b97e8",
+      "prompt": "68de506938a884b6148f08557e6cd4513e75ea16e75d758cd7d7f71fc6ff222f",
       "request": {
         "case": "IDEA-1.direction",
         "effort": "xhigh",
@@ -494,6 +502,7 @@
       "id": "decider/002-vision.approve",
       "inputs": {
         "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/checks.json": "f9716e6b12cc77081b68ffec5ce265e91e58ff7ce0d0876fe14dde85887221ea",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/decision.json": "fc01e098d599429e10e909e31d743afa81590653c4f8500a99535391ea5ae485",
@@ -509,7 +518,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/011/out",
-      "prompt": "0ef93574f5060b4216eea96a86d1106b1e48a0ba69352dd5617ea5ac5cb11ec9",
+      "prompt": "53538f1d242f21c44f642caa52da9d68b02ee6f17f1fca448b899673ee0d3673",
       "request": {
         "case": "IDEA-1.direction",
         "effort": "xhigh",
@@ -553,6 +562,7 @@
         "in/aep/epic/billing.md": "ecbf48b38de10f9d13f78f1cc68867cb6600e4f94e861d219d43ca533ceec758",
         "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
         "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/checks.json": "98509b015f08630a1d9d2cd272c25f58c1ddbab5dd789bd88379f0832f0a1b4c",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/decision.json": "e5e16b6e403cec473a77ef651d9c6c36b4cb330b1faebbfe5aafd681fb1a202c",
@@ -568,7 +578,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/012/out",
-      "prompt": "6438738aa77535999812300a1b92b0659706f13a7b7687448573ffc31d17d0c2",
+      "prompt": "a0fa27103b0f6a4a02d0dedddf899af9087f140d079be16dadd4c03193f995f7",
       "request": {
         "case": "IDEA-1.direction",
         "effort": "xhigh",
@@ -614,6 +624,7 @@
         "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
         "in/aep/story/invoices.md": "97e4eecbc8a90dad3bd1f00a8ecedfacf62fb66529e58146016e24cd7d010b8e",
         "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/checks.json": "bda6342db2769231d20324e49660db8806bb99e8b34e01f0a6b5410c1c500df2",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/decision.json": "8b8c64f87c4d1c99be485f006ff8c2f93d726f0ef4385f5e025c3ea892fce15c",
@@ -636,7 +647,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/013/out",
-      "prompt": "d21dbf4660f8b11fcb956422f68a467984c5a3450b0c9fff896a4c60d24ff78d",
+      "prompt": "eb1f909ecf94f2d073ce76def0c9f0d0b99187e380b404f27cea8dc530a748ff",
       "request": {
         "case": "IDEA-1.billing.invoices",
         "effort": "xhigh",
@@ -678,6 +689,7 @@
         "in/aep/epic/billing.md": "0dd064fa8339578220a7f72c5e86ca30ff690f2f9a0c6d4e5b243189bd04d669",
         "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
         "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
+        "in/build-constraints.yaml": "66fd1992abf2bb2f622bdaeb5b1ffb4fddce7caf8dee0f3baaf59f0fcc0a0e83",
         "in/checks.json": "f99ad2aaa36db72961ef22b82d597640d5151af3cbe5f0a2be66079290e8aab0",
         "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
         "in/decision.json": "98cc69060d774eeb402ee8007a374437f6c5197831495d0ccb5970c5303b570a",
@@ -701,7 +713,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/014/out",
-      "prompt": "c9e1f59489b35cb1687d622b021afeda5e708dd9c1bb6de8a41a338e92df7dac",
+      "prompt": "2b5a90a7515518ce7cb2b3d47cd9c159523fa8cf7b9c27b2b12fabcc4c7d881a",
       "request": {
         "case": "IDEA-1.billing.release",
         "effort": "xhigh",
@@ -751,12 +763,16 @@
           "source": "SDC_LLM_ADAPTER"
         }
       },
-      "at": "2026-11-21T13:42:03Z",
+      "at": "2026-11-21T16:21:36Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
+      "build_constraints": {
+        "language": "Rust",
+        "source": "driver/examples/sdc/build-constraints.yaml"
+      },
       "decider": {
         "escalate": "final",
-        "kind": "haiku",
+        "kind": "model",
         "max_decider_calls": 20,
         "model": "claude-haiku-5-5"
       },
@@ -849,10 +865,14 @@
       "per_class_routing": null,
       "replay": null,
       "requester_decider": null,
+      "rework_limit": {
+        "source": "rule-ends.json",
+        "value": 2
+      },
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "26b8b85ee7b7",
+        "commit": "cb24d0c35675",
         "dirty": false
       },
       "unstick": {
@@ -870,7 +890,7 @@
     "state": "closed"
   },
   "tree": {
-    "commit": "26b8b85ee7b7",
+    "commit": "cb24d0c35675",
     "dirty": false
   }
 }
