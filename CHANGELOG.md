@@ -56,6 +56,8 @@ Fixes and tools after the first release; no protocol of the nine changed. The lo
 - The live view's run picker: a search over recent runs with their facts, grouped by experiment
   (`009b8fd`, `4e09b4c`, `ab8472f`).
 - Three more `sdc-bugfix` seeds and four scripted bug-fix cycles (`99238c0`, `e108d5e`).
+- The first baseline on a released tree: `experiments/baseline-0.1.0`, nine runs on the 0.1.0
+  tree, recorded in the progress ledger.
 
 ### Changed
 
@@ -80,6 +82,14 @@ Fixes and tools after the first release; no protocol of the nine changed. The lo
 - `sdc-run-compare` and the live view's KPI strip count every decider call made, once per record
   (`df58754`, `9ff2996`). Before, `sdc-run-compare` left out the cost of every decider call whose
   escalation was suppressed (`trial-3-haiku-9`: 0.159 USD reported, 0.325 USD spent).
+
+### Known limits
+
+- No run has used the 0.1.1 tree. The baseline of 0.1.0 is `experiments/baseline-0.1.0`: 6 of 9
+  clean passes (strong 3 of 3, median 5.50 USD and 1,247 s; mixed 3 of 3, median 2.55 USD and
+  1,489 s; Haiku 0 of 3, stopped `writer_spent` twice and `decision_not_takeable` once).
+- Recorded replay is not in this release: merged and reverted before it (`7c5dd5e`), it follows in
+  a later one.
 
 ## [0.1.0] - 2026-11-21
 
