@@ -129,11 +129,15 @@ enum Cmd {
         reasons: PathBuf,
     },
     /// Terminate the case through an outcome; Canon refuses one that is not legitimate.
+    /// `--principal` names who closed it on the `terminated` event (`rule:autopilot` for a close
+    /// the outcome's claims settle alone); without it the event names none.
     Close {
         #[arg(long)]
         at: String,
         #[arg(long)]
         outcome: String,
+        #[arg(long)]
+        principal: Option<String>,
     },
     /// Re-run `canon evaluate` on every case of the tree as last evaluated and compare the state
     /// and decision digests with the ones the log recorded.
@@ -898,7 +902,7 @@ fn open_children(
 /// child is about that revision only, and a revised subject gets a new child with a new id, never
 /// this record. Canon reads one `case_outcome` record per child, so `open` → outcome is the one
 /// rewrite; the parent's log keeps both states.
-fn close(canon: &str, dir: &Path, at: &str, outcome: &str) -> R<Value> {
+fn close(canon: &str, dir: &Path, at: &str, outcome: &str, principal: Option<&str>) -> R<Value> {
     let p = dir.join("case.json");
     let before = read_json(&p)?;
     let mut case = before.clone();
@@ -907,7 +911,11 @@ fn close(canon: &str, dir: &Path, at: &str, outcome: &str) -> R<Value> {
     let d = evaluate(canon, dir, at).inspect_err(|_| {
         let _ = write_json(&p, &before);
     })?;
-    event(dir, at, "terminated", json!({"outcome": outcome}))?;
+    let mut body = json!({"outcome": outcome});
+    if let Some(p) = principal {
+        body["principal"] = json!(p);
+    }
+    event(dir, at, "terminated", body)?;
     if let Ok(link) = read_json(&dir.join("link.json")) {
         let parent = dir.join(link["parent"].as_str().unwrap());
         let f = parent
@@ -1538,7 +1546,7 @@ fn drive(
             let (v, code) = drive(canon, &c, at, budget, took, limits)?;
             let legit = &v["position"]["legitimate_outcomes"];
             if v["verdict"] == "terminable" && legit.as_array().is_some_and(|l| l.len() == 1) {
-                let closed = close(canon, &c, at, legit[0].as_str().unwrap())?;
+                let closed = close(canon, &c, at, legit[0].as_str().unwrap(), None)?;
                 took.push(json!({"closed": closed["case"], "outcome": closed["terminated"]}));
                 continue 'outer;
             }
@@ -1793,7 +1801,7 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             event(dir, at, "decision_recorded", body)?;
             Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
         }
-        Cmd::Close { at, outcome } => Ok((close(canon, dir, at, outcome)?, 0)),
+        Cmd::Close { at, outcome, principal } => Ok((close(canon, dir, at, outcome, principal.as_deref())?, 0)),
         Cmd::Replay => {
             let mut report = Vec::new();
             let mut ok = true;
