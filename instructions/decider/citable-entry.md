@@ -1,0 +1,1 @@
+- an entry of a YAML or JSON input: <artifact>@<revision>#<field path>, with the artifact and revision from `citable_artifacts` in in/decision.json; a list element is named by its id (example: {{example}})

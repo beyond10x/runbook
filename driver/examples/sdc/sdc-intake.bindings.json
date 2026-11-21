@@ -28,7 +28,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/idea.dissect.md"},
       "stub": [
         "stub-file",
         "dissection.yaml",
@@ -67,7 +67,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/questions.write.md"},
       "stub": [
         "stub-file",
         "questions-open.yaml",
@@ -90,7 +90,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/questions.answer.md"},
       "stub": [
         "stub-file",
         "questions-answered.yaml",
@@ -141,7 +141,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/requirements.normalise.md"},
       "stub": [
         "stub-file",
         "requirements.yaml",

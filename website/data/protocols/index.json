@@ -827,11 +827,11 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "72e76a3b8721b798502573252da1bb1d968a2c8273aa51eae4f13c6697fa2e4e"
+      "sha256": "bc5f3c63925ed38cfd1da2f13e4023e15fd3b3b947e9160af649ade0834de1e0"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
-      "sha256": "4319409e92ecb42892bab88b56fbb421ba2bf9f5ff827cbd07f573f93a74b372"
+      "sha256": "4d1ed77a2436f02faa62e6ddec6d1869898979ce92964adc9a71ff8c4a2cdbcd"
     },
     {
       "path": "driver/examples/sdc/sdc-epic.bindings.json",
@@ -839,11 +839,11 @@
     },
     {
       "path": "driver/examples/sdc/sdc-intake.bindings.json",
-      "sha256": "21560d85ab0fe6be7ff43cd595853204cc2c12207ac114399bca2b3f3a596719"
+      "sha256": "1759ad7a7c24fb7993cf11189d50b033445172a855a5b6ed0ca8720cff2c31a6"
     },
     {
       "path": "driver/examples/sdc/sdc-plan.bindings.json",
-      "sha256": "2d7fb6d97a38eac8ed901f33202bcd7bd8ffe94c3f8dd6eda2e0d7bd40576142"
+      "sha256": "a3a176b9916c1a94eaa559e9ad3f8fe8686b74838cbdacaa840634690948a389"
     },
     {
       "path": "driver/examples/sdc/sdc-release.bindings.json",
@@ -851,11 +851,11 @@
     },
     {
       "path": "driver/examples/sdc/sdc-spec.bindings.json",
-      "sha256": "9f3f18446f63a8a3eea4b8a73b0688358ab85f30ddec2c70954bac673e6de70d"
+      "sha256": "a0a388ffc095a03d8ec625336e0eac9da845204834d3e3bd791f03c93b97e3b5"
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "4df2762c14fe4d96c3940ca12ab45f65c45cf4d03b05f60330c5feaa7fbe5c0f"
+      "sha256": "f26332dd1159496895fff5ffd7134b5299dcc9808531899192caece1941245f6"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",
