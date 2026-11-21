@@ -7,6 +7,34 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Corrections to 0.1.0
+
+`docs/releases/0.1.0.md` and the GitHub Release of 0.1.0 are not edited; this section holds the
+corrected figures.
+
+- Decider cost: `sdc-run-compare` summed the cost of the `decisions.jsonl` lines that are not
+  `escalation_suppressed`, so every decider call whose escalation was suppressed (a real model
+  call, its cost sits on the suppressed line) was missing from the decider cost and the total.
+  The 0.1.0 Trial 3 figures were taken from the tool. Recomputed for the seven passes as the sum
+  of `cost_usd` over `llm-calls.jsonl` and over every line of `decisions.jsonl`; the decider
+  figure also equals the sum of `decider/*/response.json`.
+
+  | Run | Published (USD) | Recomputed (USD) | Difference |
+  |---|---|---|---|
+  | `trial-3-strong-2` | 3.00 | 3.00 (2.996) | 0 |
+  | `trial-3-strong-1` | 2.93 | 2.93 (2.926) | 0 |
+  | `trial-3-opus-1` | 5.09 | 5.09 (5.088) | 0 |
+  | `trial-3-mixed-6` | 1.86 | 1.86 (1.859) | 0 |
+  | `trial-3-haiku-7` | 1.00 | 1.03 (1.034) | +0.03: its decider cost is 0.371, not 0.335 (1 suppressed line) |
+  | `trial-3-strong-6` | 4.05 | 4.05 (4.055) | 0 |
+  | `trial-3-strong-5` | 5.34 | 5.34 (5.338) | 0 |
+
+  Only `haiku-7` has a suppressed-escalation line among the seven; the others have none, so their
+  published figures stand. Other runs of `docs/trial-3.md` changed the same way (`haiku-6`
+  0.540 to 0.560, `mixed-5` 1.476 to 1.588, and the attempts), and `docs/trial-3.md` is corrected.
+- The fix of the tool is in 0.1.1 (`df58754`, `9ff2996`; `docs/releases/0.1.1.md`, "A defect in a
+  figure tool"); this section is the correction of the 0.1.0 figures that note promises.
+
 ## [0.1.1] - 2026-11-21
 
 Fixes and tools after the first release; no protocol of the nine changed. The longer note is
