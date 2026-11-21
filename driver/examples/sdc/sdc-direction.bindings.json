@@ -16,7 +16,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/context.default.md"},
       "stub": [
         "stub-file",
         "context.yaml",
@@ -72,7 +72,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/vision.write.md"},
       "stub": [
         "stub-vision"
       ]
@@ -106,7 +106,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/roadmap.write.md"},
       "stub": [
         "stub-roadmap"
       ]

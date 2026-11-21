@@ -369,140 +369,85 @@ checks_input() {
 }
 ck() { yq -r "$1" "$cwd/in/checks.yaml"; }
 
+# --- the instructions: files outside this tool ----------------------------------------------------
+# The text the model is told is in instructions/ (docs/driver.md, "Instructions"); the binding's
+# `llm.instructions` names each file of the action (task, and the parts it has), and this tool reads
+# the files and fills their {{name}} placeholders. repo_root is the nearest directory above this tool
+# that holds instructions/, derived once here, so it holds wherever the tools directory sits.
+repo_root=$here
+until [[ -d $repo_root/instructions || $repo_root == / ]]; do repo_root=$(dirname "$repo_root"); done
+shared=instructions/shared
+# render <variable> <file under the repository root> [name=value ...]: the file with every {{name}}
+# replaced by its value in one pass (a value is never searched for placeholders); trailing newlines
+# of the file are dropped. A file that is missing, or names a placeholder without a value, is a program error.
+render() {
+  local -n _o=$1
+  local _f=$repo_root/$2 _t _out="" _m _k _kv
+  local -A _v=()
+  shift 2
+  [[ -f $_f ]] || { echo "llm-node: $node could not run: the instruction file ${_f#"$repo_root"/} is missing" >&2; exit 126; }
+  for _kv; do _v[${_kv%%=*}]=${_kv#*=}; done
+  _t=$(<"$_f")
+  while [[ $_t =~ \{\{([a-z_]+)\}\} ]]; do
+    _m=${BASH_REMATCH[0]} _k=${BASH_REMATCH[1]}
+    [[ -v _v[$_k] ]] || { echo "llm-node: $node could not run: ${_f#"$repo_root"/} names {{$_k}} and no value was given" >&2; exit 126; }
+    _out+=${_t%%"$_m"*}${_v[$_k]}
+    _t=${_t#*"$_m"}
+  done
+  _o=$_out$_t
+}
+# render_part <variable> <part> [name=value ...]: the file the binding's llm.instructions names for <part>.
+render_part() {
+  local _p=$1 _f
+  _f=$(jq -r --arg p "$2" '.instructions[$p] // empty' <<< "$cfg")
+  [[ -n $_f ]] || { echo "llm-node: $node could not run: the binding's llm object names no instructions.$2" >&2; exit 126; }
+  shift 2
+  render "$_p" "$_f" "$@"
+}
+fill_task() { render_part task task "$@"; }
+# One input note per line of the file (a rendered file), added to the Inputs list.
+notes() { local _n _l; render _n "$@"; while IFS= read -r _l; do inputs+=("$_l"); done <<< "$_n"; }
+notes_part() { local _n _l; render_part _n "$@"; while IFS= read -r _l; do inputs+=("$_l"); done <<< "$_n"; }
+# A paragraph added to the task.
+append_task() { local _a; render _a "$@"; task="$task"$'\n\n'"$_a"; }
+
 ops='["dir.list","file.edit","file.read","file.write","search"]'
 mt=30
 case $node in
 idea.dissect)
   input idea.yaml; out=dissection.yaml
-  task="Split the idea (in/idea.yaml, field \`text\`) into typed items. Write out/dissection.yaml with
-one top-level key \`items\`, a list. Each item has exactly these keys:
-- id: d1, d2, ...
-- type: exactly one of fact, wish, belief, unknown, ambiguity, dark_spot
-  (fact: stated as true; wish: a wanted outcome; belief: stated, unverified; unknown: a named gap;
-  ambiguity: two or more readings; dark_spot: nothing said, but a builder needs it)
-- span: a non-empty, exact, case-sensitive substring of the idea text, copied character by
-  character (for a dark_spot, the nearest words it is about)
-- note: one sentence: what is stated, or what is missing
-At least one wish. At most 8 items." ;;
+  fill_task ;;
 questions.write)
   input idea.yaml; input dissection.yaml; out=questions.yaml
-  task="Write the interview. For every item in in/dissection.yaml whose type is belief, unknown,
-ambiguity or dark_spot, write exactly one question; no question for any other item. Write
-out/questions.yaml with one top-level key \`questions\`, a list. Each question has exactly these keys:
-- id: q1, q2, ...
-- item: the dissection item id it is about
-- question: one sentence
-- options: 2 to 4 short answers
-- default: the recommended answer, one of the options, the simplest that fits the idea
-- scope_changing: true when the answer adds or removes a user-visible capability, a kind of user
-  or a component; else false
-- status: open
-A question with scope_changing: true has three more keys, so that a person can answer it without
-reading anything else; a question with scope_changing: false has none of them:
-- excerpt: the words of the idea (in/idea.yaml, field \`text\`) the question is about, copied
-  character by character, as one string
-- default_reason: one sentence: why the default is the recommended answer, citing the idea
-- consequences: a list with exactly one entry per option, in the order of options. Each entry has
-  exactly two keys, both one sentence in plain words: \`does\` (what is built, or not built, if that
-  option is chosen) and \`cost\` (what that option costs: build size, upkeep, or what is given up)
-Example of a scope-changing question (idea: 'A recipe box for my family'):
-- id: q1
-  item: d2
-  excerpt: for my family
-  question: Should family members have their own sign-in?
-  options:
-  - No sign-in; one shared recipe box
-  - Each family member signs in
-  default: No sign-in; one shared recipe box
-  default_reason: The idea names one box for the family and no account for anyone.
-  consequences:
-  - does: Builds one recipe box that anyone with the link opens; no sign-in is built.
-    cost: The smallest build; anyone holding the link can change recipes.
-  - does: Builds sign-in and a recipe box that only signed-in family members open.
-    cost: Accounts and a way to invite and remove members must be built and kept.
-  scope_changing: true
-  status: open" ;;
+  fill_task ;;
 questions.answer)
   input idea.yaml; input dissection.yaml; input questions.yaml; seed questions.yaml; out=questions.yaml
-  task="Answer the interview. out/questions.yaml is a copy of the current interview: edit it in place.
-For every question with scope_changing: false, set \`status: accepted\` and \`answer\` to its default,
-or \`status: changed\` and \`answer\` to a better answer when the default contradicts the idea, and
-set \`answered_by: non-interactive\`. Leave every question with scope_changing: true exactly as it is,
-whatever its status and answer (open, or already answered by a person): they are answered through
-scope.answer, by the principal that holds that capability. Change nothing else." ;;
+  fill_task ;;
 requirements.normalise)
   input idea.yaml; input dissection.yaml; input questions.yaml; out=requirements.yaml
-  task="Normalise the idea's facts and wishes and the interview's answers into a requirements list.
-Write out/requirements.yaml with one top-level key \`requirements\`, a list. Each requirement has
-exactly these keys:
-- id: r1, r2, ...
-- text: one testable sentence: who does what, or what must hold
-- cites: the ids it comes from: dissection items of type fact or wish, and question ids
-  (q1, ...) whose answers it uses. Only ids that exist; at least one per requirement. An item of
-  another type (belief, unknown, ambiguity, dark_spot) only beside the question that asks about it
-- spec_domains: the specification domains it belongs to, each \`<system>.<domain>\` in lower case
-  (for example todo.task). One system name for the whole list; 1 to 3 domains in total
-Cite every fact, every wish and every answered question at least once. Keep the list short (at
-most 8)." ;;
+  fill_task ;;
 context.default)
   input idea.yaml; input requirements.yaml; out=context.yaml
-  task="Write the project context defaults to out/context.yaml with exactly these top-level keys:
-audience, source_language, target_language, platform, kind, deployment, offline, licence. Each is a
-mapping with exactly the keys value (a short string), status (always \`default\`) and reason (one
-sentence). source_language and target_language are human languages (for example en) of the input
-and of the product's text. kind is one of: service, multi-tenant application, CLI, library.
-offline says whether and how the product works without a network connection: \`no\`, or \`yes: \`
-and how (for example \`yes: the browser client keeps a local copy and syncs when connected\`).
-Pick the simplest defaults the requirements allow." ;;
+  fill_task ;;
 vision.write)
   input idea.yaml; input requirements.yaml; input context.yaml; out=aep/vision/product.md
-  task="Write the product vision. Write two files:
-- out/vision.json: {\"title\": \"<3 to 6 words>\", \"summary\": \"<one sentence>\"}
-- out/vision.md: the vision body in Markdown, starting with \`# <title>\`: who it is for, the
-  problem, what it does, what it deliberately does not do (from the requirements), at most 40 lines." ;;
+  fill_task ;;
 roadmap.write)
   input idea.yaml; input requirements.yaml; input context.yaml; input aep/vision/product.md
   out=aep/initiative/roadmap.md
-  task="Write the roadmap. The idea is small, so the roadmap has exactly one epic. Write
-out/roadmap.json: {\"summary\": \"<one sentence>\", \"epics\": [{\"name\": \"<one lower-case word>\",
-\"title\": \"<2 to 5 words>\", \"summary\": \"<one sentence: what the epic delivers>\"}]}.
-Also write out/roadmap.md, the roadmap's body, in markdown without a front matter: sections
-'## Goal' (one paragraph from the vision), '## Epics' (per epic: what it delivers, the requirement
-ids it covers, for example r1 r2, and what done means), '## Sequence' (the order and why),
-'## Out of scope' (from the vision's 'does not do'). Every requirement id appears under one epic." ;;
+  fill_task ;;
 spec.author)
   input idea.yaml; input requirements.yaml; input context.yaml; input spec; seed spec; out=spec
   mkdir -p "$cwd/in/example-spec" && cp -r "$fx/billing-spec/." "$cwd/in/example-spec/"
-  inputs+=("in/example-spec (a complete, valid ESS example to copy the format from)")
+  notes_part inputs
   system=$(jq -r '.domain // "system"' <<< "${SDC_ARGS:-null}")
-  task="Write the ESS (Executable System Specification) for the requirements into out/spec/.
-in/example-spec/ is a complete specification that passes \`ess specify validate --strict-requires\`,
-\`ess specify compile\` and \`ess verify conform synthesize\` with 0 refusals: copy its file layout,
-keys and constructs exactly, and change only the content. Required:
-- out/spec/system.yaml: format: ess/1, system: $system, version: v1, a summary, and \`domains\`
-  listing exactly the spec_domains used in in/requirements.yaml
-- one file per domain under out/spec/domains/ (as in the example), with the entities, their
-  states, the commands (with the refusals they can return) and the events the requirements need
-- components.yaml and topology.yaml as in the example, naming your domains
-- out/spec/traces.json (as in the example): {\"traces\": {\"r1\": [...], ...}}, for every
-  requirement of in/requirements.yaml the full names of the declarations that deliver it. Only
-  behaviour counts: a command, a view, or an actor whose \`may\` names commands. A domain, an
-  entity, an event, an error, a type or an actor with no \`may\` delivers nothing, so a requirement
-  traced only to those fails the trace check. Leave out only a requirement with \`behaviour:
-  constraint\` or \`behaviour: dropped\`. If a requirement cannot be specified as behaviour, do not
-  trace it to a domain or an actor: raise a finding about it (scope_changing: true)
-Keep it as small as the requirements allow: no construct the requirements do not need. Never
-write the text UNMAPPED: anywhere. If out/spec/ already holds a specification, fix it rather than
-starting over." ;;
+  fill_task system="$system" ;;
 plan.decompose)
   input requirements.yaml; input spec
   jq -r '.commands | keys[]' "$work/.sdc/gate/ir.json" > "$cwd/in/commands.txt" 2>/dev/null
-  inputs+=("in/commands.txt (every command of the compiled specification)")
+  notes_part inputs
   out=aep
-  task="Decompose epic '$epic' into 1 to 3 stories. Write out/stories.json:
-{\"stories\": [{\"name\": \"<one lower-case word>\", \"title\": \"<2 to 5 words>\",
-\"summary\": \"<one sentence, then: covers <command> <command> ...>\"}]}.
-Every line of in/commands.txt must appear, spelled exactly, in the summary of exactly one story." ;;
+  fill_task epic="$epic" ;;
 change.implement)
   if [[ $implement_mode == request ]]; then
     # Nothing to read and no operation: sdc-reply implement-run assembles the input from the case
@@ -511,23 +456,7 @@ change.implement)
   else
   input requirements.yaml; input context.yaml; input spec; input "aep/story/$story.md"; input impl; seed impl
   out=impl
-  task="Implement story '$story' (in/aep/story/$story.md) of the specification in in/spec/, in
-out/impl/ (it holds the current implementation, if any: extend it, keep what earlier stories built).
-- Rust, edition 2021, standard library only: no dependencies in Cargo.toml (there is no network).
-  out/impl/Cargo.toml and code under out/impl/src/. A service is a daemon binary that serves its
-  web UI and a JSON API with std::net::TcpListener, takes its port and data file as arguments, and
-  can run as several instances side by side; a CLI parses std::env::args.
-- Keep the domain logic in a library (src/lib.rs) so tests call it directly.
-- Tests: #[test] functions in src (#[cfg(test)] modules) and/or out/impl/tests/*.rs, covering every
-  command the story covers, including its refusals; they must pass without network access or a
-  running server. At least one test per command; each command's name after its last dot
-  (CreateTask for todo.task.CreateTask) appears in its test function's name (snake_case is fine,
-  for example create_task) or in a comment directly above it. No #[ignore] and no #[should_panic]
-  used to hide a failure.
-- out/impl/Taskfile.yml: version: '3', with a task \`check\` that runs \`cargo test --locked\`
-  (commit a Cargo.lock: with no dependencies it holds only the package itself).
-- out/impl/README.md: how to run it and how it maps to the specification's commands.
-You cannot run commands: write code that passes its own tests."
+  fill_task story="$story"
   # The coverage document (story:implement-cites-requirements, SDC_IMPLEMENT_COVERAGE=on): the
   # story's requirements and the reply schema by program; the reply is checked against it below and
   # asked again at most twice.
@@ -536,18 +465,9 @@ You cannot run commands: write code that passes its own tests."
     "$reply_bin" coverage --work "$work" --schema > "$rec/coverage-schema.json" 2>> "$rec/coverage-check.err" ||
     { echo "llm-node: $node could not run: no story requirements: $(cat "$rec/coverage-check.err")" >&2; exit 126; }
   node_schema=$rec/coverage-schema.json
-  inputs+=("in/story-requirements.json (the requirements this story carries: id and text)")
-  task="$task
-
-Coverage. Besides the files, write out/coverage.json, one JSON object with one key
-\`requirements\`, a list with exactly one entry per requirement of in/story-requirements.json:
-- built: {\"id\", \"status\": \"built\", \"at\": [{\"file\", \"line\"}, ...], \"test\"}: \`at\` the
-  places in out/impl/ that build it (file relative to out/impl/, for example src/lib.rs; line from
-  1; at least one), \`test\` the name of a #[test] function in out/impl/ that exercises it
-- not_built: {\"id\", \"status\": \"not_built\", \"reason\"}: one sentence why it is not built
-A program checks it before any test runs: an id that is missing, named twice or not_built, a file
-that is not in out/impl/, a line outside its file, or a test name no #[test] function has sends
-the change back to you. Schema: $(jq -c . "$rec/coverage-schema.json")"
+  notes_part coverage_inputs
+  render_part cov coverage schema="$(jq -c . "$rec/coverage-schema.json")"
+  task="$task"$'\n\n'"$cov"
   fi
   fi ;;
 change.review)
@@ -566,57 +486,21 @@ change.review)
     ops='[]'; mt=4; out=code_review
     review_doc=$cwd/in/review.md
     input_bytes=$(jq -r '.document_bytes' "$rec/review-inputs.json")
-    inputs+=("the review input below (the same text as in/review.md: the story's requirements and commands, the test summary, the diff, the full text of the files it touches and a listing of every other product file)")
-    task="Review the change of story '$story' as a reviewer independent of its implementer: does the
-change deliver this story's requirements, acceptance lines and commands? The review input below is
-everything you are given, and everything you may judge. The requirements listed as covered by no story
-of the plan are outside this story, so do not reject for them; name one you see missing as a finding
-of kind \`outside\`.
-Reply with the JSON object of the response schema:
-- decision: approved, or rejected when the change fails a requirement, acceptance line or command of
-  this story
-- findings: each one place and what it violates. kind: \`violation\` (violates: a requirement id, an
-  acceptance cite or a command of this story) or \`outside\` (violates: an id of the requirements no
-  story covers). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of a changed file as
-  numbered in the review input; or impl/<path> alone, a file the review input lists as not in the
-  diff (cite it for what it holds or lacks, for something missing the file where it belongs). A file
-  neither listed nor changed does not exist in the tree: an absent service worker, route or module
-  is seen from the listing. says: one sentence
-- summary: one or two sentences
-A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
-the reply otherwise. Judge from the review input only; you cannot run anything."
+    notes_part facts_inputs
+    render_part task facts story="$story"
   else
     # SDC_REVIEW_MODE=session (the default): a session with read tools over the whole change tree.
     ops='["dir.list","file.read","search"]'; out=code_review
-    inputs+=("in/aep/story/$story.md (the story)" "in/scope.json (the commands it covers, its acceptance lines, the requirements it delivers)"
-      "in/commands.json (those commands in the compiled specification)" "in/impl/ (the change tree)"
-      "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
-      "in/tests.txt (the conformance run that passed on this revision)"
-      "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
+    notes_part inputs story="$story" base="$(jq -r .base "$rec/review-inputs.json")"
     # The implementer's coverage document, when its tree carries one (SDC_IMPLEMENT_COVERAGE=on):
     # one more input and one more sentence; without it the review is main's.
     cov_line=""
     if [[ $(jq -r '.coverage // false' "$rec/review-inputs.json") == true ]]; then
-      inputs+=("in/coverage.json (read-only: the implementer's own statement, per requirement, of the lines of in/impl/ that build it and the test that exercises it; a program checked that the lines and tests exist, not that they build the requirement)")
-      cov_line="
-in/coverage.json says where the implementer built each requirement: read those lines first instead
-of searching, and judge whether they build it."
+      notes_part coverage_inputs
+      render_part cov_line coverage_note
+      cov_line=$'\n'$cov_line
     fi
-    task="Review the change of story '$story' as a reviewer independent of its implementer: does the
-change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?
-in/uncovered.json lists requirements no story of the plan covers: they are outside this story, so do
-not reject for them; name one you see missing as a finding of kind \`outside\`.$cov_line
-Reply with the JSON object of the response schema:
-- decision: approved, or rejected when the change fails a requirement, acceptance line or command of
-  this story
-- findings: each one place and what it violates. kind: \`violation\` (violates: a requirement id, an
-  acceptance \`cite\` or a command of in/scope.json) or \`outside\` (violates: an id of
-  in/uncovered.json). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of in/impl/; for
-  something missing, the line where it belongs (the route table, the README line that claims it).
-  says: one sentence
-- summary: one or two sentences
-A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
-the reply otherwise. Judge from the inputs only; you cannot run anything."
+    fill_task story="$story" coverage_note="$cov_line"
   fi ;;
 # sdc.bugfix (docs/bugfix.md): the dissection is a data document under a schema (sdc-bugfix schema
 # dissection), checked by dissection.check; the test and the fix are code, in the language of the
@@ -625,84 +509,35 @@ the reply otherwise. Judge from the inputs only; you cannot run anything."
 bug.dissect)
   input bug.yaml; input impl; out=bug-dissection.json
   "$here/sdc-tool.sh" bugfix schema dissection > "$rec/schema.json" && node_schema=$rec/schema.json
-  task="Dissect the bug report in in/bug.yaml (field \`text\`) against the code in in/impl/. Write
-out/bug-dissection.json, one JSON object with exactly these four string keys (schema:
-$(jq -c . "$rec/schema.json")):
-- observed: what happens, as the report states it: the inputs and the wrong result
-- expected: what should happen instead, for the same inputs
-- where: the file of the code tree the bug is in, relative to in/impl/ (for example
-  path/to/file), optionally with :<line> of the faulty line (path/to/file:9)
-- reproduce: how to reproduce it: the call or command and its inputs
-Each value is one or two sentences. Do not fix anything." ;;
+  fill_task schema="$(jq -c . "$rec/schema.json")" ;;
 test.reproduce)
   input bug.yaml; input bug-dissection.json; input impl; out=repro
   checks_input
-  task="Write ONE test that reproduces the bug in in/bug.yaml, as dissected in
-in/bug-dissection.json, for the code in in/impl/ (do not change in/impl/), in the language and
-with the test framework that code already uses. Write two files:
-- out/repro/<file name>: a new test file. Its path in the code tree must match
-  $(ck .test_file) (in/checks.yaml \`test_file\`), and no file of in/impl/ has that path. It uses the
-  code's public interface and holds exactly one test, whose name matches $(ck .test_name). It
-  asserts the expected behaviour, so it FAILS on the current code because of the bug, and will
-  pass once the bug is fixed. Do not skip or ignore it, and do not mark it as expected to fail.
-  It must build and load against the current code: call only what exists.
-- out/repro/repro.json: {\"file\": \"<the test file's path in the code tree>\", \"test\": \"<the test's name>\"}
-A program then runs your test alone on the unchanged code with \`$(ck '.repro | join(" ")')\`
-(in/checks.yaml \`repro\`; {file} and {test} are your repro.json, {stem} the file name without its
-extension, {dir} its directory): your test must fail. It runs the whole suite without your test
-with \`$(ck '.test | join(" ")')\`: every other test must pass. You cannot run commands." ;;
+  fill_task test_file="$(ck .test_file)" test_name="$(ck .test_name)" repro_command="$(ck '.repro | join(" ")')" test_command="$(ck '.test | join(" ")')" ;;
 change.fix)
   input bug.yaml; input bug-dissection.json; input repro; input impl; seed impl; out=impl
   checks_input
   repro_file=$(jq -r '.file // ""' "$work/repro/repro.json" 2>/dev/null)
   # A run seeded from a ticket works on a repository that may have dependencies of its own.
-  stdlib=" Standard library only."
+  render_part stdlib stdlib
   yq -e '.ticket' "$work/bug.yaml" >/dev/null 2>&1 && stdlib=""
   gate=$(ck '.gate[] | "  - " + .name + ": `" + (.argv | join(" ")) + "`"')
-  task="Fix the bug in in/bug.yaml (dissected in in/bug-dissection.json) in out/impl/, a copy of the
-code tree. The test $(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null) in out/impl/$repro_file
-reproduces the bug: it fails now and must pass after your fix.
-- Do not change out/impl/$repro_file in any way: a program compares it byte for byte and refuses
-  the fix otherwise. Do not delete, weaken or ignore any test.
-- Change as little as the fix needs; keep the public API.$stdlib
-- The whole suite must pass (\`$(ck '.test | join(" ")')\`, in/checks.yaml \`test\`), and so must
-  every gate command of in/checks.yaml \`gate\`:
-${gate:-  (none)}
-You cannot run commands: write code that passes the tests and the gate." ;;
+  [[ -n $gate ]] || render_part gate no_gate
+  fill_task repro_test="$(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null)" repro_file="$repro_file" stdlib="$stdlib" \
+    test_command="$(ck '.test | join(" ")')" gate="$gate" ;;
 *) echo "llm-node: no agent node $node" >&2; exit 64 ;;
 esac
 # A run seeded from a ticket (bug.yaml `ticket`, docs/bugfix.md "From a ticket"): the ticket's
 # constraints bind the code writers. A run without a ticket keeps its prompt byte for byte.
 if [[ $node == test.reproduce || $node == change.fix ]] && yq -e '.ticket' "$work/bug.yaml" >/dev/null 2>&1; then
   constraints=$(yq -r '(.constraints // [])[] | "- " + .' "$work/bug.yaml")
-  [[ -z $constraints ]] || task="$task
-
-Constraints of the ticket (in/bug.yaml \`constraints\`), each one binding:
-$constraints"
+  [[ -z $constraints ]] || append_task "$shared/constraints.md" constraints="$constraints"
 fi
 
 # (Request mode: sdc-reply implement-run inlines findings.yaml and asks for findings in the reply.)
 if [[ $raises == yes && $implement_mode == session ]]; then
   [[ -f $work/findings.yaml ]] && input findings.yaml
-  task="$task
-
-Findings. If your inputs leave you an ambiguity (two or more readings), a contradiction (two
-items that cannot both hold, for example the context against a requirement) or a missing decision
-(something you must decide that no input decides), do not decide it silently. Write
-out/findings.yaml with one top-level key \`findings\`, a list; each finding has exactly these keys:
-- type: ambiguity, contradiction or missing_decision
-- cites: the ids of the items involved (r1, q2, d3, or context.<field> such as
-  context.deployment); at least one requirement, question or context field; a contradiction cites
-  both sides
-- says: one sentence
-- options: 2 to 4 short answers
-- default: the option you would pick, the simplest that fits the idea
-- scope_changing: true when an option adds or removes a user-visible capability, a kind of user or
-  a component; else false
-Then still do the task, following each default. Write no out/findings.yaml when there is
-nothing to report. A finding in in/findings.yaml with status resolved is a decision already
-taken: follow its \`decision\`; never raise it again. A finding there with status open is already
-raised and waits for its decision: follow its \`default\`; never raise it again."
+  append_task "$shared/findings.md"
 fi
 
 feedback=""
@@ -719,7 +554,7 @@ if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection
       else echo "The check wrote no output of its own: only its result above says what failed."; fi
     done
   } > "$cwd/in/feedback.md"
-  inputs+=("in/feedback.md (why the previous attempt was sent back: fix exactly that)")
+  notes "$shared/feedback.inputs.md"
   feedback=yes
 fi
 # This writer's own last run failed (an exit other than 0, a program error or an API break-off):
@@ -732,7 +567,7 @@ if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
     { [[ -s $cwd/in/feedback.md ]] && echo
       echo "# Your previous run of $node failed (exit ${own%% *}): nothing of it was applied"
       echo; echo '```'; grep -v '^slot: job ' "$cd_/blobs/${own#* }" | tail -n 80; echo '```'; } >> "$cwd/in/feedback.md"
-    [[ $feedback == yes ]] || inputs+=("in/feedback.md (why your previous run was not applied: fix exactly that)")
+    [[ $feedback == yes ]] || notes "$shared/feedback-run.inputs.md"
     feedback=yes
   fi
 fi
@@ -743,13 +578,8 @@ if [[ -n $rejection ]]; then
   rework_limit=$(jq -rs 'last.rework_limit.value // empty' "${SDC_RUN_SETTINGS:-/dev/null}" 2>/dev/null)
   [[ -n $rework_limit ]] || rework_limit=$(jq -r .rework_limit "$root/driver/examples/sdc/rule-ends.json")
   cp "$rejection" "$cwd/in/rejection.json"
-  inputs+=("in/rejection.json (the approval \`$(jq -r .approval "$rejection")\` of your previous output, revision $(jq -r .revision "$rejection"), was rejected by $(jq -r .principal "$rejection"): its reasons and what they cite)")
-  task="$task
-
-Rework. Your previous output was rejected at \`$(jq -r .approval "$rejection")\` (rejection $(jq -r .count "$rejection") of at most $rework_limit).
-Address every reason in in/rejection.json; change only what a reason asks for. In your final reply,
-before the word done, write one line per reason: its number, then where you addressed it as
-<file>:<line> (or <file>:<first>-<last>), then what you changed."
+  notes "$shared/rework.inputs.md" approval="$(jq -r .approval "$rejection")" revision="$(jq -r .revision "$rejection")" principal="$(jq -r .principal "$rejection")"
+  append_task "$shared/rework.md" approval="$(jq -r .approval "$rejection")" count="$(jq -r .count "$rejection")" rework_limit="$rework_limit"
 fi
 
 prompt=$rec/prompt.md
@@ -757,41 +587,32 @@ prompt=$rec/prompt.md
 # feedback.md and rejection.json to it.
 [[ $implement_mode == request ]] || {
   if [[ $node == change.review && $review_mode == facts ]]; then
-    echo "You are one step (\`$node\`) of a governed software delivery cycle. You have no tools and no"
-    echo "files to open: the review input is below. A program checks your reply afterwards; your words"
-    echo "decide nothing."
+    render preamble "$shared/preamble-facts.md" node="$node"
   else
-    echo "You are one step (\`$node\`) of a governed software delivery cycle. Work only in the current"
-    echo "directory. Read the inputs under in/; write only under out/. You have no shell: no command"
-    echo "runs. Programs check what you write afterwards; your words decide nothing."
+    render preamble "$shared/preamble.md" node="$node"
   fi
-  echo
-  echo "Inputs:"
-  printf -- '- %s\n' "${inputs[@]}"
-  echo
-  echo "Task:"
-  echo "$task"
-  echo
   if [[ $node == change.review ]]; then
     if [[ $review_mode == facts ]]; then
-      echo "Review input:"
-      echo
-      cat "$review_doc"
-      echo
+      # The review input's exact bytes (the trailing newline kept: the file ends the paragraph).
+      doc=$(cat "$review_doc"; echo x)
+      render closing "$shared/closing-review-facts.md" review_doc="${doc%x}"
+    else
+      render closing "$shared/closing-review.md"
     fi
-    echo "Reply with the JSON object only."
   elif [[ $coverage == on ]]; then
     if [[ -n $rejection ]]; then
-      echo "When the files and out/coverage.json are written, reply with one line per rejection reason (as above), then the word: done."
+      render closing "$shared/closing-coverage-rework.md"
     else
-      echo "When the files and out/coverage.json are written, reply with the single word: done."
+      render closing "$shared/closing-coverage.md"
     fi
-    echo "Under a response schema, reply with the coverage object instead."
   elif [[ -n $rejection ]]; then
-    echo "When the files are written, reply with one line per rejection reason (as above), then the word: done."
+    render closing "$shared/closing-rework.md"
   else
-    echo "When the files are written, reply with the single word: done."
+    render closing "$shared/closing.md"
   fi
+  input_list=$(printf -- '- %s\n' "${inputs[@]}")
+  render frame "$shared/frame.md" preamble="$preamble" inputs="$input_list" task="$task" closing="$closing"
+  printf '%s\n' "$frame"
 } > "$prompt"
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
@@ -876,8 +697,8 @@ if [[ $node == change.review ]]; then
     try=$((try + 1))
     cp "$rec/response.json" "$rec/response.try$try.json"
     [[ -f $reply ]] && cp "$reply" "$rec/reply.try$try.json"
-    printf '\nYour previous reply was refused by the program check: %s\nReply again, fixing exactly that.\n' \
-      "$(cat "$rec/review-check.err")" >> "$prompt"
+    render retry "$shared/retry-review.md" reason="$(cat "$rec/review-check.err")"
+    printf '\n%s\n' "$retry" >> "$prompt"
     jq --argjson t $((try + 1)) '.review_attempt = $t' "$rec/request.json" > "$rec/request.json.tmp" &&
       mv "$rec/request.json.tmp" "$rec/request.json"
   done
@@ -913,8 +734,8 @@ while :; do
   code=2; log_call
   cp "$rec/response.json" "$rec/response.try$try.json"
   [[ -f $coverage_reply ]] && cp "$coverage_reply" "$rec/coverage.try$try.json"
-  printf '\nYour coverage document was refused by the program check: %s\nYour files under out/ are kept. Fix exactly that and write out/coverage.json again (under a response schema, reply with the corrected object).\n' \
-    "$(cat "$rec/coverage-check.err")" >> "$prompt"
+  render retry "$shared/retry-coverage.md" reason="$(cat "$rec/coverage-check.err")"
+  printf '\n%s\n' "$retry" >> "$prompt"
   jq --argjson t $((try + 1)) '.coverage_attempt = $t' "$rec/request.json" > "$rec/request.json.tmp" &&
     mv "$rec/request.json.tmp" "$rec/request.json"
 done

@@ -1,0 +1,1 @@
+In this run a decider takes every decision a person would take: an answer with `answered_by: decider:<kind>` is the product owner's own decision, as binding as a person's, and is never a reason to reject or escalate.

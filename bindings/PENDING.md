@@ -85,6 +85,7 @@ fixture adapter.
 - `sdc-bugfix.bindings.json:55` `test.reproduce` `llm.stub` `[stub-repro, bugfix-pager/stub-repro]` — D21 — N3, wave 5 — syntax not fixed.
 - `sdc-bugfix.bindings.json:99` `change.fix` `llm` — D18, D19, D20 — bound-agent-node, wave 4 — `executor: {kind: agent, adapter: claude-code, model: claude-haiku-5-5}`, `budget: {max_runs: 3, max_turns: 40, max_budget_micro_usd: 2000000}`.
 - `sdc-bugfix.bindings.json:103` `change.fix` `llm.stub` `[stub-tree, bugfix-pager/stub-fix, impl]` — D21 — N3, wave 5 — syntax not fixed.
+- `sdc-intake.bindings.json:28` `*` `llm.instructions`, the files of the instruction text of the 14 agent actions (`instructions/<action>.md` and its parts), named by every binding with an `llm` object — none — no Loom story states the member — syntax not fixed; the YAML files name none, and `llm-node.sh` takes the paths from the JSON bindings until the agent executor has a member for them.
 
 ## Tool environment under Loom (step 2)
 

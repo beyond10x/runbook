@@ -14,7 +14,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 20,
-      "max_budget_usd": 1,
+      "max_budget_usd": 1, "instructions": {"task": "instructions/bug.dissect.md"},
       "stub": [
         "stub-file",
         "bugfix-pager/stub-dissection.json",
@@ -51,7 +51,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 30,
-      "max_budget_usd": 1,
+      "max_budget_usd": 1, "instructions": {"task": "instructions/test.reproduce.md"},
       "stub": [
         "stub-repro",
         "bugfix-pager/stub-repro"
@@ -99,7 +99,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 40,
-      "max_budget_usd": 2,
+      "max_budget_usd": 2, "instructions": {"task": "instructions/change.fix.md", "stdlib": "instructions/change.fix.stdlib.md", "no_gate": "instructions/change.fix.no-gate.md"},
       "stub": [
         "stub-tree",
         "bugfix-pager/stub-fix",

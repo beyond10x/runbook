@@ -17,6 +17,11 @@ bare-version tags (`docs/releasing.md`).
 - The run inspector reads its runbook's phases, file kinds and tool owners from a view file
   (`views/sdc.view.json`, format `runbook.view/1`; `--view FILE`, `--no-view`; `ui/README.md`), so it
   renders a runbook that is not SDC (`story:ui-view-data-per-runbook`).
+- The instructions of the 14 agent actions and of the decider are files under `instructions/`
+  (`instructions/<action>.md`, `instructions/shared/`, `instructions/decider/`, `{{name}}`
+  placeholders), named by `llm.instructions` in each JSON binding; `llm-node.sh` and `decider.sh`
+  only read and fill them, and `driver/tests/bugfix_prompt.rs` holds all 36 prompts byte for byte
+  against `instructions/golden/` (`story:instructions-as-files`, `docs/driver.md`, "Instructions").
 - `change.implement` as one request (`story:implement-one-request`), behind the run setting
   `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
   `run-settings.jsonl`, a launch setting of `sdc-experiment`). `sdc-reply implement-run` assembles

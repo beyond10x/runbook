@@ -1027,6 +1027,43 @@ reproduces the source's calls, and a node the source never called has no recorde
 `run-settings.jsonl` records it as `replay.unstick` (`on`, `why`). To try `run.unstick` on a
 recording without such a call: `--set unstick=on --on-divergence live`.
 
+## Instructions
+
+The text a model is told is in files under `instructions/`, outside the tools and outside the
+binding's program (the operator, 2026-11-21: "The instruction should come from the outside and not
+be inside this driver binding"; `story:instructions-as-files`).
+
+- `instructions/<action>.md`: the task of each of the 14 agent actions (`idea.dissect` ...
+  `change.fix`), and `<action>.<part>.md` for the parts an action has: `.inputs.md` (the notes
+  that describe its extra inputs, one per line), `.coverage.md`, `.facts.md` and the like.
+- `instructions/shared/`: the frame every prompt has (`frame.md`: preamble, inputs, task, closing)
+  and the paragraphs added to a task (findings, rework, ticket constraints, the retry after a
+  refused reply).
+- `instructions/decider/`: the decider's and the requester's prompts (`model.md`, `requester.md`)
+  and the fragments they are made of.
+- A variable part is a placeholder `{{name}}` (lower case and `_`). The tool fills each placeholder
+  from a value it computes, in one pass; a placeholder without a value, or a missing file, is a
+  program error (exit 126).
+
+A binding names the files of its action in the `llm` object, `instructions`: `task` is required, the
+other keys name the parts the action has.
+
+```json
+"llm": {"model": "claude-haiku-5-5", "max_turns": 15, "max_budget_usd": 0.5, "instructions": {"task": "instructions/idea.dissect.md"}, "stub": [...]}
+```
+
+`llm-node.sh` reads the paths from `SDC_LLM_NODE` (the binding's `llm` object); it has no table of
+paths. The shared frame and the decider's files are found by directory. The tools locate
+`instructions/` by walking up from their own directory (`repo_root`), so it holds wherever the tools
+directory sits. `bindings/*.yaml` (`loom.bindings/1`) names no instruction file; the line in
+`bindings/PENDING.md` says what brings it.
+
+The prompt each action and decider writes is held byte for byte by `driver/tests/bugfix_prompt.rs`
+against `instructions/golden/` (36 prompts on stub inputs; `SDC_BLESS_PROMPTS=1 cargo test --test
+bugfix_prompt` rewrites them, after a change of an instruction that is meant). Not in files: the
+text `sdc-reply implement-run` writes for `SDC_IMPLEMENT_MODE=request` (Rust), and the heading lines
+of `in/feedback.md`, which is a record of check results.
+
 ## Action-to-tool bindings
 
 One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direction`,

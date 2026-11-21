@@ -40,7 +40,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 40,
-      "max_budget_usd": 2,
+      "max_budget_usd": 2, "instructions": {"task": "instructions/change.implement.md", "coverage": "instructions/change.implement.coverage.md", "coverage_inputs": "instructions/change.implement.coverage.inputs.md"},
       "stub": [
         "stub-tree",
         "impl",
@@ -105,7 +105,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 30,
-      "max_budget_usd": 1,
+      "max_budget_usd": 1, "instructions": {"task": "instructions/change.review.md", "inputs": "instructions/change.review.inputs.md", "coverage_inputs": "instructions/change.review.coverage.inputs.md", "coverage_note": "instructions/change.review.coverage-note.md", "facts": "instructions/change.review.facts.md", "facts_inputs": "instructions/change.review.facts.inputs.md"},
       "operations": [
         "dir.list",
         "file.read",

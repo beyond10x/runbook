@@ -1,0 +1,8 @@
+in/aep/story/{{story}}.md (the story)
+in/scope.json (the commands it covers, its acceptance lines, the requirements it delivers)
+in/commands.json (those commands in the compiled specification)
+in/impl/ (the change tree)
+in/change.diff (what this story changed against the mainline: {{base}})
+in/tests.txt (the conformance run that passed on this revision)
+in/gate.txt (the ESS gate)
+in/uncovered.json (requirements no story of the plan covers)

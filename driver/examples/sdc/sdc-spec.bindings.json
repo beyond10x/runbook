@@ -34,7 +34,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 40,
-      "max_budget_usd": 2,
+      "max_budget_usd": 2, "instructions": {"task": "instructions/spec.author.md", "inputs": "instructions/spec.author.inputs.md"},
       "stub": [
         "stub-tree",
         "billing-spec",

@@ -33,7 +33,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/plan.decompose.md", "inputs": "instructions/plan.decompose.inputs.md"},
       "stub": [
         "stub-decompose"
       ]

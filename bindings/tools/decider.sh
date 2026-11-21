@@ -144,6 +144,32 @@ call_status running
 # The call's exit: the script's, else the adapter's.
 trap 'c=$?; (( c == 0 )) && c=${acode:-0}; [[ $c == 0 ]] && call_status finished 0 || call_status failed "$c"' EXIT
 
+# --- the instructions: files outside this tool ----------------------------------------------------
+# The text the model is told is in instructions/decider/ (docs/driver.md, "Instructions"); this tool
+# reads the files and fills their {{name}} placeholders. repo_root is the nearest directory above this
+# tool that holds instructions/, derived once here, so it holds wherever the tools directory sits.
+repo_root=$here
+until [[ -d $repo_root/instructions || $repo_root == / ]]; do repo_root=$(dirname "$repo_root"); done
+# render <variable> <file under instructions/decider/> [name=value ...]: the file with every {{name}}
+# replaced by its value in one pass (a value is never searched for placeholders); trailing newlines
+# of the file are dropped. A file that is missing, or names a placeholder without a value, is a program error.
+render() {
+  local -n _o=$1
+  local _f=$repo_root/instructions/decider/$2 _t _out="" _m _k _kv
+  local -A _v=()
+  shift 2
+  [[ -f $_f ]] || { echo "decider.sh: the instruction file ${_f#"$repo_root"/} is missing" >&2; exit 126; }
+  for _kv; do _v[${_kv%%=*}]=${_kv#*=}; done
+  _t=$(<"$_f")
+  while [[ $_t =~ \{\{([a-z_]+)\}\} ]]; do
+    _m=${BASH_REMATCH[0]} _k=${BASH_REMATCH[1]}
+    [[ -v _v[$_k] ]] || { echo "decider.sh: ${_f#"$repo_root"/} names {{$_k}} and no value was given" >&2; exit 126; }
+    _out+=${_t%%"$_m"*}${_v[$_k]}
+    _t=${_t#*"$_m"}
+  done
+  _o=$_out$_t
+}
+
 # The requester agent (docs/requester.md § 3, story:requester-decider): principal
 # decider:requester, for the requester-side classes. Its in/ holds exactly request.json (the
 # contract's request: from sdc-decision-request for a question, built here for an approval or a
@@ -177,7 +203,8 @@ requester_call() {
         addressed_to: "decider:requester", grounds: [], decision_reasons: []}' <<< "$req") ;;
   esac
   printf '%s\n' "$request" > "$cwd/in/request.json"
-  inputs=("in/request.json (the decision request: question, options, the default and its grounds)")
+  render note requester.input-request.md
+  inputs=("$note")
   rinput() { # <path under work/>: one input file, copied as it is
     [[ -n $1 && -f $work/$1 && ! -e $cwd/in/$1 ]] || return 0
     mkdir -p "$cwd/in/$(dirname "$1")"; cp "$work/$1" "$cwd/in/$1"; inputs+=("in/$1")
@@ -189,41 +216,17 @@ requester_call() {
   jq -s '[.[] | select(.principal == "decider:requester" and .valid != false)
     | {case, action, question, revision, decision, answer, reasons, grounds}]' "$(r '.decisions_log // "/dev/null"')" > "$cwd/in/decisions.json" 2>/dev/null ||
     echo '[]' > "$cwd/in/decisions.json"
-  inputs+=("in/decisions.json (your earlier decisions in this run)")
+  render note requester.input-decisions.md
+  inputs+=("$note")
 
   prompt=$rec/prompt.md
-  {
-    echo "You answer for the requester: the person or organisation that asked for this software."
-    echo "Its goals, principles, constraints and preferences are in in/goals.yaml; its idea in in/idea.yaml."
-    echo "Work only in the current directory. Read the inputs under in/; write only out/reply.json."
-    echo
-    echo "Inputs:"
-    printf -- '- %s\n' "${inputs[@]}"
-    echo
-    echo "Choose the option (or, for a question, a short answer of your own) that the entries of"
-    echo "in/goals.yaml support. Never choose an option that crosses a constraint. Cite every entry you rely"
-    echo "on. When no entry covers the decision, or two entries of equal priority conflict, say so with"
-    echo "no_ground_in_goals: true; do not guess."
-    echo
-    echo "Write out/reply.json, exactly these keys:"
-    echo '{"option": "<letter of the chosen option, or null with a free answer>",'
-    echo ' "answer": "<for a question: a free answer when no option fits; otherwise null>",'
-    echo ' "reasons": ["<one sentence each>"],'
-    echo ' "grounds": [{"source": "goals", "citation": {"form": "artifact_revision", "value": {"artifact": "goals",'
-    echo '     "revision": "<the goals revision>", "entry": "<entry id>"}}, "supports": "<letter, absent for a free answer>",'
-    echo '     "how": "<one sentence: how the entry supports it>"}],'
-    echo ' "strength": "strong | moderate | weak",'
-    echo ' "no_ground_in_goals": true | false}'
-    echo "The goals revision is $(jq -r '.artifacts.goals.revision // "none"' "$case_dir/case.json"); idea and prior grounds"
-    echo "(source idea, prior_decision) cite lines as {\"form\": \"path_line\", \"value\": {\"path\": \"work/<file>\", \"line\": <n>}}."
-    if [[ $(r '.retry.attempt // 1') -gt 1 ]]; then
-      echo
-      echo "This is attempt $(r .retry.attempt). Your previous reply was refused by the program check:"
-      echo "  $(r .retry.invalid_reason)"
-    fi
-    echo
-    echo "When the file is written, reply with the single word: done."
-  } > "$prompt"
+  retry=""
+  if [[ $(r '.retry.attempt // 1') -gt 1 ]]; then
+    render retry requester-retry.md attempt="$(r .retry.attempt)" reason="$(r .retry.invalid_reason)"
+    retry=$'\n'$retry$'\n'
+  fi
+  render text requester.md inputs="$(printf -- '- %s\n' "${inputs[@]}")" goals_revision="$(jq -r '.artifacts.goals.revision // "none"' "$case_dir/case.json")" retry="$retry"
+  printf '%s\n' "$text" > "$prompt"
   model=${SDC_LLM_MODEL_REQUESTER:-${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}}
   effort=${SDC_LLM_EFFORT_REQUESTER:-${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-$(jq -r .default_efforts.requester "$here/node-classes.json")}}}
   node=requester.$(r '.question.id // .action')
@@ -353,7 +356,8 @@ jq --argjson reads "$reads" --argjson settles "$settles" --argjson later "$later
   + ([.open_obligations[]? | select(IN($later.obligations[]))] as $o | ((.claims // {}) | keys - (keys - $later.claims)) as $c
     | if ($o + $c) == [] then {} else {met_after_this_action: {action: $later.action, obligations: $o, claims: $c,
       note: "met after \($later.action), not a condition of this decision"}} end)' <<< "$req" > "$cwd/in/checks.json"
-inputs+=("in/checks.json (the program checks this decision turns on: each claim's value at the current revisions, the open obligations)")
+render note input-checks.md
+inputs+=("$note")
 # A question comes with the dissection item it was asked about and that item's words in the idea.
 item=null
 if [[ $type == question ]]; then
@@ -397,132 +401,87 @@ schema_args=(--type "$type")
 "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" "${schema_args[@]}" > "$rec/reply-schema.json"
 
 case $type in
-  approval) what="Decide whether to approve \`$(r .action)\`: the $(r .subject) at revision $(r .revision) (in/$path).
-Approve when it is consistent with the idea, the requirements and the context, and every check in
-in/checks.json about it holds. Reject when it contradicts a requirement or is not usable; say what is
-wrong.
-How to read the inputs: AEP artifacts are small by design. The roadmap (in/aep/initiative/roadmap.md)
-names its epics in its summary; each epic is its own file in/aep/epic/<name>.md, and the roadmap is
-the two together. The requirements cover the whole product; one epic or story need not restate them.
-In in/checks.json a claim's \`value\` is the check's result at the current revision;
-\`excluded_evidence\` only lists older records set aside, which is normal after a rewrite. The open
-obligation of what you decide (for example roadmap.required) is open because your approval is
-missing." ;;
-  question) what="Answer the interview question in in/decision.json (\`question\`: its text, \`options\`, \`default\`;
-\`item\`: the dissection item it was asked about; \`idea_excerpt\`: that item's words in the idea).
-Approve with \`answer\` = the default, unless the default contradicts the idea; then \`answer\` is the
-option (or a short better answer) that fits the idea. The question is scope-changing: escalate when
-every answer, the default included, would add a capability, a kind of user or a component the idea
-does not ask for." ;;
-  finding) what="Decide the finding in in/decision.json (\`finding\`: \`says\`, \`options\`, \`default\`, \`cites\`;
-\`touches\`: the requirements, the prior decisions and the context fields it cites; all findings
-in in/findings.yaml). Approve with \`answer\` = the option that fits the idea and the requirements
-best$( [[ $(r '.finding.sides != null or .finding.trace != null') == true ]] && echo " (this finding is a rule's contradiction or a trace gap, and the program applies only its options: answer with one of them exactly)" || echo ", or a short answer of your own when no option fits"). Your answer amends the cited requirements.
-Never choose an answer that contradicts or empties a prior decision in \`touches.decisions\` that
-a person or an earlier decider took (answered_by not non-interactive): escalate instead. A program
-checks the amendment and refuses one that does; then a person decides." ;;
-  close) what="Decide whether to close the idea through the outcome \`$(r .outcome)\`. Approve when every
-obligation is discharged and the checks in in/checks.json hold; reject when the result does not
-meet the requirements." ;;
+  approval) render what approval.md action="$(r .action)" subject="$(r .subject)" revision="$(r .revision)" path="$path" ;;
+  question) render what question.md ;;
+  finding)
+    if [[ $(r '.finding.sides != null or .finding.trace != null') == true ]]; then render how finding-rule.md; else render how finding-free.md; fi
+    render what finding.md answer_how="$how" ;;
+  close) render what close.md outcome="$(r .outcome)" ;;
 esac
 if [[ $(jq length <<< "$prior") -gt 0 ]]; then
-  what="$what
-This approval was rejected before, at an earlier revision, and the writer has reworked it since
-(\`prior_rejections\` in in/decision.json: each rejection's revision and reasons). Check whether the
-current revision addresses each of those reasons; a reason still not addressed is a reason to reject."
+  render more prior-rejection.md
+  what="$what"$'\n'"$more"
 fi
 # A finding decision the program check refused, asked again (run-trial.sh decide_findings, R3).
 if [[ $(r '.refusal != null') == true ]]; then
-  what="$what
-Your earlier decision on this finding was refused by the program check (\`refusal\` in
-in/decision.json: the decision and why): $(r '.refusal.why // ""')
-Decide again with an answer the check accepts, or escalate when no answer can."
+  render more refusal.md why="$(r '.refusal.why // ""')"
+  what="$what"$'\n'"$more"
 fi
 # A scope-changing answer already written but given by no one with the right to (R2).
 if [[ $type == question && $(r '.question.status // "open"') != open ]]; then
-  what="$what
-This question already has an answer (\`question.answer\`), written by the interview agent, which may
-not answer a scope-changing question: decide it as if it were open."
+  render more answered-question.md
+  what="$what"$'\n'"$more"
 fi
 # Asked again by run.unstick (scripts/run-trial.sh): its diagnosis of why the run stopped here.
 if [[ $(r '.note // ""') != "" ]]; then
-  what="$what
-You are asked again: the run stopped at this decision, and a reviewer of the stop wrote (\`note\`
-in in/decision.json): $(r .note)"
+  render more asked-again.md note="$(r .note)"
+  what="$what"$'\n'"$more"
 fi
 
 prompt=$rec/prompt.md
-{
-  echo "You take one decision in a governed software delivery cycle in place of the product owner."
-  [[ $final == yes ]] &&
-    echo "In this run a decider takes every decision a person would take: an answer with \`answered_by: decider:<kind>\` is the product owner's own decision, as binding as a person's, and is never a reason to reject or escalate."
-  echo "Work only in the current directory. Read the inputs under in/; write only out/decision.json."
-  echo "You have no shell. A program validates what you write; anything else in your reply is ignored."
-  echo
-  echo "Inputs:"
-  printf -- '- %s\n' "${inputs[@]}" "in/decision.json (what is decided)"
-  echo
-  echo "Decision:"
-  echo "$what"
-  echo
-  echo "A claim in in/checks.json marked \`settled_by_this_decision\` is one that taking this decision"
-  echo "makes true: its value now (false or unknown) is not a failed check."
-  jq -e '.met_after_this_action' "$cwd/in/checks.json" > /dev/null 2>&1 &&
-    echo "\`met_after_this_action\` in in/checks.json lists what can only be met by a step after $(r .action): not a condition of this decision, never a reason to reject it."
-  [[ -e $cwd/in/aep ]] &&
-    echo "\`status\` and \`revision\` in the front matter of in/aep/ files belong to the planning tool and say nothing about approval: an approval is its claim in in/checks.json."
-  echo
-  if [[ $final == yes ]]; then
-    case $type in
-      question) taken="the question's default is taken" ;;
-      finding) taken="give \`best\`, the answer that is then taken (without it, the finding's default)" ;;
-      *) taken="give \`best\`, the decision that is then taken" ;;
-    esac
-    echo "No person can be asked in this run, so escalating hands the decision to no one. When the decision"
-    echo "would change scope beyond the requirements (or, before requirements exist, beyond the idea), when"
-    echo "the evidence conflicts (checks disagree, the artifact contradicts an input), or when you cannot"
-    echo "tell: write \`escalate\`, say in \`reasons\` what cannot be told, and $taken."
-  else
-    echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
-    echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
-    echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
-  fi
-  echo
-  echo "Write out/decision.json, exactly these keys:"
-  if [[ $type == finding || $type == question ]]; then
-    echo '{"decision": "approve" | "escalate",'
-    echo ' "answer": <when approve: the answer string>,'
-  else
-    echo '{"decision": "approve" | "reject" | "escalate",'
-    echo ' "answer": <for a question: the answer string; otherwise null>,'
-  fi
-  echo ' "reasons": ["<one sentence each, at least one>"],'
-  echo ' "cites": ["<what your reasons rest on, each in one of the forms below>"],'
-  # Final: what an escalate takes is said once, in the escalate paragraph above.
-  if [[ $final == yes && $type == finding ]]; then
-    echo ' "best": <when decision is escalate: the answer that is taken; otherwise null>}'
-  elif [[ $final == yes && $type == question ]]; then
-    echo ' "best": null}'
-  elif [[ $final == yes ]]; then
-    echo ' "best": <when decision is escalate: "approve" or "reject", the decision that is taken; otherwise null>}'
-  else
-    echo ' "best": null}'
-  fi
-  echo
-  echo "Citable forms (a program resolves every entry of \`cites\` and refuses the reply if one does not):"
-  jq -r '"- an id of this case: a requirement, dissection item, question or finding id, a context field as context.<field>, or a claim id of in/checks.json"
-      + (if .examples.id then " (example: \(.examples.id))" else "" end),
-    (if .examples.entry then "- an entry of a YAML or JSON input: <artifact>@<revision>#<field path>, with the artifact and revision from `citable_artifacts` in in/decision.json; a list element is named by its id (example: \(.examples.entry))" else empty end),
-    (if .examples.line then "- lines of an input file: <file>:<line> or <file>:<first>-<last>, the file as under in/ without in/ (example: \(.examples.line))" else empty end)' <<< "$citable"
-  if [[ $(r '.retry.attempt // 1') -gt 1 ]]; then
-    echo
-    echo "This is attempt $(r .retry.attempt). Your previous reply was refused by the program check:"
-    echo "  $(r .retry.invalid_reason)"
-    echo "Write out/decision.json again with that fixed."
-  fi
-  echo
-  echo "When the file is written, reply with the single word: done."
-} > "$prompt"
+final_note=""
+[[ $final == yes ]] && { render final_note final-note.md; final_note+=$'\n'; }
+render line input-decision.md
+input_list=$(printf -- '- %s\n' "${inputs[@]}" "$line")
+# One line each, with its newline: what only a step after the decided action can meet, and the
+# planning tool's own fields.
+notes=""
+if jq -e '.met_after_this_action' "$cwd/in/checks.json" > /dev/null 2>&1; then
+  render line met-after.md action="$(r .action)"
+  notes+=$line$'\n'
+fi
+if [[ -e $cwd/in/aep ]]; then
+  render line aep-note.md
+  notes+=$line$'\n'
+fi
+if [[ $final == yes ]]; then
+  case $type in
+    question) render taken taken-question.md ;;
+    finding) render taken taken-finding.md ;;
+    *) render taken taken-other.md ;;
+  esac
+  render escalate escalate-final.md taken="$taken"
+else
+  render escalate escalate-stop.md
+fi
+# What an escalate takes under final is said once, in the escalate paragraph above.
+if [[ $type == finding || $type == question ]]; then
+  if [[ $final == yes && $type == finding ]]; then render reply_keys reply-choice-finding-final.md; else render reply_keys reply-choice.md; fi
+elif [[ $final == yes ]]; then
+  render reply_keys reply-other-final.md
+else
+  render reply_keys reply-other.md
+fi
+# The forms a reply may cite, each with its example from these inputs.
+example=""
+[[ -n $(jq -r '.examples.id // empty' <<< "$citable") ]] && render example citable-example.md example="$(jq -r '.examples.id' <<< "$citable")"
+render forms citable-id.md example="$example"
+if [[ -n $(jq -r '.examples.entry // empty' <<< "$citable") ]]; then
+  render line citable-entry.md example="$(jq -r '.examples.entry' <<< "$citable")"
+  forms+=$'\n'$line
+fi
+if [[ -n $(jq -r '.examples.line // empty' <<< "$citable") ]]; then
+  render line citable-line.md example="$(jq -r '.examples.line' <<< "$citable")"
+  forms+=$'\n'$line
+fi
+retry=""
+if [[ $(r '.retry.attempt // 1') -gt 1 ]]; then
+  render retry retry.md attempt="$(r .retry.attempt)" reason="$(r .retry.invalid_reason)"
+  retry=$'\n'$retry$'\n'
+fi
+render text model.md final_note="$final_note" inputs="$input_list" what="$what" notes="$notes" escalate="$escalate" \
+  reply_keys="$reply_keys" citable="$forms" retry="$retry"
+printf '%s\n' "$text" > "$prompt"
 
 model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
 effort=${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-$(jq -r .default_efforts.decider "$here/node-classes.json")}}
