@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:local-gate-equals-forge
 kind: story
-status: proposed
+status: active
 title: The local gate and CI read one pinned rustc, and a red forge run fails the watch
 summary: rust-toolchain.toml pins 1.99.1 for the local gate and CI; test binaries carry no full debug info; task ci:watch exits non-zero on a red run
 relations:
@@ -20,9 +20,10 @@ scope:
   path: Taskfile.yml
 - confidence: cited
   path: rust-toolchain.toml
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T22:50:58Z", actor: "human:operator", revision: 2, executor: "agent:rb1-gate-equals-forge", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "proposed", to: "active", at: "2026-11-21T23:44:07Z", actor: "human:operator", revision: 4, executor: "agent:rb1-final", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: local-gate-equals-forge
 
