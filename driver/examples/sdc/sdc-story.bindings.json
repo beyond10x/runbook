@@ -109,7 +109,7 @@
     ],
     "max_runs": 12,
     "timeout_s": 300,
-    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
+    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
     "handoff_when": [
       "{dir}/tools/sdc-tool.sh",
       "findings-wait"

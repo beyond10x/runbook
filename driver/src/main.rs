@@ -604,7 +604,11 @@ fn close(canon: &str, dir: &Path, at: &str, outcome: &str) -> R<Value> {
 /// a `handoff` (a writer that has done what it can) needs an edit in `work/`.
 fn next_steps(canon: &str, dir: &Path, pos: &Value, bindings: &Value, ir: &Value) -> R<Vec<Value>> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let principal = std::env::var("SDC_PRINCIPAL").or_else(|_| std::env::var("USER")).unwrap_or("operator".into());
+    // The printed command names the person who will run it: SDC_PRINCIPAL, else `person:$USER`;
+    // with neither, a placeholder to fill in, never a made-up person.
+    let principal = std::env::var("SDC_PRINCIPAL").ok().filter(|p| !p.is_empty())
+        .or_else(|| std::env::var("USER").ok().filter(|u| !u.is_empty()).map(|u| format!("person:{u}")))
+        .unwrap_or_else(|| "person:<your-id>".into());
     let case = read_json(&dir.join("case.json"))?;
     let approve = |cap: &str, action: Option<&str>| format!(
         "{} --canon {canon} --case-dir {} approve --at \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\" --capability {cap} --principal {principal}{}",

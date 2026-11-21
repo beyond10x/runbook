@@ -40,6 +40,11 @@
 #                   a person decides (exit 3)
 #   run-stop        a waiting run is stopped (--stop), a resume refused, --reopen goes on; L7
 #   run-stop-decider L7 on a decider's run that waits on a person: reported FAILED
+#   autopilot       --autopilot: closed with 0 person principals and L7 0 (A5, escalate final)
+#   autopilot-person --autopilot refuses SDC_DECIDER=person (exit 64)
+#   autopilot-stop  a stop that needs a person ends an autopilot run (exit 7, rule:autopilot)
+#   principals      the scripted person records person:stand-in (run labelled stand_in); a
+#                   decision with no principal is not applied
 # Prints each run's exit code and its KPIs L1-L6.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
@@ -71,7 +76,7 @@ cycle finding-program SDC_STUB_FIXTURES="$fx/storage-conflict"
 # scope-changed: runs/trial-2-train's stop (docs/trial-2.md, "Run notes"). questions.answer goes
 # through llm-node.sh's apply step (fixture adapter, no LLM); at the scope.answer stop the person
 # changes q2's answer in questions.yaml, then takes scope.answer once. Passes when the cycle ends
-# operating, q2 keeps the person's answer (`answered_by: operator`) and the requirements were written
+# operating, q2 keeps the person's answer (`answered_by: person:stand-in`, the scripted person) and the requirements were written
 # after scope.answer.
 answer="the billing clerk or the customer, before it is paid"
 cycle scope-changed SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
@@ -82,10 +87,10 @@ ev=$s/runs/scope-changed/events/IDEA-1.intake.jsonl
 q=$s/store-scope-changed/IDEA-1/work/questions.yaml
 if (( code == 0 )) &&
    yq -o=json "$q" | jq -e --arg a "$answer" '.questions[] | select(.id == "q2")
-     | .status == "changed" and .answer == $a and .answered_by == "operator"' >/dev/null &&
+     | .status == "changed" and .answer == $a and .answered_by == "person:stand-in"' >/dev/null &&
    jq -se '([.[] | select(.event == "action_finished" and .action == "scope.answer") | .seq] | max) as $s
      | any(.[]; .event == "action_finished" and .action == "requirements.normalise" and .exit == "0" and .seq > $s)' "$ev" >/dev/null; then
-  echo "scope-changed: checks pass (q2 the person's answer, answered_by operator; requirements written after scope.answer)"
+  echo "scope-changed: checks pass (q2 the person's answer, answered_by person:stand-in; requirements written after scope.answer)"
 else
   echo "scope-changed: FAILED (cycle exit $code, or q2 / the requirements order wrong)"
 fi
@@ -95,7 +100,7 @@ fi
 # edits q2 and resumes before taking scope.answer, requirements.normalise raises an agent finding
 # and a scope-changing one, and the person picks option 3 of the latter (not the default). Passes
 # when the cycle ends operating, the check without yq recorded nothing, questions.write ran once,
-# and the interview keeps q2 (operator) and the decision (human, option 3).
+# and the interview keeps q2 and the decision (option 3), both person:stand-in.
 decision="the customer asks, the billing clerk cancels"
 cycle intake-decision SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
   SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh" \
@@ -106,13 +111,13 @@ ev=$s/runs/intake-decision/events/IDEA-1.intake.jsonl
 q=$s/store-intake-decision/IDEA-1/work/questions.yaml
 if (( code == 0 )) &&
    yq -o=json "$q" | jq -e --arg a "$answer" --arg d "$decision" '[.questions[]
-     | select((.id == "q2" and .answer == $a and .answered_by == "operator")
-       or (.answer == $d and .answered_by == "human" and .status == "changed"))] | length == 2' >/dev/null &&
+     | select((.id == "q2" and .answer == $a and .answered_by == "person:stand-in")
+       or (.answer == $d and .answered_by == "person:stand-in" and .status == "changed"))] | length == 2' >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished")] as $f
      | ([$f[] | select(.action == "questions.write")] | length) == 1
        and ([$f[] | select(.exit == "127")] | length) == 1
        and ([$f[] | select(.exit == "127") | .evidence[]] | length) == 0' "$ev" >/dev/null; then
-  echo "intake-decision: checks pass (no record without yq; questions.write once; q2 operator; decision human, option 3)"
+  echo "intake-decision: checks pass (no record without yq; questions.write once; q2 and the decision (option 3) person:stand-in)"
 else
   echo "intake-decision: FAILED (cycle exit $code, or a record without yq, a rewritten interview, or a lost answer)"
 fi
@@ -207,11 +212,12 @@ fi
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the
 # decider on tools/llm-adapter-fixture.sh (scripted replies, SDC_DECIDER_REPLIES), no LLM ---------
 fixture=$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh
-trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name>
+targs=()
+trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name>, with the arguments in targs
   local name=$1; shift
   rm -rf "$s/runs/$name"
   env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" "$@" \
-    "$sdc/scripts/run-trial.sh" "$name" "$(yq -r .text "$fx/idea.yaml")" > "$s/$name.txt" 2>&1
+    "$sdc/scripts/run-trial.sh" "$name" "$(yq -r .text "$fx/idea.yaml")" "${targs[@]}" > "$s/$name.txt" 2>&1
   local code=$?
   echo "$name: exit $code ($(tail -n 1 "$s/$name.txt" | cut -c1-160))"
   return $code
@@ -354,4 +360,63 @@ if jq -e '.value >= 1 and .failure == true and .decider == "haiku"' <<< "$l7" >/
   echo "run-stop-decider: checks pass (a decider's run waiting on a person: L7 $(jq .value <<< "$l7") s, reported FAILED)"
 else
   echo "run-stop-decider: FAILED (L7 $l7)"
+fi
+# autopilot: the eval's run mode (SDC_AUTONOMY=A5, `--autopilot`): the decider holds every
+# decision and is final. On a fixture with two open scope-changing questions (fixtures/scope-two)
+# and a scope-changing spec finding (finding-spec-person.yaml), the run closes with no person
+# principal anywhere: decisions.jsonl, findings.yaml, questions.yaml and the events' grants and
+# approvals; L7 is 0, and run-settings.jsonl names A5, escalate final. With SDC_DECIDER=person it
+# refuses to start (exit 64); a stop that needs a person (fixtures/offline-decision: the decider's
+# amendment is refused) ends the run with a stop record by rule:autopilot (exit 7).
+nonperson='^(decider:|rule:|agent$|non-interactive$|derived$)'
+targs=(--autopilot)
+trial autopilot SDC_STUB_FIXTURES="$fx/scope-two" SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml"
+code=$?
+r=$s/runs/autopilot
+w=$r/store/IDEA-1/work
+l7=$("$kpis" "$r" --json | jq -c .L7_waiting_on_person_seconds)
+people=$( { jq -r '.principal' "$r/decisions.jsonl"
+            yq -r '.findings[] | select(.status == "resolved") | .decided_by' "$w/findings.yaml"
+            yq -r '.questions[] | select(.status != "open") | .answered_by' "$w/questions.yaml"
+            find "$r/store" -name events.jsonl -exec jq -r 'select(.event == "authority_recorded" or (.event == "action_finished" and .principal != null)) | .principal' {} +
+          } | grep -Evc "$nonperson")
+if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <<< "$l7" >/dev/null &&
+   jq -se 'all(.autonomy == "A5" and .decider.escalate == "final" and .decider.kind == "haiku")' "$r/run-settings.jsonl" >/dev/null &&
+   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:haiku"' "$w/findings.yaml" >/dev/null; then
+  echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final)"
+else
+  echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, or the settings do not name A5)"
+fi
+trial autopilot-person SDC_DECIDER=person
+code=$?
+(( code == 64 )) && [[ ! -d $s/runs/autopilot-person/store ]] &&
+  echo "autopilot-person: checks pass (refused to start with SDC_DECIDER=person)" ||
+  echo "autopilot-person: FAILED (exit $code)"
+trial autopilot-stop SDC_STUB_FIXTURES="$fx/offline-decision"
+code=$?
+r=$s/runs/autopilot-stop
+if (( code == 7 )) && jq -e '.format == "sdc.run-stopped/1" and .by == "rule:autopilot" and (.reason | test("person"))
+     and .verdict_at_stop == "awaiting_person"' "$r/run-stopped.json" >/dev/null; then
+  echo "autopilot-stop: checks pass (a stop that needs a person ends the run: exit 7, stopped by rule:autopilot)"
+else
+  echo "autopilot-stop: FAILED (exit $code, or no stop record by rule:autopilot)"
+fi
+targs=()
+# principals: the person path keeps a person's principal and nothing else writes one. The scripted
+# person of run-full-cycle.sh is a stand-in: finding-person's f1 carries `decided_by:
+# person:stand-in` and its run-settings.jsonl says stand_in. A decision edited in by hand with no
+# principal is refused by amend (finding-person-stop's work, copied): it stays needs_person, the
+# handoff stays due, and nothing writes `human`.
+f=$s/store-finding-person/IDEA-1/work/findings.yaml
+p=$s/principals; rm -rf "$p"; cp -r "$s/store-finding-person-stop/IDEA-1/work/." "$p/" 2>/dev/null || cp -rL "$s/store-finding-person-stop/IDEA-1/work" "$p"
+fid=$(yq -r '.findings[] | select(.status == "needs_person") | .id' "$p/findings.yaml" | head -n 1)
+FID=$fid yq -i '(.findings[] | select(.id == strenv(FID))) |= (.decision = .options[1])' "$p/findings.yaml"
+out=$(cd "$p" && "$sdc/driver/target/debug/sdc-findings" --rules "$sdc/driver/examples/sdc/tools/consistency-rules.json" amend spec 2>&1)
+if yq -e '.findings[] | select(.decided_by != null) | .decided_by == "person:stand-in"' "$f" >/dev/null &&
+   jq -se 'any(.stand_in == true and .stand_in_by == "scripts/run-full-cycle.sh")' "$s/runs/finding-person/run-settings.jsonl" >/dev/null &&
+   [[ $out == *"no principal"* ]] && FID=$fid yq -e '.findings[] | select(.id == strenv(FID)) | .status == "needs_person" and .decided_by == null' "$p/findings.yaml" >/dev/null &&
+   (cd "$p" && "$sdc/driver/examples/sdc/tools/sdc-tool.sh" findings-wait) && ! grep -rq 'human' "$p/questions.yaml"; then
+  echo "principals: checks pass (person:stand-in on the person path, stand_in labelled; a decision with no principal refused)"
+else
+  echo "principals: FAILED (amend said: $(tail -n 1 <<< "$out"))"
 fi

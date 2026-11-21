@@ -246,9 +246,16 @@ field names as written: `event`, `action`, `principal`, `artifacts`), `store/IDE
 (`findings.yaml`, `questions.yaml`, `context.yaml`) and `rounds.jsonl` (written by
 `scripts/run-trial.sh`, one line per round).
 
-A *person* is any principal that is not an agent: not `non-interactive`, `derived`, `decider:*`,
-`rule:*` or `dry-run`. A decider's decisions are counted by R19 to R25 (`autonomy-levels.md`
-§ 5.1), not here.
+A *person* is a `person:<id>` principal (2026-11-21: written only where a person acted). Runs
+recorded before principals were typed name a person by a bare id (`operator`, a login) or `human`,
+and those still count; `decider:*`, `rule:*`, `agent:*`, `non-interactive`, `derived`, `dry-run`
+and `operator-step` never do. A decider's decisions are counted by R19 to R25
+(`autonomy-levels.md` § 5.1), not here.
+
+Eval numbers come from autopilot runs only (`docs/eval-design.md` § 7). A run in which a script or
+a session stands in for the person is an end-to-end test of the person path: its run settings say
+`stand_in: true` with `stand_in_by`, L1 repeats that (`stand_in`, `stand_in_by`), and its numbers
+are not eval numbers.
 
 | id | KPI | formula | run-log field | dir | gate |
 |---|---|---|---|---|---|

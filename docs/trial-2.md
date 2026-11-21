@@ -55,6 +55,7 @@ Lines marked *(inferred)* were not observed.
 - Fixed R7: flat run cap per case, `stuck` after a person's decision; cycles `story-decision`, `story-spent`.
 - Fixed R8: 429s counted as runs, a spent writer hid a due handoff; cycle `story-late-person`.
 - Next: trial 3 (`story:clean-unattended-run-compare`): the same idea run unattended twice in two model settings.
+- Stand-in: for findings f1 and f9 this was an end-to-end test of the person path, not an eval run: the coordinating session decided them for the operator, and the tool of the time recorded `decided_by: human`.
 
 ## What trial 1 showed
 
@@ -132,9 +133,11 @@ built: the agent cannot know how the two meet (local copy and sync is a design c
 ### The person's part
 
 When a finding needs a person, `sdc-drive run` stops `awaiting_person` (exit 3) with the handoff:
-in `work/findings.yaml` set `decision:` (one of its options or free text), or `status: dismissed`;
-then run again. The edit moves the `findings` revision, `amend.upstream` runs again and amends
-with `decided_by: human`. A person may also add a finding by hand (`raised_by: human`) in place of
+in `work/findings.yaml` set `decision:` (one of its options or free text) and `decided_by:
+person:<id>`, or `status: dismissed`; then run again. The edit moves the `findings` revision,
+`amend.upstream` runs again and amends with that principal (2026-11-21: before, every such edit
+was recorded `decided_by: human`; a decision with no principal is now not applied, and the handoff
+stays). A person may also add a finding by hand (`raised_by: human`) in place of
 editing questions and requirements as in trial 1.
 
 ### Canon terms and the state budget
@@ -300,9 +303,9 @@ The stops have these forms:
 
 | Stop | What you decide | How |
 |---|---|---|
-| intake `scope.answer` (awaiting authority, or awaiting person once granted) | the scope-changing answers: edit `work/questions.yaml` (`answer`, `status: changed`; `scope.answer` sets `answered_by`) or leave them to accept the defaults | 1. edit (or not); 2. the printed `sdc-drive … approve --capability scope.answer --principal operator --action scope.answer`, once; 3. resume. Needs `sdc.intake` r6 in the case (`jq -r .protocol.revision <case>/ir.json`): under r5 step 2 is refused after an edit (`questions.shaped` unknown), and the order is edit, resume, approve, resume |
+| intake `scope.answer` (awaiting authority, or awaiting person once granted) | the scope-changing answers: edit `work/questions.yaml` (`answer`, `status: changed`; `scope.answer` sets `answered_by`) or leave them to accept the defaults | 1. edit (or not); 2. the printed `sdc-drive … approve --capability scope.answer --principal person:<id> --action scope.answer`, once; 3. resume. Needs `sdc.intake` r6 in the case (`jq -r .protocol.revision <case>/ir.json`): under r5 step 2 is refused after an edit (`questions.shaped` unknown), and the order is edit, resume, approve, resume |
 | direction approvals | context, vision, roadmap, as in trial 1 | the printed `approve … --action context.approve` (then `vision.approve`, `roadmap.approve`) |
-| a finding (`amend.upstream`, awaiting person) | in `work/findings.yaml` set `decision:` on each `needs_person` finding (an option or free text), or `status: dismissed` | edit, then resume |
+| a finding (`amend.upstream`, awaiting person) | in `work/findings.yaml` set `decision:` (an option or free text) and `decided_by: person:<id>` on each `needs_person` finding, or `status: dismissed` | edit, then resume |
 | merge, release, close | as in trial 1 | the printed commands |
 
 Afterwards:
@@ -353,6 +356,10 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `decider-finding-refused` (`fixtures/offline-decision` under the decider) | 3 | the decider takes the default the agent's check already refused; the same check refuses the decider's amendment (it states against decision q3): reverted, `refused_decision` kept, the decider not asked again, a person decides. Before: exit 3 with no decider request and no `refused_decision` |
 | `run-stop` (added 2026-11-21: `scripts/run-trial.sh <run> --stop`, `--reopen`; KPI L7) | 3, then 0, 8, 3 | the run stops at `context.approve` (exit 3); `--stop` writes `run-stopped.json` (`awaiting_authority`, `IDEA-1.direction`) and a `run.log` line, the event logs unchanged; a resume is refused (exit 8); L7 2 s, the stop `until: stopped`; `--reopen` renames the record and the run stops again at the same place (exit 3). Before: `--stop` was taken as idea text and the run resumed (exit 3), no record, L7 absent |
 | `run-stop-decider` (`decider-finding-refused`'s run, stopped) | — | L7 above 0 with `decider: haiku`: `failure: true`, printed `FAILED`. Before: L7 absent |
+| `autopilot` (added 2026-11-21: `--autopilot`, `fixtures/scope-two` plus `finding-spec-person.yaml`) | 0 | the decider answers both scope-changing questions and decides f1; closed; 0 person principals in `decisions.jsonl`, `findings.yaml`, `questions.yaml` and the events' grants and approvals; L7 0; `run-settings.jsonl` A5, escalate final. Before: exit 0 with no level and escalate stop |
+| `autopilot-person` (`--autopilot` with `SDC_DECIDER=person`) | 64 | refused before the run starts. Before: exit 3, a person stop |
+| `autopilot-stop` (`--autopilot`, `fixtures/offline-decision`) | 7 | the decider's amendment is refused, the finding needs a person: the run ends with a stop record by `rule:autopilot`. Before: exit 3, no record |
+| `principals` (finding-person's and finding-person-stop's stores) | — | the scripted person writes `decided_by: person:stand-in`, its run settings say `stand_in` (run-full-cycle.sh); a hand-written decision with no principal is not applied (the finding stays `needs_person`, the handoff stays due), nothing writes `human`. Before: the decision was applied as `decided_by: human` |
 | `scripts/run-trial.sh --dry trial-2-dry` (`SDC_RUNS_DIR=$S/runs`) | 0 | 10 LLM commands printed, none run; scripted approvals; `operating`; replay 8 of 8 match |
 | `$S/t1-replay.sh` (trial 1's own files, copied; q3/r3 put back to browser storage) | 0 | `sdc-findings consistency` exit 5 (`p-storage-location-r3`, cites `context.deployment`, `context.platform`, `r3`); `amend context` resolves it by agent; gate exit 0; `check-questions` 0, `check-requirements` 0. Trial 1's contradiction would have been found at the context check and repaired with no person |
 

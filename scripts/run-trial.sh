@@ -51,13 +51,23 @@
 # default. A decision the program check refuses (`refused_decision`) waits for a person.
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
-# 6 refused by the decider, 8 the run is stopped (or already stopped), 64 usage.
+# 6 refused by the decider, 7 autopilot ended at a stop that needs a person, 8 the run is stopped
+# (or already stopped), 64 usage.
+#
+# Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (haiku unless
+# SDC_DECIDER names another; SDC_DECIDER=person is refused) takes every decision, is final, and no
+# stop waits on a person: one that would need a person ends the run (exit 7), and every run that
+# ends unclosed gets a stop record by rule:autopilot. A0 is SDC_DECIDER=person. A1 to A4 have no
+# per-class routing yet and run as SDC_DECIDER says. The level goes into run-settings.jsonl
+# (`autonomy`, `autonomy_source`). SDC_STAND_IN=<who> (and --dry's scripted person) labels a run in
+# which a script or a session stands in for the person (`stand_in: true`, `stand_in_by`).
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-dry=no stop_reason="" reopen=no pos=()
+dry=no stop_reason="" reopen=no autopilot=no pos=()
 while (($#)); do
   case $1 in
     --dry) dry=yes ;;
+    --autopilot) autopilot=yes ;;
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
     *) pos+=("$1") ;;
@@ -83,19 +93,22 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
 # run-stopped.json and a run.log line are written; the driver and the event logs are not touched.
 stopped=$out/run-stopped.json
-if [[ -n $stop_reason ]]; then
-  [[ -d $root ]] || { echo "no run $name to stop ($out)"; exit 64; }
-  [[ ! -f $stopped ]] || { echo "$name is already stopped: $(jq -c . "$stopped")"; exit 8; }
-  by=${SDC_PRINCIPAL:-}
-  [[ -n $by ]] || { echo "--stop needs the principal that stops the run in SDC_PRINCIPAL (person:<id>, agent:<name>)"; exit 64; }
+write_stop() { # <principal> <reason>
+  local at
   at=$(now)
-  jq -n --arg at "$at" --arg by "$by" --arg why "$stop_reason" \
+  jq -n --arg at "$at" --arg by "$1" --arg why "$2" \
     --argjson r "$(tail -n 1 "$out/rounds.jsonl" 2>/dev/null | jq -c . 2>/dev/null || echo null)" \
     '{format: "sdc.run-stopped/1", at: $at, by: $by, reason: $why, verdict_at_stop: ($r.verdict // null),
       case: (($r.case_dir // "") | split("/") | last | if . == "" or . == null then null else . end)}' > "$stopped.tmp"
   mv "$stopped.tmp" "$stopped"
-  echo "# stopped at $at by $by: $stop_reason" >> "$log"
+  echo "# stopped at $at by $1: $2" >> "$log"
   echo "stopped $name: $(jq -c . "$stopped")"
+}
+if [[ -n $stop_reason ]]; then
+  [[ -d $root ]] || { echo "no run $name to stop ($out)"; exit 64; }
+  [[ ! -f $stopped ]] || { echo "$name is already stopped: $(jq -c . "$stopped")"; exit 8; }
+  [[ -n ${SDC_PRINCIPAL:-} ]] || { echo "--stop needs the principal that stops the run in SDC_PRINCIPAL (person:<id>, agent:<name>)"; exit 64; }
+  write_stop "$SDC_PRINCIPAL" "$stop_reason"
   exit 0
 fi
 if [[ -f $stopped ]]; then
@@ -110,6 +123,35 @@ if [[ -f $stopped ]]; then
 fi
 
 case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
+
+# The run mode (docs/autonomy-levels.md § 3.3): SDC_AUTONOMY, or --autopilot for A5. A0 is the
+# person (SDC_DECIDER=person); A5 is autopilot: the decider (haiku unless SDC_DECIDER names another)
+# holds every decision and is final (escalate final), and a stop that would need a person ends the
+# run (exit 7) with a stop record by rule:autopilot. A1 to A4 have no per-class routing yet: they
+# run as SDC_DECIDER says. Without a level it is derived: person A0, a final decider A5, a
+# decider that escalates to a person none (no level matches it).
+autonomy=${SDC_AUTONOMY:-}
+autonomy_source=SDC_AUTONOMY
+[[ $autopilot == yes ]] && { [[ -z $autonomy || $autonomy == A5 ]] || { echo "--autopilot is A5, SDC_AUTONOMY says $autonomy"; exit 64; }; autonomy=A5 autonomy_source=--autopilot; }
+case $autonomy in
+  A5)
+    [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (haiku, approve, reject) or leave it unset (haiku)"; exit 64; }
+    [[ ${SDC_DECIDER_ESCALATE:-final} == final ]] || { echo "autopilot (A5): the decider is final; SDC_DECIDER_ESCALATE=$SDC_DECIDER_ESCALATE is refused"; exit 64; }
+    decider=${SDC_DECIDER:-haiku} escalate_mode=final ;;
+  A0)
+    [[ $decider == person ]] || { echo "A0: every decision is the person's; SDC_DECIDER=$decider is refused"; exit 64; } ;;
+  A1|A2|A3|A4) ;;
+  "")
+    autonomy_source=derived
+    if [[ $decider == person ]]; then autonomy=A0
+    elif [[ $escalate_mode == final ]]; then autonomy=A5
+    fi ;;
+  *) echo "SDC_AUTONOMY: A0 to A5, not $autonomy"; exit 64 ;;
+esac
+# A script or a session standing in for the person (SDC_STAND_IN=<who>; --dry's scripted person)
+# makes the run an end-to-end test of the person path: labelled stand_in, its numbers no eval's.
+stand_in=${SDC_STAND_IN:-}
+[[ $dry == yes && $decider == person ]] && stand_in=${stand_in:-scripts/run-trial.sh --dry}
 
 export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl
 if [[ $dry == yes ]]; then
@@ -190,10 +232,13 @@ model=
 [[ $decider == haiku ]] && model=${SDC_DECIDER_MODEL:-claude-haiku-5-5}
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
-  --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+  --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
+  --arg stand "$stand_in" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+    autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc,
+    per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
   echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
 else
@@ -205,7 +250,15 @@ save() {
     cp "$c/events.jsonl" "$out/events/$(jq -r .id "$c/case.json").jsonl"
   done < <(find "$store" -name case.json -printf '%h\n' | sort)
 }
-trap 'save; watch_stop' EXIT
+# Autopilot (A5): no stop waits on a person. A run that ends anywhere but closed (a stop that would
+# need a person, a cap, stuck, a refusal) is stopped with a record by rule:autopilot.
+end_reason=""
+autopilot_end() {
+  local rc=$1
+  [[ $autonomy == A5 && $rc != 0 && ! -f $stopped && -d $root ]] || return 0
+  write_stop rule:autopilot "autopilot: the run ended with exit $rc: ${end_reason:-$(jq -r '.message // .verdict // empty' <<< "${last:-null}" 2>/dev/null | head -n 1)}" || true
+}
+trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
 
 dry_lines() { { wc -l < "${SDC_LLM_DRY_LOG:-/dev/null}"; } 2>/dev/null || echo 0; }
 print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"$(($1 + 1))" "$SDC_LLM_DRY_LOG" | sed 's/^/  /'; true; }
@@ -223,7 +276,14 @@ finish() {
   exit "$code"
 }
 
-waiting() { jq -r '.message' <<< "$last"; echo "then run again: scripts/run-trial.sh $name"; exit 3; }
+waiting() {
+  if [[ $autonomy == A5 ]]; then
+    end_reason="a stop needs a person and autopilot has none: $(jq -r '.message' <<< "$last" | head -n 1)"
+    echo "$end_reason"
+    exit 7
+  fi
+  jq -r '.message' <<< "$last"; echo "then run again: scripts/run-trial.sh $name"; exit 3
+}
 
 # One decider decision. Arguments: a request JSON (type, case_dir, action, capability, subject,
 # path, revision, question, outcome). Sets $dec (the effective decision: approve or reject; empty

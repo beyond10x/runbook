@@ -2,7 +2,8 @@
 # Run one full SDC loop, idea to release outcome, with sdc-drive: stub LLM executors, real `ess`,
 # real `aep` in the case tree's own planning store. The script plays the person: when the run
 # stops awaiting authority or a person, it records the approval through `sdc-drive approve`, as
-# principal $PRINCIPAL, then runs again. At the end it closes the root case through its one
+# principal $PRINCIPAL (default person:stand-in: the script stands in for the person, and its
+# run-settings.jsonl says stand_in), then runs again. At the end it closes the root case through its one
 # legitimate outcome, saves the final `canon evaluate` decision and replay-checks every case.
 #
 #   scripts/run-full-cycle.sh <name> <store-dir>
@@ -24,13 +25,18 @@ sdc=$(cd "$(dirname "$0")/.." && pwd)
 name=$1 store=$2
 canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
-principal=${PRINCIPAL:-operator}
+# The scripted person is a stand-in: its principal says so (person:stand-in), and run-settings.jsonl
+# labels the run stand_in, an end-to-end test of the person path whose numbers are not eval numbers.
+principal=${PRINCIPAL:-person:stand-in}
 out=${RUNS:-$sdc/runs}/$name
 ex=$sdc/driver/examples/sdc
 rm -rf "$out" "$store"
 mkdir -p "$out/events"
 log=$out/run.log
 : > "$log"
+jq -cn --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg p "$principal" '{format: "sdc.run-settings/1", at: $at,
+  leg: "started", autonomy: "A0", decider: {kind: "person", model: null, escalate: "stop"}, adapter: "stub",
+  stand_in: true, stand_in_by: "scripts/run-full-cycle.sh", stand_in_principal: $p}' > "$out/run-settings.jsonl"
 minute=0
 at() { printf "2026-11-20T%02d:%02d:00Z" $((12 + minute / 60)) $((minute % 60)); }
 
@@ -66,10 +72,11 @@ for round in $(seq 1 30); do
         f=$case_dir/work/findings.yaml
         echo "\$ person decides in $f: $FINDING_DECISION" >> "$log"
         if [[ $FINDING_DECISION == option:* ]]; then
-          N=${FINDING_DECISION#option:} yq -i '(.findings[] | select(.status == "needs_person" and (.decision // "") == ""))
-            |= (.decision = .options[env(N) - 1])' "$f"
+          N=${FINDING_DECISION#option:} P=$principal yq -i '(.findings[] | select(.status == "needs_person" and (.decision // "") == ""))
+            |= (.decision = .options[env(N) - 1] | .decided_by = strenv(P))' "$f"
         else
-          yq -i '(.findings[] | select(.status == "needs_person" and (.decision // "") == "")) |= (.decision = strenv(FINDING_DECISION))' "$f"
+          P=$principal yq -i '(.findings[] | select(.status == "needs_person" and (.decision // "") == ""))
+            |= (.decision = strenv(FINDING_DECISION) | .decided_by = strenv(P))' "$f"
         fi
         echo "  person decided $(yq -r '[.findings[] | select(.status == "needs_person") | .id + ": " + .decision] | join("; ")' "$f")"
         continue

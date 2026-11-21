@@ -19,8 +19,9 @@
 //! `findings.yaml`: `{findings: [{id, type, stage, raised_by, cites, says, options, default,
 //! scope_changing, status, scope, basis, decision, decided_by, resolution, attempts,
 //! refused_decision}]}`. status: open | needs_person | resolved | dismissed | rejected. A person
-//! answers a needs_person finding by setting `decision` (one of the options or their own text),
-//! or `status: dismissed`. A decider sets `decision` and `decided_by: decider:<kind>`; its
+//! answers a needs_person finding by setting `decision` (one of the options or their own text)
+//! with `decided_by: person:<id>`, or `status: dismissed`; a decision with no principal is not
+//! applied (nothing records a person who did not act). A decider sets `decision` and `decided_by: decider:<kind>`; its
 //! amendment is checked as the agent's are, and a refused one is reverted, taken off the finding
 //! and kept as `refused_decision` {decision, decided_by, why}, so the finding waits for a person.
 
@@ -49,6 +50,11 @@ fn is_open(s: &str) -> bool {
 /// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it.
 fn is_decider(principal: &str) -> bool {
     principal.strip_prefix("decider:").is_some_and(|k| !k.is_empty())
+}
+
+/// A person's principal (`person:<id>`): written only where a person acted.
+fn is_person(principal: &str) -> bool {
+    principal.strip_prefix("person:").is_some_and(|k| !k.is_empty())
 }
 
 fn load(path: &str) -> Value {
@@ -440,7 +446,7 @@ fn amend_one(w: &mut Work, f: &Value, decision: &str, decided_by: &str, basis: &
     let qid = next_qid(w);
     let fid = st(f, "id").to_string();
     let reason = format!("finding {fid} ({}, raised by {}): {basis}", st(f, "type"), st(f, "raised_by"));
-    let answered_by = if decided_by == "human" || is_decider(decided_by) { decided_by }
+    let answered_by = if is_person(decided_by) || is_decider(decided_by) { decided_by }
         else if basis.starts_with("derived") { "derived" } else { "non-interactive" };
     let mut q = Mapping::new();
     q.insert(s("id"), s(&qid));
@@ -448,7 +454,7 @@ fn amend_one(w: &mut Work, f: &Value, decision: &str, decided_by: &str, basis: &
     q.insert(s("question"), f.get("says").cloned().unwrap_or(Value::Null));
     q.insert(s("options"), f.get("options").cloned().unwrap_or(Value::Null));
     q.insert(s("default"), f.get("default").cloned().unwrap_or(Value::Null));
-    q.insert(s("scope_changing"), Value::Bool(decided_by == "human" || is_decider(decided_by)));
+    q.insert(s("scope_changing"), Value::Bool(is_person(decided_by) || is_decider(decided_by)));
     q.insert(s("status"), s(if decision == st(f, "default") { "accepted" } else { "changed" }));
     q.insert(s("answer"), s(decision));
     q.insert(s("answered_by"), s(answered_by));
@@ -644,12 +650,16 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         let (decision, decided_by, basis);
         if status == "needs_person" {
             decision = scalar(&f["decision"]);
-            // A decider writes its principal with its decision (scripts/run-trial.sh); any other
-            // edit is a person's.
+            // The decision carries the principal that took it: `decider:<kind>` (scripts/run-trial.sh)
+            // or `person:<id>` (a person's edit names them). Without one nobody is recorded as
+            // having decided: the decision is not applied and the finding keeps waiting.
             let by = st(&f, "decided_by");
-            decided_by = if is_decider(by) { by.to_string() } else { "human".to_string() };
-            basis = if is_decider(by) { format!("{by} decided") } else { "a person decided".to_string() };
-            w.findings_mut()[i]["decided_by"] = s(&decided_by);
+            if !is_decider(by) && !is_person(by) {
+                println!("amend: {fid} has a decision but no principal (decided_by: {by:?}): set `decided_by: person:<your id>` beside `decision:`, then run again");
+                continue;
+            }
+            decided_by = by.to_string();
+            basis = format!("{by} decided");
         } else {
             let (scope, default, why) = classify(&w, &f);
             {

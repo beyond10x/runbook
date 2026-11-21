@@ -32,10 +32,14 @@ fn seq(v: &Value, k: &str) -> Vec<Value> {
     v.get(k).and_then(Value::as_sequence).cloned().unwrap_or_default()
 }
 
-/// A person: a principal that is neither an agent, a decider, a rule nor a dry run.
+/// A person: `person:<id>`. Runs recorded before principals were typed name a person by a bare id
+/// (`operator`, a login) or `human`; those still count. Nothing with another prefix (`decider:`,
+/// `rule:`, `agent:`), and not `non-interactive`, `derived`, `dry-run` or `operator-step`.
 fn person(p: &str) -> bool {
-    !p.is_empty() && !p.starts_with("decider:") && !p.starts_with("rule:") && !p.starts_with("dry-run")
-        && p != "non-interactive" && p != "derived"
+    if let Some(id) = p.strip_prefix("person:") {
+        return !id.is_empty();
+    }
+    !p.is_empty() && !p.contains(':') && !matches!(p, "non-interactive" | "derived" | "dry-run" | "operator-step" | "agent")
 }
 
 /// Every case directory under `root` (events.jsonl and case.json), not following symlinks.
@@ -106,13 +110,18 @@ fn main() -> ExitCode {
     let answered = |q: &Value| matches!(st(q, "status"), "accepted" | "changed");
     let answers = [
         ("questions", qs.iter().filter(|q| person(st(q, "answered_by")) && answered(q)).count()),
-        ("finding_decisions", fd.iter().filter(|f| st(f, "decided_by") == "human").count()),
-        ("findings_raised", fd.iter().filter(|f| st(f, "raised_by") == "human").count()),
+        ("finding_decisions", fd.iter().filter(|f| person(st(f, "decided_by"))).count()),
+        ("findings_raised", fd.iter().filter(|f| person(st(f, "raised_by"))).count()),
         ("context_fields", fields.iter().filter(|v| answered(v)).count()),
     ];
     let answers_sum: usize = answers.iter().map(|(_, n)| n).sum();
     let answers_map: serde_json::Map<String, J> = answers.iter().map(|(a, n)| (a.to_string(), json!(n))).collect();
-    k.push(("L1_human_interventions", json!({"value": person_actions + answers_sum, "person_actions": person_actions, "person_answers": answers_map})));
+    // A run in which a script or a session stands in for the person (run-settings `stand_in`) is an
+    // end-to-end test of the person path: its person counts are not eval numbers.
+    let stand_in = jsonl(&run.join("run-settings.jsonl")).iter().find(|s| s["stand_in"] == json!(true))
+        .map(|s| s["stand_in_by"].clone());
+    k.push(("L1_human_interventions", json!({"value": person_actions + answers_sum, "person_actions": person_actions,
+        "person_answers": answers_map, "stand_in": stand_in.is_some(), "stand_in_by": stand_in})));
 
     // L2 autonomous run time between human interventions: the wall seconds of each round that
     // ended waiting on a person (or at the end).
@@ -160,10 +169,11 @@ fn main() -> ExitCode {
 
     // L5 who caught them.
     let by = |src: &str| fd.iter().filter(|f| st(f, "raised_by").split(':').next() == Some(src) && st(f, "status") != "rejected").count();
-    k.push(("L5_caught_by", json!({"program": by("program"), "llm": by("llm"), "human": by("human"),
+    k.push(("L5_caught_by", json!({"program": by("program"), "llm": by("llm"), "human": by("human") + by("person"),
         "llm_rejected_by_program": fd.iter().filter(|f| st(f, "status") == "rejected").count(),
         "resolved_by_agent": res.iter().filter(|f| st(f, "decided_by") == "agent").count(),
-        "resolved_by_person": res.iter().filter(|f| st(f, "decided_by") == "human").count()})));
+        "resolved_by_person": res.iter().filter(|f| person(st(f, "decided_by"))).count(),
+        "resolved_by_decider": res.iter().filter(|f| st(f, "decided_by").starts_with("decider:")).count()})));
 
     // L6 rework: revisions after the first, per artifact, over the whole tree.
     let by_artifact: BTreeMap<&String, usize> = revs.iter().map(|(a, v)| (a, v.len() - 1)).collect();
