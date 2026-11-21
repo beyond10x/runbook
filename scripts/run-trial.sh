@@ -141,7 +141,10 @@ case $autonomy in
   A5)
     [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (haiku, approve, reject) or leave it unset (haiku)"; exit 64; }
     [[ ${SDC_DECIDER_ESCALATE:-final} == final ]] || { echo "autopilot (A5): the decider is final; SDC_DECIDER_ESCALATE=$SDC_DECIDER_ESCALATE is refused"; exit 64; }
-    decider=${SDC_DECIDER:-haiku} escalate_mode=final ;;
+    # The decider reads SDC_DECIDER_ESCALATE: under final its prompt asks for `best` and its check
+    # refuses an escalate without one.
+    decider=${SDC_DECIDER:-haiku} escalate_mode=final
+    export SDC_DECIDER_ESCALATE=final ;;
   A0)
     [[ $decider == person ]] || { echo "A0: every decision is the person's; SDC_DECIDER=$decider is refused"; exit 64; } ;;
   A1|A2|A3|A4) ;;

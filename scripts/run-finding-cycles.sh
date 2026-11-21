@@ -45,7 +45,8 @@
 #   autopilot-stop  a stop that needs a person ends an autopilot run (exit 7, rule:autopilot)
 #   decider-cite-address, decider-cite-retry, decider-invalid-approval, decider-invalid-scope
 #                   autopilot decider replies: an entry and lines cited; an invalid reply asked
-#                   again; three invalid: approved_on_checks, the default
+#                   again; three invalid: approved_on_checks, the default;
+#   decider-escalate-nobest  under autopilot an escalate without best is refused and asked again
 #   principals      the scripted person records person:stand-in (run labelled stand_in); a
 #                   decision with no principal is not applied
 #   models          three dry runs: binding models, SDC_LLM_MODEL, SDC_LLM_MODEL_<CLASS>; each call
@@ -456,6 +457,17 @@ if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "invalid_rep
   echo "decider-invalid-scope: checks pass (3 invalid replies to q2, its default taken as invalid_reply_default)"
 else
   echo "decider-invalid-scope: FAILED (exit $code: $(jq -c '[.[] | {decision, fallback}]' <<< "$a" 2>/dev/null))"
+fi
+# escalate-nobest: under autopilot the decider is final: an escalate without best is refused and asked again.
+esc='{"decision": "escalate", "answer": null, "reasons": ["fixture: a person should say"], "cites": ["context.kind"], "best": null}'
+trial decider-escalate-nobest SDC_DECIDER_REPLIES="$(jq -cn --argjson e "$esc" --argjson g "$good" '{"context.approve": [$e, $g]}')"
+code=$?
+a=$(attempts "$s/runs/decider-escalate-nobest" context.approve)
+if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "approve"] and (.[0].invalid_reason | test("best"))' <<< "$a" >/dev/null &&
+   grep -q '"best": <when decision is escalate' "$(ls -d "$s"/runs/decider-escalate-nobest/decider/*-context.approve | head -n 1)/prompt.md"; then
+  echo "decider-escalate-nobest: checks pass (autopilot asks for best; an escalate without it is refused and asked again)"
+else
+  echo "decider-escalate-nobest: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted
