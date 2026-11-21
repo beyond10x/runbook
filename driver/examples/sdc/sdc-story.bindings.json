@@ -53,6 +53,9 @@
       ],
       "code_review": [
         "rejected"
+      ],
+      "merge_approval": [
+        "rejected"
       ]
     },
     "max_runs": 3,
@@ -87,6 +90,19 @@
     "results": {
       "0": "approved",
       "*": "rejected"
+    }
+  },
+  "merge.approve": {
+    "manual": true,
+    "argv": [
+      "true"
+    ],
+    "produces": "merge_approval",
+    "subject": "change",
+    "producer": "{principal}",
+    "results": {
+      "0": "approved",
+      "6": "rejected"
     }
   },
   "change.merge": {

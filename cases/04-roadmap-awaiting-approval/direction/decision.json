@@ -12,17 +12,23 @@
     "context.approve": {
       "reasons": [
         {
-          "capability": "owner.approve",
-          "decision": "none"
+          "claim": "context.decided",
+          "value": "true"
         }
       ],
-      "status": "approval-required"
+      "status": "blocked"
     },
     "context.change": {
       "status": "admissible"
     },
     "context.check": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "context.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "context.default": {
       "reasons": [
@@ -47,7 +53,13 @@
       "status": "approval-required"
     },
     "roadmap.validate": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "roadmap.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "roadmap.write": {
       "status": "admissible"
@@ -55,11 +67,11 @@
     "vision.approve": {
       "reasons": [
         {
-          "capability": "owner.approve",
-          "decision": "none"
+          "claim": "vision.decided",
+          "value": "true"
         }
       ],
-      "status": "approval-required"
+      "status": "blocked"
     },
     "vision.write": {
       "reasons": [
@@ -76,6 +88,12 @@
     "context.approved": {
       "value": "true"
     },
+    "context.checked": {
+      "value": "true"
+    },
+    "context.decided": {
+      "value": "true"
+    },
     "context.valid": {
       "value": "true"
     },
@@ -88,10 +106,25 @@
       ],
       "value": "unknown"
     },
+    "roadmap.checked": {
+      "value": "true"
+    },
+    "roadmap.decided": {
+      "excluded_evidence": [
+        {
+          "evidence": "ra",
+          "reason": "invalidated"
+        }
+      ],
+      "value": "unknown"
+    },
     "roadmap.valid": {
       "value": "true"
     },
     "vision.approved": {
+      "value": "true"
+    },
+    "vision.decided": {
       "value": "true"
     }
   },
@@ -109,11 +142,20 @@
       "context.approve": {
         "because": [
           {
-            "capability": "owner.approve",
-            "decision": "none"
+            "claim": "context.decided",
+            "value": "true"
           }
         ],
-        "status": "approval-required"
+        "status": "blocked"
+      },
+      "context.check": {
+        "because": [
+          {
+            "claim": "context.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
       },
       "context.default": {
         "because": [
@@ -137,14 +179,23 @@
         ],
         "status": "approval-required"
       },
+      "roadmap.validate": {
+        "because": [
+          {
+            "claim": "roadmap.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
       "vision.approve": {
         "because": [
           {
-            "capability": "owner.approve",
-            "decision": "none"
+            "claim": "vision.decided",
+            "value": "true"
           }
         ],
-        "status": "approval-required"
+        "status": "blocked"
       },
       "vision.write": {
         "because": [
@@ -158,6 +209,24 @@
     },
     "claims": {
       "context.approved": {
+        "because": [
+          {
+            "evidence": "xa",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "context.checked": {
+        "because": [
+          {
+            "evidence": "x1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "context.decided": {
         "because": [
           {
             "evidence": "xa",
@@ -185,7 +254,35 @@
         ],
         "value": "unknown"
       },
+      "roadmap.checked": {
+        "because": [
+          {
+            "evidence": "rv",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "roadmap.decided": {
+        "because": [
+          {
+            "evidence": "ra",
+            "reason": "invalidated",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
       "vision.approved": {
+        "because": [
+          {
+            "evidence": "va",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "vision.decided": {
         "because": [
           {
             "evidence": "va",
@@ -233,7 +330,7 @@
         "xa"
       ],
       "protocol": "sdc.direction",
-      "protocol_revision": 5,
+      "protocol_revision": 7,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -289,5 +386,5 @@
     }
   },
   "protocol": "sdc.direction",
-  "protocol_revision": 5
+  "protocol_revision": 7
 }

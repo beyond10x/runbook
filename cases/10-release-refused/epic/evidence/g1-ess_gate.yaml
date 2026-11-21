@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: g1
+kind: ess_gate
+result: passed
+subject: spec
+subject_revision: s1
+producer: sdc-drive
+observed_at: 2026-11-20T10:01:00Z

@@ -1,0 +1,409 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "questions.settled",
+          "value": "unknown"
+        },
+        {
+          "claim": "requirements.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "dissection.check": {
+      "status": "admissible"
+    },
+    "idea.check": {
+      "reasons": [
+        {
+          "claim": "idea.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "idea.dissect": {
+      "reasons": [
+        {
+          "claim": "idea.shaped",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    },
+    "questions.answer": {
+      "reasons": [
+        {
+          "claim": "questions.shaped",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "questions.check": {
+      "status": "admissible"
+    },
+    "questions.write": {
+      "reasons": [
+        {
+          "claim": "dissection.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "requirements.check": {
+      "status": "admissible"
+    },
+    "requirements.normalise": {
+      "reasons": [
+        {
+          "claim": "questions.settled",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "scope.answer": {
+      "reasons": [
+        {
+          "claim": "dissection.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "INTAKE-8",
+  "claims": {
+    "dissection.checked": {
+      "value": "unknown"
+    },
+    "dissection.valid": {
+      "value": "unknown"
+    },
+    "idea.checked": {
+      "value": "true"
+    },
+    "idea.shaped": {
+      "value": "false"
+    },
+    "interview.checked": {
+      "value": "unknown"
+    },
+    "questions.checked": {
+      "value": "unknown"
+    },
+    "questions.settled": {
+      "value": "unknown"
+    },
+    "questions.shaped": {
+      "value": "unknown"
+    },
+    "requirements.checked": {
+      "value": "unknown"
+    },
+    "requirements.valid": {
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "questions.settled",
+            "value": "unknown"
+          },
+          {
+            "claim": "requirements.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "idea.check": {
+        "because": [
+          {
+            "claim": "idea.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "idea.dissect": {
+        "because": [
+          {
+            "claim": "idea.shaped",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      },
+      "questions.answer": {
+        "because": [
+          {
+            "claim": "questions.shaped",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "questions.write": {
+        "because": [
+          {
+            "claim": "dissection.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "requirements.normalise": {
+        "because": [
+          {
+            "claim": "questions.settled",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "scope.answer": {
+        "because": [
+          {
+            "claim": "dissection.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "dissection.checked": {
+        "because": [
+          {
+            "kind": "dissection_shape",
+            "status": "absent",
+            "subject": "dissection"
+          }
+        ],
+        "value": "unknown"
+      },
+      "dissection.valid": {
+        "because": [
+          {
+            "kind": "dissection_shape",
+            "status": "absent",
+            "subject": "dissection"
+          }
+        ],
+        "value": "unknown"
+      },
+      "idea.checked": {
+        "because": [
+          {
+            "evidence": "s1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "idea.shaped": {
+        "because": [
+          {
+            "evidence": "s1",
+            "status": "applied"
+          }
+        ],
+        "value": "false"
+      },
+      "interview.checked": {
+        "because": [
+          {
+            "kind": "questions_settled",
+            "status": "absent",
+            "subject": "questions"
+          }
+        ],
+        "value": "unknown"
+      },
+      "questions.checked": {
+        "because": [
+          {
+            "kind": "questions_shape",
+            "status": "absent",
+            "subject": "questions"
+          }
+        ],
+        "value": "unknown"
+      },
+      "questions.settled": {
+        "because": [
+          {
+            "kind": "questions_settled",
+            "status": "absent",
+            "subject": "questions"
+          }
+        ],
+        "value": "unknown"
+      },
+      "questions.shaped": {
+        "because": [
+          {
+            "kind": "questions_shape",
+            "status": "absent",
+            "subject": "questions"
+          }
+        ],
+        "value": "unknown"
+      },
+      "requirements.checked": {
+        "because": [
+          {
+            "kind": "requirements_shape",
+            "status": "absent",
+            "subject": "requirements"
+          }
+        ],
+        "value": "unknown"
+      },
+      "requirements.valid": {
+        "because": [
+          {
+            "kind": "requirements_shape",
+            "status": "absent",
+            "subject": "requirements"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "dissection": {
+            "revision": "none"
+          },
+          "findings": {
+            "revision": "none"
+          },
+          "goals": {
+            "revision": "none"
+          },
+          "idea": {
+            "revision": "i1"
+          },
+          "questions": {
+            "revision": "none"
+          },
+          "requirements": {
+            "revision": "none"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "INTAKE-8",
+        "protocol": "sdc.intake",
+        "revision": "c1"
+      },
+      "evidence": [
+        "s1"
+      ],
+      "protocol": "sdc.intake",
+      "protocol_revision": 9,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "dissection.required": {
+        "because": [
+          {
+            "claim": "dissection.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "idea.required": {
+        "because": [
+          {
+            "claim": "idea.shaped",
+            "value": "false"
+          }
+        ],
+        "status": "open"
+      },
+      "interview.required": {
+        "because": [
+          {
+            "claim": "questions.settled",
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.shaped",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "requirements.required": {
+        "because": [
+          {
+            "claim": "requirements.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "passed": {
+        "because": [
+          {
+            "claim": "idea.shaped",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "dissection.required",
+      "status": "open"
+    },
+    {
+      "id": "idea.required",
+      "status": "open"
+    },
+    {
+      "id": "interview.required",
+      "status": "open"
+    },
+    {
+      "id": "requirements.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "passed": {
+      "reasons": [
+        {
+          "claim": "idea.shaped",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    },
+    "refused": {
+      "status": "legitimate"
+    }
+  },
+  "protocol": "sdc.intake",
+  "protocol_revision": 9
+}

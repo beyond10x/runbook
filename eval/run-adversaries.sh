@@ -121,7 +121,7 @@ drive_rounds() {
         case $a in
           context.approve|vision.approve|roadmap.approve)
             d "$stopped" approve --at "$(at)" --capability owner.approve --principal "$principal" --action "$a" ;;
-          change.merge) d "$stopped" approve --at "$(at)" --capability change.merge --principal "$principal" ;;
+          merge.approve) d "$stopped" approve --at "$(at)" --capability change.merge --principal "$principal" --action "$a" ;;
           release.publish) d "$stopped" approve --at "$(at)" --capability release.approve --principal "$principal" ;;
           *) verdict="no-approval-rule:$a"; return ;;
         esac ;;

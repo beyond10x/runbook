@@ -1,0 +1,45 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "roadmap.read": "blocked",
+    "spec.author": "admissible",
+    "spec.compile": "blocked",
+    "spec.reconstruct": "admissible",
+    "spec.reuse": "admissible",
+    "spec.review": "blocked",
+    "spec.scan": "blocked",
+    "spec.synthesize": "blocked",
+    "spec.trace": "blocked",
+    "spec.validate": "blocked"
+  },
+  "claims": {
+    "roadmap.approved": "true",
+    "roadmap.copied": "true",
+    "spec.approved": "unknown",
+    "spec.compile_run": "unknown",
+    "spec.compiled": "unknown",
+    "spec.complete": "unknown",
+    "spec.done": "unknown",
+    "spec.reviewed": "unknown",
+    "spec.scanned": "unknown",
+    "spec.sourced": "unknown",
+    "spec.synthesis_run": "unknown",
+    "spec.synthesized": "unknown",
+    "spec.trace_run": "unknown",
+    "spec.traced": "unknown",
+    "spec.unmarked": "unknown",
+    "spec.valid": "unknown",
+    "spec.validated": "unknown"
+  },
+  "obligations": {
+    "gate.required": "open",
+    "review.required": "open",
+    "roadmap.required": "discharged",
+    "source.required": "open",
+    "trace.required": "open"
+  },
+  "outcomes": {
+    "abandoned": "blocked",
+    "passed": "blocked"
+  }
+}

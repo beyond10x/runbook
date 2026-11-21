@@ -1,0 +1,35 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "plan.cover": "blocked",
+    "plan.decompose": "blocked",
+    "plan.scope": "blocked",
+    "plan.status": "blocked",
+    "plan.validate": "blocked",
+    "roadmap.read": "admissible",
+    "spec.gate": "blocked"
+  },
+  "claims": {
+    "gate.checked": "unknown",
+    "gate.passed": "unknown",
+    "plan.active": "unknown",
+    "plan.cover_checked": "unknown",
+    "plan.covers_spec": "unknown",
+    "plan.scope_checked": "unknown",
+    "plan.scoped": "unknown",
+    "plan.status_read": "unknown",
+    "plan.valid": "unknown",
+    "plan.validated": "unknown",
+    "roadmap.approved": "unknown",
+    "roadmap.copied": "unknown"
+  },
+  "obligations": {
+    "activation.required": "open",
+    "gate.required": "open",
+    "plan.required": "open",
+    "scope.required": "open"
+  },
+  "outcomes": {
+    "passed": "blocked"
+  }
+}

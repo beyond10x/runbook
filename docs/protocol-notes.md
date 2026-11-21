@@ -54,6 +54,205 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `03-ready-to-release/approved` | sdc.release | same with `release.approve` granted: `release.publish` admissible |
 | `04-roadmap-awaiting-approval/direction` | sdc.direction | vision revised after the roadmap approval: approval `invalidated`, `roadmap.approve` approval-required |
 | `04-roadmap-awaiting-approval/epic` | sdc.epic | no roadmap approval: every epic action blocked except `roadmap.read` |
+| `05-roadmap-read-once/{root,epic,spec,plan}` | sdc, sdc.epic, sdc.spec, sdc.plan | a roadmap approval record at r1, roadmap at r1: `roadmap.read` blocked (`roadmap.copied` true) |
+| `05-roadmap-read-once/*/revised` | same | same record, roadmap at r2: the record is set aside, `roadmap.read` admissible again |
+| `06-approval-once/{context,vision,roadmap}/approved` | sdc.direction | approval `approved`: the approve action blocked, the next stage's writer admissible |
+| `06-approval-once/{context,vision,roadmap}/rejected` | sdc.direction | approval `rejected`: approve blocked, the writer (`context.default`, `vision.write`, `roadmap.write`) admissible |
+| `06-approval-once/{context,vision,roadmap}/revised` | sdc.direction | rejected at revision 1, artifact at revision 2: the check due (`context.check`, `roadmap.validate`; vision has none, so `vision.approve` admissible) |
+| `06-approval-once/{context,roadmap}/rechecked` | sdc.direction | as revised with the check valid at revision 2: approve admissible again |
+| `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
+| `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
+| `08-intake-idea-refused` | sdc.intake | idea record invalid: no action revises the idea, outcome `refused` legitimate |
+| `09-child-ended-otherwise/{root,epic}` | sdc, sdc.epic | intake ended `refused`: root `refused` legitimate; spec ended `abandoned`: epic `not_delivered` legitimate |
+| `10-release-refused/{release,release/withheld,epic,root}` | sdc.release, sdc.epic, sdc | publication refused: `withheld` legitimate with its decision; epic `not_released`; root `not_delivered` |
+
+The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
+by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
+author's own review does not block `spec.review`, the independent one does),
+`02-spec-revised-tests-stale/story` (`tests.run_recorded` unknown: the run against s1 is
+invalidated), `03-ready-to-release` (`spec.gate`, `acceptance.run` blocked),
+`04-roadmap-awaiting-approval/direction` (`context.check`, `roadmap.validate` blocked).
+
+## An observation runs once per revision
+
+An observation that records a result is admissible only without a current record for the
+artifact's revision. Each such action (`effect: read`, producing a kind some claim reads with
+`result:`) carries a precondition `{claim: <kind>-recorded, is: unknown}` on a claim that reads its
+kind without a result about the same subject, for example `roadmap.copied`
+(`protocol/sdc-plan.protocol.yaml:45-50`) guarding `roadmap.read`
+(`protocol/sdc-plan.protocol.yaml:138-146`). Without it a second record with another result made
+the claim `unknown` (records that disagree, `../canon/website/docs/reference/evaluation.md:39-42`),
+which blocks every action that needs it, and only a new revision got the case out: `canon simulate`
+reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
+
+- A record about an older revision is not of the claim, so a new revision makes the action
+  admissible again (`cases/05-roadmap-read-once/*/revised`).
+- Where an invalidation rule sets a check's result aside, the guard claim is invalidated with it
+  (`protocol/sdc-plan.protocol.yaml:252-256`, `protocol/sdc-intake.protocol.yaml`
+  `dissection.revised`, `questions.revised`; sdc-direction `requirements.revised`; sdc-release and
+  sdc-story `spec.revised`), so an upstream revision makes the check admissible again too.
+- A review demanding independence is guarded by a claim with the same `independent_on`
+  (`spec.reviewed`, `change.review_recorded`): the author's own review neither counts nor blocks.
+- `release.observe` reads `health_observation` (max_age 30m): an expired observation is not of
+  `release.observed`, so the release is observed again after 30 minutes.
+- `questions.check` records two kinds in one run; it is admissible while either has no current
+  record (`protocol/sdc-intake.protocol.yaml` `questions.check`). Canon has no form "no current
+  record of kind K" other than a claim; a guard over both kinds (`all`) leaves `passed`
+  unreachable in `canon simulate`, whose step adds one record.
+- Guarded: sdc `roadmap.read`; sdc.epic `roadmap.read`, `spec.gate`; sdc.spec `roadmap.read`,
+  `spec.validate`, `spec.compile`, `spec.scan`, `spec.synthesize`, `spec.trace`, `spec.review`;
+  sdc.plan `roadmap.read`, `spec.gate`, `plan.validate`, `plan.cover`, `plan.scope`,
+  `plan.status`; sdc.intake `idea.check`, `dissection.check`, `questions.check`,
+  `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.release
+  `spec.gate`, `acceptance.run`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
+  `change.review`.
+- Not guarded: `release.publish` and `release.rollback` (`effect: external`, acts under
+  `release.approve`). The approvals follow their own rule below.
+
+## An approval is decided once per revision
+
+An approval kind has two results, `approved` and `rejected`; `<artifact>.approved` is true only on
+`approved`, `<artifact>.decided` reads the kind without a result. Every approval action is
+admissible only while `<artifact>.decided` is unknown, so it is decided once per revision of the
+artifact it approves. After `rejected` the artifact's writer is admissible; its new revision leaves
+the checks and the rejection behind (revision binding), the checks run again, and the approval is
+admissible again. Nothing else waits on the rejection itself. How many times an artifact was
+rejected is not the protocol's business.
+
+| Protocol | Approval action (authority) | Kind | Writer after `rejected` | Checks due at the new revision |
+|---|---|---|---|---|
+| sdc.direction | `context.approve` (`owner.approve`) | `context_approval` | `context.default` | `context.check` |
+| sdc.direction | `vision.approve` (`owner.approve`) | `vision_approval` | `vision.write` | none |
+| sdc.direction | `roadmap.approve` (`owner.approve`) | `roadmap_approval` | `roadmap.write` | `roadmap.validate` |
+| sdc.story | `merge.approve` (`change.merge`) | `merge_approval` | `change.implement` | `tests.run`, `change.review` |
+
+`change.merge` now needs `merge.approved` instead of the capability: the capability `change.merge`
+is decided once per case (Canon refuses it twice), so a rejection could not be a capability
+denial. A merge decision is not in `spec.revised`'s invalidation: it is bound to the change
+revision, `change.merge` also needs `change.built`, and an entry would give `merge_approval` an
+upstream (16 values), putting sdc.story at 196608 states. `roadmap.decided` is invalidated with
+`roadmap.approved` by a revised vision.
+
+Bindings: each approval binding records `results: {"0": "approved", "6": "rejected"}`; the driver's
+`approve --action <a> --result rejected --reasons <file>` records `rejected` and keeps the reasons
+file as the step's log. Each writer's `retry_when` names its approval kind with `rejected`, so the
+driver sends the writer back while the rejection is about the current revision and hands it the
+log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
+
+**Stated limit, sdc.release.** `release.approve` stays a capability of `release.publish`, with no
+approval record and no `rejected` result: the same treatment (`release_approval` with a manual
+`release.approve`) gives 98,304 states, past the bound of 65,536. Dropping the capability to fit
+would leave authority resting on a manual record alone, which is not allowed. A refused release
+therefore records nothing in the case; the tools stop such a run with a named cause
+(`rejected_without_rework_path`), and the case's way out stays `withheld` on
+`explicitly_withheld` (the release case has no writer that answers a rejection: `release.build`
+rebuilds the same merged changes; the rework happens in the stories). Canon's state-space bound
+per slice (unreleased) is what lifts this limit.
+
+Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
+`06-approval-once/vision/{approved,rejected,revised}`.
+
+## Every child outcome has a way on in the parent
+
+`children.passed` (`{children: {in: [passed]}}`) is `false` for good once any child ended with
+another outcome, whatever revision it was about (limitation 4), so reopening a child cannot make
+it `true` again. sdc and sdc.epic therefore end on that claim, with an outcome that says which
+stage failed, legitimate without a person (a predicate, no decision). The stage is read from the
+opening records, since a later stage opens only once every earlier child passed:
+
+- sdc.epic `not_delivered`: `children.passed` `false` and `release.opened` unknown (a child
+  before the release failed); `not_released`: `children.passed` `false` and `release.opened`
+  (the release failed) (`protocol/sdc-epic.protocol.yaml:209-230`).
+- sdc `refused`: `children.passed` `false` and `direction.opened` unknown (the intake failed);
+  `not_delivered`: `children.passed` `false` and `direction.opened` (an epic failed)
+  (`protocol/sdc.protocol.yaml:155-177`). `direction.opened` is bound to the idea revision: an
+  idea revised after an epic failed would read as `refused`; a revised idea is a new root case in
+  practice.
+
+The outcomes read existing claims, so the state counts do not move (sdc 4608, epic 36864).
+
+| Parent | Child protocol | Child outcome | Parent's way on |
+|---|---|---|---|
+| sdc | sdc.intake | `passed` | `direction.open` |
+| sdc | sdc.intake | `refused` (idea failed its check) | ends `refused`; the next idea revision is a new root case |
+| sdc | sdc.direction | `passed` | `epics.open` once the roadmap is approved |
+| sdc | sdc.epic | `passed` | `operating` once every epic passed |
+| sdc | sdc.epic | `not_delivered`, `not_released`, `abandoned` | ends `not_delivered` |
+| sdc.epic | sdc.spec | `passed` | `plan.open` |
+| sdc.epic | sdc.spec | `abandoned` | ends `not_delivered` |
+| sdc.epic | sdc.plan | `passed` | `stories.open` |
+| sdc.epic | sdc.story | `passed` | `release.open` once every story passed |
+| sdc.epic | sdc.story | `dropped` | ends `not_delivered` |
+| sdc.epic | sdc.release | `passed` | `passed` |
+| sdc.epic | sdc.release | `withheld` (publication refused), `rolled_back` | ends `not_released` |
+
+sdc.direction and sdc.plan have no outcome but `passed` (a plan is given up through the epic's
+`abandoned`). Either parent can also end `abandoned` on its explicit decision at any point.
+
+**A refused release.** sdc.release ends `withheld` on the decision `explicitly_withheld`
+(`protocol/sdc-release.protocol.yaml:200-203`). Canon cannot tie that decision to a state: an
+outcome requires either a predicate or a decision, not both (Canon reference, `OutcomeRequirement`),
+and a `canon-decisions/1` entry is legitimate at any case revision it names. It needs no
+capability either: the entry carries a `principal`, nothing else, and no action is involved. So
+"only after the publication was refused" is the tools' rule: take `explicitly_withheld` when
+`release.approve` was denied or the decider judged the release not publishable, with the
+decider's reasons as the decision's log. A refusal record that the protocol could read would be a
+new evidence kind; sdc.release cannot take one under the bound (98,304 states, see "An approval is
+decided once per revision").
+
+Cases: `09-child-ended-otherwise/root` (intake `refused`: root `refused`),
+`09-child-ended-otherwise/epic` (spec `abandoned`: epic `not_delivered`), and the refused-release
+chain `10-release-refused`: `release` (`release.approve` denied: `release.publish` blocked,
+nothing legitimate), `release/withheld` (with `explicitly_withheld`: `withheld` legitimate),
+`epic` (every earlier child passed, release `withheld`: `not_released` legitimate), `root` (intake
+and direction passed, the epic `not_released`: `not_delivered` legitimate).
+
+## What `canon simulate` still reports and why
+
+Canon's classification of the findings on f364b6b (classes a1, a2, a3, c, d, e) is the reference
+for this section; c is fixed by the approval rule above.
+
+- **A failed plan check (a3, fixed).** `plan.decompose` was guarded on coverage only, so with the
+  plan covered but invalid, its scope unassessed or its stories not active, no action could
+  revise the plan. It is now also admissible on `plan.valid`, `plan.scoped` or `plan.active`
+  `false` (`protocol/sdc-plan.protocol.yaml:158-176`), as its binding's `retry_when` already
+  expected (`plan_validation` invalid, `stories_scoped` unassessed, `story_states` draft).
+  `amend.upstream` stays bound to an open finding (coverage `false`). Case:
+  `07-plan-check-failed` (covered, validation invalid: `plan.decompose` admissible).
+- **A failed idea check (a2 on `idea`, 18 findings, sdc.intake).** Nothing in an intake case
+  revises the idea: a revised idea opens a new intake case at the root
+  (`protocol/sdc-intake.protocol.yaml:6`). The case now ends `refused` once `idea.shaped` is
+  `false` (`protocol/sdc-intake.protocol.yaml:253-259`; case `08-intake-idea-refused`). The root
+  then ends `refused` (section above): for the idea's next revision `intake.open` is
+  admissible again, but the refused child's `case_outcome` keeps `children.passed`
+  (`protocol/sdc.protocol.yaml:61-65`, `in: [passed]`) `false` for good, also after the new
+  intake case ends `passed` (limitation 4; probed with `canon evaluate` on a root case at i2
+  holding both child outcomes), so a reopened intake cannot lead to `operating`.
+- **A failed check another action revises (a1).** Left by a new revision, which the walk does not
+  make; the writer is admissible in each such state. A rejected approval is the same.
+- **A failed check only another case revises (a2 on `roadmap`, `spec`, 6 findings).** The child
+  waits on a revision another protocol writes; no change.
+- **A lasting denial (d).** The driver refuses a capability decided twice
+  (`driver/src/main.rs:1590-1597`), so a denial stands for the case. Per denial, what a real
+  case does next:
+  - sdc.direction, `owner.approve` denied (2 findings): no other holder and no outcome in the
+    case; the tree goes on through the root's `abandoned` decision, or a revised idea, which
+    opens a new direction case with its own authority (`protocol/sdc.protocol.yaml:6`). A
+    direction outcome of its own would need a decision, which doubles 49152 states past the bound
+    (as intake's abandon did, limitation 1), so the root keeps that role.
+  - sdc.story, `change.merge` denied (1): `merge.approve` stays approval-required; the case ends
+    `dropped` on `explicitly_dropped`, and sdc.epic ends `not_delivered` (section above).
+  - sdc.release, `release.approve` denied (1): the case ends `withheld` on
+    `explicitly_withheld`, and sdc.epic ends `not_released`.
+- **sdc `{intake_opened, roadmap_approval}` stuck (e, false).** Not a protocol defect, no
+  protocol change; the walk is Canon's to fix. `intake.open` produces two records, its
+  `intake_opened` and, through `case_open`, the child's `case_outcome`; its precondition
+  `intake.opened is unknown` closes it after the first. The walk adds one record per step, so the
+  state with `intake_opened` and no `case_outcome` has no step left. The runtime writes the
+  `case_outcome` record (`open`) in the same step that opens the child (`open_children`,
+  `driver/src/main.rs:770`) and rewrites its result when the child ends, so a real case never
+  holds `intake_opened` without it. The same holds for `direction.open`, `epics.open` and
+  sdc.epic's opening actions.
 
 ## Evidence kinds and the action that produces each
 
@@ -70,7 +269,7 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.intake | `questions_shape`, `questions_settled` | `questions.check` | schema check, interview check |
 | sdc.intake | `requirements_shape` | `requirements.check` | schema check, citation check |
 | sdc.direction | `context_defaults` | `context.check` | schema check |
-| sdc.direction | `context_approval`, `vision_approval`, `roadmap_approval` | `context.approve`, `vision.approve`, `roadmap.approve`, each `requires: owner.approve` | person |
+| sdc.direction | `context_approval`, `vision_approval`, `roadmap_approval` (approved, rejected) | `context.approve`, `vision.approve`, `roadmap.approve`, each `requires: owner.approve` | person |
 | sdc.direction | `roadmap_validation` | `roadmap.validate` | `aep plan artifact validate` |
 | sdc.epic | `spec_opened`, `plan_opened`, `stories_opened`, `release_opened` | `spec.open`, `plan.open`, `stories.open`, `release.open` | runtime |
 | sdc.epic | `case_outcome` | the four opening actions | runtime, from the child case |
@@ -89,7 +288,8 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.story | `implementation_change` | `change.implement` | version control, with the spec revision built against |
 | sdc.story | `conformance_run` | `tests.run` | `ess verify conform run --target <implementation> --strict` |
 | sdc.story | `code_review` | `change.review` | person or another agent, `independent_on: [different_principal]` |
-| sdc.story | `merge_record` | `change.merge`, `requires: change.merge` | version control |
+| sdc.story | `merge_approval` (approved, rejected) | `merge.approve`, `requires: change.merge` | person |
+| sdc.story | `merge_record` | `change.merge`, on `merge.approved` | version control |
 | sdc.release | `build_provenance` | `release.build` | build system |
 | sdc.release | `release_conformance` | `acceptance.run` | `ess verify conform run --target <release> --strict` |
 | sdc.release | `release_record` | `release.publish`, `requires: release.approve` | deploy |
@@ -153,9 +353,9 @@ are in `docs/limitations/`.
    - intake with its own abandon decision (`intake-with-abandon.protocol.yaml`):
      `... sdc.intake revision 2 has 131072 states`.
    Consequences: eight protocols; the gate is one composite kind outside sdc.spec; abandon lives
-   at the root for intake and plan; sdc.intake, sdc.spec and sdc.plan sit exactly at 65536
-   (states per protocol in `docs/check-output.txt`: sdc 4608, intake 65536, direction 49152,
-   epic 36864, spec 65536, plan 65536, story 12288, release 24576); every child
+   at the root for intake and plan; sdc.spec and sdc.plan sit exactly at 65536
+   (states per protocol in `docs/check-output.txt`: sdc 4608, intake 49152, direction 49152,
+   epic 36864, spec 65536, plan 65536, story 49152, release 24576); every child
    reports `passed`, so a parent's `children` form lists one outcome (two would cost 16 times 17).
 2. **Invalidation reaches every match of a claim built on an invalidated claim.** A derived claim
    `change.verified = tests.pass AND change.reviewed` gave `code_review` upstream variants too:
@@ -180,9 +380,9 @@ are in `docs/limitations/`.
    tell that copy from a forgery (producer is "recorded as given: Canon does not prove it",
    documents.md).
 6. **Authority decisions are not bound to a revision.** A `canon-authority/1` entry is a capability
-   and granted or denied, nothing more (documents.md). Approvals of context, vision and roadmap are
-   therefore evidence records bound to the approved revision, produced only by actions that
-   `require: owner.approve`; `canon check`'s authority-bypass check finds no outcome that holds on
+   and granted or denied, nothing more (documents.md). Approvals of context, vision, roadmap and
+   merge are therefore evidence records bound to the decided revision, produced only by actions
+   that require `owner.approve` or `change.merge`; `canon check`'s authority-bypass check finds no outcome that holds on
    them without authority (0 findings in every protocol).
 7. **Every declared artifact needs a revision, even before it exists.** `canon evaluate` with a case
    that omits one → `error[missing-artifact]: case `IDEA-1` does not give the current revision of

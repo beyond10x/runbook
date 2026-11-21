@@ -1,10 +1,20 @@
 {
+  "actions": {
+    "plan.open": "blocked",
+    "release.open": "blocked",
+    "roadmap.read": "admissible",
+    "spec.gate": "blocked",
+    "spec.open": "blocked",
+    "stories.open": "blocked"
+  },
   "claims": {
     "children.passed": "unknown",
+    "gate.checked": "unknown",
     "gate.passed": "unknown",
     "plan.opened": "unknown",
     "release.opened": "unknown",
     "roadmap.approved": "unknown",
+    "roadmap.copied": "unknown",
     "spec.opened": "unknown",
     "stories.opened": "unknown"
   },
@@ -13,16 +23,10 @@
     "release.required": "open",
     "roadmap.required": "open"
   },
-  "actions": {
-    "plan.open": "blocked",
-    "release.open": "blocked",
-    "spec.gate": "blocked",
-    "spec.open": "blocked",
-    "stories.open": "blocked",
-    "roadmap.read": "admissible"
-  },
   "outcomes": {
     "abandoned": "blocked",
+    "not_delivered": "blocked",
+    "not_released": "blocked",
     "passed": "blocked"
   }
 }

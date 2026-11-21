@@ -1,7 +1,7 @@
 format: protocol/1
 protocol:
   id: sdc.release
-  revision: 3
+  revision: 4
   description: >-
     Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running. The ESS gate must pass on the current specification revision. A revised specification invalidates the conformance runs observed against the earlier revision. The case ends passed (operating), rolled back on a complete rollback result, or withheld on an explicit decision.
 artifacts:
@@ -34,6 +34,12 @@ claims:
         kind: ess_gate
         result: passed
         subject: spec
+  gate.checked:
+    description: an ESS gate run is recorded about the current specification revision, whatever its result
+    true_when:
+      evidence:
+        kind: ess_gate
+        subject: spec
   release.built:
     description: the current release revision carries build provenance
     true_when:
@@ -47,6 +53,13 @@ claims:
         kind: release_conformance
         result: passed
         subject: release
+  release.acceptance_run:
+    description: >-
+      a conformance run is recorded about the current release revision, against the current specification revision, whatever its result
+    true_when:
+      evidence:
+        kind: release_conformance
+        subject: release
   release.published:
     description: the current release revision is published
     true_when:
@@ -59,6 +72,12 @@ claims:
       evidence:
         kind: health_observation
         result: healthy
+        subject: release
+  release.observed:
+    description: an observation of the current release revision within the last 30 minutes is recorded, whatever its result
+    true_when:
+      evidence:
+        kind: health_observation
         subject: release
   rollback.complete:
     description: a rollback of the current release revision is complete
@@ -93,8 +112,12 @@ obligations:
       claim: release.healthy
 actions:
   spec.gate:
-    description: run the ESS gate over the current specification revision
+    description: >-
+      run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good
     effect: read
+    precondition:
+      claim: gate.checked
+      is: unknown
     may_produce:
       - evidence: ess_gate
   release.build:
@@ -105,10 +128,14 @@ actions:
     may_produce:
       - evidence: build_provenance
   acceptance.run:
-    description: run the specification's conformance suite against the release
+    description: >-
+      run the specification's conformance suite against the release; only while no run is recorded about the current release revision against the current specification revision
     effect: read
     precondition:
-      claim: release.built
+      all:
+        - claim: release.built
+        - claim: release.acceptance_run
+          is: unknown
     may_produce:
       - evidence: release_conformance
   release.publish:
@@ -124,10 +151,14 @@ actions:
     may_produce:
       - evidence: release_record
   release.observe:
-    description: observe the running release
+    description: >-
+      observe the running release; only while no observation of the current release revision is current (younger than its 30 minutes)
     effect: read
     precondition:
-      claim: release.published
+      all:
+        - claim: release.published
+        - claim: release.observed
+          is: unknown
     may_produce:
       - evidence: health_observation
   release.rollback:
@@ -179,3 +210,4 @@ invalidation:
     upstream: spec
     invalidates:
       - release.accepted
+      - release.acceptance_run

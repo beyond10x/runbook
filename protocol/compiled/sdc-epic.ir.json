@@ -97,7 +97,7 @@
       "requires": []
     },
     "roadmap.read": {
-      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with",
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with. Only while this case holds no roadmap approval record about the current roadmap revision: a second copy with another result would leave roadmap.approved unknown for good. A new roadmap revision sets the old record aside and makes it admissible again",
       "effect": "read",
       "may_produce": [
         {
@@ -105,12 +105,15 @@
         }
       ],
       "precondition": {
-        "all": []
+        "claim": {
+          "id": "roadmap.copied",
+          "is": "unknown"
+        }
       },
       "requires": []
     },
     "spec.gate": {
-      "description": "run the ESS gate over the current specification revision",
+      "description": "run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good",
       "effect": "read",
       "may_produce": [
         {
@@ -118,10 +121,20 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "roadmap.approved",
-          "is": "true"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "gate.checked",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
       },
       "requires": []
     },
@@ -243,6 +256,16 @@
         }
       }
     },
+    "gate.checked": {
+      "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "ess_gate",
+          "result": null,
+          "subject": "spec"
+        }
+      }
+    },
     "gate.passed": {
       "description": "the ESS gate passes on the current specification revision",
       "true_when": {
@@ -279,6 +302,16 @@
         "evidence": {
           "kind": "roadmap_approval",
           "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "roadmap.copied": {
+      "description": "a roadmap approval record about the current roadmap revision is in this case, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": null,
           "subject": "roadmap"
         }
       }
@@ -374,6 +407,44 @@
         "decision": "explicitly_abandoned"
       }
     },
+    "not_delivered": {
+      "description": "a child case opened before the release ended other than passed (the specification abandoned, a story dropped); the children form keeps that outcome for every later revision, so the case ends here, and the root case ends not_delivered with it",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.opened",
+              "is": "unknown"
+            }
+          }
+        ]
+      }
+    },
+    "not_released": {
+      "description": "the release case ended other than passed (withheld, for instance after its publication was refused, or rolled back). The release case is opened only once every earlier child passed, so the release is the child that failed; the case ends here, and the root case ends not_delivered with it",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.opened",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
     "passed": {
       "description": "the release case was opened, every child ended passed, and the ESS gate passes on the current specification revision",
       "requires": {
@@ -407,8 +478,8 @@
     }
   },
   "protocol": {
-    "description": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision.",
+    "description": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision; when a child case ended other than passed it ends not_delivered (a child before the release) or not_released (the release), without a person.",
     "id": "sdc.epic",
-    "revision": 2
+    "revision": 5
   }
 }

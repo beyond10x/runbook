@@ -1,0 +1,34 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "context.approve": "blocked",
+    "context.change": "admissible",
+    "context.check": "admissible",
+    "context.default": "admissible",
+    "roadmap.approve": "blocked",
+    "roadmap.validate": "admissible",
+    "roadmap.write": "blocked",
+    "vision.approve": "blocked",
+    "vision.write": "blocked"
+  },
+  "claims": {
+    "context.approved": "unknown",
+    "context.checked": "unknown",
+    "context.decided": "unknown",
+    "context.valid": "unknown",
+    "roadmap.approved": "unknown",
+    "roadmap.checked": "unknown",
+    "roadmap.decided": "unknown",
+    "roadmap.valid": "unknown",
+    "vision.approved": "unknown",
+    "vision.decided": "unknown"
+  },
+  "obligations": {
+    "context.required": "open",
+    "roadmap.required": "open",
+    "vision.required": "open"
+  },
+  "outcomes": {
+    "passed": "blocked"
+  }
+}

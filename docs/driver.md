@@ -280,8 +280,9 @@ becomes the evidence's `observed_at`. So a tool's own timestamp is never used.
   one `owner.approve` grant made `context.approve`, `vision.approve` and `roadmap.approve`
   admissible for every later revision; only the driver's `manual` rule kept each approval a
   separate step by a person. One `release.approve` grant also admits `release.rollback`
-  (unbound in the example), and a `change.merge` grant would admit merging a later change
-  revision. Fix belongs in Canon: `principal` and `case_revision` on `canon-authority/1`
+  (unbound in the example). A `change.merge` grant no longer admits merging a later change
+  revision: `change.merge` needs a `merge_approval` record of the current change revision
+  (docs/protocol-notes.md, "An approval is decided once per revision"). Fix belongs in Canon: `principal` and `case_revision` on `canon-authority/1`
   entries, as `canon-decisions/1` has (boundary.md top change 2).
 
 **Stuck detection.**
@@ -471,7 +472,8 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
 | story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`) | `implementation_change` |
 | story, release | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (release): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
-| story | `change.merge` | copy `impl/` to `mainline/` (after `approve --capability change.merge`) | `merge_record` |
+| story | `merge.approve` | manual (`argv: ["true"]`), taken by `approve --capability change.merge --action merge.approve`, `--result rejected --reasons <file>` for a rejection | `merge_approval` approved or rejected |
+| story | `change.merge` | copy `impl/` to `mainline/` (once `merge.approved`) | `merge_record` |
 | release | `release.build`, `release.publish`, `release.observe` | copy `mainline/` to `release/` with a spec digest; copy to `published/`; compare | `build_provenance`, `release_record`, `healthy` |
 
 ### Interim story gate (2026-11-21)
