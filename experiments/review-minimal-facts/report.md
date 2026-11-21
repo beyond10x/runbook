@@ -75,7 +75,7 @@ descriptive: no hypothesis: the record describes its runs and decides nothing.
 
 ## Facts
 
-- experiments/baseline-0.1.0/inputs.md: the review is one request with no tools; in/impl/ is the whole tree (24 KB at the first story of trial-0.1.0-strong-1, 84 KB at its fourth) plus change.diff (24 to 26 KB); 0.69 USD of a strong run's 0.80 review USD is input.
+- experiments/baseline-0.1.0/inputs.md: the review is a claude-cli session of 10 to 17 turns with Glob, Read and Grep, reading 31 to 110 KB per call; in/impl/ is the whole tree (24 KB at the first story of trial-0.1.0-strong-1, 84 KB at its fourth) plus change.diff (24 to 26 KB); 0.69 USD of a strong run's 0.80 review USD is input.
 - Expected saving per run: strong 0.46, mixed 0.36 USD (inferred, input to a third).
 
 ## Links

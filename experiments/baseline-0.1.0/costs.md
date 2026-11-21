@@ -51,8 +51,9 @@ USD (strong) and 0.18 USD (mixed) against none; total 11.7× and 5.4×.
   reads about 15,000 cached tokens (the agent harness's system prompt and the definitions of about
   23 offered tools) and writes 3,600 to 5,400; a short intake session re-reads that prefix on each
   of its 3 to 8 turns (55k to 60k cache-read tokens per session, `inputs.md`).
-- The Opus decider writes about 12,500 tokens per call (0.10 USD); the review writes 33k to 36k
-  per call (0.13 to 0.15 USD on Sonnet): its whole input, 108 to 119 KB, is inlined.
+- The Opus decider writes about 12,500 tokens per call (0.10 USD). The review writes 33k to 36k
+  per call (0.13 to 0.15 USD on Sonnet) over a session of 10 to 17 turns that reads its inputs,
+  108 to 119 KB in `in/`, with `Read` and `Glob`.
 - The product differs: `trial-0.1.0-strong-1` delivered 1,722 non-blank Rust lines with 25 tests,
   `free-agent-0.1.0-sonnet-1` 658 with 17 (`work/impl`, counted with `find`, `grep`, `wc`).
 
