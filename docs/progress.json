@@ -2931,6 +2931,102 @@
       "why": "too few ended runs with the metric: haiku 5 and opus 2, the rule needs 3 each; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing"
     },
     {
+      "hypothesis": "With SDC_RULE_APPROVALS on instead of off, run.decider_cost_usd of the strong setting falls by at least 0.3 USD per run.",
+      "id": "decider-program-approvals",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "coverage",
+          "note": "vision.approve has no program check (its precondition holds context claims only) and stays with the decider in both arms; merge.approve, scope answers, finding decisions and upstream amendments are asked of the decider in both arms. The rule removes three of the 13 decider calls of a strong run at most."
+        },
+        {
+          "key": "unstick",
+          "note": "run.unstick is on with an Opus model in both variants (scripts/run-trial.sh; not a launch setting); it is the same in both arms, and a run it touched is not clean."
+        },
+        {
+          "key": "canon",
+          "note": "the canon binary of the canon checkout at run time, not pinned; the same for both arms when they run in one launch."
+        },
+        {
+          "key": "quality",
+          "note": "no oracle judges the decider's decisions; the baseline decider approved all of the covered approvals, so the arms differ only if a covered approval would have been rejected, which is seen through the merge and review rejection guards and run.delivered."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "run.decider_cost_usd",
+        "min_effect": 0.3
+      },
+      "purpose": "Whether taking context.approve, roadmap.approve and release.publish by rule:autopilot when the program check guarding each passed at the exact revision lowers the Opus decider's cost per run without losing a clean pass or letting a merge or review rejection through. The mixed setting is the sibling record decider-program-approvals-mixed (one variable per record).",
+      "tree": "fe1c803",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "off",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "on",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: off 0 and on 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": "With SDC_RULE_APPROVALS on instead of off, run.decider_s of the mixed setting falls by at least 60 s per run.",
+      "id": "decider-program-approvals-mixed",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "coverage",
+          "note": "vision.approve has no program check and stays with the decider in both arms; merge.approve, scope answers, finding decisions and upstream amendments are asked of the decider in both arms."
+        },
+        {
+          "key": "unstick",
+          "note": "run.unstick is on with an Opus model in both variants (scripts/run-trial.sh; not a launch setting); it is the same in both arms, and a run it touched is not clean."
+        },
+        {
+          "key": "canon",
+          "note": "the canon binary of the canon checkout at run time, not pinned; the same for both arms when they run in one launch."
+        },
+        {
+          "key": "decider_time",
+          "note": "run.decider_s sums the decider calls' own durations; a long merge.approve call (96 to 173 s in baseline-0.1.0) that the rule does not cover moves it as much as the covered ones do, so the three medians differ by call mix as well as by the treatment."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "run.decider_s",
+        "min_effect": 60.0
+      },
+      "purpose": "Whether taking context.approve, roadmap.approve and release.publish by rule:autopilot when the program check guarding each passed at the exact revision removes decider time from the mixed setting's runs without losing a clean pass or letting a merge or review rejection through. The strong setting is the sibling record decider-program-approvals (one variable per record).",
+      "tree": "fe1c803",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "off",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "on",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: off 0 and on 0, the rule needs 3 each"
+    },
+    {
       "hypothesis": "With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s.",
       "id": "effort-decider-mixed",
       "kind": "prospective",
@@ -3336,6 +3432,14 @@
     {
       "path": "experiments/decider-haiku-vs-opus/runs/trial-3-strong-2.json",
       "sha256": "f1cc615a9cb9e4c450cc7938b3fe6d0159689554e5a09686c4469dff02a69597"
+    },
+    {
+      "path": "experiments/decider-program-approvals-mixed.yaml",
+      "sha256": "514e067f24b221f92572f779668e30e101e8c2e0e3cd3564007683ec641f4e7a"
+    },
+    {
+      "path": "experiments/decider-program-approvals.yaml",
+      "sha256": "22ef2607898271ecb015afdd55bf884ca91bc05a7de050d8fe424a17c603ae3d"
     },
     {
       "path": "experiments/effort-decider-mixed.yaml",
