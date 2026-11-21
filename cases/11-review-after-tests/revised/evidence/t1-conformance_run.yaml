@@ -1,0 +1,10 @@
+format: canon-evidence/1
+id: t1
+kind: conformance_run
+result: passed
+subject: change
+subject_revision: c1
+producer: tool:ess
+observed_at: 2026-11-21T09:20:00Z
+upstream_revisions:
+  spec: s1

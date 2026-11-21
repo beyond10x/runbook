@@ -60,11 +60,13 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `06-approval-once/{context,vision,roadmap}/rejected` | sdc.direction | approval `rejected`: approve blocked, the writer (`context.default`, `vision.write`, `roadmap.write`) admissible |
 | `06-approval-once/{context,vision,roadmap}/revised` | sdc.direction | rejected at revision 1, artifact at revision 2: the check due (`context.check`, `roadmap.validate`; vision has none, so `vision.approve` admissible) |
 | `06-approval-once/{context,roadmap}/rechecked` | sdc.direction | as revised with the check valid at revision 2: approve admissible again |
-| `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
+| `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run` due (`change.review` after it passed); tested and reviewed: `merge.approve` admissible |
 | `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
 | `08-intake-idea-refused` | sdc.intake | idea record invalid: no action revises the idea, outcome `refused` legitimate |
 | `09-child-ended-otherwise/{root,epic}` | sdc, sdc.epic | intake ended `refused`: root `refused` legitimate; spec ended `abandoned`: epic `not_delivered` legitimate |
 | `10-release-refused/{release,release/withheld,epic,root}` | sdc.release, sdc.epic, sdc | publication refused: `withheld` legitimate with its decision; epic `not_released`; root `not_delivered` |
+| `11-review-after-tests/{untested,passed,failed}` | sdc.story | `change.review` needs `tests.pass` at the current change revision: blocked before the run, admissible after a pass, blocked after a fail with `change.implement` admissible |
+| `11-review-after-tests/{rejected,revised,retested}` | sdc.story | after a rejecting review: `change.implement`; at c2 `tests.run`, review blocked; tests passed at c2: `change.review` admissible again |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -106,6 +108,12 @@ reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
   `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.release
   `spec.gate`, `acceptance.run`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
   `change.review`.
+- Order between two observations is the protocol's, not the driver's: the driver takes
+  admissible observations in identifier order, so `change.review` ran before `tests.run`.
+  `change.review` now also needs `tests.pass` (the conformance run passed at the current change
+  revision), so a failed run sends the implementer back before any review, and after a rejecting
+  review the loop is `change.implement`, `tests.run`, `change.review` at the new revision. Cases
+  `11-review-after-tests/*`.
 - Not guarded: `release.publish` and `release.rollback` (`effect: external`, acts under
   `release.approve`). The approvals follow their own rule below.
 
@@ -124,7 +132,7 @@ rejected is not the protocol's business.
 | sdc.direction | `context.approve` (`owner.approve`) | `context_approval` | `context.default` | `context.check` |
 | sdc.direction | `vision.approve` (`owner.approve`) | `vision_approval` | `vision.write` | none |
 | sdc.direction | `roadmap.approve` (`owner.approve`) | `roadmap_approval` | `roadmap.write` | `roadmap.validate` |
-| sdc.story | `merge.approve` (`change.merge`) | `merge_approval` | `change.implement` | `tests.run`, `change.review` |
+| sdc.story | `merge.approve` (`change.merge`) | `merge_approval` | `change.implement` | `tests.run`, then `change.review` once it passed |
 
 `change.merge` now needs `merge.approved` instead of the capability: the capability `change.merge`
 is decided once per case (Canon refuses it twice), so a rejection could not be a capability
