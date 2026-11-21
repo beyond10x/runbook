@@ -81,7 +81,7 @@ validate() {
   else
     why=$(jq -r --arg type "$type" --arg final "$final" --argjson res "$res" --argjson req "$req" '
       def known: ["answer", "best", "cites", "decision", "reasons"];
-      ($req.finding.options // []) as $opts | ($req.finding.sides != null) as $rule
+      ($req.finding.options // []) as $opts | ($req.finding.sides != null or $req.finding.trace != null) as $rule
       | if type != "object" then "not a JSON object"
       else .decision as $d | .best as $b | (.cites // []) as $c | .answer as $a | .reasons as $r
       | if (keys - known) != [] then "unknown keys \(keys - known)"
@@ -383,7 +383,7 @@ jq --argjson item "$item" --argjson touches "$touches" --argjson cit "$citable" 
 schema_args=(--type "$type")
 [[ $final == yes ]] && schema_args+=(--final)
 [[ $type == finding ]] && schema_args+=(--options "$(jq -c '.finding.options // []' <<< "$req")")
-[[ $type == finding && $(r '.finding.sides != null') == true ]] && schema_args+=(--rule)
+[[ $type == finding && $(r '.finding.sides != null or .finding.trace != null') == true ]] && schema_args+=(--rule)
 "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" "${schema_args[@]}" > "$rec/reply-schema.json"
 
 case $type in
@@ -407,7 +407,7 @@ does not ask for." ;;
   finding) what="Decide the finding in in/decision.json (\`finding\`: \`says\`, \`options\`, \`default\`, \`cites\`;
 \`touches\`: the requirements, the prior decisions and the context fields it cites; all findings
 in in/findings.yaml). Approve with \`answer\` = the option that fits the idea and the requirements
-best$( [[ $(r '.finding.sides != null') == true ]] && echo " (this finding is a rule's contradiction: answer with one of its options exactly)" || echo ", or a short answer of your own when no option fits"). Your answer amends the cited requirements.
+best$( [[ $(r '.finding.sides != null or .finding.trace != null') == true ]] && echo " (this finding is a rule's contradiction or a trace gap, and the program applies only its options: answer with one of them exactly)" || echo ", or a short answer of your own when no option fits"). Your answer amends the cited requirements.
 Never choose an answer that contradicts or empties a prior decision in \`touches.decisions\` that
 a person or an earlier decider took (answered_by not non-interactive): escalate instead. A program
 checks the amendment and refuses one that does; then a person decides." ;;

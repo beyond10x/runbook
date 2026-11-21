@@ -232,7 +232,19 @@ unchanged.
   the cite and its sentence `Decision qX: <answer>.` and cites the new decision. A requirement
   citing a superseded question is a citation fault (`citation_fault`, so `requirements.check`),
   refuses the amendment that left it (`verify`) and blocks every stage's finding gate (`blocking`).
-  `superseded` is an answered status for `questions.check` and the KPIs.
+  `superseded` is an answered status for `questions.check` and the KPIs. A finding decided again
+  (a trace gap reopened after its first decision) supersedes its earlier answers the same way.
+- A trace gap's scope decision is applied when the decision is the option or starts with it
+  (`trace_kind`; `runs/trial-3-small-sonnet-1`: the decider answered "r5 is a constraint, not
+  behaviour: mark r5 as a constraint outside the specification", no option matched exactly, nothing
+  set `behaviour`, and p-trace-r5 and p-trace-r7 took 17 of the 20 decider calls). The decider answers
+  a trace gap, like a rule's contradiction, with one of its options exactly (schema enum).
+- A program finding raised again after the decision on it was applied is a defect of the apply,
+  never a new question: a resolved rule hit that fires again, or a trace gap a person or a decider
+  resolved that comes back (the agent's send-back of the writer is the one designed reopen). It
+  waits with `reraised` {decision, decided_by, says}, and under autopilot `run-trial.sh` stops the run
+  `finding_reraised` naming the finding and the decision. The `decider_budget_spent` stop record
+  names the step and the cap (it read only "autopilot: ").
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
@@ -371,6 +383,9 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `trace-gap` (added 2026-11-21, `runs/trial-3-haiku-3`: `fixtures/trace-gap`, spec trees `billing-spec.0`, `.1`) | 0 | r3 traced to `billing.audit` (an actor, no command): `p-trace-r3`, the agent sends the writer back, the second spec traces r3 to two views. Before: exit 0, no finding |
 | `trace-gap-drop` (`fixtures/trace-gap-drop`, `FINDING_DECISION=option:3`) | 0 | the writer never specifies r3: after one send-back the gap needs a person, who drops r3 (`behaviour: dropped`). Before: exit 0, no finding |
 | `trace-constraint` (`fixtures/trace-constraint`) | 0 | r3 `behaviour: constraint` with its reason: passes, counted ("1 constraint (r3)") |
+| `trace-constraint-decided` (added 2026-11-21, `runs/trial-3-small-sonnet-1`: `fixtures/trace-gap-drop`, `FINDING_DECISION` = the decider's words of that run) | 0 | the person answers p-trace-r3 "r3 is a constraint, not behaviour: mark r3 as a constraint outside the specification.": r3 `behaviour: constraint`, counted; the agent's send-back answer superseded, r3 cites only the person's. Before: the answer matched no option, the gap came back 27 times, r3 cited every answer |
+| `trace-reraised` (added 2026-11-21, `runs/trial-3-small-sonnet-1`: `--autopilot`, `fixtures/trace-gap-drop`, the decider answers "specify r3") | 7 | the writer never specifies r3: on the second raise the run stops `finding_reraised` by rule:autopilot, the reason naming p-trace-r3 and the decision; one decider call on it. Before: exit 5 `decider_budget_spent`, reason "autopilot: " |
+| `decider-budget-reason` (added 2026-11-21: `--autopilot`, `fixtures/scope-two`, `SDC_MAX_DECIDER_CALLS=1`) | 5 | the stop record's reason names `scope.answer in IDEA-1.intake` and the cap. Before: "autopilot: " |
 | `spec-own-default` (added 2026-11-21, `runs/trial-3-haiku-2`'s stop: `fixtures/finding-spec-rounds.yaml`, `spec.author` on `tools/llm-adapter-fixture.sh`) | 0 | a new agent finding on every LLM call: the amendment records the default the spec follows, no LLM re-derivation, `spec.author` 2 runs, 1 call. Before: exit 1, `writer_spent` after 4 runs and 4 calls |
 | `story-late-person` (added 2026-11-21, R8: `fixtures/finding-story-late-person.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s third run raises a scope-changing finding: `awaiting_person` (due `handoff_when`) rather than `writer_spent`, then a fresh allowance, `operating`. Before: exit 1, `stuck` after the person's decision |
 | `superseded-answer` (added 2026-11-21, D141, `runs/trial-3-haiku-5`: `SDC_STUB_FINDINGS=fixtures/finding-superseded-spec.yaml:fixtures/finding-superseded-story.yaml`) | 0 | `spec.author` raises a missing decision on r1, answered by the agent's default "Postgres" (q3); `change.implement` raises a contradiction citing q3 and r1, answered by the default "the data file" (q4): q3 `superseded` by q4, r1 cites q4 and not q3, its text names no Postgres; `operating`. Before: q3 and q4 both `accepted`, r1 cites both and states both |
