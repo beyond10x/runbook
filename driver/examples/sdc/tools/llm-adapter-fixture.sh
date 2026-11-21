@@ -56,6 +56,23 @@ if [[ $node == run.unstick ]]; then
     cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
   exit 0
 fi
+# The requester agent's calls (node `requester.<question id or action>`, decider.sh requester) get a
+# scripted reply in out/reply.json: SDC_REQUESTER_REPLIES (a JSON object, or a file holding one) by
+# the question id or action; `{goals_rev}` in it becomes the case's current goals revision. Without
+# one: option A, grounded on the idea's first line.
+if [[ $node == requester.* ]]; then
+  mkdir -p "$cwd/out"
+  rr=${SDC_REQUESTER_REPLIES:-"{}"}
+  [[ -f $rr ]] && rr=$(cat "$rr")
+  grev=$(jq -r '.artifacts.goals.revision // "none"' "$(jq -r .case_dir "$1")/case.json" 2>/dev/null)
+  jq --argjson r "$rr" --arg k "${node#requester.}" --arg g "$grev" '($r[$k] // {option: "A", answer: null, strength: "moderate",
+      no_ground_in_goals: false, reasons: ["fixture requester: option A"],
+      grounds: [{source: "idea", citation: {form: "path_line", value: {path: "work/idea.yaml", line: 1}}, supports: "A", how: "fixture: the idea"}]})
+    | walk(if type == "string" then gsub("\\{goals_rev\\}"; $g) else . end)' -n > "$cwd/out/reply.json" || exit 1
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
 cfg=${SDC_LLM_NODE:-'{}'}
 mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
 o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")

@@ -1,0 +1,42 @@
+questions:
+  - id: q1
+    item: d3
+    question: Which states does an invoice go through?
+    options: ["draft, issued, paid, cancelled", "draft, issued, paid"]
+    default: draft, issued, paid, cancelled
+    scope_changing: false
+    status: accepted
+    answer: draft, issued, paid, cancelled
+    answered_by: non-interactive
+  - id: q2
+    item: d4
+    excerpt: Bill customers with invoices
+    question: Who may cancel an invoice?
+    options: ["the billing clerk, before it is paid", "the customer or the billing clerk"]
+    default: the billing clerk, before it is paid
+    default_reason: The idea names only the customer who is billed and no way for them to act on an invoice, so only the clerk cancels.
+    consequences:
+      - does: Builds a cancel action for the billing clerk only, before the invoice is paid; customers have no action on an invoice.
+        cost: The smallest build, one permission.
+      - does: Builds a cancel action for the customer and for the billing clerk; customers can act on their own invoices.
+        cost: A customer sign-in and an ownership check on every cancel, so a larger build.
+    scope_changing: true
+    status: accepted
+    answer: the billing clerk, before it is paid
+    answered_by: non-interactive
+  - id: q3
+    item: d5
+    excerpt: email them when an invoice is created
+    question: Who besides the customer receives the invoice email?
+    options: [nobody, the billing clerk]
+    default: nobody
+    default_reason: The idea says to email the customers and names no one else, so the email goes to the customer only.
+    consequences:
+      - does: Sends the invoice email to the customer only.
+        cost: The smallest build; the clerk sees a new invoice only in the billing list.
+      - does: Sends the invoice email to the customer and a copy to the billing clerk.
+        cost: A clerk address setting and a second recipient on every invoice email.
+    scope_changing: true
+    status: accepted
+    answer: nobody
+    answered_by: non-interactive

@@ -440,6 +440,25 @@ obligation is open, else rejected with the failing checks (`rejected_on_checks`)
 exports `SDC_DECIDER_ESCALATE=final`, so the decider is asked for `best` and an escalate without
 it is invalid.
 
+**The requester agent** (2026-11-21, `docs/requester.md` § 3, story:requester-decider). Each
+decision class has a `side` in `driver/examples/sdc/decision-classes.json`
+(`sdc.decision-classes/1`, the classes of `autonomy-levels.md` § 3.2 with today's action names).
+With `SDC_REQUESTER_DECIDER=haiku`, `run-trial.sh` sends the requester-side classes
+(scope-changing answers, context, vision, roadmap, release, close) to `decider.sh requester`,
+principal `decider:requester`; the delivering side (merge, findings, …) keeps `SDC_DECIDER`. Its
+`in/` holds exactly `request.json` (`sdc-decision-request` for a question; built from the stop for
+an approval or a close, options A approve and B reject), the subject file, the files the
+request's grounds cite, `idea.yaml`, `dissection.yaml`, `goals.yaml` and `decisions.json` (its own
+earlier decisions of the run). It writes `out/reply.json` (`option`, `answer`, `reasons`,
+`grounds`, `strength`, `no_ground_in_goals`); the grounds go through `tools/decision-grounds.sh`,
+and a refused or malformed reply is asked again like the decider's. `no_ground_in_goals` is an
+escalate: under D→P (A3, A4) the run waits on the requester person, under D* (A5) the question's
+default is taken and the decision line says `no_ground_in_goals: true`. decisions.jsonl records
+each decision's `side`, `strength` and grounds; run-settings.jsonl records `requester_decider`.
+The fixture adapter answers node `requester.<question or action>` from `SDC_REQUESTER_REPLIES`
+(cycles `requester-decider`, `requester-no-ground`). Findings and code review are not requests in
+this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer node.
+
 **A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
 writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
 revision, principal, reasons, citations, count) and records it: `sdc-drive approve … --action
@@ -699,6 +718,8 @@ moving an artifact put its records under `revision_mismatch`; `{}` for an action
 arguments was refused at the missing key. The first SDC attempt stopped `stuck` at `story.open`.
 
 ## Gaps
+
+Every reject point and writer cap in autopilot, with its route and pending cycles: `reject-routes.md`.
 
 Status 2026-11-21: 2, 3, 7, 13 closed; 12 and 14 partly; 16-23 new.
 

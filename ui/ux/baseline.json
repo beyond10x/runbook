@@ -10,7 +10,8 @@
     "D-002": "R-01 change set, 2026-11-21. Values made worse on purpose or by the corrected tools, taken into the baseline: (1) reading_load in person, decider and two rises because the Now band now says who holds each decision, why, what taking it does and how many fields one decision covers (UXF-010, UXF-011, UXF-012, asked for by the operator); (2) person screen_only.actions and actions_per_fix go 1 to 2 and changes screen_only.actions 2 to 3 because the tasks now complete (R-01 counted a failed task as cheaper, review-report T1); (3) looks and glance_cost.p95 rise because a miss now costs glance 3 and the last change is read from What changed, outside the Now band (T1, T2, T6); (4) contract.truncated_hidden in changes rises by 1 and 2 because more What changed rows are in view at laptop height; (5) agent layout_shift.per_minute and two cue_churn.changes move within the timing noise of a wall-clock sample over a 3x replay (T14), and cue_churn now keeps the event seq in the card key (T3).",
     "D-003": "Sampling noise in the played scenarios, 2026-11-21. Three fast-loop runs on unchanged code gave two reading_load.median@1600x1000 110, 73, 70 (baseline 84), two reading_load.max@1600x1000 133, 149, 133 (125), two layout_shift.per_minute@1600x1000 2.99, 8.21, 3.02 (3.81), agent reading_load.median@1600x1000 63, 74, 87 (81), two contract.truncated_hidden@1366x768 26, 27, 26 and two cue_churn.changes@1600x1000 1, 2, 1: the bot samples a wall-clock replay at 3x (review-report T14). These keys carry their own tolerance (reading_load 0.35 relative, two layout_shift 4.5 absolute, truncated and cue_churn 1); the baseline values stay; the ratchet counts an improvement only beyond the same band. UXF-003 (layout shift, open) owns the real fix.",
     "D-005": "Deterministic measurement, 2026-11-21; supersedes D-003. Cause of the flaky ratchet: the fixture player slept on the wall clock (and the scenario two ran two chains of sleeps at once), the server rescanned every 700 ms, the loop sampled every 1.4 s of wall time and divided layout shift by wall minutes, so the state changes inside the window, and their order, followed the machine load (three runs of unchanged code: two layout_shift.per_minute@1366x768 5.78, 3.41, 3.13, the same shifts of 0.13, 0.06, 0.09 falling in or out of the window). Now the server, the player and the page share one clock (vclock.mjs, page.clock) moved only by the loop, 1.4 s per step; the player fires its timers in play-time order up to each step budget and stamps what it wrote with the clock; the server rescans when the player reports; the page fetches and paints before a sample; animations and transitions are off; layout shift is per minute of the steps. Values changed by the measurement, not the UI, are taken here, and the per-key tolerances of D-003 are removed. UXF-003 (the page does shift) stays open.",
-    "D-007": "Stub runs labelled, 2026-11-21 (taken as D-006 on the branch; D-006 is the phone rules). A run whose content a stub, fixture or dry adapter wrote is listed apart from real runs and says so in the header and in the Now band (\"stub run: canned content, not a model's work\"). The played scenarios are fixture runs (test/fixture-run.mjs names itself as the adapter), so the measured page now carries the label: reading_load rises by the label's 8 words in every played scenario (decider at 1600x1000 108 to 121: the earlier value was within tolerance at 113). The label is a row of its own above the band, so it does not move when the band's head column changes width (inside that column it moved decider layout_shift.per_minute 0.03 to 0.595); two layout_shift.per_minute falls (2.558 to 2.445, 3.824 to 3.689) because the band starts one row lower. The header tagline, cut by the label at 1600x1000, has a title, so contract.truncated_hidden stays. At 390x844 the label is a header row and a row above the Now band, both whole and in the first screen: reading_load rises by 8 in every played scenario, layout_shift.per_minute falls in agent, two and decider, and in two the screen-only user scrolls once more (screen_only.looks 4 to 6, glance_cost.p95 1 to 3) because the second card moves below the first screen."
+    "D-007": "Stub runs labelled, 2026-11-21 (taken as D-006 on the branch; D-006 is the phone rules). A run whose content a stub, fixture or dry adapter wrote is listed apart from real runs and says so in the header and in the Now band (\"stub run: canned content, not a model's work\"). The played scenarios are fixture runs (test/fixture-run.mjs names itself as the adapter), so the measured page now carries the label: reading_load rises by the label's 8 words in every played scenario (decider at 1600x1000 108 to 121: the earlier value was within tolerance at 113). The label is a row of its own above the band, so it does not move when the band's head column changes width (inside that column it moved decider layout_shift.per_minute 0.03 to 0.595); two layout_shift.per_minute falls (2.558 to 2.445, 3.824 to 3.689) because the band starts one row lower. The header tagline, cut by the label at 1600x1000, has a title, so contract.truncated_hidden stays. At 390x844 the label is a header row and a row above the Now band, both whole and in the first screen: reading_load rises by 8 in every played scenario, layout_shift.per_minute falls in agent, two and decider, and in two the screen-only user scrolls once more (screen_only.looks 4 to 6, glance_cost.p95 1 to 3) because the second card moves below the first screen.",
+    "D-008": "Two layouts, chosen by device, 2026-11-21. The operator, on the phone layout in his desktop browser (a tile about 805x1270): \"the UI changes you did for the mobile version, they are horrible for the non-mobile version … I like the overall, like the green bar stuff. Like when it was on top, it was way better for the normal version. I mean, just make two versions. Don't break it for the non-mobile one\". The phone layout is for a phone only (index.html SDC_PHONE: max-width 600px, or max-width 900px with a coarse pointer); a desktop window of any width keeps the desktop layout. 805x1270, the operator tile, is a gating viewport with the desktop rules: always visible the Now band with its run state, the KPI strip, the phase bar, the store selector and Decisions; from the top the header, the KPI strip, the Now band and the phase bar; no KPI tile cut off (contract.clipped, also at 1600x1000 and 1366x768); no page scroll. Its values are new keys taken under D-008. The phone sizes are measured as phones (touch, coarse pointer)."
   },
   "scenarios": {
     "person": {
@@ -264,6 +265,106 @@
       },
       "phone.sheet_drawer@390x844": {
         "value": 0
+      },
+      "contract.clipped@1366x768": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@1600x1000": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "keyboard.tabs_to_cue@805x1270": {
+        "value": 9,
+        "decision": "D-008"
+      },
+      "keyboard.tabs_to_decide@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.time_to_act_steps.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "layout_shift.per_minute@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "reading_load.max@805x1270": {
+        "value": 95,
+        "decision": "D-008"
+      },
+      "reading_load.median@805x1270": {
+        "value": 95,
+        "decision": "D-008"
+      },
+      "cue_churn.changes@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "cue_churn.flip_flops@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.scroll@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.hidden@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.axe_serious@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.truncated_hidden@805x1270": {
+        "value": 14,
+        "decision": "D-008"
+      },
+      "completion.miss@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "completion.false@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.decision_refused@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "screen_only.actions@805x1270": {
+        "value": 2,
+        "decision": "D-008"
+      },
+      "screen_only.looks@805x1270": {
+        "value": 8,
+        "decision": "D-008"
+      },
+      "screen_only.steers@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "glance_cost.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "glance_cost.p95@805x1270": {
+        "value": 2,
+        "decision": "D-008"
+      },
+      "actions_per_fix.max@805x1270": {
+        "value": 2,
+        "decision": "D-008"
+      },
+      "actions_per_fix.median@805x1270": {
+        "value": 2,
+        "decision": "D-008"
       }
     },
     "agent": {
@@ -491,6 +592,94 @@
       },
       "phone.graph@390x844": {
         "value": 0
+      },
+      "contract.clipped@1366x768": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@1600x1000": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.time_to_act_steps.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "layout_shift.per_minute@805x1270": {
+        "value": 0.639,
+        "decision": "D-008"
+      },
+      "reading_load.max@805x1270": {
+        "value": 83,
+        "decision": "D-008"
+      },
+      "reading_load.median@805x1270": {
+        "value": 57,
+        "decision": "D-008"
+      },
+      "cue_churn.changes@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "cue_churn.flip_flops@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.scroll@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.hidden@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.axe_serious@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.truncated_hidden@805x1270": {
+        "value": 37,
+        "decision": "D-008"
+      },
+      "completion.miss@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "completion.false@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.actions@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "screen_only.looks@805x1270": {
+        "value": 6,
+        "decision": "D-008"
+      },
+      "screen_only.steers@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "glance_cost.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "glance_cost.p95@805x1270": {
+        "value": 2,
+        "decision": "D-008"
+      },
+      "actions_per_fix.max@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "actions_per_fix.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
       }
     },
     "two": {
@@ -710,6 +899,94 @@
       },
       "phone.axe_serious@390x844": {
         "value": 0
+      },
+      "contract.clipped@1366x768": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@1600x1000": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.time_to_act_steps.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "layout_shift.per_minute@805x1270": {
+        "value": 3.454,
+        "decision": "D-008"
+      },
+      "reading_load.max@805x1270": {
+        "value": 130,
+        "decision": "D-008"
+      },
+      "reading_load.median@805x1270": {
+        "value": 93,
+        "decision": "D-008"
+      },
+      "cue_churn.changes@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "cue_churn.flip_flops@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.scroll@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.hidden@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.axe_serious@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.truncated_hidden@805x1270": {
+        "value": 33,
+        "decision": "D-008"
+      },
+      "completion.miss@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "completion.false@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.actions@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.looks@805x1270": {
+        "value": 4,
+        "decision": "D-008"
+      },
+      "screen_only.steers@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "glance_cost.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "glance_cost.p95@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "actions_per_fix.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "actions_per_fix.median@805x1270": {
+        "value": 0,
+        "decision": "D-008"
       }
     },
     "decider": {
@@ -928,6 +1205,94 @@
       },
       "phone.axe_serious@390x844": {
         "value": 0
+      },
+      "contract.clipped@1366x768": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@1600x1000": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.time_to_act_steps.max@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "layout_shift.per_minute@805x1270": {
+        "value": 0.381,
+        "decision": "D-008"
+      },
+      "reading_load.max@805x1270": {
+        "value": 90,
+        "decision": "D-008"
+      },
+      "reading_load.median@805x1270": {
+        "value": 89,
+        "decision": "D-008"
+      },
+      "cue_churn.changes@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "cue_churn.flip_flops@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.scroll@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.hidden@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.axe_serious@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.truncated_hidden@805x1270": {
+        "value": 15,
+        "decision": "D-008"
+      },
+      "completion.miss@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "completion.false@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.actions@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.looks@805x1270": {
+        "value": 4,
+        "decision": "D-008"
+      },
+      "screen_only.steers@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "glance_cost.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "glance_cost.p95@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "actions_per_fix.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "actions_per_fix.median@805x1270": {
+        "value": 0,
+        "decision": "D-008"
       }
     },
     "closed": {
@@ -1136,6 +1501,94 @@
       },
       "phone.axe_serious@390x844": {
         "value": 0
+      },
+      "contract.clipped@1366x768": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@1600x1000": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.time_to_act_steps.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "layout_shift.per_minute@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "reading_load.max@805x1270": {
+        "value": 30,
+        "decision": "D-008"
+      },
+      "reading_load.median@805x1270": {
+        "value": 30,
+        "decision": "D-008"
+      },
+      "cue_churn.changes@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "cue_churn.flip_flops@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.scroll@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.hidden@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.axe_serious@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.truncated_hidden@805x1270": {
+        "value": 47,
+        "decision": "D-008"
+      },
+      "completion.miss@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "completion.false@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.actions@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.looks@805x1270": {
+        "value": 3,
+        "decision": "D-008"
+      },
+      "screen_only.steers@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "glance_cost.median@805x1270": {
+        "value": 1.5,
+        "decision": "D-008"
+      },
+      "glance_cost.p95@805x1270": {
+        "value": 2,
+        "decision": "D-008"
+      },
+      "actions_per_fix.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "actions_per_fix.median@805x1270": {
+        "value": 0,
+        "decision": "D-008"
       }
     },
     "changes": {
@@ -1357,6 +1810,94 @@
       },
       "phone.sheet_diff@390x844": {
         "value": 0
+      },
+      "contract.clipped@1366x768": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@1600x1000": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.time_to_act_steps.max@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "layout_shift.per_minute@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "reading_load.max@805x1270": {
+        "value": 99,
+        "decision": "D-008"
+      },
+      "reading_load.median@805x1270": {
+        "value": 99,
+        "decision": "D-008"
+      },
+      "cue_churn.changes@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "cue_churn.flip_flops@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.scroll@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.hidden@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.clipped@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.axe_serious@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "contract.truncated_hidden@805x1270": {
+        "value": 20,
+        "decision": "D-008"
+      },
+      "completion.miss@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "completion.false@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "screen_only.actions@805x1270": {
+        "value": 3,
+        "decision": "D-008"
+      },
+      "screen_only.looks@805x1270": {
+        "value": 11,
+        "decision": "D-008"
+      },
+      "screen_only.steers@805x1270": {
+        "value": 0,
+        "decision": "D-008"
+      },
+      "glance_cost.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "glance_cost.p95@805x1270": {
+        "value": 2,
+        "decision": "D-008"
+      },
+      "actions_per_fix.max@805x1270": {
+        "value": 1,
+        "decision": "D-008"
+      },
+      "actions_per_fix.median@805x1270": {
+        "value": 1,
+        "decision": "D-008"
       }
     },
     "engine": {

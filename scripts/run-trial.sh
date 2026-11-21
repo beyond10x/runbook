@@ -310,11 +310,12 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" \
+  --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" \
   '{format: "sdc.run-settings/1", at: $at, leg: $leg,
     autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc, keep_going: ($kg == "yes"),
     unstick: {on: ($uon == "yes"), adapter: $uad, model: $umodel},
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
+    requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
@@ -368,7 +369,7 @@ autopilot_end() {
 # person's act.
 defects=$out/defects.jsonl
 max_forced=12
-forced_count() { jq -s '[.[] | select(.forced)] | length' "$defects" 2>/dev/null || echo 0; }
+forced_count() { [[ -s $defects ]] || { echo 0; return; }; jq -s '[.[] | select(.forced)] | length' "$defects"; }
 defect() { # <cause> <case> <action> <reason> <decision JSON> <forced true|false> <continuation>
   local cdir seq
   cdir=$(find "$store" -type d -name "${2:-IDEA-1}" 2>/dev/null | head -n 1)
@@ -411,7 +412,7 @@ keep_going_force() {
 unstick_bin=${SDC_UNSTICK_BIN:-$sdc/driver/target/debug/sdc-unstick}
 max_unstuck=6
 unstick_kind="" unstick_answer="" unstick_tried="" rejection_recorded="" round_last=null
-unstuck_count() { jq -s '[.[] | select(.unstuck == true)] | length' "$defects" 2>/dev/null || echo 0; }
+unstuck_count() { [[ -s $defects ]] || { echo 0; return; }; jq -s '[.[] | select(.unstuck == true)] | length' "$defects"; }
 # unstick <cause> <case> <action key> <reason> <kind> <request JSON|null> <case dir>: 0 when a move
 # other than stop was chosen (unstick_kind and unstick_answer say which; rerun, reask and end are
 # carried out here, approve and default by the caller); 1 when the run stops.
@@ -583,8 +584,14 @@ waiting() {
 # open but the one it discharges (approved_on_checks), else rejected with the failing checks
 # (rejected_on_checks). A reject at an approval: under A5 reworked by its writer (rework), else ended
 # by the protocol's end for a refusal (withhold), else the run ends rejected_without_rework_path.
+dec_principal=""
+class_of() { # <request>: its sdc.decision-classes/1 class (a finding has none of its own: finding)
+  jq -r --slurpfile c "$ex/decision-classes.json" 'if .type == "question" then "scope_changing_answer"
+    elif .type == "finding" then "finding" elif .type == "close" then "close"
+    else .action as $a | ([$c[0].classes | to_entries[] | select(any(.value.actions[]?; endswith("/" + $a))) | .key] | first // "approval") end' <<< "$1"
+}
 decide() {
-  local req=$1 key rec n reply before attempt=1 why="" kind fallback="" note
+  local req=$1 key rec n reply before attempt=1 why="" kind fallback="" cls side note
   # A re-ask by run.unstick carries its diagnosis as the request's note, once.
   note=$out/unstick-notes/$(jq -r '(.case_dir | split("/") | last) + "." + (.question.id // .finding.id // .action)' <<< "$req")
   if [[ -f $note ]]; then
@@ -593,7 +600,20 @@ decide() {
   fi
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
   kind=$(jq -r .type <<< "$req")
-  dec="" ans="" taker="decider:$decider"
+  dec="" ans=""
+  # The decision class and its side (decision-classes.json). With SDC_REQUESTER_DECIDER set, a
+  # requester-side class goes to the requester agent (decider.sh requester, principal
+  # decider:requester); the delivering side keeps SDC_DECIDER. `decider` is local here, so what
+  # decide calls (rework, withhold) names the principal that decided.
+  cls=$(class_of "$req")
+  side=$(jq -r --arg c "$cls" '.classes[$c].side // "delivering"' "$ex/decision-classes.json")
+  local decider=$decider
+  [[ -n ${SDC_REQUESTER_DECIDER:-} && $side == requester ]] && decider=requester
+  dec_principal=decider:$decider taker=decider:$decider
+  local llm=no
+  [[ $decider == haiku || $decider == requester ]] && llm=yes
+  req=$(jq -c --arg c "$cls" --arg s "$side" --arg a "$autonomy" --arg l "$out/decisions.jsonl" '. + {class: $c, side: $s,
+    autonomy: (if $a == "" then null else $a end), decisions_log: $l}' <<< "$req")
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
      jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
        and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
@@ -610,10 +630,11 @@ decide() {
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
       cites: $r.cites, citations: ($r.citations // null), model: $r.model, adapter: $r.adapter, tokens: $r.usage,
       cost_usd: $r.cost_usd, duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
-      schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record} + $x' >> "$out/decisions.jsonl"
+      schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record, side: ($q.side // null),
+      no_ground_in_goals: $r.no_ground_in_goals, strength: ($r.strength // null), grounds: ($r.grounds // null)} + $x' >> "$out/decisions.jsonl"
   }
   while :; do
-    if [[ $decider == haiku ]]; then
+    if [[ $llm == yes ]]; then
       n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
       (( n <= max_decider )) || { end_cause=decider_budget_spent end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
         echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
@@ -627,7 +648,7 @@ decide() {
     before=$(dry_lines)
     reply=$("$ex/tools/decider.sh" "$decider" "$rec/decide-request.json")
     print_dry "$before"
-    [[ $(jq -r .valid <<< "$reply") == false && $decider == haiku ]] || break
+    [[ $(jq -r .valid <<< "$reply") == false && $llm == yes ]] || break
     why=$(jq -r '.invalid_reason // "invalid"' <<< "$reply")
     (( attempt <= 2 )) || break
     line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
@@ -636,7 +657,7 @@ decide() {
   done
   dec=$(jq -r .decision <<< "$reply")
   ans=$(jq -r '.answer // ""' <<< "$reply")
-  if [[ $(jq -r .valid <<< "$reply") == false && $decider == haiku && $escalate_mode == final ]]; then
+  if [[ $(jq -r .valid <<< "$reply") == false && $llm == yes && $escalate_mode == final ]]; then
     # Still invalid after the retries, and nobody else decides: the fallback of the decision kind.
     line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
     case $kind in
@@ -945,8 +966,8 @@ decide_all() {
     # scope.answer is not an approval of a revision: each open scope-changing question gets its
     # own answer from the decider, then scope.answer is taken under the decider's principal. With
     # none open (a person's edits wait for attribution) it is decided as an approval.
-    rc=2 by="decider:$decider"
-    [[ $act == scope.answer ]] && { rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?; }
+    rc=2 by=""
+    [[ $act == scope.answer ]] && { rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?; by=$dec_principal; }
     (( rc == 1 )) && return 1
     if (( rc == 2 )); then
       decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg cap "$cap" --arg s "$subj" --arg p "$path" --arg rev "$rev" \

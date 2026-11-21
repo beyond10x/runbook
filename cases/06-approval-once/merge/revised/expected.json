@@ -3,7 +3,7 @@
     "amend.upstream": "blocked",
     "change.implement": "admissible",
     "change.merge": "blocked",
-    "change.review": "admissible",
+    "change.review": "blocked",
     "merge.approve": "blocked",
     "spec.gate": "blocked",
     "tests.run": "admissible"

@@ -66,8 +66,14 @@
 #   keep-going-three, keep-going-off, keep-going-repeat  --keep-going (D142)
 #   reopen-refused-decision  --reopen puts a refused decision back
 #   unstick-end, unstick-rerun, unstick-invalid, unstick-limit, unstick-off  run.unstick (D147)
+#   decider-question-reject, rework-fresh-allowance, spec-review-rework, writer-own-error,
+#   implement-percause, and the pending
+#   scope-unattributed-reject, finding-refused-reask, rework-spent-dropped, rework-spent-abandoned,
+#   review-invalid-named: the reject and cap routes of
+#   docs/reject-routes.md (R1-R9)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
-# <names>`; exits 1 when a cycle missed its expectation.
+# <names>` and `pending: N (K still failing: ...)`; exits 1 when an expected cycle missed its
+# expectation (a pending one never fails the script).
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
 set -uo pipefail
@@ -75,6 +81,9 @@ sdc=$(cd "$(dirname "$0")/.." && pwd)
 s=${1:?scratch dir}
 fx=$sdc/driver/examples/sdc/fixtures
 mkdir -p "$s/runs"
+# The requester cycles ground answers in goals entries through tools/decision-grounds.sh, which runs
+# goals/target/debug/sdc-goals; build it here so a fresh checkout does not exit 127 there.
+(cd "$sdc/goals" && cargo build --quiet) || { echo "cycles: building goals/ (sdc-goals) failed"; exit 1; }
 kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 [[ -x $kpis ]] || kpis=$HOME/beyond10x/sdc/driver/target/debug/sdc-finding-kpis
 # The cycles and their expectations. A cycle with a check line is as expected when it prints
@@ -85,7 +94,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-release-a3 principals models)
+  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -97,6 +106,11 @@ yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/n
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 keep-going-repeat reopen-refused-decision)
 expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
+# Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
+# is pending, reported as `pending: N (K still failing)` and never failing the script.
+expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause)
+pending=(scope-unattributed-reject finding-refused-reask rework-spent-dropped rework-spent-abandoned
+  review-invalid-named)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -109,6 +123,11 @@ summary() { # <log>
     fi
   done
   echo "cycles: ${#expected[@]} expected, $ok as expected, ${#failed[@]} failed: ${failed[*]:-none}"
+  local still=() passing=()
+  for name in "${pending[@]}"; do
+    if grep -q "^$name: checks pass" "$log" && ! grep -q "^$name: FAILED" "$log"; then passing+=("$name"); else still+=("$name"); fi
+  done
+  echo "pending: ${#pending[@]} (${#still[@]} still failing: ${still[*]:-none}; passing, move to expected: ${passing[*]:-none})"
   (( ${#failed[@]} == 0 ))
 }
 {
@@ -1102,6 +1121,53 @@ if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.j
     echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
   fi
 fi
+# requester-decider (story:requester-decider, docs/requester.md § 3): the trial-2 fixture
+# (fixtures/trial-2) with the trial-2 goals, SDC_REQUESTER_DECIDER=haiku and the recorded requester
+# replies (fixtures/trial-2/requester-replies.json). At A3 the scope-changing questions q1 and q3
+# are decided by decider:requester, whose record's in/ holds exactly request.json, the subject
+# (questions.yaml), the files the request's grounds cite (dissection.yaml), idea.yaml,
+# dissection.yaml, goals.yaml and decisions.json, and whose grounds the grounding check verified;
+# the merge goes to the delivering decider (decider:haiku). requester-no-ground: at A5, q3's reply
+# says no_ground_in_goals: its default is taken, marked so, as a suppressed escalation.
+t2=$fx/trial-2
+req_trial() { # <name> [env ...]
+  local name=$1; shift
+  rm -rf "$s/runs/$name"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" \
+    SDC_REQUESTER_DECIDER=haiku SDC_STUB_FIXTURES="$t2" "$@" \
+    "$sdc/scripts/run-trial.sh" "$name" "$(yq -r .text "$t2/idea.yaml")" --goals "$sdc/decision/examples/goals/trial-2.yaml" "${targs[@]}" > "$s/$name.txt" 2>&1
+  local code=$?
+  echo "$name: exit $code ($(tail -n 1 "$s/$name.txt" | cut -c1-160))"
+  return $code
+}
+targs=()
+req_trial requester-decider SDC_AUTONOMY=A3 SDC_REQUESTER_REPLIES="$t2/requester-replies.json"
+code=$?
+r=$s/runs/requester-decider
+q1rec=$(ls -d "$r"/decider/*-q1 2>/dev/null | head -n 1)
+if (( code == 0 )) &&
+   jq -se '[.[] | select(.question == "q1" or .question == "q3") | select(.decision == "approve") | .principal + " " + .side]
+     == ["decider:requester requester", "decider:requester requester"]' "$r/decisions.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.id == "q1" or .id == "q3") | .answered_by] == ["decider:requester", "decider:requester"]' >/dev/null &&
+   [[ -n $q1rec && "$(cd "$q1rec/cwd/in" && find . -type f | sort | tr '\n' ' ')" == "./decisions.json ./dissection.yaml ./goals.yaml ./idea.yaml ./questions.yaml ./request.json " ]] &&
+   jq -e '.recommend.check_verdict == "verified"' "$q1rec/grounds-check.json" "$(ls -d "$r"/decider/*-q3 | head -n 1)/grounds-check.json" >/dev/null &&
+   jq -se '[.[] | select(.action == "merge.approve" or .action == "change.merge") | .principal + " " + .side] | length > 0 and all(. == "decider:haiku delivering")' "$r/decisions.jsonl" >/dev/null; then
+  echo "requester-decider: checks pass (q1, q3 by decider:requester on verified goals grounds, its in/ exactly the request, subject, cited files, idea, dissection, goals, decisions; merge by decider:haiku)"
+else
+  echo "requester-decider: FAILED (exit $code: $(jq -sc '[.[] | {action, question, principal, side}]' "$r/decisions.jsonl" 2>/dev/null | cut -c1-300))"
+fi
+targs=(--autopilot)
+req_trial requester-no-ground SDC_REQUESTER_REPLIES="$(jq -c '.q3 = {option: null, answer: null, reasons: ["fixture: no entry covers sign-in"], grounds: [], strength: "weak", no_ground_in_goals: true}' "$t2/requester-replies.json")"
+code=$?
+r=$s/runs/requester-no-ground
+if (( code == 0 )) &&
+   jq -se '[.[] | select(.question == "q3" and .principal == "decider:requester")] | last
+     | .no_ground_in_goals == true and .suppressed == true and .answer == "Sign in with a one-time code sent by email"' "$r/decisions.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q3") | .answer == .default and .answered_by == "decider:requester"' >/dev/null; then
+  echo "requester-no-ground: checks pass (A5: no ground for q3, its default taken, marked no_ground_in_goals)"
+else
+  echo "requester-no-ground: FAILED (exit $code: $(jq -sc '[.[] | select(.question == "q3") | {decision, no_ground_in_goals, suppressed, answer}]' "$r/decisions.jsonl" 2>/dev/null))"
+fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted
 # person of run-full-cycle.sh is a stand-in: finding-person's f1 carries `decided_by:
@@ -1159,5 +1225,165 @@ if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
 else
   echo "models: FAILED"
 fi
+# --- reject and cap routes (docs/reject-routes.md) ------------------------------------------------
+# Each cycle drives a stub run into one reject or cap of the audit and asserts the route the row
+# should have. Cycles in `expected` have their route built; those in `pending` assert a route not
+# built yet and are reported apart (`pending: N (K still failing)`), never failing the script.
+rr_rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the change does not meet r1"], "cites": ["r1"], "best": null}'
+rr_app='{"decision": "approve", "answer": null, "reasons": ["fixture: the rework addresses the rejection"], "cites": ["r1"], "best": null}'
+rr_story() { find "$s/runs/$1/store" -type d -name 'IDEA-1.*.invoices' | head -n 1; }
+targs=(--autopilot)
+# decider-question-reject (R1): the decider replies `reject` to the scope-changing question q2. A
+# question has no rejection: the check refuses it with its reason, the decider is asked again and
+# answers. Passes when the run closes (exit 0) with q2 decided by decider:haiku after one refused
+# reply. Before: exit 6, rejected_without_rework_path.
+trial decider-question-reject SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn '{q2: [
+  {decision: "reject", answer: null, reasons: ["fixture: neither option fits"], cites: ["d4"], best: null},
+  {decision: "approve", answer: "the billing clerk, before it is paid", reasons: ["fixture: the idea names only the clerk"], cites: ["d4"], best: null}]}')"
+code=$?
+r=$s/runs/decider-question-reject
+if (( code == 0 )) &&
+   jq -se '[.[] | select(.question == "q2") | .decision] == ["invalid_reply", "approve"]
+     and ([.[] | select(.question == "q2")][0].invalid_reason | test("a question is decided with approve"))' "$r/decisions.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q2") | .answered_by == "decider:haiku"' >/dev/null; then
+  echo "decider-question-reject: checks pass (a reject of a question refused with its reason, asked again, answered; closed)"
+else
+  echo "decider-question-reject: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+# rework-fresh-allowance (R6): change.implement's first tree does not build (tests.run sends it
+# back), then merge.approve is rejected twice and approved. Each recorded rejection is an arrival,
+# so the second rework still runs. Passes when the run closes with 4 change.implement runs and no
+# writer_spent. Before: writer_spent after 3 runs at the second rejection (runs/trial-3-haiku-4).
+trial rework-fresh-allowance SDC_STUB_FIXTURES="$fx/rework-allowance" \
+  SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rr_rej" --argjson a "$rr_app" '{"merge.approve": {rounds: [$j, $j, $a]}}')"
+code=$?
+st=$(rr_story rework-fresh-allowance)
+if (( code == 0 )) && [[ -n $st ]] &&
+   jq -se '([.[] | select(.event == "action_finished" and .action == "change.implement")] | length) == 4
+     and ([.[] | select(.event == "writer_spent")] | length) == 0' "$st/events.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.action == "merge.approve") | .decision] == ["reject", "reject", "approve"]' "$s/runs/rework-fresh-allowance/decisions.jsonl" >/dev/null; then
+  echo "rework-fresh-allowance: checks pass (a test retry and two merge reworks: 4 runs, no writer_spent; closed)"
+else
+  echo "rework-fresh-allowance: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$s/runs/rework-fresh-allowance/run-stopped.json" 2>/dev/null | cut -c1-240))"
+fi
+# spec-review-rework (R8): the stub reviewer rejects the first specification (a `.review-reject`
+# file in the tree); the rejected spec_review sends spec.author back. Passes when the cycle ends
+# operating with spec.author run twice, the second sent back by spec_review. Before: stuck.
+cycle spec-review-rework SDC_STUB_FIXTURES="$fx/spec-review-reject"
+code=$?
+if (( code == 0 )) &&
+   jq -se '([.[] | select(.event == "action_finished" and .action == "spec.author")] | length) == 2
+     and ([.[] | select(.event == "action_started" and .action == "spec.author")] | last | .retry_of | index("spec_review"))' \
+     "$s/store-spec-review-rework/$spec" >/dev/null; then
+  echo "spec-review-rework: checks pass (a rejected spec review sends spec.author back; operating)"
+else
+  echo "spec-review-rework: FAILED (cycle exit $code, or spec.author not sent back by spec_review)"
+fi
+# scope-unattributed-reject (R2, pending): the interview's scope-changing answers q2 and q3 are
+# given but unattributed (answered_by non-interactive), none is open, so scope.answer goes to the
+# decider as an approval, which it rejects. Route: each unattributed answer is put to the decider
+# as a question (as R1). Passes when the run closes with q2 and q3 answered_by decider:haiku and no
+# approval decision on scope.answer. Today: exit 6, rejected_without_rework_path.
+trial scope-unattributed-reject SDC_STUB_FIXTURES="$fx/scope-unattributed" \
+  SDC_DECIDER_REPLIES='{"scope.answer": {"decision": "reject", "answer": null, "reasons": ["fixture: the answers were given by nobody who may give them"], "cites": ["d4"], "best": null}}'
+code=$?
+r=$s/runs/scope-unattributed-reject
+if (( code == 0 )) &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.scope_changing == true) | .answered_by] == ["decider:haiku", "decider:haiku"]' >/dev/null &&
+   jq -se '[.[] | select(.type == "approval" and .action == "scope.answer")] | length == 0' "$r/decisions.jsonl" >/dev/null; then
+  echo "scope-unattributed-reject: checks pass (unattributed answers put to the decider one by one; closed)"
+else
+  echo "scope-unattributed-reject: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+# finding-refused-reask (R3, pending): fixtures/offline-decision. The program check refuses the
+# decider's decision on the finding. Route: the decider is asked again with the refusal reason, at
+# most 2 times, then the stop decision_not_takeable. The fixture decider takes the refused default
+# every time, so passes when the finding was decided 3 times, the later requests carry the
+# refusal, and the run stops (exit 7) with cause decision_not_takeable. Today: 1 decision, exit 7.
+trial finding-refused-reask SDC_STUB_FIXTURES="$fx/offline-decision"
+code=$?
+r=$s/runs/finding-refused-reask
+last_rec=$(ls -d "$r"/decider/*-p-offline-hosted-context.deployment 2>/dev/null | tail -n 1)
+if (( code == 7 )) && jq -e '.cause == "decision_not_takeable"' "$r/run-stopped.json" >/dev/null 2>&1 &&
+   jq -se '[.[] | select(.finding == "p-offline-hosted-context.deployment" and .decision == "approve")] | length == 3' "$r/decisions.jsonl" >/dev/null &&
+   [[ -n $last_rec ]] && grep -qi 'refused' "$last_rec/prompt.md"; then
+  echo "finding-refused-reask: checks pass (the refused decision asked again twice with the refusal, then decision_not_takeable)"
+else
+  echo "finding-refused-reask: FAILED (exit $code, $(jq -s '[.[] | select(.class == "finding")] | length' "$r/decisions.jsonl" 2>/dev/null) finding decision(s))"
+fi
+# rework-spent-dropped (R4, pending): merge.approve rejected three times. Route: the story ends by
+# rule:autopilot through the protocol's `dropped` (explicitly_dropped, the rejection as its
+# reasons), the epic and the root end through the outcomes their evaluation offers, the run
+# closes not_delivered. Today: exit 6, rework_spent.
+trial rework-spent-dropped SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rr_rej" '{"merge.approve": $j}')"
+code=$?
+r=$s/runs/rework-spent-dropped
+st=$(rr_story rework-spent-dropped)
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json && -n $st ]] &&
+   jq -e '.state == "closed" and .outcome == "not_delivered"' "$r/status.json" >/dev/null 2>&1 &&
+   jq -e 'any(.[]; .decision == "explicitly_dropped" and .principal == "rule:autopilot")' "$st/decisions.json" >/dev/null &&
+   jq -se '[.[] | select(.event == "terminated") | .outcome] == ["dropped"]' "$st/events.jsonl" >/dev/null; then
+  echo "rework-spent-dropped: checks pass (third rejection: story dropped by rule:autopilot, root not_delivered, closed)"
+else
+  echo "rework-spent-dropped: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+# rework-spent-abandoned (R5, pending): context.approve rejected three times. Route: the root ends
+# `abandoned` (explicitly_abandoned recorded by rule:autopilot with the rejections), the run
+# closes. Today: exit 6, rework_spent.
+trial rework-spent-abandoned SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+code=$?
+r=$s/runs/rework-spent-abandoned
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   jq -e '.state == "closed" and .outcome == "abandoned"' "$r/status.json" >/dev/null 2>&1 &&
+   jq -e 'any(.[]; .decision == "explicitly_abandoned" and .principal == "rule:autopilot")' "$r/store/IDEA-1/decisions.json" >/dev/null; then
+  echo "rework-spent-abandoned: checks pass (third rejection of the context: root abandoned by rule:autopilot, closed)"
+else
+  echo "rework-spent-abandoned: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+# review-invalid-named (pending): change.review as a model call (impl/review-node) whose every reply
+# is invalid exits 2 and records nothing. Route: a stop with a named cause that names change.review,
+# never `stuck`. Without the model review node (change.review has no `llm` binding) it fails.
+if jq -e '."change.review".llm' "$sdc/driver/examples/sdc/sdc-story.bindings.json" >/dev/null 2>&1; then
+  bad='{"decision": "rejected", "summary": "fixture", "findings": [{"kind": "violation", "at": "impl/README.md:9999", "violates": "r1", "says": "fixture: a line that does not exist"}]}'
+  trial review-invalid-named SDC_LLM_NODES=change.review SDC_LLM_ADAPTER="$fixture" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$bad" '{rounds: [$j]}')"
+  code=$?
+  r=$s/runs/review-invalid-named
+  if (( code != 0 )) && jq -e '.cause != "stuck" and .cause != null and (.reason | test("change.review"))' "$r/run-stopped.json" >/dev/null 2>&1; then
+    echo "review-invalid-named: checks pass (invalid review replies: a named stop at change.review, not stuck)"
+  else
+    echo "review-invalid-named: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
+  fi
+else
+  echo "review-invalid-named: FAILED (change.review is not a model call here: needs impl/review-node)"
+fi
+# writer-own-error (R9): questions.answer (fixture adapter, apply step) changes the
+# scope-changing question q2, which the apply step refuses (exit 1, nothing applied). Route: the
+# failed run's own log reaches the next run as in/feedback.md. Passes when the second
+# questions.answer call has in/feedback.md naming the refusal.
+trial writer-own-error SDC_STUB_FIXTURES="$fx/own-error" SDC_LLM_NODES=questions.answer SDC_LLM_ADAPTER="$fixture"
+code=$?
+r=$s/runs/writer-own-error
+second=$(jq -rs '[.[] | select(.action == "questions.answer") | .record] | .[1] // empty' "$r/llm-calls.jsonl" 2>/dev/null)
+if [[ -n $second ]] && grep -q 'changed a scope-changing question' "$second/cwd/in/feedback.md" 2>/dev/null; then
+  echo "writer-own-error: checks pass (the refused apply's log fed back to the next run as in/feedback.md)"
+else
+  echo "writer-own-error: FAILED (exit $code, second call ${second:-none}, no in/feedback.md naming the refusal)"
+fi
+# implement-percause (R7): change.implement's trees: one that does not build (tests.run
+# fails), one with an empty README (the stub review rejects), one that does not build again, then
+# a good one. Route: runs counted per retry kind (conformance_run 2, code_review 1, each under 3),
+# with a backstop of 8 per arrival. Passes when the run closes with 4 change.implement runs and no
+# writer_spent. Before: writer_spent after 3 runs.
+trial implement-percause SDC_STUB_FIXTURES="$fx/implement-percause"
+code=$?
+st=$(rr_story implement-percause)
+if (( code == 0 )) && [[ -n $st ]] &&
+   jq -se '([.[] | select(.event == "action_finished" and .action == "change.implement")] | length) == 4
+     and ([.[] | select(.event == "writer_spent")] | length) == 0' "$st/events.jsonl" >/dev/null; then
+  echo "implement-percause: checks pass (two test failures and a review rejection: counted per kind, 4 runs; closed)"
+else
+  echo "implement-percause: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$s/runs/implement-percause/run-stopped.json" 2>/dev/null | cut -c1-240))"
+fi
+targs=()
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"

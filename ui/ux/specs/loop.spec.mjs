@@ -6,7 +6,7 @@ import {test, expect} from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
 import {scenarios, primary, cue, policy} from '../adapter.mjs';
-import {scrollOffenders, visibilityMisses, axeViolations, truncatedWithoutValue, startShifts, shiftsPerMinute, visibleControl, visibleText, wordsIn} from '../core/contract.mjs';
+import {scrollOffenders, visibilityMisses, orderMisses, clippedBoxes, axeViolations, truncatedWithoutValue, startShifts, shiftsPerMinute, visibleControl, visibleText, wordsIn} from '../core/contract.mjs';
 import {record, median, p95, max} from '../core/metrics.mjs';
 import {start, OUT, SHOTS, gating} from './env.mjs';
 
@@ -100,13 +100,15 @@ for (const s of scenarios) {
     }
 
     // ---- L2: sample the states while the run moves, one step of the shared clock apart -------------
-    const scroll = [], vis = [], trunc = [], words = [], keys = [];
+    const scroll = [], vis = [], clipped = [], trunc = [], words = [], keys = [];
     let axe = [];
     if (pol.pageScrollY) await page.evaluate(() => window.scrollTo(0, 0));
     const vw = page.viewportSize().width;
     for (let i = 0; i < SAMPLES; i++) {
       scroll.push(...(await scrollOffenders(page, pol.scrollAllowed)).filter((x) => !(pol.pageScrollY && x.sel === 'document' && x.w <= vw + 1)).map((x) => x.sel));
       vis.push(...(await visibilityMisses(page, pol.alwaysVisible)).map((x) => `${x.sel}: ${x.why}`));
+      if (pol.order.length) vis.push(...(await orderMisses(page, pol.order)).map((x) => `${x.sel}: ${x.why}`));
+      if (pol.whole) clipped.push(...(await clippedBoxes(page, pol.whole)).map((x) => `${x.sel}: ${x.why}`));
       trunc.push((await truncatedWithoutValue(page)).length);
       words.push(await wordsIn(page, primary));
       keys.push(await page.locator('#now .now-cards > .nc').first().getAttribute('data-key').catch(() => null));
@@ -124,6 +126,7 @@ for (const s of scenarios) {
     m('cue_churn.flip_flops', flips);
     m('contract.scroll', new Set(scroll).size);
     m('contract.hidden', new Set(vis).size);
+    if (pol.whole) m('contract.clipped', new Set(clipped).size);
     m('contract.axe_serious', axe.length);
     m('contract.truncated_hidden', max(trunc));
     // completion (hard gate 3): the end state is on screen when it is the truth, and only then
@@ -138,6 +141,7 @@ for (const s of scenarios) {
     if (gating(vp)) {
       expect.soft([...new Set(scroll)], 'hard gate 1: nothing scrolls but what the baseline allows').toEqual([]);
       expect.soft([...new Set(vis)], 'hard gate 2: always visible').toEqual([]);
+      expect.soft([...new Set(clipped)], 'hard gate 2: no KPI tile cut off').toEqual([]);
       expect.soft(completionMiss + falseComplete, 'hard gate 3: completion').toBe(0);
       expect.soft(axe, 'hard gate 5: axe serious or critical').toEqual([]);
     }

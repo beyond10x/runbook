@@ -1,0 +1,19 @@
+{
+  "format": "sdc.decision-classes/1",
+  "classes": {
+    "scope_changing_answer": {"type": "question", "side": "requester", "actions": ["sdc.intake/questions.answer", "sdc.intake/scope.answer"]},
+    "context": {"type": "approval", "side": "requester", "actions": ["sdc.direction/context.approve"]},
+    "vision": {"type": "approval", "side": "requester", "actions": ["sdc.direction/vision.approve"]},
+    "roadmap": {"type": "approval", "side": "requester", "actions": ["sdc.direction/roadmap.approve"]},
+    "spec_acceptance": {"type": "review", "side": "delivering", "actions": ["sdc.spec/spec.review"]},
+    "story_activation": {"type": "approval", "side": "delivering", "actions": ["sdc.plan/stories.activate"]},
+    "code_review": {"type": "review", "side": "delivering", "actions": ["sdc.story/change.review"]},
+    "merge": {"type": "approval", "side": "delivering", "actions": ["sdc.story/merge.approve", "sdc.story/change.merge"]},
+    "release": {"type": "approval", "side": "requester", "actions": ["sdc.release/release.publish"]},
+    "rollback": {"type": "approval", "side": "delivering", "actions": ["sdc.release/release.rollback"]},
+    "close": {"type": "close", "side": "requester", "actions": ["sdc/close:operating"]},
+    "budget_overrun": {"type": "control", "side": "requester"},
+    "limit_hit": {"type": "control", "side": "delivering"},
+    "escalation": {"type": "control"}
+  }
+}

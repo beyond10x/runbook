@@ -80,10 +80,12 @@ const sources = [];
 const addSource = (p, found = false) => { const s = {index: sources.length, path: p, name: found || nameOf(p), found: !!found, sig: '', cases: new Map(), version: 0, times: new Map(), liveSig: ''}; sources.push(s); return s; };
 for (const p of paths) addSource(p);
 // the runs under --runs that have a store/, in name order at the start; a later one is appended
-// (source indexes never move); returns the ones added
+// (source indexes never move); returns the ones added. A directory named *.part is a run still being
+// built aside (test/fixture-run.mjs moves it into place when done): it is not a run yet.
 function discover() {
   const added = [];
   for (const r of runsDirs) for (const n of listDir(r)) {
+    if (n.endsWith('.part')) continue;
     const st = path.join(r, n, 'store');
     if (!sources.some((s) => s.path === st) && fs.existsSync(st) && fs.statSync(st).isDirectory()) added.push(addSource(st, path.relative(path.join(sdc, 'runs'), path.join(r, n)).startsWith('..') ? n : path.relative(path.join(sdc, 'runs'), path.join(r, n))));
   }

@@ -1,0 +1,9 @@
+format: canon-evidence/1
+id: i2
+kind: implementation_change
+subject: change
+subject_revision: c2
+producer: vcs
+observed_at: 2026-11-21T09:40:00Z
+upstream_revisions:
+  spec: s1
