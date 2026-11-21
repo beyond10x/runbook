@@ -1,0 +1,3 @@
+{"seq":1,"event":"revised","at":"2026-11-21T02:43:22Z","artifacts":{"idea":"tc87b516e338704cd"}}
+{"seq":4,"event":"child_opened","at":"2026-11-21T02:43:22Z","child_case":"IDEA-1.intake"}
+{"seq":5,"event":"action_finished","at":"2026-11-21T02:43:22Z","action":"intake.open"}

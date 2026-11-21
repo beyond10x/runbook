@@ -3,7 +3,7 @@
 // programs, then told apart by what they say about their program: two real (run-settings.jsonl adapter
 // metaharness; an older one with llm-calls.jsonl naming a model and no settings), two stub (adapter
 // llm-adapter-fixture.sh; dry llm-calls.jsonl lines only). Served by a server of its own over the
-// runs directory on port 7532 (SDC_UI_STUB_PORT). Screenshot: screenshots/<project>-stub-run.png.
+// runs directory on port 7534 (SDC_UI_STUB_PORT). Screenshot: screenshots/<project>-stub-run.png.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
@@ -14,7 +14,7 @@ import {needRun, fixtureSource} from './need-run.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'programs');
-const port = Number(process.env.SDC_UI_STUB_PORT || 7532);
+const port = Number(process.env.SDC_UI_STUB_PORT || 7534);
 const base = `http://127.0.0.1:${port}`;
 const NOTE = "stub run: canned content, not a model's work";
 const HEAD = 'Stub and fixture runs (no model calls)';
@@ -81,3 +81,4 @@ test('the run list: real runs first, newest first, stub runs in a group below, e
   await expect(page.locator('#now .now-stub')).toHaveText(NOTE);
   await page.screenshot({path: path.join(ui, 'screenshots', `${info.project.name}-stub-run.png`)});
 });
+

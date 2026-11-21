@@ -4,20 +4,22 @@ import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
-import {nowState, renderNow, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
+import {nowState, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
 import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 
 const q0 = new URLSearchParams(location.search);
+// a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
+const PHONE = matchMedia('(max-width: 900px)');
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
   inbox: {items: [], write: false, principal: null}, drawer: q0.get('drawer') === '1', form: {}, editing: null, busy: null, results: {}, proc: null, dirty: false, toast: null,
   liveData: null, offset: 0, diff: null,
   // the right panel: a rail of tab names until a tab is opened; remembered across loads
-  panel: q0.get('tab') || q0.get('node') ? true : localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
+  panel: q0.get('tab') || q0.get('node') ? true : !PHONE.matches && localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
 const LS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 function setPanel(open, tab) {
   if (tab) S.tab = tab;
@@ -109,6 +111,7 @@ function render() {
   if (!cases.length) {
     patch($('#phases'), '');
     patch($('#now'), '');
+    patch($('#nowbar'), '');
     patch($('#kpis'), '');
     patch($('#feed'), '');
     patch($('#tree'), `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
@@ -132,7 +135,7 @@ function render() {
   // flashing "between steps" for one poll.
   if (ns.mode === 'running') S.lastRunAt = now;
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
-  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); }
+  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); patch($('#nowbar'), renderNowBar(ns)); }
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
@@ -148,11 +151,16 @@ function render() {
     const host = $('#graph');
     const live = graphLive(ns, c);
     const probe = renderGraph(host, c, ev, {zoom: S.zoom, selected: S.node, showReads: S.showReads, atSeq: S.atSeq, revisions: c._revisions, live, now});
-    const z = S.fit ? Math.min(1.15, Math.max(0.75, (host.clientWidth - 24) / probe.width)) : S.zoom;
+    // on a phone the graph keeps a readable scale (labels 12 px and more) and scrolls in its own box
+    const z = S.fit ? (PHONE.matches ? 1.3 : Math.min(1.15, Math.max(0.75, (host.clientWidth - 24) / probe.width))) : S.zoom;
     if (z !== S.zoom) { S.zoom = z; renderGraph(host, c, ev, {zoom: z, selected: S.node, showReads: S.showReads, atSeq: S.atSeq, revisions: c._revisions, live, now}); }
+    const hint = $('#ghint');
+    const wide = PHONE.matches && host.scrollWidth > host.clientWidth + 1;
+    if (hint.hidden === wide) hint.hidden = !wide;
   } else $('#graph').innerHTML = '<p class="muted pad">no ir.json in this case</p>';
   patch($('#timeline'), renderTimeline(c, at, last));
   document.documentElement.classList.toggle('rp-open', S.panel);
+  if (PHONE.matches) { $('#panel').setAttribute('tabindex', '0'); $('#panel').setAttribute('role', 'region'); $('#panel').setAttribute('aria-label', 'Panel'); }
   document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
   if (!S.panel) return;
   const scope = S.scopeCase ? c.id : null;
@@ -225,6 +233,8 @@ function renderDecisions() {
   document.body.classList.toggle('drawer-open', S.drawer);
   if (S.drawer) {
     patch($('#drawer'), renderDrawer(S));
+    // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
+    if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
     const pl = $('#proclog');
     if (pl) pl.scrollTop = pl.scrollHeight;
   }
@@ -348,6 +358,7 @@ document.addEventListener('click', async (ev) => {
   }
   if (t.closest('#decbtn') || t.closest('[data-open-drawer]')) { S.drawer = !S.drawer || !!t.closest('[data-open-drawer]'); return render(); }
   if (t.closest('#rpclose')) { setPanel(false); return render(); }
+  if (t.closest('#railbtn')) { setPanel(true); return render(); }
   const chip = t.closest('[data-feed]');
   if (chip) { S.feedCls = S.feedCls === chip.dataset.feed ? '' : chip.dataset.feed; LS('sdc-ui.feed', S.feedCls); return render(); }
   const kpi = t.closest('[data-kpi]');
@@ -436,7 +447,7 @@ document.addEventListener('keydown', (ev) => {
   if (!c) return;
   if (ev.key === 'ArrowLeft') { setIdx(idxOf(c) - 1); ev.preventDefault(); }
   if (ev.key === 'ArrowRight') { setIdx(idxOf(c) + 1); ev.preventDefault(); }
-  if (ev.key === 'Escape') { S.node = null; render(); }
+  if (ev.key === 'Escape') { S.node = null; if (PHONE.matches && S.panel) setPanel(false); render(); }
 });
 // drag the graph to pan; a click without movement still selects a node
 let pan = null;

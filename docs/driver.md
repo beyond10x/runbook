@@ -113,7 +113,9 @@ Each step does the following, with nothing else as input:
   person's decision gives every writer a fresh allowance.
 - A writer that would be useful but has spent its allowance ends the run with the verdict
   `writer_spent` (exit 4, event `writer_spent` with `spent`: action, runs, `max_runs`, the
-  arrival's event index, last exit and last log line). Order of the stops when nothing is
+  arrival's event index, last exit and last log line, and `sent_back`: per counted run, the
+  first other action after it that exited non-zero and its last log line, also in the message;
+  `runs/trial-3-haiku-2` stopped with "last exit 0:" and nothing else). Order of the stops when nothing is
   useful: a legitimate outcome; a person's own action (`manual`) or a due `handoff`; with a
   spent writer, a pending approval (`scope.answer` after `questions.answer` refused a changed
   answer), else `writer_spent`; an approval; `stuck`. A `handoff` is due only while its
@@ -346,6 +348,15 @@ What one call does (`llm-node.sh`):
 
 The driver then sees a new revision; only the bound programs produce evidence about it.
 
+**Model per node** (2026-11-21, `story:model-per-node-variable`). The model is a run setting, by
+node class (`tools/node-classes.json`): `SDC_LLM_MODEL_WRITER` (`spec.author`, `plan.decompose`),
+`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`spec.review`,
+`change.review`, program stubs today, so no call uses it yet), `SDC_LLM_MODEL_OTHER` (every other
+node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The decider:
+`SDC_LLM_MODEL_DECIDER`, else `SDC_DECIDER_MODEL`, else `claude-haiku-5-5` (`SDC_LLM_MODEL` does
+not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
+`models` per class (`model`, `source`, and per node).
+
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):
@@ -372,9 +383,49 @@ root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `
 writes `out/decision.json` {decision, answer, reasons, cites, best}, a jq program validates it,
 invalid counts as escalate). The script, not the driver, applies a decision: `sdc-drive approve
 --principal decider:<kind>` (grant and approval record carry that principal) or `answered_by:
-decider:<kind>` in `questions.yaml`; `decisions.jsonl` keeps every decision with its reasons. No
-driver change. Limit: `check-questions` still demands `answered_by: human` for a scope-changing
-answer (see `trial-1.md`).
+decider:<kind>` in `questions.yaml`; `decisions.jsonl` keeps every decision with its reasons and
+its `class`. No driver change. `scope.answer` is put to the decider one open scope-changing
+question at a time (class `scope_changing_answer`), then taken as `decider:<kind>`; a finding
+waiting at `amend.upstream` is put to it as a finding request (class `finding`) and its answer
+written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings amend` checks as it
+checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
+principal for a scope-changing answer (`sdc.intake` r5).
+
+**Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
+decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
+question and finding ids, `context.<key>`, the claims in `in/checks.json`), artifact revisions with
+an entry (`context@<rev>#platform.value`; YAML and JSON artifacts in `in/`) and lines of a file
+(`context.yaml:13-14`). The prompt lists each form with one example from the call's input. `sdc-reply
+resolve` checks every cite (an artifact revision must be the current one, an entry and a line must
+exist); the check refuses only what does not resolve, and a valid reply records each cite's form in
+`citations`. `sdc-reply schema` builds the reply's JSON schema per request (`decision` and `answer`
+as enums where the request fixes them, `cites` as an enum of the citable set); `reply_schema` and
+`citable_set` are the parts other LLM nodes can reuse. The claude-cli adapter passes it as `claude -p
+--json-schema` (the CLI validates the reply and asks again on a mismatch); `metaharness run claude`
+has no response-schema option, so through it the reply is not constrained. Each record says which
+(`schema_constrained`, `schema_note`). An invalid reply is asked again with the check's reason, at
+most 2 retries, each a decider call counted against `SDC_MAX_DECIDER_CALLS` (`invalid_reply` lines in
+`decisions.jsonl`). Still invalid under `SDC_DECIDER_ESCALATE=final`: a question or a finding takes
+its default (`fallback: invalid_reply_default`); an approval is approved when every claim of its
+precondition is true (`approved_on_checks`), a close when its outcome's claims are true and no
+obligation is open, else rejected with the failing checks (`rejected_on_checks`). `--autopilot`
+exports `SDC_DECIDER_ESCALATE=final`, so the decider is asked for `best` and an escalate without
+it is invalid. A reject ends the
+run with exit 6, `rejected_without_rework_path`: no protocol approval has a result other than
+`approved`, so none has an action that reworks a rejected revision with the reasons.
+
+**Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
+`runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
+"<principal>", "reason": "…", "verdict_at_stop": "<last round's verdict>", "case": "<its case id
+or null>"}` (`by` from `SDC_PRINCIPAL`, required), and a `# stopped at … by …: …` line in
+`run.log`; the driver and the event logs are not touched. A resume of a stopped run is refused
+(exit 8) until `--reopen`, which renames the record to `run-stopped.<at>.json`, logs it and goes
+on. `sdc-finding-kpis` reports the time the run waited on a person as L7 (`kpis.md` § 4), with the
+stops that caused it, up to the stop record's instant; with a decider set (A3 and up) a value
+above 0 is printed as `FAILED`. Under `--autopilot` a stop the decider cannot take is written by
+`rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`,
+`decider_budget_spent`, `writer_spent`, `stuck`, …) and a reason that names the action, the cause,
+the case and the fix it waits on; the interval before a `rule:` stop is not counted in L7.
 
 **Where another model source plugs in** (not built):
 

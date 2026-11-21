@@ -1,0 +1,4 @@
+{"seq":1,"event":"revised","at":"2026-11-22T10:00:00Z","artifacts":{"idea":"t1"}}
+{"seq":6,"event":"action_finished","at":"2026-11-22T10:05:00Z","action":"scope.answer","principal":"person:ada"}
+{"seq":7,"event":"authority_recorded","at":"2026-11-22T10:05:00Z","principal":"person:ada"}
+{"seq":9,"event":"awaiting_person","at":"2026-11-22T10:10:00Z"}

@@ -240,15 +240,22 @@ The layer line is ADR 0101's attribution: a delta is read against what changed.
 New section; nothing above is changed. Goal (the operator, 2026-11-21): fewer human interventions and
 longer autonomous runs per task, measured on the late-finding loop of `docs/trial-2.md`.
 `driver/target/debug/sdc-finding-kpis <run dir> [--json]` (source `driver/src/bin/sdc-finding-kpis.rs`)
-prints L1 to L6 for one run. Every value is per task (one idea, one case tree). Sources are the run directory that
+prints L1 to L7 for one run. Every value is per task (one idea, one case tree). Sources are the run directory that
 `run-trial.sh` or `run-full-cycle.sh` writes: `store/IDEA-1/**/events.jsonl` (the driver's log,
 field names as written: `event`, `action`, `principal`, `artifacts`), `store/IDEA-1/work/`
 (`findings.yaml`, `questions.yaml`, `context.yaml`) and `rounds.jsonl` (written by
 `scripts/run-trial.sh`, one line per round).
 
-A *person* is any principal that is not an agent: not `non-interactive`, `derived`, `decider:*`,
-`rule:*` or `dry-run`. A decider's decisions are counted by R19 to R25 (`autonomy-levels.md`
-§ 5.1), not here.
+A *person* is a `person:<id>` principal (2026-11-21: written only where a person acted). Runs
+recorded before principals were typed name a person by a bare id (`operator`, a login) or `human`,
+and those still count; `decider:*`, `rule:*`, `agent:*`, `non-interactive`, `derived`, `dry-run`
+and `operator-step` never do. A decider's decisions are counted by R19 to R25
+(`autonomy-levels.md` § 5.1), not here.
+
+Eval numbers come from autopilot runs only (`docs/eval-design.md` § 7). A run in which a script or
+a session stands in for the person is an end-to-end test of the person path: its run settings say
+`stand_in: true` with `stand_in_by`, L1 repeats that (`stand_in`, `stand_in_by`), and its numbers
+are not eval numbers.
 
 | id | KPI | formula | run-log field | dir | gate |
 |---|---|---|---|---|---|
@@ -258,6 +265,7 @@ A *person* is any principal that is not an agent: not `non-interactive`, `derive
 | L4 | late findings per stage | findings not `rejected` whose `stage` is not `requirements` (raised after intake), counted per `stage` (`context`, `vision`, `roadmap`, `spec`, `plan`, `story`) | `findings.yaml` `stage`, `status` | ↓ over time per idea class (more defined up front); a planted finding must appear (trial 2) | advisory |
 | L5 | findings caught by program vs person | count by the prefix of `raised_by`: `program:<rule>`, `llm:<node>` (accepted by the program check), `human`; plus `rejected` (an LLM finding the program check refused) and resolved by `agent` vs `human` | `findings.yaml` `raised_by`, `status`, `decided_by` | program share ↑, human ↓ | advisory |
 | L6 | rework per artifact | per artifact: distinct non-`none` revisions over the whole tree − 1; reported per artifact and summed | `events.jsonl` `revised.artifacts` | ↓ | advisory |
+| L7 | time waiting on a person (added 2026-11-21) | Σ over the stops after which the run did not go on by itself: from the round's `ended_epoch` to the next round's `started_epoch` when a new leg began between them (a `run-settings.jsonl` line: the script had ended and was started again); for the last round of a run not closed (no `decision.json`), to the stop record's `at` (`run-stopped.json`), else to now (`ongoing`). Reported with each stop (verdict, case, seconds, `resumed`, `stopped` or `ongoing`). Without `run-settings.jsonl`, rounds ending `awaiting_person` or `awaiting_authority` count | `rounds.jsonl`, `run-settings.jsonl` `at`, `decider.kind`, `run-stopped.json` `at`, `decision.json` | ↓ | at A3 and up (the last leg's decider is not `person`) a value above 0 is a failure (`failure: true`, printed `FAILED`); at A0 to A2 advisory |
 
 Notes:
 
@@ -271,6 +279,7 @@ Notes:
 - L4 and L5 read the final `findings.yaml`. A finding is never deleted: resolved, dismissed and
   rejected ones stay, so the counts are over the whole run.
 - Measured values (stub runs, 2026-11-21): see `docs/trial-2.md`, "Verification".
+- `sdc-run-compare` reads two or more run directories and writes one comparison report of these figures and the run's cost, time and end state (`docs/run-compare.md`).
 
 ## 5. Flow (multi-item runs) (added 2026-11-21, decided)
 

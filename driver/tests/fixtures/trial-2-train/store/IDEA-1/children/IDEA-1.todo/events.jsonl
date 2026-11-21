@@ -1,0 +1,16 @@
+{"seq":1,"event":"revised","at":"2026-11-21T01:33:53Z","artifacts":{"roadmap":"tedcc307fa9dc6871"}}
+{"seq":4,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"roadmap.read"}
+{"seq":8,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"spec.gate"}
+{"seq":12,"event":"child_opened","at":"2026-11-21T01:33:53Z","child_case":"IDEA-1.todo.spec"}
+{"seq":13,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"spec.open"}
+{"seq":15,"event":"child_closed","at":"2026-11-21T01:33:53Z","outcome":"passed","child_case":"IDEA-1.todo.spec"}
+{"seq":16,"event":"revised","at":"2026-11-21T01:33:53Z","artifacts":{"spec":"t3c91f373ecb564e9"}}
+{"seq":19,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"spec.gate"}
+{"seq":23,"event":"child_opened","at":"2026-11-21T01:33:53Z","child_case":"IDEA-1.todo.plan"}
+{"seq":24,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"plan.open"}
+{"seq":26,"event":"child_closed","at":"2026-11-21T01:52:39Z","outcome":"passed","child_case":"IDEA-1.todo.plan"}
+{"seq":29,"event":"child_opened","at":"2026-11-21T01:52:39Z","child_case":"IDEA-1.todo.access"}
+{"seq":30,"event":"child_opened","at":"2026-11-21T01:52:39Z","child_case":"IDEA-1.todo.lists"}
+{"seq":31,"event":"child_opened","at":"2026-11-21T01:52:39Z","child_case":"IDEA-1.todo.offline"}
+{"seq":32,"event":"action_finished","at":"2026-11-21T01:52:39Z","action":"stories.open"}
+{"seq":34,"event":"child_closed","at":"2026-11-21T02:06:17Z","outcome":"passed","child_case":"IDEA-1.todo.access"}

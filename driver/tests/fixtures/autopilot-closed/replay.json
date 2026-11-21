@@ -1,0 +1,5 @@
+[
+  {"at": "2026-11-22T09:41:00Z", "case": "IDEA-1", "decision_matches_log": true, "state_matches_log": true},
+  {"at": "2026-11-22T09:41:00Z", "case": "IDEA-1.direction", "decision_matches_log": true, "state_matches_log": true},
+  {"at": "2026-11-22T09:41:00Z", "case": "IDEA-1.intake", "decision_matches_log": true, "state_matches_log": false}
+]

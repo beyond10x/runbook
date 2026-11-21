@@ -17,7 +17,7 @@
 
 - `protocol/` the eight protocols, `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
-- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`); bindings in `driver/examples/sdc/`.
+- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`); bindings in `driver/examples/sdc/`.
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `decision/` decision-contract examples (`docs/decisions.md`).
@@ -45,9 +45,18 @@
   (`aep plan artifact new|move|relate|body|validate|waves`). Never hand-edit an artifact file.
   Body scratch files go in `.engineering/drafts/` (git-ignored).
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
+- An LLM call whose output is a data document is made with a response schema and its reply is
+  validated by a program against the same schema; an invalid reply is retried with the validator's
+  error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the
+  only exception and are listed in `docs/driver.md` (the operator, 2026-11-21).
 - Cite `path:line` for facts in docs; mark what was not observed as *inferred*.
 - No `/home/<name>/` path in any committed file: write repository-relative paths, sibling-relative
   paths (`../canon/…`) in docs, and `$HOME`-based or argument paths in scripts.
+- A run that cannot continue (a defect that needs a code change, a missing capability, or a
+  decision nobody will take) is stopped at once by whoever finds it, with
+  `SDC_PRINCIPAL=<principal> scripts/run-trial.sh <run> --stop "<reason and the fix it waits on>"`.
+  No run is left waiting when no person or agent is working on it. Demo and fixture runs are never
+  listed beside real runs without a label (the operator, 2026-11-21).
 
 ## Commits
 

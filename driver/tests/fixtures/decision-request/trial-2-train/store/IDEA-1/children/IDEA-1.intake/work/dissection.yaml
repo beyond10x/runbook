@@ -1,0 +1,25 @@
+items:
+  - id: d1
+    type: wish
+    span: "A to-do list web app"
+    note: "The user wants a to-do list delivered as a web app."
+  - id: d2
+    type: wish
+    span: "that also works on the train without a connection"
+    note: "The user wants the app to keep working offline, such as on a train."
+  - id: d3
+    type: ambiguity
+    span: "for me and my partner"
+    note: "It is unclear whether the two users share one list, or each has a separate list that can be shared."
+  - id: d4
+    type: dark_spot
+    span: "works on the train without a connection"
+    note: "Nothing is said about how changes made offline are synchronised or how conflicting edits by the two users are resolved."
+  - id: d5
+    type: dark_spot
+    span: "for me and my partner"
+    note: "Nothing is said about how the two users sign in or how access to the list is restricted to them."
+  - id: d6
+    type: unknown
+    span: "web app"
+    note: "The hosting, supported browsers and whether the app must be installable are not named."

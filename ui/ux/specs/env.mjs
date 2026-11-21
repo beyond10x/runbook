@@ -29,11 +29,11 @@ async function until(what, ok, ms = 60000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-// The server this loop started, once it answers as a clock-mode server: its address comes from its
-// own first line (it takes a free port, so two loops on one machine never share one, and a request
-// never reaches another loop's server). If it exits or does not answer within a minute, the error
-// says which, with its stderr.
-async function serverUp(srv, viewport, ms = 60000) {
+// A server this loop started, once it answers (as a clock-mode server unless clock is false): its
+// address comes from its own first line (it takes a free port, so two loops on one machine never
+// share one, and a request never reaches another loop's server). If it exits or does not answer
+// within a minute, the error says which, with its stderr. srv: spawned with stdout and stderr piped.
+export async function serverUp(srv, viewport, {clock = true, ms = 60000} = {}) {
   let out = '', err = '', exit = null;
   srv.stdout.on('data', (d) => { out += d; });
   srv.stderr.on('data', (d) => { err += d; });
@@ -45,18 +45,20 @@ async function serverUp(srv, viewport, ms = 60000) {
     if (exit) throw fail(`it ended (${exit}) before answering`);
     base ||= /sdc-ui on (http:\/\/[^/\s]+)\//.exec(out)?.[1] ?? null;
     if (!base) continue;
-    const health = await fetch(base + '/api/clock').then((r) => r.json(), () => null);
-    if (health?.clock === true) return base;
+    const health = await fetch(base + (clock ? '/api/clock' : '/api/sources')).then((r) => r.json(), () => null);
+    if (health && (!clock || health.clock === true)) return base;
     if (health) throw fail(`${base} answers but not in clock mode (SDC_CLOCK_DIR not seen)`);
   }
-  throw fail(base ? `${base} named, but no answer to /api/clock within ${ms / 1000} s` : `no listening line within ${ms / 1000} s; stdout: ${out.trim() || '(empty)'}`);
+  throw fail(base ? `${base} named, but no answer within ${ms / 1000} s` : `no listening line within ${ms / 1000} s; stdout: ${out.trim() || '(empty)'}`);
 }
 
-export async function start(viewport) {
+// slot: 'loop' or 'phone' (the phone contract, with a fixture dir of its own), so the two spec files
+// can run at the same viewport at once. A free port by default; SDC_UI_UX_PORT pins them (its value
+// plus the viewport's index, 60 more for the phone slot).
+export async function start(viewport, slot = 'loop') {
   const k = all.findIndex((v) => v.name === viewport);
-  // a free port by default; SDC_UI_UX_PORT pins one (its value, +1 for the second viewport)
-  const port = process.env.SDC_UI_UX_PORT ? Number(process.env.SDC_UI_UX_PORT) + k : 0;
-  const dir = path.join(OUT, 'fixtures', viewport);
+  const port = process.env.SDC_UI_UX_PORT ? Number(process.env.SDC_UI_UX_PORT) + k + (slot === 'phone' ? 60 : 0) : 0;
+  const dir = path.join(OUT, 'fixtures', slot === 'phone' ? `phone-${viewport}` : viewport);
   fs.rmSync(dir, {recursive: true, force: true});
   fs.mkdirSync(dir, {recursive: true});
   const gate = path.join(dir, '.clock');

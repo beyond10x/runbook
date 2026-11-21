@@ -4,3 +4,4 @@ protocol: sdc
 revision: c1
 artifacts:
   idea: {revision: i1}
+  goals: {revision: none}

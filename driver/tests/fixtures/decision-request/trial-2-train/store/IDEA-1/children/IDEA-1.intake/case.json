@@ -1,0 +1,24 @@
+{
+  "artifacts": {
+    "dissection": {
+      "revision": "tbabac563d13954a8"
+    },
+    "findings": {
+      "revision": "tb39205c4cfad6604"
+    },
+    "idea": {
+      "revision": "tc87b516e338704cd"
+    },
+    "questions": {
+      "revision": "td8cb7470df6cdfc0"
+    },
+    "requirements": {
+      "revision": "t65caa968ee6d41ac"
+    }
+  },
+  "format": "canon-case/1",
+  "id": "IDEA-1.intake",
+  "protocol": "sdc.intake",
+  "revision": "c12",
+  "termination": "passed"
+}

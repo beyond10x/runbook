@@ -1,0 +1,7 @@
+{"seq":1,"event":"revised","at":"2026-11-22T09:00:00Z","artifacts":{"idea":"t1"}}
+{"seq":5,"event":"action_finished","at":"2026-11-22T09:00:00Z","action":"intake.open","principal":null}
+{"seq":9,"event":"revised","at":"2026-11-22T09:20:05Z","artifacts":{"roadmap":"t2"}}
+{"seq":11,"event":"authority_recorded","at":"2026-11-22T09:20:05Z","principal":"decider:haiku"}
+{"seq":12,"event":"action_finished","at":"2026-11-22T09:20:05Z","action":"roadmap.approve","principal":"decider:haiku"}
+{"seq":14,"event":"revised","at":"2026-11-22T09:30:00Z","artifacts":{"roadmap":"t3"}}
+{"seq":20,"event":"terminated","at":"2026-11-22T09:41:00Z","outcome":"operating"}

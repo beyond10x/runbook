@@ -226,7 +226,8 @@ ux loop and the server without arguments still need the recorded runs and say wh
 ## UI iteration loop
 
 `ux/` holds the measured loop of the `ui-iteration-loop` skill. `ux/adapter.mjs` names the gating
-viewports (1600x1000, 1366x768; 1280x720 and 1920x1080 are measured only), the one theme, what is
+viewports (1600x1000, 1366x768 and the phone 390x844; 1280x720, 1920x1080 and the phones 360x800,
+414x896 and 768x1024 are measured only), the one theme, what is
 always visible (Now band, KPI strip, store selector, Decisions), the scroll exceptions (decision
 D-001), the guidance cue (the Now band's waiting card and its Decide control) and six scenarios
 with their truth. `ux/core/` is generic: the layout contract with axe-core, the screen-only user's
@@ -240,8 +241,10 @@ task ux:update          # take improvements into the baseline (DECISION=D-nnn fo
 task ux:round ROUND=R-02   # measure a round: ux/rounds/R-02/{report.md,round.json,shots/} and trend.md
 ```
 
-Each viewport's server takes a free port and names it in its first line, so two loops on one
-machine do not collide; `SDC_UI_UX_PORT` pins the ports instead. Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
+Each server of the loop and of the phone contract (and the contract's recorded runs) takes a free
+port and names it in its first line, so two loops on one machine do not collide. `SDC_UI_UX_PORT`
+pins them instead: its value on for the loop, 60 above for the phone contract, 80 above for its
+recorded runs. Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
 a regression asset that exists (`ux/specs/findings.spec.mjs`). Round R-01: `ux/rounds/R-01/`
 (report, the two reviews, triage, decision).
 A baseline key may carry its own `tolerance` (decision D-003: the wall-clock sampled metrics of the
@@ -262,8 +265,38 @@ Animations and transitions are off in the measured page, layout shift is counted
 steps' clock, and a scenario waiting on someone reaches its truth when the card names who it waits
 on. The values this changed (the measurement, not the UI) were taken under D-005, and the D-003
 tolerances were dropped. Round files are written with repository-relative paths.
-Decision D-006 labels stub runs. The played scenarios are fixture runs, so the measured page
+
+### Phone sizes (decision D-006)
+
+The operator, 2026-11-21 ("mobile view looks pretty unusable atm"), set the adapter's values for a
+phone (`ux/adapter.mjs` `phone` and `policy`), applied at the gating phone size 390x844 and reported
+at 360x800, 414x896 and 768x1024:
+
+- Vertical page scroll is allowed on a phone; horizontal page scroll is not, and nothing runs past
+  the screen's edge.
+- Always visible at every state change, scrolled or not: the run's state (running, waiting, stopped
+  with its reason), the Now band's current step and the open-decision indicator (Decisions).
+- The top KPIs stay reachable within one scroll screen.
+- The right rail is a full-width sheet opened from a visible control (Details), never a column.
+- The case graph is a list or scrolls sideways inside its own box with a visible hint, never a
+  clipped canvas.
+- Dialogs (the change dialog, the Decisions drawer with its decision cards) are full-screen sheets
+  with their close control in view.
+- Every tap target is at least 44x44 CSS px; no body text under 14 px (and no label under 12 px).
+- Desktop behaviour at 1600x1000 and 1366x768 does not change: every phone rule is under
+  `@media (max-width: 900px)`.
+
+`ux/core/phone.mjs` measures these facts (generic); `ux/specs/phone.spec.mjs` is the phone layout
+contract at every key moment of the six scenarios and of the recorded runs `trial-2-train`,
+`trial-3-haiku` and `trial-todo-1` (skipped without `runs/`), with metrics `phone.*` in the
+ratchet; `test/mobile.spec.mjs` (port 7532, `SDC_UI_MOBILE_PORT`) holds one test per phone finding
+(UXF-016 to UXF-026) over played runs that need no `runs/`. In `ux/specs/loop.spec.mjs` the
+screen-only user may scroll the page at a phone size; what it scrolls to costs a glance 3. Round
+R-03: `ux/rounds/R-03/`.
+
+Decision D-007 labels stub runs. The played scenarios are fixture runs, so the measured page
 shows the label "stub run: canned content, not a model's work" in the header and in a row of its
 own above the Now band. reading_load rises by the label's 8 words in every played scenario, and two's
 layout shift falls a little because the band starts one row lower. These values were taken under
-D-006: the UI changed on purpose.
+D-007: the UI changed on purpose. On a phone the label row and the header mark stay in view and
+uncut (`test/stub-runs.spec.mjs` at 390x844).
