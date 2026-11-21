@@ -577,6 +577,14 @@ fn a_product_tree_is_sized_by_its_tests_its_product_lines_and_whether_its_readme
     assert_eq!(v["test_lines"], 14);
     // Web assets kept beside the Rust (a product may embed them in Rust strings instead).
     assert_eq!(v["asset_lines"], 4);
+    // Files of the tree outside target/: Cargo.toml, README.md, 3 .rs, index.html, sw.js.
+    assert_eq!(v["files"], 7);
+    assert_eq!(v["requirements"], Value::Null);
+    let req = p.parent().unwrap().join("requirements.yaml");
+    fs::write(&req, "requirements:\n- id: r1\n  text: one\n- id: r2\n  text: two\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-free-agent")).arg("size").arg(&p).arg("--requirements").arg(&req).output().unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["requirements"], 2);
     assert_eq!(v["readme"], true);
     assert_eq!(v["readme_says_how_to_start"], true);
     fs::write(p.join("README.md"), "# Demo\n\nA demo.\n").unwrap();

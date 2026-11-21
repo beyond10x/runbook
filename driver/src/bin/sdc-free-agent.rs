@@ -698,6 +698,8 @@ fn product_size(dir: &Path) -> J {
     files_with(dir, &[".rs"], &mut files);
     let mut assets = vec![];
     files_with(dir, &[".html", ".js", ".css"], &mut assets);
+    let mut all = vec![];
+    files_with(dir, &[""], &mut all);
     let asset_lines: usize = assets.iter().map(|f| fs::read_to_string(f).unwrap_or_default().lines().filter(|x| !x.trim().is_empty()).count()).sum();
     let (mut tests, mut product, mut test_lines) = (0u64, 0u64, 0u64);
     for f in &files {
@@ -741,16 +743,51 @@ fn product_size(dir: &Path) -> J {
     let starts = ["cargo run", "task run", "target/release/", "target/debug/"].iter().any(|k| text.contains(k));
     json!({
         "format": "sdc.product-size/1",
-        "rust_files": files.len(), "tests": tests, "product_lines": product, "test_lines": test_lines, "asset_lines": asset_lines,
+        "files": all.len(), "rust_files": files.len(), "tests": tests, "product_lines": product, "test_lines": test_lines, "asset_lines": asset_lines,
         "readme": readme.is_some(), "readme_says_how_to_start": readme.is_some() && starts,
-        "rule": "tests: #[test] attributes; product_lines and test_lines: non-blank lines not starting with // in .rs files, test lines being those in a tests/ directory or in a #[cfg(test)] item (ended by brace count); asset_lines: non-blank lines of .html, .js and .css files; readme_says_how_to_start: a README at the root naming cargo run, task run, target/release/ or target/debug/; target/ and dot directories skipped",
+        "rule": "tests: #[test] attributes; product_lines and test_lines: non-blank lines not starting with // in .rs files, test lines being those in a tests/ directory or in a #[cfg(test)] item (ended by brace count); asset_lines: non-blank lines of .html, .js and .css files; readme_says_how_to_start: a README at the root naming cargo run, task run, target/release/ or target/debug/; target/ and dot directories skipped; files: every file of the tree; requirements: the length of requirements.yaml's requirements list; scenarios: the scenarios of ess verify conform synthesize --target ir on the spec",
     })
 }
 
+/// The number of requirements in a requirements.yaml (its `requirements` list).
+fn requirement_count(file: &Path) -> Option<usize> {
+    let t = fs::read_to_string(file).ok()?;
+    let y = serde_yaml::from_str::<serde_yaml::Value>(&t).ok()?;
+    y.get("requirements").and_then(|r| r.as_sequence()).map(|r| r.len())
+}
+
+/// The number of scenarios `ess verify conform synthesize` derives from a spec directory.
+fn scenario_count(ess: &str, spec: &Path) -> Option<usize> {
+    let o = Command::new(ess).args(["verify", "conform", "synthesize", "--target", "ir", "--format", "json", "--path"]).arg(spec)
+        .stdin(Stdio::null()).output().ok()?;
+    if !o.status.success() {
+        return None;
+    }
+    serde_json::from_slice::<J>(&o.stdout).ok()?.get("scenarios").and_then(|s| s.as_object()).map(|s| s.len())
+}
+
+/// `size <product> [--requirements <file>] [--spec <dir>] [--ess <bin>]`
 fn size(args: &[String]) -> Result<ExitCode, String> {
-    let [dir] = args else { return Err("size needs one product directory".into()) };
-    let dir = canon(Path::new(dir))?;
-    println!("{}", serde_json::to_string_pretty(&product_size(&dir)).map_err(|e| e.to_string())?);
+    let (mut dir, mut req, mut spec, mut ess) = (None, None, None, "ess".to_string());
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut v = || it.next().cloned().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--requirements" => req = Some(PathBuf::from(v()?)),
+            "--spec" => spec = Some(PathBuf::from(v()?)),
+            "--ess" => ess = v()?,
+            _ if dir.is_none() && !a.starts_with("--") => dir = Some(PathBuf::from(a)),
+            _ => return Err(format!("size: unknown argument {a}")),
+        }
+    }
+    let dir = canon(&dir.ok_or("size needs one product directory")?)?;
+    let mut v = product_size(&dir);
+    v["requirements"] = json!(req.as_deref().and_then(requirement_count));
+    v["scenarios"] = json!(spec.as_deref().and_then(|s| scenario_count(&ess, s)));
+    if spec.is_some() {
+        v["scenarios_by"] = json!(Command::new(&ess).arg("--version").output().ok().map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()));
+    }
+    println!("{}", serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?);
     Ok(ExitCode::SUCCESS)
 }
 
