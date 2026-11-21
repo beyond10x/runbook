@@ -470,7 +470,11 @@ checks at start that every class in `schema_reply` (`tools/node-classes.json`) i
 that takes a schema, else refuses with exit 64 naming class and adapter, and records `adapters` in
 `run-settings.jsonl`. A review that stays invalid after its retries stops an autopilot run with
 cause `review_invalid`, naming case and call, not `stuck` (2026-11-21: `runs/trial-3-strong-3` and
-`-4` stopped `stuck` because on metaharness the review could only reply by file). Its inputs are
+`-4` stopped `stuck` because on metaharness the review could only reply by file). An observation
+runs once per case snapshot; `run-trial.sh --reopen` marks a reopen in every case (`sdc-drive
+reopen`, event `reopened`), and a run before it that recorded nothing (an invalid review, a writer
+that was not called) no longer holds the snapshot, so it runs once more on the unchanged state;
+invalid again, the stop names the new call. A run that recorded evidence still holds it. Its inputs are
 built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary and an
 `## Acceptance` section), the requirements it delivers (`spec/traces.json`: a covered command, or a
 view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`
