@@ -2,11 +2,11 @@ format: protocol/1
 
 protocol:
   id: sdc.story
-  revision: 6
+  revision: 7
   description: >-
     Deliver one AEP story of an approved ESS specification: implement it against the current
     specification revision, verify it with the ESS conformance run against the implementation,
-    have it reviewed by a principal other than its implementer, and merge it once a person with the
+    have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the
     merge authority approved that change revision. The merge approval is decided once per change
     revision, approved or rejected; after a rejection change.implement is admissible, and its new
     change revision leaves the build record, the conformance run, the review and the rejection
@@ -181,13 +181,15 @@ actions:
       - evidence: conformance_run
   change.review:
     description: >-
-      review the current change revision; only while no review by a reviewer the case lists as
-      another principal than the implementer is recorded about it (the implementer's own review
-      does not count and does not block)
+      review the current change revision once its conformance run passed at that revision (a
+      failed run sends the implementer back before any review); only while no review by a
+      reviewer the case lists as another principal than the implementer is recorded about it (the
+      implementer's own review does not count and does not block)
     effect: read
     precondition:
       all:
         - claim: change.built
+        - claim: tests.pass
         - claim: change.review_recorded
           is: unknown
     may_produce:
