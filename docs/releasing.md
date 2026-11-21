@@ -2,8 +2,9 @@
 
 A release is a source release at a bare-version tag (`0.1.0`), the process of
 `../engineering-protocols` (`AGENTS.md` § Releases) and `../canon` sized to this repository. Nothing
-is published to crates.io (the three crates are `publish = false`) and there is no release workflow
-and no binary or archive asset; the GitHub Release carries the notes only.
+is published to crates.io (the four crates `driver/`, `watch/`, `goals/` and `runbook/` are
+`publish = false`) and there is no release workflow and no binary or archive asset; the GitHub
+Release carries the notes only.
 
 ## Where the version lives
 
@@ -14,6 +15,9 @@ One version for the repository, written in these files and nowhere else:
 - `ui/package.json` and the root entry of `ui/package-lock.json`;
 - `plugin/.claude-plugin/plugin.json` and `plugin/.codex-plugin/plugin.json` (the `runbook` plugin;
   `.claude-plugin/marketplace.json` carries no version).
+
+Not yet among them: `runbook/Cargo.toml` (the `runbook` command, which prints it with
+`--version`) was merged at its own version, 0.1.4, and `task release:check` does not read it.
 
 `task release:check VERSION=<version>` fails when any of these differs from `<version>`, when
 `CHANGELOG.md` has no `## [<version>] - <date>` entry, when `docs/releases/<version>.md` is missing,

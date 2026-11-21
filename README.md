@@ -92,6 +92,7 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 | `protocol/` | The eight SDC protocols and `sdc-bugfix` |
 | `cases/` | Fixture cases with expected decisions, run by `scripts/evaluate-cases.sh` |
 | `driver/` | The Rust crate `sdc-drive`, its tool bindings (`driver/examples/sdc/`) and other binaries |
+| `runbook/` | `runbook`, the command people type: `doctor`, `list` and `--version` so far |
 | `watch/` | `sdc-watch`: file changes of a run |
 | `goals/` | `sdc-goals`: checks of `sdc.goals/1` documents ([docs/requester.md](docs/requester.md)) |
 | `ui/` | A live web view of a run |
@@ -101,7 +102,7 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 | `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
 | `docs/` | Design notes, results and release notes |
 | `scripts/` | Check, evaluate and trial scripts |
-| `plugin/` | The `runbook` plugin: the skills `workflow-builder`, `harden` and `record` |
+| `plugin/`, `.claude-plugin/` | The `runbook` plugin (the skills `workflow-builder`, `harden` and `record`) and its marketplace |
 | `.engineering/planning/` | The planning store (AEP) |
 
 Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.md).
@@ -113,6 +114,10 @@ A prototype. No interface is stable. Releases are source releases at bare-versio
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
+- Not released yet ([CHANGELOG.md](CHANGELOG.md), Unreleased): the `runbook` command (`doctor`,
+  `list`, `--version`), the plugin, the bug-fix runbook from a ticket on a repository of any
+  language ([docs/bugfix.md](docs/bugfix.md)), and four cost changes behind run switches that are
+  off by default ([docs/improving.md](docs/improving.md), "Run switches").
 - Three trials are written up: [Trial 1](docs/trial-1.md) (a real LLM; round 1 stopped, as
   designed, on three scope-changing questions for a person), [Trial 2](docs/trial-2.md) (a
   late-found ambiguity and the loop that repairs it; verified with stub executors, the real-LLM

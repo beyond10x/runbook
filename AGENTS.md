@@ -27,6 +27,7 @@
 - `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess that Runbook calls.
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
+- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `decision/` decision-contract examples (`docs/decisions.md`).
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).

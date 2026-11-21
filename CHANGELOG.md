@@ -1,9 +1,9 @@
 # Changelog
 
 All notable changes to this repository are recorded here. One version covers the repository
-(`sdc-drive`, `sdc-watch`, `sdc-goals`, `ui/`), released under bare-version tags such as `0.1.0`.
-The crates are `publish = false`; releases are source releases at bare-version tags
-(`docs/releasing.md`).
+(`sdc-drive`, `sdc-watch`, `sdc-goals`, `ui/`, the plugin manifests), released under bare-version
+tags such as `0.1.0`. The crates are `publish = false`; releases are source releases at
+bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
@@ -48,20 +48,34 @@ The crates are `publish = false`; releases are source releases at bare-version t
   records and cycles. A change in what a run does merges off by default until its record holds.
   Cycles `rule-approvals-default`, `review-mode-default` and `implement-coverage-default` re-drive
   main's stub recording once with every switch at its default (run `switches-default`).
+- `runbook`, the command people type (`runbook/`, a new crate; `story:runbook-cli-skeleton`):
+  `runbook doctor` checks the assets, the Canon binary and the programs a run needs, one line per
+  check with what to do on a fail (`--for`, `--json`); `runbook list` lists the runbooks and child
+  protocols of `protocol/`; `runbook --version`. `run`, `ui` and the other commands are not built.
+  `task check` builds, tests and lints it (`b6f7225`). No run metric is affected.
 - The `runbook` plugin (`plugin/`, `.claude-plugin/marketplace.json`): skills `workflow-builder`
   (moved from `skills/`), `harden` and `record`, for Claude Code and Codex. Its manifests carry the
   repository version, which `task release:check` compares; `driver/tests/plugin.rs` checks the
   versions, the marketplace entry and that every repository path a `SKILL.md` names exists
-  (`story:runbook-plugin`).
+  (`story:runbook-plugin`). No run metric is affected.
 - The bug-fix runbook starts from a ticket document (`sdc.ticket/1`) on a clean git worktree:
   `sdc-bugfix seed --ticket <file> [--repo <worktree>]`, `scripts/run-trial.sh --bugfix-ticket`
-  (`story:ticket-input-and-repo-seed`).
+  (`story:ticket-input-and-repo-seed`). No run metric is affected: the benchmark input does not run
+  `sdc-bugfix`.
 - The bug-fix runbook works on a repository of any language. Its suite, single-test and gate
   commands are the case's `checks.yaml` (`sdc.checks/1`), from `seed --checks`, the repository's
   `.runbook/checks.yaml`, or the marker-file table `driver/examples/sdc/checks-detect.yaml`; with
   none, the seed fails naming `--checks`. Tested: Rust (unchanged), JavaScript with `node --test`,
   and a supplied `checks.yaml`; the Go, Python, Java, npm and make rows are not tested. The writers'
-  prompts quote `checks.yaml` and name no language (`story:bugfix-any-language`).
+  prompts quote `checks.yaml` and name no language (`story:bugfix-any-language`). No run metric is
+  affected: the benchmark input does not run `sdc-bugfix`.
+- The six runs of `build-constraints` on tree 3ca26fe (`fix/superseded-answers-0.1.2`, not merged):
+  report and run summaries, Haiku 0 of 3 clean passes, mixed 1 of 3; descriptive, the record has
+  no hypothesis (`89b8de0`). Two runs ended after the ess on PATH changed at about 20:54Z (see
+  Fixed); whether they called it after that is not checked.
+- The six runs of `effort-decider-mixed` on tree 72a3eef: report and run summaries, xhigh 3 of 3
+  clean passes, medium 2 of 3; `run.wall_s` xhigh 3032 [1913, 3677] (3), medium 1831 [1424, 2191]
+  (3); inconclusive, the ranges overlap (`experiments/effort-decider-mixed/report.md`).
 
 ### Changed
 
@@ -95,6 +109,16 @@ The crates are `publish = false`; releases are source releases at bare-version t
   Not measured: no experiment has tested this change; `experiments/implement-cites-requirements.yaml`
   (both variants set `implement_coverage: on`) is registered and not launched; cycle
   `implement-coverage-default` re-drives main's stub recording with the switch unset.
+- The approval record of 0.2.1 and the ledger tree of 0.2.1 (99f5617) (`db85df0`).
+
+### Fixed
+
+- The tools of the bindings (`driver/examples/sdc/tools/sdc-tool.sh`) run ess 0.96.0 whatever
+  `ess` is on PATH (`ESS_TOOLCHAIN=0.96.0`, `ESS_TOOLCHAIN_QUIET=1` unless the caller sets them).
+  Since about 20:54Z on 2026-11-21 the `ess` on PATH can be a version dispatcher, 0.97.1, which
+  ran itself in a case tree: the conformance line of a story's `tests.run` log then names 0.97.1,
+  so `in/tests.txt` and the replay cycles depended on the installed ess (`f82aa7c`). It restores
+  the release of every committed recording and record; not measured otherwise.
 
 ## [0.2.1] - 2026-11-21
 
