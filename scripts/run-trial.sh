@@ -278,9 +278,10 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+  --arg stand "$stand_in" --arg rq "${SDC_REQUESTER_DECIDER:-}" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
     autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc,
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
+    requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
@@ -368,11 +369,30 @@ waiting() {
 # open but the one it discharges (approved_on_checks), else rejected with the failing checks
 # (rejected_on_checks). A reject at an approval: under A5 reworked by its writer (rework), else ended
 # by the protocol's end for a refusal (withhold), else the run ends rejected_without_rework_path.
+dec_principal=""
+class_of() { # <request>: its sdc.decision-classes/1 class (a finding has none of its own: finding)
+  jq -r --slurpfile c "$ex/decision-classes.json" 'if .type == "question" then "scope_changing_answer"
+    elif .type == "finding" then "finding" elif .type == "close" then "close"
+    else .action as $a | ([$c[0].classes | to_entries[] | select(any(.value.actions[]?; endswith("/" + $a))) | .key] | first // "approval") end' <<< "$1"
+}
 decide() {
-  local req=$1 key rec n reply before attempt=1 why="" kind fallback=""
+  local req=$1 key rec n reply before attempt=1 why="" kind fallback="" cls side
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
   kind=$(jq -r .type <<< "$req")
   dec="" ans=""
+  # The decision class and its side (decision-classes.json). With SDC_REQUESTER_DECIDER set, a
+  # requester-side class goes to the requester agent (decider.sh requester, principal
+  # decider:requester); the delivering side keeps SDC_DECIDER. `decider` is local here, so what
+  # decide calls (rework, withhold) names the principal that decided.
+  cls=$(class_of "$req")
+  side=$(jq -r --arg c "$cls" '.classes[$c].side // "delivering"' "$ex/decision-classes.json")
+  local decider=$decider
+  [[ -n ${SDC_REQUESTER_DECIDER:-} && $side == requester ]] && decider=requester
+  dec_principal=decider:$decider
+  local llm=no
+  [[ $decider == haiku || $decider == requester ]] && llm=yes
+  req=$(jq -c --arg c "$cls" --arg s "$side" --arg a "$autonomy" --arg l "$out/decisions.jsonl" '. + {class: $c, side: $s,
+    autonomy: (if $a == "" then null else $a end), decisions_log: $l}' <<< "$req")
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
      jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
        and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
@@ -389,10 +409,11 @@ decide() {
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
       cites: $r.cites, citations: ($r.citations // null), model: $r.model, adapter: $r.adapter, tokens: $r.usage,
       cost_usd: $r.cost_usd, duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
-      schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record} + $x' >> "$out/decisions.jsonl"
+      schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record, side: ($q.side // null),
+      no_ground_in_goals: $r.no_ground_in_goals, strength: ($r.strength // null), grounds: ($r.grounds // null)} + $x' >> "$out/decisions.jsonl"
   }
   while :; do
-    if [[ $decider == haiku ]]; then
+    if [[ $llm == yes ]]; then
       n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
       (( n <= max_decider )) || { end_cause=decider_budget_spent end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
         echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
@@ -406,7 +427,7 @@ decide() {
     before=$(dry_lines)
     reply=$("$ex/tools/decider.sh" "$decider" "$rec/decide-request.json")
     print_dry "$before"
-    [[ $(jq -r .valid <<< "$reply") == false && $decider == haiku ]] || break
+    [[ $(jq -r .valid <<< "$reply") == false && $llm == yes ]] || break
     why=$(jq -r '.invalid_reason // "invalid"' <<< "$reply")
     (( attempt <= 2 )) || break
     line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
@@ -415,7 +436,7 @@ decide() {
   done
   dec=$(jq -r .decision <<< "$reply")
   ans=$(jq -r '.answer // ""' <<< "$reply")
-  if [[ $(jq -r .valid <<< "$reply") == false && $decider == haiku && $escalate_mode == final ]]; then
+  if [[ $(jq -r .valid <<< "$reply") == false && $llm == yes && $escalate_mode == final ]]; then
     # Still invalid after the retries, and nobody else decides: the fallback of the decision kind.
     line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
     case $kind in
@@ -591,7 +612,7 @@ answer_questions() {
     st=changed
     [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
     ANS=$ans yq -i "(.questions[] | select(.id == \"$(jq -r .id <<< "$q")\")) |= (.answer = strenv(ANS)
-      | .status = \"$st\" | .answered_by = \"decider:$decider\")" "$qf"
+      | .status = \"$st\" | .answered_by = \"$dec_principal\")" "$qf"
   done
   [[ $found == yes ]] || return 2
 }
@@ -668,11 +689,11 @@ decide_all() {
     fi
     taken[$key]=1
     if jq -e '.command | test("--action ")' <<< "$n" > /dev/null; then
-      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act"
+      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "$dec_principal" --action "$act"
     else
-      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider"
+      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "$dec_principal"
     fi
-    echo "  approve $act as decider:$decider: exit $code"
+    echo "  approve $act as $dec_principal: exit $code"
     [[ $code == 0 ]] || { jq -r '.message // .' <<< "$last" 2>/dev/null || echo "$last"; exit 4; }
   done < <(jq -c '.next[]' <<< "$last")
 }

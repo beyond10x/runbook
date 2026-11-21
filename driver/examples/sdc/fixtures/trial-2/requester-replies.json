@@ -1,0 +1,32 @@
+{
+  "q1": {
+    "option": "A",
+    "answer": null,
+    "reasons": ["The app is for the operator and a partner; one list both of them use is what the goal names."],
+    "grounds": [
+      {
+        "source": "goals",
+        "citation": {"form": "artifact_revision", "value": {"artifact": "goals", "revision": "{goals_rev}", "entry": "request/r1"}},
+        "supports": "A",
+        "how": "request/r1 names one to-do app for the operator and a partner, which one shared list serves."
+      }
+    ],
+    "strength": "moderate",
+    "no_ground_in_goals": false
+  },
+  "q3": {
+    "option": "B",
+    "answer": null,
+    "reasons": ["The goals say nothing about sign-in; their preference is that an open question takes its default."],
+    "grounds": [
+      {
+        "source": "goals",
+        "citation": {"form": "artifact_revision", "value": {"artifact": "goals", "revision": "{goals_rev}", "entry": "request/r4"}},
+        "supports": "B",
+        "how": "request/r4 prefers the default for a question the idea leaves open, and the default is the one-time code."
+      }
+    ],
+    "strength": "moderate",
+    "no_ground_in_goals": false
+  }
+}
