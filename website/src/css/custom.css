@@ -1,4 +1,4 @@
-/* SDC site: layouts and components on the shared docs-system tokens. Colours come from the
+/* Runbook site: layouts and components on the shared docs-system tokens. Colours come from the
    tokens only, so both themes keep the contrast the tokens are validated for. */
 
 .sdc-muted { color: var(--b10x-color-muted); font-size: 0.9rem; }

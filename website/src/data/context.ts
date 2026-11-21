@@ -5,7 +5,7 @@
  * pinned in SRC.
  */
 
-export const SRC = 'https://github.com/beyond10x/sdc/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba';
+export const SRC = 'https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba';
 
 export interface Cite {
   path: string;

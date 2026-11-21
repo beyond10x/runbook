@@ -26,8 +26,8 @@ protocol, `sdc.bugfix`, fixes one bug, red first
 
 Runbook is the name of the product: the driver, the protocol format, the run inspector, the
 experiment tools and this site. SDC stands for software delivery cycle, the first runbook. The
-binaries, environment names, format ids and the repository still carry `sdc`; they are renamed
-later.
+repository is `beyond10x/runbook`; the binaries, environment names and format ids still carry
+`sdc` and are renamed later.
 
 ## The LLM is not the runtime
 

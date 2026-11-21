@@ -4,9 +4,9 @@
 
 - Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides
   the next step from recorded facts; a model carries out single steps. The product name is
-  Runbook (the operator, 2026-11-21: "Yes, runbook. Agentic runbook."); the code, binaries,
-  environment names, format ids and the repository still carry `sdc` until stages 2 and 3 of
-  `story:project-rename`.
+  Runbook (the operator, 2026-11-21: "Yes, runbook. Agentic runbook."); the repository is
+  `beyond10x/runbook` (stage 3); the code, binaries, environment names and format ids still carry
+  `sdc` until stage 2 of `story:project-rename`.
 - The software delivery cycle (SDC), the first runbook, takes an idea to a built, tested product.
   Other runbooks are planned, not built: incident handling, investigations, ticket triage.
 - The SDC is a family of eight Canon `protocol/1` documents under `protocol/`, one case per stage, composed
