@@ -644,6 +644,8 @@ arguments was refused at the missing key. The first SDC attempt stopped `stuck` 
 
 ## Gaps
 
+Every reject point and writer cap in autopilot, with its route and pending cycles: `reject-routes.md`.
+
 Status 2026-11-21: 2, 3, 7, 13 closed; 12 and 14 partly; 16-23 new.
 
 1. **Authority is not bound to a revision.** A Canon request (see "Authority"); not worked
