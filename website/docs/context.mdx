@@ -1,0 +1,215 @@
+---
+title: Context
+description: What a model call in a Runbook run is given, how context passes from node to node, and how you change it.
+---
+
+import ContextFlow, {NodeCard} from '@site/src/components/ContextFlow';
+import ContextLevers from '@site/src/components/ContextLevers';
+
+# Context
+
+Runbook runs a case in fixed steps. A program decides the next step from recorded facts. A model
+carries out single steps, one call per step. This page says what one such call is given, and how
+you can change that. The example is the first runbook, the software delivery cycle (SDC).
+
+In short: a model call gets a new session and copies of a short list of files. It does not get the
+conversation of any earlier call. Context moves between steps as files and recorded results.
+
+Source links point at one fixed commit of this repository, so the line numbers stay right.
+
+## What one node sees
+
+A model node gets a new session, a fixed instruction, and copies of the files its entry names.
+Nothing else from the run reaches it.
+
+- The driver runs the tool the node's binding names, with a few environment variables: the case,
+  the binding's `llm` settings, and on a retry the failed checks
+  ([`main.rs:1467-1507`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/src/main.rs#L1467-L1507)).
+- For every model node that tool is `llm-node.sh`
+  ([`driver.md:344-345`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L344-L345)).
+- The binding sets the model, the turn and cost limits, the allowed operations, and which failed
+  checks come back to the node ([`sdc-story.bindings.json:26-63`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/sdc-story.bindings.json#L26-L63)).
+- The input list and the task text are not in the binding. They are written in `llm-node.sh`, one
+  entry per node ([`llm-node.sh:247-468`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L247-L468)).
+- `llm-node.sh` copies each named file from the shared `work/` directory into a new `in/`
+  directory. A missing file is listed as absent ([`llm-node.sh:232-242`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L232-L242)).
+- It writes the prompt from that list only: a fixed preamble, the input list, the task
+  ([`llm-node.sh:540-559`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L540-L559)).
+- The model may use only the operations its binding allows. The default is read, write, edit, list
+  and search files ([`llm-node.sh:246`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L246)). It has no shell and no web
+  ([`llm-adapter-claude-cli.sh:28-34`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-adapter-claude-cli.sh#L28-L34)).
+- It writes only under `out/`. Only the node's declared output is copied back. The rest stays in
+  the call's record ([`llm-node.sh:652-717`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L652-L717)).
+
+Three nodes of the software delivery cycle. The rows "Runs while", "class", "default model", "May
+use" and "Sent back by" are rendered from the generated protocol data. The input lists come from
+`llm-node.sh`, cited on each card.
+
+<NodeCard name="spec.author" />
+<NodeCard name="change.implement" />
+<NodeCard name="change.review" />
+
+## How context passes from node to node
+
+Context passes as files, not as a conversation. A node writes a product. A program records
+evidence about it. The next node gets copies of the products its entry names.
+
+<ContextFlow />
+
+- All cases of one run share one `work/` directory
+  ([`driver.md:198-199`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L198-L199)).
+- When a node's output changes a file there, the driver gives that artifact a new revision
+  ([`driver.md:88`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L88)).
+- Only programs bound to check actions record evidence. The model records none
+  ([`llm-node.sh:5-9`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L5-L9)).
+
+What is carried to a later node:
+
+- **Documents**: copies of the current files, such as `requirements.yaml`, `spec/`, `impl/` ([`llm-node.sh:232-242`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L232-L242))
+- **Recorded evidence**: failed checks with their logs in `in/feedback.md`; for the review, the passed test run in `in/tests.txt` ([`main.rs:1467-1507`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/src/main.rs#L1467-L1507), [`llm-node.sh:493-509`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L493-L509))
+- **Decisions**: answers in `questions.yaml`; decided findings in `findings.yaml`, which the node must follow ([`llm-node.sh:470-491`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L470-L491))
+- **Rejection reasons**: `in/rejection.json` on a rework take, with the instruction to address each reason ([`llm-node.sh:524-538`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L524-L538))
+
+What is not carried: the earlier call's prompt and replies, its reasoning, its tool calls and
+their output, and any file it wrote besides its declared output. These stay in the earlier call's
+record directory ([`driver.md:361-362`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L361-L362)).
+
+No node keeps a session across takes on `main`. Each call gets a new record directory and a new
+working directory ([`llm-node.sh:211-216`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L211-L216)).
+The `claude-cli` adapter starts with a fresh configuration home and no session persistence
+([`llm-adapter-claude-cli.sh:21`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-adapter-claude-cli.sh#L21),
+[`:34`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-adapter-claude-cli.sh#L34)).
+The `metaharness` adapter passes an empty `prior` list and a scratch working directory
+([`llm-adapter-metaharness.sh:89-101`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-adapter-metaharness.sh#L89-L101)).
+
+A node does see some of its own past, as files:
+
+- A node that edits its output in place starts from a copy of the current file, such as `impl/`
+  ([`llm-node.sh:244`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L244)).
+- After its own failed run, `in/feedback.md` holds the last 80 lines of that run's step log
+  ([`llm-node.sh:510-523`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L510-L523)).
+- When the program refuses a review reply, the refusal is appended to the same prompt and the
+  model is called again, in a new session ([`llm-node.sh:628-635`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L628-L635)).
+
+## What the program holds
+
+The program holds the state of a case. No model holds it. Each case has a store: the current
+revision of every artifact, the evidence records (append-only), and a hash-chained event log
+([`driver.md:186-203`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L186-L203)).
+Canon reads the protocol and that evidence. It works out the claims, the open obligations and the
+actions that are admissible next ([`driver.md:83-84`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L83-L84)).
+No case stores a phase ([`protocol-notes.md:18-20`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/protocol-notes.md#L18-L20)).
+[The flow](./flow.mdx) shows how the cases compose. The [protocol browser](pathname:///runbook/protocols)
+lists every action, what it waits for and what it records. [The LLM is not the
+runtime](pathname:///runbook/llm-is-not-the-runtime) draws one run step by step.
+
+## How you can change the context
+
+You change a node's context by changing a file it reads, a decision it follows, its binding, or a
+run setting. The graphic shows the layers of one node's context and who sets each.
+
+<ContextLevers />
+
+Every lever that exists on `main`, with when it takes effect:
+
+- **Idea text**
+  - Where: `scripts/run-trial.sh <run> "<idea>"` writes `work/idea.yaml` ([`run-trial.sh:355-360`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L355-L360)); an experiment record passes its `inputs` text ([`sdc-experiment.rs:1811-1813`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/src/bin/sdc-experiment.rs#L1811-L1813))
+  - Example: "A to-do list web app for me and my partner that also works on the train without a connection"
+  - Takes effect: at the start of a run only
+- **Goals document**
+  - Where: `--goals FILE` copies it to `work/goals.yaml` ([`run-trial.sh:102-115`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L102-L115), [`:362`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L362)); `SDC_REQUESTER_DECIDER` sends requester-side decisions to the requester decider, which reads it ([`run-trial.sh:760-767`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L760-L767), [`decider.sh:179-192`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/decider.sh#L179-L192)); format in `docs/requester.md`
+  - Example: an entry `{id: product/p1, kind: constraint, statement: "No sign-in is built."}`
+  - Takes effect: copied at the start; read at each requester decision. No writer node reads it on `main`.
+- **Interview answers**
+  - Where: edit the scope-changing answers in `work/questions.yaml`; the edit is a new revision ([`driver.md:157-159`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L157-L159)); `requirements.normalise` reads the file ([`llm-node.sh:306-307`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L306-L307))
+  - Example: answer "Each family member signs in" instead of the default
+  - Takes effect: when the driver runs again
+- **Finding decisions**
+  - Where: a `decision` on a finding in `work/findings.yaml`; `amend.upstream` amends the requirements, and each writer that raises findings must follow it ([`llm-node.sh:470-491`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L470-L491))
+  - Example: decide that r5 is a constraint, not behaviour
+  - Takes effect: at the next re-derivation of each later product
+- **Context fields**
+  - Where: set a field of `work/context.yaml` to `status: changed` or `accepted`; it survives the next default pass ([`llm-node.sh:687-693`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L687-L693))
+  - Example: `deployment: {value: one small server, status: changed}`
+  - Takes effect: for every later node that reads `context.yaml`
+- **Rejection with reasons**
+  - Where: `sdc-drive approve … --result rejected --reasons <file>` ([`driver.md:549-556`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/driver.md#L549-L556))
+  - Example: reject the merge: "the export command has no test"
+  - Takes effect: at the writer's next take, as `in/rejection.json`
+- **Rework cap**
+  - Where: `SDC_MAX_REJECTIONS`; the rework prompt names it ([`run-trial.sh:166-171`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L166-L171), [`llm-node.sh:528-534`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L528-L534))
+  - Example: `SDC_MAX_REJECTIONS=2`
+  - Takes effect: at the start or resume of a run
+- **A node's binding**
+  - Where: `driver/examples/sdc/<protocol>.bindings.json`: `llm.model`, `max_turns`, `max_budget_usd`, `operations`, `retry_when`, `max_runs` ([`sdc-story.bindings.json:82-109`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/sdc-story.bindings.json#L82-L109))
+  - Example: give `change.review` `"operations": ["file.read"]`
+  - Takes effect: for cases opened after the change: a case writes its own copy of the bindings when it opens ([`main.rs:885-901`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/src/main.rs#L885-L901))
+- **A node's inputs and instruction**
+  - Where: the node's entry in `driver/examples/sdc/tools/llm-node.sh` ([`llm-node.sh:247-468`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L247-L468))
+  - Example: add `input goals.yaml` to `context.default`
+  - Takes effect: at the next call made from a tree that holds the change
+- **Model per node class**
+  - Where: `SDC_LLM_MODEL_<CLASS>`: `WRITER`, `IMPLEMENT`, `REVIEW`, `OTHER`; else `SDC_LLM_MODEL`; else the binding ([`llm-node.sh:561-566`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L561-L566)); classes in [`node-classes.json:4-12`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/node-classes.json#L4-L12)
+  - Example: `SDC_LLM_MODEL_IMPLEMENT=claude-sonnet-5-5`
+  - Takes effect: read at each call; set at the start or resume of a run
+- **Effort per node class**
+  - Where: `SDC_LLM_EFFORT_<CLASS>`; else `SDC_LLM_EFFORT`; else `default_efforts` in `node-classes.json` ([`llm-node.sh:567-568`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L567-L568))
+  - Example: `SDC_LLM_EFFORT_REVIEW=xhigh`
+  - Takes effect: read at each call; set at the start or resume of a run
+- **Autonomy level and decider**
+  - Where: `SDC_AUTONOMY=A0`…`A5` or `--autopilot` (A5); `SDC_DECIDER`: `person`, `approve`, `reject`, `model` ([`run-trial.sh:65-75`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L65-L75), [`:94-100`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L94-L100)). A1 to A4 are recorded but not routed yet ([`autonomy-levels.md:450`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/docs/autonomy-levels.md#L450))
+  - Example: A0: a person takes every decision; A5: the decider takes them and is final
+  - Takes effect: at the start or resume of a run; it decides whose answers and rejections later nodes get
+
+## What you can inspect afterwards
+
+Every call is recorded with what it was given and what it cost. The records are in the run
+directory, `runs/<run>/`, which stays out of git because it holds prompts and transcripts.
+
+- `llm-calls.jsonl` has one line per model call
+  ([`llm-node.sh:580-592`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L580-L592)).
+  Its fields: `action`, `case`, `started`, `attempt`, `retry`, `adapter`, `model`, `effort`,
+  `class`, `allowed_operations`, `max_turns`, `max_budget_usd`, `exit`, `applied_exit`, `output`,
+  `duration_ms`, `cost_usd`, `num_turns`, `usage`, `offered_tools`, `tool_calls`, `dry`, `record`.
+- `record` names the call's directory, `llm/NNN-<action>/`. It holds `prompt.md`, `request.json`,
+  the exact inputs under `cwd/in/`, what the model wrote under `cwd/out/`, `response.json`,
+  `argv.json` and the event stream ([`llm-node.sh:211-216`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L211-L216),
+  [`run-trial.sh:42-47`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L42-L47)).
+- `request.json` has `model`, `effort`, `prompt_file`, `cwd`, `record_dir`, `node`, `attempt`,
+  `case`, `case_dir`, `operations`, `max_turns`, `max_budget_usd`, and `json_schema` for a reply
+  under a schema ([`llm-node.sh:569-578`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L569-L578)).
+- `run-settings.jsonl` has one line per start or resume of a run
+  ([`run-trial.sh:428-444`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/scripts/run-trial.sh#L428-L444)).
+  Its fields: `format`, `at`, `leg`, `tree`, `llm_nodes`, `replay`, `autonomy`, `autonomy_source`,
+  `keep_going`, `unstick`, `per_class_routing`, `requester_decider`, `decider`, `rework_limit`,
+  `adapter`, `max_llm_calls`, `max_wall_seconds`, `llm_calls_before`, `models`, `adapters`,
+  `efforts`, `stand_in`, `stand_in_by`.
+- The run inspector in `ui/` shows the calls, tokens, cost and tool calls from `llm-calls.jsonl`,
+  and who holds the decisions from `run-settings.jsonl`
+  ([`ui/README.md:30-45`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/ui/README.md#L30-L45)).
+  Start it from `ui/` with `node server.mjs --runs ../runs`.
+
+An invented example line of `llm-calls.jsonl`, shortened to one tool call. The values are made up;
+the field names are the real ones.
+
+```json title="Example only: invented values"
+{"action": "change.implement", "case": "IDEA-1.todo.add", "started": "2026-01-01T10:00:00Z",
+ "attempt": 2, "retry": true, "adapter": "metaharness", "model": "claude-haiku-5-5",
+ "effort": "high", "class": "implement",
+ "allowed_operations": ["dir.list", "file.edit", "file.read", "file.write", "search"],
+ "max_turns": 40, "max_budget_usd": 2, "exit": 0, "applied_exit": 0, "output": "impl",
+ "duration_ms": 95000, "cost_usd": 0.41, "num_turns": 18,
+ "usage": {"input_tokens": 21000, "output_tokens": 5200},
+ "offered_tools": ["Edit", "Glob", "Grep", "Read", "Write"],
+ "tool_calls": [{"name": "Read", "operations": ["file.read"], "input": "{\"file_path\":\"in/feedback.md\"}", "decision": "allowed"}],
+ "dry": false, "record": "runs/example/llm/014-change.implement"}
+```
+
+To check one context yourself: open the call's `cwd/in/` and `prompt.md`. Together with
+`request.json` they hold everything this project passes to that call.
+
+## Why it is built this way
+
+- Each call gets a smaller input: only the files its step needs.
+- A step can be repeated or replaced: its inputs and outputs are files at known revisions.
+- A context can be checked: every call's inputs and prompt are kept on disk.

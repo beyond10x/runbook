@@ -40,7 +40,7 @@ export function LayerDiagram(): ReactNode {
         </aside>
       </div>
       <figcaption id="sdc-layers-caption" className="sdc-muted">
-        The stack as <code>docs/layers.md</code> § 3 draws it, applications on top. Each chip says whether the SDC
+        The stack as <code>docs/layers.md</code> § 3 draws it, applications on top. Each chip says whether Runbook
         uses the component today, in part, not yet, or as a plan; the glyph and the words carry the same, so nothing
         depends on colour.
       </figcaption>
@@ -58,7 +58,7 @@ export function ComponentSections(): ReactNode {
           <p>
             {c.is} <span className="sdc-cite">(<a href={c.isCite.href}>{c.isCite.label}</a>)</span>
           </p>
-          <h3 className="sdc-component__h">What it supplies to the SDC</h3>
+          <h3 className="sdc-component__h">What it supplies to Runbook</h3>
           <ul>
             {c.supplies.map((s) => (
               <li key={s.text}>{s.text} <span className="sdc-cite">(<a href={s.cite.href}>{s.cite.label}</a>)</span></li>
@@ -66,7 +66,7 @@ export function ComponentSections(): ReactNode {
           </ul>
           {c.temporary?.length ? (
             <>
-              <h3 className="sdc-component__h">Temporary in the SDC</h3>
+              <h3 className="sdc-component__h">Temporary in Runbook</h3>
               <ul>
                 {c.temporary.map((s) => (
                   <li key={s.text}>{s.text} <span className="sdc-cite">(<a href={s.cite.href}>{s.cite.label}</a>)</span></li>

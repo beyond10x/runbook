@@ -979,8 +979,8 @@
   },
   "source": {
     "path": "protocol/sdc-story.protocol.yaml",
-    "tag": "0.1.4",
-    "url": "https://github.com/beyond10x/sdc/blob/0.1.4/protocol/sdc-story.protocol.yaml"
+    "tag": "0.2.0",
+    "url": "https://github.com/beyond10x/runbook/blob/0.2.0/protocol/sdc-story.protocol.yaml"
   },
   "stem": "sdc-story",
   "summary": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision.",

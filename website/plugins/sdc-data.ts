@@ -3,7 +3,7 @@
  *
  * Inputs, all committed and all written by programs: `website/data/protocols/*.json`
  * (`sdc-protocol-site write`), `docs/progress.json` and `docs/img/progress.svg`
- * (`sdc-experiment progress`), `experiments/*.yaml`, `experiments/releases.yaml` and
+ * (`sdc-experiment progress`), `experiments/*.yaml`, `experiments/releases.yaml`, `experiments/targets.yaml` and
  * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`), the committed run summaries
  * `experiments/<id>/runs/*.json`, `experiments/<id>/conformance/*.json` and
  * `experiments/<id>/sizes.json`, `experiments/<id>/scores.json` with its rubric, and `driver/examples/sdc/tools/node-classes.json`. Nothing
@@ -23,6 +23,7 @@ export interface SdcContent {
   progressSvg: string;
   experiments: any[];
   releasesTable: any;
+  targets: any;
   nodeClasses: any;
   timelines: any[];
   runSummaries: any[];
@@ -101,8 +102,31 @@ function experimentSummary(doc: any): any {
   };
 }
 
+/**
+ * The cost of one run per node class (`node-classes.json`): each node's own model cost goes to the
+ * class of its action, the decider's cost on every node goes to `decider`. Null when the summary
+ * has no node costs.
+ */
+function costByClass(nodes: any[], classes: Record<string, string[]>): Record<string, number> | null {
+  const withCost = nodes.filter((n) => typeof n.cost_usd === 'number');
+  if (!withCost.length) return null;
+  const classOf = new Map<string, string>();
+  for (const [cls, actions] of Object.entries(classes)) for (const a of actions) classOf.set(a, cls);
+  const out: Record<string, number> = {};
+  const add = (cls: string, v: number) => {
+    if (v > 0) out[cls] = (out[cls] ?? 0) + v;
+  };
+  for (const n of withCost) {
+    const decider = typeof n.decider_cost_usd === 'number' ? n.decider_cost_usd : 0;
+    const action = typeof n.node === 'string' ? n.node.slice(n.node.indexOf('/') + 1) : '';
+    add('decider', decider);
+    add(classOf.get(action) ?? 'unclassified', n.cost_usd - decider);
+  }
+  return out;
+}
+
 /** The fields of a committed run summary the comparison shows (`sdc.run-metrics/1`, `sdc.free-agent-metrics/1`). */
-function runSummary(doc: any): any {
+function runSummary(doc: any, classes: Record<string, string[]>): any {
   const m = doc.metrics ?? {};
   const edges: any[] = Array.isArray(doc.edges) ? doc.edges : [];
   const nodes: any[] = Array.isArray(doc.nodes) ? doc.nodes : [];
@@ -111,6 +135,8 @@ function runSummary(doc: any): any {
   return {
     run: doc.run,
     format: doc.format,
+    cost_usd: m.cost_usd ?? null,
+    cost_by_class: doc.format === 'sdc.run-metrics/1' ? costByClass(nodes, classes) : null,
     wall_s: m.wall_s ?? null,
     api_requests: m.api_requests ?? null,
     decider_calls: m.decider_calls ?? null,
@@ -151,6 +177,46 @@ function qualitySummary(experiment: string, doc: any, rubric: string): any {
       cost_usd: p.cost_usd ?? null,
       wall_s: p.wall_s ?? null,
       findings: (p.exploratory_findings ?? []).map((f: any) => (typeof f === 'string' ? f : f.finding)),
+    })),
+  };
+}
+
+/**
+ * The landing pitch: the clean passes of the latest release entry of the progress ledger that has
+ * runs, per setting, and each run's clean pass and time waited on a person; `comparison` when a
+ * free-agent record is committed, so the comparison and its records table are on the LLM page.
+ */
+function pitchSummary(progress: any, timelines: any[], experiments: any[]): any {
+  const freeIds = new Set(timelines.filter((t) => t.doc?.kind === 'free-agent').map((t) => t.experiment));
+  const comparison = experiments.some((e) => freeIds.has(e.id) && e.treatment && e.baseline?.length && e.variant_primaries?.length);
+  const entry = (progress.entries ?? []).filter((e: any) => e.kind === 'release' && (e.settings ?? []).length > 0).slice(-1)[0];
+  if (!entry) return {release: null, settings: [], comparison};
+  const labels = new Map<string, string>((progress.settings ?? []).map((s: any) => [s.id, s.label]));
+  return {
+    comparison,
+    release: entry.version ?? entry.label ?? entry.id,
+    input: progress.input?.name ?? null,
+    settings: entry.settings.map((s: any) => ({
+      id: s.setting,
+      label: labels.get(s.setting) ?? s.setting,
+      clean_passes: s.clean_passes,
+      ended: s.ended,
+      runs: (s.runs ?? []).map((r: any) => ({clean_pass: r.clean_pass === true, waiting_on_person_s: r.metrics?.waiting_on_person_s ?? null})),
+    })),
+  };
+}
+
+/** The targets (`experiments/targets.yaml`, `sdc.targets/1`): what each target is set on and its value. */
+function targetsSummary(doc: any): any {
+  if (doc?.format !== 'sdc.targets/1') return null;
+  return {
+    targets: (doc.targets ?? []).map((t: any) => ({
+      id: t.id,
+      metric: t.metric ?? null,
+      input: t.input ?? null,
+      target: typeof t.target === 'number' ? t.target : null,
+      set: t.set ?? null,
+      source_experiment: t.source_experiment ?? null,
     })),
   };
 }
@@ -196,10 +262,14 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
       const sizes: any[] = [];
       const quality: any[] = [];
       let releasesTable: any = null;
+      let targets: any = null;
+      const nodeClasses = await readJson(path.join(repo, 'driver', 'examples', 'sdc', 'tools', 'node-classes.json'));
       for (const name of await list(expDir)) {
         const file = path.join(expDir, name);
         if (name === 'releases.yaml') {
           releasesTable = yaml.load(await fs.readFile(file, 'utf8'));
+        } else if (name === 'targets.yaml') {
+          targets = targetsSummary(yaml.load(await fs.readFile(file, 'utf8')));
         } else if (name.endsWith('.yaml')) {
           experiments.push(experimentSummary(yaml.load(await fs.readFile(file, 'utf8'))));
         } else {
@@ -211,7 +281,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
           for (const r of await list(path.join(file, 'runs'))) {
             if (!r.endsWith('.json')) continue;
             const doc = await readJson(path.join(file, 'runs', r));
-            if (doc?.format === 'sdc.run-metrics/1' || doc?.format === 'sdc.free-agent-metrics/1') runSummaries.push({experiment: name, ...runSummary(doc)});
+            if (doc?.format === 'sdc.run-metrics/1' || doc?.format === 'sdc.free-agent-metrics/1') runSummaries.push({experiment: name, ...runSummary(doc, nodeClasses.classes ?? {})});
           }
           for (const c of await list(path.join(file, 'conformance'))) {
             if (!c.endsWith('.json')) continue;
@@ -232,8 +302,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
           }
         }
       }
-      const nodeClasses = await readJson(path.join(repo, 'driver', 'examples', 'sdc', 'tools', 'node-classes.json'));
-      return {index, protocols, progress, progressSvg, experiments, releasesTable, nodeClasses, timelines, runSummaries, conformance, sizes, quality, fixtures: Boolean(fixtureDir)};
+      return {index, protocols, progress, progressSvg, experiments, releasesTable, targets, nodeClasses, timelines, runSummaries, conformance, sizes, quality, fixtures: Boolean(fixtureDir)};
     },
     async contentLoaded({content, actions}) {
       const {createData, addRoute, setGlobalData} = actions;
@@ -254,6 +323,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
             latest: content.progress.entries.filter((e: any) => e.kind === 'release').slice(-1)[0] ?? null,
             release: latest,
           }),
+          pitch: await data('sdc-pitch.json', pitchSummary(content.progress, content.timelines, content.experiments)),
         },
       });
       addRoute({path: route('/protocols'), exact: true, component: '@site/src/routes/ProtocolIndex.tsx', modules: {index: indexData}});
@@ -271,6 +341,8 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         releasesTable: content.releasesTable,
         nodeClasses: content.nodeClasses,
         quality: content.quality,
+        targets: content.targets,
+        runs: content.runSummaries.map((r) => ({experiment: r.experiment, run: r.run, format: r.format, cost_usd: r.cost_usd, wall_s: r.wall_s, cost_by_class: r.cost_by_class})),
         fixtures: content.fixtures,
       });
       addRoute({path: route('/evaluation'), exact: true, component: '@site/src/routes/Evaluation.tsx', modules: {evaluation, index: indexData}});

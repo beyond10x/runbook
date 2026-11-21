@@ -388,7 +388,7 @@
         "in/aep/story/invoices.md": "97e4eecbc8a90dad3bd1f00a8ecedfacf62fb66529e58146016e24cd7d010b8e",
         "in/change.diff": "21d8aa15b11490844b59681d113acfe33b99f48f4c6dd2ef91a4924fbd54b621",
         "in/commands.json": "aa120e38bf97f34a8f9d415a319a4f96b793bb4b16f55cb7fa4eafac2495e1b5",
-        "in/gate.txt": "94196ccc9a0b1e4fc7f37a5c7645c7dfef3101f43b891537a7df9cda58ccdac3",
+        "in/gate.txt": "04141d144adae786752f0565cae04511c08a4f7002f19ed881ee0a019ff1031f",
         "in/impl/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/impl/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
         "in/impl/README.md": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab",
@@ -751,12 +751,12 @@
           "source": "SDC_LLM_ADAPTER"
         }
       },
-      "at": "2026-11-21T13:42:03Z",
+      "at": "2026-11-21T19:00:02Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
       "decider": {
         "escalate": "final",
-        "kind": "haiku",
+        "kind": "model",
         "max_decider_calls": 20,
         "model": "claude-haiku-5-5"
       },
@@ -849,10 +849,14 @@
       "per_class_routing": null,
       "replay": null,
       "requester_decider": null,
+      "rework_limit": {
+        "source": "rule-ends.json",
+        "value": 2
+      },
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "26b8b85ee7b7",
+        "commit": "238c70d455e2",
         "dirty": false
       },
       "unstick": {
@@ -870,7 +874,7 @@
     "state": "closed"
   },
   "tree": {
-    "commit": "26b8b85ee7b7",
+    "commit": "238c70d455e2",
     "dirty": false
   }
 }

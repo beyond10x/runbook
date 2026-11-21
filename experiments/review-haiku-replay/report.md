@@ -39,6 +39,9 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
+| review-haiku-replay-1 | haiku-review | no summary: not ended | - | - | - | - |  |
+| review-haiku-replay-2 | haiku-review | no summary: not ended | - | - | - | - |  |
+| review-haiku-replay-3 | haiku-review | no summary: not ended | - | - | - | - |  |
 
 ## Per variant
 
@@ -46,7 +49,7 @@ Median [min, max] (n) over the ended runs.
 
 | | haiku-review |
 |---|---|
-| runs listed | 0 |
+| runs listed | 3 |
 | ended | 0 |
 | clean passes | 0 |
 | `run.cost_usd` | - |

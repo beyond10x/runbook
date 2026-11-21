@@ -23,7 +23,7 @@ or when the planning store does not validate.
 
 | Step | Who | How |
 |---|---|---|
-| 1. Release preparation: the version in the files above, the `CHANGELOG.md` entry moved out of `[Unreleased]`, `docs/releases/<version>.md`, `README.md` § State | bot commit | one commit by `b10x-bot[bot]`, `b10x-gates bot -- commit -F <message file>`, merged through the merge queue |
+| 1. Release preparation: the version in the files above, the `CHANGELOG.md` entry moved out of `[Unreleased]`, `docs/releases/<version>.md`, `README.md` § Status | bot commit | one commit by `b10x-bot[bot]`, `b10x-gates bot -- commit -F <message file>`, merged through the merge queue |
 | 2. Gates on that commit | bot, any session | `task check`, `scripts/check-protocols.sh` (about 12 minutes, in the background), `task release:check VERSION=<version>`, `b10x-gates check --receipt <file>`; the CI `Shared source gates` check green on `main` |
 | 3. The tag | operator's decision | an annotated tag by the bot on the merged commit, after the operator's word to release |
 | 4. The GitHub Release | operator's decision | created by the bot with the notes `docs/releases/<version>.md`, after the tag |
@@ -64,8 +64,8 @@ absolute path of `../gates-policy/policy.json`.
 ```console
 git tag -l <version>
 git ls-remote --tags origin <version>
-b10x-gates --repository beyond10x/sdc --policy <policy> bot -- tag -a <version> -m "SDC <version>" <commit>
-b10x-gates --repository beyond10x/sdc --policy <policy> bot -- push origin <version>
+b10x-gates --repository beyond10x/runbook --policy <policy> bot -- tag -a <version> -m "SDC <version>" <commit>
+b10x-gates --repository beyond10x/runbook --policy <policy> bot -- push origin <version>
 ```
 
 The first two print nothing when the tag does not exist yet. The release is created with
@@ -75,8 +75,8 @@ and writes the response to a file:
 ```console
 jq -n --arg tag <version> --arg name <version> --rawfile body docs/releases/<version>.md \
   '{tag_name: $tag, name: $name, body: $body}' > <scratch>/release.json
-b10x-gates --repository beyond10x/sdc --policy <policy> api --method POST \
-  --path /repos/beyond10x/sdc/releases --input <scratch>/release.json --output <scratch>/release-response.json
+b10x-gates --repository beyond10x/runbook --policy <policy> api --method POST \
+  --path /repos/beyond10x/runbook/releases --input <scratch>/release.json --output <scratch>/release-response.json
 ```
 
 ## Completion

@@ -36,7 +36,7 @@ export interface Quality {
   products: QualityProduct[];
 }
 
-export const QUALITY_DOC = 'https://github.com/beyond10x/sdc/blob/main/docs/quality-0.1.0.md';
+export const QUALITY_DOC = 'https://github.com/beyond10x/runbook/blob/main/docs/quality-0.1.0.md';
 
 function DocCite({lines}: {lines: string}): ReactNode {
   const [a, b] = lines.split('-');
