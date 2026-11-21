@@ -1,0 +1,2 @@
+{"started":"2026-11-22T09:00:00Z","ended":"2026-11-22T09:20:00Z","started_epoch":1795338000,"ended_epoch":1795339200,"seconds":1200,"verdict":"awaiting_authority","case_dir":"IDEA-1/children/IDEA-1.direction"}
+{"started":"2026-11-22T09:20:05Z","ended":"2026-11-22T09:41:00Z","started_epoch":1795339205,"ended_epoch":1795340460,"seconds":1255,"verdict":"terminable","case_dir":"IDEA-1"}

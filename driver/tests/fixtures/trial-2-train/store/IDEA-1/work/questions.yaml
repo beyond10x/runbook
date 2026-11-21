@@ -1,0 +1,250 @@
+questions:
+- id: q1
+  item: d3
+  question: Should you and your partner share one single to-do list, or keep separate lists that you can share with each other?
+  options:
+  - One shared list for both of us
+  - Separate lists, each shareable with the other
+  default: One shared list for both of us
+  scope_changing: true
+  status: changed
+  answer: 'Neither option as asked: the app is multi-user. Each user signs in and has several lists of their own; a list has several items; an item has a state.'
+  answered_by: operator
+- id: q2
+  item: d4
+  question: When you change the list offline and your partner changes it too, how should conflicting edits be resolved?
+  options:
+  - Last change saved wins
+  - Keep both changes and ask us to pick
+  - Merge changes item by item
+  default: Last change saved wins
+  scope_changing: false
+  status: accepted
+  answer: Last change saved wins
+  answered_by: non-interactive
+- id: q3
+  item: d5
+  question: How should you and your partner sign in so that only you two can see the list?
+  options:
+  - Each of us signs in with an email and password
+  - Sign in with a one-time code sent by email
+  - No sign-in; a private link known only to us
+  default: Sign in with a one-time code sent by email
+  scope_changing: true
+  status: changed
+  answer: Each user signs in with a username and a password. The test version checks them against a fixed map of usernames to secure password hashes; there is no registration.
+  answered_by: operator
+- id: q4
+  item: d6
+  question: Which browsers must the web app support, and must it be installable to the home screen?
+  options:
+  - Current desktop and mobile browsers; not installable
+  - Current desktop and mobile browsers; installable
+  - Only one specific browser
+  default: Current desktop and mobile browsers; not installable
+  scope_changing: false
+  status: accepted
+  answer: Current desktop and mobile browsers; not installable
+  answered_by: non-interactive
+- id: q5
+  item: f2
+  question: The answer to q1 says items have a state but does not name the possible states.
+  options:
+  - Open or done
+  - Open, in progress or done
+  - Free-text tag chosen by the user
+  default: Open or done
+  scope_changing: false
+  status: accepted
+  answer: Open or done
+  answered_by: non-interactive
+  reason: 'finding f2 (missing_decision, raised by llm:requirements.normalise): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q6
+  item: f3
+  question: The answer to q3 calls the fixed username map a test version, but it does not say how sign-in works in the production version.
+  options:
+  - The fixed username map is for the test version only
+  - The fixed username map is also used in production
+  - Users can register accounts in production
+  default: The fixed username map is for the test version only
+  scope_changing: false
+  status: accepted
+  answer: The fixed username map is for the test version only
+  answered_by: non-interactive
+  reason: 'finding f3 (ambiguity, raised by llm:requirements.normalise): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q7
+  item: f1
+  question: The answer to q1 gives each user their own lists, but it does not say whether the partner can see or edit them.
+  options:
+  - Each list is private to its owner
+  - Each list can be shared with the partner
+  - Both users see all lists
+  default: Both users see all lists
+  scope_changing: true
+  status: changed
+  answer: Each list can be shared with the partner
+  answered_by: human
+  reason: 'finding f1 (ambiguity, raised by llm:requirements.normalise): a person decided'
+- id: q8
+  item: f4
+  question: No input says where the web app and its server run, although offline sync in r5 needs a server.
+  options:
+  - Single hosted web server reachable over the internet
+  - Self-hosted on a home network reachable only by the two users
+  - Client-only app with no server, syncing through a file or a third-party service
+  default: Single hosted web server reachable over the internet
+  scope_changing: false
+  status: accepted
+  answer: Single hosted web server reachable over the internet
+  answered_by: non-interactive
+  reason: 'finding f4 (missing_decision, raised by llm:context.default): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q9
+  item: f5
+  question: No input names a licence for the code, so the project's terms of use are undecided.
+  options:
+  - Proprietary, all rights reserved
+  - MIT open-source licence
+  default: Proprietary, all rights reserved
+  scope_changing: false
+  status: accepted
+  answer: Proprietary, all rights reserved
+  answered_by: non-interactive
+  reason: 'finding f5 (missing_decision, raised by llm:context.default): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q10
+  item: f6
+  question: The product could be read as a service backing the browser client or as a multi-tenant application, since each user owns separate lists.
+  options:
+  - multi-tenant application
+  - service
+  default: multi-tenant application
+  scope_changing: false
+  status: accepted
+  answer: multi-tenant application
+  answered_by: non-interactive
+  reason: 'finding f6 (ambiguity, raised by llm:context.default): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q11
+  item: p-offline-hosted-context.deployment
+  question: 'r4, r5 against context.deployment: a requirement works without a network, while the context runs the product on a server'
+  options:
+  - works offline, as the requirement says
+  - hosted, as the context says
+  default: works offline, as the requirement says
+  scope_changing: false
+  status: accepted
+  answer: works offline, as the requirement says
+  answered_by: non-interactive
+  reason: 'finding p-offline-hosted-context.deployment (contradiction, raised by program:offline-hosted): both sides are an agent''s defaults and no scope-changing question is behind them'
+- id: q12
+  item: f7
+  question: The requirements do not say which signed-in user a session acts as, so a list's owner is not tied to the sign-in.
+  options:
+  - The sign-in username is the owner's user id
+  - Owners get a separate user id issued at sign-in
+  default: The sign-in username is the owner's user id
+  scope_changing: false
+  status: accepted
+  answer: The sign-in username is the owner's user id
+  answered_by: non-interactive
+  reason: 'finding f7 (ambiguity, raised by llm:spec.author): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q13
+  item: f8
+  question: No input names the datastore the hosted server keeps lists in.
+  options:
+  - PostgreSQL database
+  - Single SQLite file on the server
+  default: PostgreSQL database
+  scope_changing: false
+  status: accepted
+  answer: PostgreSQL database
+  answered_by: non-interactive
+  reason: 'finding f8 (missing_decision, raised by llm:spec.author): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q14
+  item: f10
+  question: Requirement r1 checks passwords against a fixed map of hashes, but no input names the hash function or where the map is kept.
+  options:
+  - SHA-256 in hex, with the map in an accounts file read at start
+  - SHA-256 in hex, with the map compiled into the binary
+  - Salted and iterated hash in the accounts file, written without a crate
+  default: SHA-256 in hex, with the map in an accounts file read at start
+  scope_changing: false
+  status: accepted
+  answer: SHA-256 in hex, with the map in an accounts file read at start
+  answered_by: non-interactive
+  reason: 'finding f10 (missing_decision, raised by llm:change.implement): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q15
+  item: f9
+  question: Sign-in's rejected and signed-in outcomes name a signed-in user, but no input says how a signed-in state is held (for example a session token or a cookie), so the daemon only reports the SignedIn event.
+  options:
+  - Response reports the SignedIn event only, with no session state
+  - Server sets a session cookie on sign-in
+  - Server returns a bearer token in the response body
+  default: Response reports the SignedIn event only, with no session state
+  scope_changing: true
+  status: changed
+  answer: Server sets a session cookie on sign-in
+  answered_by: human
+  reason: 'finding f9 (missing_decision, raised by llm:change.implement): a person decided'
+- id: q16
+  item: f11
+  question: Sign-in now sets a session cookie, but no input says where the session is held or how a later request checks it, and the daemon keeps no state between requests.
+  options:
+  - The token is issued and held nowhere; no command checks it yet
+  - Each instance holds issued tokens in memory and checks them
+  - The token is signed with a secret from the accounts file, so any instance can check it
+  default: The token is issued and held nowhere; no command checks it yet
+  scope_changing: false
+  status: accepted
+  answer: The token is issued and held nowhere; no command checks it yet
+  answered_by: non-interactive
+  reason: 'finding f11 (missing_decision, raised by llm:change.implement): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q17
+  item: f12
+  question: The session cookie is marked Secure, but the daemon serves plain HTTP on 0.0.0.0 and no input says how TLS is provided for the hosted deployment, so browsers may refuse to store the cookie.
+  options:
+  - Keep Secure and put the daemon behind a TLS-terminating proxy (current build)
+  - Drop the Secure attribute and serve plain HTTP
+  - The daemon serves TLS itself
+  default: Keep Secure and put the daemon behind a TLS-terminating proxy (current build)
+  scope_changing: false
+  status: accepted
+  answer: Keep Secure and put the daemon behind a TLS-terminating proxy (current build)
+  answered_by: non-interactive
+  reason: 'finding f12 (missing_decision, raised by llm:change.implement): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q18
+  item: f13
+  question: q13 names PostgreSQL, but this build may use no crates and no network, so lists are kept in a local data file, which makes todo-server stateful although the spec topology says it is stateless.
+  options:
+  - Lists are kept in a local data file, one per daemon instance
+  - Lists are stored in PostgreSQL through a hand-written client
+  - Lists are kept in memory only and lost when the daemon stops
+  default: Lists are kept in a local data file, one per daemon instance
+  scope_changing: false
+  status: accepted
+  answer: Lists are kept in a local data file, one per daemon instance
+  answered_by: non-interactive
+  reason: 'finding f13 (missing_decision, raised by llm:change.implement): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q19
+  item: f14
+  question: The spec declares no outcome for AddItem or ShareList naming a list that does not exist, or for CompleteItem or ReopenItem naming an item that does not exist.
+  options:
+  - Refuse with a not-found error (HTTP 404)
+  - Refuse with the wrong-state error (HTTP 409)
+  - Report success and change nothing
+  default: Refuse with a not-found error (HTTP 404)
+  scope_changing: false
+  status: accepted
+  answer: Refuse with a not-found error (HTTP 404)
+  answered_by: non-interactive
+  reason: 'finding f14 (missing_decision, raised by llm:change.implement): changes no scope: it adds a decision and overturns no person''s decision'
+- id: q20
+  item: f15
+  question: No command declares a refusal for an empty list or item title, so the inputs leave open whether a title may be empty.
+  options:
+  - Accept any title, including an empty one
+  - Refuse an empty title
+  default: Accept any title, including an empty one
+  scope_changing: false
+  status: accepted
+  answer: Accept any title, including an empty one
+  answered_by: non-interactive
+  reason: 'finding f15 (missing_decision, raised by llm:change.implement): changes no scope: it adds a decision and overturns no person''s decision'
