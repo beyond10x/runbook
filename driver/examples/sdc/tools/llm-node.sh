@@ -35,6 +35,12 @@ done
 # project above the case directory (runs/ inside this repository: development.standard, where a
 # draft may only move to proposed), and plan.decompose's moves to active are refused.
 aep() { command aep "$@" --root .; }
+# aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, the run's
+# SDC_PRINCIPAL unless it names a person (no person takes a tool step), else agent:<node>; a
+# move's --executor names the node that ran it.
+aep_actor=${SDC_PRINCIPAL:-}
+[[ -z $aep_actor || $aep_actor == human:* || $aep_actor == person:* ]] && aep_actor=agent:$node
+export AEP_ACTOR=$aep_actor
 
 # questions.write writes the interview; it never rewrites one that exists unless a check found it
 # invalid (a retry, SDC_FEEDBACK set). An interview whose shape is only not checked yet (after an
@@ -410,10 +416,10 @@ apply() {
         aep plan artifact new story "$name" --store aep --title "$(jq -r .title <<< "$s")" \
           --summary "$(jq -r .summary <<< "$s")" --relate "delivers:epic:$epic" --relate serves:vision:product &&
         aep plan artifact scope "story:$name" --store aep --add impl &&
-        aep plan artifact move "story:$name" --to active --store aep || exit 1
+        aep plan artifact move "story:$name" --to active --store aep --executor "agent:$node" || exit 1
       done || return 1
       [[ $(aep plan artifact list --store aep --format json | jq -r --arg e "epic:$epic" '.[] | select(.id == $e) | .status') == active ]] ||
-        aep plan artifact move "epic:$epic" --to active --store aep ;;
+        aep plan artifact move "epic:$epic" --to active --store aep --executor "agent:$node" ;;
     context.default)
       f=$cwd/out/context.yaml
       [[ -f $f ]] || return 1

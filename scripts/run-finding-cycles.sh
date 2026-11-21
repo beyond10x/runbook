@@ -406,7 +406,8 @@ fi
 # decision and is final. On a fixture with two open scope-changing questions (fixtures/scope-two)
 # and a scope-changing spec finding (finding-spec-person.yaml), the run closes with no person
 # principal anywhere: decisions.jsonl, findings.yaml, questions.yaml and the events' grants and
-# approvals; L7 is 0, and run-settings.jsonl names A5, escalate final. With SDC_DECIDER=person it
+# approvals; L7 is 0, run-settings.jsonl names A5, escalate final, and the run's planning store
+# (work/aep) records its transitions by an agent: actor, no human:. With SDC_DECIDER=person it
 # refuses to start (exit 64); a stop that needs a person (fixtures/offline-decision: the decider's
 # amendment is refused) ends the run with a stop record by rule:autopilot (exit 7).
 nonperson='^(decider:|rule:|agent$|non-interactive$|derived$)'
@@ -423,10 +424,11 @@ people=$( { jq -r '.principal' "$r/decisions.jsonl"
           } | grep -Evc "$nonperson")
 if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <<< "$l7" >/dev/null &&
    jq -se 'all(.autonomy == "A5" and .decider.escalate == "final" and .decider.kind == "haiku")' "$r/run-settings.jsonl" >/dev/null &&
-   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:haiku"' "$w/findings.yaml" >/dev/null; then
-  echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final)"
+   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:haiku"' "$w/findings.yaml" >/dev/null &&
+   [[ -d $w/aep ]] && ! grep -rqs 'human:' "$w/aep" && grep -rqs 'actor: "agent:' "$w/aep"; then
+  echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final; work/aep transitions by agent:, no human:)"
 else
-  echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, or the settings do not name A5)"
+  echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, the settings do not name A5, or work/aep has a human: actor or no agent: one)"
 fi
 trial autopilot-person SDC_DECIDER=person
 code=$?
