@@ -1131,6 +1131,11 @@ pub fn flat_metrics(doc: &J) -> BTreeMap<String, f64> {
             out.insert(format!("run.{f}"), x);
         }
     }
+    // All tokens of the run, the four kinds summed (input, output, cache read, cache creation).
+    let t = &doc["metrics"]["tokens"];
+    if let (Some(a), Some(b), Some(c), Some(d)) = (t["input"].as_f64(), t["output"].as_f64(), t["cache_read"].as_f64(), t["cache_creation"].as_f64()) {
+        out.insert("run.tokens_total".into(), a + b + c + d);
+    }
     for n in doc["nodes"].as_array().into_iter().flatten() {
         let node = js(&n["node"]);
         for f in NODE_FIELDS {

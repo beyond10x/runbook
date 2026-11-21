@@ -52,6 +52,10 @@ path = "src/bin/sdc-experiment.rs"
 name = "sdc-run-timeline"
 path = "src/bin/sdc-run-timeline.rs"
 
+[[bin]]
+name = "sdc-free-agent"
+path = "src/bin/sdc-free-agent.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"
