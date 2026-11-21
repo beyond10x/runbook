@@ -67,8 +67,8 @@
 #   reopen-refused-decision  --reopen puts a refused decision back
 #   unstick-end, unstick-rerun, unstick-invalid, unstick-limit, unstick-off  run.unstick (D147)
 #   decider-question-reject, rework-fresh-allowance, spec-review-rework, writer-own-error,
-#   implement-percause, scope-unattributed-reject, and the pending
-#   finding-refused-reask, rework-spent-dropped, rework-spent-abandoned,
+#   implement-percause, scope-unattributed-reject, finding-refused-reask, and the pending
+#   rework-spent-dropped, rework-spent-abandoned,
 #   review-invalid-named: the reject and cap routes of
 #   docs/reject-routes.md (R1-R9)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
@@ -109,8 +109,8 @@ expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
 expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause
-  scope-unattributed-reject)
-pending=(finding-refused-reask rework-spent-dropped rework-spent-abandoned
+  scope-unattributed-reject finding-refused-reask)
+pending=(rework-spent-dropped rework-spent-abandoned
   review-invalid-named)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
@@ -1296,11 +1296,11 @@ if (( code == 0 )) &&
 else
   echo "scope-unattributed-reject: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
 fi
-# finding-refused-reask (R3, pending): fixtures/offline-decision. The program check refuses the
+# finding-refused-reask (R3): fixtures/offline-decision. The program check refuses the
 # decider's decision on the finding. Route: the decider is asked again with the refusal reason, at
 # most 2 times, then the stop decision_not_takeable. The fixture decider takes the refused default
 # every time, so passes when the finding was decided 3 times, the later requests carry the
-# refusal, and the run stops (exit 7) with cause decision_not_takeable. Today: 1 decision, exit 7.
+# refusal, and the run stops (exit 7) with cause decision_not_takeable. Before: 1 decision, exit 7.
 trial finding-refused-reask SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 r=$s/runs/finding-refused-reask

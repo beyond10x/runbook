@@ -893,7 +893,9 @@ answer_questions() {
 # $3), one decider decision each: the decision is written as a person's is (`decision:` on the
 # finding) with `decided_by: decider:<kind>`, and amend.upstream applies it on the next round
 # through the same program check as the agent's amendments. A finding whose decider decision
-# that check refused (`refused_decision`) waits for a person. Returns as answer_questions.
+# that check refused (`refused_decision`) is put to the decider again under autopilot with the
+# refusal, up to 3 decisions in all (R3); then run.unstick, keep-going, or it waits (a person;
+# under autopilot the stop decision_not_takeable). Returns as answer_questions.
 decide_findings() {
   local cdir=$1 act=$2 pos=$3 ff=$1/work/findings.yaml found=no rev f fid fs=()
   rev=$(jq -r '.artifacts.findings.revision // "none"' "$cdir/case.json")
@@ -904,6 +906,24 @@ decide_findings() {
     fid=$(jq -r .id <<< "$f")
     if jq -e '.refused_decision' <<< "$f" > /dev/null; then
       wait_why="$fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f"))"
+      # R3, under autopilot: a decider's decision the check refused is put to the decider again
+      # with the refusal (`refusal` in its request), until it has decided the finding 3 times; then
+      # the stop. Below A5 a person decides it, as before.
+      local nd
+      nd=$(jq -s --arg c "${cdir##*/}" --arg f "$fid" '[.[] | select(.case == $c and .finding == $f and .decision == "approve")] | length' \
+        "$out/decisions.jsonl" 2>/dev/null || echo 0)
+      if [[ $autonomy == A5 && $(jq -r '.refused_decision.decided_by // ""' <<< "$f") == decider:* ]] && (( ${nd:-0} < 3 )); then
+        echo "  $wait_why: the decider is asked again with the refusal (decision $((nd + 1)) of at most 3)"
+        decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson f "$f" --argjson pos "$pos" \
+          '{type: "finding", case_dir: $c, action: $a, capability: null, subject: "findings",
+            path: "findings.yaml", revision: $rev, question: null, finding: ($f | del(.refused_decision)),
+            refusal: $f.refused_decision, outcome: null, position: $pos}')"
+        [[ $reworked == yes ]] && { reworked=""; continue; }
+        [[ -n $dec ]] || return 1
+        ANS=$ans yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"$taker\"
+          | del(.refused_decision))" "$ff"
+        continue
+      fi
       # run.unstick first: the default as agent:unstick, or the decider asked again (done there).
       if unstick decision_not_takeable "${cdir##*/}" "$act $fid" "$act in ${cdir##*/}: decision_not_takeable: $wait_why" finding \
            "$(jq -cn --arg c "$cdir" --arg a "$act" --argjson f "$f" '{type: "finding", case_dir: $c, action: $a, capability: null, finding: $f}')" "$cdir"; then
