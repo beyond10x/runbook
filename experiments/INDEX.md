@@ -4,6 +4,7 @@ Written by `sdc-experiment index` (and by every `sdc-experiment report`); `sdc-e
 
 | experiment | created | kind | purpose | tree | variants × runs | status | verdict |
 |---|---|---|---|---|---|---|---|
+| [baseline-0.1.0](baseline-0.1.0/report.md) | 2026-11-21 | prospective | Baseline of release 0.1.0; first runs on the hermetic decider with explicit efforts. | 4468bfd | strong 3/3, mixed 3/3, haiku 3/3 | complete | descriptive |
 | [bugfix-seeds-1](bugfix-seeds-1/report.md) | 2026-11-21 | retrospective | Run sdc.bugfix (red first, then the fix) unattended on four seeded bugs, once per seed on each model, to see whether each model writes a red test and a fix that passes the gate. | several | haiku 4, sonnet 5 | complete | descriptive |
 | [decider-haiku-vs-opus](decider-haiku-vs-opus/report.md) | 2026-11-21 | retrospective | Whether the decider model changes how often a rejected merge sends a story back to the implementer, read from the trial-3 runs that exist. | several | haiku 7, opus 2 | complete | inconclusive |
 | [effort-implement-levels](effort-implement-levels/report.md) | 2026-11-21 | prospective | Whether more reasoning effort on the implement class lowers how often change.implement is sent back, three runs per level, as the operator described. | - | low 0/3, medium 0/3, high 0/3 | planned | - |
