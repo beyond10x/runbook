@@ -451,7 +451,7 @@ function driverChip(st) {
   const d = st.driver;
   if (d?.attached.length) {
     const x = d.attached[0];
-    return `<span class="now-drv on" title="${esc(`${x.via}${x.argv ? `\n${x.argv.join(' ')}` : ''}`)}">driver attached<i>pid ${esc(x.pid)}${x.started ? ` · since ${clock(x.started)}` : ''}</i></span>`;
+    return `<span class="now-drv on" title="${esc(`${x.via}${x.argv ? `\n${x.argv.join(' ')}` : ''}`)}">driver attached<i>pid <b class="now-pid">${esc(x.pid)}</b>${x.started ? ` · since ${clock(x.started)}` : ''}</i></span>`;
   }
   // the absence of a driver is never a status of its own (UXF-010): only a started step that nothing
   // finishes says "Driver gone"; a wait, a stop and the end are said in words by the band's head
