@@ -1441,6 +1441,12 @@ fn normalise_paths(text: &str, roots: &[String]) -> String {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    // As an adapter it takes a response schema: the recorded reply is the schema document, written
+    // to structured-output.json (sdc-reply asks every adapter program `--capabilities`).
+    if args.len() == 2 && args[1] == "--capabilities" {
+        println!("{}", json!({"json_schema": true}));
+        return ExitCode::SUCCESS;
+    }
     // The adapter contract: one argument, the request.
     if args.len() == 2 && args[1].ends_with("request.json") && Path::new(&args[1]).is_file() {
         return match adapter(Path::new(&args[1])) {
