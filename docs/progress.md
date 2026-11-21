@@ -16,7 +16,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
 | [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - |
-| [0.1.2](#012) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
+| [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | no experiment yet | no run | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -230,7 +230,7 @@ Limits of this measurement:
 
 ## 0.1.2
 
-Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-10 merges below, on top of 0.1.1 (d79975d).
+Release, 2026-11-21. Tree: `72a3eef` (tag 0.1.2 at main 72a3eef: 0.1.1 (d79975d) with the batch-10 merges below and its preparation).
 
 What changed:
 

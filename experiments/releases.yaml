@@ -237,8 +237,8 @@ entries:
   label: 0.1.2
   short: replay, timeline, rework cap
   date: 2026-11-21
-  tree: null
-  tree_note: not tagged yet; prepared on main after the batch-10 merges below, on top of 0.1.1 (d79975d)
+  tree: 72a3eefb20e0edff50dc8ad12fcf561f8e0790e3
+  tree_note: 'tag 0.1.2 at main 72a3eef: 0.1.1 (d79975d) with the batch-10 merges below and its preparation'
   experiments: []
   changes:
   - commit: 66e5935

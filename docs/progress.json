@@ -1208,8 +1208,8 @@
         "rate": null,
         "small_n": true
       },
-      "tree": null,
-      "tree_note": "not tagged yet; prepared on main after the batch-10 merges below, on top of 0.1.1 (d79975d)",
+      "tree": "72a3eefb20e0edff50dc8ad12fcf561f8e0790e3",
+      "tree_note": "tag 0.1.2 at main 72a3eef: 0.1.1 (d79975d) with the batch-10 merges below and its preparation",
       "version": "0.1.2"
     }
   ],
@@ -1504,7 +1504,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "65ace860a7016c86094b7f24f0674261e554aee90e3c584fbc0564ae613f44ed"
+      "sha256": "73e34fbf760bbcc8bbccf091ae061fe458cd8a1dcfc5b326cc938536672f3623"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
