@@ -1,7 +1,7 @@
 import type {ReactNode} from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
-import MetricChart, {CleanPassChart, Marker, SeriesLegend} from '../components/MetricChart';
+import MetricChart, {CleanPassChart, CostSplitChart, Marker, MarkerIcon, SeriesLegend, type CostSplitRow, type RefLine} from '../components/MetricChart';
 import {
   METRICS,
   NODES,
@@ -10,23 +10,50 @@ import {
   releases as releasesOf,
   runsOf,
   shortModel,
+  stat,
   stopsByCause,
   type Ledger,
   type LedgerEntry,
   type LedgerRun,
   type LedgerSetting,
+  type MetricDef,
+  type Stat,
 } from '../components/evaluation';
 import {QUALITY_DOC, sideStats, type Quality} from '../components/Quality';
 
 interface Experiment {
   id: string;
   kind: string;
+  status: string | null;
   title: string | null;
+  purpose: string | null;
+  hypothesis: string | null;
+  variable: string | null;
+  treatment: string | null;
+  verdict: string | null;
   inputs: Array<{name: string; kind: string; text: string | null}>;
   fixed: Record<string, string>;
   variants: Array<{id: string; settings: Record<string, string>; runs: string[]}>;
   runs_per_variant: number | null;
   pass_rule: string | null;
+}
+
+interface Target {
+  id: string;
+  metric: string | null;
+  input: string | null;
+  target: number | null;
+  set: string | null;
+  source_experiment: string | null;
+}
+
+interface RunCost {
+  experiment: string;
+  run: string;
+  format: string;
+  cost_usd: number | null;
+  wall_s: number | null;
+  cost_by_class: Record<string, number> | null;
 }
 
 interface Props {
@@ -36,6 +63,8 @@ interface Props {
     releasesTable: {input?: {name: string; description?: string; sha256: string}} | null;
     nodeClasses: {classes: Record<string, string[]>; default_efforts: Record<string, string>};
     quality?: Quality[];
+    targets?: {targets: Target[]} | null;
+    runs?: RunCost[];
     fixtures: boolean;
   };
 }
@@ -56,6 +85,13 @@ const usd = (x: number | null | undefined) => (typeof x === 'number' ? `$${x.toF
 const mins = (x: number | null | undefined) => (typeof x === 'number' ? `${Math.round(x / 60)} min` : '–');
 const num = (x: number | null | undefined, d = 0) => (typeof x === 'number' ? (d ? x.toFixed(d) : String(x)) : '–');
 const pct = (x: number | null | undefined) => (typeof x === 'number' ? `${Math.round(x * 100)} %` : '–');
+const factor = (x: number) => (x >= 9.95 ? x.toFixed(0) : x.toFixed(1));
+const list = (xs: string[]) => xs.join(', ');
+
+const metricById = (id: string): MetricDef => METRICS.find((m) => m.id === id)!;
+const COST = metricById('cost');
+const WALL = metricById('wall');
+const MAIN = new Set(['cost', 'wall']);
 
 /** A committed quality evaluation, described as a case, with its medians per side and a link to the full result. */
 function QualityCase({q, freeRuns}: {q: Quality; freeRuns: string[]}): ReactNode {
@@ -147,8 +183,6 @@ function RunTable({entry, settings, labels}: {entry: LedgerEntry; settings: stri
 function StopsTable({entry, settings}: {entry: LedgerEntry; settings: LedgerSetting[]}): ReactNode {
   const ids = settings.map((s) => s.id);
   const stops = stopsByCause(entry, ids);
-  const anyRuns = ids.some((s) => runsOf(entry, s).length);
-  if (!anyRuns) return <p className="sdc-muted">{entry.label}: no data.</p>;
   if (!stops.size) return <p>{entry.label}: no run stopped; every ended run closed.</p>;
   return (
     <div className="sdc-table-wrap" tabIndex={0} role="region" aria-label={`Stops by cause in ${entry.label}`}>
@@ -177,14 +211,58 @@ function StopsTable({entry, settings}: {entry: LedgerEntry; settings: LedgerSett
   );
 }
 
+/** One headline tile: a label, one row per setting or side, and where the figures come from. */
+interface TileRow {
+  key: string;
+  marker: number | null;
+  name: string;
+  value: ReactNode;
+}
+
+function Tile({id, label, big, rows, note}: {id: string; label: string; big?: ReactNode; rows: TileRow[]; note: ReactNode}): ReactNode {
+  return (
+    <div className="sdc-tile" id={id}>
+      <p className="sdc-tile__label">{label}</p>
+      {big ? <p className="sdc-tile__big">{big}</p> : null}
+      <ul className="sdc-tile__rows">
+        {rows.map((r) => (
+          <li key={r.key}>
+            <span className="sdc-tile__name">{r.marker !== null ? <MarkerIcon i={r.marker} /> : null}{r.name}</span>
+            <strong className="sdc-tile__value">{r.value}</strong>
+          </li>
+        ))}
+      </ul>
+      <p className="sdc-tile__note">{note}</p>
+    </div>
+  );
+}
+
+/** "n = 3 each" when every stat has the same n, else the n of each. */
+function nNote(stats: Array<Stat | null>): string {
+  const ns = Array.from(new Set(stats.filter((s): s is Stat => s !== null).map((s) => s.n)));
+  return ns.length === 1 ? `n = ${ns[0]} runs each` : `n = ${ns.join(' / ')} runs`;
+}
+
+/** The conformance figure of one setting in one release: summed k and n over the measured runs. */
+function conformanceOf(runs: LedgerRun[]): {k: number; n: number} | 'not observed' | 'not measured' | null {
+  if (!runs.length) return null;
+  const measured = runs.filter((r) => r.conformance?.measured && typeof r.conformance.k === 'number' && typeof r.conformance.n === 'number');
+  if (!measured.length) return runs.some((r) => r.conformance) ? 'not measured' : 'not observed';
+  return {k: measured.reduce((a, r) => a + r.conformance!.k!, 0), n: measured.reduce((a, r) => a + r.conformance!.n!, 0)};
+}
+
+const STATE: Record<string, string> = {complete: 'ended', abandoned: 'ended', running: 'running', planned: 'planned'};
+const STATE_ORDER = ['running', 'planned', 'ended'];
+
 export default function Evaluation({evaluation}: Props): ReactNode {
-  const {progress, experiments, releasesTable, nodeClasses, fixtures, quality = []} = evaluation;
+  const {progress, experiments, releasesTable, nodeClasses, fixtures, quality = [], targets = null, runs: runCosts = []} = evaluation;
   const freeRuns = (experiments as any[]).flatMap((e) => (e.treatment ? (e.variants ?? []).find((v: any) => v.id === e.treatment)?.runs ?? [] : []));
   const rel = releasesOf(progress);
   const settings = chartedSettings(progress);
   const labels = new Map(progress.settings.map((s) => [s.id, s.label]));
-  const withData = rel.filter((e) => e.settings.length > 0);
-  const latest = withData[withData.length - 1] ?? null;
+  const charted = rel.filter((e) => e.settings.length > 0);
+  const noRuns = rel.filter((e) => e.settings.length === 0);
+  const latest = charted[charted.length - 1] ?? null;
   const exp = (id: string) => experiments.find((e) => e.id === id) ?? null;
   const first = latest?.experiments[0];
   const caseExp = first ? exp(typeof first === 'string' ? first : first.id) : null;
@@ -194,24 +272,231 @@ export default function Evaluation({evaluation}: Props): ReactNode {
   const pre = progress.entries.filter((e) => e.kind === 'pre-release');
   const fixed = caseExp?.fixed ?? {};
   const totals = (e: LedgerEntry) => `${e.totals.clean_passes} of ${e.totals.ended}`;
+
+  const latestSettings = latest ? settings.map((s, i) => ({s, i, runs: runsOf(latest, s.id)})).filter((x) => x.runs.length) : [];
+  const costStats = latestSettings.map((x) => stat(x.runs.map(COST.get)));
+  const wallStats = latestSettings.map((x) => stat(x.runs.map(WALL.get)));
+
+  const target = targets?.targets.find((t) => t.metric === 'run.cost_usd' && typeof t.target === 'number') ?? null;
+  const freeExp = target?.source_experiment ?? experiments.find((e) => e.variable === 'runner')?.id ?? null;
+  const freeAgentRuns = runCosts.filter((r) => r.experiment === freeExp && r.format === 'sdc.free-agent-metrics/1');
+  const freeCost = stat(freeAgentRuns.map((r) => r.cost_usd));
+  const freeWall = stat(freeAgentRuns.map((r) => r.wall_s));
+  const costRefs: RefLine[] = [
+    ...(target ? [{value: target.target!, label: `target ${usd(target.target)} per run (${target.id})`, tag: 'target', kind: 'target' as const}] : []),
+    ...(freeCost ? [{value: freeCost.median, label: `free agent median ${usd(freeCost.median)} (${freeExp}, n = ${freeCost.n})`, tag: 'free agent', kind: 'reference' as const}] : []),
+  ];
+  const wallRefs: RefLine[] = freeWall ? [{value: freeWall.median, label: `free agent median ${WALL.format(freeWall.median)} (${freeExp}, n = ${freeWall.n})`, tag: 'free agent', kind: 'reference'}] : [];
+
+  const q = quality[0] ?? null;
+  const qSides = q ? sideStats(q, freeRuns) : [];
+  const qRuns = new Set(q?.products.map((p) => p.run) ?? []);
+  const qRelease = q ? rel.find((e) => e.settings.some((c) => c.runs.some((r) => qRuns.has(r.run)))) ?? null : null;
+
+  const confRelease = [...charted].reverse().find((e) => settings.some((s) => {
+    const c = conformanceOf(runsOf(e, s.id));
+    return c !== null && typeof c === 'object';
+  })) ?? null;
+  const confRows = confRelease ? settings.map((s, i) => ({s, i, c: conformanceOf(runsOf(confRelease, s.id))})).filter((x) => x.c !== null) : [];
+
+  const byRun = new Map(runCosts.filter((r) => r.cost_by_class).map((r) => [r.run, r.cost_by_class!]));
+  const splitRelease = [...charted].reverse().find((e) => e.settings.some((c) => c.runs.some((r) => byRun.has(r.run)))) ?? null;
+  const splitRows: CostSplitRow[] = splitRelease
+    ? settings
+        .map((s, index) => {
+          const parts = runsOf(splitRelease, s.id).map((r) => byRun.get(r.run)).filter((x): x is Record<string, number> => Boolean(x));
+          const mean: Record<string, number> = {};
+          for (const p of parts) for (const [k, v] of Object.entries(p)) mean[k] = (mean[k] ?? 0) + v / parts.length;
+          return {setting: s, index, n: parts.length, mean, total: Object.values(mean).reduce((a, v) => a + v, 0)};
+        })
+        .filter((r) => r.n > 0)
+    : [];
+
+  const ledgerIds = new Set(progress.entries.flatMap((e) => e.experiments.map((x) => (typeof x === 'string' ? x : x.id))));
+  const queue = experiments
+    .filter((e) => e.id && !ledgerIds.has(e.id))
+    .map((e) => ({e, state: STATE[e.status ?? ''] ?? e.status ?? '–'}))
+    .sort((a, b) => {
+      const d = (STATE_ORDER.indexOf(a.state) + 1 || 9) - (STATE_ORDER.indexOf(b.state) + 1 || 9);
+      return d || a.e.id.localeCompare(b.e.id);
+    });
+
   return (
-    <Layout title="Evaluation" description="The cases the SDC is measured on, every metric per release and setting, and every run.">
+    <Layout title="Evaluation" description="How the SDC performs per release: clean passes, cost and time per run, the improvement experiments, every run, and how it is measured.">
       <main className="container sdc-page sdc-eval">
         {fixtures ? <p className="sdc-banner" role="note" data-sdc-fixture-build="true">Fixture build: these figures come from <code>website/tests/fixtures</code>, not from the repository's ledger.</p> : null}
         <header className="sdc-head">
           <p className="b10x-kicker">Evaluation</p>
           <h1>How the cycle performs, release by release</h1>
           <p className="sdc-lede">
-            Each release is run on the same case, three times per model setting, with nobody waited on. The charts start
-            with the baseline of {rel[0]?.label ?? 'the first release'}; every later release adds a column when its runs
-            are committed. A column without runs says "no data".
-            {latest ? <> Latest release with runs: <strong>{latest.label}</strong>, {totals(latest)} clean passes.</> : null}
+            Each release runs the same idea in each model setting, from the idea to a close or a stop, with nobody waited
+            on; every figure on this page comes from the committed experiment records.
           </p>
+          <nav className="sdc-jump" aria-label="On this page">
+            <a href="#results">Results</a>
+            <a href="#experiments">Experiments</a>
+            <a href="#runs">Every run</a>
+            <a href="#method">How it is measured</a>
+            <a href="#limits">Limits</a>
+          </nav>
         </header>
 
-        <section aria-labelledby="cases">
-          <h2 id="cases">The cases</h2>
-          <h3>The to-do case</h3>
+        {latest ? (
+          <section className="sdc-tiles" aria-label="Headline figures" id="tiles">
+            <Tile
+              id="tile-clean"
+              label="Clean passes"
+              rows={latestSettings.map((x) => ({key: x.s.id, marker: x.i, name: x.s.id, value: `${x.runs.filter((r) => r.clean_pass).length} of ${x.runs.length}`}))}
+              note={<>release {latest.label} · k of n ended runs</>}
+            />
+            <Tile
+              id="tile-cost"
+              label="Median cost per run"
+              rows={latestSettings.map((x, j) => ({key: x.s.id, marker: x.i, name: x.s.id, value: costStats[j] ? usd(costStats[j]!.median) : '–'}))}
+              note={<>release {latest.label} · USD · {nNote(costStats)}</>}
+            />
+            <Tile
+              id="tile-wall"
+              label="Median wall time per run"
+              rows={latestSettings.map((x, j) => ({key: x.s.id, marker: x.i, name: x.s.id, value: wallStats[j] ? WALL.format(wallStats[j]!.median) : '–'}))}
+              note={<>release {latest.label} · {nNote(wallStats)}</>}
+            />
+            {target ? (
+              <Tile
+                id="tile-target"
+                label="Cost target per run"
+                big={usd(target.target)}
+                rows={latestSettings.map((x, j) => {
+                  const s = costStats[j];
+                  const f = s ? s.median / target.target! : null;
+                  return {key: x.s.id, marker: x.i, name: x.s.id, value: f === null ? '–' : f > 1 ? `×${factor(f)} to go` : `met (×${f.toFixed(2)})`};
+                })}
+                note={<>{freeCost ? <>median of the free-running agent, <code>{freeExp}</code>, n = {freeCost.n}</> : <>set {target.set}</>} · factor against release {latest.label}</>}
+              />
+            ) : null}
+            {q && qSides.some((s) => s.score) ? (
+              <Tile
+                id="tile-quality"
+                label="Quality of the delivered product"
+                rows={qSides.filter((s) => s.score).map((s) => ({key: s.side.id, marker: null, name: s.side.id, value: `${s.score!.median} of ${q.n}`}))}
+                note={<>median rubric points, blinded · {q.products.length} products{qRelease ? <> · release {qRelease.label}</> : null}</>}
+              />
+            ) : null}
+            {confRelease ? (
+              <Tile
+                id="tile-conformance"
+                label="Spec scenarios proven passed"
+                rows={confRows.map((x) => ({key: x.s.id, marker: x.i, name: x.s.id, value: typeof x.c === 'object' && x.c ? `${x.c.k} of ${x.c.n}` : String(x.c)}))}
+                note={<>lower bound, summed over runs · release {confRelease.label}</>}
+              />
+            ) : null}
+          </section>
+        ) : null}
+
+        <section aria-labelledby="results">
+          <h2 id="results">Results</h2>
+          <p>
+            One column per release with committed runs. The dot is the median over the runs that have the value, the
+            whisker spans min to max, and <code>n</code> counts those runs. Medians are over every ended run of the
+            setting, clean or not. No line joins the releases.
+          </p>
+          <SeriesLegend settings={settings} />
+          <div className="sdc-main-charts">
+            <CleanPassChart releases={charted} settings={settings} />
+            <MetricChart metric={COST} releases={charted} settings={settings} size="large" refs={costRefs} />
+            <MetricChart metric={WALL} releases={charted} settings={settings} size="large" refs={wallRefs} />
+            {splitRelease && splitRows.length ? <CostSplitChart release={splitRelease.label} rows={splitRows} /> : null}
+          </div>
+          {noRuns.length ? <p className="sdc-muted" id="no-runs">No runs yet on: {list(noRuns.map((e) => e.label))}.</p> : null}
+          {target ? (
+            <p className="sdc-muted">
+              The cost target is <code>{target.id}</code> in <Cite path="experiments/targets.yaml" at="main" />, set {target.set}
+              {freeCost ? <> from the median cost of the free-running agent (<code>{freeExp}</code>, n = {freeCost.n})</> : null}.
+            </p>
+          ) : null}
+          <h3 id="more-metrics">More metrics</h3>
+          <div className="sdc-metrics">
+            {METRICS.filter((m) => !MAIN.has(m.id)).map((m) => <MetricChart key={m.id} metric={m} releases={charted} settings={settings} />)}
+          </div>
+          <h3 id="stops">Stops by cause</h3>
+          <p>Ended runs that did not close, by the cause of their stop. Fewer is better.</p>
+          {[...charted].reverse().map((e) => <StopsTable key={e.id} entry={e} settings={settings} />)}
+        </section>
+
+        <section aria-labelledby="experiments">
+          <h2 id="experiments">Improvement experiments</h2>
+          <p>
+            Each record changes one thing against a baseline, or reads runs that exist. The release baselines are under
+            Every run. Source: <code>experiments/&lt;id&gt;.yaml</code> and <Cite path="experiments/INDEX.md" at="main" />.
+          </p>
+          <div className="sdc-table-wrap" tabIndex={0} role="region" aria-label="Improvement experiments">
+            <table className="sdc-table sdc-table--experiments">
+              <thead>
+                <tr>
+                  <th scope="col">Record</th>
+                  <th scope="col">What is changed</th>
+                  <th scope="col">Hypothesis or question</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queue.map(({e, state}) => (
+                  <tr key={e.id} id={`exp-${e.id}`}>
+                    <th scope="row"><code>{e.id}</code><span className="sdc-muted sdc-exp__kind">{e.kind}</span></th>
+                    <td className="sdc-exp__what">
+                      {e.title ?? '–'}
+                      {e.variable ? <span className="sdc-muted sdc-exp__var"><code>{e.variable}</code>{e.treatment ? <> → <code>{e.treatment}</code></> : null}</span> : null}
+                    </td>
+                    <td className="sdc-exp__text">
+                      {e.hypothesis ? <><span className="sdc-muted">Hypothesis: </span>{e.hypothesis}</> : e.purpose ? <><span className="sdc-muted">Question: </span>{e.purpose}</> : '–'}
+                    </td>
+                    <td><span className={`sdc-state sdc-state--${state}`}>{state}</span></td>
+                    <td>{e.verdict ? <strong>{e.verdict}</strong> : <span className="sdc-muted">–</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section aria-labelledby="runs">
+          <h2 id="runs">Every run</h2>
+          <p>
+            Per release, every run with its end and metrics, from the run summaries of the experiment records. "–" means
+            the summary has no value. Loop is the looping factor, FPY the first-pass yield. Conformance is the line the
+            observer printed for the run; Failed splits out the failures refused for a precondition the specification does
+            not model.
+          </p>
+          {[...charted].reverse().map((e) => (
+            <section key={e.id} aria-labelledby={`runs-${e.id}`}>
+              <h3 id={`runs-${e.id}`}>
+                Release {e.label} <span className="sdc-muted">· {e.date} · {totals(e)} clean passes</span>
+              </h3>
+              <RunTable entry={e} settings={progress.settings.map((s) => s.id)} labels={labels} />
+              {e.limits?.length ? <ul className="sdc-limits">{e.limits.map((l) => <li key={l}>{l}</li>)}</ul> : null}
+            </section>
+          ))}
+          {noRuns.length ? <p className="sdc-muted" id="runs-none">No runs yet on: {list(noRuns.map((e) => e.label))}.</p> : null}
+          <h3 id="pre-releases">Before the first release: pre-release trees</h3>
+          <p>
+            Runs on trees that were never released, registered retrospectively. They are not on the charts and decide
+            nothing; they show where the work started.
+          </p>
+          {pre.map((e) => (
+            <details key={e.id} className="sdc-details">
+              <summary>
+                <strong>{e.label}</strong> <span className="sdc-muted">· {e.short} · {totals(e)} clean passes</span>
+              </summary>
+              <RunTable entry={e} settings={progress.settings.map((s) => s.id)} labels={labels} />
+              {e.limits?.length ? <ul className="sdc-limits">{e.limits.map((l) => <li key={l}>{l}</li>)}</ul> : null}
+            </details>
+          ))}
+        </section>
+
+        <section aria-labelledby="method">
+          <h2 id="method">How it is measured</h2>
+          <h3 id="cases">The to-do case</h3>
           {idea ? (
             <blockquote className="sdc-idea">
               <p>{idea.text}</p>
@@ -251,7 +536,7 @@ export default function Evaluation({evaluation}: Props): ReactNode {
             </>
           ) : null}
 
-          <h3>The settings</h3>
+          <h3 id="settings">The settings</h3>
           <p>A setting fixes which model each class of node runs on. The decider answers in place of a person.</p>
           <div className="sdc-table-wrap" tabIndex={0} role="region" aria-label="Settings and models">
             <table className="sdc-table">
@@ -324,7 +609,7 @@ export default function Evaluation({evaluation}: Props): ReactNode {
             <Cite path="docs/conformance.md" lines={[23, 27]} at="main" />). Writing the tables costs about 1 to 3 USD
             of node cost per product (<Cite path="docs/conformance.md" lines={[18, 19]} at="main" />).
           </p>
-          {quality.map((q) => <QualityCase key={q.experiment} q={q} freeRuns={freeRuns} />)}
+          {quality.map((qq) => <QualityCase key={qq.experiment} q={qq} freeRuns={freeRuns} />)}
           <h3>n, and when a difference counts</h3>
           <p>
             At least three runs per setting on each release tree (<Cite path="docs/improving.md" lines={[11, 12]} />). A
@@ -332,58 +617,8 @@ export default function Evaluation({evaluation}: Props): ReactNode {
             run lies beyond every baseline run in that direction, and the medians differ by at least the size the
             hypothesis names. At n = 3 the chance of that separation under exchangeability is 1 in 20, one-sided. A record
             written after its runs never decides (<Cite path="docs/workflow-metrics.md" lines={[143, 155]} />). The charts
-            below describe; they do not decide.
+            describe; they do not decide.
           </p>
-        </section>
-
-        <section aria-labelledby="metrics">
-          <h2 id="metrics">Metrics per release</h2>
-          <p>
-            One chart per metric. The dot is the median over the runs that have the value, the whisker spans min to max,
-            and <code>n</code> counts those runs. Medians are over every ended run of the setting, clean or not. No line
-            joins the releases.
-          </p>
-          <SeriesLegend settings={settings} />
-          <CleanPassChart releases={rel} settings={settings} />
-          <div className="sdc-metrics">
-            {METRICS.map((m) => <MetricChart key={m.id} metric={m} releases={rel} settings={settings} />)}
-          </div>
-          <h3 id="stops">Stops by cause</h3>
-          <p>Ended runs that did not close, by the cause of their stop. Fewer is better.</p>
-          {rel.map((e) => <StopsTable key={e.id} entry={e} settings={settings} />)}
-        </section>
-
-        <section aria-labelledby="runs">
-          <h2 id="runs">Every run</h2>
-          <p>
-            Per release, every run with its end and metrics, from the run summaries of the experiment records. "–" means
-            the summary has no value. Loop is the looping factor, FPY the first-pass yield. Conformance is the line the
-            observer printed for the run; Failed splits out the failures refused for a precondition the specification does
-            not model.
-          </p>
-          {[...rel].reverse().map((e) => (
-            <section key={e.id} aria-labelledby={`runs-${e.id}`}>
-              <h3 id={`runs-${e.id}`}>
-                Release {e.label} <span className="sdc-muted">· {e.date}{e.settings.length ? ` · ${totals(e)} clean passes` : ''}</span>
-              </h3>
-              <RunTable entry={e} settings={progress.settings.map((s) => s.id)} labels={labels} />
-              {e.limits?.length ? <ul className="sdc-limits">{e.limits.map((l) => <li key={l}>{l}</li>)}</ul> : null}
-            </section>
-          ))}
-          <h3 id="pre-releases">Before 0.1.0: pre-release trees</h3>
-          <p>
-            Runs on trees that were never released, registered retrospectively. They are not on the charts and decide
-            nothing; they show where the work started.
-          </p>
-          {pre.map((e) => (
-            <details key={e.id} className="sdc-details">
-              <summary>
-                <strong>{e.label}</strong> <span className="sdc-muted">· {e.short} · {totals(e)} clean passes</span>
-              </summary>
-              <RunTable entry={e} settings={progress.settings.map((s) => s.id)} labels={labels} />
-              {e.limits?.length ? <ul className="sdc-limits">{e.limits.map((l) => <li key={l}>{l}</li>)}</ul> : null}
-            </details>
-          ))}
         </section>
 
         <section aria-labelledby="limits">
