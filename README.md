@@ -10,6 +10,9 @@ admissible action, records the result as Canon evidence and evaluates again. An 
 the executor of one action; its output is an artifact revision, never evidence and never the next
 state. Decisions that belong to a person stop the run and print the command that takes them.
 
+The [documentation site](https://beyond10x.github.io/sdc/) shows the flow, every protocol drawn
+from its YAML, what the SDC is built on, the evaluation per release and one run step by step.
+
 ## State
 
 A prototype; no interface is stable. The latest release is 0.1.2 (2026-11-21), after 0.1.1 and the
@@ -33,6 +36,7 @@ first, 0.1.0; all are source releases at bare-version tags: see [CHANGELOG.md](C
   `sdc.goals/1` documents (`docs/requester.md`).
 - `decision/`, `ess/`, `tools/`: the decision contract and its ESS specification.
 - `eval/`: eval runner, adversaries and personas; `docs/`: design notes and results.
+- `website/`: the documentation site; its protocol data is written by `sdc-protocol-site`.
 - `.engineering/planning/`: the planning store (AEP).
 
 ## Progress

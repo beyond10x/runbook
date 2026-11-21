@@ -1,0 +1,837 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh ess-gate",
+        "results": {
+          "*": "failed",
+          "0": "passed"
+        }
+      },
+      "name": "spec.gate",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "ess_gate"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "build a release revision from the merged changes",
+      "effect": "write",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-drive.build",
+        "program": "sdc-tool.sh release-build",
+        "results": {
+          "0": null
+        }
+      },
+      "name": "release.build",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "build_provenance"
+      ],
+      "step": 1,
+      "waits_for": [
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the specification's conformance suite against the release; only while no run is recorded about the current release revision against the current specification revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh conform-run release",
+        "results": {
+          "*": "failed",
+          "0": "passed"
+        }
+      },
+      "name": "acceptance.run",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.acceptance_run",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "release_conformance"
+      ],
+      "step": 2,
+      "waits_for": [
+        "release.build"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "release.approve"
+      ],
+      "decision_class": {
+        "class": "release",
+        "side": "requester",
+        "type": "approval"
+      },
+      "description": "publish and deploy the current release revision; needs a person's approval",
+      "effect": "external",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-drive.deploy",
+        "program": "sdc-tool.sh publish",
+        "results": {
+          "0": null
+        }
+      },
+      "name": "release.publish",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.accepted",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "release_record"
+      ],
+      "step": 3,
+      "waits_for": [
+        "acceptance.run",
+        "release.build",
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "observe the running release; only while no observation of the current release revision is current (younger than its 30 minutes)",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-drive.monitor",
+        "program": "sdc-tool.sh observe",
+        "results": {
+          "*": "unhealthy",
+          "0": "healthy"
+        }
+      },
+      "name": "release.observe",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.published",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.observed",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "health_observation"
+      ],
+      "step": 4,
+      "waits_for": [
+        "release.publish"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "release.approve"
+      ],
+      "decision_class": {
+        "class": "rollback",
+        "side": "delivering",
+        "type": "approval"
+      },
+      "description": "return to the previous release; needs the same release authority",
+      "effect": "external",
+      "executor": {
+        "bound": false,
+        "kind": "person"
+      },
+      "name": "release.rollback",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:release.published",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "rollback_result"
+      ],
+      "step": 4,
+      "waits_for": [
+        "release.publish"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "the versioned, deployable unit",
+      "name": "release"
+    },
+    {
+      "description": "the ESS specification; its revision is its spec digest, as in the parent case",
+      "name": "spec"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-release.bindings.json",
+  "check": {
+    "revision": 4,
+    "source": "docs/check-output.txt",
+    "states": 24576
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
+      "name": "gate.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:ess_gate",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the ESS gate passes on the current specification revision",
+      "name": "gate.passed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:ess_gate",
+          "suffix": "about spec",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "a conformance run is recorded about the current release revision, against the current specification revision, whatever its result",
+      "name": "release.acceptance_run",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:release_conformance",
+          "suffix": "about release",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the conformance suite of the current specification passes on the current release",
+      "name": "release.accepted",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:release_conformance",
+          "suffix": "about release",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "the current release revision carries build provenance",
+      "name": "release.built",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:build_provenance",
+          "suffix": "about release",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the published release is observed healthy within the last 30 minutes",
+      "name": "release.healthy",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:health_observation",
+          "suffix": "about release",
+          "text": "evidence = healthy:"
+        }
+      ]
+    },
+    {
+      "description": "an observation of the current release revision within the last 30 minutes is recorded, whatever its result",
+      "name": "release.observed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:health_observation",
+          "suffix": "about release",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current release revision is published",
+      "name": "release.published",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:release_record",
+          "suffix": "about release",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a rollback of the current release revision is complete",
+      "name": "rollback.complete",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:rollback_result",
+          "suffix": "about release",
+          "text": "evidence = complete:"
+        }
+      ]
+    }
+  ],
+  "description": "Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running. The ESS gate must pass on the current specification revision. A revised specification invalidates the conformance runs observed against the earlier revision. The case ends passed (operating), rolled back on a complete rollback result, or withheld on an explicit decision.",
+  "evidence": [
+    {
+      "description": "the record of how a release revision was built from the merged changes",
+      "name": "build_provenance",
+      "produced_by": [
+        "release.build"
+      ]
+    },
+    {
+      "description": "the ESS gate over a specification revision, the four checks run as one program; passed or failed",
+      "name": "ess_gate",
+      "produced_by": [
+        "spec.gate"
+      ]
+    },
+    {
+      "description": "an observation of the running release; its result is healthy or unhealthy, and it applies for 30 minutes after it is observed",
+      "max_age": "30m",
+      "name": "health_observation",
+      "produced_by": [
+        "release.observe"
+      ]
+    },
+    {
+      "description": "`ess verify conform run --target <release> --strict` of the specification's suite against a release revision; its result is passed, failed or inconclusive",
+      "name": "release_conformance",
+      "produced_by": [
+        "acceptance.run"
+      ]
+    },
+    {
+      "description": "the record that a release revision was published",
+      "name": "release_record",
+      "produced_by": [
+        "release.publish"
+      ]
+    },
+    {
+      "description": "the result of returning to the release before this one; complete or partial",
+      "name": "rollback_result",
+      "produced_by": [
+        "release.rollback"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:acceptance.run",
+        "kind": "produces",
+        "to": "evidence:release_conformance"
+      },
+      {
+        "from": "action:release.build",
+        "kind": "produces",
+        "to": "evidence:build_provenance"
+      },
+      {
+        "from": "action:release.observe",
+        "kind": "produces",
+        "to": "evidence:health_observation"
+      },
+      {
+        "from": "action:release.publish",
+        "kind": "produces",
+        "to": "evidence:release_record"
+      },
+      {
+        "from": "action:release.rollback",
+        "kind": "produces",
+        "to": "evidence:rollback_result"
+      },
+      {
+        "from": "action:spec.gate",
+        "kind": "produces",
+        "to": "evidence:ess_gate"
+      },
+      {
+        "from": "claim:gate.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.gate"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:release.build"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:release.publish"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:release.acceptance_run",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:acceptance.run"
+      },
+      {
+        "from": "claim:release.accepted",
+        "kind": "gates",
+        "to": "action:release.publish"
+      },
+      {
+        "from": "claim:release.accepted",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:release.built",
+        "kind": "gates",
+        "to": "action:acceptance.run"
+      },
+      {
+        "from": "claim:release.built",
+        "kind": "gates",
+        "to": "action:release.publish"
+      },
+      {
+        "from": "claim:release.built",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:release.healthy",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:release.observed",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:release.observe"
+      },
+      {
+        "from": "claim:release.published",
+        "kind": "gates",
+        "to": "action:release.observe"
+      },
+      {
+        "from": "claim:release.published",
+        "kind": "gates",
+        "to": "action:release.rollback"
+      },
+      {
+        "from": "claim:release.published",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:rollback.complete",
+        "kind": "requires",
+        "to": "outcome:rolled_back"
+      },
+      {
+        "from": "decision:explicitly_withheld",
+        "kind": "decides",
+        "to": "outcome:withheld"
+      },
+      {
+        "from": "evidence:build_provenance",
+        "kind": "establishes",
+        "to": "claim:release.built"
+      },
+      {
+        "from": "evidence:ess_gate",
+        "kind": "establishes",
+        "to": "claim:gate.checked"
+      },
+      {
+        "from": "evidence:ess_gate",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:gate.passed"
+      },
+      {
+        "from": "evidence:health_observation",
+        "kind": "establishes",
+        "qualifier": "healthy",
+        "to": "claim:release.healthy"
+      },
+      {
+        "from": "evidence:health_observation",
+        "kind": "establishes",
+        "to": "claim:release.observed"
+      },
+      {
+        "from": "evidence:release_conformance",
+        "kind": "establishes",
+        "to": "claim:release.acceptance_run"
+      },
+      {
+        "from": "evidence:release_conformance",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:release.accepted"
+      },
+      {
+        "from": "evidence:release_record",
+        "kind": "establishes",
+        "to": "claim:release.published"
+      },
+      {
+        "from": "evidence:rollback_result",
+        "kind": "establishes",
+        "qualifier": "complete",
+        "to": "claim:rollback.complete"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:acceptance.run",
+        "kind": "action",
+        "name": "acceptance.run"
+      },
+      {
+        "id": "action:release.build",
+        "kind": "action",
+        "name": "release.build"
+      },
+      {
+        "id": "action:release.observe",
+        "kind": "action",
+        "name": "release.observe"
+      },
+      {
+        "id": "action:release.publish",
+        "kind": "action",
+        "name": "release.publish"
+      },
+      {
+        "id": "action:release.rollback",
+        "kind": "action",
+        "name": "release.rollback"
+      },
+      {
+        "id": "action:spec.gate",
+        "kind": "action",
+        "name": "spec.gate"
+      },
+      {
+        "id": "evidence:build_provenance",
+        "kind": "evidence",
+        "name": "build_provenance"
+      },
+      {
+        "id": "evidence:ess_gate",
+        "kind": "evidence",
+        "name": "ess_gate"
+      },
+      {
+        "id": "evidence:health_observation",
+        "kind": "evidence",
+        "name": "health_observation"
+      },
+      {
+        "id": "evidence:release_conformance",
+        "kind": "evidence",
+        "name": "release_conformance"
+      },
+      {
+        "id": "evidence:release_record",
+        "kind": "evidence",
+        "name": "release_record"
+      },
+      {
+        "id": "evidence:rollback_result",
+        "kind": "evidence",
+        "name": "rollback_result"
+      },
+      {
+        "id": "claim:gate.checked",
+        "kind": "claim",
+        "name": "gate.checked"
+      },
+      {
+        "id": "claim:gate.passed",
+        "kind": "claim",
+        "name": "gate.passed"
+      },
+      {
+        "id": "claim:release.acceptance_run",
+        "kind": "claim",
+        "name": "release.acceptance_run"
+      },
+      {
+        "id": "claim:release.accepted",
+        "kind": "claim",
+        "name": "release.accepted"
+      },
+      {
+        "id": "claim:release.built",
+        "kind": "claim",
+        "name": "release.built"
+      },
+      {
+        "id": "claim:release.healthy",
+        "kind": "claim",
+        "name": "release.healthy"
+      },
+      {
+        "id": "claim:release.observed",
+        "kind": "claim",
+        "name": "release.observed"
+      },
+      {
+        "id": "claim:release.published",
+        "kind": "claim",
+        "name": "release.published"
+      },
+      {
+        "id": "claim:rollback.complete",
+        "kind": "claim",
+        "name": "rollback.complete"
+      },
+      {
+        "id": "decision:explicitly_withheld",
+        "kind": "decision",
+        "name": "explicitly_withheld"
+      },
+      {
+        "id": "outcome:passed",
+        "kind": "outcome",
+        "name": "passed"
+      },
+      {
+        "id": "outcome:rolled_back",
+        "kind": "outcome",
+        "name": "rolled_back"
+      },
+      {
+        "id": "outcome:withheld",
+        "kind": "outcome",
+        "name": "withheld"
+      }
+    ]
+  },
+  "id": "sdc.release",
+  "invalidation": [
+    {
+      "description": "a conformance run observed against an earlier specification revision no longer applies",
+      "name": "spec.revised"
+    }
+  ],
+  "obligations": [
+    {
+      "description": "the conformance suite passes on the release",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:release.accepted",
+          "text": "claim"
+        }
+      ],
+      "name": "acceptance.required"
+    },
+    {
+      "description": "the ESS gate passes on the current specification revision",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        }
+      ],
+      "name": "gate.required"
+    },
+    {
+      "description": "the release is observed healthy",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:release.healthy",
+          "text": "claim"
+        }
+      ],
+      "name": "health.required"
+    },
+    {
+      "description": "the release carries build provenance",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:release.built",
+          "text": "claim"
+        }
+      ],
+      "name": "provenance.required"
+    }
+  ],
+  "outcomes": [
+    {
+      "description": "the ESS gate passes, and the current release is built, accepted, published and observed healthy",
+      "name": "passed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.accepted",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.published",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:release.healthy",
+          "text": "claim"
+        }
+      ]
+    },
+    {
+      "description": "the release was rolled back completely",
+      "name": "rolled_back",
+      "requires": [
+        {
+          "depth": 0,
+          "reference": "claim:rollback.complete",
+          "text": "claim"
+        }
+      ]
+    },
+    {
+      "description": "the release was explicitly withheld",
+      "name": "withheld",
+      "requires": [
+        {
+          "depth": 0,
+          "reference": "decision:explicitly_withheld",
+          "text": "decision taken:"
+        }
+      ]
+    }
+  ],
+  "parents": [
+    {
+      "action": "release.open",
+      "protocol": "sdc.epic",
+      "stem": "sdc-epic"
+    }
+  ],
+  "revision": 4,
+  "simulate": {
+    "by_outcome": {
+      "passed": 8,
+      "rolled_back": 6,
+      "withheld": 30
+    },
+    "canon": "2c7a1ea6",
+    "findings": 3,
+    "reachable": 60,
+    "revision": 4,
+    "source": "protocol/simulate/sdc-release.txt",
+    "stuck_or_cycle": 7,
+    "terminable": 36
+  },
+  "source": {
+    "path": "protocol/sdc-release.protocol.yaml",
+    "tag": "0.1.2",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.2/protocol/sdc-release.protocol.yaml"
+  },
+  "stem": "sdc-release",
+  "summary": "Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running.",
+  "written_by": "sdc-protocol-site write"
+}

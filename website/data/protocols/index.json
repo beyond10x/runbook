@@ -1,0 +1,874 @@
+{
+  "flow": [
+    {
+      "action": "intake.open",
+      "child": "sdc.intake",
+      "each": null,
+      "parent": "sdc",
+      "step": 0
+    },
+    {
+      "action": "direction.open",
+      "child": "sdc.direction",
+      "each": null,
+      "parent": "sdc",
+      "step": 1
+    },
+    {
+      "action": "epics.open",
+      "child": "sdc.epic",
+      "each": "epics",
+      "parent": "sdc",
+      "step": 2
+    },
+    {
+      "action": "spec.open",
+      "child": "sdc.spec",
+      "each": null,
+      "parent": "sdc.epic",
+      "step": 1
+    },
+    {
+      "action": "plan.open",
+      "child": "sdc.plan",
+      "each": null,
+      "parent": "sdc.epic",
+      "step": 2
+    },
+    {
+      "action": "stories.open",
+      "child": "sdc.story",
+      "each": "stories",
+      "parent": "sdc.epic",
+      "step": 3
+    },
+    {
+      "action": "release.open",
+      "child": "sdc.release",
+      "each": null,
+      "parent": "sdc.epic",
+      "step": 4
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "protocols": [
+    {
+      "action_order": [
+        {
+          "executor": "child-case",
+          "name": "intake.open",
+          "opens": "sdc.intake",
+          "step": 0
+        },
+        {
+          "executor": "copy",
+          "name": "roadmap.read",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "child-case",
+          "name": "direction.open",
+          "opens": "sdc.direction",
+          "step": 1
+        },
+        {
+          "executor": "child-case",
+          "name": "epics.open",
+          "opens": "sdc.epic",
+          "step": 2
+        }
+      ],
+      "actions": 4,
+      "children": [
+        "sdc.intake",
+        "sdc.direction",
+        "sdc.epic"
+      ],
+      "claims": 6,
+      "evidence": 5,
+      "id": "sdc",
+      "outcomes": [
+        "abandoned",
+        "not_delivered",
+        "operating",
+        "refused"
+      ],
+      "parents": [],
+      "revision": 8,
+      "simulate_findings": 1,
+      "states": 4608,
+      "stem": "sdc",
+      "summary": "Take an idea, from three words to a short paragraph, through the software delivery cycle (docs/phases.md)."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "model",
+          "name": "bug.dissect",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "dissection.check",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "repro.run",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "model",
+          "name": "test.reproduce",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "model",
+          "name": "change.fix",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "tests.run",
+          "opens": null,
+          "step": 3
+        },
+        {
+          "executor": "program",
+          "name": "story.update",
+          "opens": null,
+          "step": 4
+        },
+        {
+          "executor": "program",
+          "name": "gate.run",
+          "opens": null,
+          "step": 5
+        }
+      ],
+      "actions": 8,
+      "children": [],
+      "claims": 10,
+      "evidence": 6,
+      "id": "sdc.bugfix",
+      "outcomes": [
+        "fixed",
+        "not_fixed",
+        "not_reproduced"
+      ],
+      "parents": [],
+      "revision": 1,
+      "simulate_findings": 0,
+      "states": null,
+      "stem": "sdc-bugfix",
+      "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "program",
+          "name": "amend.upstream",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "person",
+          "name": "context.change",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "context.check",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "model",
+          "name": "context.default",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "roadmap.validate",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "person",
+          "name": "context.approve",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "person",
+          "name": "vision.approve",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "model",
+          "name": "vision.write",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "person",
+          "name": "roadmap.approve",
+          "opens": null,
+          "step": 3
+        },
+        {
+          "executor": "model",
+          "name": "roadmap.write",
+          "opens": null,
+          "step": 3
+        }
+      ],
+      "actions": 10,
+      "children": [],
+      "claims": 10,
+      "evidence": 5,
+      "id": "sdc.direction",
+      "outcomes": [
+        "passed"
+      ],
+      "parents": [
+        "sdc"
+      ],
+      "revision": 7,
+      "simulate_findings": 10,
+      "states": 49152,
+      "stem": "sdc-direction",
+      "summary": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6)."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "copy",
+          "name": "roadmap.read",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "spec.gate",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "child-case",
+          "name": "spec.open",
+          "opens": "sdc.spec",
+          "step": 1
+        },
+        {
+          "executor": "child-case",
+          "name": "plan.open",
+          "opens": "sdc.plan",
+          "step": 2
+        },
+        {
+          "executor": "child-case",
+          "name": "stories.open",
+          "opens": "sdc.story",
+          "step": 3
+        },
+        {
+          "executor": "child-case",
+          "name": "release.open",
+          "opens": "sdc.release",
+          "step": 4
+        }
+      ],
+      "actions": 6,
+      "children": [
+        "sdc.spec",
+        "sdc.plan",
+        "sdc.story",
+        "sdc.release"
+      ],
+      "claims": 9,
+      "evidence": 7,
+      "id": "sdc.epic",
+      "outcomes": [
+        "abandoned",
+        "not_delivered",
+        "not_released",
+        "passed"
+      ],
+      "parents": [
+        "sdc"
+      ],
+      "revision": 5,
+      "simulate_findings": 2,
+      "states": 36864,
+      "stem": "sdc-epic",
+      "summary": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10)."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "program",
+          "name": "dissection.check",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "idea.check",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "questions.check",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "requirements.check",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "amend.upstream",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "model",
+          "name": "idea.dissect",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "model",
+          "name": "questions.answer",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "model",
+          "name": "questions.write",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "model",
+          "name": "requirements.normalise",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "person",
+          "name": "scope.answer",
+          "opens": null,
+          "step": 1
+        }
+      ],
+      "actions": 10,
+      "children": [],
+      "claims": 10,
+      "evidence": 5,
+      "id": "sdc.intake",
+      "outcomes": [
+        "passed",
+        "refused"
+      ],
+      "parents": [
+        "sdc"
+      ],
+      "revision": 9,
+      "simulate_findings": 17,
+      "states": 49152,
+      "stem": "sdc-intake",
+      "summary": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3)."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "program",
+          "name": "amend.upstream",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "copy",
+          "name": "roadmap.read",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "spec.gate",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "program",
+          "name": "plan.cover",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "model",
+          "name": "plan.decompose",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "plan.scope",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "plan.status",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "plan.validate",
+          "opens": null,
+          "step": 2
+        }
+      ],
+      "actions": 8,
+      "children": [],
+      "claims": 12,
+      "evidence": 6,
+      "id": "sdc.plan",
+      "outcomes": [
+        "passed"
+      ],
+      "parents": [
+        "sdc.epic"
+      ],
+      "revision": 7,
+      "simulate_findings": 17,
+      "states": 65536,
+      "stem": "sdc-plan",
+      "summary": "Decompose the epic's complete ESS specification into AEP stories under the epic."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "program",
+          "name": "spec.gate",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "release.build",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "program",
+          "name": "acceptance.run",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "release.publish",
+          "opens": null,
+          "step": 3
+        },
+        {
+          "executor": "program",
+          "name": "release.observe",
+          "opens": null,
+          "step": 4
+        },
+        {
+          "executor": "person",
+          "name": "release.rollback",
+          "opens": null,
+          "step": 4
+        }
+      ],
+      "actions": 6,
+      "children": [],
+      "claims": 9,
+      "evidence": 6,
+      "id": "sdc.release",
+      "outcomes": [
+        "passed",
+        "rolled_back",
+        "withheld"
+      ],
+      "parents": [
+        "sdc.epic"
+      ],
+      "revision": 4,
+      "simulate_findings": 3,
+      "states": 24576,
+      "stem": "sdc-release",
+      "summary": "Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "program",
+          "name": "amend.upstream",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "copy",
+          "name": "roadmap.read",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "model",
+          "name": "spec.author",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "person",
+          "name": "spec.reconstruct",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "person",
+          "name": "spec.reuse",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "program",
+          "name": "spec.scan",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "spec.validate",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "spec.compile",
+          "opens": null,
+          "step": 3
+        },
+        {
+          "executor": "program",
+          "name": "spec.trace",
+          "opens": null,
+          "step": 3
+        },
+        {
+          "executor": "program",
+          "name": "spec.synthesize",
+          "opens": null,
+          "step": 4
+        },
+        {
+          "executor": "program",
+          "name": "spec.review",
+          "opens": null,
+          "step": 5
+        }
+      ],
+      "actions": 11,
+      "children": [],
+      "claims": 17,
+      "evidence": 8,
+      "id": "sdc.spec",
+      "outcomes": [
+        "abandoned",
+        "passed"
+      ],
+      "parents": [
+        "sdc.epic"
+      ],
+      "revision": 5,
+      "simulate_findings": 16,
+      "states": 65536,
+      "stem": "sdc-spec",
+      "summary": "Get the epic's ESS specification to complete (docs/phases.md steps 8 and 9)."
+    },
+    {
+      "action_order": [
+        {
+          "executor": "program",
+          "name": "amend.upstream",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "program",
+          "name": "spec.gate",
+          "opens": null,
+          "step": 0
+        },
+        {
+          "executor": "model",
+          "name": "change.implement",
+          "opens": null,
+          "step": 1
+        },
+        {
+          "executor": "program",
+          "name": "tests.run",
+          "opens": null,
+          "step": 2
+        },
+        {
+          "executor": "model",
+          "name": "change.review",
+          "opens": null,
+          "step": 3
+        },
+        {
+          "executor": "person",
+          "name": "merge.approve",
+          "opens": null,
+          "step": 4
+        },
+        {
+          "executor": "program",
+          "name": "change.merge",
+          "opens": null,
+          "step": 5
+        }
+      ],
+      "actions": 7,
+      "children": [],
+      "claims": 10,
+      "evidence": 6,
+      "id": "sdc.story",
+      "outcomes": [
+        "dropped",
+        "passed"
+      ],
+      "parents": [
+        "sdc.epic"
+      ],
+      "revision": 7,
+      "simulate_findings": 5,
+      "states": 49152,
+      "stem": "sdc-story",
+      "summary": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision."
+    }
+  ],
+  "release": {
+    "date": "2026-11-21",
+    "notes": "docs/releases/0.1.2.md",
+    "tag": "0.1.2",
+    "version": "0.1.2"
+  },
+  "releases": [
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "No run has used the 0.1.2 tree. The baseline is still `experiments/baseline-0.1.0` (three runs per setting on the 0.1.0 tree `4468bfd`): 6 of 9 clean passes. Strong 3 of 3, median 5.50 USD and 1,247 s; mixed 3 of 3, median 2.55 USD and 1,489 s; Haiku 0 of 3 (`experiments/baseline-0.1.0/report.md`).",
+        "A check of the delivered product against its specification is in work and not in this release.",
+        "Nobody started the delivered product.",
+        "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
+      ],
+      "notes": "docs/releases/0.1.2.md",
+      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.2/docs/releases/0.1.2.md",
+      "summary": "A patch release after 0.1.1, the same day: corrections to the figures of 0.1.0, recorded replay, the timeline of a run, one rework cap, the LLM decider's principal renamed, and the root protocol's description. No rule of a protocol changed. A source release at tag `0.1.2`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
+      "version": "0.1.2"
+    },
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "No run has used the 0.1.1 tree. The baseline of 0.1.0 is `experiments/baseline-0.1.0` (three runs per setting on the 0.1.0 tree `4468bfd`): 6 of 9 clean passes. Strong (Sonnet work, Opus decider) 3 of 3, median 5.50 USD and 1,247 s; mixed (Sonnet work, Haiku decider and other nodes) 3 of 3, median 2.55 USD and 1,489 s; Haiku 0 of 3, stopped `writer_spent` twice and `decision_not_takeable` once (`experiments/baseline-0.1.0/report.md`).",
+        "Recorded replay (`feat/recorded-replay`) is not in this release: on the merged tree a re-driven run called `run.unstick`, which the recording never made, so `replay-reject-nearest` diverged; it was merged and reverted before the release and follows in a later one.",
+        "Nobody started the delivered product.",
+        "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
+      ],
+      "notes": "docs/releases/0.1.1.md",
+      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.1/docs/releases/0.1.1.md",
+      "summary": "A patch release after 0.1.0, the same day: the reject and cap routes of the audit, ways to keep a trial run going and to reopen it, a static route check and a pinned `canon simulate` step, workflow metrics with experiment records and a progress ledger, and the live view's run picker. No protocol of the nine changed. A source release at tag `0.1.1`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
+      "version": "0.1.1"
+    },
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "Earlier runs' decisions were taken with the host's settings: until `f747085` the decider's model call loaded the host user's Claude Code setup (the `init` event of `runs/trial-3-strong-2/decider/001-q1/events.jsonl` lists 14 tools, 11 plugins, 60 skills and the host's output style) and took its effort level from the host's settings, which the runs do not record. The decisions of all seven passes are not reproducible on another machine as recorded. The hermetic adapter and an explicit default effort per class are in this release; no pass ran on them.",
+        "Before `50d90b9` the first real code review stopped every run: three runs from `main` at `8db4b93` with the real review node (`trial-3-strong-3`, `trial-3-strong-4`, `trial-3-mixed-7`) stopped `stuck` at their first `change.review` call with the reply file `out/review.json` unreadable. Fixed in this release (`50d90b9`); the runs through the fixed review node that passed are `trial-3-strong-6` and `trial-3-strong-5` above, whose tree is `main` plus that one fix branch, not this release's tree: the released tree adds the hermetic adapter, the effort per class, the re-raise fix, the bug-fix protocol and the audit, and its decider was not hermetic.",
+        "Five of the seven passes ran on `trial/3b` at `acd6f12` (`main` at `32265be` plus fixes that are all on `main` since), with the review step still a stub: no review model call ran in them. The other two ran on `trial/main-2`.",
+        "Three batch passes (`strong-1`, `strong-2`, `opus-1`) had no merge rejection. Rejections of `merge.approve` with rework occurred in two (`mixed-6`, `haiku-7`) and reviewed rejections in `strong-6` (2) and `strong-5` (4). The release reject route did not occur in a pass: it ends `not_delivered`.",
+        "Nobody started the delivered product; `haiku-6` and `mixed-5` show that a story set can pass every merge and still miss the idea (`docs/trial-3.md`).",
+        "Known faults, not fixed in this release: the decider's principal is named `decider:haiku` whatever model decides (`driver/examples/sdc/tools/decider.sh:5`, kind `haiku`; run record `trial-3-strong-1`: kind `haiku`, model Opus); the driver's \"LLM calls so far\" counts every started action of a binding with `llm`, including runs that called no model (`driver/src/main.rs:1033-1043`, printed by `scripts/run-trial.sh:291,712`; `docs/trial-2.md:519`: 18 calls in `llm-calls.jsonl`, 19 counted).",
+        "The bug-fix runs ran on `impl/bugfix-cycle` and not on this release's tree: the red-check defect fixed in `99238c0` is still in this release, and no scripted cycle covers `sdc-bugfix`.",
+        "The driver's runtime parts are a temporary copy of what the Loom runtime must provide (`AGENTS.md`, `docs/layers.md:51`, `docs/driver.md:43-45`).",
+        "Release and operate are being split out of the cycle (branch `proto/cycle-ends-delivered`); that is not in this release."
+      ],
+      "notes": "docs/releases/0.1.0.md",
+      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.0/docs/releases/0.1.0.md",
+      "summary": "The first release of the SDC prototype: eight Canon `protocol/1` protocols for the cycle from an idea to a built, tested product, a ninth for one bug fix, the driver that runs them, and a live view of a run. A source release at tag `0.1.0`; nothing is published to crates.io (`publish = false` in the three crates) and no interface is stable. Paths are relative to the repository; a figure marked \"run record\" comes from `runs/`, which is not in git, and is stated as recorded there (`docs/trial-3.md` is the account of trial 3).",
+      "version": "0.1.0"
+    }
+  ],
+  "repository": "https://github.com/beyond10x/sdc",
+  "roots": [
+    "sdc",
+    "sdc.bugfix"
+  ],
+  "sources": [
+    {
+      "path": "CHANGELOG.md",
+      "sha256": "6cd32cbdd430a822961ce03e0423ec3f5592505bc9d33fb677d286383abcbcd4"
+    },
+    {
+      "path": "docs/check-output.txt",
+      "sha256": "d55d89a1c0fe0a4856e69ceeb06426c077b6911054859203baf4d87b11923724"
+    },
+    {
+      "path": "docs/releases/0.1.0.md",
+      "sha256": "221f06016257c59dc93a6ee35663cbd76fc824971218b913cdaa6b1dd2f750f3"
+    },
+    {
+      "path": "docs/releases/0.1.1.md",
+      "sha256": "09a48d1ecbabd12810b13ab8790809921514dae2004af1e67f2e1e413f707fe0"
+    },
+    {
+      "path": "docs/releases/0.1.2.md",
+      "sha256": "3fdfe7715187272a6bacb882a89c1c0b3d4e1c616a56cd66dfecb2802870abec"
+    },
+    {
+      "path": "driver/examples/sdc/decision-classes.json",
+      "sha256": "30cfda7df398cb3db30e595848bcee131867296af083dd503053dd8be5c10596"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
+      "sha256": "72e76a3b8721b798502573252da1bb1d968a2c8273aa51eae4f13c6697fa2e4e"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-direction.bindings.json",
+      "sha256": "4319409e92ecb42892bab88b56fbb421ba2bf9f5ff827cbd07f573f93a74b372"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-epic.bindings.json",
+      "sha256": "b9ccc5ede7b30d0b9150c8e3617b39609e39cc7f66b744d07741dd2ae827a9f8"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-intake.bindings.json",
+      "sha256": "21560d85ab0fe6be7ff43cd595853204cc2c12207ac114399bca2b3f3a596719"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-plan.bindings.json",
+      "sha256": "2d7fb6d97a38eac8ed901f33202bcd7bd8ffe94c3f8dd6eda2e0d7bd40576142"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-release.bindings.json",
+      "sha256": "e2995924d78c59da65a1f4760fc62e1a6a5d4b4cea568c5ee5e0d3d8e18f870b"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-spec.bindings.json",
+      "sha256": "9f3f18446f63a8a3eea4b8a73b0688358ab85f30ddec2c70954bac673e6de70d"
+    },
+    {
+      "path": "driver/examples/sdc/sdc-story.bindings.json",
+      "sha256": "6c1f7dd8d1dee6bd2284025b9f425d781683c0f81f06212e35ed739031493334"
+    },
+    {
+      "path": "driver/examples/sdc/sdc.bindings.json",
+      "sha256": "11fa0620c5e99121e8e7aa23e8d720406028cad1a3dacf33e77a449b0720cdda"
+    },
+    {
+      "path": "driver/examples/sdc/tools/node-classes.json",
+      "sha256": "3aecdd3a5918aede73c419f796ab8a03302b04ac3655cab93a5960a939fca0c6"
+    },
+    {
+      "path": "protocol/sdc-bugfix.protocol.yaml",
+      "sha256": "b928586adaf7507ee576766ccb7393b010ddba2b4895872933cdce00ec4809ca"
+    },
+    {
+      "path": "protocol/sdc-direction.protocol.yaml",
+      "sha256": "948c34effb0c9560ee86069e85355c06e80ee4144aa38e352ac05a41c3aff1f8"
+    },
+    {
+      "path": "protocol/sdc-epic.protocol.yaml",
+      "sha256": "dd275b8ea3c80bf35a5ca2625e709700d39e991143f4d1f253184fbd637ae151"
+    },
+    {
+      "path": "protocol/sdc-intake.protocol.yaml",
+      "sha256": "cf4f2e5f5e4f762a1b2d4c36ee22b37dbb9c5ed3b7e1d5958205047b52c4b739"
+    },
+    {
+      "path": "protocol/sdc-plan.protocol.yaml",
+      "sha256": "cca8763ab68a1c0335b3dcb85b859ce6d363abc5e17d69fb938a2d7ceed68fca"
+    },
+    {
+      "path": "protocol/sdc-release.protocol.yaml",
+      "sha256": "e0655233da70ae302fde83667d3ab9a4b1ee12ff9060a17deb43ece6af4d6b07"
+    },
+    {
+      "path": "protocol/sdc-spec.protocol.yaml",
+      "sha256": "c15252bc444da3d5d333599ff6acff63063123ea105ad7885ad063170cdc4971"
+    },
+    {
+      "path": "protocol/sdc-story.protocol.yaml",
+      "sha256": "a90b7d589eb20011513ddcaac3ef235521c7659987582ee417e633daadfaa651"
+    },
+    {
+      "path": "protocol/sdc.protocol.yaml",
+      "sha256": "9dd7d3fc143d17ad80da776566c4cf397690f464d18528fe9cc577664ebad3fa"
+    },
+    {
+      "path": "protocol/simulate/CANON_REV",
+      "sha256": "c18c2d3b21aa3cf9862dfa41f26593ec4a35f08e491b4605a446d75af56716a5"
+    },
+    {
+      "path": "protocol/simulate/sdc-bugfix.txt",
+      "sha256": "bf7a535f7207006f08ec631e5597403113a828dc1bc4d792a19a916c44e12f74"
+    },
+    {
+      "path": "protocol/simulate/sdc-direction.txt",
+      "sha256": "454cb3dd7fce5b37671ad9ad39a6ce92e59d3c3b30d85209b22bd0d12bc6b4e8"
+    },
+    {
+      "path": "protocol/simulate/sdc-epic.txt",
+      "sha256": "8a45dd767717d0e7c63a5c6818eabcb38c0a1ca4dfbe9d26cbc7006e3122df06"
+    },
+    {
+      "path": "protocol/simulate/sdc-intake.txt",
+      "sha256": "0560b6516a9eb80e39311dd4f5463b34d0b58d6d158dbc878b0bed5d7665e955"
+    },
+    {
+      "path": "protocol/simulate/sdc-plan.txt",
+      "sha256": "923f88e72df0c6e84a2f30052e5431f728a52a071b404766dbf378a5240e365c"
+    },
+    {
+      "path": "protocol/simulate/sdc-release.txt",
+      "sha256": "c4e29a56c10960df4efdaa38ff60a90ee215650dc4e815340b26cf55f0ddd064"
+    },
+    {
+      "path": "protocol/simulate/sdc-spec.txt",
+      "sha256": "18766d88c022c6a15d174cfa383987d74afc5bc13c8ee514591b4f90ff296be5"
+    },
+    {
+      "path": "protocol/simulate/sdc-story.txt",
+      "sha256": "672e06b592799a249a2184a558146dc528f729f199e992219fee84ee7d3f6dc7"
+    },
+    {
+      "path": "protocol/simulate/sdc.txt",
+      "sha256": "2e3af462ec42f4e269b8f21da394bab85e3acdb2d7707db1dad19c555fea23a7"
+    }
+  ],
+  "written_by": "sdc-protocol-site write"
+}

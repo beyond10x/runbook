@@ -1,0 +1,1161 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "check the dissection; only while no check is recorded about the current dissection revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh check-dissection",
+        "results": {
+          "*": "invalid",
+          "0": "valid"
+        }
+      },
+      "name": "dissection.check",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:dissection.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "dissection_shape"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "check idea.yaml against its schema; only while no check is recorded about the current idea revision (each check of this protocol runs once per revision of what it reads: a second record with another result would leave its claim unknown for good)",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh check-idea",
+        "results": {
+          "*": "invalid",
+          "0": "valid"
+        }
+      },
+      "name": "idea.check",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:idea.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "idea_shape"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "check the interview's shape and whether it is settled; only while one of the two is not recorded about the current interview revision (the settled check also against the current dissection revision). The one program records both at once; after a revised dissection it records the shape again for an unchanged interview revision, with the same result",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh check-questions",
+        "results": {
+          "*": {
+            "questions_settled": "open",
+            "questions_shape": "invalid"
+          },
+          "0": {
+            "questions_settled": "settled",
+            "questions_shape": "valid"
+          },
+          "1": {
+            "questions_settled": "open",
+            "questions_shape": "valid"
+          },
+          "3": {
+            "questions_settled": "needs_scope_answer",
+            "questions_shape": "valid"
+          }
+        }
+      },
+      "name": "questions.check",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "any of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.checked",
+          "text": "claim is unknown:"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:interview.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "questions_shape",
+        "questions_settled"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "check the requirements list; only while no check is recorded about the current requirements revision, against the current interview revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh check-requirements",
+        "results": {
+          "*": "invalid",
+          "0": "valid",
+          "5": "finding"
+        }
+      },
+      "name": "requirements.check",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:requirements.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "requirements_shape"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "resolve the open findings while the requirements check is not valid: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list (new revisions)",
+      "effect": "write",
+      "executor": {
+        "handoff": true,
+        "kind": "program",
+        "max_runs": 12,
+        "program": "sdc-tool.sh amend requirements",
+        "timeout_s": 300
+      },
+      "name": "amend.upstream",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.settled",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:requirements.valid",
+          "text": "claim is false:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "questions.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "an LLM splits the idea into typed items, each citing its span; moves the dissection to a new revision; not once the current dissection is valid",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh idea.dissect",
+        "retry_when": [
+          "dissection_shape"
+        ],
+        "timeout_s": 900
+      },
+      "name": "idea.dissect",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:idea.shaped",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:dissection.valid",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:dissection.valid",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "idea.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "decision_class": {
+        "class": "scope_changing_answer",
+        "side": "requester",
+        "type": "question"
+      },
+      "description": "an agent accepts the default of every question that changes no scope, or changes it; it leaves every scope-changing question open; moves the questions to a new revision; not once the interview is settled",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh questions.answer",
+        "timeout_s": 900
+      },
+      "name": "questions.answer",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.shaped",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.settled",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.settled",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "questions.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "an LLM writes one question per open item, with options and a default answer; moves the questions to a new revision; not once the current interview is valid",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh questions.write",
+        "retry_when": [
+          "questions_shape"
+        ],
+        "timeout_s": 900
+      },
+      "name": "questions.write",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.shaped",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.shaped",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "dissection.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "normalise the facts, wishes and answers into the requirements list; moves the requirements to a new revision; not once the current requirements list is valid",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh requirements.normalise",
+        "retry_when": [
+          "requirements_shape"
+        ],
+        "timeout_s": 900
+      },
+      "name": "requirements.normalise",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.settled",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:requirements.valid",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:requirements.valid",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "questions.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "scope.answer"
+      ],
+      "decision_class": {
+        "class": "scope_changing_answer",
+        "side": "requester",
+        "type": "question"
+      },
+      "description": "answer the scope-changing questions: the principal holding scope.answer (a person, or a decider at the autonomy levels that grant it) accepts each default or changes it, and its answers are recorded with that principal; moves the questions to a new revision; not once the interview is settled. Admissible on an interview whose shape is not checked yet (r6): the person's own edit of an answer moves the questions to a revision no check has seen, and scope.answer is what takes that edit; questions.check runs on the revision it writes. Not on an interview found invalid.",
+      "effect": "write",
+      "executor": {
+        "bound": true,
+        "kind": "person",
+        "max_runs": 8,
+        "program": "sdc-tool.sh scope-answer {principal}"
+      },
+      "name": "scope.answer",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.shaped",
+          "text": "claim"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.shaped",
+          "text": "claim is unknown:"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.settled",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:questions.settled",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "dissection.check",
+        "questions.check"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "dissection.yaml, the idea's typed items: fact, wish, belief, unknown, ambiguity, dark spot",
+      "name": "dissection"
+    },
+    {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution",
+      "name": "findings"
+    },
+    {
+      "description": "goals.yaml, the requester's resolved goals document from the root case (sdc.goals/1), read by the writers; an input only: no claim reads it and no invalidation names it, so a revised goals document makes no record of this case stale",
+      "name": "goals"
+    },
+    {
+      "description": "idea.yaml, an sdc.intake.Idea instance; its revision is the file's sha256",
+      "name": "idea"
+    },
+    {
+      "description": "questions.yaml, the interview: one question per open item, each with a default answer and its answer, accepted or changed",
+      "name": "questions"
+    },
+    {
+      "description": "requirements.yaml, the structural, product-level list of what should be built, each entry citing a fact, a wish or an answer",
+      "name": "requirements"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-intake.bindings.json",
+  "check": {
+    "revision": 9,
+    "source": "docs/check-output.txt",
+    "states": 49152
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "a check is recorded about the current dissection revision, whatever its result",
+      "name": "dissection.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:dissection_shape",
+          "suffix": "about dissection",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current dissection is valid, made from the current idea revision",
+      "name": "dissection.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:dissection_shape",
+          "suffix": "about dissection",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "a check is recorded about the current idea revision, whatever its result",
+      "name": "idea.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:idea_shape",
+          "suffix": "about idea",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current idea record is a valid sdc.intake.Idea",
+      "name": "idea.shaped",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:idea_shape",
+          "suffix": "about idea",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "a settled check is recorded about the current interview revision, against the current dissection revision, whatever its result",
+      "name": "interview.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:questions_settled",
+          "suffix": "about questions",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a shape check is recorded about the current interview revision, whatever its result",
+      "name": "questions.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:questions_shape",
+          "suffix": "about questions",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "every open item of the current dissection has a settled question",
+      "name": "questions.settled",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:questions_settled",
+          "suffix": "about questions",
+          "text": "evidence = settled:"
+        }
+      ]
+    },
+    {
+      "description": "the current interview is valid, every question with a default answer",
+      "name": "questions.shaped",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:questions_shape",
+          "suffix": "about questions",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "a check is recorded about the current requirements revision, against the current interview revision, whatever its result",
+      "name": "requirements.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:requirements_shape",
+          "suffix": "about requirements",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current requirements list is valid, normalised from the current interview",
+      "name": "requirements.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:requirements_shape",
+          "suffix": "about requirements",
+          "text": "evidence = valid:"
+        }
+      ]
+    }
+  ],
+  "description": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3). The idea record is checked against its schema; the idea is dissected into typed items (fact, wish, belief, unknown, ambiguity, dark spot), each citing its span of the idea; every open item becomes an interview question with a default answer, accepted as is or changed, every scope-changing one through the action scope.answer, which needs the capability scope.answer (the runtime grants it per autonomy level: a person at A0 to A2, a decider at A3 and up); the answers are normalised into a requirements list. Every result is a program's exit status, never an LLM's word. A revised dissection invalidates the interview check, a revised interview the requirements check. A revised idea opens a new intake case (the root's intake.open is bound to the idea revision), so this case declares no invalidation from the idea. The case ends passed, or refused when the idea record fails its schema check (nothing here revises the idea); abandoning the idea is the root case's decision. Late findings (docs/trial-2.md, \"The late-finding loop\"): the requirements check also reads the open findings and is not valid while one is open; amend.upstream resolves them by amending the questions and the requirements list.",
+  "evidence": [
+    {
+      "description": "the dissection check: schema-valid, every item one of the six types, every span a substring of the idea text; its result is valid or invalid",
+      "name": "dissection_shape",
+      "produced_by": [
+        "dissection.check"
+      ]
+    },
+    {
+      "description": "`ess generate schema validate` over idea.yaml; its result is valid or invalid",
+      "name": "idea_shape",
+      "produced_by": [
+        "idea.check"
+      ]
+    },
+    {
+      "description": "the interview check: every open item (belief, unknown, ambiguity, dark spot) has exactly one question, every question is answered accepted or changed, every scope-changing one through scope.answer (its answered_by names the principal that took that action, never the agent's non-interactive); its result is settled, open or needs_scope_answer",
+      "name": "questions_settled",
+      "produced_by": [
+        "questions.check"
+      ]
+    },
+    {
+      "description": "`ess generate schema validate` over questions.yaml, every question with a default answer; its result is valid or invalid",
+      "name": "questions_shape",
+      "produced_by": [
+        "questions.check"
+      ]
+    },
+    {
+      "description": "the requirements check: schema-valid, every requirement cites a fact, a wish or an answer; no open finding; its result is valid, invalid or finding",
+      "name": "requirements_shape",
+      "produced_by": [
+        "requirements.check"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:dissection.check",
+        "kind": "produces",
+        "to": "evidence:dissection_shape"
+      },
+      {
+        "from": "action:idea.check",
+        "kind": "produces",
+        "to": "evidence:idea_shape"
+      },
+      {
+        "from": "action:questions.check",
+        "kind": "produces",
+        "to": "evidence:questions_settled"
+      },
+      {
+        "from": "action:questions.check",
+        "kind": "produces",
+        "to": "evidence:questions_shape"
+      },
+      {
+        "from": "action:requirements.check",
+        "kind": "produces",
+        "to": "evidence:requirements_shape"
+      },
+      {
+        "from": "claim:dissection.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:dissection.check"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:idea.dissect"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:idea.dissect"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "to": "action:questions.write"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "to": "action:scope.answer"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:idea.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:idea.check"
+      },
+      {
+        "from": "claim:idea.shaped",
+        "kind": "gates",
+        "to": "action:idea.dissect"
+      },
+      {
+        "from": "claim:idea.shaped",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:idea.shaped",
+        "kind": "requires",
+        "qualifier": "false",
+        "to": "outcome:refused"
+      },
+      {
+        "from": "claim:interview.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:questions.check"
+      },
+      {
+        "from": "claim:questions.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:questions.check"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "gates",
+        "to": "action:amend.upstream"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:questions.answer"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:questions.answer"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "gates",
+        "to": "action:requirements.normalise"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:scope.answer"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:scope.answer"
+      },
+      {
+        "from": "claim:questions.settled",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:questions.shaped",
+        "kind": "gates",
+        "to": "action:questions.answer"
+      },
+      {
+        "from": "claim:questions.shaped",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:questions.write"
+      },
+      {
+        "from": "claim:questions.shaped",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:questions.write"
+      },
+      {
+        "from": "claim:questions.shaped",
+        "kind": "gates",
+        "to": "action:scope.answer"
+      },
+      {
+        "from": "claim:questions.shaped",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:scope.answer"
+      },
+      {
+        "from": "claim:questions.shaped",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:requirements.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:requirements.check"
+      },
+      {
+        "from": "claim:requirements.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:amend.upstream"
+      },
+      {
+        "from": "claim:requirements.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:requirements.normalise"
+      },
+      {
+        "from": "claim:requirements.valid",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:requirements.normalise"
+      },
+      {
+        "from": "claim:requirements.valid",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "evidence:dissection_shape",
+        "kind": "establishes",
+        "to": "claim:dissection.checked"
+      },
+      {
+        "from": "evidence:dissection_shape",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:dissection.valid"
+      },
+      {
+        "from": "evidence:idea_shape",
+        "kind": "establishes",
+        "to": "claim:idea.checked"
+      },
+      {
+        "from": "evidence:idea_shape",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:idea.shaped"
+      },
+      {
+        "from": "evidence:questions_settled",
+        "kind": "establishes",
+        "to": "claim:interview.checked"
+      },
+      {
+        "from": "evidence:questions_settled",
+        "kind": "establishes",
+        "qualifier": "settled",
+        "to": "claim:questions.settled"
+      },
+      {
+        "from": "evidence:questions_shape",
+        "kind": "establishes",
+        "to": "claim:questions.checked"
+      },
+      {
+        "from": "evidence:questions_shape",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:questions.shaped"
+      },
+      {
+        "from": "evidence:requirements_shape",
+        "kind": "establishes",
+        "to": "claim:requirements.checked"
+      },
+      {
+        "from": "evidence:requirements_shape",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:requirements.valid"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:amend.upstream",
+        "kind": "action",
+        "name": "amend.upstream"
+      },
+      {
+        "id": "action:dissection.check",
+        "kind": "action",
+        "name": "dissection.check"
+      },
+      {
+        "id": "action:idea.check",
+        "kind": "action",
+        "name": "idea.check"
+      },
+      {
+        "id": "action:idea.dissect",
+        "kind": "action",
+        "name": "idea.dissect"
+      },
+      {
+        "id": "action:questions.answer",
+        "kind": "action",
+        "name": "questions.answer"
+      },
+      {
+        "id": "action:questions.check",
+        "kind": "action",
+        "name": "questions.check"
+      },
+      {
+        "id": "action:questions.write",
+        "kind": "action",
+        "name": "questions.write"
+      },
+      {
+        "id": "action:requirements.check",
+        "kind": "action",
+        "name": "requirements.check"
+      },
+      {
+        "id": "action:requirements.normalise",
+        "kind": "action",
+        "name": "requirements.normalise"
+      },
+      {
+        "id": "action:scope.answer",
+        "kind": "action",
+        "name": "scope.answer"
+      },
+      {
+        "id": "evidence:dissection_shape",
+        "kind": "evidence",
+        "name": "dissection_shape"
+      },
+      {
+        "id": "evidence:idea_shape",
+        "kind": "evidence",
+        "name": "idea_shape"
+      },
+      {
+        "id": "evidence:questions_settled",
+        "kind": "evidence",
+        "name": "questions_settled"
+      },
+      {
+        "id": "evidence:questions_shape",
+        "kind": "evidence",
+        "name": "questions_shape"
+      },
+      {
+        "id": "evidence:requirements_shape",
+        "kind": "evidence",
+        "name": "requirements_shape"
+      },
+      {
+        "id": "claim:dissection.checked",
+        "kind": "claim",
+        "name": "dissection.checked"
+      },
+      {
+        "id": "claim:dissection.valid",
+        "kind": "claim",
+        "name": "dissection.valid"
+      },
+      {
+        "id": "claim:idea.checked",
+        "kind": "claim",
+        "name": "idea.checked"
+      },
+      {
+        "id": "claim:idea.shaped",
+        "kind": "claim",
+        "name": "idea.shaped"
+      },
+      {
+        "id": "claim:interview.checked",
+        "kind": "claim",
+        "name": "interview.checked"
+      },
+      {
+        "id": "claim:questions.checked",
+        "kind": "claim",
+        "name": "questions.checked"
+      },
+      {
+        "id": "claim:questions.settled",
+        "kind": "claim",
+        "name": "questions.settled"
+      },
+      {
+        "id": "claim:questions.shaped",
+        "kind": "claim",
+        "name": "questions.shaped"
+      },
+      {
+        "id": "claim:requirements.checked",
+        "kind": "claim",
+        "name": "requirements.checked"
+      },
+      {
+        "id": "claim:requirements.valid",
+        "kind": "claim",
+        "name": "requirements.valid"
+      },
+      {
+        "id": "outcome:passed",
+        "kind": "outcome",
+        "name": "passed"
+      },
+      {
+        "id": "outcome:refused",
+        "kind": "outcome",
+        "name": "refused"
+      }
+    ]
+  },
+  "id": "sdc.intake",
+  "invalidation": [
+    {
+      "description": "an interview check observed against an earlier dissection no longer applies",
+      "name": "dissection.revised"
+    },
+    {
+      "description": "a requirements check observed against an earlier interview no longer applies",
+      "name": "questions.revised"
+    }
+  ],
+  "obligations": [
+    {
+      "description": "the idea is dissected into typed items",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        }
+      ],
+      "name": "dissection.required"
+    },
+    {
+      "description": "the idea record is valid",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:idea.shaped",
+          "text": "claim"
+        }
+      ],
+      "name": "idea.required"
+    },
+    {
+      "description": "every open item is asked and settled",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.shaped",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.settled",
+          "text": "claim"
+        }
+      ],
+      "name": "interview.required"
+    },
+    {
+      "description": "the requirements list is valid",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:requirements.valid",
+          "text": "claim"
+        }
+      ],
+      "name": "requirements.required"
+    }
+  ],
+  "outcomes": [
+    {
+      "description": "the idea is dissected, the interview settled and the requirements list valid",
+      "name": "passed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:idea.shaped",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.shaped",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:questions.settled",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:requirements.valid",
+          "text": "claim"
+        }
+      ]
+    },
+    {
+      "description": "the idea record failed its schema check. No action of this protocol revises the idea: a revised idea opens a new intake case at the root, so this case ends here",
+      "name": "refused",
+      "requires": [
+        {
+          "depth": 0,
+          "reference": "claim:idea.shaped",
+          "text": "claim is false:"
+        }
+      ]
+    }
+  ],
+  "parents": [
+    {
+      "action": "intake.open",
+      "protocol": "sdc",
+      "stem": "sdc"
+    }
+  ],
+  "revision": 9,
+  "simulate": {
+    "by_outcome": {
+      "passed": 3,
+      "refused": 405
+    },
+    "canon": "2c7a1ea6",
+    "findings": 17,
+    "reachable": 1215,
+    "revision": 9,
+    "source": "protocol/simulate/sdc-intake.txt",
+    "stuck_or_cycle": 87,
+    "terminable": 408
+  },
+  "source": {
+    "path": "protocol/sdc-intake.protocol.yaml",
+    "tag": "0.1.2",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.2/protocol/sdc-intake.protocol.yaml"
+  },
+  "stem": "sdc-intake",
+  "summary": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3).",
+  "written_by": "sdc-protocol-site write"
+}

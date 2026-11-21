@@ -1,0 +1,4008 @@
+{
+  "entries": [
+    {
+      "changes": [
+        {
+          "commit": "f74c68b",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "under autopilot the decider is told it is final (after attempt 1)"
+        },
+        {
+          "commit": "7f5ef7c",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "repeated findings dropped, no re-derivation for own defaults (after attempt 2)"
+        },
+        {
+          "commit": "37fba0b",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the driver says what sent a spent writer back (after attempt 2)"
+        },
+        {
+          "commit": "073c173",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "what only a later step can meet is not an open condition (after attempt 4)"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [
+        {
+          "hypothesis": null,
+          "id": "trial-3-attempts",
+          "kind": "retrospective",
+          "known_confounds": [
+            {
+              "key": "tree",
+              "note": "every attempt ran on a different tree (see trees); the review step was a program stub on all of them"
+            },
+            {
+              "key": "decider.adapter",
+              "note": "attempts 2 to 5 set SDC_DECIDER_ADAPTER=claude-cli; attempt 1 did not; run-settings.jsonl does not record it"
+            }
+          ],
+          "primary": null,
+          "purpose": "Run the to-do idea from idea to close with no person, all Haiku beside Sonnet work with a Haiku decider, and fix what stops each attempt before the next.",
+          "tree": "several",
+          "variants": [
+            {
+              "clean_passes": 0,
+              "ended": 5,
+              "id": "haiku",
+              "listed": 5,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 4,
+              "id": "mixed",
+              "listed": 4,
+              "primary": null
+            }
+          ],
+          "verdict": "descriptive",
+          "why": "no hypothesis: the record describes its runs and decides nothing"
+        }
+      ],
+      "id": "attempts",
+      "kind": "pre-release",
+      "label": "Attempts 1-5",
+      "limits": [
+        "Each attempt ran on a different tree: the nine runs are a sequence of defect finds, not samples of one setting.",
+        "`trial-3-attempts` is retrospective: written after its runs, it describes them and decides nothing.",
+        "`trial-3-attempts` ran on 5 trees: its runs are not samples of one tree.",
+        "`trial-3-attempts`, known confound `tree`: every attempt ran on a different tree (see trees); the review step was a program stub on all of them",
+        "`trial-3-attempts`, known confound `decider.adapter`: attempts 2 to 5 set SDC_DECIDER_ADAPTER=claude-cli; attempt 1 did not; run-settings.jsonl does not record it"
+      ],
+      "settings": [
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 5,
+          "experiment": "trial-3-attempts",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 0.0,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 0.026364,
+              "end": "stopped: awaiting_authority in IDEA-1.direction",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.026364,
+                "decider_calls": 4,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 1.0,
+                "forced": 0,
+                "llm_calls": 5,
+                "looping_factor": 1.0,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": null
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 13,
+                "stop_cause": "awaiting_authority",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 91
+              },
+              "run": "trial-3-haiku",
+              "wall_s": 91.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.21119,
+              "end": "stopped: writer_spent in IDEA-1.list.spec",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.21119,
+                "decider_calls": 7,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.875,
+                "forced": 0,
+                "llm_calls": 13,
+                "looping_factor": 1.75,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 7.0,
+                    "real_takes": 7,
+                    "rework_takes": 6
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 54,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 786
+              },
+              "run": "trial-3-haiku-2",
+              "wall_s": 786.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.46857,
+              "end": "stopped: rejected_without_rework_path in IDEA-1.app.release",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.46857,
+                "decider_calls": 11,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.727,
+                "forced": 0,
+                "llm_calls": 12,
+                "looping_factor": 1.545,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 3.5,
+                    "real_takes": 7,
+                    "rework_takes": 5
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 3.5,
+                    "real_takes": 7,
+                    "rework_takes": 5
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 43,
+                "stop_cause": "rejected_without_rework_path",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1609
+              },
+              "run": "trial-3-haiku-3",
+              "wall_s": 1609.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.669446,
+              "end": "stopped: writer_spent in IDEA-1.todo.list",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.669446,
+                "decider_calls": 14,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.636,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 2.0,
+                "merge_rejections": 2,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 4.5,
+                    "real_takes": 9,
+                    "rework_takes": 7
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 4.5,
+                    "real_takes": 9,
+                    "rework_takes": 7
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 4.0,
+                    "real_takes": 4,
+                    "rework_takes": 3
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 64,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 2107
+              },
+              "run": "trial-3-haiku-4",
+              "wall_s": 2107.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.778985,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 0.778985,
+                "decider_calls": 17,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.636,
+                "forced": 0,
+                "llm_calls": 18,
+                "looping_factor": 1.636,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 1.5,
+                    "real_takes": 3,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 1.5,
+                    "real_takes": 3,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 4.0,
+                    "real_takes": 4,
+                    "rework_takes": 3
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 1,
+                "review_rejections": null,
+                "rework_takes": 61,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 553,
+                "wall_s": 3106
+              },
+              "run": "trial-3-haiku-5",
+              "wall_s": 3106.0
+            }
+          ],
+          "setting": "haiku",
+          "small_n": false,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 4,
+          "experiment": "trial-3-attempts",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 0.0,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 0.026938,
+              "end": "stopped: awaiting_authority in IDEA-1.direction",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.026938,
+                "decider_calls": 4,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.8,
+                "forced": 0,
+                "llm_calls": 5,
+                "looping_factor": 1.2,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": null
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 19,
+                "stop_cause": "awaiting_authority",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 94
+              },
+              "run": "trial-3-mixed",
+              "wall_s": 94.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.886328,
+              "end": "stopped: awaiting_authority in IDEA-1.list.items",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.886328,
+                "decider_calls": 10,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.727,
+                "forced": 0,
+                "llm_calls": 13,
+                "looping_factor": 1.273,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 1.5,
+                    "real_takes": 3,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 1.5,
+                    "real_takes": 3,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 31,
+                "stop_cause": "awaiting_authority",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 888
+              },
+              "run": "trial-3-mixed-2",
+              "wall_s": 888.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 1.487034,
+              "end": "closed: not_delivered",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.487034,
+                "decider_calls": 13,
+                "delivered": false,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 1.417,
+                "merge_rejections": 2,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 2.0,
+                    "real_takes": 6,
+                    "rework_takes": 3
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 2.0,
+                    "real_takes": 6,
+                    "rework_takes": 3
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "not_delivered",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 40,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 2096
+              },
+              "run": "trial-3-mixed-3",
+              "wall_s": 2096.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.042208,
+              "end": "stopped: decision_not_takeable in IDEA-1.intake",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.042208,
+                "decider_calls": 3,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 1.0,
+                "forced": 0,
+                "llm_calls": 4,
+                "looping_factor": 1.0,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": null
+                },
+                "outcome": null,
+                "reopens": 1,
+                "review_rejections": null,
+                "rework_takes": 13,
+                "stop_cause": "decision_not_takeable",
+                "unstuck": 0,
+                "waiting_on_person_s": 2870,
+                "wall_s": 3036
+              },
+              "run": "trial-3-mixed-4",
+              "wall_s": 3036.0
+            }
+          ],
+          "setting": "mixed",
+          "small_n": false,
+          "variant": "mixed"
+        }
+      ],
+      "totals": {
+        "clean_passes": 0,
+        "ended": 9,
+        "not_ended": 0,
+        "rate": 0.0,
+        "small_n": false
+      },
+      "tree": "several",
+      "tree_note": "trial/3 at cedd691 to trial/3b at ea2f111, each attempt on a tree with the fixes of the attempt before",
+      "version": null
+    },
+    {
+      "changes": [
+        {
+          "commit": "102ce99",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "requirement citations checked at write; decisions not refused for faults they did not write"
+        },
+        {
+          "commit": "83d3cbf",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "rule:autopilot closes a terminable root, the decider is not asked"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [
+        {
+          "hypothesis": null,
+          "id": "trial-3-batch-1",
+          "kind": "retrospective",
+          "known_confounds": [
+            {
+              "key": "max_llm_calls",
+              "note": "trial-3-mixed-5 ran with 90, trial-3-mixed-6 with 150"
+            },
+            {
+              "key": "canon",
+              "note": "every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins"
+            }
+          ],
+          "primary": null,
+          "purpose": "Run the to-do idea from idea to close with no person on one tree in five model settings, to see which settings pass and where each one loops.",
+          "tree": "acd6f12",
+          "variants": [
+            {
+              "clean_passes": 1,
+              "ended": 2,
+              "id": "haiku",
+              "listed": 2,
+              "primary": null
+            },
+            {
+              "clean_passes": 1,
+              "ended": 2,
+              "id": "mixed",
+              "listed": 2,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 1,
+              "id": "sonnet",
+              "listed": 1,
+              "primary": null
+            },
+            {
+              "clean_passes": 2,
+              "ended": 2,
+              "id": "strong",
+              "listed": 2,
+              "primary": null
+            },
+            {
+              "clean_passes": 1,
+              "ended": 1,
+              "id": "opus",
+              "listed": 1,
+              "primary": null
+            }
+          ],
+          "verdict": "descriptive",
+          "why": "no hypothesis: the record describes its runs and decides nothing"
+        }
+      ],
+      "id": "acd6f12",
+      "kind": "pre-release",
+      "label": "acd6f12",
+      "limits": [
+        "trial-3-mixed-5 started on 3663770 and was rebuilt in place to acd6f12 during its first round.",
+        "Fewer than 3 ended runs in every setting: no rate is given there and no difference between settings or trees is claimed (`docs/workflow-metrics.md` § 6).",
+        "`trial-3-batch-1` is retrospective: written after its runs, it describes them and decides nothing.",
+        "`trial-3-batch-1`, known confound `max_llm_calls`: trial-3-mixed-5 ran with 90, trial-3-mixed-6 with 150",
+        "`trial-3-batch-1`, known confound `canon`: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins"
+      ],
+      "settings": [
+        {
+          "clean_pass_cost_usd": {
+            "max": 1.033701,
+            "median": 1.033701,
+            "min": 1.033701,
+            "n": 1
+          },
+          "clean_pass_wall_s": {
+            "max": 2709.0,
+            "median": 2709.0,
+            "min": 2709.0,
+            "n": 1
+          },
+          "clean_passes": 1,
+          "ended": 2,
+          "experiment": "trial-3-batch-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 0.559681,
+              "end": "closed: not_delivered",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 0.559681,
+                "decider_calls": 14,
+                "delivered": false,
+                "end_kind": "closed",
+                "first_pass_yield": 0.667,
+                "forced": 0,
+                "llm_calls": 17,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "not_delivered",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 57,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1916
+              },
+              "run": "trial-3-haiku-6",
+              "wall_s": 1916.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 1.033701,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.033701,
+                "decider_calls": 17,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.667,
+                "forced": 0,
+                "llm_calls": 17,
+                "looping_factor": 1.417,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 2.0,
+                    "real_takes": 6,
+                    "rework_takes": 3
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 56,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 2709
+              },
+              "run": "trial-3-haiku-7",
+              "wall_s": 2709.0
+            }
+          ],
+          "setting": "haiku",
+          "small_n": true,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 1.858643,
+            "median": 1.858643,
+            "min": 1.858643,
+            "n": 1
+          },
+          "clean_pass_wall_s": {
+            "max": 2295.0,
+            "median": 2295.0,
+            "min": 2295.0,
+            "n": 1
+          },
+          "clean_passes": 1,
+          "ended": 2,
+          "experiment": "trial-3-batch-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 1.587871,
+              "end": "closed: not_delivered",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.587871,
+                "decider_calls": 14,
+                "delivered": false,
+                "end_kind": "closed",
+                "first_pass_yield": 0.818,
+                "forced": 0,
+                "llm_calls": 15,
+                "looping_factor": 1.364,
+                "merge_rejections": 2,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 2.5,
+                    "real_takes": 5,
+                    "rework_takes": 3
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 2.0,
+                    "real_takes": 4,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "not_delivered",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 34,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1692
+              },
+              "run": "trial-3-mixed-5",
+              "wall_s": 1692.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 1.858643,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.858643,
+                "decider_calls": 14,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 1.333,
+                "merge_rejections": 2,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 57,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 2295
+              },
+              "run": "trial-3-mixed-6",
+              "wall_s": 2295.0
+            }
+          ],
+          "setting": "mixed",
+          "small_n": true,
+          "variant": "mixed"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 2.996362,
+            "median": 2.961154,
+            "min": 2.925945,
+            "n": 2
+          },
+          "clean_pass_wall_s": {
+            "max": 473.0,
+            "median": 463.5,
+            "min": 454.0,
+            "n": 2
+          },
+          "clean_passes": 2,
+          "ended": 2,
+          "experiment": "trial-3-batch-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 2.925945,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.925945,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 1.0,
+                "forced": 0,
+                "llm_calls": 12,
+                "looping_factor": 1.0,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 18,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 473
+              },
+              "run": "trial-3-strong-1",
+              "wall_s": 473.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 2.996362,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.996362,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 1.0,
+                "forced": 0,
+                "llm_calls": 12,
+                "looping_factor": 1.0,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 14,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 454
+              },
+              "run": "trial-3-strong-2",
+              "wall_s": 454.0
+            }
+          ],
+          "setting": "strong",
+          "small_n": true,
+          "variant": "strong"
+        },
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 1,
+          "experiment": "trial-3-batch-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 1.882091,
+              "end": "stopped: decider_budget_spent in IDEA-1.todo.access",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 1.882091,
+                "decider_calls": 20,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.9,
+                "forced": 0,
+                "llm_calls": 24,
+                "looping_factor": 2.4,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 15.0,
+                    "real_takes": 15,
+                    "rework_takes": 14
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 155,
+                "stop_cause": "decider_budget_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1444
+              },
+              "run": "trial-3-sonnet-1",
+              "wall_s": 1444.0
+            }
+          ],
+          "setting": "sonnet",
+          "small_n": true,
+          "variant": "sonnet"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 5.088,
+            "median": 5.088,
+            "min": 5.088,
+            "n": 1
+          },
+          "clean_pass_wall_s": {
+            "max": 1662.0,
+            "median": 1662.0,
+            "min": 1662.0,
+            "n": 1
+          },
+          "clean_passes": 1,
+          "ended": 1,
+          "experiment": "trial-3-batch-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 5.088,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 5.088,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 1.0,
+                "forced": 0,
+                "llm_calls": 12,
+                "looping_factor": 1.0,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 28,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1662
+              },
+              "run": "trial-3-opus-1",
+              "wall_s": 1662.0
+            }
+          ],
+          "setting": "opus",
+          "small_n": true,
+          "variant": "opus"
+        }
+      ],
+      "totals": {
+        "clean_passes": 5,
+        "ended": 8,
+        "not_ended": 0,
+        "rate": 0.625,
+        "small_n": false
+      },
+      "tree": "acd6f12c4924e7a552d0ab518287d1c873618915",
+      "tree_note": "trial/3b, ea2f111 with fix/attempt5-intake and fix/attempt5-close; the review step was a program stub",
+      "version": null
+    },
+    {
+      "changes": [
+        {
+          "commit": "8f4f7a9",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "change.review is a model call of class review, checked by a program (impl/review-node)"
+        },
+        {
+          "commit": "dfe4a3f",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "only writer and implement nodes look up a pending rejection"
+        },
+        {
+          "commit": "f11d0e2",
+          "effect": "none",
+          "experiment": null,
+          "line": "the requester agent decides the requester-side classes (not used by these runs)"
+        },
+        {
+          "commit": "a1892e3",
+          "effect": "none",
+          "experiment": null,
+          "line": "live view layout and stopped runs"
+        },
+        {
+          "commit": "a5dd03f",
+          "effect": "none",
+          "experiment": null,
+          "line": "planning stories for the canon simulate findings"
+        },
+        {
+          "commit": "8db4b93",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycle review-no-rework-prompt"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [
+        {
+          "hypothesis": null,
+          "id": "trial-3-main-1",
+          "kind": "retrospective",
+          "known_confounds": [
+            {
+              "key": "adapters.review.adapter",
+              "note": "recorded as claude-cli in the runs with a review model; trial-3-haiku-8 has no review model and records no review adapter"
+            }
+          ],
+          "primary": null,
+          "purpose": "Run the to-do idea from main with the review node (change.review, class review) in three model settings, the first runs in which a review model is called.",
+          "tree": "8db4b93",
+          "variants": [
+            {
+              "clean_passes": 0,
+              "ended": 2,
+              "id": "strong",
+              "listed": 2,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 1,
+              "id": "mixed",
+              "listed": 1,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 1,
+              "id": "haiku",
+              "listed": 1,
+              "primary": null
+            }
+          ],
+          "verdict": "descriptive",
+          "why": "no hypothesis: the record describes its runs and decides nothing"
+        }
+      ],
+      "id": "8db4b93",
+      "kind": "pre-release",
+      "label": "8db4b93",
+      "limits": [
+        "Three of the four runs stopped at their first review call, whose reply the check could not read: the figures measure that defect, not the workflow.",
+        "Fewer than 3 ended runs in every setting: no rate is given there and no difference between settings or trees is claimed (`docs/workflow-metrics.md` § 6).",
+        "`trial-3-main-1` is retrospective: written after its runs, it describes them and decides nothing.",
+        "`trial-3-main-1`, known confound `adapters.review.adapter`: recorded as claude-cli in the runs with a review model; trial-3-haiku-8 has no review model and records no review adapter"
+      ],
+      "settings": [
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 1,
+          "experiment": "trial-3-main-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 0.346306,
+              "end": "stopped: writer_spent in IDEA-1.list.access",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.346306,
+                "decider_calls": 11,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.8,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 1.6,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 6.0,
+                    "real_takes": 6,
+                    "rework_takes": 5
+                  },
+                  "change.review": null,
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 66,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1790
+              },
+              "run": "trial-3-haiku-8",
+              "wall_s": 1790.0
+            }
+          ],
+          "setting": "haiku",
+          "small_n": true,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 1,
+          "experiment": "trial-3-main-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 0.709498,
+              "end": "stopped: review_invalid in IDEA-1.todo.access",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.709498,
+                "decider_calls": 8,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.8,
+                "forced": 0,
+                "llm_calls": 14,
+                "looping_factor": 1.3,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": null,
+                "reopens": 1,
+                "review_rejections": 0,
+                "rework_takes": 36,
+                "stop_cause": "review_invalid",
+                "unstuck": 0,
+                "waiting_on_person_s": 1027,
+                "wall_s": 1670
+              },
+              "run": "trial-3-mixed-7",
+              "wall_s": 1670.0
+            }
+          ],
+          "setting": "mixed",
+          "small_n": true,
+          "variant": "mixed"
+        },
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 2,
+          "experiment": "trial-3-main-1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 1.828023,
+              "end": "stopped: review_invalid in IDEA-1.todo.access",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 1.828023,
+                "decider_calls": 6,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.9,
+                "forced": 0,
+                "llm_calls": 12,
+                "looping_factor": 1.1,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": null,
+                "reopens": 1,
+                "review_rejections": 0,
+                "rework_takes": 18,
+                "stop_cause": "review_invalid",
+                "unstuck": 0,
+                "waiting_on_person_s": 1318,
+                "wall_s": 1668
+              },
+              "run": "trial-3-strong-3",
+              "wall_s": 1668.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 1.697361,
+              "end": "stopped: review_invalid in IDEA-1.todo.list",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 1.697361,
+                "decider_calls": 6,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 1.0,
+                "forced": 0,
+                "llm_calls": 11,
+                "looping_factor": 1.0,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": null,
+                "reopens": 1,
+                "review_rejections": 0,
+                "rework_takes": 17,
+                "stop_cause": "review_invalid",
+                "unstuck": 0,
+                "waiting_on_person_s": 1319,
+                "wall_s": 1668
+              },
+              "run": "trial-3-strong-4",
+              "wall_s": 1668.0
+            }
+          ],
+          "setting": "strong",
+          "small_n": true,
+          "variant": "strong"
+        }
+      ],
+      "totals": {
+        "clean_passes": 0,
+        "ended": 4,
+        "not_ended": 0,
+        "rate": 0.0,
+        "small_n": false
+      },
+      "tree": "8db4b9338f1d8d32c85b9cb2e014dac56980fac0",
+      "tree_note": "main at 8db4b93, the first tree on which change.review calls a model",
+      "version": null
+    },
+    {
+      "changes": [
+        {
+          "commit": "49b0a87",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the review class runs on a schema adapter; a run that cannot is refused"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [
+        {
+          "hypothesis": null,
+          "id": "trial-3-main-2",
+          "kind": "retrospective",
+          "known_confounds": [
+            {
+              "key": "canon",
+              "note": "every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins"
+            }
+          ],
+          "primary": null,
+          "purpose": "Rerun trial-3-main-1's settings on main with the review reply fix, to see whether runs pass with a real review model.",
+          "tree": "1001970",
+          "variants": [
+            {
+              "clean_passes": 2,
+              "ended": 2,
+              "id": "strong",
+              "listed": 2,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 1,
+              "id": "mixed",
+              "listed": 1,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 1,
+              "id": "haiku",
+              "listed": 1,
+              "primary": null
+            }
+          ],
+          "verdict": "descriptive",
+          "why": "no hypothesis: the record describes its runs and decides nothing"
+        }
+      ],
+      "id": "1001970",
+      "kind": "pre-release",
+      "label": "1001970",
+      "limits": [
+        "Fewer than 3 ended runs in every setting: no rate is given there and no difference between settings or trees is claimed (`docs/workflow-metrics.md` § 6).",
+        "`trial-3-main-2` is retrospective: written after its runs, it describes them and decides nothing.",
+        "`trial-3-main-2`, known confound `canon`: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins"
+      ],
+      "settings": [
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 1,
+          "experiment": "trial-3-main-2",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 0.87758,
+              "end": "stopped: writer_spent in IDEA-1.list.tasks",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.87758,
+                "decider_calls": 17,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 22,
+                "looping_factor": 1.417,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.666667,
+                    "real_takes": 8,
+                    "rework_takes": 5
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 52,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 3446
+              },
+              "run": "trial-3-haiku-9",
+              "wall_s": 3446.0
+            }
+          ],
+          "setting": "haiku",
+          "small_n": true,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 1,
+          "experiment": "trial-3-main-2",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 1.271916,
+              "end": "stopped: rework_spent in IDEA-1.todo.access",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 1.271916,
+                "decider_calls": 10,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.9,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 1.3,
+                "merge_rejections": 3,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 4.0,
+                    "real_takes": 4,
+                    "rework_takes": 3
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": 0,
+                "rework_takes": 30,
+                "stop_cause": "rework_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1030
+              },
+              "run": "trial-3-mixed-8",
+              "wall_s": 1030.0
+            }
+          ],
+          "setting": "mixed",
+          "small_n": true,
+          "variant": "mixed"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 5.33771,
+            "median": 4.696295,
+            "min": 4.05488,
+            "n": 2
+          },
+          "clean_pass_wall_s": {
+            "max": 967.0,
+            "median": 822.0,
+            "min": 677.0,
+            "n": 2
+          },
+          "clean_passes": 2,
+          "ended": 2,
+          "experiment": "trial-3-main-2",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": null,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 5.33771,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 5.33771,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.667,
+                "forced": 0,
+                "llm_calls": 24,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.333333,
+                    "real_takes": 7,
+                    "rework_takes": 4
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.333333,
+                    "real_takes": 7,
+                    "rework_takes": 4
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 4,
+                "rework_takes": 31,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 967
+              },
+              "run": "trial-3-strong-5",
+              "wall_s": 967.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 4.05488,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 4.05488,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.667,
+                "forced": 0,
+                "llm_calls": 21,
+                "looping_factor": 1.333,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 28,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 677
+              },
+              "run": "trial-3-strong-6",
+              "wall_s": 677.0
+            }
+          ],
+          "setting": "strong",
+          "small_n": true,
+          "variant": "strong"
+        }
+      ],
+      "totals": {
+        "clean_passes": 2,
+        "ended": 4,
+        "not_ended": 0,
+        "rate": 0.5,
+        "small_n": false
+      },
+      "tree": "1001970d83d872d1d0dcb80372cd22a8115c9359",
+      "tree_note": "trial/main-2, main 8db4b93 with fix/review-reply 49b0a87",
+      "version": null
+    },
+    {
+      "changes": [
+        {
+          "commit": "f747085",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a hermetic claude-cli adapter with an explicit default effort per node class"
+        },
+        {
+          "commit": "a43cce9",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the audit of the reject and cap routes (docs/reject-routes.md) and the routes it built first"
+        },
+        {
+          "commit": "0598a26",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a decision that replaces an answer supersedes it; what a close reads"
+        },
+        {
+          "commit": "6c7ba78",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a finding re-raised after a decision stops the run finding_reraised"
+        },
+        {
+          "commit": "f6d23b8",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-bugfix, one bug fix red first, as its own protocol (not run by the to-do idea)"
+        },
+        {
+          "commit": "b48bd78",
+          "effect": "none",
+          "experiment": null,
+          "line": "workflow-builder skill"
+        },
+        {
+          "commit": "b58a8db",
+          "effect": "none",
+          "experiment": null,
+          "line": "the triage of Canon's 71 simulate findings, 5 real dead ends (docs/simulate-findings.md)"
+        },
+        {
+          "commit": "babed52",
+          "effect": "none",
+          "experiment": null,
+          "line": "planning stories for the bug-fix cycle"
+        },
+        {
+          "commit": "fea0936",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycle decider-input reads the close from autopilot-close-a3"
+        },
+        {
+          "commit": "4332c03",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycles read a program's output before grep -q"
+        },
+        {
+          "commit": "4468bfd",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycle efforts expects the review class's effort too"
+        },
+        {
+          "commit": "5062b2f",
+          "effect": "none",
+          "experiment": null,
+          "line": "the Trial 3 report (docs/trial-3.md)"
+        },
+        {
+          "commit": "6ef7de6",
+          "effect": "none",
+          "experiment": null,
+          "line": "CHANGELOG.md, docs/releasing.md, a root Taskfile.yml, and one version for the repository (ui/package.json at 0.1.0)"
+        },
+        {
+          "commit": "6bf251a",
+          "effect": "none",
+          "experiment": null,
+          "line": "the 0.1.0 changelog and release notes (docs/releases/0.1.0.md)"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [
+        {
+          "hypothesis": null,
+          "id": "baseline-0.1.0",
+          "kind": "prospective",
+          "known_confounds": [
+            {
+              "key": "canon",
+              "note": "every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins"
+            },
+            {
+              "key": "launcher",
+              "note": "the runs were started by a scheduler script that copies the launcher's environment (env -i, the record's settings, no SDC_LLM_EFFORT variable, so the default efforts), not by sdc-experiment run, so they have no experiment.json; the first scheduler counted its own unit and ran two runs at once until 12:48Z"
+            },
+            {
+              "key": "recorder",
+              "note": "trial-0.1.0-strong-1 and trial-0.1.0-mixed-1 waited about 2 minutes for the pool before their first event (the recorder's release build); the wall times in the report start at the first event and do not contain it"
+            }
+          ],
+          "primary": null,
+          "purpose": "Baseline of release 0.1.0; first runs on the hermetic decider with explicit efforts.",
+          "tree": "4468bfd",
+          "variants": [
+            {
+              "clean_passes": 3,
+              "ended": 3,
+              "id": "strong",
+              "listed": 3,
+              "primary": null
+            },
+            {
+              "clean_passes": 3,
+              "ended": 3,
+              "id": "mixed",
+              "listed": 3,
+              "primary": null
+            },
+            {
+              "clean_passes": 0,
+              "ended": 3,
+              "id": "haiku",
+              "listed": 3,
+              "primary": null
+            }
+          ],
+          "verdict": "descriptive",
+          "why": "no hypothesis: the record describes its runs and decides nothing"
+        }
+      ],
+      "id": "0.1.0",
+      "kind": "release",
+      "label": "0.1.0",
+      "limits": [
+        "The baseline on this tree (3 runs per setting) was started by a scheduler script and not by sdc-experiment run; the file-change recorder was built once by hand before the later runs.",
+        "`baseline-0.1.0`, known confound `canon`: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins",
+        "`baseline-0.1.0`, known confound `launcher`: the runs were started by a scheduler script that copies the launcher's environment (env -i, the record's settings, no SDC_LLM_EFFORT variable, so the default efforts), not by sdc-experiment run, so they have no experiment.json; the first scheduler counted its own unit and ran two runs at once until 12:48Z",
+        "`baseline-0.1.0`, known confound `recorder`: trial-0.1.0-strong-1 and trial-0.1.0-mixed-1 waited about 2 minutes for the pool before their first event (the recorder's release build); the wall times in the report start at the first event and do not contain it"
+      ],
+      "settings": [
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 0,
+          "ended": 3,
+          "experiment": "baseline-0.1.0",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 0.0,
+          "runs": [
+            {
+              "clean_pass": false,
+              "cost_usd": 2.153426,
+              "end": "stopped: writer_spent in IDEA-1.list.shared",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 2.153426,
+                "decider_calls": 19,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.583,
+                "forced": 0,
+                "llm_calls": 28,
+                "looping_factor": 1.833,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.666667,
+                    "real_takes": 8,
+                    "rework_takes": 5
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.0,
+                    "real_takes": 6,
+                    "rework_takes": 3
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 5.0,
+                    "real_takes": 5,
+                    "rework_takes": 4
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": 3,
+                "rework_takes": 87,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 3790
+              },
+              "run": "trial-0.1.0-haiku-1",
+              "wall_s": 3790.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.205089,
+              "end": "stopped: decision_not_takeable in IDEA-1.list.add",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.205089,
+                "decider_calls": 9,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.9,
+                "forced": 0,
+                "llm_calls": 11,
+                "looping_factor": 1.1,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "change.review": null,
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 39,
+                "stop_cause": "decision_not_takeable",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 938
+              },
+              "run": "trial-0.1.0-haiku-2",
+              "wall_s": 938.0
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.282868,
+              "end": "stopped: writer_spent in IDEA-1.todo.spec",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.282868,
+                "decider_calls": 12,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 14,
+                "looping_factor": 1.75,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 6.0,
+                    "real_takes": 6,
+                    "rework_takes": 5
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 57,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1213
+              },
+              "run": "trial-0.1.0-haiku-3",
+              "wall_s": 1213.0
+            }
+          ],
+          "setting": "haiku",
+          "small_n": false,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 3.883006,
+            "median": 2.548789,
+            "min": 2.496802,
+            "n": 3
+          },
+          "clean_pass_wall_s": {
+            "max": 2091.0,
+            "median": 1489.0,
+            "min": 1480.0,
+            "n": 3
+          },
+          "clean_passes": 3,
+          "ended": 3,
+          "experiment": "baseline-0.1.0",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 1.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 2.496802,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.496802,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.833,
+                "forced": 0,
+                "llm_calls": 18,
+                "looping_factor": 1.167,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 28,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1480
+              },
+              "run": "trial-0.1.0-mixed-1",
+              "wall_s": 1480.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 3.883006,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 3.883006,
+                "decider_calls": 15,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 20,
+                "looping_factor": 1.333,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 0,
+                "rework_takes": 43,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 2091
+              },
+              "run": "trial-0.1.0-mixed-2",
+              "wall_s": 2091.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 2.548789,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.548789,
+                "decider_calls": 12,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 21,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 40,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1489
+              },
+              "run": "trial-0.1.0-mixed-3",
+              "wall_s": 1489.0
+            }
+          ],
+          "setting": "mixed",
+          "small_n": false,
+          "variant": "mixed"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 6.193657,
+            "median": 5.502947,
+            "min": 5.431995,
+            "n": 3
+          },
+          "clean_pass_wall_s": {
+            "max": 1430.0,
+            "median": 1247.0,
+            "min": 1075.0,
+            "n": 3
+          },
+          "clean_passes": 3,
+          "ended": 3,
+          "experiment": "baseline-0.1.0",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 1.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 5.431995,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 5.431995,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 21,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 56,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1075
+              },
+              "run": "trial-0.1.0-strong-1",
+              "wall_s": 1075.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 6.193657,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 6.193657,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.727,
+                "forced": 0,
+                "llm_calls": 20,
+                "looping_factor": 1.455,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 2.5,
+                    "real_takes": 5,
+                    "rework_takes": 3
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 2.0,
+                    "real_takes": 4,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 57,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1247
+              },
+              "run": "trial-0.1.0-strong-2",
+              "wall_s": 1247.0
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 5.502947,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 5.502947,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 21,
+                "looping_factor": 1.333,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 34,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1430
+              },
+              "run": "trial-0.1.0-strong-3",
+              "wall_s": 1430.0
+            }
+          ],
+          "setting": "strong",
+          "small_n": false,
+          "variant": "strong"
+        }
+      ],
+      "totals": {
+        "clean_passes": 6,
+        "ended": 9,
+        "not_ended": 0,
+        "rate": 0.666667,
+        "small_n": false
+      },
+      "tree": "4468bfd60e9665c17d57d7ffbbc8e7811d2b4a84",
+      "tree_note": "tag 0.1.0 at main 4468bfd, which holds main 8db4b93, fix/review-reply and the merges below",
+      "version": "0.1.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "297fb7a",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "reject and cap routes: a failed run fed back (R9), runs capped per retry kind (R7), a check's own output to the writer (R13); the static route check sdc-check-routes"
+        },
+        {
+          "commit": "6b5f1ec",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "--keep-going records each defect past autopilot's stops; run.unstick picks a legal move before a stop that is no cap; R2 and R3 routes"
+        },
+        {
+          "commit": "eb4dfdf",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "--reopen runs a step that recorded nothing once more on the unchanged state"
+        },
+        {
+          "commit": "90afa71",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-bugfix attributes the reproducing test by its own run; three more seeds; four scripted bug-fix cycles"
+        },
+        {
+          "commit": "eb25847",
+          "effect": "none",
+          "experiment": null,
+          "line": "check-protocols compares canon simulate with pinned reports"
+        },
+        {
+          "commit": "0c01b71",
+          "effect": "none",
+          "experiment": null,
+          "line": "workflow metrics and experiment records (sdc-run-metrics, sdc-experiment)"
+        },
+        {
+          "commit": "f82ec2e",
+          "effect": "none",
+          "experiment": null,
+          "line": "the progress ledger and its image"
+        },
+        {
+          "commit": "d70cc11",
+          "effect": "none",
+          "experiment": null,
+          "line": "the live view's run picker"
+        },
+        {
+          "commit": "a007344",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-run-compare and the KPI strip count every decider call made, once per record"
+        },
+        {
+          "commit": "0f7eb8f",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "run.unstick gets an explicit default effort, xhigh"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [],
+      "id": "0.1.1",
+      "kind": "release",
+      "label": "0.1.1",
+      "limits": [
+        "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": null,
+      "tree_note": "not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)",
+      "version": "0.1.1"
+    },
+    {
+      "changes": [
+        {
+          "commit": "f747085",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a hermetic claude-cli adapter with an explicit default effort per node class"
+        },
+        {
+          "commit": "a43cce9",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the audit of the reject and cap routes (docs/reject-routes.md) and the routes it built first"
+        },
+        {
+          "commit": "0598a26",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a decision that replaces an answer supersedes it; what a close reads"
+        },
+        {
+          "commit": "6c7ba78",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a finding re-raised after a decision stops the run finding_reraised"
+        },
+        {
+          "commit": "f6d23b8",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-bugfix, one bug fix red first, as its own protocol (not run by the to-do idea)"
+        },
+        {
+          "commit": "b48bd78",
+          "effect": "none",
+          "experiment": null,
+          "line": "workflow-builder skill"
+        },
+        {
+          "commit": "b58a8db",
+          "effect": "none",
+          "experiment": null,
+          "line": "the triage of Canon's 71 simulate findings, 5 real dead ends (docs/simulate-findings.md)"
+        },
+        {
+          "commit": "babed52",
+          "effect": "none",
+          "experiment": null,
+          "line": "planning stories for the bug-fix cycle"
+        },
+        {
+          "commit": "fea0936",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycle decider-input reads the close from autopilot-close-a3"
+        },
+        {
+          "commit": "4332c03",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycles read a program's output before grep -q"
+        },
+        {
+          "commit": "4468bfd",
+          "effect": "none",
+          "experiment": null,
+          "line": "scripted cycle efforts expects the review class's effort too"
+        },
+        {
+          "commit": "5062b2f",
+          "effect": "none",
+          "experiment": null,
+          "line": "the Trial 3 report (docs/trial-3.md)"
+        },
+        {
+          "commit": "6ef7de6",
+          "effect": "none",
+          "experiment": null,
+          "line": "CHANGELOG.md, docs/releasing.md, a root Taskfile.yml, and one version for the repository (ui/package.json at 0.1.0)"
+        },
+        {
+          "commit": "6bf251a",
+          "effect": "none",
+          "experiment": null,
+          "line": "the 0.1.0 changelog and release notes (docs/releases/0.1.0.md)"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [
+        "baseline-0.1.0"
+      ],
+      "id": "0.2.0",
+      "kind": "release",
+      "label": "0.2.0",
+      "limits": [
+        "Fixture data for the site tests, not a measurement."
+      ],
+      "settings": [
+        {
+          "clean_pass_cost_usd": null,
+          "clean_pass_wall_s": null,
+          "clean_passes": 1,
+          "ended": 3,
+          "experiment": "baseline-0.1.0",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 0.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 1.5073982,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.5073982,
+                "decider_calls": 19,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.583,
+                "forced": 0,
+                "llm_calls": 24,
+                "looping_factor": 1.833,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.666667,
+                    "real_takes": 8,
+                    "rework_takes": 5
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 3,
+                    "looping_factor": 2.0,
+                    "real_takes": 6,
+                    "rework_takes": 3
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 5.0,
+                    "real_takes": 5,
+                    "rework_takes": 4
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 3,
+                "rework_takes": 87,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 3032
+              },
+              "run": "trial-0.2.0-haiku-1",
+              "wall_s": 3032
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.14356229999999998,
+              "end": "stopped: decision_not_takeable in IDEA-1.list.add",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.14356229999999998,
+                "decider_calls": 9,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.9,
+                "forced": 0,
+                "llm_calls": 7,
+                "looping_factor": 1.1,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "change.review": null,
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 39,
+                "stop_cause": "decision_not_takeable",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 750
+              },
+              "run": "trial-0.2.0-haiku-2",
+              "wall_s": 750.4000000000001
+            },
+            {
+              "clean_pass": false,
+              "cost_usd": 0.1980076,
+              "end": "stopped: writer_spent in IDEA-1.todo.spec",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.1980076,
+                "decider_calls": 12,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 10,
+                "looping_factor": 1.75,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 6.0,
+                    "real_takes": 6,
+                    "rework_takes": 5
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 57,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 970
+              },
+              "run": "trial-0.2.0-haiku-3",
+              "wall_s": 970.4000000000001
+            }
+          ],
+          "setting": "haiku",
+          "small_n": false,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 3.883006,
+            "median": 2.548789,
+            "min": 2.496802,
+            "n": 3
+          },
+          "clean_pass_wall_s": {
+            "max": 2091.0,
+            "median": 1489.0,
+            "min": 1480.0,
+            "n": 3
+          },
+          "clean_passes": 3,
+          "ended": 3,
+          "experiment": "baseline-0.1.0",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 1.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 1.7477614000000001,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.7477614000000001,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.833,
+                "forced": 0,
+                "llm_calls": 14,
+                "looping_factor": 1.167,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 28,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1184
+              },
+              "run": "trial-0.2.0-mixed-1",
+              "wall_s": 1184
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 2.7181042,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.7181042,
+                "decider_calls": 15,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 1.333,
+                "merge_rejections": 1,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 0,
+                "rework_takes": 43,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1672
+              },
+              "run": "trial-0.2.0-mixed-2",
+              "wall_s": 1672.8000000000002
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 1.7841523,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.7841523,
+                "decider_calls": 12,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 17,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 40,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1191
+              },
+              "run": "trial-0.2.0-mixed-3",
+              "wall_s": 1191.2
+            }
+          ],
+          "setting": "mixed",
+          "small_n": false,
+          "variant": "mixed"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 6.193657,
+            "median": 5.502947,
+            "min": 5.431995,
+            "n": 3
+          },
+          "clean_pass_wall_s": {
+            "max": 1430.0,
+            "median": 1247.0,
+            "min": 1075.0,
+            "n": 3
+          },
+          "clean_passes": 3,
+          "ended": 3,
+          "experiment": "baseline-0.1.0",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 1.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "cost_usd": 3.8023964999999995,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 3.8023964999999995,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 17,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 56,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 860
+              },
+              "run": "trial-0.2.0-strong-1",
+              "wall_s": 860
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 4.3355599,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 4.3355599,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.727,
+                "forced": 0,
+                "llm_calls": 16,
+                "looping_factor": 1.455,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 2.5,
+                    "real_takes": 5,
+                    "rework_takes": 3
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 2.0,
+                    "real_takes": 4,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 57,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 997
+              },
+              "run": "trial-0.2.0-strong-2",
+              "wall_s": 997.6
+            },
+            {
+              "clean_pass": true,
+              "cost_usd": 3.8520628999999995,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 3.8520628999999995,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 17,
+                "looping_factor": 1.333,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 34,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1144
+              },
+              "run": "trial-0.2.0-strong-3",
+              "wall_s": 1144
+            }
+          ],
+          "setting": "strong",
+          "small_n": false,
+          "variant": "strong"
+        }
+      ],
+      "totals": {
+        "clean_passes": 7,
+        "ended": 9,
+        "not_ended": 0,
+        "rate": 0.666667,
+        "small_n": false
+      },
+      "tree": "4468bfd60e9665c17d57d7ffbbc8e7811d2b4a84",
+      "tree_note": "tag 0.1.0 at main 4468bfd, which holds main 8db4b93, fix/review-reply and the merges below",
+      "version": "0.2.0",
+      "short": "fixture release"
+    }
+  ],
+  "format": "sdc.progress/1",
+  "input": {
+    "name": "todo-app",
+    "sha256": "f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4"
+  },
+  "limits": [
+    "No run starts the delivered product and no oracle check runs: a clean pass is a Canon outcome closed by rule, not a product seen working.",
+    "Every run so far used the canon binary of the canon checkout at run time, which no record pins.",
+    "Every run so far is registered retrospectively: the records were written after the runs, so none of them decides anything."
+  ],
+  "other_experiments": [
+    {
+      "hypothesis": null,
+      "id": "bugfix-seeds-1",
+      "kind": "retrospective",
+      "known_confounds": [
+        {
+          "key": "tree",
+          "note": "the protocol and sdc-bugfix changed between runs in the uncommitted work tree; bugfix-tally-sonnet-2 ran after the status fix and the close by rule"
+        }
+      ],
+      "primary": null,
+      "purpose": "Run sdc.bugfix (red first, then the fix) unattended on four seeded bugs, once per seed on each model, to see whether each model writes a red test and a fix that passes the gate.",
+      "tree": "several",
+      "variants": [
+        {
+          "clean_passes": 4,
+          "ended": 4,
+          "id": "haiku",
+          "listed": 4,
+          "primary": null
+        },
+        {
+          "clean_passes": 4,
+          "ended": 5,
+          "id": "sonnet",
+          "listed": 5,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": "With claude-opus-5-5 instead of claude-haiku-5-5 as the decider and the work on claude-sonnet-5-5, the edge story: merge.approve:rejected -> change.implement occurs at least 1 time fewer per run (median count).",
+      "id": "decider-haiku-vs-opus",
+      "kind": "retrospective",
+      "known_confounds": [
+        {
+          "key": "models.other.model",
+          "note": "the trial-3-mixed runs ran the other class (intake and direction writers) on claude-haiku-5-5, trial-3-sonnet-1 and trial-3-strong on claude-sonnet-5-5"
+        },
+        {
+          "key": "max_llm_calls",
+          "note": "90 in the trial-3-mixed runs, 150 in trial-3-sonnet-1 and trial-3-strong"
+        },
+        {
+          "key": "bindings",
+          "note": "the runs read the bindings and tools of two worktrees (sdc-trial-3, sdc-trial-3b) that changed during the day; no run pins a revision of them"
+        },
+        {
+          "key": "order",
+          "note": "trial-3-mixed, -2 ran in the morning before the intake and direction fixes; trial-3-mixed and -4 stopped in intake or direction on defects fixed since"
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "edge.story: merge.approve:rejected -> change.implement.count",
+        "min_effect": 1.0
+      },
+      "purpose": "Whether the decider model changes how often a rejected merge sends a story back to the implementer, read from the trial-3 runs that exist.",
+      "tree": "several",
+      "variants": [
+        {
+          "clean_passes": 1,
+          "ended": 7,
+          "id": "haiku",
+          "listed": 7,
+          "primary": {
+            "max": 2.0,
+            "median": 2.0,
+            "min": 0.0,
+            "n": 5
+          }
+        },
+        {
+          "clean_passes": 2,
+          "ended": 2,
+          "id": "opus",
+          "listed": 2,
+          "primary": {
+            "max": 0.0,
+            "median": 0.0,
+            "min": 0.0,
+            "n": 2
+          }
+        }
+      ],
+      "verdict": "inconclusive",
+      "why": "too few ended runs with the metric: haiku 5 and opus 2, the rule needs 3 each; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing"
+    },
+    {
+      "hypothesis": "With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5.",
+      "id": "effort-implement-levels",
+      "kind": "prospective",
+      "known_confounds": [],
+      "primary": {
+        "direction": "decrease",
+        "metric": "node.story/change.implement.looping_factor",
+        "min_effect": 0.5
+      },
+      "purpose": "Whether more reasoning effort on the implement class lowers how often change.implement is sent back, three runs per level, as the operator described.",
+      "tree": "",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "low",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "medium",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "high",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: low 0 and high 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": null,
+      "id": "small-idea-1",
+      "kind": "retrospective",
+      "known_confounds": [],
+      "primary": null,
+      "purpose": "Run a deliberately small idea from idea to close with no person, to see whether the loops of the to-do runs come from the idea's size.",
+      "tree": "acd6f12",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 1,
+          "id": "haiku",
+          "listed": 1,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 1,
+          "id": "sonnet",
+          "listed": 1,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": "With claude-sonnet-5-5 instead of claude-haiku-5-5 on the implement class (the writer and review classes changed with it), the looping factor of story/change.implement falls by at least 0.5.",
+      "id": "work-haiku-vs-sonnet",
+      "kind": "retrospective",
+      "known_confounds": [
+        {
+          "key": "models.writer.model",
+          "note": "changed together with the variable in every run (claude-haiku-5-5 against claude-sonnet-5-5)"
+        },
+        {
+          "key": "models.review.model",
+          "note": "null in the haiku runs (change.review and spec.review were program checks), claude-sonnet-5-5 in the sonnet runs (model reviews)"
+        },
+        {
+          "key": "models.other.model",
+          "note": "claude-haiku-5-5 in the trial-3-mixed runs, claude-sonnet-5-5 in trial-3-sonnet-1"
+        },
+        {
+          "key": "max_llm_calls",
+          "note": "90 in most runs, 150 in trial-3-haiku-6, -7 and trial-3-sonnet-1"
+        },
+        {
+          "key": "bindings",
+          "note": "the runs read the bindings and tools of two worktrees (sdc-trial-3, sdc-trial-3b) that changed during the day; no run pins a revision of them"
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "node.story/change.implement.looping_factor",
+        "min_effect": 0.5
+      },
+      "purpose": "Whether Sonnet on the work nodes lowers change.implement's looping factor against Haiku, read from the trial-3 runs that exist.",
+      "tree": "several",
+      "variants": [
+        {
+          "clean_passes": 1,
+          "ended": 7,
+          "id": "haiku",
+          "listed": 7,
+          "primary": {
+            "max": 4.5,
+            "median": 2.0,
+            "min": 1.333,
+            "n": 5
+          }
+        },
+        {
+          "clean_passes": 1,
+          "ended": 7,
+          "id": "sonnet",
+          "listed": 7,
+          "primary": {
+            "max": 2.5,
+            "median": 1.667,
+            "min": 1.0,
+            "n": 5
+          }
+        }
+      ],
+      "verdict": "inconclusive",
+      "why": "the ranges overlap (median difference -0.333): no effect is claimed; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing"
+    }
+  ],
+  "pass_rule": "clean-delivery: closed, delivered, no reopen, forced step or unstick",
+  "rate_from_ended_runs": 3,
+  "settings": [
+    {
+      "id": "haiku",
+      "label": "All Haiku",
+      "match": {
+        "decider.model": "claude-haiku-5-5",
+        "models.implement.model": "claude-haiku-5-5",
+        "models.other.model": "claude-haiku-5-5",
+        "models.writer.model": "claude-haiku-5-5"
+      },
+      "note": "Haiku everywhere, decider too"
+    },
+    {
+      "id": "mixed",
+      "label": "Sonnet work, Haiku decider",
+      "match": {
+        "decider.model": "claude-haiku-5-5",
+        "models.implement.model": "claude-sonnet-5-5",
+        "models.other.model": "claude-haiku-5-5",
+        "models.writer.model": "claude-sonnet-5-5"
+      },
+      "note": "Haiku on the other nodes"
+    },
+    {
+      "id": "strong",
+      "label": "Sonnet work, Opus decider",
+      "match": {
+        "decider.model": "claude-opus-5-5",
+        "models.implement.model": "claude-sonnet-5-5",
+        "models.other.model": "claude-sonnet-5-5",
+        "models.writer.model": "claude-sonnet-5-5"
+      },
+      "note": "Sonnet on every node"
+    },
+    {
+      "id": "sonnet",
+      "label": "All Sonnet, Haiku decider",
+      "match": {
+        "decider.model": "claude-haiku-5-5",
+        "models.implement.model": "claude-sonnet-5-5",
+        "models.other.model": "claude-sonnet-5-5",
+        "models.writer.model": "claude-sonnet-5-5"
+      },
+      "note": "Sonnet on every node"
+    },
+    {
+      "id": "opus",
+      "label": "Opus work, Haiku decider",
+      "match": {
+        "decider.model": "claude-haiku-5-5",
+        "models.implement.model": "claude-opus-5-5",
+        "models.other.model": "claude-opus-5-5",
+        "models.writer.model": "claude-opus-5-5"
+      },
+      "note": "Opus on every node"
+    }
+  ],
+  "sources": [
+    {
+      "path": "experiments/releases.yaml",
+      "sha256": "26d7e19619d3e8553a33ec949078a51852b765306d0ca533a2d3183d85de0370"
+    },
+    {
+      "path": "experiments/baseline-0.1.0.yaml",
+      "sha256": "7eeaad6d1f12b0945187778a18952e18b864e20581f465ab3b03e3caa8337d44"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-haiku-1.json",
+      "sha256": "f3f58d6fd59e21000234a701e7f2d43ca1419d6d423f89637845a326f3088070"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-haiku-2.json",
+      "sha256": "6ea6034f5723a45ccd3f0cb94136a6c8447fe284656ea851796b272e4337d15d"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-haiku-3.json",
+      "sha256": "ad409268141e53257afe81c9532bf891d66dd4bb3d340787a15db729b2724bbd"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-mixed-1.json",
+      "sha256": "dc9954f382eee7b0d064370869e26bb926d3dc57e03acf77a033dd213dbb0d4a"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-mixed-2.json",
+      "sha256": "d6a3a4806dc04db1f00382afeffcd477462d162ce245334c0ed9014d4a6e11ad"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-mixed-3.json",
+      "sha256": "94e1b3b512b80550672af5f0fd49af04e931dcf51af599c15493221396fa419f"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-strong-1.json",
+      "sha256": "94f7de9ac069d3e03dead67cf0142b600fd96c07e1228d75089a8bacedbd031d"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-strong-2.json",
+      "sha256": "089361948d31014f9e0c2e202bd3a7b58f026d131f8a52bbd42765c4e8be400e"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-strong-3.json",
+      "sha256": "4d6d7452134f37d395bb84bac2f693e7bb2f796396643532477f1aa6c5a902c9"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1.yaml",
+      "sha256": "7ce42a3824c56ee759bf063501246c2224358b349d4afc5dd3c13874830611b4"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-1.json",
+      "sha256": "effbb7e5e65661da831310f16ed6178b00a36eb88ca09a022d525a43eae7a599"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-kvparse-haiku.json",
+      "sha256": "99f4717cfeecb46d6239559d558babd5f268b4b916307bed566cc72740ad3c0b"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-kvparse-sonnet.json",
+      "sha256": "6d2494abfd41e638fc5a14218854840ec529d82771ae5d7ecae6defc083ac3c1"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-pager-haiku.json",
+      "sha256": "548bec909166be9c973eb3a20108f6b757cc4dd2aef4508cd6444af5f64368db"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-percent-haiku.json",
+      "sha256": "676088729da0bdc5123fa43307e8204e632411765239c5bd87a9ab381e42c303"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-percent-sonnet.json",
+      "sha256": "9c58f08760fcee855b8244508d084a9df11c62998e245d1513fe857b2e83dd34"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-tally-haiku.json",
+      "sha256": "2f5622afdee18eb516930a78402524521fbe4890b551bcdad8c95c758aa32680"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-tally-sonnet-2.json",
+      "sha256": "022e45a92413e1101a379f1ea095411416681a5073c282aaa013da90044afce8"
+    },
+    {
+      "path": "experiments/bugfix-seeds-1/runs/bugfix-tally-sonnet.json",
+      "sha256": "3243a3beae4e61f474a13df4475408c7e942456aedd9c08a89c0fd4830492776"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus.yaml",
+      "sha256": "5269a4c090edc3cb4ae7a9b2cf86558d79676477b0be2d9c80920afeeaeea15c"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-mixed-2.json",
+      "sha256": "803123d9f1d3b396d3e12724edf43380c54311b6de2c9df5a87e11b7fd85ff88"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-mixed-3.json",
+      "sha256": "e22ce3c7fc4005add4e59daf472db6d7d8ad950033e83555bf486079b82821df"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-mixed-4.json",
+      "sha256": "e3aa385ca38a47376f3d6713fa2307f158a5c9b5f0914a9967f349cce5447603"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-mixed-5.json",
+      "sha256": "10ffee8aa052a64ab1cf339f86e355f07aec1631c8a77de072e88cb425db2a63"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-mixed-6.json",
+      "sha256": "25439c16ea9d9c55192ab4e2b34a0ffa6cdb944a30c0b2c776484b3390112de2"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-mixed.json",
+      "sha256": "635b3b9643158df1a64590fe1f479bcf9d7e2f8fd72fd1f75037159ef3fcc0dc"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-sonnet-1.json",
+      "sha256": "3c5e8b53e9761237605054ac3e2a7129c1d9488bda803aaea2066148657e8b43"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-strong-1.json",
+      "sha256": "8e357a1ce435239c0b9e5272f70c2900d16fdb0a1998d115bba9de3bae629bdb"
+    },
+    {
+      "path": "experiments/decider-haiku-vs-opus/runs/trial-3-strong-2.json",
+      "sha256": "f1cc615a9cb9e4c450cc7938b3fe6d0159689554e5a09686c4469dff02a69597"
+    },
+    {
+      "path": "experiments/effort-implement-levels.yaml",
+      "sha256": "e8c25a7980bd05b201f24e34b14dc200c04e79520ba4bd55a525efa3ba808a80"
+    },
+    {
+      "path": "experiments/small-idea-1.yaml",
+      "sha256": "f66177a5e894344ff338e269ae2384819605a05e5d16cf68001fa3a10aeb5eaa"
+    },
+    {
+      "path": "experiments/small-idea-1/runs/trial-3-small-haiku-1.json",
+      "sha256": "99b4123fcbee18d50526536b8ae155f6bb6a85db04c6503c84ad37d74e3e2e9f"
+    },
+    {
+      "path": "experiments/small-idea-1/runs/trial-3-small-sonnet-1.json",
+      "sha256": "56d164e540ab57a3b0dc7b1c01ce9abfa8c0a4b0cc79eb04cf7eed446a04ebe0"
+    },
+    {
+      "path": "experiments/trial-3-attempts.yaml",
+      "sha256": "415d98cdec8cd66430e43b739d05aa617c6cbc4137e2cc8e5dfa0a29551d7b87"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-haiku-2.json",
+      "sha256": "75c1ca7b6f297ca8d9ddd0e17f22bee545bba440abcab2ed8701d787aaac3b9e"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-haiku-3.json",
+      "sha256": "0b4c87d2b236f9518da3dfd654fae31ee1e5d8a34b61f268cecb9feee1d5cef3"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-haiku-4.json",
+      "sha256": "a4f0e5f2cfee2afbdc021cee34dcf602724b512bb10af14c8976a57e2a5b0508"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-haiku-5.json",
+      "sha256": "e259966bb4369f6ca4d2450ff94e64d82a2480dfdde2dac190e0dd7baf28f1d7"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-haiku.json",
+      "sha256": "5088ff248a8e929b87097bda5f9535c6eb84dc0394aab53e2891c86520553b9b"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-mixed-2.json",
+      "sha256": "803123d9f1d3b396d3e12724edf43380c54311b6de2c9df5a87e11b7fd85ff88"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-mixed-3.json",
+      "sha256": "e22ce3c7fc4005add4e59daf472db6d7d8ad950033e83555bf486079b82821df"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-mixed-4.json",
+      "sha256": "e3aa385ca38a47376f3d6713fa2307f158a5c9b5f0914a9967f349cce5447603"
+    },
+    {
+      "path": "experiments/trial-3-attempts/runs/trial-3-mixed.json",
+      "sha256": "635b3b9643158df1a64590fe1f479bcf9d7e2f8fd72fd1f75037159ef3fcc0dc"
+    },
+    {
+      "path": "experiments/trial-3-batch-1.yaml",
+      "sha256": "22b95771660ef9031461b04cf7ddc5f74977506097485050e0d10c8060dbc1db"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-haiku-6.json",
+      "sha256": "4943b6f5e8bfa4e1ab444b37746aae4a9e7c6b682456dc63880479463dc2a77e"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-haiku-7.json",
+      "sha256": "d5c167dffe60db336dd019a4e96458cca2c56b70d6992f202b048f168e1caf70"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-mixed-5.json",
+      "sha256": "10ffee8aa052a64ab1cf339f86e355f07aec1631c8a77de072e88cb425db2a63"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-mixed-6.json",
+      "sha256": "25439c16ea9d9c55192ab4e2b34a0ffa6cdb944a30c0b2c776484b3390112de2"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-opus-1.json",
+      "sha256": "cb4123d6722d66a2e9ddb8743a0e8e0574174a50a0471f113816e6d730cf4f25"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-sonnet-1.json",
+      "sha256": "3c5e8b53e9761237605054ac3e2a7129c1d9488bda803aaea2066148657e8b43"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-strong-1.json",
+      "sha256": "8e357a1ce435239c0b9e5272f70c2900d16fdb0a1998d115bba9de3bae629bdb"
+    },
+    {
+      "path": "experiments/trial-3-batch-1/runs/trial-3-strong-2.json",
+      "sha256": "f1cc615a9cb9e4c450cc7938b3fe6d0159689554e5a09686c4469dff02a69597"
+    },
+    {
+      "path": "experiments/trial-3-main-1.yaml",
+      "sha256": "2f7d32f184a4efd52637791f93e54a455d9c15fb728ec76b85447082c5350135"
+    },
+    {
+      "path": "experiments/trial-3-main-1/runs/trial-3-haiku-8.json",
+      "sha256": "63a9713170b6dc8c51ba163400ef520783bdfd8c5f404f9fb815db1a60d2d13b"
+    },
+    {
+      "path": "experiments/trial-3-main-1/runs/trial-3-mixed-7.json",
+      "sha256": "cad1cf9941dd6e0d86086a02c0e5a7ef11fee5a555f64c3c6d79bff74ba2373a"
+    },
+    {
+      "path": "experiments/trial-3-main-1/runs/trial-3-strong-3.json",
+      "sha256": "33e0a2f6f83e6d8420aef936f9e118575feb1134dc8bfaed765a7c1df696eb51"
+    },
+    {
+      "path": "experiments/trial-3-main-1/runs/trial-3-strong-4.json",
+      "sha256": "cfd11c63967f7251c586f41122c620b72712531b428ede730e8190f800cc5e0c"
+    },
+    {
+      "path": "experiments/trial-3-main-2.yaml",
+      "sha256": "abee479ed42240ae6229ac699ec2e90aedef67c8d5d3270b95774aa4a7ea19c9"
+    },
+    {
+      "path": "experiments/trial-3-main-2/runs/trial-3-haiku-9.json",
+      "sha256": "ab70c7415305deee2b3e1c72c1e24443d3bdcf6f1628e62232665fe687097039"
+    },
+    {
+      "path": "experiments/trial-3-main-2/runs/trial-3-mixed-8.json",
+      "sha256": "73c14f0bb7d3daaa73d64962ae98dc7dd192a4f290ddb61c5f8c48ac19f506b4"
+    },
+    {
+      "path": "experiments/trial-3-main-2/runs/trial-3-strong-5.json",
+      "sha256": "e8e51b6fabfdd97ae85e3d411511658708981a05090bb6724eb34e1918221eb1"
+    },
+    {
+      "path": "experiments/trial-3-main-2/runs/trial-3-strong-6.json",
+      "sha256": "e1dead50dbeb2f128c9a3a9e7237a367d5d15c7f74ac64c9004c24c4ef84399d"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet.yaml",
+      "sha256": "ca4f949514732ebdfc67b3b97760e2e962d3529fa79b1af03df010bfde754e41"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku-2.json",
+      "sha256": "75c1ca7b6f297ca8d9ddd0e17f22bee545bba440abcab2ed8701d787aaac3b9e"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku-3.json",
+      "sha256": "0b4c87d2b236f9518da3dfd654fae31ee1e5d8a34b61f268cecb9feee1d5cef3"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku-4.json",
+      "sha256": "a4f0e5f2cfee2afbdc021cee34dcf602724b512bb10af14c8976a57e2a5b0508"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku-5.json",
+      "sha256": "e259966bb4369f6ca4d2450ff94e64d82a2480dfdde2dac190e0dd7baf28f1d7"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku-6.json",
+      "sha256": "4943b6f5e8bfa4e1ab444b37746aae4a9e7c6b682456dc63880479463dc2a77e"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku-7.json",
+      "sha256": "d5c167dffe60db336dd019a4e96458cca2c56b70d6992f202b048f168e1caf70"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-haiku.json",
+      "sha256": "5088ff248a8e929b87097bda5f9535c6eb84dc0394aab53e2891c86520553b9b"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-mixed-2.json",
+      "sha256": "803123d9f1d3b396d3e12724edf43380c54311b6de2c9df5a87e11b7fd85ff88"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-mixed-3.json",
+      "sha256": "e22ce3c7fc4005add4e59daf472db6d7d8ad950033e83555bf486079b82821df"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-mixed-4.json",
+      "sha256": "e3aa385ca38a47376f3d6713fa2307f158a5c9b5f0914a9967f349cce5447603"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-mixed-5.json",
+      "sha256": "10ffee8aa052a64ab1cf339f86e355f07aec1631c8a77de072e88cb425db2a63"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-mixed-6.json",
+      "sha256": "25439c16ea9d9c55192ab4e2b34a0ffa6cdb944a30c0b2c776484b3390112de2"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-mixed.json",
+      "sha256": "635b3b9643158df1a64590fe1f479bcf9d7e2f8fd72fd1f75037159ef3fcc0dc"
+    },
+    {
+      "path": "experiments/work-haiku-vs-sonnet/runs/trial-3-sonnet-1.json",
+      "sha256": "3c5e8b53e9761237605054ac3e2a7129c1d9488bda803aaea2066148657e8b43"
+    }
+  ],
+  "written_by": "fixture: three releases, 0.1.1 without runs, 0.2.0 derived from 0.1.0"
+}

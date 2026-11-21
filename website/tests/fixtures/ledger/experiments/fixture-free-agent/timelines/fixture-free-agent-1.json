@@ -1,0 +1,30 @@
+{
+  "format": "sdc.run-timeline/1",
+  "run": "fixture-free-agent-1",
+  "kind": "free-agent",
+  "settings": {"model": "claude-sonnet-5-5", "effort": "high", "adapter": "claude-cli", "tools": ["Read", "Write", "Edit", "Bash"], "max_budget_usd": 10, "max_wall_s": 5400, "confinement": "fixture"},
+  "session": "fixture",
+  "end": {"state": "ended", "outcome": null, "delivered": false},
+  "tree": null,
+  "totals": {
+    "wall_s": 1400.0, "cost_usd": 3.1, "cost_source": "fixture", "tokens": {"input": 100, "output": 50000, "cache_read": 900000, "cache_write": 200000},
+    "program_steps": 0, "model_sessions": 1, "api_requests": 6, "model_tool_calls": 4, "model_tool_calls_by_name": {"Read": 2, "Write": 1, "Bash": 1},
+    "model_tool_calls_denied": 0, "decider_calls": 0, "rule_steps": 0, "model_s": 1180.0, "program_s": 0, "decider_s": 0, "rule_s": 0, "tool_s": 150.0,
+    "idle_s": 70.0, "idle_by_cause": {"harness": 70.0}, "waiting_on_person_s": 0, "overlap_s": 0
+  },
+  "spans": [
+    {"t0_s": 0.0, "t1_s": 20.0, "lane": "idle", "case": null, "action": null, "cause": "harness"},
+    {"t0_s": 20.0, "t1_s": 220.0, "lane": "model", "case": null, "action": "request", "cause": null, "model": "claude-sonnet-5-5", "ttft_s": 3.0, "cost_usd": null},
+    {"t0_s": 220.0, "t1_s": 260.0, "lane": "tool", "case": null, "action": "Read", "cause": null, "is_error": false},
+    {"t0_s": 260.0, "t1_s": 520.0, "lane": "model", "case": null, "action": "request", "cause": null, "model": "claude-sonnet-5-5", "ttft_s": 2.5, "cost_usd": null},
+    {"t0_s": 520.0, "t1_s": 560.0, "lane": "tool", "case": null, "action": "Write", "cause": null, "is_error": false},
+    {"t0_s": 560.0, "t1_s": 800.0, "lane": "model", "case": null, "action": "request", "cause": null, "model": "claude-sonnet-5-5", "ttft_s": 2.0, "cost_usd": null},
+    {"t0_s": 800.0, "t1_s": 850.0, "lane": "tool", "case": null, "action": "Bash", "cause": null, "is_error": true},
+    {"t0_s": 850.0, "t1_s": 900.0, "lane": "idle", "case": null, "action": null, "cause": "harness"},
+    {"t0_s": 900.0, "t1_s": 1100.0, "lane": "model", "case": null, "action": "request", "cause": null, "model": "claude-sonnet-5-5", "ttft_s": 2.2, "cost_usd": null},
+    {"t0_s": 1100.0, "t1_s": 1120.0, "lane": "tool", "case": null, "action": "Read", "cause": null, "is_error": false},
+    {"t0_s": 1120.0, "t1_s": 1280.0, "lane": "model", "case": null, "action": "request", "cause": null, "model": "claude-sonnet-5-5", "ttft_s": 2.1, "cost_usd": null},
+    {"t0_s": 1280.0, "t1_s": 1400.0, "lane": "model", "case": null, "action": "request", "cause": null, "model": "claude-sonnet-5-5", "ttft_s": 1.9, "cost_usd": null}
+  ],
+  "notes": ["Fixture data for the site tests, not a run."]
+}

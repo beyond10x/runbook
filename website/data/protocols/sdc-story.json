@@ -1,0 +1,988 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "resolve the open findings while the conformance run is not passed: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the change is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it",
+      "effect": "write",
+      "executor": {
+        "handoff": true,
+        "kind": "program",
+        "max_runs": 12,
+        "program": "sdc-tool.sh amend story",
+        "timeout_s": 300
+      },
+      "name": "amend.upstream",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:tests.pass",
+          "text": "claim is false:"
+        }
+      ],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh ess-gate",
+        "results": {
+          "*": "failed",
+          "0": "passed"
+        }
+      },
+      "name": "spec.gate",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "ess_gate"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "change the code against the current specification revision; moves the change to a new revision, recorded with the specification revision; the writer after a failed conformance run, a rejected review or a rejected merge",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "implement",
+        "producer": "llm-node",
+        "program": "llm-node.sh change.implement",
+        "results": {
+          "0": null
+        },
+        "retry_when": [
+          "code_review",
+          "conformance_run",
+          "merge_approval"
+        ],
+        "timeout_s": 1500
+      },
+      "name": "change.implement",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "implementation_change"
+      ],
+      "step": 1,
+      "waits_for": [
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the specification's conformance suite against the current change revision; only while no run is recorded about it against the current specification revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh story-tests impl",
+        "results": {
+          "*": "failed",
+          "0": "passed",
+          "5": "finding"
+        }
+      },
+      "name": "tests.run",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.run_recorded",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "conformance_run"
+      ],
+      "step": 2,
+      "waits_for": [
+        "change.implement"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "decision_class": {
+        "class": "code_review",
+        "side": "delivering",
+        "type": "review"
+      },
+      "description": "review the current change revision once its conformance run passed at that revision (a failed run sends the implementer back before any review); only while no review by a reviewer the case lists as another principal than the implementer is recorded about it (the implementer's own review does not count and does not block)",
+      "effect": "read",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "independent": true,
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "review",
+        "operations": [
+          "dir.list",
+          "file.read",
+          "search"
+        ],
+        "producer": "llm-review",
+        "program": "llm-node.sh change.review",
+        "results": {
+          "0": "approved",
+          "1": "rejected"
+        },
+        "timeout_s": 900
+      },
+      "name": "change.review",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.review_recorded",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "code_review"
+      ],
+      "step": 3,
+      "waits_for": [
+        "change.implement",
+        "tests.run"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "change.merge"
+      ],
+      "decision_class": {
+        "class": "merge",
+        "side": "delivering",
+        "type": "approval"
+      },
+      "description": "a person with the merge authority approves or rejects merging the current change revision, once it has the gate, a current build, a passing conformance run and an independent review; decided once per change revision: only while no merge decision is recorded about it",
+      "effect": "write",
+      "executor": {
+        "bound": true,
+        "kind": "person",
+        "producer": "{principal}",
+        "results": {
+          "0": "approved",
+          "6": "rejected"
+        }
+      },
+      "name": "merge.approve",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.reviewed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:merge.decided",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "merge_approval"
+      ],
+      "step": 4,
+      "waits_for": [
+        "change.implement",
+        "change.review",
+        "spec.gate",
+        "tests.run"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "decision_class": {
+        "class": "merge",
+        "side": "delivering",
+        "type": "approval"
+      },
+      "description": "merge the current change revision; needs the gate, a current build, a passing conformance run, an independent review and a person's merge approval of that revision",
+      "effect": "write",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-drive.merge",
+        "program": "sdc-tool.sh merge",
+        "results": {
+          "0": null
+        }
+      },
+      "name": "change.merge",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.reviewed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:merge.approved",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "merge_record"
+      ],
+      "step": 5,
+      "waits_for": [
+        "change.implement",
+        "change.review",
+        "merge.approve",
+        "spec.gate",
+        "tests.run"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "a revision of the code that realizes the story; its revision is the commit",
+      "name": "change"
+    },
+    {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution",
+      "name": "findings"
+    },
+    {
+      "description": "the requirements list from sdc.intake, amended by resolved findings",
+      "name": "requirements"
+    },
+    {
+      "description": "the ESS specification; its revision is its spec digest, as in the parent case",
+      "name": "spec"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-story.bindings.json",
+  "check": {
+    "revision": 7,
+    "source": "docs/check-output.txt",
+    "states": 49152
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "the current change revision was built against the current specification revision",
+      "name": "change.built",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:implementation_change",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current change revision is merged",
+      "name": "change.merged",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:merge_record",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a review by a reviewer the case lists as another principal than the implementer is recorded about the current change revision, whatever its result",
+      "name": "change.review_recorded",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:code_review",
+          "suffix": "about change, by a producer independent on different_principal",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current change revision is approved by a reviewer the case lists as another principal than the implementer",
+      "name": "change.reviewed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:code_review",
+          "suffix": "about change, by a producer independent on different_principal",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
+      "name": "gate.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:ess_gate",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the ESS gate passes on the current specification revision",
+      "name": "gate.passed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:ess_gate",
+          "suffix": "about spec",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "a person approved merging the current change revision",
+      "name": "merge.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:merge_approval",
+          "suffix": "about change",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "a merge decision is recorded about the current change revision, whatever its result",
+      "name": "merge.decided",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:merge_approval",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the conformance run of the current specification passes on the current change revision",
+      "name": "tests.pass",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:conformance_run",
+          "suffix": "about change",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "a conformance run is recorded about the current change revision, against the current specification revision, whatever its result",
+      "name": "tests.run_recorded",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:conformance_run",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    }
+  ],
+  "description": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision. The merge approval is decided once per change revision, approved or rejected; after a rejection change.implement is admissible, and its new change revision leaves the build record, the conformance run, the review and the rejection behind, so they are taken again. The ESS gate must pass on the current specification revision before anything is implemented and for the story to be delivered. A revised specification invalidates the implementation record and the conformance run observed against the earlier revision. The case ends passed (delivered), or dropped on an explicit decision. Late findings (docs/trial-2.md, \"The late-finding loop\"): the conformance run also reads the open findings and is not passed while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the change is re-derived.",
+  "evidence": [
+    {
+      "description": "a review of a change revision; its result is approved or rejected",
+      "name": "code_review",
+      "produced_by": [
+        "change.review"
+      ]
+    },
+    {
+      "description": "`ess verify conform run --target <implementation> --strict` of the specification's suite against a change revision; its result is passed, failed, inconclusive or finding (an open finding)",
+      "name": "conformance_run",
+      "produced_by": [
+        "tests.run"
+      ]
+    },
+    {
+      "description": "the ESS gate over a specification revision, the four checks run as one program; passed or failed",
+      "name": "ess_gate",
+      "produced_by": [
+        "spec.gate"
+      ]
+    },
+    {
+      "description": "the record, read from version control, that the change moved to a new revision, with the specification revision it was built against",
+      "name": "implementation_change",
+      "produced_by": [
+        "change.implement"
+      ]
+    },
+    {
+      "description": "a person's decision to merge a change revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to change.implement)",
+      "name": "merge_approval",
+      "produced_by": [
+        "merge.approve"
+      ]
+    },
+    {
+      "description": "the record that a change revision was merged into the mainline",
+      "name": "merge_record",
+      "produced_by": [
+        "change.merge"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:change.implement",
+        "kind": "produces",
+        "to": "evidence:implementation_change"
+      },
+      {
+        "from": "action:change.merge",
+        "kind": "produces",
+        "to": "evidence:merge_record"
+      },
+      {
+        "from": "action:change.review",
+        "kind": "produces",
+        "to": "evidence:code_review"
+      },
+      {
+        "from": "action:merge.approve",
+        "kind": "produces",
+        "to": "evidence:merge_approval"
+      },
+      {
+        "from": "action:spec.gate",
+        "kind": "produces",
+        "to": "evidence:ess_gate"
+      },
+      {
+        "from": "action:tests.run",
+        "kind": "produces",
+        "to": "evidence:conformance_run"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:change.merge"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:change.review"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:merge.approve"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:tests.run"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:change.merged",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:change.review_recorded",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:change.review"
+      },
+      {
+        "from": "claim:change.reviewed",
+        "kind": "gates",
+        "to": "action:change.merge"
+      },
+      {
+        "from": "claim:change.reviewed",
+        "kind": "gates",
+        "to": "action:merge.approve"
+      },
+      {
+        "from": "claim:change.reviewed",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:gate.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.gate"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:change.implement"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:change.merge"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:merge.approve"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:merge.approved",
+        "kind": "gates",
+        "to": "action:change.merge"
+      },
+      {
+        "from": "claim:merge.decided",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:merge.approve"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:amend.upstream"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "gates",
+        "to": "action:change.merge"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "gates",
+        "to": "action:change.review"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "gates",
+        "to": "action:merge.approve"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:tests.run_recorded",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:tests.run"
+      },
+      {
+        "from": "decision:explicitly_dropped",
+        "kind": "decides",
+        "to": "outcome:dropped"
+      },
+      {
+        "from": "evidence:code_review",
+        "kind": "establishes",
+        "to": "claim:change.review_recorded"
+      },
+      {
+        "from": "evidence:code_review",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:change.reviewed"
+      },
+      {
+        "from": "evidence:conformance_run",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:tests.pass"
+      },
+      {
+        "from": "evidence:conformance_run",
+        "kind": "establishes",
+        "to": "claim:tests.run_recorded"
+      },
+      {
+        "from": "evidence:ess_gate",
+        "kind": "establishes",
+        "to": "claim:gate.checked"
+      },
+      {
+        "from": "evidence:ess_gate",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:gate.passed"
+      },
+      {
+        "from": "evidence:implementation_change",
+        "kind": "establishes",
+        "to": "claim:change.built"
+      },
+      {
+        "from": "evidence:merge_approval",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:merge.approved"
+      },
+      {
+        "from": "evidence:merge_approval",
+        "kind": "establishes",
+        "to": "claim:merge.decided"
+      },
+      {
+        "from": "evidence:merge_record",
+        "kind": "establishes",
+        "to": "claim:change.merged"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:amend.upstream",
+        "kind": "action",
+        "name": "amend.upstream"
+      },
+      {
+        "id": "action:change.implement",
+        "kind": "action",
+        "name": "change.implement"
+      },
+      {
+        "id": "action:change.merge",
+        "kind": "action",
+        "name": "change.merge"
+      },
+      {
+        "id": "action:change.review",
+        "kind": "action",
+        "name": "change.review"
+      },
+      {
+        "id": "action:merge.approve",
+        "kind": "action",
+        "name": "merge.approve"
+      },
+      {
+        "id": "action:spec.gate",
+        "kind": "action",
+        "name": "spec.gate"
+      },
+      {
+        "id": "action:tests.run",
+        "kind": "action",
+        "name": "tests.run"
+      },
+      {
+        "id": "evidence:code_review",
+        "kind": "evidence",
+        "name": "code_review"
+      },
+      {
+        "id": "evidence:conformance_run",
+        "kind": "evidence",
+        "name": "conformance_run"
+      },
+      {
+        "id": "evidence:ess_gate",
+        "kind": "evidence",
+        "name": "ess_gate"
+      },
+      {
+        "id": "evidence:implementation_change",
+        "kind": "evidence",
+        "name": "implementation_change"
+      },
+      {
+        "id": "evidence:merge_approval",
+        "kind": "evidence",
+        "name": "merge_approval"
+      },
+      {
+        "id": "evidence:merge_record",
+        "kind": "evidence",
+        "name": "merge_record"
+      },
+      {
+        "id": "claim:change.built",
+        "kind": "claim",
+        "name": "change.built"
+      },
+      {
+        "id": "claim:change.merged",
+        "kind": "claim",
+        "name": "change.merged"
+      },
+      {
+        "id": "claim:change.review_recorded",
+        "kind": "claim",
+        "name": "change.review_recorded"
+      },
+      {
+        "id": "claim:change.reviewed",
+        "kind": "claim",
+        "name": "change.reviewed"
+      },
+      {
+        "id": "claim:gate.checked",
+        "kind": "claim",
+        "name": "gate.checked"
+      },
+      {
+        "id": "claim:gate.passed",
+        "kind": "claim",
+        "name": "gate.passed"
+      },
+      {
+        "id": "claim:merge.approved",
+        "kind": "claim",
+        "name": "merge.approved"
+      },
+      {
+        "id": "claim:merge.decided",
+        "kind": "claim",
+        "name": "merge.decided"
+      },
+      {
+        "id": "claim:tests.pass",
+        "kind": "claim",
+        "name": "tests.pass"
+      },
+      {
+        "id": "claim:tests.run_recorded",
+        "kind": "claim",
+        "name": "tests.run_recorded"
+      },
+      {
+        "id": "decision:explicitly_dropped",
+        "kind": "decision",
+        "name": "explicitly_dropped"
+      },
+      {
+        "id": "outcome:dropped",
+        "kind": "outcome",
+        "name": "dropped"
+      },
+      {
+        "id": "outcome:passed",
+        "kind": "outcome",
+        "name": "passed"
+      }
+    ]
+  },
+  "id": "sdc.story",
+  "invalidation": [
+    {
+      "description": "an implementation record or conformance run observed against an earlier specification revision no longer applies; a merge decision needs no entry here: it is bound to the change revision, and change.merge also needs change.built, so the merge waits for a new change revision, which leaves the decision behind (an entry would multiply the state space by 4, past the bound)",
+      "name": "spec.revised"
+    }
+  ],
+  "obligations": [
+    {
+      "description": "the ESS gate passes on the current specification revision",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        }
+      ],
+      "name": "gate.required"
+    },
+    {
+      "description": "the current change was built against the current specification",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:change.built",
+          "text": "claim"
+        }
+      ],
+      "name": "implementation.required"
+    },
+    {
+      "description": "the current change is independently reviewed",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:change.reviewed",
+          "text": "claim"
+        }
+      ],
+      "name": "review.required"
+    },
+    {
+      "description": "the conformance run passes for the current change and specification",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        }
+      ],
+      "name": "tests.required"
+    }
+  ],
+  "outcomes": [
+    {
+      "description": "the story was explicitly dropped",
+      "name": "dropped",
+      "requires": [
+        {
+          "depth": 0,
+          "reference": "decision:explicitly_dropped",
+          "text": "decision taken:"
+        }
+      ]
+    },
+    {
+      "description": "the current change revision, built against the current specification revision, passes its conformance run, is independently reviewed and merged, and the ESS gate passes",
+      "name": "passed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.reviewed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.merged",
+          "text": "claim"
+        }
+      ]
+    }
+  ],
+  "parents": [
+    {
+      "action": "stories.open",
+      "protocol": "sdc.epic",
+      "stem": "sdc-epic"
+    }
+  ],
+  "revision": 7,
+  "simulate": {
+    "by_outcome": {
+      "dropped": 27,
+      "passed": 2
+    },
+    "canon": "2c7a1ea6",
+    "findings": 5,
+    "reachable": 54,
+    "revision": 7,
+    "source": "protocol/simulate/sdc-story.txt",
+    "stuck_or_cycle": 11,
+    "terminable": 28
+  },
+  "source": {
+    "path": "protocol/sdc-story.protocol.yaml",
+    "tag": "0.1.2",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.2/protocol/sdc-story.protocol.yaml"
+  },
+  "stem": "sdc-story",
+  "summary": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed, once that run passed, by a principal other than its implementer, and merge it once a person with the merge authority approved that change revision.",
+  "written_by": "sdc-protocol-site write"
+}

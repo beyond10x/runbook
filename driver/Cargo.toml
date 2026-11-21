@@ -49,6 +49,10 @@ name = "sdc-experiment"
 path = "src/bin/sdc-experiment.rs"
 
 [[bin]]
+name = "sdc-protocol-site"
+path = "src/bin/sdc-protocol-site.rs"
+
+[[bin]]
 name = "sdc-replay"
 path = "src/bin/sdc-replay.rs"
 
