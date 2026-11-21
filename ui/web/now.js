@@ -533,6 +533,28 @@ export function renderNow(st, now, items = []) {
     <div class="now-cards n${st.mode === 'stopped' ? 1 : Math.min(3, st.running.length + st.gone.length + st.waiting.length || 1)}" data-key="cards">${cards}</div>${trail(st, now)}`;
 }
 
+// The phone status bar (decision D-005): the run's state in the band's words and its current step,
+// always in view while the page scrolls. Plain text; the Now band below says the rest.
+export function nowBar(st) {
+  const {head} = nowSay(st);
+  const holder = (w) => (w.kind === 'decider' ? `Decider ${w.record?.model || ''}`.trim() : w.holder?.label || 'a person');
+  let step;
+  if (st.mode === 'stopped') step = wasLines(st)[0]?.text.replace(/^was /, 'Was ') || 'Nothing was running or waiting';
+  else if (st.running.length) step = st.running.map((r) => `${r.action} · ${KIND_LABEL[r.kind] || r.kind}${r.kind === 'llm' && r.exec?.model ? ` ${r.exec.model}` : ''}`).join(' and ');
+  else if (st.gone.length) step = `${st.gone[0].action}: started, its driver is gone`;
+  else if (st.waiting.length) step = `${st.waiting[0].action || st.waiting[0].verdict.replace(/_/g, ' ')} · held by ${holder(st.waiting[0])}${st.waiting.length > 1 ? ` (+${st.waiting.length - 1})` : ''}`;
+  else if (st.mode === 'closed') step = `${st.root?.id || 'the run'} ended ${st.term?.outcome || ''}`.trim();
+  else if (st.mode === 'stalled') step = `${st.stalled[0].c.id}: no step can run`;
+  else if (st.mode === 'stuck') step = `${st.stuck[0].id}: no step is admissible`;
+  else if (st.mode === 'terminable') step = `${st.terminable[0].id} can close`;
+  else step = 'No action in flight';
+  return {mode: st.mode, state: head, step};
+}
+export function renderNowBar(st) {
+  const b = nowBar(st);
+  return `<span class="nb-state m-${b.mode}" data-key="nbs" title="${esc(b.state)}"><i></i>${esc(b.state)}</span><span class="nb-step" data-key="nbt" title="${esc(b.step)}">${esc(b.step)}</span>`;
+}
+
 // ---- file changes of the run ----------------------------------------------------------------------
 export function renderChanges(live, cases, onlyCase, now = Date.now()) {
   if (!live?.fs?.present) return `<div class="sect">File changes</div><p class="muted">No <code>fs/changes.jsonl</code> in the run directory yet. The recorder (<code>sdc-watch</code>, docs/fs-changes.md) writes one line per effective change, with the command that made it.</p>`;

@@ -4,7 +4,7 @@ import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
-import {nowState, renderNow, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo} from './now.js';
+import {nowState, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo} from './now.js';
 import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
@@ -102,6 +102,7 @@ function render() {
   if (!cases.length) {
     patch($('#phases'), '');
     patch($('#now'), '');
+    patch($('#nowbar'), '');
     patch($('#kpis'), '');
     patch($('#feed'), '');
     patch($('#tree'), `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
@@ -125,7 +126,7 @@ function render() {
   // flashing "between steps" for one poll.
   if (ns.mode === 'running') S.lastRunAt = now;
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
-  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items)); }
+  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items)); patch($('#nowbar'), renderNowBar(ns)); }
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers

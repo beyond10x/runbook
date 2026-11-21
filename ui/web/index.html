@@ -15,10 +15,12 @@
     <span class="bt">SDC Inspector</span><span class="bs" id="tagline">Canon decides · the driver records · this page only reads</span></div>
   <div class="hctl">
     <label class="selectw"><span>Store</span><select id="source"></select></label><span id="runmark"></span>
-    <label class="switch" title="select the case that moved last"><input type="checkbox" id="follow" checked><span class="sw"></span>Follow active case</label>
+    <label class="switch" title="select the case that moved last"><input type="checkbox" id="follow" checked><span class="sw"></span><span class="swl">Follow active case</span></label>
     <button id="decbtn" class="decbtn" title="pending person decisions"><span>Decisions</span><b id="deccount">0</b></button>
     <span id="live" class="live connecting"><i></i><span>Connecting</span></span>
   </div>
+  <div id="nowbar" role="group" aria-label="Run state and current step"></div>
+
 </header>
 <section id="kpis" aria-label="Run KPIs"></section>
 <section id="now" aria-label="What runs now" aria-live="polite"></section>

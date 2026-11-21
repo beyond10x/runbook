@@ -979,3 +979,77 @@ tr.fail td b { color: #ff9a9e; }
 .badge-h.b-rule { color: var(--text); background: var(--surface-3); }
 .badge-h.b-legacy, .badge-h.b-agent, .badge-h.b-none { color: var(--text-2); background: var(--surface-2); border: 1px dashed var(--line-3); }
 .fd-w.w-legacy, .fd-w.w-none { color: var(--text-3); font-style: italic; }
+
+/* R-03 change set (ux/rounds/R-03/triage.md): phone sizes, decision D-005. Nothing here applies above
+   900 px wide: the desktop viewports keep their layout. */
+#nowbar, #railbtn, .ghint { display: none; }
+/* C1 one column: the page scrolls down, never sideways; a sticky header holds the store, Follow and
+   Decisions, and a status bar with the run's state and its current step */
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  body { display: block; overflow: visible; }
+  header { position: sticky; top: 0; z-index: 25; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: 'logo sel fol dec' 'live now now rail' 'mark mark mark mark'; gap: 6px 8px; height: auto; padding: 6px 10px 8px; align-items: center; }
+  .brand, .hctl { display: contents; }
+  .logo { grid-area: logo; }
+  .bt, .bs { display: none; }
+  .selectw { grid-area: sel; min-width: 0; }
+  .selectw > span, .switch .swl, #live > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  select { width: 100%; min-width: 0; max-width: none; height: 44px; }
+  header .switch { grid-area: fol; justify-content: center; min-width: 44px; min-height: 44px; }
+  #decbtn { grid-area: dec; height: 44px; padding: 0 8px 0 12px; }
+  #live { grid-area: live; justify-self: center; padding: 0; border: 0; background: none; }
+  #live .lt { display: none; }
+  #runmark { grid-area: mark; flex-wrap: wrap; }
+  #nowbar { grid-area: now; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .nb-state { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; font-weight: 650; line-height: 1.3; color: var(--text); }
+  .nb-state i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--text-3); vertical-align: 1px; }
+  .nb-state.m-running i { background: var(--accent-2); }
+  .nb-state.m-waiting i { background: var(--appr); }
+  .nb-state.m-closed i, .nb-state.m-terminable i { background: var(--true); }
+  .nb-state.m-stuck i, .nb-state.m-gone i, .nb-state.m-stalled i { background: var(--false); }
+  .nb-state.m-stopped i { border-radius: 2px; background: var(--text-2); }
+  .nb-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text-2); }
+
+  #kpis { display: grid; grid-template-columns: 1fr 1fr; height: auto; padding: 0; }
+  .kt { min-height: 60px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .kt:nth-child(even) { border-right: 0; }
+  .kt:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .kt, .kt-main { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'l' 'v' 's'; align-content: start; }
+  .k-s { flex-wrap: wrap; white-space: normal; row-gap: 0; }
+  .kt.fail { grid-column: 1 / -1; flex-wrap: wrap; padding-bottom: 6px; }
+  .kt.fail .kt-main { flex: 1 1 100%; padding: 6px 12px 0; }
+  .k-fail { flex: 1 1 100%; padding: 0 12px; }
+  .k-stop, .kf-stop { white-space: normal; }
+  .k-standin { grid-column: 1 / -1; justify-self: start; margin: 6px 12px; }
+
+  #now, #now.m-waiting, #now.m-stuck, #now.m-closed, #now.m-stalled, #now.m-stopped { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+  html:not(.rp-open) #now, html:not(.rp-open) #phases { margin-right: 0; }
+  .now-s, .now-s.m-waiting, .now-s.m-stuck, .now-s.m-closed, .now-s.m-stalled, .now-s.m-stopped { white-space: normal; align-items: flex-start; line-height: 1.35; }
+  .now-cards { grid-template-columns: minmax(0, 1fr); }
+  .nc { grid-template-columns: 34px minmax(0, 1fr); padding: 12px; }
+  .nc-time { grid-column: 2; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+  .nc-1, .nc-2, .nc-3 { flex-wrap: wrap; row-gap: 2px; white-space: normal; overflow: visible; }
+  .nc-act, .nc-case, .nc-x, .nc-why, .nc-dim, .nc-q, .nc-q span, .np-say, .np-arg, .np-last, .tr-r, .fp, .fmt, .ft { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; direction: ltr; max-width: none; }
+  .nc .nc-verb, .nc .nc-2 .nc-dim { display: inline; }
+  .nc-3 .np-last { flex-basis: 100%; padding-left: 0; border-left: 0; }
+  .nc-btn { margin-left: 0; }
+  .trail { padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .tr { grid-template-columns: 6px auto minmax(0, 1fr) auto; }
+  .tr-t { display: none; }
+  .fd-m, .fd-2, .fd-w, .fd-a { flex-wrap: wrap; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+  #phases { padding: 10px 12px; }
+  .stages { flex-wrap: wrap; gap: 8px 18px; }
+  .stage { flex: 0 0 auto !important; }
+  .phase { flex: 0 0 44px; min-height: 44px; justify-content: center; padding: 0; }
+  .phase .pl, .phase .ps { display: none; }
+  .ticket { flex-wrap: wrap; row-gap: 4px; }
+
+  main { display: flex; flex-direction: column; min-height: 0; }
+  #left { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
+  #tree { max-height: 50vh; }
+  #feed { flex: none; }
+  .fd-list { max-height: 70vh; }
+  #center { border-bottom: 1px solid var(--line); }
+  #right, html:not(.rp-open) #right { display: none; }
+}
