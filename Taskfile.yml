@@ -15,7 +15,7 @@ tasks:
       - task: plan
 
   check:protocols:
-    desc: Compile and simulate the eight protocols (about 12 minutes; run it in the background).
+    desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).
     cmds:
       - scripts/check-protocols.sh
 

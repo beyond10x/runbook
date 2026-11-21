@@ -41,15 +41,16 @@ The operator, 2026-11-21: "Now steadily improve the workflow. Document your gain
 accurately, and prepare for putting this onto a nice image on the public documentation. Cut
 releases after every improvement."
 
-- A release is cut after every improvement that is merged into `main` with green gates and has its
-  ledger entry: its line in `experiments/releases.yaml`, and `docs/progress.md`,
-  `docs/progress.json` and `docs/img/progress.svg` regenerated, with `sdc-experiment check --all`
-  passing (`docs/improving.md`).
-- The session that merged the improvement then takes steps 1 to 4 without a further word from the
-  operator: the preparation commit, the gates, the tag and the GitHub Release. Step 5 records the
-  standing rule's approval record instead of a new word.
-- Not covered: a release without a merged improvement and a ledger entry, a release whose gates
-  are not green, and a major version; those still wait for the operator's word.
+- Under that standing order no further word of the operator is needed for a patch or minor
+  release of a measured improvement: one merged into `main` with its ledger entry (its line in
+  `experiments/releases.yaml`, and `docs/progress.md`, `docs/progress.json` and
+  `docs/img/progress.svg` regenerated, with `sdc-experiment check --all` passing,
+  `docs/improving.md`).
+- The orchestrating session orders the cut once `main` is green on the release commit (steps 1
+  and 2 done). The merging session tags and publishes on that order (steps 3 and 4), and step 5
+  records the standing order's approval record instead of a new word.
+- Not covered, and still waiting for the operator's word: a major version, and a release that
+  deletes data, rewrites history or changes what is published elsewhere than this repository.
 - The version follows `docs/improving.md` § Versioning: patch for fixes and tools, minor for a
   protocol or behaviour change.
 

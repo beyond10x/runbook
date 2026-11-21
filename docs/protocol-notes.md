@@ -270,17 +270,18 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
 `protocol/*.protocol.yaml`, its stdout compared byte for byte with the pinned report
 `protocol/simulate/<name>.txt`. Any difference fails with a unified diff and
 `simulate: <protocol>: findings changed (was N, now M)`; one line per protocol gives reachable,
-terminable, waiting and findings. The released Canon 0.9.0 has no `simulate`, so the step uses
-the unreleased commit in `protocol/simulate/CANON_REV` (Canon PR 27, decision D151), built once
-by `cargo install --locked --root` into `${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/`
-(outside the repository, not on `PATH`, not the binary of `CANON_DIR`); every other check keeps
-the released binary.
+terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
+`2c7a1ea6`, the commit of Canon's release tag `0.10.0`, the first release with `simulate` (until
+SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
+protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
+`${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on
+`PATH`, not the binary of `CANON_DIR`); every other check keeps the binary of `CANON_DIR`.
 
 - Re-pin after a deliberate protocol change: `scripts/check-protocols.sh --repin` (or
   `SDC_SIMULATE_REPIN=1`), review `git diff protocol/simulate/`, commit the reports with the
   protocol and the reason in the commit body.
-- A new Canon commit: edit `CANON_REV`, then `--repin`; Canon's next two waves change simulate's
-  output, so the reports move with them. A Canon release replaces the pin.
+- A new Canon release: put the commit of its tag in `CANON_REV`, then `--repin` if a report
+  changes; Canon's next waves change simulate's output, so the reports move with them.
 - `SDC_SIMULATE=off` skips the step with a printed line (no network).
 - The pinned reports are a ratchet, not a verdict: every protocol still exits 1 with findings
   (the triage is on branch `plan/simulate-triage`). The limits Canon named: the walk adds one record per

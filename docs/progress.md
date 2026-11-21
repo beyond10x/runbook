@@ -15,6 +15,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
 | [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
 | [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | no experiment yet | no run | - |
+| [0.1.1](#011) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -187,6 +188,32 @@ Tested by: no experiment yet. No run used this tree, so there is no figure for i
 Limits of this measurement:
 
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is the first step of the improvement loop.
+
+## 0.1.1
+
+Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `297fb7a` | reject and cap routes: a failed run fed back (R9), runs capped per retry kind (R7), a check's own output to the writer (R13); the static route check sdc-check-routes | not measured: no experiment has tested this change |
+| `6b5f1ec` | --keep-going records each defect past autopilot's stops; run.unstick picks a legal move before a stop that is no cap; R2 and R3 routes | not measured: no experiment has tested this change |
+| `eb4dfdf` | --reopen runs a step that recorded nothing once more on the unchanged state | not measured: no experiment has tested this change |
+| `90afa71` | sdc-bugfix attributes the reproducing test by its own run; three more seeds; four scripted bug-fix cycles | no run metric affected |
+| `eb25847` | check-protocols compares canon simulate with pinned reports | no run metric affected |
+| `0c01b71` | workflow metrics and experiment records (sdc-run-metrics, sdc-experiment) | no run metric affected |
+| `f82ec2e` | the progress ledger and its image | no run metric affected |
+| `d70cc11` | the live view's run picker | no run metric affected |
+| `a007344` | sdc-run-compare and the KPI strip count every decider call made, once per record | no run metric affected |
+| `69ba820` | recorded replay re-drives a recorded run with its recorded model replies (sdc-replay) | no run metric affected |
+| `0f7eb8f` | run.unstick gets an explicit default effort, xhigh | not measured: no experiment has tested this change |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
 
 ## Experiments in no entry
 

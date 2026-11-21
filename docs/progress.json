@@ -888,6 +888,95 @@
       "tree": "4468bfd60e9665c17d57d7ffbbc8e7811d2b4a84",
       "tree_note": "tag 0.1.0 at main 4468bfd, which holds main 8db4b93, fix/review-reply and the merges below",
       "version": "0.1.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "297fb7a",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "reject and cap routes: a failed run fed back (R9), runs capped per retry kind (R7), a check's own output to the writer (R13); the static route check sdc-check-routes"
+        },
+        {
+          "commit": "6b5f1ec",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "--keep-going records each defect past autopilot's stops; run.unstick picks a legal move before a stop that is no cap; R2 and R3 routes"
+        },
+        {
+          "commit": "eb4dfdf",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "--reopen runs a step that recorded nothing once more on the unchanged state"
+        },
+        {
+          "commit": "90afa71",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-bugfix attributes the reproducing test by its own run; three more seeds; four scripted bug-fix cycles"
+        },
+        {
+          "commit": "eb25847",
+          "effect": "none",
+          "experiment": null,
+          "line": "check-protocols compares canon simulate with pinned reports"
+        },
+        {
+          "commit": "0c01b71",
+          "effect": "none",
+          "experiment": null,
+          "line": "workflow metrics and experiment records (sdc-run-metrics, sdc-experiment)"
+        },
+        {
+          "commit": "f82ec2e",
+          "effect": "none",
+          "experiment": null,
+          "line": "the progress ledger and its image"
+        },
+        {
+          "commit": "d70cc11",
+          "effect": "none",
+          "experiment": null,
+          "line": "the live view's run picker"
+        },
+        {
+          "commit": "a007344",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-run-compare and the KPI strip count every decider call made, once per record"
+        },
+        {
+          "commit": "69ba820",
+          "effect": "none",
+          "experiment": null,
+          "line": "recorded replay re-drives a recorded run with its recorded model replies (sdc-replay)"
+        },
+        {
+          "commit": "0f7eb8f",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "run.unstick gets an explicit default effort, xhigh"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [],
+      "id": "0.1.1",
+      "kind": "release",
+      "label": "0.1.1",
+      "limits": [
+        "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": null,
+      "tree_note": "not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)",
+      "version": "0.1.1"
     }
   ],
   "format": "sdc.progress/1",
@@ -1181,7 +1270,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "ae84c1d11a660d8c545c033621f0f72275e68d86f8dabe3f0fcc97845a2560a3"
+      "sha256": "a993cd8909dff7e0ad22e228f1a5adedaa7d973c721f30985dc3c1f1e62ec962"
     },
     {
       "path": "experiments/bugfix-seeds-1.yaml",

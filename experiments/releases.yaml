@@ -188,3 +188,48 @@ entries:
     effect: none
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is the first step of the improvement loop.'
+- id: 0.1.1
+  kind: release
+  version: 0.1.1
+  label: 0.1.1
+  short: keep-going, unstick, replay
+  date: 2026-11-21
+  tree: null
+  tree_note: not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)
+  experiments: []
+  changes:
+  - commit: 297fb7a
+    line: 'reject and cap routes: a failed run fed back (R9), runs capped per retry kind (R7), a check''s own output to the writer (R13); the static route check sdc-check-routes'
+    effect: unmeasured
+  - commit: 6b5f1ec
+    line: --keep-going records each defect past autopilot's stops; run.unstick picks a legal move before a stop that is no cap; R2 and R3 routes
+    effect: unmeasured
+  - commit: eb4dfdf
+    line: --reopen runs a step that recorded nothing once more on the unchanged state
+    effect: unmeasured
+  - commit: 90afa71
+    line: sdc-bugfix attributes the reproducing test by its own run; three more seeds; four scripted bug-fix cycles
+    effect: none
+  - commit: eb25847
+    line: check-protocols compares canon simulate with pinned reports
+    effect: none
+  - commit: 0c01b71
+    line: workflow metrics and experiment records (sdc-run-metrics, sdc-experiment)
+    effect: none
+  - commit: f82ec2e
+    line: the progress ledger and its image
+    effect: none
+  - commit: d70cc11
+    line: the live view's run picker
+    effect: none
+  - commit: a007344
+    line: sdc-run-compare and the KPI strip count every decider call made, once per record
+    effect: none
+  - commit: 69ba820
+    line: recorded replay re-drives a recorded run with its recorded model replies (sdc-replay)
+    effect: none
+  - commit: 0f7eb8f
+    line: run.unstick gets an explicit default effort, xhigh
+    effect: unmeasured
+  limits:
+  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'

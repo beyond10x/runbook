@@ -50,6 +50,10 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
    `simulate-record-groups`, `simulate-revise-step`). 87 findings on SDC's protocols at `f364b6b`,
    most of them walk artifacts until those waves land. SDC story
    `story:simulate-as-a-protocol-gate`; blocker `upstream-blocker:canon-simulate-release`.
+   Released: Canon `0.10.0` (2026-11-21, commit `2c7a1ea6`) carries `simulate`; SDC's simulate
+   step is pinned to it since SDC 0.1.1, and its reports on the nine protocols are byte-equal to
+   those of the earlier pin `a1a937ec` (71 findings on the eight cycle protocols, 0 on
+   `sdc-bugfix`).
 
 10. **`revises`, `author` and `decided_by` in a released `protocol/1`.** Accepted on the branch with
     no evaluation meaning yet; the revise step reads them. SDC story
