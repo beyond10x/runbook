@@ -1257,6 +1257,54 @@
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
+      "hypothesis": null,
+      "id": "build-constraints",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "control-time",
+          "note": "the control runs (release-0.1.2) ran earlier on the same day, before these; the model service, the canon checkout and the machine's load may differ between the two launches."
+        },
+        {
+          "key": "tree",
+          "note": "3ca26fe is 0.1.2 (72a3eef) plus fix/superseded-answers merged, the decider-constraints cycle's principal fix and the re-packed replay recording; only the merge changes what a run does."
+        },
+        {
+          "key": "unstick",
+          "note": "run.unstick is on with an Opus model in both arms and is no launch setting (scripts/run-trial.sh); an unstuck run is not clean."
+        },
+        {
+          "key": "canon",
+          "note": "the canon binary of the canon checkout at run time, not pinned, in both arms."
+        },
+        {
+          "key": "control-complete",
+          "note": "if release-0.1.2 ends with fewer than 3 ended runs of a setting, that setting's comparison is inconclusive and says so."
+        }
+      ],
+      "primary": null,
+      "purpose": "Whether one run file of build constraints, read by the writers and the decider and held by requirements.check and the decider's answer check, raises the Haiku setting's clean passes and lowers change.implement reruns against the same settings on 0.1.2.",
+      "tree": "3ca26fe",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "haiku",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "mixed",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
       "hypothesis": "With claude-opus-5-5 instead of claude-haiku-5-5 as the decider and the work on claude-sonnet-5-5, the edge story: merge.approve:rejected -> change.implement occurs at least 1 time fewer per run (median count).",
       "id": "decider-haiku-vs-opus",
       "kind": "retrospective",
@@ -1680,6 +1728,10 @@
     {
       "path": "experiments/bugfix-seeds-1/runs/bugfix-tally-sonnet.json",
       "sha256": "3243a3beae4e61f474a13df4475408c7e942456aedd9c08a89c0fd4830492776"
+    },
+    {
+      "path": "experiments/build-constraints.yaml",
+      "sha256": "22bfe3edefa0a8f4cf2d881bcce5f6128ff06a9e0df009eb651d367f10d41d2b"
     },
     {
       "path": "experiments/decider-haiku-vs-opus.yaml",
