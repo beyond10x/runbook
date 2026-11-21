@@ -364,7 +364,7 @@ mod tests {
                         "doc.approve": {"effect": "write", "requires": [{"capability": "owner.approve"}]}},
             "outcomes": {"passed": {"requires": {"claim": {"id": "doc.ok", "is": "true"}}}}})
     }
-    const LLM: &str = "{dir}/tools/llm-node.sh";
+    const LLM: &str = "{dir}/../../../bindings/tools/llm-node.sh";
     fn no_classes() -> Value {
         json!({"classes": {}})
     }

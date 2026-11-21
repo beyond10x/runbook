@@ -145,7 +145,7 @@ Every lever that exists on `main`, with when it takes effect:
   - Example: give `change.review` `"operations": ["file.read"]`
   - Takes effect: for cases opened after the change: a case writes its own copy of the bindings when it opens ([`main.rs:885-901`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/src/main.rs#L885-L901))
 - **A node's inputs and instruction**
-  - Where: the node's entry in `driver/examples/sdc/tools/llm-node.sh` ([`llm-node.sh:247-468`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L247-L468))
+  - Where: the node's entry in `bindings/tools/llm-node.sh` ([`llm-node.sh:247-468`](https://github.com/beyond10x/runbook/blob/7bbdee60c4595bf2beee8406a3f45b984def5dba/driver/examples/sdc/tools/llm-node.sh#L247-L468))
   - Example: add `input goals.yaml` to `context.default`
   - Takes effect: at the next call made from a tree that holds the change
 - **Model per node class**

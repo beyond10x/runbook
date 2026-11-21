@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The agent-node executor: one LLM call for one SDC writer action, bound as an argv list
-# (`["{dir}/tools/llm-node.sh", "<action>"]`). Run by sdc-drive with cwd = the case tree's work/.
+# (`["{dir}/../../../bindings/tools/llm-node.sh", "<action>"]` in driver/examples/sdc/*.bindings.json,
+# `[tools/llm-node.sh, <action>, ...]` in bindings/*.yaml). Run with cwd = the case tree's work/.
 #
 # It builds the prompt from the node's declared inputs only, copies those inputs into a scratch
 # directory (in/), lets the LLM write there (out/), and then copies back ONLY the node's declared
@@ -27,10 +28,74 @@
 #   SDC_RUN_SETTINGS the run's run-settings.jsonl (scripts/run-trial.sh): the rework prompt names its
 #                    recorded rework cap (`rework_limit.value`, D184); unset: rule-ends.json's rework_limit
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
+#
+# Loom mode (LOOM_CASE set; docs/loom-bindings.md, "Tool changes for Loom's program contract"):
+# Loom starts a bound program with PATH and LOOM_CASE alone, the arguments as one JSON object on
+# standard input, and on a retry LOOM_RETRY_FEEDBACK naming a loom.retry-feedback/1 document. The
+# variables above come from those and from argv entries the binding states after the action:
+#   --model <m> --max-turns <n> --max-budget-usd <usd> --operations <op,op,...>  the `llm` object
+#   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
+#   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
+#   --stub <argv>...  the `llm` object's stub; last, it takes the rest of the argv
+# The case id is SDC_CASE, the arguments SDC_ARGS, the feedback document's records SDC_FEEDBACK
+# (each with its log's tail; Loom names no action and no exit of the run that recorded it).
+# sdc-findings, sdc-bugfix and sdc-reply come from PATH, else from the driver crate's build in
+# this repository, never from HOME. Loom gives no case directory: what reads SDC_CASE_DIR takes
+# its driver-mode default or is pending (bindings/PENDING.md).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-fx=$here/../fixtures
+root=$(cd "$here/../.." && pwd)
+fx=$root/driver/examples/sdc/fixtures
 node=$1
+# A binary of the driver crate (driver/src/bin) in Loom mode: on PATH, else its debug build.
+sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
+if [[ -n ${LOOM_CASE:-} ]]; then
+  SDC_ARGS=$(cat)
+  exec < /dev/null
+  [[ -n ${SDC_ARGS//[[:space:]]/} ]] || SDC_ARGS='{}'
+  jq -e 'type == "object"' <<< "$SDC_ARGS" > /dev/null 2>&1 ||
+    { echo "llm-node: $node could not run: its standard input is not one JSON object" >&2; exit 64; }
+  shift
+  declare -A opt=()
+  with_stub=""
+  while (( $# )); do
+    case $1 in
+      --stub) shift; with_stub=yes; break ;;
+      --model|--max-turns|--max-budget-usd|--operations|--adapter|--principal|--stub-fixtures|--stub-counter)
+        (( $# >= 2 )) || { echo "llm-node: $1 takes a value" >&2; exit 64; }
+        opt[$1]=$2; shift 2 ;;
+      *) echo "llm-node: unknown argument $1" >&2; exit 64 ;;
+    esac
+  done
+  SDC_LLM_NODE=$(jq -cn --arg model "${opt[--model]:-}" --arg mt "${opt[--max-turns]:-}" --arg usd "${opt[--max-budget-usd]:-}" \
+    --arg ops "${opt[--operations]:-}" --arg stub "$with_stub" '{}
+    + (if $model == "" then {} else {model: $model} end)
+    + (if $mt == "" then {} else {max_turns: ($mt | tonumber)} end)
+    + (if $usd == "" then {} else {max_budget_usd: ($usd | tonumber)} end)
+    + (if $ops == "" then {} else {operations: ($ops | split(","))} end)
+    + (if $stub == "" then {} else {stub: $ARGS.positional} end)' --args "$@") ||
+    { echo "llm-node: $node could not run: --max-turns and --max-budget-usd take numbers" >&2; exit 64; }
+  SDC_REPLY=$(sibling sdc-reply)
+  export SDC_LLM_NODE SDC_REPLY SDC_CASE=$LOOM_CASE SDC_ACTION=$node
+  [[ -n ${opt[--adapter]:-} ]] && export SDC_LLM_ADAPTER=${opt[--adapter]}
+  [[ -n ${opt[--principal]:-} ]] && export SDC_PRINCIPAL=${opt[--principal]}
+  [[ -n ${opt[--stub-fixtures]:-} ]] && export SDC_STUB_FIXTURES=${opt[--stub-fixtures]}
+  [[ -n ${opt[--stub-counter]:-} ]] && export SDC_STUB_COUNTER=${opt[--stub-counter]}
+  # The retry records as the driver's SDC_FEEDBACK: kind, result, subject and the log, here the
+  # tail Loom keeps of the cited blob, written beside the document's copy under .sdc/loom-feedback/.
+  if [[ -n ${LOOM_RETRY_FEEDBACK:-} ]]; then
+    jq -e '.format == "loom.retry-feedback/1"' "$LOOM_RETRY_FEEDBACK" > /dev/null 2>&1 ||
+      { echo "llm-node: $node could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document" >&2; exit 126; }
+    fbd=$PWD/.sdc/loom-feedback/$(sha256sum < "$LOOM_RETRY_FEEDBACK" | cut -c1-16)
+    mkdir -p "$fbd"
+    jq -r '.logs[].blob_sha256 | select(test("^[0-9a-f]{64}$"))' "$LOOM_RETRY_FEEDBACK" | while read -r b; do
+      jq -j --arg b "$b" '[.logs[] | select(.blob_sha256 == $b)][0].tail' "$LOOM_RETRY_FEEDBACK" > "$fbd/$b"
+    done
+    jq --arg d "$fbd" '[.logs[].blob_sha256] as $logged | [.records[] | {kind, result, subject, action: null, exit: null,
+      log: (.blob_sha256 as $b | if $b != null and ($logged | index($b)) != null then "\($d)/\($b)" else null end)}]' \
+      "$LOOM_RETRY_FEEDBACK" > "$fbd/feedback.json" && SDC_FEEDBACK=$fbd/feedback.json
+  fi
+fi
 # A run that does nothing ends here: exit 0, and sdc-drive is told (SDC_NOT_CALLED, a file it
 # reads back) so the run is recorded `not_called` and not counted against max_runs.
 not_called() { echo "$1"; [[ -n ${SDC_NOT_CALLED:-} ]] && printf '%s\n' "$1" > "$SDC_NOT_CALLED"; exit 0; }
@@ -62,7 +127,7 @@ adapter=${SDC_LLM_ADAPTER:-stub}
 # adapter (sdc-reply adapters: SDC_REVIEW_ADAPTER, else claude-cli where the writers run on
 # metaharness): the model replies through the schema channel, never by writing a file.
 if [[ $node == change.review ]]; then
-  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  reply_bin=${SDC_REPLY:-$root/driver/target/debug/sdc-reply}
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
   res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.review.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
     { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
@@ -83,7 +148,7 @@ review_mode=${SDC_REVIEW_MODE:-session}
   { echo "llm-node: $node could not run: SDC_REVIEW_MODE=$review_mode is neither session nor facts" >&2; exit 126; }
 [[ $node == change.review ]] || review_mode=session
 if [[ $implement_mode == request ]]; then
-  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  reply_bin=${SDC_REPLY:-$root/driver/target/debug/sdc-reply}
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
   res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.implement.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
     { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
@@ -100,7 +165,7 @@ coverage=${SDC_IMPLEMENT_COVERAGE:-off}
   { echo "llm-node: $node could not run: SDC_IMPLEMENT_COVERAGE=$coverage is neither on nor off" >&2; exit 126; }
 [[ $node == change.implement && $implement_mode == session ]] || coverage=off
 if [[ $coverage == on ]]; then
-  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  reply_bin=${SDC_REPLY:-$root/driver/target/debug/sdc-reply}
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
 fi
 # The stub implementer's coverage document, unless the stub tree carries one (a fixture's own).
@@ -160,8 +225,13 @@ post() {
     fi
   fi
   if [[ -n $raised && -f $raised ]]; then
-    local b=${SDC_FINDINGS:-$here/../../../target/debug/sdc-findings}
-    [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
+    local b
+    if [[ -n ${LOOM_CASE:-} ]]; then
+      b=$(sibling sdc-findings)
+    else
+      b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
+      [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
+    fi
     "$b" --rules "$here/consistency-rules.json" promote "$node" "$raised"
   fi
   local t=${derived[$node]:-}
@@ -207,7 +277,15 @@ if [[ $adapter == stub ]]; then
   # subject, at its `$artifacts` path), so the rework is a new revision: a tree gets `.rework`,
   # a YAML or Markdown file the same lines as a comment.
   t=""
-  [[ -n $rejection ]] && t=$(jq -r --arg s "$(jq -r '.subject // ""' "$rejection")" '."$artifacts"[$s] // ""' "${SDC_CASE_DIR:-$work/..}/bindings.json" 2>/dev/null)
+  if [[ -n $rejection && -n ${LOOM_CASE:-} ]]; then
+    # Loom mode: the subject's path in the bindings file beside these tools that binds the approval.
+    A=$(jq -r '.approval // ""' "$rejection") S=$(jq -r '.subject // ""' "$rejection")
+    t=$(for y in "$here"/../*.yaml; do A=$A S=$S yq -r 'select(.actions | any_c(.action == strenv(A))) | .artifacts[strenv(S)] // ""' "$y"; done 2>/dev/null |
+      grep -v -e '^$' -e '^---$' | sort -u)
+    [[ $(grep -c . <<< "$t") == 1 ]] || t=""
+  elif [[ -n $rejection ]]; then
+    t=$(jq -r --arg s "$(jq -r '.subject // ""' "$rejection")" '."$artifacts"[$s] // ""' "${SDC_CASE_DIR:-$work/..}/bindings.json" 2>/dev/null)
+  fi
   if [[ $code == 0 && -n $t && -e $work/$t ]]; then
     lines=$(jq -r '"rework \(.count) of the rejection of \(.approval) at \(.revision):", (.reasons[] | "- " + .)' "$rejection")
     case $t in
@@ -475,7 +553,7 @@ the change back to you. Schema: $(jq -c . "$rec/coverage-schema.json")"
 change.review)
   # The review (story:review-node-is-a-model): nothing is written; the reply is the decision, under
   # a response schema, and a program checks it (sdc-reply check-review, below). Inputs by program.
-  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  reply_bin=${SDC_REPLY:-$root/driver/target/debug/sdc-reply}
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
   case_dir=${SDC_CASE_DIR:-$work/..}
   "$reply_bin" review-inputs --cwd "$cwd" --case-dir "$case_dir" --story "$story" > "$rec/review-inputs.json" 2> "$rec/review-check.err" ||
@@ -663,7 +741,7 @@ if [[ -n $rejection ]]; then
   # run-settings.jsonl (SDC_RUN_SETTINGS), the one the driver enforces; outside a run, the
   # default of rule-ends.json.
   rework_limit=$(jq -rs 'last.rework_limit.value // empty' "${SDC_RUN_SETTINGS:-/dev/null}" 2>/dev/null)
-  [[ -n $rework_limit ]] || rework_limit=$(jq -r .rework_limit "$here/../rule-ends.json")
+  [[ -n $rework_limit ]] || rework_limit=$(jq -r .rework_limit "$root/driver/examples/sdc/rule-ends.json")
   cp "$rejection" "$cwd/in/rejection.json"
   inputs+=("in/rejection.json (the approval \`$(jq -r .approval "$rejection")\` of your previous output, revision $(jq -r .revision "$rejection"), was rejected by $(jq -r .principal "$rejection"): its reasons and what they cite)")
   task="$task

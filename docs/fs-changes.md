@@ -88,7 +88,7 @@ Append-only, one JSON object per line, ordered by `seq`. Content in `runs/<run>/
 The metaharness stream is written live: `metaharness run` prints each event with `println!` as it
 polls it (`metaharness/crates/metaharness-cli/src/lib.rs:507` `poll_event`, `:557-559` `emit`;
 Rust's stdout is line-buffered), and the adapter redirects that stdout straight into the record
-(`sdc/driver/examples/sdc/tools/llm-adapter-metaharness.sh:44`). In `runs/trial-todo-1` every
+(`sdc/bindings/tools/llm-adapter-metaharness.sh:44`). In `runs/trial-todo-1` every
 file the agent wrote has an mtime inside its `Write` call's [requested, result] window.
 `tool.requested` carries `at` and `input`, `tool.result` carries `at`.
 

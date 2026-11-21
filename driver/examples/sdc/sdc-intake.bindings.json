@@ -9,7 +9,7 @@
   },
   "idea.check": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "check-idea"
     ],
     "produces": "idea_shape",
@@ -22,7 +22,7 @@
   },
   "idea.dissect": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "idea.dissect"
     ],
     "llm": {
@@ -45,7 +45,7 @@
   },
   "dissection.check": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "check-dissection"
     ],
     "produces": "dissection_shape",
@@ -61,7 +61,7 @@
   },
   "questions.write": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "questions.write"
     ],
     "llm": {
@@ -84,7 +84,7 @@
   },
   "questions.answer": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "questions.answer"
     ],
     "llm": {
@@ -102,7 +102,7 @@
   },
   "questions.check": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "check-questions"
     ],
     "produces": [
@@ -135,7 +135,7 @@
   },
   "requirements.normalise": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "requirements.normalise"
     ],
     "llm": {
@@ -158,7 +158,7 @@
   },
   "requirements.check": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "check-requirements"
     ],
     "produces": "requirements_shape",
@@ -175,7 +175,7 @@
   },
   "amend.upstream": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "amend",
       "requirements"
     ],
@@ -183,14 +183,14 @@
     "timeout_s": 300,
     "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
     "handoff_when": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "findings-wait"
     ]
   },
   "scope.answer": {
     "manual": true,
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "scope-answer",
       "{principal}"
     ],

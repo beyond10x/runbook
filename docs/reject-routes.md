@@ -44,7 +44,7 @@ The driver counts a writer's runs since the last arrival (`main.rs:564-583`, `:6
 end in a program error or `not_called` do not count. The default cap is 8 (`:712`); since R7 it holds per retry kind (`:698-730`). After the cap
 the run stops `writer_spent`, exit 4 (`:1220-1229`), which autopilot records as a stop (`run-trial.sh:316`). The driver passes
 the failed check records of `retry_when` in `SDC_FEEDBACK` (`main.rs:1391-1424`). `llm-node.sh`
-turns them into `in/feedback.md` and `in/rejection.json` (`driver/examples/sdc/tools/llm-node.sh:400-436`).
+turns them into `in/feedback.md` and `in/rejection.json` (`bindings/tools/llm-node.sh:400-436`).
 Before R9, when a writer's own apply step failed (`llm-node.sh:475-530`, exit 1, nothing recorded), the
 failure was not fed back, and the writer, which has no `may_produce`, was run again blind (`main.rs:680`).
 Now the failure reaches the next run (`llm-node.sh:412-426`, `:538`).

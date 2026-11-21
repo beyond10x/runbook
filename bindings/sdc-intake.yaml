@@ -11,7 +11,7 @@ actions:
   - action: idea.check
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, check-idea]
+      argv: [tools/sdc-tool.sh, check-idea, --action, idea.check]
     evidence:
       - kind: idea_shape
         subject: idea
@@ -21,7 +21,7 @@ actions:
   - action: idea.dissect
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, idea.dissect]
+      argv: [tools/llm-node.sh, idea.dissect, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, dissection.yaml, dissection.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -29,7 +29,7 @@ actions:
   - action: dissection.check
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, check-dissection]
+      argv: [tools/sdc-tool.sh, check-dissection, --action, dissection.check]
     evidence:
       - kind: dissection_shape
         subject: dissection
@@ -40,7 +40,7 @@ actions:
   - action: questions.write
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, questions.write]
+      argv: [tools/llm-node.sh, questions.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, questions-open.yaml, questions.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -48,13 +48,13 @@ actions:
   - action: questions.answer
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, questions.answer]
+      argv: [tools/llm-node.sh, questions.answer, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, questions-answered.yaml, questions.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
   - action: questions.check
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, check-questions]
+      argv: [tools/sdc-tool.sh, check-questions, --action, questions.check]
     evidence:
       - kind: questions_shape
         subject: questions
@@ -71,7 +71,7 @@ actions:
   - action: requirements.normalise
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, requirements.normalise]
+      argv: [tools/llm-node.sh, requirements.normalise, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, requirements.yaml, requirements.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -79,7 +79,7 @@ actions:
   - action: requirements.check
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, check-requirements]
+      argv: [tools/sdc-tool.sh, check-requirements, --action, requirements.check]
     evidence:
       - kind: requirements_shape
         subject: requirements
@@ -90,7 +90,7 @@ actions:
   - action: amend.upstream
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, amend, requirements]
+      argv: [tools/sdc-tool.sh, amend, requirements, --action, amend.upstream]
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

@@ -1,4 +1,4 @@
-//! The bug-fix writers' prompts (`driver/examples/sdc/tools/llm-node.sh`, `bug.dissect`,
+//! The bug-fix writers' prompts (`bindings/tools/llm-node.sh`, `bug.dissect`,
 //! `test.reproduce`, `change.fix`). A run seeded without a ticket keeps its prompt byte for byte
 //! (`tests/fixtures/bugfix-prompt/<node>.md`); a run seeded from a ticket (`bug.yaml` carries
 //! `ticket`) drops "Standard library only" and carries the ticket's constraints.
@@ -54,7 +54,7 @@ fn prompts_of(fixture: &str, tree: &str, name: &str, bug_yaml: &str) -> Vec<(Str
         fs::copy(fx.join("stub-dissection.json"), work.join("bug-dissection.json")).unwrap();
         fs::write(work.join("bug.yaml"), bug_yaml).unwrap();
         let mut c = Command::new("bash");
-        c.arg(manifest().join("examples/sdc/tools/llm-node.sh")).arg(node).current_dir(&work);
+        c.arg(manifest().join("../bindings/tools/llm-node.sh")).arg(node).current_dir(&work);
         for (k, _) in std::env::vars().filter(|(k, _)| k.starts_with("SDC_")) {
             c.env_remove(k);
         }

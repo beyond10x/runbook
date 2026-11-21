@@ -1,4 +1,4 @@
-//! `impl-gate` (`driver/examples/sdc/tools/sdc-tool.sh`) reads cargo's test counts from stdout
+//! `impl-gate` (`bindings/tools/sdc-tool.sh`) reads cargo's test counts from stdout
 //! alone. `slot` and `ess` are stand-ins on PATH: `slot` writes a scripted cargo test output, with
 //! a stderr line written into the middle of a stdout `test result:` line, as cargo did under slot
 //! and load ("impl-gate: FAILED run: 0 tests ran" on a passing suite).
@@ -45,7 +45,7 @@ fn gate(mode: &str) -> Output {
     fs::write(work.join("impl/Cargo.toml"), "[package]\nname = \"billing\"\n").unwrap();
     fs::write(work.join("impl/src/lib.rs"), "pub fn create_invoice() {}\n").unwrap();
     fs::write(work.join("impl/tests/billing.rs"), "#[test]\nfn create_invoice() {}\n").unwrap();
-    let tool = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools/sdc-tool.sh");
+    let tool = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../bindings/tools/sdc-tool.sh");
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     Command::new("bash")
         .arg(tool)

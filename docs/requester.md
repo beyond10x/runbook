@@ -37,7 +37,7 @@ or run. *(inferred)* marks design not observed.
 | Holders, classes, levels, eval at A5 | `autonomy-levels.md:242-257`, `:397-413`, `:454-472` | requester classes |
 | Gold decisions per eval item (proposed, not built) | `autonomy-levels.md:520-523` | the persona's truth |
 | Ranks, `answered_by: derived`, findings, `amend.upstream`, `scope.answer` | `trial-2.md:57-68`, `:109-121` | derived answers, stale-basis findings |
-| Consistency rules (`sdc-consistency-rules/1`) | `driver/examples/sdc/tools/consistency-rules.json` | rules against constraints |
+| Consistency rules (`sdc-consistency-rules/1`) | `bindings/tools/consistency-rules.json` | rules against constraints |
 | AEP `vision` = an objective; active work must `serves` one once a store declares any | `aep plan artifact relations` (`serves`); `aep/crates/edge/aep-cli/tests/planning_cli.rs:2374-2441` | product-layer source |
 | AEP `initiative` (draft → proposed → active → implemented), `product-requirements` | `aep plan artifact kinds`, `lifecycle initiative` | time-bound goals, constraints |
 | Brownfield reads context from the repository and adopts `vision:*` | `orchestration.md:318-319` | where an existing repository's goals come from |

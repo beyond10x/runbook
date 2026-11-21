@@ -230,9 +230,9 @@ case $decider in person|approve|reject|model) ;; *) echo "SDC_DECIDER: person, a
 
 # The reasoning effort per node class (SDC_LLM_EFFORT_<CLASS>, SDC_LLM_EFFORT): an unknown value is
 # refused here, before anything is created. The adapters' CLIs ignore one with a warning.
-accepted=$(jq -r '.efforts | join(", ")' "$ex/tools/node-classes.json")
-for v in SDC_LLM_EFFORT SDC_LLM_EFFORT_REQUESTER $(jq -r '.classes | keys[] | "SDC_LLM_EFFORT_" + ascii_upcase' "$ex/tools/node-classes.json"); do
-  [[ -z ${!v:-} ]] || jq -e --arg e "${!v}" '.efforts | index($e)' "$ex/tools/node-classes.json" > /dev/null ||
+accepted=$(jq -r '.efforts | join(", ")' "$sdc/bindings/tools/node-classes.json")
+for v in SDC_LLM_EFFORT SDC_LLM_EFFORT_REQUESTER $(jq -r '.classes | keys[] | "SDC_LLM_EFFORT_" + ascii_upcase' "$sdc/bindings/tools/node-classes.json"); do
+  [[ -z ${!v:-} ]] || jq -e --arg e "${!v}" '.efforts | index($e)' "$sdc/bindings/tools/node-classes.json" > /dev/null ||
     { echo "$v: '${!v}' is not a reasoning effort; accepted: $accepted (unset: the adapter's own default)"; exit 64; }
 done
 
@@ -280,7 +280,7 @@ fi
 # Every node class whose reply is a data document runs on an adapter that takes a response schema
 # (sdc-reply adapters; the review: SDC_REVIEW_ADAPTER, else claude-cli on a metaharness run). One
 # that cannot take one refuses the run before any call (exit 64), naming the class and adapter.
-adapters=$("${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}" adapters --tools "$ex/tools" 2>&1) ||
+adapters=$("${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}" adapters --tools "$sdc/bindings/tools" 2>&1) ||
   { grep -v '^{' <<< "$adapters" | sed 's/^/run-trial.sh: /' >&2; exit 64; }
 SDC_REVIEW_ADAPTER=$(jq -r '.review.adapter' <<< "$adapters")
 export SDC_REVIEW_ADAPTER
@@ -416,7 +416,7 @@ unstick_adapter=${SDC_UNSTICK_ADAPTER:-${SDC_DECIDER_ADAPTER:-$SDC_LLM_ADAPTER}}
 if [[ $autonomy == A5 && ${SDC_UNSTICK:-on} != off ]]; then
   case $unstick_adapter in stub|dry) ;; *) unstick_on=yes ;; esac
 fi
-case $unstick_adapter in metaharness|claude-cli|dry) unstick_adapter_bin=$ex/tools/llm-adapter-$unstick_adapter.sh ;; *) unstick_adapter_bin=$unstick_adapter ;; esac
+case $unstick_adapter in metaharness|claude-cli|dry) unstick_adapter_bin=$sdc/bindings/tools/llm-adapter-$unstick_adapter.sh ;; *) unstick_adapter_bin=$unstick_adapter ;; esac
 unstick_model=${SDC_LLM_MODEL_UNSTICK:-claude-opus-5-5}
 
 # Who holds the decisions in this leg, and its caps: one line per start or resume (the UI reads it).
@@ -425,7 +425,7 @@ model=
 # The effective model per node class (tools/node-classes.json): SDC_LLM_MODEL_<CLASS>, else
 # SDC_LLM_MODEL, else each binding's llm.model (per node; `model` is null when they differ). The
 # decider: SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL, else claude-haiku-5-5.
-models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
+models=$(jq -cn --slurpfile c "$sdc/bindings/tools/node-classes.json" \
   --argjson b "$(jq -s 'map(to_entries[] | select(.value.llm != null) | {(.key): .value.llm.model}) | add' "$ex"/sdc-*.bindings.json)" \
   --arg all "${SDC_LLM_MODEL:-}" --arg writer "${SDC_LLM_MODEL_WRITER:-}" --arg implement "${SDC_LLM_MODEL_IMPLEMENT:-}" \
   --arg review "${SDC_LLM_MODEL_REVIEW:-}" --arg other "${SDC_LLM_MODEL_OTHER:-}" --arg dclass "${SDC_LLM_MODEL_DECIDER:-}" \
@@ -452,10 +452,10 @@ eff() { # <default level> <variable>...
   jq -cn --arg e "$1" '{effort: $e, source: "default"}'
 }
 efforts=$({
-  for c in $(jq -r '.classes | keys[]' "$ex/tools/node-classes.json"); do
-    jq -cn --arg c "$c" --argjson e "$(eff "$(jq -r --arg c "$c" '.default_efforts[$c]' "$ex/tools/node-classes.json")" "SDC_LLM_EFFORT_${c^^}")" '{($c): $e}'
+  for c in $(jq -r '.classes | keys[]' "$sdc/bindings/tools/node-classes.json"); do
+    jq -cn --arg c "$c" --argjson e "$(eff "$(jq -r --arg c "$c" '.default_efforts[$c]' "$sdc/bindings/tools/node-classes.json")" "SDC_LLM_EFFORT_${c^^}")" '{($c): $e}'
   done
-  jq -cn --argjson e "$(eff "$(jq -r '.default_efforts.requester' "$ex/tools/node-classes.json")" SDC_LLM_EFFORT_REQUESTER SDC_LLM_EFFORT_DECIDER)" '{requester: $e}'
+  jq -cn --argjson e "$(eff "$(jq -r '.default_efforts.requester' "$sdc/bindings/tools/node-classes.json")" SDC_LLM_EFFORT_REQUESTER SDC_LLM_EFFORT_DECIDER)" '{requester: $e}'
 } | jq -cs add)
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
   --argjson models "$models" --argjson adapters "$adapters" --argjson efforts "$efforts" \
@@ -888,7 +888,7 @@ decide() {
     jq --arg rec "$rec" --argjson a "$attempt" --arg why "$why" '. + {record_dir: $rec}
       + (if $a > 1 then {retry: {attempt: $a, invalid_reason: $why}} else {} end)' <<< "$req" > "$rec/decide-request.json"
     before=$(dry_lines)
-    reply=$("$ex/tools/decider.sh" "$decider" "$rec/decide-request.json")
+    reply=$("$sdc/bindings/tools/decider.sh" "$decider" "$rec/decide-request.json")
     print_dry "$before"
     replay_check
     [[ $(jq -r .valid <<< "$reply") == false && $llm == yes ]] || break

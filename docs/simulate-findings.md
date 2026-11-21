@@ -114,7 +114,7 @@ Why:
     So only an outside edit of the vision gets there.
 - **Gate records (3, 5, 6, 8).**
   - The gate program runs the same four commands as `sdc.spec`'s own checks
-    (`driver/examples/sdc/tools/sdc-tool.sh:143-149` against `:150-155`). It can therefore fail on
+    (`bindings/tools/sdc-tool.sh:143-149` against `:150-155`). It can therefore fail on
     a spec revision whose spec case passed only when the program itself fails: a crash, a timeout,
     or a newer `ess` between the stages.
   - Every non-zero exit except 126, 127 and 75 records `failed`: `"*": "failed"` in
@@ -194,7 +194,7 @@ Notes:
   `retry_when` does not name `spec_review` (`driver/examples/sdc/sdc-spec.bindings.json:44-60`),
   so the driver would not take it, and a run would stop `stuck`.
   - Not reachable today: `review-spec` is a stub, `test -f spec/system.yaml`
-    (`driver/examples/sdc/tools/sdc-tool.sh:291`), and all 61 `spec_review` records in `runs/` are
+    (`bindings/tools/sdc-tool.sh:291`), and all 61 `spec_review` records in `runs/` are
     `approved`.
   - This is a binding gap for when the reviewer becomes real, not a protocol finding.
 - **Record groups.** `questions.check` records two kinds (`protocol/sdc-intake.protocol.yaml:200-212`).

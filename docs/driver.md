@@ -341,7 +341,7 @@ What the driver must check before a tool result counts as evidence:
 
 ## LLM executor (2026-11-21)
 
-Every agent node binds `argv: ["{dir}/tools/llm-node.sh", "<action>"]` plus an `llm` object:
+Every agent node binds `argv: ["{dir}/../../../bindings/tools/llm-node.sh", "<action>"]` plus an `llm` object:
 `model` (`claude-haiku-5-5`), `max_turns`, `max_budget_usd`, optional `operations`, and `stub`
 (the `sdc-tool.sh` subcommand that writes the fixed draft). Agent nodes: `idea.dissect`,
 `questions.write`, `questions.answer`, `requirements.normalise` (intake); `context.default`,
@@ -1034,7 +1034,7 @@ One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direc
 name, produced kind and placed artifact is checked against the compiled protocol by
 `scripts/check-bindings.sh`. Unbound on purpose: `context.change` (a person's edit),
 `spec.reuse`, `spec.reconstruct`, `release.rollback`. Tools are subcommands of
-`driver/examples/sdc/tools/sdc-tool.sh`; agent nodes run `tools/llm-node.sh` (see "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
+`bindings/tools/sdc-tool.sh`; agent nodes run `tools/llm-node.sh` (see "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
 a fixed draft from `fixtures/` (or a fixed `aep plan artifact new` call) and producing no
 evidence, except `spec.author`'s `spec_source=authored`, which records which action wrote it.
 

@@ -6,7 +6,7 @@
  * (`sdc-experiment progress`), `experiments/*.yaml`, `experiments/releases.yaml`, `experiments/targets.yaml` and
  * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`), the committed run summaries
  * `experiments/<id>/runs/*.json`, `experiments/<id>/conformance/*.json` and
- * `experiments/<id>/sizes.json`, `experiments/<id>/scores.json` with its rubric, and `driver/examples/sdc/tools/node-classes.json`. Nothing
+ * `experiments/<id>/sizes.json`, `experiments/<id>/scores.json` with its rubric, and `bindings/tools/node-classes.json`. Nothing
  * under the repository's `runs/` is read.
  * `SDC_SITE_FIXTURES=<dir>` replaces the repository's progress ledger, experiments and timelines
  * with the files in that directory, for the fixture build the tests use.
@@ -263,7 +263,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
       const quality: any[] = [];
       let releasesTable: any = null;
       let targets: any = null;
-      const nodeClasses = await readJson(path.join(repo, 'driver', 'examples', 'sdc', 'tools', 'node-classes.json'));
+      const nodeClasses = await readJson(path.join(repo, 'bindings', 'tools', 'node-classes.json'));
       for (const name of await list(expDir)) {
         const file = path.join(expDir, name);
         if (name === 'releases.yaml') {

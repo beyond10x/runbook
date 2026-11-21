@@ -192,7 +192,7 @@ fn effort() -> (String, String) {
 }
 
 fn tools_dir() -> Option<PathBuf> {
-    env("SDC_TOOLS_DIR").map(PathBuf::from).or_else(|| driver_dir().map(|d| d.join("examples/sdc/tools")))
+    env("SDC_TOOLS_DIR").map(PathBuf::from).or_else(|| driver_dir().map(|d| d.join("../bindings/tools")))
 }
 
 /// What the node is told about its previous table.
@@ -307,7 +307,7 @@ fn node_setup(out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (
         "stub" | "dry" | "fixture" => return Err(("table_missing", format!("the LLM adapter {adapter_name} has no model, so no table was written"))),
         "metaharness" | "claude-cli" => match tools_dir() {
             Some(t) => t.join(format!("llm-adapter-{adapter_name}.sh")),
-            None => return Err(("table_missing", "the tools directory (driver/examples/sdc/tools) was not found".into())),
+            None => return Err(("table_missing", "the tools directory (bindings/tools) was not found".into())),
         },
         p => PathBuf::from(p),
     };

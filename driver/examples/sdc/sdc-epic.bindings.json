@@ -11,7 +11,7 @@
   },
   "spec.gate": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "ess-gate"
     ],
     "produces": "ess_gate",
@@ -61,7 +61,7 @@
       "bindings": "{dir}/sdc-story.bindings.json"
     },
     "args_from": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "list-stories"
     ]
   },

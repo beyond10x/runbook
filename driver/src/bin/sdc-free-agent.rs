@@ -11,7 +11,7 @@
 //! ```
 //!
 //! `run` starts ONE `claude -p` session with the hermetic settings of the SDC's claude-cli adapter
-//! (driver/examples/sdc/tools/llm-adapter-claude-cli.sh: `--setting-sources ""`, a fresh config
+//! (bindings/tools/llm-adapter-claude-cli.sh: `--setting-sources ""`, a fresh config
 //! home holding only a copy of the login, `--strict-mcp-config`, `--disable-slash-commands`, no
 //! auto-memory, no git status block), with the file tools and Bash, inside a bubblewrap
 //! confinement: a new mount, PID, IPC and UTS namespace whose only writable directories are the

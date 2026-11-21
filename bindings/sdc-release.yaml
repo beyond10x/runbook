@@ -7,7 +7,7 @@ actions:
   - action: spec.gate
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+      argv: [tools/sdc-tool.sh, ess-gate, --action, spec.gate]
     timeout_seconds: 1800
     evidence:
       - kind: ess_gate
@@ -18,7 +18,7 @@ actions:
   - action: release.build
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, release-build]
+      argv: [tools/sdc-tool.sh, release-build, --action, release.build]
     evidence:
       - kind: build_provenance
         subject: release
@@ -28,7 +28,7 @@ actions:
   - action: acceptance.run
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, conform-run, release]
+      argv: [tools/sdc-tool.sh, conform-run, release, --action, acceptance.run]
     timeout_seconds: 1800
     evidence:
       - kind: release_conformance
@@ -40,7 +40,7 @@ actions:
   - action: release.publish
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, publish]
+      argv: [tools/sdc-tool.sh, publish, --action, release.publish]
     evidence:
       - kind: release_record
         subject: release
@@ -50,7 +50,7 @@ actions:
   - action: release.observe
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, observe]
+      argv: [tools/sdc-tool.sh, observe, --action, release.observe]
     evidence:
       - kind: health_observation
         subject: release

@@ -42,7 +42,7 @@ const RUNS = {
   'halted': {files: {'run-settings.jsonl': settings('metaharness', 'claude-haiku-5-5', 'claude-haiku-5-5'),
     'run-stopped.json': JSON.stringify({format: 'sdc.run-stopped/1', at: iso(T0 + 12 * 60000), by: 'rule:autopilot', reason: 'the writer spent its calls', cause: 'writer_spent'})}, ago: 30},
   'paused': {files: {'run-settings.jsonl': settings('metaharness', 'claude-haiku-5-5', 'claude-haiku-5-5')}, ago: 40},
-  'canned': {files: {'run-settings.jsonl': settings('/x/driver/examples/sdc/tools/llm-adapter-fixture.sh', 'claude-haiku-5-5', 'claude-haiku-5-5')}, ago: 5},
+  'canned': {files: {'run-settings.jsonl': settings('/x/bindings/tools/llm-adapter-fixture.sh', 'claude-haiku-5-5', 'claude-haiku-5-5')}, ago: 5},
 };
 const procs = [];
 let sources;

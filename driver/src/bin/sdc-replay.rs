@@ -721,7 +721,7 @@ fn prepare(
     let tree_dir = tree_dir.map(canon).unwrap_or_else(|| {
         exe.ancestors().nth(4).map(Path::to_path_buf).unwrap_or_default()
     });
-    let tools = tree_dir.join("driver/examples/sdc/tools");
+    let tools = tree_dir.join("bindings/tools");
     fs::create_dir_all(out).map_err(|e| e.to_string())?;
     let out = canon(out);
     let rd = out.join("replay");

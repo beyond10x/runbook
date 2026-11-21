@@ -52,7 +52,7 @@
       }
     },
     "args_from": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "list-epics"
     ]
   }

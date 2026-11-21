@@ -83,6 +83,13 @@ bare-version tags (`docs/releasing.md`).
 
 ### Changed
 
+- The tools the bindings run moved from `driver/examples/sdc/tools/` to `bindings/tools/`
+  (`story:loom-tools-program-contract`): `bindings/*.yaml` names each as `tools/<file>`, with no
+  `..`, and `scripts/check-bindings.sh` refuses any other program path. `sdc-tool.sh` and
+  `llm-node.sh` run under Loom's program contract when `LOOM_CASE` is set (arguments on standard
+  input, `LOOM_RETRY_FEEDBACK`, the binding's `--action`, `--model`, `--stub` and other values as
+  argv, the driver's binaries from `PATH`), and as before when it is not
+  (`docs/loom-bindings.md`, "Tool changes").
 - `change.review` on the smallest fact set (`story:review-minimal-facts`), behind the run switch
   `SDC_REVIEW_MODE=session|facts` (default `session`, main's review; recorded as `review_mode` in
   `run-settings.jsonl`, a launch setting of `sdc-experiment`). With `facts`:

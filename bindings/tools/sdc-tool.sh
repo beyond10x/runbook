@@ -1,10 +1,42 @@
 #!/usr/bin/env bash
-# The SDC example's tools, one subcommand per binding. Run by sdc-drive with cwd = the case tree's
-# shared work/ directory. Each check is deterministic and reports only through its exit code; each
-# `stub-*` is a stand-in for an LLM executor: it writes a fixed draft and decides nothing.
+# The SDC example's tools, one subcommand per binding. Run with cwd = the case tree's shared work/
+# directory, by sdc-drive (driver mode) or by Loom (Loom mode: LOOM_CASE is set). Each check is
+# deterministic and reports only through its exit code; each `stub-*` is a stand-in for an LLM
+# executor: it writes a fixed draft and decides nothing.
+#
+# Loom mode (docs/loom-bindings.md, "Tool changes for Loom's program contract"): Loom starts a
+# bound program with PATH and LOOM_CASE alone and its arguments as one JSON object on standard
+# input, which no subcommand here takes. What the driver gives as variables comes from the case id
+# (SDC_CASE) and from argv entries the binding states after the subcommand: --action <id>
+# (SDC_ACTION), --principal <principal> (SDC_PRINCIPAL), --stub-fixtures <dir> (SDC_STUB_FIXTURES)
+# and --stub-counter <dir> (SDC_STUB_COUNTER). They are exported, so the programs started here read
+# them as under the driver. sdc-findings and sdc-bugfix come from PATH, else from the driver
+# crate's build in this repository, never from HOME. Without LOOM_CASE none of this runs.
 set -uo pipefail
-here=$(cd "$(dirname "$0")/.." && pwd)
-fx=$here/fixtures
+here=$(cd "$(dirname "$0")" && pwd)
+root=$(cd "$here/../.." && pwd)
+fx=$root/driver/examples/sdc/fixtures
+if [[ -n ${LOOM_CASE:-} ]]; then
+  cat > /dev/null
+  exec < /dev/null
+  pos=()
+  while (( $# )); do
+    case $1 in
+      --action|--principal|--stub-fixtures|--stub-counter)
+        (( $# >= 2 )) || { echo "sdc-tool: $1 takes a value" >&2; exit 64; }
+        case $1 in
+          --action) export SDC_ACTION=$2 ;;
+          --principal) export SDC_PRINCIPAL=$2 ;;
+          --stub-fixtures) export SDC_STUB_FIXTURES=$2 ;;
+          --stub-counter) export SDC_STUB_COUNTER=$2 ;;
+        esac
+        shift 2 ;;
+      *) pos+=("$1"); shift ;;
+    esac
+  done
+  set -- "${pos[@]}"
+  export SDC_CASE=$LOOM_CASE
+fi
 mkdir -p .sdc
 # The ess release every tool here runs: 0.96.0, the release the committed recordings, records and
 # experiment runs were made with. Since 2026-11-21 the `ess` on PATH can be a version dispatcher
@@ -30,15 +62,23 @@ need() {
 passon() { (( $1 == 126 || $1 == 127 )) && exit "$1"; return 0; }
 need yq jq
 
-# The late-finding programs: the driver crate's `sdc-findings` binary (driver/src/bin).
+# A binary of the driver crate (driver/src/bin) in Loom mode: on PATH, else its debug build.
+sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
+# The late-finding programs: the driver crate's `sdc-findings` binary.
 findings() {
-  local b=${SDC_FINDINGS:-$here/../../target/debug/sdc-findings}
-  [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
+  local b
+  if [[ -n ${LOOM_CASE:-} ]]; then
+    b=$(sibling sdc-findings)
+  else
+    b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
+    [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
+  fi
   [[ -x $b ]] || { echo "sdc-tool: sdc-findings not found ($b)" >&2; exit 127; }
-  "$b" --rules "$here/tools/consistency-rules.json" "$@"
+  "$b" --rules "$here/consistency-rules.json" "$@"
 }
 bugfix() {
-  local b=${SDC_BUGFIX:-$here/../../target/debug/sdc-bugfix}
+  local b=${SDC_BUGFIX:-$root/driver/target/debug/sdc-bugfix}
+  [[ -n ${LOOM_CASE:-} ]] && b=$(sibling sdc-bugfix)
   [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
   "$b" "$@"
 }
@@ -243,10 +283,10 @@ story-tests-run)
   # sdc.story's tests.run: conform-run, then the interim implementation gate. Both always run, so
   # the log names every check that failed. The log ends with each failed step's last 30 lines under
   # a heading that names it, so a writer sent back reads them even when the full output is long.
-  ca=$("$here/tools/sdc-tool.sh" conform-run "${2:?implementation tree}" 2>&1); a=$?
+  ca=$("$here/sdc-tool.sh" conform-run "${2:?implementation tree}" 2>&1); a=$?
   echo "$ca"; echo "conform-run: exit $a"
   passon $a
-  cb=$("$here/tools/sdc-tool.sh" impl-gate "$2" 2>&1); b=$?
+  cb=$("$here/sdc-tool.sh" impl-gate "$2" 2>&1); b=$?
   echo "$cb"
   passon $b
   (( a == 0 )) || { echo; echo "# failed: sdc-tool.sh conform-run $2 (exit $a), its last 30 lines"; tail -n 30 <<< "$ca"; }
@@ -378,7 +418,7 @@ review-change) test -s impl/README.md ;; # change.review's stub; the review itse
 check-requirements|check-context|spec-trace|plan-cover)
   stage=$(case $1 in check-requirements) echo requirements ;; check-context) echo context ;;
     spec-trace) echo spec ;; plan-cover) echo plan ;; esac)
-  "$here/tools/sdc-tool.sh" "$1-shape"; rc=$?
+  "$here/sdc-tool.sh" "$1-shape"; rc=$?
   passon $rc
   (( rc == 0 )) || exit 1
   # spec-trace: the gate also runs the requirement trace (sdc-findings `TRACES`), which needs ess.
@@ -387,7 +427,7 @@ check-requirements|check-context|spec-trace|plan-cover)
   (( rc == 0 )) || exit 5 ;;
 story-tests)
   findings gate story || exit 5
-  "$here/tools/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
+  "$here/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
 amend) findings amend "${2:?stage}" ;;
 # amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
 # none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or
@@ -414,6 +454,6 @@ scope-answer)
 consistency) findings consistency ;;
 # --- sdc.bugfix (docs/bugfix.md): its checks are the driver crate's sdc-bugfix binary -----------
 bugfix) shift; bugfix "$@" ;;
-stub-repro) "$here/tools/sdc-tool.sh" stub-tree "$2" repro && bugfix repro-install ;;
+stub-repro) "$here/sdc-tool.sh" stub-tree "$2" repro && bugfix repro-install ;;
 *) echo "unknown tool $1" >&2; exit 64 ;;
 esac

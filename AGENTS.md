@@ -23,7 +23,7 @@
 ## Directory map
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
-- `bindings/` the nine bindings in Loom's `loom.bindings/1`, not run yet (the driver runs `driver/examples/sdc/*.bindings.json`); `PENDING.md` lists what the format lacks (`docs/loom-bindings.md`).
+- `bindings/` the nine bindings in Loom's `loom.bindings/1`, not run yet (the driver runs `driver/examples/sdc/*.bindings.json`); `PENDING.md` lists what the format lacks (`docs/loom-bindings.md`). `bindings/tools/` the programs both formats run (`sdc-tool.sh`, `llm-node.sh`, the adapters, `decider.sh`, `node-classes.json`): driver mode, or Loom mode when `LOOM_CASE` is set.
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
 - `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess that Runbook calls.
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
@@ -43,7 +43,7 @@
 ## Rules
 
 - Anything new that runs is Rust (the organization's language rule). Never Python. The existing bash and
-  jq tools (`driver/examples/sdc/tools/`, `scripts/`, `tools/`) are prototype glue: they get fixes,
+  jq tools (`bindings/tools/`, `scripts/`, `tools/`) are prototype glue: they get fixes,
   no new bash tool is added, and each is retired by a Rust binary or by Loom.
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
