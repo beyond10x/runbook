@@ -47,6 +47,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
   `experiments/<id>/conformance/<run>.json`; the ledger shows conformance always (`not observed`
   where a run has none), with the baseline-0.1.0 figures. One text form in oracle.json,
   run-metrics, run-compare and the ledger. About 1 to 3 USD of node cost per observed product.
+  A recorded re-drive (`run-trial.sh --recorded`) skips the observation: its recording holds no
+  table call, and each one counted as a divergence.
 - `driver/ess-pin.json`: ess 0.97.0 pinned by archive and binary sha256 per platform, resolved
   through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
 - The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in

@@ -688,8 +688,11 @@ finish() { # <outcome> [principal that closed it]
   echo "replay exit $code: $(jq -c 'map({case, state_matches_log, decision_matches_log})' "$out/replay.json")"
   # The conformance observation after close (docs/conformance.md): the delivered product held to
   # the suite of the run's spec, written to oracle.json; it decides nothing. Off with
-  # SDC_CONFORMANCE=off.
-  if [[ ${SDC_CONFORMANCE:-on} != off ]]; then
+  # SDC_CONFORMANCE=off. A recorded re-drive skips it: its adapter answers only the recorded calls,
+  # and the recording holds no conformance.table call, so every table would be a divergence.
+  if [[ -n $replay_env ]]; then
+    echo "conformance: not observed (a recorded re-drive; observe the source run instead)"
+  elif [[ ${SDC_CONFORMANCE:-on} != off ]]; then
     local conform=${SDC_CONFORM_BIN:-$sdc/driver/target/debug/sdc-conform}
     if [[ -x $conform ]]; then
       "$conform" observe "$out" || echo "conformance: not observed (sdc-conform exit $?)"
