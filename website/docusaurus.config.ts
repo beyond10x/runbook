@@ -56,6 +56,7 @@ const config: Config = {
         {to: '/docs/', label: 'What it is', position: 'left', activeBaseRegex: '^/sdc/docs/?$'},
         {to: '/llm-is-not-the-runtime', label: 'The LLM is not the runtime', position: 'left'},
         {to: '/docs/flow', label: 'The flow', position: 'left'},
+        {to: '/docs/context', label: 'Context', position: 'left'},
         {to: '/protocols', label: 'Protocols', position: 'left', activeBaseRegex: '^/sdc/protocols'},
         {to: '/docs/built-on', label: 'Built on', position: 'left'},
         {to: '/evaluation', label: 'Evaluation', position: 'left', activeBaseRegex: '^/sdc/evaluation'},
