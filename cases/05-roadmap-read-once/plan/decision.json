@@ -311,7 +311,7 @@
         "a1"
       ],
       "protocol": "sdc.plan",
-      "protocol_revision": 6,
+      "protocol_revision": 7,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -434,5 +434,5 @@
     }
   },
   "protocol": "sdc.plan",
-  "protocol_revision": 6
+  "protocol_revision": 7
 }

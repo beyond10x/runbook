@@ -1,0 +1,15 @@
+format: canon-case/1
+id: PLAN-7
+protocol: sdc.plan
+revision: c1
+artifacts:
+  roadmap:
+    revision: r1
+  spec:
+    revision: s1
+  plan:
+    revision: p1
+  findings:
+    revision: none
+  requirements:
+    revision: q1

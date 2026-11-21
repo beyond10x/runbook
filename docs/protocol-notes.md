@@ -61,6 +61,7 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `06-approval-once/{context,vision,roadmap}/revised` | sdc.direction | rejected at revision 1, artifact at revision 2: the check due (`context.check`, `roadmap.validate`; vision has none, so `vision.approve` admissible) |
 | `06-approval-once/{context,roadmap}/rechecked` | sdc.direction | as revised with the check valid at revision 2: approve admissible again |
 | `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
+| `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -84,7 +85,7 @@ reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
 - A record about an older revision is not of the claim, so a new revision makes the action
   admissible again (`cases/05-roadmap-read-once/*/revised`).
 - Where an invalidation rule sets a check's result aside, the guard claim is invalidated with it
-  (`protocol/sdc-plan.protocol.yaml:246-250`, `protocol/sdc-intake.protocol.yaml`
+  (`protocol/sdc-plan.protocol.yaml:252-256`, `protocol/sdc-intake.protocol.yaml`
   `dissection.revised`, `questions.revised`; sdc-direction `requirements.revised`; sdc-release and
   sdc-story `spec.revised`), so an upstream revision makes the check admissible again too.
 - A review demanding independence is guarded by a claim with the same `independent_on`
@@ -140,6 +141,19 @@ sdc.release keeps `release.approve` as a capability of `release.publish`: the sa
 
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
+
+## What `canon simulate` still reports and why
+
+Canon's classification of the findings on f364b6b (classes a1, a2, a3, c, d, e) is the reference
+for this section; c is fixed by the approval rule above.
+
+- **A failed plan check (a3, fixed).** `plan.decompose` was guarded on coverage only, so with the
+  plan covered but invalid, its scope unassessed or its stories not active, no action could
+  revise the plan. It is now also admissible on `plan.valid`, `plan.scoped` or `plan.active`
+  `false` (`protocol/sdc-plan.protocol.yaml:158-176`), as its binding's `retry_when` already
+  expected (`plan_validation` invalid, `stories_scoped` unassessed, `story_states` draft).
+  `amend.upstream` stays bound to an open finding (coverage `false`). Case:
+  `07-plan-check-failed` (covered, validation invalid: `plan.decompose` admissible).
 
 ## Evidence kinds and the action that produces each
 
