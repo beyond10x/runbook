@@ -32,7 +32,8 @@ case close to implementation; completeness is computed by validating, not declar
    - reused: an existing specification from another repository or a public place
    - reconstructed: derived from an RFC, an OpenAPI document or an observed system
 9. **Spec complete** = the ESS gate passes at the current spec revision (validate, compile,
-   conformance synthesize with 0 refusals, no open-question marker).
+   conformance synthesize with 0 refusals, every synthesized scenario passed against ESS's interpreter
+   of the specification, no open-question marker).
 10. **Stories, implement, review, test, release, operate.** ESS conformance is the verification evidence.
 
 ## Mapping to tools (verified unless marked inferred)
