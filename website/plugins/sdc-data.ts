@@ -155,6 +155,31 @@ function qualitySummary(experiment: string, doc: any, rubric: string): any {
   };
 }
 
+/**
+ * The landing pitch: the clean passes of the latest release entry of the progress ledger that has
+ * runs, per setting, and each run's clean pass and time waited on a person; `comparison` when a
+ * free-agent record is committed, so the comparison and its records table are on the LLM page.
+ */
+function pitchSummary(progress: any, timelines: any[], experiments: any[]): any {
+  const freeIds = new Set(timelines.filter((t) => t.doc?.kind === 'free-agent').map((t) => t.experiment));
+  const comparison = experiments.some((e) => freeIds.has(e.id) && e.treatment && e.baseline?.length && e.variant_primaries?.length);
+  const entry = (progress.entries ?? []).filter((e: any) => e.kind === 'release' && (e.settings ?? []).length > 0).slice(-1)[0];
+  if (!entry) return {release: null, settings: [], comparison};
+  const labels = new Map<string, string>((progress.settings ?? []).map((s: any) => [s.id, s.label]));
+  return {
+    comparison,
+    release: entry.version ?? entry.label ?? entry.id,
+    input: progress.input?.name ?? null,
+    settings: entry.settings.map((s: any) => ({
+      id: s.setting,
+      label: labels.get(s.setting) ?? s.setting,
+      clean_passes: s.clean_passes,
+      ended: s.ended,
+      runs: (s.runs ?? []).map((r: any) => ({clean_pass: r.clean_pass === true, waiting_on_person_s: r.metrics?.waiting_on_person_s ?? null})),
+    })),
+  };
+}
+
 /** A conformance summary (`sdc.conformance-summary/1`) without its per-table detail. */
 function conformanceSummary(doc: any): any {
   return {
@@ -254,6 +279,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
             latest: content.progress.entries.filter((e: any) => e.kind === 'release').slice(-1)[0] ?? null,
             release: latest,
           }),
+          pitch: await data('sdc-pitch.json', pitchSummary(content.progress, content.timelines, content.experiments)),
         },
       });
       addRoute({path: route('/protocols'), exact: true, component: '@site/src/routes/ProtocolIndex.tsx', modules: {index: indexData}});

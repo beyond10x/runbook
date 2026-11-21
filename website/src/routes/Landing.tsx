@@ -2,6 +2,7 @@ import type {ReactNode} from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import {Feature, FeatureGrid, ProductHero, ProductSection} from '@beyond10x/docs-system/product';
+import PitchSlider, {type PitchData} from '../components/PitchSlider';
 import ProgressChart from '../components/ProgressChart';
 import {InlineMd} from '../components/ui';
 import type {SiteIndex} from '../components/types';
@@ -10,9 +11,10 @@ interface Props {
   index: SiteIndex;
   progressSvg: {svg: string};
   ledger: {pass_rule: string; release: string | null};
+  pitch: PitchData;
 }
 
-export default function Landing({index, progressSvg}: Props): ReactNode {
+export default function Landing({index, progressSvg, pitch}: Props): ReactNode {
   const release = index.releases[0];
   const stages = index.protocols.filter((p) => p.id !== 'sdc.bugfix').length;
   return (
@@ -50,6 +52,7 @@ export default function Landing({index, progressSvg}: Props): ReactNode {
             ) : undefined
           }
         />
+        <PitchSlider pitch={pitch} protocols={index.protocols.length} stages={stages} />
         <ProductSection id="progress" number={1} eyebrow="Progress" title="How often an idea runs to a delivered app with no person." lede={<>Clean passes of ended runs per release and model setting. The figures and their limits are on the <Link to="/evaluation">evaluation</Link> page.</>}>
           <ProgressChart svg={progressSvg.svg} />
         </ProductSection>
