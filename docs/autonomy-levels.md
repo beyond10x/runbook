@@ -251,7 +251,7 @@ Holders:
 | merge | story `change.merge`, `change.merge` | P | P+ | P | P | R∧D→P | R∧D* |
 | release (standalone, D150) | release `release.approve`, `release.approve` | P | P+ | P | P | P | D* |
 | rollback (standalone release) | release `release.rollback`, `release.approve` (unbound today) | P | P+ | P | R | R | R: end |
-| close | root close `delivered` (`operating` before D150) | P | P+ | P | P | D→P | D* |
+| close | root close `delivered` (`operating` before D150) | P | P+ | P | P | D→P | R (D140: its claims are settled upstream; `rule:autopilot` closes) |
 | budget overrun | driver caps: `--max-llm-calls`, `SDC_MAX_DECIDER_CALLS`, USD | P | P | P | R, then P | R, then P | R: end |
 | limit hit | `--max-wall-seconds`, `--max-steps`, `timeout_s`, Substrate refusals | R, then P | R, then P | R, then P | R, then P | R, then P | R: end |
 | escalation | decider reply `escalate` or an invalid reply | — | — | P | P | P | D* |
@@ -466,9 +466,8 @@ written into each `run-settings.jsonl` line.
   its checks run again on the new revision, and the approval is asked again. At most 2 rejections
   per approval per case: the third stops the run by `rule:autopilot` with cause `rework_spent`,
   naming the approval and the three reasons. A rejected `release.publish` (the capability
-  `release.approve`, no writer) ends the tree instead: the release is withheld, the epic ends
-  `not_released`, the root `not_delivered`, and the run is closed, not stopped (`docs/driver.md`,
-  "A refused release"). A reject that has neither a writer nor such an end stops with
+  `release.approve`, no writer; standalone since D150) ends that release instead: it closes
+  `withheld`, and the run is closed, not stopped (`docs/driver.md`, "A refused release"). A reject that has neither a writer nor such an end stops with
   `rejected_without_rework_path`. No message says a person decides.
 - **Every would-be escalation is recorded** as the event `escalation_suppressed`, with the class,
   the subject at revision, the reasons and `best`. It is counted as the KPI R21, escalations
