@@ -1,0 +1,1 @@
+{"requirements":[{"at":[{"file":"src/lib.rs","line":1}],"id":"r1","status":"built","test":"create_invoice"},{"at":[{"file":"src/lib.rs","line":1}],"id":"r2","status":"built","test":"create_invoice"}]}

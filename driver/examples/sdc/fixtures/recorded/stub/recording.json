@@ -342,7 +342,8 @@
         "in/spec/domains/invoice.yaml": "1899f25740bf1bcd70e24a001b4f2d691e7d03317016529b07b94cc40df9e6de",
         "in/spec/system.yaml": "7f71d0feb8dd3703b7676104f1ee563f933927282612f578a2f5849bde8c65c0",
         "in/spec/topology.yaml": "8857ca73c313730aea54bff148c3e7ef325cd27735145bde1c0bd1c5ec24e23d",
-        "in/spec/traces.json": "fe58fe825ba6828c05501574c907811e3bf834c0ca707a8b6592745dcdfc2a3a"
+        "in/spec/traces.json": "fe58fe825ba6828c05501574c907811e3bf834c0ca707a8b6592745dcdfc2a3a",
+        "in/story-requirements.json": "3e4d0e462dfc546bf729fb73b5319627ce393dd8164c7278d062be0b57da9670"
       },
       "kind": "work",
       "matched_event": true,
@@ -350,7 +351,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/008/out",
-      "prompt": "859c6e1a4fc85c480e54d1bc179b3dabbdff97f4b02f41ed3a2ee8065a9f40e0",
+      "prompt": "2b3a108ac7955a19267a7c70281ca1c515c5a1e61d171a0cfdcf767e43ebeed0",
       "request": {
         "case": "IDEA-1.billing.invoices",
         "effort": "high",
@@ -388,6 +389,7 @@
         "in/aep/story/invoices.md": "97e4eecbc8a90dad3bd1f00a8ecedfacf62fb66529e58146016e24cd7d010b8e",
         "in/change.diff": "21d8aa15b11490844b59681d113acfe33b99f48f4c6dd2ef91a4924fbd54b621",
         "in/commands.json": "aa120e38bf97f34a8f9d415a319a4f96b793bb4b16f55cb7fa4eafac2495e1b5",
+        "in/coverage.json": "13266a94bca1f94ab7ed68af48281c82a9deaef800d471cc9f2b41e10e9ae313",
         "in/gate.txt": "94196ccc9a0b1e4fc7f37a5c7645c7dfef3101f43b891537a7df9cda58ccdac3",
         "in/impl/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/impl/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
@@ -405,7 +407,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/009/out",
-      "prompt": "237a0f7025feab970e9adf1118f71de0c85bc459281249bf8a8ba163f8d08589",
+      "prompt": "74616f680cfef0c08a8fe81d687612d01698aaa85b671452b95833fea271c83c",
       "request": {
         "case": "IDEA-1.billing.invoices",
         "effort": "high",
@@ -620,6 +622,7 @@
         "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/impl/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
+        "in/impl/.sdc/coverage.json": "13266a94bca1f94ab7ed68af48281c82a9deaef800d471cc9f2b41e10e9ae313",
         "in/impl/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/impl/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
         "in/impl/README.md": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab",
@@ -662,7 +665,7 @@
         "usage": null
       },
       "revisions": {
-        "change": "ta572071754982210",
+        "change": "t2fe68d6ec0d290ee",
         "requirements": "te23630e115159d67"
       },
       "structured": null,
@@ -685,6 +688,7 @@
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2",
         "in/release/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
+        "in/release/.sdc/coverage.json": "13266a94bca1f94ab7ed68af48281c82a9deaef800d471cc9f2b41e10e9ae313",
         "in/release/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/release/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
         "in/release/PROVENANCE": "823c713f87d5c2892802e1eaedb23330deb037445bf9c4df11284e4ac85afa4d",
@@ -727,7 +731,7 @@
         "usage": null
       },
       "revisions": {
-        "release": "t9f2fb3c002745832"
+        "release": "t299dca1c4427addd"
       },
       "structured": null,
       "try": 1,
@@ -751,12 +755,12 @@
           "source": "SDC_LLM_ADAPTER"
         }
       },
-      "at": "2026-11-21T13:42:03Z",
+      "at": "2026-11-21T16:39:41Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
       "decider": {
         "escalate": "final",
-        "kind": "haiku",
+        "kind": "model",
         "max_decider_calls": 20,
         "model": "claude-haiku-5-5"
       },
@@ -849,10 +853,14 @@
       "per_class_routing": null,
       "replay": null,
       "requester_decider": null,
+      "rework_limit": {
+        "source": "rule-ends.json",
+        "value": 2
+      },
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "26b8b85ee7b7",
+        "commit": "ce3ce3fb6a7e",
         "dirty": false
       },
       "unstick": {
@@ -870,7 +878,7 @@
     "state": "closed"
   },
   "tree": {
-    "commit": "26b8b85ee7b7",
+    "commit": "ce3ce3fb6a7e",
     "dirty": false
   }
 }
