@@ -157,8 +157,11 @@ test('--runs: a run that appears later joins the store selector without a restar
   expect(sources[0].path).toMatch(/person\/store$/);
   expect(sources.filter((x) => /person\/store$/.test(x.path))).toHaveLength(1);
   await expect(page.locator('#source option')).toHaveCount(sources.length);
+  // a run still being built aside (*.part) is not listed, before or after it is moved into place
+  fs.mkdirSync(path.join(runs, 'aside.part', 'store'), {recursive: true});
   fixture('person', 'late');
   await expect(page.locator('#source option')).toHaveCount(sources.length + 1, {timeout: 15000});
+  await expect(page.locator('#source option', {hasText: '.part'})).toHaveCount(0);
   // a fixture run: listed with the stub and fixture runs, labelled
   const opt = page.locator('#source optgroup option', {hasText: /^late\b/});
   await expect(opt).toHaveText('late · stub');
