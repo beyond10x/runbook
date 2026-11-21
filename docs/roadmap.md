@@ -20,7 +20,7 @@ Grounds: `approval-record:operator-decision-conductor-succession`,
 |---|---|---|
 | M0 Baseline in git | 0 (work outside the store) | 0 |
 | M1 Unattended clean run | 24 (1 implemented) | 0 |
-| M2 Real verification and real git | 11 | 0 (one waits on ESS work in progress) |
+| M2 Real verification and real git | 11 | 1 |
 | M3 Operating record | 8 | 1 |
 | M4 On Loom, confined | 8 | 7 |
 | M5 Many items | 25 | 1 |
@@ -59,8 +59,8 @@ Grounds: `approval-record:operator-decision-conductor-succession`,
   forge-ci-evidence, release-tag, forge-release-evidence. per-story-worktree and story-merge-step
   belong to epic `concurrent-child-cases` and are pulled forward: story-branch and
   change-merge-git depend on them.
-- Waits on: ESS (a conformance target that executes an outside implementation, in progress; the
-  default is a runner on the SDC side first); engineering-protocols (the data-only catalog, for the
+- Waits on: ESS (a release carrying `--target process`, ESS pull request 797, unmerged:
+  `upstream-blocker:ess-target-process-release`); engineering-protocols (the data-only catalog, for the
   ported gate validator); takt sources (frozen, read only).
 - KPIs: R2 false-done rate, W3 story conformance pass rate, W4 review rejection rate.
 
