@@ -10,8 +10,13 @@
 //! a fresh product process, started from the table's `start.argv` in the tree with a free port on
 //! 127.0.0.1 and an empty data directory under `--work`, and killed (its whole process group) at
 //! `end_scenario`. The product gets no environment but `PATH`, `LANG`, `HOST`, `PORT`, and `HOME`
-//! and `TMPDIR` set to the scenario's directory: no credential of the caller reaches it. The adapter reports what the product answered, never a verdict: a status the
-//! table does not map is no declared outcome. Events are built from the response body by the
+//! and `TMPDIR` set to the scenario's directory: no credential of the caller reaches it. Its stdout
+//! and stderr go to `product.log`; the table's `captures` are read from them (one regex group, within
+//! `timeout_s` of the start; a capture that does not appear answers `begin_scenario` `unavailable`)
+//! and are filled into paths, headers and bodies as `{capture.<name>}`. A `binding` replaces an input
+//! field of that name by its capture and maps the captured value back to the spec value in events,
+//! error fields and view rows. The adapter reports what the product answered, never a verdict: a
+//! status the table does not map is no declared outcome. Events are built from the response body by the
 //! table's payload templates (the product publishes none an HTTP client could observe). A product
 //! that does not start is answered `unavailable` (the scenario ends `error`), a command or view the
 //! table declares `none` `unsupported`. One JSON line per start, unmapped status and unfillable
@@ -19,11 +24,12 @@
 
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value as J};
@@ -32,7 +38,7 @@ use serde_json::{json, Value as J};
 #[allow(dead_code)]
 mod conformance;
 
-use conformance::{at, fill, fill_path, http, read_json, s, sha256_bytes, Ctx, Reply};
+use conformance::{at, fill, fill_path, fill_text, http, none_of, read_json, s, sha256_bytes, Ctx, Reply};
 
 const SPEAKS: &str = "ess-conformance-target/1";
 
@@ -64,12 +70,37 @@ struct Adapter {
     events: Vec<J>,
     forced: BTreeMap<String, (String, u64)>,
     writes: u64,
+    captured: J,
+    reverse: BTreeMap<String, J>,
 }
 
 enum Answer {
     Ok(J),
     Unsupported(String),
     Unavailable(String),
+}
+
+enum Fail {
+    Start(String),
+    Capture(String, String),
+}
+
+/// Copies one output stream of the product, line by line, into `product.log` and a buffer the
+/// captures are read from.
+fn pump(r: impl Read + Send + 'static, log: Arc<Mutex<File>>, buf: Arc<Mutex<String>>) {
+    std::thread::spawn(move || {
+        for line in BufReader::new(r).lines().map_while(Result::ok) {
+            if let Ok(mut f) = log.lock() {
+                let _ = writeln!(f, "{line}");
+            }
+            if let Ok(mut b) = buf.lock() {
+                if b.len() < 1 << 20 {
+                    b.push_str(&line);
+                    b.push('\n');
+                }
+            }
+        }
+    });
 }
 
 fn free_port() -> Result<u16, String> {
@@ -86,13 +117,15 @@ impl Adapter {
         }
     }
 
-    fn start(&mut self) -> Result<(), String> {
+    fn start(&mut self) -> Result<(), Fail> {
         self.product = None;
+        self.captured = json!({});
+        self.reverse.clear();
         self.scenarios += 1;
         let dir = self.work.join(format!("{:04}", self.scenarios));
         let data = dir.join("data");
-        fs::create_dir_all(&data).map_err(|e| format!("{}: {e}", data.display()))?;
-        let port = free_port()?;
+        fs::create_dir_all(&data).map_err(|e| Fail::Start(format!("{}: {e}", data.display())))?;
+        let port = free_port().map_err(Fail::Start)?;
         let argv: Vec<String> = self.table["start"]["argv"]
             .as_array()
             .into_iter()
@@ -104,11 +137,10 @@ impl Adapter {
                     .replace("{data_file}", &data.join("data").to_string_lossy())
             })
             .collect();
-        let Some(prog) = argv.first() else { return Err("start.argv is empty".into()) };
+        let Some(prog) = argv.first() else { return Err(Fail::Start("start.argv is empty".into())) };
         let prog = if prog.contains('/') { self.tree.join(prog) } else { PathBuf::from(prog) };
-        let out = File::create(dir.join("product.log")).map_err(|e| e.to_string())?;
-        let err = out.try_clone().map_err(|e| e.to_string())?;
-        let child = Command::new(&prog)
+        let log = Arc::new(Mutex::new(File::create(dir.join("product.log")).map_err(|e| Fail::Start(e.to_string()))?));
+        let mut child = Command::new(&prog)
             .args(&argv[1..])
             .current_dir(&self.tree)
             .env_clear()
@@ -119,40 +151,115 @@ impl Adapter {
             .env("HOST", "127.0.0.1")
             .env("PORT", port.to_string())
             .stdin(Stdio::null())
-            .stdout(out)
-            .stderr(err)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .process_group(0)
             .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", prog.display()))?;
+            .map_err(|e| Fail::Start(format!("cannot start {}: {e}", prog.display())))?;
+        let spawned = Instant::now();
+        let streams = [Arc::new(Mutex::new(String::new())), Arc::new(Mutex::new(String::new()))];
+        if let Some(o) = child.stdout.take() {
+            pump(o, log.clone(), streams[0].clone());
+        }
+        if let Some(e) = child.stderr.take() {
+            pump(e, log.clone(), streams[1].clone());
+        }
         let mut product = Product { child, port };
-        let ready = self.table["start"]["ready"].clone();
-        let deadline = Instant::now() + self.start_timeout;
-        loop {
-            if let Ok(Some(st)) = product.child.try_wait() {
-                let tail = fs::read_to_string(dir.join("product.log")).unwrap_or_default();
-                let tail: String = tail.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
-                return Err(format!("the product exited before it answered ({st}): {tail}"));
+        let exited = |product: &mut Product| -> Option<String> {
+            let st = product.child.try_wait().ok().flatten()?;
+            std::thread::sleep(Duration::from_millis(100));
+            let tail = fs::read_to_string(dir.join("product.log")).unwrap_or_default();
+            let tail: String = tail.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ");
+            Some(format!("the product exited before it answered ({st}): {tail}"))
+        };
+        let mut captured = serde_json::Map::new();
+        for c in self.table["captures"].as_array().cloned().unwrap_or_default() {
+            let (name, stream) = (s(&c["name"]).to_string(), s(&c["stream"]).to_string());
+            let re = regex::Regex::new(s(&c["regex"])).map_err(|e| Fail::Start(format!("capture {name}: {e}")))?;
+            let buf = &streams[usize::from(stream == "stderr")];
+            let secs = c["timeout_s"].as_u64().unwrap_or(5);
+            let deadline = spawned + Duration::from_secs(secs);
+            loop {
+                let found = re.captures(&buf.lock().map(|b| b.clone()).unwrap_or_default()).and_then(|m| m.get(1).map(|g| g.as_str().to_string()));
+                if let Some(v) = found {
+                    captured.insert(name.clone(), J::String(v));
+                    break;
+                }
+                if let Some(why) = exited(&mut product) {
+                    return Err(Fail::Start(why));
+                }
+                if Instant::now() > deadline {
+                    return Err(Fail::Capture(name.clone(), format!("capture {name} did not appear on {stream} within {secs} s")));
+                }
+                std::thread::sleep(Duration::from_millis(50));
             }
-            if http(port, s(&ready["method"]), s(&ready["path"]), None, Duration::from_millis(500)).is_ok() {
+        }
+        self.captured = J::Object(captured);
+        self.product = Some(product);
+        let ready = self.table["start"]["ready"].clone();
+        let deadline = spawned + self.start_timeout;
+        loop {
+            if let Some(why) = self.product.as_mut().and_then(exited) {
+                self.product = None;
+                return Err(Fail::Start(why));
+            }
+            if self.send_with(&ready, &BTreeMap::new(), Duration::from_millis(500)).is_ok() {
                 break;
             }
             if Instant::now() > deadline {
-                return Err(format!("the product did not answer {} {} within {} s", s(&ready["method"]), s(&ready["path"]), self.start_timeout.as_secs()));
+                self.product = None;
+                return Err(Fail::Start(format!("the product did not answer {} {} within {} s", s(&ready["method"]), s(&ready["path"]), self.start_timeout.as_secs())));
             }
             std::thread::sleep(Duration::from_millis(100));
         }
-        self.product = Some(product);
         Ok(())
     }
 
     fn send(&self, r: &J, ctx: &Ctx) -> Result<Reply, String> {
+        self.send_with(r, ctx, self.request_timeout)
+    }
+
+    /// One request of the table, filled from `ctx` and the scenario's captures.
+    fn send_with(&self, r: &J, ctx: &Ctx, timeout: Duration) -> Result<Reply, String> {
         let port = self.product.as_ref().map(|p| p.port).ok_or("no product is running")?;
-        let path = fill_path(s(&r["path"]), ctx)?;
+        let mut ctx = ctx.clone();
+        ctx.insert("capture", self.captured.clone());
+        let path = fill_path(s(&r["path"]), &ctx)?;
         let body = match r.get("body") {
             None | Some(J::Null) => None,
-            Some(b) => Some(fill(b, ctx)?),
+            Some(b) => Some(fill(b, &ctx)?),
         };
-        http(port, s(&r["method"]), &path, body.as_ref(), self.request_timeout)
+        let mut headers = vec![];
+        for (k, v) in r["headers"].as_object().into_iter().flatten() {
+            headers.push((k.clone(), fill_text(s(v), &ctx)?));
+        }
+        http(port, s(&r["method"]), &path, body.as_ref(), &headers, timeout)
+    }
+
+    /// The scenario's input with every bound field replaced by its captured value; each replaced
+    /// spec value is remembered so that what the product answers maps back to it.
+    fn bind(&mut self, input: &J) -> J {
+        let mut input = input.clone();
+        for b in self.table["bindings"].as_array().cloned().unwrap_or_default() {
+            let (field, cap) = (s(&b["input"]), s(&b["capture"]));
+            let Some(v) = self.captured.get(cap).cloned() else { continue };
+            if let Some(slot) = input.as_object_mut().and_then(|m| m.get_mut(field)) {
+                if *slot != v {
+                    self.reverse.insert(v.to_string(), slot.clone());
+                }
+                *slot = v;
+            }
+        }
+        input
+    }
+
+    /// A value the product answered with its captured values mapped back to the spec values.
+    fn unbind(&self, v: J) -> J {
+        match v {
+            J::Array(a) => J::Array(a.into_iter().map(|x| self.unbind(x)).collect()),
+            J::Object(m) => J::Object(m.into_iter().map(|(k, x)| (k, self.unbind(x))).collect()),
+            x => self.reverse.get(&x.to_string()).cloned().unwrap_or(x),
+        }
     }
 
     fn command_entry(&self, name: &str) -> Option<J> {
@@ -162,8 +269,8 @@ impl Adapter {
     fn execute(&mut self, req: &J) -> Answer {
         let name = s(&req["command"]).to_string();
         let Some(c) = self.command_entry(&name) else { return Answer::Unsupported(format!("the route table has no entry for {name}")) };
-        if let Some(why) = c["none"].as_str() {
-            return Answer::Unsupported(format!("the product offers no way to run {name}: {why}"));
+        if let Some((kind, why)) = none_of(&c) {
+            return Answer::Unsupported(format!("the product offers no way to run {name} ({kind}): {why}"));
         }
         let mut request = c["request"].clone();
         if let Some((outcome, left)) = self.forced.get(&name).cloned() {
@@ -173,7 +280,8 @@ impl Adapter {
             if left <= 1 { self.forced.remove(&name); } else { self.forced.insert(name.clone(), (outcome, left - 1)); }
         }
         let mut ctx: Ctx = BTreeMap::new();
-        ctx.insert("input", req["input"].clone());
+        let input = self.bind(&req["input"]);
+        ctx.insert("input", input);
         let reply = match self.send(&request, &ctx) {
             Ok(r) => r,
             Err(e) => return Answer::Unavailable(format!("{name}: {} {}: {e}", s(&request["method"]), s(&request["path"]))),
@@ -200,7 +308,7 @@ impl Adapter {
         let mut events = vec![];
         for e in o["events"].as_array().into_iter().flatten() {
             match fill(&e["payload"], &ctx) {
-                Ok(p) => events.push(json!({"event": e["event"], "payload": p})),
+                Ok(p) => events.push(json!({"event": e["event"], "payload": self.unbind(p)})),
                 Err(why) => self.note(json!({"event": "fill_failed", "command": name, "built": e["event"], "why": why})),
             }
         }
@@ -211,7 +319,7 @@ impl Adapter {
                     self.note(json!({"event": "fill_failed", "command": name, "field": k, "why": why}));
                     J::Null
                 });
-                fields.insert(k.clone(), v);
+                fields.insert(k.clone(), self.unbind(v));
             }
             result["error"] = json!({"error": o["error"]["error"], "fields": fields});
         }
@@ -225,11 +333,12 @@ impl Adapter {
         let Some(v) = self.table["views"].as_array().into_iter().flatten().find(|v| s(&v["view"]) == name).cloned() else {
             return Answer::Unsupported(format!("the route table has no entry for {name}"));
         };
-        if let Some(why) = v["none"].as_str() {
-            return Answer::Unsupported(format!("the product offers no way to read {name}: {why}"));
+        if let Some((kind, why)) = none_of(&v) {
+            return Answer::Unsupported(format!("the product offers no way to read {name} ({kind}): {why}"));
         }
         let mut ctx: Ctx = BTreeMap::new();
-        ctx.insert("params", req.get("params").cloned().unwrap_or(json!({})));
+        let params = self.bind(&req.get("params").cloned().unwrap_or(json!({})));
+        ctx.insert("params", params);
         let reply = match self.send(&v["request"], &ctx) {
             Ok(r) => r,
             Err(e) => return Answer::Unavailable(format!("{name}: {e}")),
@@ -242,7 +351,7 @@ impl Adapter {
         };
         let fields = v["fields"].as_object().cloned().unwrap_or_default();
         let rows: Vec<J> = rows.iter().map(|r| {
-            J::Object(fields.iter().filter_map(|(k, p)| at(r, s(p)).map(|x| (k.clone(), x.clone()))).collect())
+            self.unbind(J::Object(fields.iter().filter_map(|(k, p)| at(r, s(p)).map(|x| (k.clone(), x.clone()))).collect()))
         }).collect();
         Answer::Ok(json!({"rows": rows}))
     }
@@ -260,9 +369,14 @@ impl Adapter {
                         self.note(json!({"event": "start", "ok": true}));
                         Answer::Ok(J::Null)
                     }
-                    Err(why) => {
+                    Err(Fail::Start(why)) => {
                         self.note(json!({"event": "start", "ok": false, "why": why}));
                         Answer::Unavailable(format!("the product did not start: {why}"))
+                    }
+                    Err(Fail::Capture(name, why)) => {
+                        self.product = None;
+                        self.note(json!({"event": "capture", "ok": false, "name": name, "why": why}));
+                        Answer::Unavailable(why)
                     }
                 }
             }
@@ -324,6 +438,8 @@ fn main() -> ExitCode {
         events: vec![],
         forced: BTreeMap::new(),
         writes: 0,
+        captured: json!({}),
+        reverse: BTreeMap::new(),
     };
     let _ = fs::create_dir_all(&a.work);
     let stdin = std::io::stdin();

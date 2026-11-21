@@ -1037,8 +1037,9 @@ pub fn load(dir: &Path) -> Res<J> {
     let mut flat = BTreeMap::new();
     flat_settings(&last_settings, "", &mut flat);
     // The conformance observation after close (docs/conformance.md): `oracle.json` `conformance`.
-    let conformance = json_opt(&dir.join("oracle.json"))?.map(|o| o["conformance"].clone()).filter(|c| c["summary"].is_string());
+    let conformance = json_opt(&dir.join("oracle.json"))?.map(|o| o["conformance"].clone()).filter(|c| c["result"].is_string());
     let conf = |k: &str| conformance.as_ref().map_or(J::Null, |c| c[k].clone());
+    let measured = conformance.as_ref().map(|c| c["measured"].as_bool().unwrap_or(c["result"].as_str() != Some("unknown")));
 
     let run = json!({
         "end": end, "end_kind": end_kind, "closed": end_kind == "closed", "outcome": closed_outcome, "delivered": delivered,
@@ -1059,9 +1060,16 @@ pub fn load(dir: &Path) -> Res<J> {
         "driver_s": driver_rounds_s.map(round3), "take_driver_s": round3(total.driver_s), "model_s": round3(total.model_s),
         "wall_s": wall_s, "waiting_on_person_s": wait,
         "findings_raised": raised,
-        "conformance": conformance.as_ref().map_or(J::from("not observed"), |c| c["summary"].clone()),
-        "conformance_k": conf("k"), "conformance_n": conf("n"), "conformance_result": conf("result"), "conformance_cause": conf("cause"),
     });
+    let mut run = run;
+    let conf_fields = json!({
+        "conformance": conformance.as_ref().map_or_else(|| "not observed".to_string(), conformance_figure),
+        "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_u": conf("u"), "conformance_n": conf("n"),
+        "conformance_result": conf("result"), "conformance_cause": conf("cause"), "conformance_measured": measured,
+    });
+    for (key, v) in conf_fields.as_object().into_iter().flatten() {
+        run[key] = v.clone();
+    }
     Ok(json!({
         "format": FORMAT, "run": name, "settings": flat, "metrics": run,
         "stages": stage_docs, "nodes": node_docs, "edges": edge_docs,
@@ -1159,7 +1167,23 @@ fn opt(v: &J) -> String {
     if v.is_null() { "-".into() } else { js(v) }
 }
 
-/// `k of n scenarios (held|contradicted)`, an unknown's summary, or `not observed`.
+/// The figure of one conformance record (`oracle.json` `conformance` or a check of it):
+/// `k passed, f failed, u not measurable of n`, with `, unknown: <cause>` for an unknown, or
+/// `<result>: <cause>` when the suite was never counted.
+pub fn conformance_figure(c: &J) -> String {
+    let num = |x: &str| c[x].as_u64().unwrap_or(0);
+    let result = c["result"].as_str().unwrap_or("unknown");
+    let cause = c["cause"].as_str();
+    match (c["n"].as_u64(), cause) {
+        (Some(n), Some(cause)) if result == "unknown" => format!("{} passed, {} failed, {} not measurable of {n}, unknown: {cause}", num("k"), num("f"), num("u")),
+        (Some(n), _) => format!("{} passed, {} failed, {} not measurable of {n}", num("k"), num("f"), num("u")),
+        (None, Some(cause)) => format!("{result}: {cause}"),
+        (None, None) => result.to_string(),
+    }
+}
+
+/// `k passed, f failed, u not measurable of n (held|contradicted)`, an unknown's figure, or
+/// `not observed`.
 pub fn conformance_text(m: &J) -> String {
     let summary = m["conformance"].as_str().unwrap_or("not observed");
     match m["conformance_result"].as_str() {

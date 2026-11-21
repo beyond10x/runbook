@@ -13,11 +13,13 @@
 //! node `conformance.table` (or `--table`), checks it against the compiled specification, builds a
 //! copy of the delivered tree under `<run>/conformance/product/`, and runs
 //! `ess verify conform run --target process` with `sdc-conform-adapter`. It writes
-//! `<run>/oracle.json` (`sdc.oracle/1`, one check `conformance`: k of n scenarios, `held` only when
-//! ess says `passed` and k = n > 0), `<run>/conformance-detail.json` (ess's `--format json` output)
-//! and its working files under `<run>/conformance/`. An empty suite, a missing delivered tree, a
-//! product that does not build or start, a missing or refused table and a missing or mismatched ess
-//! are each `unknown` with a named cause, never a pass. Observation only: it changes nothing a run
+//! `<run>/oracle.json` (`sdc.oracle/1`, one check `conformance`: k passed, f failed, u not
+//! measurable of n scenarios; `held` only when ess says `passed` and k = n > 0; not measurable is a
+//! scenario that needs what the table declares `none` of kind `not_reachable_over_the_interface`),
+//! `<run>/conformance-detail.json` (ess's `--format json` output) and its working files under
+//! `<run>/conformance/`. An empty suite, a missing delivered tree, a product that does not build or
+//! start, a capture that does not appear, a missing or refused table and a missing or mismatched
+//! ess are each `unknown` with a named cause, never a pass. Observation only: it changes nothing a run
 //! decided. Exit 0 when oracle.json is written (whatever its result), 2 when it cannot be, 64 usage.
 //!
 //! The node `conformance.table` (class other): a fresh model session through the LLM adapter
@@ -40,7 +42,7 @@ use serde_json::{json, Value as J};
 #[allow(dead_code)]
 mod conformance;
 
-use conformance::{check_table, declared_missing, read_json, resolve_ess, s, sha256_bytes, sha256_file, table_schema, Ess};
+use conformance::{check_table, declared_missing, needs_unreachable, not_reachable, read_json, resolve_ess, s, sha256_bytes, sha256_file, table_schema, Ess};
 
 const USAGE: &str = "usage: sdc-conform observe <run dir> [--table <table.json>] [--pin <ess-pin.json>] [--tools <dir>]
        sdc-conform check-table --ir <ir.json> --table <table.json>
@@ -139,21 +141,26 @@ impl Obs {
 
     /// Write oracle.json with the record so far and the result.
     fn finish(mut self, result: &str, cause: Option<&str>, why: Option<String>) -> Result<J, String> {
-        let k = self.rec["k"].as_u64().unwrap_or(0);
         let n = self.rec["n"].as_u64();
+        let num = |x: &str| self.rec[x].as_u64().unwrap_or(0);
+        let (k, f, u) = (num("k"), num("f"), num("u"));
+        self.rec["k"] = json!(k);
+        self.rec["f"] = json!(f);
+        self.rec["u"] = json!(u);
         self.rec["result"] = json!(result);
         self.rec["cause"] = json!(cause);
         self.rec["why"] = json!(why);
+        self.rec["measured"] = json!(result != "unknown" || cause == Some("not_measurable"));
         self.rec["summary"] = json!(match (n, cause) {
-            (Some(n), None) => format!("{k} of {n} scenarios"),
-            (Some(n), Some(c)) => format!("{k} of {n} scenarios, {result}: {c}"),
+            (Some(n), None) => format!("{k} passed, {f} failed, {u} not measurable of {n}"),
+            (Some(n), Some(c)) => format!("{k} passed, {f} failed, {u} not measurable of {n}, {result}: {c}"),
             (None, Some(c)) => format!("{result}: {c}"),
             (None, None) => result.to_string(),
         });
         self.rec["limits"] = json!(LIMITS);
         let name = self.run.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
         let doc = json!({"format": "sdc.oracle/1", "run": name,
-            "checks": [{"id": "conformance", "result": result, "k": k, "n": n, "cause": cause}],
+            "checks": [{"id": "conformance", "result": result, "k": k, "f": f, "u": u, "n": n, "cause": cause}],
             "conformance": self.rec});
         let p = self.run.join("oracle.json");
         fs::write(&p, serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n").map_err(|e| format!("{}: {e}", p.display()))?;
@@ -191,8 +198,14 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
   tree (e.g. target/release/<bin>) or one of cargo, go, node, npm, deno, java, dotnet. Use the placeholders\n\
   {port} (required), {host} (127.0.0.1), {data_dir} (an empty directory), {data_file} (a file in it).\n\
   `start.ready`: a request the product answers once it is up, e.g. {\"method\": \"GET\", \"path\": \"/\"}.\n\
-- `commands`: one entry per command of ir.json: `request` {method, path, body}; in `path` and `body`,\n\
-  \"{input.<field>}\" is the command's input value. `outcomes`: one entry per outcome of the command,\n\
+- `captures` (optional): values the product prints when it starts, e.g. a link, a token or a board code\n\
+  minted at start: {name, stream (stdout or stderr), regex (exactly one group), timeout_s (1-120)}.\n\
+  \"{capture.<name>}\" reads one in paths, `headers`, bodies and templates. `bindings` (optional):\n\
+  {input, capture} makes every input field of that name take the captured value instead of the\n\
+  scenario's (e.g. the spec's link), and maps the captured value back in what the product answers.\n\
+  Declare a capture only if the table uses it.\n\
+- `commands`: one entry per command of ir.json: `request` {method, path, body, headers}; in `path`,\n\
+  `body` and `headers`, \"{input.<field>}\" is the command's input value. `outcomes`: one entry per outcome of the command,\n\
   `status` the HTTP status the product answers for it, `events` the events the outcome emits with a\n\
   `payload` naming every field of the event, `error` {error, fields} for an outcome that declares one.\n\
   In payloads and error fields \"{response.<path>}\" reads the response body, \"{input.<field>}\" the input,\n\
@@ -205,8 +218,12 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
 - Describe the product as it is. Where it answers a case with a status the specification does not\n\
   declare (for example 404 for an unknown id where the specification says wrong-state), do not map\n\
   that status to an outcome to make a check pass: map the outcome to the status the product gives for\n\
-  the case the outcome describes. Where the product has no way at all to do a command, outcome or\n\
-  view, give an entry with only its name and `none`: the reason, instead of inventing a route.\n\
+  the case the outcome describes. Where a command, outcome or view has no route, give an entry with\n\
+  only its name and `none` {kind, why} instead of inventing a route. kind\n\
+  `not_reachable_over_the_interface`: the product does it, but no HTTP client can drive or read it\n\
+  (it lives only in the browser, or only an operator at the console can trigger it); its scenarios\n\
+  are counted not measurable. kind `not_implemented`: the product does not do it; its scenarios fail.\n\
+  Say in `why` where you looked.\n\
 - `notes`: a few sentences on what you read and anything uncertain.\n",
     );
     if attempt > 1 {
@@ -406,28 +423,46 @@ fn observe(run: &Path, table_file: Option<PathBuf>, pin: &Path) -> Result<J, Str
         return o.finish("unknown", Some("adapter_refused"), Some(format!("ess exit {code:?}, no report: {tail}")));
     };
     let det = read_json(&detail).unwrap_or(J::Null);
-    let mut scenarios = vec![];
+    let mut ran: Vec<(J, String)> = det["scenarios"].as_array().into_iter().flatten().map(|sc| (sc["scenario"].clone(), s(&sc["status"]).to_string())).collect();
+    if ran.is_empty() {
+        for (status, ids) in rep["outcomes"].as_object().into_iter().flatten() {
+            for id in ids.as_array().into_iter().flatten() {
+                ran.push((id.clone(), status.clone()));
+            }
+        }
+    }
+    let nr = not_reachable(&table);
+    // A failed check is an observed contradiction: such a scenario fails even when it also needs
+    // what the interface cannot reach.
+    let contradicts = |id: &J| det["scenarios"].as_array().into_iter().flatten()
+        .filter(|sc| sc["scenario"] == *id)
+        .any(|sc| sc["checks"].as_array().into_iter().flatten().any(|c| c["status"] == "failed"));
+    let scenarios: Vec<J> = ran.iter().map(|(id, st)| {
+        let mine = match st.as_str() {
+            "passed" => "passed",
+            "error" => "error",
+            _ if !contradicts(id) && needs_unreachable(&suite_doc["scenarios"][s(id)], &nr) => "not_measurable",
+            _ => "failed",
+        };
+        json!({"id": id, "status": mine, "ess_status": st})
+    }).collect();
     let mut failed_checks = vec![];
     for sc in det["scenarios"].as_array().into_iter().flatten() {
-        scenarios.push(json!({"id": sc["scenario"], "status": sc["status"]}));
-        if sc["status"] != "passed" {
+        let mine = scenarios.iter().find(|x| x["id"] == sc["scenario"]).map(|x| s(&x["status"])).unwrap_or("");
+        if mine == "failed" || mine == "error" {
             for c in sc["checks"].as_array().into_iter().flatten().filter(|c| c["status"] != "passed") {
                 failed_checks.push(json!({"scenario": sc["scenario"], "status": c["status"], "about": c["about"], "code": c["code"],
                     "expected": c["diagnostic"]["expected"], "observed": c["diagnostic"]["observed"]}));
             }
         }
     }
-    if scenarios.is_empty() {
-        for (status, ids) in rep["outcomes"].as_object().into_iter().flatten() {
-            for id in ids.as_array().into_iter().flatten() {
-                scenarios.push(json!({"id": id, "status": status}));
-            }
-        }
-    }
-    let k = scenarios.iter().filter(|x| x["status"] == "passed").count();
+    let count = |st: &str| scenarios.iter().filter(|x| x["status"] == st).count();
+    let (k, f, u, errors) = (count("passed"), count("failed"), count("not_measurable"), count("error"));
     let total = rep["counts"]["total"].as_u64().unwrap_or(0) as usize;
     let status = s(&rep["conformance_status"]).to_string();
     o.rec["k"] = json!(k);
+    o.rec["f"] = json!(f);
+    o.rec["u"] = json!(u);
     o.rec["n"] = json!(n);
     o.rec["conformance_status"] = json!(status);
     o.rec["counts"] = rep["counts"].clone();
@@ -435,20 +470,30 @@ fn observe(run: &Path, table_file: Option<PathBuf>, pin: &Path) -> Result<J, Str
     o.rec["failed_checks"] = J::Array(failed_checks);
     let starts: Vec<J> = fs::read_to_string(&log).unwrap_or_default().lines().filter_map(|l| serde_json::from_str::<J>(l).ok()).collect();
     let not_started: Vec<&J> = starts.iter().filter(|e| e["event"] == "start" && e["ok"] == false).collect();
+    let no_capture: Vec<&J> = starts.iter().filter(|e| e["event"] == "capture" && e["ok"] == false).collect();
     o.rec["adapter_notes"] = json!(starts.iter().filter(|e| e["event"] != "start").cloned().collect::<Vec<_>>());
     if let Some(first) = not_started.first() {
         return o.finish("unknown", Some("product_not_started"), Some(format!("{} of {n} scenarios: {}", not_started.len(), s(&first["why"]))));
     }
+    if let Some(first) = no_capture.first() {
+        return o.finish("unknown", Some("capture_missing"), Some(format!("{} of {n} scenarios: {}", no_capture.len(), s(&first["why"]))));
+    }
     if total != n {
         return o.finish("unknown", Some("suite_mismatch"), Some(format!("ess ran {total} scenarios, the suite holds {n}")));
+    }
+    if errors > 0 {
+        return o.finish("unknown", Some("scenario_error"), Some(format!("ess says {status}: {errors} scenario(s) ended error")));
     }
     if status == "passed" && k == n && n > 0 {
         return o.finish("held", None, None);
     }
-    if rep["counts"]["error"].as_u64().unwrap_or(0) > 0 || status == "inconclusive" {
-        return o.finish("unknown", Some("scenario_error"), Some(format!("ess says {status}: {} scenario(s) ended error", rep["counts"]["error"])));
+    if f > 0 {
+        return o.finish("contradicted", None, None);
     }
-    o.finish("contradicted", None, None)
+    if u > 0 {
+        return o.finish("unknown", Some("not_measurable"), Some(format!("{u} of {n} scenarios need what the product's interface cannot reach")));
+    }
+    o.finish("unknown", Some("scenario_error"), Some(format!("ess says {status} with {k} of {n} passed")))
 }
 
 fn ess_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, String> {

@@ -426,15 +426,10 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
         None => json_opt(&dir.join("store").join("oracle.json"))?,
     };
     metrics.push(("oracle check".into(), text(oracle.as_ref().map_or("none".to_string(), oracle_summary))));
-    // The conformance observation after close (docs/conformance.md): `k of n scenarios`.
-    let conformance = oracle.as_ref().map(|o| &o["conformance"]).filter(|c| c["summary"].is_string());
-    metrics.push(("conformance".into(), text(conformance.map_or("not observed".to_string(), |c| {
-        let summary = c["summary"].as_str().unwrap_or("");
-        match c["result"].as_str() {
-            Some(r @ ("held" | "contradicted")) => format!("{summary} ({r})"),
-            _ => summary.to_string(),
-        }
-    }))));
+    // The conformance observation after close (docs/conformance.md):
+    // `k passed, f failed, u not measurable of n`.
+    let conformance = oracle.as_ref().map(|o| &o["conformance"]).filter(|c| c["result"].is_string());
+    metrics.push(("conformance".into(), text(conformance.map_or("not observed".to_string(), conformance_cell))));
     let replay = json_opt(&dir.join("replay.json"))?;
     metrics.push(("replay".into(), text(replay.as_ref().map_or(NOT_RECORDED.to_string(), replay_summary))));
 
@@ -522,6 +517,21 @@ fn fix_gap(r: &Round, n: &Round, reopened: &[i64]) -> Option<i64> {
 
 /// `held`, `contradicted` or `unknown` per check (docs/eval-design.md, oracle file): the checks
 /// are an array of `{id, result}`, a map id -> result, or the file holds one `result`.
+/// `k passed, f failed, u not measurable of n (held|contradicted)`, with `, unknown: <cause>` for
+/// an unknown, or `<result>: <cause>` when the suite was never counted.
+fn conformance_cell(c: &J) -> String {
+    let num = |x: &str| c[x].as_u64().unwrap_or(0);
+    let result = c["result"].as_str().unwrap_or("unknown");
+    let cause = c["cause"].as_str().unwrap_or("");
+    match c["n"].as_u64() {
+        Some(n) => {
+            let counts = format!("{} passed, {} failed, {} not measurable of {n}", num("k"), num("f"), num("u"));
+            if result == "unknown" { format!("{counts}, unknown: {cause}") } else { format!("{counts} ({result})") }
+        }
+        None => format!("{result}: {cause}"),
+    }
+}
+
 fn oracle_summary(o: &J) -> String {
     let one = |v: &J| -> String {
         let r = v.as_str().map(String::from).unwrap_or_else(|| ["result", "status", "verdict"].iter().find_map(|k| v[*k].as_str()).unwrap_or("").to_string());

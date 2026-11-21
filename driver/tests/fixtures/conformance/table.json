@@ -38,6 +38,13 @@
           "error": {"error": "chores.list.ChoreStateConflict", "fields": {"state": "{response.state}"}}
         }
       ]
+    },
+    {
+      "command": "chores.list.OpenBoard",
+      "request": {"method": "GET", "path": "/boards/{input.code}"},
+      "outcomes": [
+        {"outcome": "opened", "status": 200, "events": [{"event": "chores.list.BoardOpened", "payload": {"code": "{response.code}"}}]}
+      ]
     }
   ],
   "views": [

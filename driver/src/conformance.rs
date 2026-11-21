@@ -55,8 +55,19 @@ pub fn at<'a>(v: &'a J, path: &str) -> Option<&'a J> {
     Some(cur)
 }
 
-/// The sources a template reads: `input`, `params`, `response`, `lookup`.
+/// The sources a template reads: `input`, `params`, `response`, `lookup`, `capture`.
 pub type Ctx = BTreeMap<&'static str, J>;
+
+/// The two kinds of `none`: what no client of the product's interface can reach (its scenarios
+/// are not measurable) and what the product does not do (its scenarios fail).
+pub const NONE_KINDS: [&str; 2] = ["not_reachable_over_the_interface", "not_implemented"];
+
+/// `(kind, why)` of an entry's `none`, when it is well formed.
+pub fn none_of(v: &J) -> Option<(&str, &str)> {
+    let n = &v["none"];
+    let kind = n["kind"].as_str().filter(|k| NONE_KINDS.contains(k))?;
+    Some((kind, n["why"].as_str().unwrap_or("")))
+}
 
 /// A placeholder `{source.path}` that makes up a whole string: `(source, path)`.
 pub fn placeholder(t: &str) -> Option<(&str, &str)> {
@@ -65,7 +76,37 @@ pub fn placeholder(t: &str) -> Option<(&str, &str)> {
         return None;
     }
     let (src, path) = inner.split_once('.').unwrap_or((inner, ""));
-    ["input", "params", "response", "lookup"].contains(&src).then_some((src, path))
+    ["input", "params", "response", "lookup", "capture"].contains(&src).then_some((src, path))
+}
+
+/// A text template filled: every placeholder in it replaced by its value as text (headers).
+pub fn fill_text(t: &str, ctx: &Ctx) -> Result<String, String> {
+    let mut out = t.to_string();
+    for ph in path_placeholders(t) {
+        let v = fill(&J::String(ph.clone()), ctx)?;
+        let text = match &v {
+            J::String(x) => x.clone(),
+            other => other.to_string(),
+        };
+        out = out.replacen(&ph, &text, 1);
+    }
+    Ok(out)
+}
+
+/// The names of the captures a table reads anywhere (`{capture.<name>}` in any string).
+pub fn capture_refs(v: &J, out: &mut BTreeSet<String>) {
+    match v {
+        J::String(x) => {
+            for ph in path_placeholders(x) {
+                if let Some(("capture", name)) = placeholder(&ph) {
+                    out.insert(name.to_string());
+                }
+            }
+        }
+        J::Array(a) => a.iter().for_each(|x| capture_refs(x, out)),
+        J::Object(m) => m.values().for_each(|x| capture_refs(x, out)),
+        _ => {}
+    }
 }
 
 /// A body or payload template filled: a string that is exactly one placeholder becomes the value
@@ -183,13 +224,29 @@ fn check_request(what: &str, r: &J, inputs: &BTreeSet<String>, params: &BTreeSet
     }
     let mut phs = path_placeholders(path);
     collect_placeholders(&r["body"], &mut phs);
+    match &r["headers"] {
+        J::Null => {}
+        J::Object(m) if m.values().all(J::is_string) => m.values().for_each(|v| phs.extend(path_placeholders(s(v)))),
+        _ => p.push(format!("{what}.headers: not an object of strings")),
+    }
     for ph in phs {
         match placeholder(&ph) {
             Some(("input", f)) if inputs.contains(f.split('.').next().unwrap_or("")) => {}
             Some(("params", f)) if params.contains(f.split('.').next().unwrap_or("")) => {}
-            _ => p.push(format!("{what}: placeholder {ph} names no input field or view parameter of the specification")),
+            Some(("capture", _)) => {}
+            _ => p.push(format!("{what}: placeholder {ph} names no input field, view parameter or capture")),
         }
     }
+}
+
+fn check_none(what: &str, v: &J, p: &mut Vec<String>) -> bool {
+    if v["none"].is_null() {
+        return false;
+    }
+    if none_of(v).is_none() || s(&v["none"]["why"]).trim().is_empty() {
+        p.push(format!("{what}: none needs a kind ({}) and a why", NONE_KINDS.join(" or ")));
+    }
+    true
 }
 
 fn collect_placeholders(t: &J, out: &mut Vec<String>) {
@@ -209,31 +266,121 @@ fn check_reads(what: &str, t: &J, inputs: &BTreeSet<String>, lookup: bool, p: &m
             Some(("response", _)) => {}
             Some(("lookup", _)) if lookup => {}
             Some(("input", f)) if inputs.contains(f.split('.').next().unwrap_or("")) => {}
-            _ => p.push(format!("{what}: placeholder {ph} reads nothing the adapter has (input.<field>, response.<path>, lookup.<path> after a declared lookup)")),
+            Some(("capture", _)) => {}
+            _ => p.push(format!("{what}: placeholder {ph} reads nothing the adapter has (input.<field>, response.<path>, capture.<name>, lookup.<path> after a declared lookup)")),
         }
     }
 }
 
-/// What a checked table leaves out on purpose: entries declared `none` (the product has no way to
-/// do this), as `kind name: why`.
+/// What a checked table leaves out on purpose: entries declared `none`, as
+/// `<what> <name> (<kind>): <why>`.
 pub fn declared_missing(table: &J) -> Vec<String> {
     let mut out = vec![];
     for c in table["commands"].as_array().into_iter().flatten() {
-        if let Some(why) = c["none"].as_str() {
-            out.push(format!("command {}: {why}", s(&c["command"])));
+        if let Some((kind, why)) = none_of(c) {
+            out.push(format!("command {} ({kind}): {why}", s(&c["command"])));
         }
         for o in c["outcomes"].as_array().into_iter().flatten() {
-            if let Some(why) = o["none"].as_str() {
-                out.push(format!("outcome {}/{}: {why}", s(&c["command"]), s(&o["outcome"])));
+            if let Some((kind, why)) = none_of(o) {
+                out.push(format!("outcome {}/{} ({kind}): {why}", s(&c["command"]), s(&o["outcome"])));
             }
         }
     }
     for v in table["views"].as_array().into_iter().flatten() {
-        if let Some(why) = v["none"].as_str() {
-            out.push(format!("view {}: {why}", s(&v["view"])));
+        if let Some((kind, why)) = none_of(v) {
+            out.push(format!("view {} ({kind}): {why}", s(&v["view"])));
         }
     }
     out
+}
+
+/// What the interface cannot reach (`none` of kind `not_reachable_over_the_interface`):
+/// `(commands, (command, outcome) pairs, views)`.
+pub fn not_reachable(table: &J) -> (BTreeSet<String>, BTreeSet<(String, String)>, BTreeSet<String>) {
+    let nr = |v: &J| none_of(v).is_some_and(|(k, _)| k == NONE_KINDS[0]);
+    let (mut c, mut o, mut v) = (BTreeSet::new(), BTreeSet::new(), BTreeSet::new());
+    for x in table["commands"].as_array().into_iter().flatten() {
+        if nr(x) {
+            c.insert(s(&x["command"]).to_string());
+        }
+        for y in x["outcomes"].as_array().into_iter().flatten().filter(|y| nr(y)) {
+            o.insert((s(&x["command"]).to_string(), s(&y["outcome"]).to_string()));
+        }
+    }
+    for x in table["views"].as_array().into_iter().flatten().filter(|x| nr(x)) {
+        v.insert(s(&x["view"]).to_string());
+    }
+    (c, o, v)
+}
+
+/// Whether a suite scenario needs something the interface cannot reach: a command it executes, an
+/// outcome it expects or forces, or a view it reads.
+pub fn needs_unreachable(scenario: &J, nr: &(BTreeSet<String>, BTreeSet<(String, String)>, BTreeSet<String>)) -> bool {
+    scenario["steps"].as_array().into_iter().flatten().any(|st| match s(&st["step"]) {
+        "execute_command" | "execute_command_without_input" => nr.0.contains(s(&st["command"])),
+        "expect_outcome" => nr.1.contains(&(s(&st["outcome"]["command"]).to_string(), s(&st["outcome"]["outcome"]).to_string())),
+        "configure_external_outcome" | "configure_external_outcome_repeatedly" =>
+            nr.1.contains(&(s(&st["force"]["command"]).to_string(), s(&st["force"]["outcome"]).to_string())),
+        "query_view" | "eventually_view" => nr.2.contains(s(&st["view"])),
+        _ => false,
+    })
+}
+
+fn check_captures(t: &J, ir: &J, p: &mut Vec<String>) {
+    let mut declared = BTreeSet::new();
+    for (i, c) in t["captures"].as_array().into_iter().flatten().enumerate() {
+        let name = s(&c["name"]).to_string();
+        let what = format!("captures[{i}] {name}");
+        if name.is_empty() || !name.chars().all(|x| x.is_ascii_alphanumeric() || x == '_') {
+            p.push(format!("{what}: name must be letters, digits and _"));
+        }
+        if !declared.insert(name.clone()) {
+            p.push(format!("{what}: a second capture of the same name"));
+        }
+        if !["stdout", "stderr"].contains(&s(&c["stream"])) {
+            p.push(format!("{what}: stream must be stdout or stderr"));
+        }
+        match regex::Regex::new(s(&c["regex"])) {
+            Ok(r) if r.captures_len() == 2 => {}
+            Ok(_) => p.push(format!("{what}: the regex must have exactly one group")),
+            Err(e) => p.push(format!("{what}: the regex does not compile: {e}")),
+        }
+        if !c["timeout_s"].as_u64().is_some_and(|x| (1..=120).contains(&x)) {
+            p.push(format!("{what}: timeout_s must be 1 to 120"));
+        }
+    }
+    if !t["captures"].is_null() && !t["captures"].is_array() {
+        p.push("captures: not a list".into());
+    }
+    let mut used = BTreeSet::new();
+    let mut rest = t.clone();
+    if let Some(m) = rest.as_object_mut() {
+        m.remove("captures");
+        m.remove("bindings");
+    }
+    capture_refs(&rest, &mut used);
+    let inputs: BTreeSet<String> = match &ir["commands"] {
+        J::Object(m) => m.values().flat_map(|c| c["input"].as_array().into_iter().flatten().map(|f| s(&f["name"]).to_string())).collect(),
+        _ => BTreeSet::new(),
+    };
+    for (i, b) in t["bindings"].as_array().into_iter().flatten().enumerate() {
+        let (field, cap) = (s(&b["input"]), s(&b["capture"]));
+        if !inputs.contains(field) {
+            p.push(format!("bindings[{i}]: {field:?} is no input field of a command of the specification"));
+        }
+        if !declared.contains(cap) {
+            p.push(format!("bindings[{i}]: no declared capture {cap}"));
+        }
+        used.insert(cap.to_string());
+    }
+    for u in used.difference(&declared) {
+        if !t["bindings"].as_array().into_iter().flatten().any(|b| s(&b["capture"]) == u) {
+            p.push(format!("placeholder {{capture.{u}}}: no declared capture {u}"));
+        }
+    }
+    for d in declared.difference(&used) {
+        p.push(format!("capture {d} is declared and never used"));
+    }
 }
 
 /// The table checked against the compiled specification (`ess compile` IR). Empty when the table
@@ -253,6 +400,7 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
     } else {
         check_request("start.ready", ready, &BTreeSet::new(), &BTreeSet::new(), &mut p);
     }
+    check_captures(t, ir, &mut p);
     let events = &ir["events"];
     let errors = &ir["errors"];
     let mut seen = BTreeSet::new();
@@ -267,7 +415,7 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
             p.push(format!("{what}: a second entry for the same command"));
             continue;
         }
-        if c["none"].is_string() {
+        if check_none(&what, c, &mut p) {
             continue;
         }
         let inputs: BTreeSet<String> = spec["input"].as_array().into_iter().flatten().map(|f| s(&f["name"]).to_string()).collect();
@@ -292,7 +440,7 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
                 continue;
             };
             covered.insert(on.clone());
-            if o["none"].is_string() {
+            if check_none(&ow, o, &mut p) {
                 continue;
             }
             let Some(status) = o["status"].as_i64().filter(|x| (100..600).contains(x)) else {
@@ -309,7 +457,11 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
             }
             let mut requests = vec![&c["request"]];
             if so["condition"]["kind"] == "external" {
+                let before = requests.len();
                 requests.extend(forced.iter().filter(|f| s(&f["outcome"]) == on).map(|f| &f["request"]));
+                if requests.len() == before {
+                    p.push(format!("{ow}: {on} is external and needs a forced request (or none with a kind)"));
+                }
             }
             for r in requests {
                 keys.entry((s(&r["method"]).to_string(), s(&r["path"]).to_string(), status)).or_default().push((on.clone(), disc));
@@ -351,7 +503,7 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
             }
         }
         for missing in spec_outcomes.difference(&covered) {
-            p.push(format!("{what}: outcome {missing} is not covered (map it to a status, or declare it none with the reason)"));
+            p.push(format!("{what}: outcome {missing} is not covered (map it to a status, or declare it none with a kind and why)"));
         }
         for ((m, path, st), outs) in &keys {
             let distinct: BTreeSet<&String> = outs.iter().map(|(o, _)| o).collect();
@@ -375,7 +527,7 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
             p.push(format!("{what}: a second entry for the same view"));
             continue;
         }
-        if v["none"].is_string() {
+        if check_none(&what, v, &mut p) {
             continue;
         }
         let params: BTreeSet<String> = spec["params"].as_array().into_iter().flatten().map(|f| s(&f["name"]).to_string()).collect();
@@ -398,29 +550,40 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
 /// The response schema the table node replies with (the program check above is the real one).
 pub fn table_schema() -> J {
     let request = json!({"type": "object", "required": ["method", "path"],
-        "properties": {"method": {"type": "string", "enum": METHODS}, "path": {"type": "string"}, "body": {}}});
+        "properties": {"method": {"type": "string", "enum": METHODS}, "path": {"type": "string"}, "body": {},
+            "headers": {"type": "object", "additionalProperties": {"type": "string"}}}});
+    let none = json!({"type": "object", "required": ["kind", "why"],
+        "properties": {"kind": {"type": "string", "enum": NONE_KINDS}, "why": {"type": "string", "minLength": 1}}});
+    let captures = json!({"type": "array", "items": {"type": "object", "required": ["name", "stream", "regex", "timeout_s"],
+        "properties": {"name": {"type": "string"}, "stream": {"type": "string", "enum": ["stdout", "stderr"]},
+            "regex": {"type": "string"}, "timeout_s": {"type": "integer", "minimum": 1, "maximum": 120}}}});
+    let bindings = json!({"type": "array", "items": {"type": "object", "required": ["input", "capture"],
+        "properties": {"input": {"type": "string"}, "capture": {"type": "string"}}}});
+    let outcome = json!({"type": "object", "required": ["outcome"], "properties": {
+        "outcome": {"type": "string"}, "none": none, "status": {"type": "integer"},
+        "when_body": {"type": "object", "required": ["path", "equals"], "properties": {"path": {"type": "string"}, "equals": {}}},
+        "lookup": request,
+        "events": {"type": "array", "items": {"type": "object", "required": ["event", "payload"],
+            "properties": {"event": {"type": "string"}, "payload": {"type": "object"}}}},
+        "error": {"type": "object", "required": ["error", "fields"],
+            "properties": {"error": {"type": "string"}, "fields": {"type": "object"}}}}});
     json!({"type": "object", "additionalProperties": false,
         "required": ["format", "build", "start", "commands", "views", "notes"],
         "properties": {
             "format": {"type": "string", "enum": [TABLE_FORMAT]},
+            "captures": captures,
+            "bindings": bindings,
             "build": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["argv"],
                 "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}}}]},
             "start": {"type": "object", "required": ["argv", "ready"],
                 "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "ready": request}},
             "commands": {"type": "array", "items": {"type": "object", "required": ["command"], "properties": {
-                "command": {"type": "string"}, "none": {"type": "string"}, "request": request,
+                "command": {"type": "string"}, "none": none, "request": request,
                 "forced": {"type": "array", "items": {"type": "object", "required": ["outcome", "request"],
                     "properties": {"outcome": {"type": "string"}, "request": request}}},
-                "outcomes": {"type": "array", "items": {"type": "object", "required": ["outcome"], "properties": {
-                    "outcome": {"type": "string"}, "none": {"type": "string"}, "status": {"type": "integer"},
-                    "when_body": {"type": "object", "required": ["path", "equals"], "properties": {"path": {"type": "string"}, "equals": {}}},
-                    "lookup": request,
-                    "events": {"type": "array", "items": {"type": "object", "required": ["event", "payload"],
-                        "properties": {"event": {"type": "string"}, "payload": {"type": "object"}}}},
-                    "error": {"type": "object", "required": ["error", "fields"],
-                        "properties": {"error": {"type": "string"}, "fields": {"type": "object"}}}}}}}}},
+                "outcomes": {"type": "array", "items": outcome}}}},
             "views": {"type": "array", "items": {"type": "object", "required": ["view"], "properties": {
-                "view": {"type": "string"}, "none": {"type": "string"}, "request": request,
+                "view": {"type": "string"}, "none": none, "request": request,
                 "rows": {"type": "string"}, "fields": {"type": "object"}}}},
             "notes": {"type": "string"}}})
 }
@@ -452,8 +615,12 @@ fn dechunk(b: &[u8]) -> Vec<u8> {
     out
 }
 
-/// One request to `127.0.0.1:<port>`, `Connection: close`, with a JSON body when given.
-pub fn http(port: u16, method: &str, path: &str, body: Option<&J>, timeout: Duration) -> Result<Reply, String> {
+/// One request to `127.0.0.1:<port>`, `Connection: close`, with a JSON body when given and the
+/// extra headers (a header holding CR or LF is refused).
+pub fn http(port: u16, method: &str, path: &str, body: Option<&J>, headers: &[(String, String)], timeout: Duration) -> Result<Reply, String> {
+    if headers.iter().any(|(k, v)| k.contains(['\r', '\n', ':']) || v.contains(['\r', '\n'])) {
+        return Err("a header holds a line break".into());
+    }
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let mut st = TcpStream::connect_timeout(&addr, timeout).map_err(|e| format!("connect: {e}"))?;
     st.set_read_timeout(Some(timeout)).ok();
@@ -462,6 +629,9 @@ pub fn http(port: u16, method: &str, path: &str, body: Option<&J>, timeout: Dura
     let mut req = format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nAccept: application/json\r\n");
     if body.is_some() {
         req.push_str("Content-Type: application/json\r\n");
+    }
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
     }
     req.push_str(&format!("Content-Length: {}\r\n\r\n{payload}", payload.len()));
     st.write_all(req.as_bytes()).map_err(|e| format!("write: {e}"))?;

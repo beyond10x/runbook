@@ -184,11 +184,14 @@
         "clean_passes": 0,
         "conformance": {
           "contradicted": 0,
+          "f": 0,
           "held": 0,
           "k": 0,
           "n": 0,
+          "no_figure": 0,
+          "not_measurable_only": 0,
           "not_observed": 9,
-          "unknown": 0
+          "u": 0
         },
         "ended": 9,
         "not_ended": 0,
@@ -469,11 +472,14 @@
         "clean_passes": 5,
         "conformance": {
           "contradicted": 0,
+          "f": 0,
           "held": 0,
           "k": 0,
           "n": 0,
+          "no_figure": 0,
+          "not_measurable_only": 0,
           "not_observed": 8,
-          "unknown": 0
+          "u": 0
         },
         "ended": 8,
         "not_ended": 0,
@@ -657,11 +663,14 @@
         "clean_passes": 0,
         "conformance": {
           "contradicted": 0,
+          "f": 0,
           "held": 0,
           "k": 0,
           "n": 0,
+          "no_figure": 0,
+          "not_measurable_only": 0,
           "not_observed": 4,
-          "unknown": 0
+          "u": 0
         },
         "ended": 4,
         "not_ended": 0,
@@ -824,11 +833,14 @@
         "clean_passes": 2,
         "conformance": {
           "contradicted": 0,
+          "f": 0,
           "held": 0,
           "k": 0,
           "n": 0,
+          "no_figure": 0,
+          "not_measurable_only": 0,
           "not_observed": 4,
-          "unknown": 0
+          "u": 0
         },
         "ended": 4,
         "not_ended": 0,
@@ -939,11 +951,14 @@
         "clean_passes": 0,
         "conformance": {
           "contradicted": 0,
+          "f": 0,
           "held": 0,
           "k": 0,
           "n": 0,
+          "no_figure": 0,
+          "not_measurable_only": 0,
           "not_observed": 0,
-          "unknown": 0
+          "u": 0
         },
         "ended": 0,
         "not_ended": 0,
@@ -1030,11 +1045,14 @@
         "clean_passes": 0,
         "conformance": {
           "contradicted": 0,
+          "f": 0,
           "held": 0,
           "k": 0,
           "n": 0,
+          "no_figure": 0,
+          "not_measurable_only": 0,
           "not_observed": 0,
-          "unknown": 0
+          "u": 0
         },
         "ended": 0,
         "not_ended": 0,

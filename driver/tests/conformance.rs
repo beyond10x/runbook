@@ -100,8 +100,8 @@ fn every_scenario_passes_and_the_check_holds() {
     assert!(o.status.success(), "{}", says(&o));
     let c = &d["conformance"];
     assert_eq!(d["format"], "sdc.oracle/1");
-    assert_eq!(d["checks"][0], json!({"id": "conformance", "result": "held", "k": 6, "n": 6, "cause": null}), "{c:#}");
-    assert_eq!(c["summary"], "6 of 6 scenarios");
+    assert_eq!(d["checks"][0], json!({"id": "conformance", "result": "held", "k": 7, "f": 0, "u": 0, "n": 7, "cause": null}), "{c:#}");
+    assert_eq!(c["summary"], "7 passed, 0 failed, 0 not measurable of 7");
     assert_eq!(c["conformance_status"], "passed");
     assert_eq!(c["events_checked_from"], "response_body");
     assert_eq!(c["table"]["source"], "conformance.table");
@@ -111,7 +111,7 @@ fn every_scenario_passes_and_the_check_holds() {
     assert_eq!(c["table"]["attempts"], 1);
     assert_eq!(c["product"]["tree"], "store/IDEA-1/work/published");
     assert!(run.join("conformance-detail.json").is_file());
-    assert!(String::from_utf8_lossy(&o.stdout).contains("conformance: 6 of 6 scenarios"), "{}", says(&o));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("conformance: 7 passed, 0 failed, 0 not measurable of 7"), "{}", says(&o));
     let text = fs::read_to_string(run.join("oracle.json")).unwrap();
     assert!(!text.contains(run.to_str().unwrap()), "oracle.json holds an absolute path");
 }
@@ -125,8 +125,8 @@ fn one_deviation_is_contradicted_with_its_expected_and_observed() {
     assert!(o.status.success(), "{}", says(&o));
     let c = &d["conformance"];
     assert_eq!(c["result"], "contradicted", "{c:#}");
-    assert_eq!((c["k"].as_u64(), c["n"].as_u64()), (Some(5), Some(6)));
-    assert_eq!(c["summary"], "5 of 6 scenarios");
+    assert_eq!((c["k"].as_u64(), c["f"].as_u64(), c["u"].as_u64(), c["n"].as_u64()), (Some(6), Some(1), Some(0), Some(7)));
+    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7");
     assert_eq!(c["table"]["model"], "claude-opus-5-5");
     assert_eq!(c["table"]["effort"], "medium");
     assert_eq!(c["table"]["effort_source"], "SDC_LLM_EFFORT_CONFORMANCE");
@@ -148,7 +148,7 @@ fn an_empty_suite_is_unknown_never_a_pass() {
     assert_eq!(d["checks"][0]["result"], "unknown");
     assert_eq!(d["conformance"]["cause"], "suite_empty");
     assert_eq!(d["conformance"]["n"], 0);
-    assert_eq!(d["conformance"]["summary"], "0 of 0 scenarios, unknown: suite_empty");
+    assert_eq!(d["conformance"]["summary"], "0 passed, 0 failed, 0 not measurable of 0, unknown: suite_empty");
 }
 
 #[test]
@@ -288,11 +288,15 @@ fn the_check_refuses_what_does_not_cover_the_specification_and_counts_declared_g
     let (ok, v) = check(&dir, &t);
     assert!(!ok && v["problems"].to_string().contains("outcome unreachable is not covered"), "{v}");
     let mut t = table();
-    t["commands"][1]["outcomes"][1] = json!({"outcome": "unreachable", "none": "the product never calls a board"});
+    t["commands"][1]["outcomes"][1] = json!({"outcome": "unreachable", "none": {"kind": "not_implemented", "why": "the product never calls a board"}});
     t["commands"][1]["forced"] = json!([]);
     let (ok, v) = check(&dir, &t);
     assert!(ok, "{v}");
-    assert_eq!(v["declared_missing"], json!(["outcome chores.list.FinishChore/unreachable: the product never calls a board"]));
+    assert_eq!(v["declared_missing"], json!(["outcome chores.list.FinishChore/unreachable (not_implemented): the product never calls a board"]));
+    let mut t = table();
+    t["commands"][1]["forced"] = json!([]);
+    let (ok, v) = check(&dir, &t);
+    assert!(!ok && v["problems"].to_string().contains("unreachable is external and needs a forced request"), "{v}");
     let mut t = table();
     t["commands"][0]["outcomes"][0]["events"][0]["payload"] = json!({"title": "{response.title}"});
     assert!(check(&dir, &t).1["problems"].to_string().contains("payload fields"));
@@ -302,4 +306,117 @@ fn the_check_refuses_what_does_not_cover_the_specification_and_counts_declared_g
     let mut t = table();
     t["start"]["argv"] = json!(["bin/stub-product", "8080"]);
     assert!(check(&dir, &t).1["problems"].to_string().contains("never passes {port}"));
+}
+
+/// The fixture table for the `token` stub: the token printed at start, sent as a header on every
+/// request, and bound to the spec's board code when `bind`.
+fn token_table(mode: &str, bind: bool) -> J {
+    let mut t = with_mode(mode);
+    t["captures"] = json!([{"name": "token", "stream": "stdout", "regex": "board token: (\\S+)", "timeout_s": 3}]);
+    for c in t["commands"].as_array_mut().unwrap() {
+        c["request"]["headers"] = json!({"x-token": "{capture.token}"});
+        for f in c["forced"].as_array_mut().into_iter().flatten() {
+            f["request"]["headers"] = json!({"x-token": "{capture.token}"});
+        }
+    }
+    t["views"][0]["request"]["headers"] = json!({"x-token": "{capture.token}"});
+    if bind {
+        t["bindings"] = json!([{"input": "code", "capture": "token"}]);
+    }
+    t
+}
+
+#[test]
+fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value() {
+    ess();
+    let run = run_dir("capture", "spec");
+    let t = write_table(run.parent().unwrap(), "t.json", &token_table("token", true));
+    let (o, d) = observe(&run, &t, &[]);
+    assert!(o.status.success(), "{}", says(&o));
+    assert_eq!(d["conformance"]["result"], "held", "{:#}", d["conformance"]);
+    assert_eq!(d["conformance"]["summary"], "7 passed, 0 failed, 0 not measurable of 7");
+    let run = run_dir("capture-unbound", "spec");
+    let t = write_table(run.parent().unwrap(), "t.json", &token_table("token", false));
+    let (_, d) = observe(&run, &t, &[]);
+    let c = &d["conformance"];
+    assert_eq!(c["result"], "contradicted", "{c:#}");
+    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7");
+    assert!(c["scenarios"].as_array().unwrap().iter().any(|x| x["id"] == "chores.list.OpenBoard/outcome/opened" && x["status"] == "failed"), "{c:#}");
+}
+
+#[test]
+fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
+    ess();
+    let run = run_dir("capture-missing", "spec");
+    let t = write_table(run.parent().unwrap(), "t.json", &token_table("token-silent", true));
+    let (o, d) = observe(&run, &t, &[]);
+    assert!(o.status.success(), "{}", says(&o));
+    let c = &d["conformance"];
+    assert_eq!(c["result"], "unknown", "{c:#}");
+    assert_eq!(c["cause"], "capture_missing");
+    assert!(s(&c["why"]).contains("token"), "{c:#}");
+    assert_eq!(c["conformance_status"], "inconclusive");
+}
+
+#[test]
+fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
+    ess();
+    let mut t = table();
+    t["commands"][1]["forced"] = json!([]);
+    t["commands"][1]["outcomes"][1] = json!({"outcome": "unreachable",
+        "none": {"kind": "not_reachable_over_the_interface", "why": "the board link lives only in the browser"}});
+    let run = run_dir("not-measurable", "spec");
+    let tp = write_table(run.parent().unwrap(), "t.json", &t);
+    let (o, d) = observe(&run, &tp, &[]);
+    assert!(o.status.success(), "{}", says(&o));
+    let c = &d["conformance"];
+    assert_eq!(c["summary"], "6 passed, 0 failed, 1 not measurable of 7, unknown: not_measurable", "{c:#}");
+    assert_eq!(c["result"], "unknown");
+    assert_eq!(d["checks"][0]["u"], 1);
+    assert!(c["scenarios"].as_array().unwrap().iter().any(|x| x["id"] == "chores.list.FinishChore/outcome/unreachable" && x["status"] == "not_measurable"), "{c:#}");
+    t["commands"][1]["outcomes"][1]["none"]["kind"] = json!("not_implemented");
+    let run = run_dir("not-implemented", "spec");
+    let tp = write_table(run.parent().unwrap(), "t.json", &t);
+    let (_, d) = observe(&run, &tp, &[]);
+    assert_eq!(d["conformance"]["summary"], "6 passed, 1 failed, 0 not measurable of 7", "{:#}", d["conformance"]);
+    assert_eq!(d["conformance"]["result"], "contradicted");
+}
+
+#[test]
+fn a_scenario_with_a_failed_check_fails_even_when_it_also_needs_what_cannot_be_reached() {
+    ess();
+    let mut t = table();
+    t["views"][0] = json!({"view": "chores.list.OpenChores",
+        "none": {"kind": "not_reachable_over_the_interface", "why": "the open list is drawn only in the browser"}});
+    t["commands"][0]["outcomes"][0]["events"][0]["payload"]["title"] = json!("not the title");
+    let run = run_dir("failed-and-unreachable", "spec");
+    let tp = write_table(run.parent().unwrap(), "t.json", &t);
+    let (o, d) = observe(&run, &tp, &[]);
+    assert!(o.status.success(), "{}", says(&o));
+    let c = &d["conformance"];
+    let status = |id: &str| c["scenarios"].as_array().unwrap().iter().find(|x| x["id"] == id).map(|x| x["status"].clone());
+    assert_eq!(status("chores.list.AddChore/outcome/added"), Some(json!("failed")), "{c:#}");
+    assert_eq!(c["result"], "contradicted");
+    assert!(c["failed_checks"].to_string().contains("payload of chores.list.ChoreAdded"), "{c:#}");
+}
+
+#[test]
+fn the_check_refuses_a_none_without_kind_and_a_capture_never_used() {
+    let dir = tmp("check-captures");
+    let mut t = table();
+    t["views"][0] = json!({"view": "chores.list.OpenChores", "none": "only in the browser"});
+    assert!(check(&dir, &t).1["problems"].to_string().contains("none needs a kind"), "{}", check(&dir, &t).1);
+    let mut t = table();
+    t["captures"] = json!([{"name": "token", "stream": "stdout", "regex": "board token: (\\S+)", "timeout_s": 3}]);
+    assert!(check(&dir, &t).1["problems"].to_string().contains("capture token is declared and never used"), "{}", check(&dir, &t).1);
+    let mut t = token_table("token", true);
+    t["captures"][0]["regex"] = json!("board token: \\S+");
+    assert!(check(&dir, &t).1["problems"].to_string().contains("exactly one group"), "{}", check(&dir, &t).1);
+    let mut t = token_table("token", true);
+    t["captures"][0]["stream"] = json!("stdin");
+    assert!(check(&dir, &t).1["problems"].to_string().contains("stdout or stderr"));
+    let mut t = token_table("token", true);
+    t["bindings"] = json!([{"input": "code", "capture": "other"}]);
+    assert!(check(&dir, &t).1["problems"].to_string().contains("no declared capture other"));
+    assert!(check(&dir, &token_table("token", true)).0, "{}", check(&dir, &token_table("token", true)).1);
 }

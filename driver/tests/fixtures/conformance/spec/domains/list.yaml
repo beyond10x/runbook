@@ -83,7 +83,27 @@ commands:
         error: chores.list.ChoreStateConflict
         summary: The chore is already done.
 
+  - name: chores.list.OpenBoard
+
+    input:
+      - name: code
+        type: String
+
+    outcomes:
+      - name: opened
+        emits:
+          - chores.list.BoardOpened
+        payload:
+          chores.list.BoardOpened:
+            code: input.code
+        summary: The board behind the code is opened.
+
 events:
+  - name: chores.list.BoardOpened
+    fields:
+      - name: code
+        type: String
+
   - name: chores.list.ChoreAdded
     fields:
       - name: chore_id

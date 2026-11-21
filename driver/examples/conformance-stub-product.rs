@@ -1,11 +1,14 @@
 //! Test double for `sdc-conform` (driver/tests/conformance.rs), two roles in one binary.
 //!
-//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|nostart|failbuild]` serves the
-//! `chores` fixture specification (driver/tests/fixtures/conformance/spec) on 127.0.0.1 over HTTP:
-//! `POST /chores {"title"}` 201, `POST /chores/<id>/finish [{"board":"down"}]` 200, 503 or 409
-//! `{"error","state"}`, `GET /chores/open`, `GET /health`. `deviate` answers an unknown chore 404
-//! instead of 409 (one scenario of the suite fails); `nostart` exits at once; `failbuild` exits 1
-//! (a build step that fails).
+//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|nostart|failbuild|token|token-silent]`
+//! serves the `chores` fixture specification (driver/tests/fixtures/conformance/spec) on 127.0.0.1
+//! over HTTP: `POST /chores {"title"}` 201, `POST /chores/<id>/finish [{"board":"down"}]` 200, 503
+//! or 409 `{"error","state"}`, `GET /boards/<code>` 200 `{"code"}`, `GET /chores/open`,
+//! `GET /health`. `deviate` answers an unknown chore 404 instead of 409 (one scenario of the suite
+//! fails); `nostart` exits at once; `failbuild` exits 1 (a build step that fails). `token` mints a
+//! token at start and prints `board token: <token>` on stdout; every route but `/health` then needs
+//! the header `x-token: <token>` (else 401) and `/boards/<code>` knows only the token (else 404).
+//! `token-silent` does the same without printing the token.
 //!
 //! Table node: with `SDC_STUB_TABLE_NODE=<table.json>[,<table.json>...]`, called as an LLM adapter
 //! with one argument (the request file), it copies the table for the request's `attempt` (the last
@@ -59,6 +62,14 @@ fn main() {
     }
     let port: u16 = args[0].parse().unwrap();
     let l = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    // `token`: a secret minted at start, printed on stdout, required as the header `x-token` and as
+    // the board code; `token-silent` mints it and prints nothing.
+    let token = mode.starts_with("token").then(|| format!("tok{port}x{}", std::process::id()));
+    if let (Some(t), "token") = (&token, mode) {
+        println!("listening on 127.0.0.1:{port}");
+        println!("board token: {t}");
+        let _ = std::io::stdout().flush();
+    }
     let mut chores: BTreeMap<String, Chore> = BTreeMap::new();
     let mut n = 0u64;
     for st in l.incoming() {
@@ -89,8 +100,19 @@ fn main() {
         let mut first = head.lines().next().unwrap_or("").split_whitespace();
         let (method, path) = (first.next().unwrap_or(""), first.next().unwrap_or(""));
         let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+        let header = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("x-token:").map(|v| v.trim().to_string()));
+        if let Some(t) = &token {
+            if parts != ["health"] && header.as_deref() != Some(t.to_ascii_lowercase().as_str()) {
+                respond(&mut st, 401, &json!({"error": "x-token"}));
+                continue;
+            }
+        }
         match (method, parts.as_slice()) {
             ("GET", ["health"]) => respond(&mut st, 200, &json!({"ok": true})),
+            ("GET", ["boards", code]) => match &token {
+                Some(t) if t != code => respond(&mut st, 404, &json!({"error": "no such board"})),
+                _ => respond(&mut st, 200, &json!({"code": code})),
+            },
             ("POST", ["chores"]) => match body["title"].as_str() {
                 Some(t) => {
                     n += 1;

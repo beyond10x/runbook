@@ -14,9 +14,13 @@ The crates are `publish = false`; releases are source releases at bare-version t
   run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
   `sdc-conform-adapter`, with a route table written after the run by the node `conformance.table`
   (read-only, response schema, program check, two retries) and writes `runs/<run>/oracle.json`:
-  `conformance: k of n scenarios`, `held` only when ess says `passed` and k = n > 0, every other
-  end `unknown` with a named cause. `scripts/run-trial.sh` runs it after a close
-  (`SDC_CONFORMANCE=off`). Observation only: no gate.
+  `conformance: k passed, f failed, u not measurable of n`, `held` only when ess says `passed` and
+  k = n > 0 (u > 0 is never held), every other end `unknown` with a named cause. A scenario is not
+  measurable when it needs what the table declares `none` of kind
+  `not_reachable_over_the_interface`; `not_implemented` fails. The table can capture values the
+  product prints at start (`captures`), send them in paths, headers and bodies, and bind them to a
+  spec input (`bindings`). `scripts/run-trial.sh` runs it after a close (`SDC_CONFORMANCE=off`).
+  Observation only: no gate.
 - `driver/ess-pin.json`: ess 0.97.0 pinned by archive and binary sha256 per platform, resolved
   through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
 - The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in
