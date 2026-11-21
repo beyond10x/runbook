@@ -16,6 +16,7 @@ interface Props {
 
 export default function Landing({index, progressSvg, pitch}: Props): ReactNode {
   const release = index.releases[0];
+  const stages = index.protocols.filter((p) => p.id !== 'sdc.bugfix').length;
   return (
     <Layout title="Runbook: agentic runbooks" description="Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next step from recorded facts; a model carries out single steps." wrapperClassName="b10x-product-page">
       <main id="b10x-product-main">
