@@ -389,6 +389,29 @@ written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings am
 checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
 principal for a scope-changing answer (`sdc.intake` r5).
 
+**Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
+decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
+question and finding ids, `context.<key>`, the claims in `in/checks.json`), artifact revisions with
+an entry (`context@<rev>#platform.value`; YAML and JSON artifacts in `in/`) and lines of a file
+(`context.yaml:13-14`). The prompt lists each form with one example from the call's input. `sdc-reply
+resolve` checks every cite (an artifact revision must be the current one, an entry and a line must
+exist); the check refuses only what does not resolve, and a valid reply records each cite's form in
+`citations`. `sdc-reply schema` builds the reply's JSON schema per request (`decision` and `answer`
+as enums where the request fixes them, `cites` as an enum of the citable set); `reply_schema` and
+`citable_set` are the parts other LLM nodes can reuse. The claude-cli adapter passes it as `claude -p
+--json-schema` (the CLI validates the reply and asks again on a mismatch); `metaharness run claude`
+has no response-schema option, so through it the reply is not constrained. Each record says which
+(`schema_constrained`, `schema_note`). An invalid reply is asked again with the check's reason, at
+most 2 retries, each a decider call counted against `SDC_MAX_DECIDER_CALLS` (`invalid_reply` lines in
+`decisions.jsonl`). Still invalid under `SDC_DECIDER_ESCALATE=final`: a question or a finding takes
+its default (`fallback: invalid_reply_default`); an approval is approved when every claim of its
+precondition is true (`approved_on_checks`), a close when its outcome's claims are true and no
+obligation is open, else rejected with the failing checks (`rejected_on_checks`). `--autopilot`
+exports `SDC_DECIDER_ESCALATE=final`, so the decider is asked for `best` and an escalate without
+it is invalid. A reject ends the
+run with exit 6, `rejected_without_rework_path`: no protocol approval has a result other than
+`approved`, so none has an action that reworks a rejected revision with the reasons.
+
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
 "<principal>", "reason": "…", "verdict_at_stop": "<last round's verdict>", "case": "<its case id
@@ -397,7 +420,10 @@ or null>"}` (`by` from `SDC_PRINCIPAL`, required), and a `# stopped at … by �
 (exit 8) until `--reopen`, which renames the record to `run-stopped.<at>.json`, logs it and goes
 on. `sdc-finding-kpis` reports the time the run waited on a person as L7 (`kpis.md` § 4), with the
 stops that caused it, up to the stop record's instant; with a decider set (A3 and up) a value
-above 0 is printed as `FAILED`.
+above 0 is printed as `FAILED`. Under `--autopilot` a stop the decider cannot take is written by
+`rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`,
+`decider_budget_spent`, `writer_spent`, `stuck`, …) and a reason that names the action, the cause,
+the case and the fix it waits on; the interval before a `rule:` stop is not counted in L7.
 
 **Where another model source plugs in** (not built):
 

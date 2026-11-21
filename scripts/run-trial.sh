@@ -55,7 +55,7 @@
 # default. A decision the program check refuses (`refused_decision`) waits for a person.
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
-# 6 refused by the decider, 7 autopilot ended at a stop that needs a person, 8 the run is stopped
+# 6 refused by the decider (rejected_without_rework_path), 7 autopilot ended at a stop no holder of the run can take, 8 the run is stopped
 # (or already stopped), 64 usage.
 #
 # Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (haiku unless
@@ -97,13 +97,14 @@ now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
 # run-stopped.json and a run.log line are written; the driver and the event logs are not touched.
 stopped=$out/run-stopped.json
-write_stop() { # <principal> <reason>
+write_stop() { # <principal> <reason> [cause]: cause, machine-readable, when a rule stops the run
   local at
   at=$(now)
-  jq -n --arg at "$at" --arg by "$1" --arg why "$2" \
+  jq -n --arg at "$at" --arg by "$1" --arg why "$2" --arg cause "${3:-}" \
     --argjson r "$(tail -n 1 "$out/rounds.jsonl" 2>/dev/null | jq -c . 2>/dev/null || echo null)" \
     '{format: "sdc.run-stopped/1", at: $at, by: $by, reason: $why, verdict_at_stop: ($r.verdict // null),
-      case: (($r.case_dir // "") | split("/") | last | if . == "" or . == null then null else . end)}' > "$stopped.tmp"
+      case: (($r.case_dir // "") | split("/") | last | if . == "" or . == null then null else . end)}
+      + (if $cause == "" then {} else {cause: $cause} end)' > "$stopped.tmp"
   mv "$stopped.tmp" "$stopped"
   echo "# stopped at $at by $1: $2" >> "$log"
   echo "stopped $name: $(jq -c . "$stopped")"
@@ -278,11 +279,28 @@ save() {
 }
 # Autopilot (A5): no stop waits on a person. A run that ends anywhere but closed (a stop that would
 # need a person, a cap, stuck, a refusal) is stopped with a record by rule:autopilot.
-end_reason=""
+# The record names the step (action, case as a run-relative id), the cause (end_cause, also the
+# record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path,
+# decider_budget_spent, decision_not_takeable (a stop no holder of this run can take: the program
+# check refused the decider's decision, or a handoff with nothing for the decider), and the
+# driver's verdicts (stuck, writer_spent, llm_budget_spent, step_budget_spent, wall_time_spent).
+end_reason="" end_cause="" end_action="" end_case="" wait_why=""
 autopilot_end() {
-  local rc=$1
+  local rc=$1 v
   [[ $autonomy == A5 && $rc != 0 && ! -f $stopped && -d $root ]] || return 0
-  write_stop rule:autopilot "autopilot: the run ended with exit $rc: ${end_reason:-$(jq -r '.message // .verdict // empty' <<< "${last:-null}" 2>/dev/null | head -n 1)}" || true
+  if [[ -z $end_cause ]]; then
+    v=$(jq -r '.verdict // "error"' <<< "${last:-null}" 2>/dev/null || echo error)
+    end_cause=$v
+    end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "${last:-null}" 2>/dev/null)
+    end_action=$(jq -r '.spent[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
+    case $v in
+      writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '.spent[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
+      stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen" ;;
+      *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
+      *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
+    esac
+  fi
+  write_stop rule:autopilot "autopilot: $end_reason" "$end_cause" || true
 }
 trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
 
@@ -304,7 +322,10 @@ finish() {
 
 waiting() {
   if [[ $autonomy == A5 ]]; then
-    end_reason="a stop needs a person and autopilot has none: $(jq -r '.message' <<< "$last" | head -n 1)"
+    end_cause=decision_not_takeable
+    end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "$last")
+    end_action=$(jq -r '.next[0].action // ""' <<< "$last")
+    end_reason="$end_action in $end_case: decision_not_takeable: ${wait_why:-the decider of this run cannot take it}; it waits on a fix of that decision path, then --reopen"
     echo "$end_reason"
     exit 7
   fi
@@ -321,7 +342,8 @@ waiting() {
 # taken, recorded as `fallback`: a question or a finding takes its default (invalid_reply_default);
 # an approval or a close is approved when every claim it turns on is true and no obligation is
 # open but the one it discharges (approved_on_checks), else rejected with the failing checks
-# (rejected_on_checks).
+# (rejected_on_checks). A reject at an approval ends the run as rejected_without_rework_path: no
+# protocol here has an action that reworks a rejected revision with the reasons.
 decide() {
   local req=$1 key rec n reply before attempt=1 why="" kind fallback=""
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
@@ -348,7 +370,8 @@ decide() {
   while :; do
     if [[ $decider == haiku ]]; then
       n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
-      (( n <= max_decider )) || { echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
+      (( n <= max_decider )) || { end_cause=decider_budget_spent end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
+        echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
       rec=$out/decider/$(printf '%03d' "$n")-$(jq -r '.question.id // .finding.id // .action' <<< "$req")
     else
       rec=$out/decider/rule
@@ -414,7 +437,12 @@ decide() {
   echo "  decider:$decider $dec $key$( [[ -n $ans ]] && echo " answer: $ans")${fallback:+ ($fallback)}: $(jq -r '.reasons | join(" ")' <<< "$reply")"
   case $dec in
     approve) ;;
-    reject) echo "refused by decider:$decider (recorded in $out/decisions.jsonl); a person decides how to go on"; exit 6 ;;
+    reject)
+      end_cause=rejected_without_rework_path end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
+      end_reason="$end_action in $end_case: decider:$decider rejected $(jq -r '.subject // "it"' <<< "$req") $(jq -r '.revision // ""' <<< "$req") ($(jq -r '.reasons | join(" ")' <<< "$reply")); rejected_without_rework_path: the protocol has no action that reworks a rejected revision with the reasons; it waits on that protocol path"
+      [[ $autonomy == A5 ]] || end_reason+=", or on a person's edit of work/$(jq -r '.path // ""' <<< "$req") and a resume"
+      echo "$end_reason"
+      exit 6 ;;
     *) dec="" ;;
   esac
 }
@@ -472,7 +500,8 @@ decide_findings() {
     found=yes
     fid=$(jq -r .id <<< "$f")
     if jq -e '.refused_decision' <<< "$f" > /dev/null; then
-      echo "  $fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f")): a person decides"
+      wait_why="$fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f"))"
+      if [[ $autonomy == A5 ]]; then echo "  $wait_why"; else echo "  $wait_why: a person decides"; fi
       return 1
     fi
     decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson f "$f" --argjson pos "$pos" \
@@ -499,12 +528,12 @@ decide_all() {
       rc=0
       if [[ $act == amend.upstream ]]; then
         decide_findings "$cdir" "$act" "$pos" || rc=$?
-        (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no finding waits for a decision"; return 1; }
+        (( rc == 2 )) && { wait_why="nothing for decider:$decider at $act: no finding waits for a decision"; echo "$wait_why"; return 1; }
       else
         answer_questions "$cdir" "$act" "$pos" || rc=$?
       fi
       (( rc == 1 )) && return 1
-      (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; return 1; }
+      (( rc == 2 )) && { wait_why="nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; echo "$wait_why"; return 1; }
       continue
     fi
     cap=$(jq -r '.command | capture("--capability (?<c>[^ ]+)").c' <<< "$n")

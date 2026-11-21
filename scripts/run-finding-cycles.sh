@@ -42,16 +42,19 @@
 #   run-stop-decider L7 on a decider's run that waits on a person: reported FAILED
 #   autopilot       --autopilot: closed with 0 person principals and L7 0 (A5, escalate final)
 #   autopilot-person --autopilot refuses SDC_DECIDER=person (exit 64)
-#   autopilot-stop  a stop that needs a person ends an autopilot run (exit 7, rule:autopilot)
-#   decider-cite-address, decider-cite-retry, decider-invalid-approval, decider-invalid-scope
-#                   autopilot decider replies: an entry and lines cited; an invalid reply asked
-#                   again; three invalid: approved_on_checks, the default;
+#   autopilot-stop  a stop no holder can take ends an autopilot run (exit 7, rule:autopilot,
+#                   cause decision_not_takeable, no message naming a person, L7 0)
+#   decider-cite-address, decider-cite-retry, decider-invalid-approval, decider-invalid-scope,
+#   decider-reject  autopilot decider replies: an entry and lines cited; an invalid reply asked
+#                   again; three invalid: approved_on_checks, the default; a reject: exit 6,
+#                   rejected_without_rework_path
 #   decider-escalate-nobest  under autopilot an escalate without best is refused and asked again
 #   principals      the scripted person records person:stand-in (run labelled stand_in); a
 #                   decision with no principal is not applied
 #   models          three dry runs: binding models, SDC_LLM_MODEL, SDC_LLM_MODEL_<CLASS>; each call
 #                   and decider record names its model, run-settings.jsonl the model per class
-# Prints each run's exit code and its KPIs L1-L6.
+# Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
+# <names>`; exits 1 when a cycle missed its expectation.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
 set -uo pipefail
@@ -61,6 +64,30 @@ fx=$sdc/driver/examples/sdc/fixtures
 mkdir -p "$s/runs"
 kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 [[ -x $kpis ]] || kpis=$HOME/beyond10x/sdc/driver/target/debug/sdc-finding-kpis
+# The cycles and their expectations. A cycle with a check line is as expected when it prints
+# "<name>: checks pass" and no "<name>: FAILED"; one without (exit_only) when its exit line shows
+# the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
+expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
+  scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent
+  story-late-person decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
+  decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
+  decider-escalate-nobest decider-reject principals models)
+declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
+  [scope-answer]=0 [finding-program]=0)
+summary() { # <log>
+  local log=$1 name ok=0 failed=()
+  for name in "${expected[@]}"; do
+    if grep -q "^$name: FAILED" "$log"; then failed+=("$name")
+    elif grep -q "^$name: checks pass" "$log"; then ok=$((ok + 1))
+    elif [[ -n ${exit_only[$name]:-} ]] && grep -q "^$name: exit ${exit_only[$name]} " "$log"; then ok=$((ok + 1))
+    else failed+=("$name")
+    fi
+  done
+  echo "cycles: ${#expected[@]} expected, $ok as expected, ${#failed[@]} failed: ${failed[*]:-none}"
+  (( ${#failed[@]} == 0 ))
+}
+{
 cycle() {
   local name=$1; shift
   env RUNS="$s/runs" "$@" "$sdc/scripts/run-full-cycle.sh" "$name" "$s/store-$name" > "$s/$name.txt" 2>&1
@@ -401,17 +428,21 @@ code=$?
 trial autopilot-stop SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 r=$s/runs/autopilot-stop
-if (( code == 7 )) && jq -e '.format == "sdc.run-stopped/1" and .by == "rule:autopilot" and (.reason | test("person"))
-     and .verdict_at_stop == "awaiting_person"' "$r/run-stopped.json" >/dev/null; then
-  echo "autopilot-stop: checks pass (a stop that needs a person ends the run: exit 7, stopped by rule:autopilot)"
+if (( code == 7 )) && jq -e '.format == "sdc.run-stopped/1" and .by == "rule:autopilot" and .cause == "decision_not_takeable"
+     and (.reason | test("amend.upstream in IDEA-1") and (test("person") | not) and (test("/home/|/tmp/") | not))
+     and .verdict_at_stop == "awaiting_person"' "$r/run-stopped.json" >/dev/null &&
+   ! sed -n '/^round /,$p' "$s/autopilot-stop.txt" | sed 's/awaiting_person//g' | grep -qi 'person' &&
+   "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0 and .failure == false' >/dev/null; then
+  echo "autopilot-stop: checks pass (exit 7, rule:autopilot, cause decision_not_takeable; step named, no path, no person; L7 0)"
 else
-  echo "autopilot-stop: FAILED (exit $code, or no stop record by rule:autopilot)"
+  echo "autopilot-stop: FAILED (exit $code, or the stop record's cause or reason, a message naming a person, or L7)"
 fi
 # Decider replies under autopilot (fixture adapter, scripted replies by key; a list is taken by
 # attempt). cite-address: context.approve cites an entry and lines of context.yaml: accepted.
 # cite-retry: the first reply cites an unknown id, the second is valid: accepted after 1 retry.
 # invalid-approval: three invalid replies at context.approve, every check true: approved_on_checks.
 # invalid-scope: three invalid replies to q2 at scope.answer: its default (invalid_reply_default).
+# reject: a valid reject of context.approve: exit 6, rejected_without_rework_path, L7 0.
 bad='{"decision": "approve", "answer": null, "reasons": ["fixture: cites what is not there"], "cites": ["context.nope"], "best": null}'
 good='{"decision": "approve", "answer": null, "reasons": ["fixture: the context fits"], "cites": ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], "best": null}'
 attempts() { jq -s --arg a "$2" '[.[] | select(.action == $a)]' "$1/decisions.jsonl"; }
@@ -468,6 +499,17 @@ if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "approve"] a
   echo "decider-escalate-nobest: checks pass (autopilot asks for best; an escalate without it is refused and asked again)"
 else
   echo "decider-escalate-nobest: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
+fi
+trial decider-reject SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+code=$?
+r=$s/runs/decider-reject
+if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rejected_without_rework_path" and .case == "IDEA-1.direction"
+     and (.reason | test("^autopilot: context.approve in IDEA-1.direction: ") and (test("person") | not) and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
+   ! sed -n '/^round /,$p' "$s/decider-reject.txt" | sed 's/awaiting_person//g' | grep -qi 'person' &&
+   "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0 and .failure == false' >/dev/null; then
+  echo "decider-reject: checks pass (exit 6, rejected_without_rework_path, step and case named, no person, L7 0)"
+else
+  echo "decider-reject: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
 fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted
@@ -526,3 +568,5 @@ if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
 else
   echo "models: FAILED"
 fi
+} | tee "$s/cycles.log"
+summary "$s/cycles.log"
