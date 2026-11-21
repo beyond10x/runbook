@@ -4184,22 +4184,32 @@
       "tree": "72a3eef",
       "variants": [
         {
-          "clean_passes": 0,
-          "ended": 0,
+          "clean_passes": 3,
+          "ended": 3,
           "id": "xhigh",
           "listed": 3,
-          "primary": null
+          "primary": {
+            "max": 3677.0,
+            "median": 3032.0,
+            "min": 1913.0,
+            "n": 3
+          }
         },
         {
-          "clean_passes": 0,
-          "ended": 0,
+          "clean_passes": 2,
+          "ended": 3,
           "id": "medium",
           "listed": 3,
-          "primary": null
+          "primary": {
+            "max": 2191.0,
+            "median": 1831.0,
+            "min": 1424.0,
+            "n": 3
+          }
         }
       ],
       "verdict": "inconclusive",
-      "why": "too few ended runs with the metric: xhigh 0 and medium 0, the rule needs 3 each"
+      "why": "the ranges overlap (median difference -1201): no effect is claimed"
     },
     {
       "hypothesis": "With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5.",
@@ -4832,7 +4842,31 @@
     },
     {
       "path": "experiments/effort-decider-mixed.yaml",
-      "sha256": "a66ee321fd912bac57e8f8fd05c63e2367a1a69299e8974559806b08984bda69"
+      "sha256": "e4e9383930636682eb00e1d5609e50b60ed5d8e7f9471b948e3eabfb6f9d97ed"
+    },
+    {
+      "path": "experiments/effort-decider-mixed/runs/effort-decider-mixed.medium.1.json",
+      "sha256": "f4ab3c90d9b94101aa47c7992005a9cc54529cdbddea8b110204f09dcfed59f7"
+    },
+    {
+      "path": "experiments/effort-decider-mixed/runs/effort-decider-mixed.medium.2.json",
+      "sha256": "74fb974cc50ae50985b827c162e1839214bc35e14abeb519308840f12c9d191a"
+    },
+    {
+      "path": "experiments/effort-decider-mixed/runs/effort-decider-mixed.medium.3.json",
+      "sha256": "f5bc433d9f4d4e0cc75457833ea2613428facd1d0c7d3ac3e5aca949aa896b6f"
+    },
+    {
+      "path": "experiments/effort-decider-mixed/runs/effort-decider-mixed.xhigh.1.json",
+      "sha256": "ae7be7e54315579b2b53e252c9bfd379345fed6be87e3777e5f60a3c99ff1bd6"
+    },
+    {
+      "path": "experiments/effort-decider-mixed/runs/effort-decider-mixed.xhigh.2.json",
+      "sha256": "30c6f9bc7ddc997982b0f25a0e34add9924387d6189edc233afc7e87a63f43b9"
+    },
+    {
+      "path": "experiments/effort-decider-mixed/runs/effort-decider-mixed.xhigh.3.json",
+      "sha256": "e805b49730191f3b1a48116526dfc943baf948091e092c6c25150e4337c9ad3c"
     },
     {
       "path": "experiments/effort-implement-levels.yaml",

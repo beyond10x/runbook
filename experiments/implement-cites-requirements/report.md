@@ -22,6 +22,7 @@ Written by `sdc-experiment report implement-cites-requirements` from `experiment
 | `decider.kind` | model | model |
 | `decider.max_decider_calls` | 40 | 40 |
 | `decider.model` | claude-opus-5-5 | claude-haiku-5-5 |
+| `implement_coverage` | on | on |
 | `max_llm_calls` | 150 | 150 |
 | `max_wall_seconds` | 5400 | 5400 |
 | `models.implement.model` | claude-sonnet-5-5 | claude-sonnet-5-5 |

@@ -27,6 +27,7 @@ Written by `sdc-experiment report review-minimal-facts` from `experiments/review
 | `models.review.model` | claude-sonnet-5-5 |
 | `models.writer.model` | claude-sonnet-5-5 |
 | `review.adapter` | claude-cli |
+| `review_mode` | facts |
 
 Known confounds:
 
