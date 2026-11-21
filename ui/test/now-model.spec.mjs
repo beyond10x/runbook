@@ -127,7 +127,7 @@ test('a started step with a gone driver is not running; with a live or unknown d
   const html = (st) => renderNow(st, 9000);
   expect(html(gone)).toContain('Driver gone');
   expect(html(gone)).not.toContain('no driver attached');
-  expect(html(gone)).toContain('a started step has no live driver');
+  expect(html(gone)).toMatch(/a started step has no live driver, last activity [\d: APM]+/);
   expect(html(gone)).not.toContain('>Running<');
   expect(html(up)).toContain('driver attached');
   expect(html(up)).toContain('>Running<');

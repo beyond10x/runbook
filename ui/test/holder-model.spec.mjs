@@ -25,16 +25,28 @@ const context = {
   licence: {value: 'Proprietary', status: 'default', reason: 'No input names a licence.'},
 };
 
-test('UXF-010: a wait, a stop and the end are said in words, never as a missing driver', () => {
-  const html = renderNow(nowState([waiting], noDriver, {decisions: []}, 5000), 5000);
+test('UXF-010: a wait, a stop and the end are said in words; with no driver attached the clocks stand at the last event', () => {
+  let st = nowState([waiting], noDriver, {decisions: []}, 5000);
+  expect(st.idle).toEqual({t: 1000});
+  let html = renderNow(st, 5000);
   expect(html).toContain('Waiting on you: nothing runs until this is decided');
-  expect(html).not.toContain('no driver attached');
+  expect(html).toMatch(/no driver attached, last activity [\d: APM]+/);
+  // the KPI clock ends at the last event, not at now
+  const kp = computeKpis([waiting], {decisions: []}, [], st, 9000);
+  expect(kp[0].live).toBe(null);
+  expect(kp[0].sub.live).toBe(null);
+  // a driver attached (its lock pid runs): the clock runs, nothing said about the driver's absence
+  st = nowState([waiting], {records: [], drivers: {T: {file: false, alive: false, lock_alive: true, lock_pid: 7, observed: true}}}, {decisions: []}, 5000);
+  expect(st.idle).toBe(null);
+  expect(renderNow(st, 5000)).not.toContain('no driver attached');
   const stuck = mk([{event: 'opened'}, {event: 'stuck', next: []}], {times: {1: 2000}});
   const s = renderNow(nowState([stuck], noDriver, null, 5000), 5000);
-  expect(s).toMatch(/Stopped: stuck since [\d:]+.*no step is admissible/);
-  expect(s).not.toContain('no driver attached');
+  expect(s).toMatch(/Stopped: stuck since [\d: APM]+.*no step is admissible/);
+  expect(s).toContain('no driver attached');
   const closed = mk([{event: 'opened'}, {event: 'terminable', next: []}, {event: 'terminated', outcome: 'operating'}], {parent: null, depth: 0});
-  const c = renderNow(nowState([closed], noDriver, null, 5000), 5000);
+  const cst = nowState([closed], noDriver, null, 5000);
+  expect(cst.idle).toBe(null);
+  const c = renderNow(cst, 5000);
   expect(c).toContain('Closed');
   expect(c).not.toContain('no driver attached');
 });
@@ -145,10 +157,13 @@ test('waiting on a person: only the spans a person held; neutral when a person h
   const run = (kind) => ({decisions: [], settings: kind ? settings(kind, 'claude-haiku-5-5') : null});
   const stops = personStops([c], run('haiku'), 100000, null);
   expect(stops.map((s) => [s.seq, s.ms, s.open])).toEqual([[4, 30000, true]]);
-  const kp = (kind) => computeKpis([c], run(kind), [], nowState([c], noDriver, run(kind), 100000), 100000)[0];
+  const attached = {records: [], drivers: {T: {file: false, alive: false, lock_alive: true, lock_pid: 7, observed: true}}};
+  const kp = (kind, live = attached) => computeKpis([c], run(kind), [], nowState([c], live, run(kind), 100000), 100000)[0];
   expect(kp('haiku').fail.stops).toHaveLength(1);
   expect(kp('person').fail).toBe(null);
   expect(kp(null).fail).toBe(null);
   expect(kp('person').sub.text).toBe('0:30');
+  // no driver attached: the open wait ends at the last event
+  expect(kp('person', noDriver).sub.text).toBe('0:00');
   expect(renderKpis([kp('haiku')], 100000)).toContain('should be 0');
 });

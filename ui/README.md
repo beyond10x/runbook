@@ -24,6 +24,9 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
   at the stop; the store selector and the case tree mark it; its open decisions show greyed in the
   drawer, and the server refuses to take them (continuing the run stays possible).
+- A run with no stop record, not closed, and no driver attached (no live pid in `driver.json` or
+  `.sdc-drive.lock`) moves no more: the Now band adds "no driver attached, last activity <time>" and
+  every clock stands at the last event, including the waiting time.
 - `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
   holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
   "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
@@ -53,8 +56,9 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
   subject at its revision), how many fields one approval covers, and what taking it does. The band's
   head says what is true in words: "Waiting on you: nothing runs until this is decided", "Decider
   deciding", "Stopped: stuck since …, no step is admissible (open obligations)", "Closed: ended
-  <outcome>"; "Driver gone" only for a step that was started, never finished and has no live
-  driver. The holder comes from a decider call in progress, `decisions.jsonl`, and the run's
+  <outcome>"; "Driver gone" for a step that was started, never finished and has no live driver;
+  with no driver attached the head keeps its words and the line under it says "no driver attached,
+  last activity <time>". The holder comes from a decider call in progress, `decisions.jsonl`, and the run's
   decider setting in `run-settings.jsonl`; a run without that file says the setting is not
   recorded. On the right, the last
   four finished steps with duration and result. Click a card for the case and its action. The same
@@ -234,5 +238,10 @@ Ports 7510 to 7513 (`SDC_UI_UX_PORT`). Findings are `ux/findings/UXF-nnn.md`; a 
 a regression asset that exists (`ux/specs/findings.spec.mjs`). Round R-01: `ux/rounds/R-01/`
 (report, the two reviews, triage, decision).
 A baseline key may carry its own `tolerance` (decision D-003: the wall-clock sampled metrics of the
-played scenarios); the ratchet counts a value as worse or better only outside that band. Round
+played scenarios); the ratchet counts a value as worse or better only outside that band. Decision
+D-004 took worse values the operator's wording asks for: the line "no driver attached, last
+activity …" (reading load +7 to +9 words in person, decider and changes; a layout shift in agent
+and decider and two more cue changes in two at 1366x768 when the played driver detaches at the
+end), and 3 more truncated elements at 1366x768 (and in
+closed at 1600x1000) from the longer principal labels and stop marks of the same change. Round
 files are written with repository-relative paths.

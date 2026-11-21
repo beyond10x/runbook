@@ -149,7 +149,11 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
   const stopped = run?.stopped && !isNaN(Date.parse(run.stopped.at)) ? {...run.stopped, t: Date.parse(run.stopped.at)} : null;
   let mode = stopped ? 'stopped' : running.length ? 'running' : gone.length ? 'gone' : waiting.length ? 'waiting' : stalled.length ? 'stalled' : term ? 'closed' : stuck.length ? 'stuck' : terminable.length ? 'terminable' : between.length ? 'between' : 'idle';
   const lastT = Math.max(0, ...cases.map((c) => Math.max(0, ...Object.values(c.times || {}))));
-  return {mode, stopped, autopilot: autopilot(run?.settings), running, gone, driver, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
+  // no stop record, not closed and no driver attached (no live driver.json pid, no live lock): nothing
+  // moves the run, so its clocks stand at the last event (the page's clock is that time)
+  const lastAt = lastT || Math.max(0, ...cases.flatMap((c) => c.events.map((e) => Date.parse(e.at) || 0))) || null;
+  const idle = !stopped && !term && !driver.attached.length && mode !== 'closed' && lastAt ? {t: lastAt} : null;
+  return {mode, stopped, idle, autopilot: autopilot(run?.settings), running, gone, driver, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
     steps: cases.reduce((n, c) => n + c.events.filter((e) => e.event === 'action_finished').length, 0)};
 }
 function lastVerdictish(c) {
@@ -427,7 +431,7 @@ function restCard(st, now) {
     const c = st.between[st.between.length - 1];
     const t = Math.max(0, ...Object.values(c.times || {})) || null;
     return `<div class="nc idle k-driver" data-key="rest:between" data-goto="${esc(c.rel)}">${orb('driver', true)}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Between steps</span><b class="nc-act">${esc(c.id)}</b></div>
-      <div class="nc-2"><span class="nc-x">No action in flight. The driver is evaluating or choosing the next step${st.between.length > 1 ? ` (${st.between.length} open cases)` : ''}.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since the last event</span></div>` : ''}</div>`;
+      <div class="nc-2"><span class="nc-x">No action in flight. ${st.idle ? 'No driver is attached to choose the next step' : 'The driver is evaluating or choosing the next step'}${st.between.length > 1 ? ` (${st.between.length} open cases)` : ''}.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since the last event</span></div>` : ''}</div>`;
   }
   return `<div class="nc idle k-idle" data-key="rest:idle">${orb('idle')}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Idle</span></div><div class="nc-2"><span class="nc-x">Nothing running.</span></div></div></div>`;
 }
@@ -483,6 +487,14 @@ function wasText(st) {
 
 // The band's head: what is true now, in words.
 export function nowSay(st) {
+  const said = sayNow(st);
+  if (!st.idle) return said;
+  // a started step with no live driver already says the driver is gone
+  if (st.mode === 'gone') return {head: said.head, sub: said.sub.replace(/^a started step has no live driver/, (m) => `${m}, last activity ${clock(st.idle.t)}`)};
+  const idle = `no driver attached, last activity ${clock(st.idle.t)}`;
+  return {head: said.head, sub: said.sub ? `${idle} · ${said.sub}` : idle};
+}
+function sayNow(st) {
   const n = st.waiting.length;
   const mine = st.waiting.filter((w) => w.kind !== 'decider' && w.holder?.who !== 'rule' && w.holder?.who !== 'decider').length;
   if (st.mode === 'stopped') {

@@ -50,13 +50,14 @@ async function loadTree(only) {
   for (const c of t.cases) S.cases.set(c.rel, c);
   for (const k of Array.from(S.cases.keys())) if (!t.present.includes(k)) S.cases.delete(k);
 }
-async function loadRun() { S.run = await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; setRunSettings(S.run?.settings); }
+async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
 async function loadFacts() { S.facts = await api(`/api/workfacts?source=${S.src}`).catch(() => ({files: []})); }
 // the page's clock: the server's, or the stop of a run stopped on purpose (every clock stands there)
 const stopAt = () => { const t = Date.parse(S.run?.stopped?.at); return isNaN(t) ? null : t; };
-const serverNow = () => stopAt() ?? Date.now() + S.offset;
+// or the last event of a run no driver is attached to (S.frozenAt, set by each render)
+const serverNow = () => stopAt() ?? S.frozenAt ?? Date.now() + S.offset;
 async function loadInbox() { S.inbox = await api(`/api/inbox?source=${S.src}`).catch(() => S.inbox); }
 
 function pickFollow() {
@@ -114,8 +115,10 @@ function render() {
   const c = current();
   const ev = evalAt(c, S.atSeq);
   c._revisions = ev?.explanation?.computed_from?.case?.artifacts || c.case.artifacts || {};
+  const ns = nowState(cases, S.liveData, S.run, Date.now() + S.offset);
+  S.frozenAt = ns.idle?.t ?? null;
   const now = serverNow();
-  const ns = nowState(cases, S.liveData, S.run, now);
+  ns.now = now;
   S.nowState = ns;
   const nowEl = $('#now');
   // A step ends and the next starts within a moment: hold the band over that gap instead of
@@ -355,7 +358,8 @@ document.addEventListener('click', async (ev) => {
   if (nav && !nav.disabled) return stepDiff(Number(nav.dataset.fsnav));
   if (t.closest('[data-fsclose]') || t.id === 'diffdlg') return $('#diffdlg').close();
   const go = t.closest('[data-goto]');
-  if (go && t.closest('#now')) {
+  // the Now band's cards and the stops a failed KPI lists (strip and Metrics) go to their case and event
+  if (go && (t.closest('#now') || t.closest('.k-stop, .kf-stop'))) {
     if (t.closest('a[data-tab]')) { ev.preventDefault(); openPanel('changes'); S.scopeCase = true; selectCase(go.dataset.goto); return render(); }
     S.follow = false; S.sel = go.dataset.goto; S.atSeq = go.dataset.seq ? Number(go.dataset.seq) : null; S.fit = true;
     if (go.dataset.node) { S.node = go.dataset.node; openPanel('explain'); }

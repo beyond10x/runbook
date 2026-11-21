@@ -111,8 +111,9 @@ test('waiting on a person while a decider holds the decisions is a failed KPI wi
     await expect(tile).toHaveClass(/\bfail\b/);
     await expect(tile.locator('.k-f0')).toHaveText('should be 0');
     const stop = tile.locator('.k-stop').first();
-    await expect(stop.locator('.ks-c')).toHaveText('direction');
-    await expect(stop.locator('.ks-a')).toHaveText('context.approve');
+    // no driver attached: the open wait on direction ends at the last event, so the longest stop is an earlier one
+    const kase = (await stop.locator('.ks-c').textContent()).trim();
+    await expect(stop.locator('.ks-a')).toHaveText(/\S/);
     await expect(stop.locator('.ks-d')).toHaveText(/^\d+:\d\d$/);
     // held by, from the settings record (not "not recorded")
     const card = page.locator('#now .nc.wait');
@@ -120,10 +121,16 @@ test('waiting on a person while a decider holds the decisions is a failed KPI wi
     await expect(card.locator('.nc-hold')).toContainText('run-settings.jsonl');
     await expect(card.locator('.nc-hold')).not.toContainText('not recorded');
     await expect(page.locator('#now .now-s')).toHaveText('Held by the decider: it decides when the run continues');
+    // no stop record and no driver attached: said, and every clock stands at the last event
+    await expect(page.locator('#now .now-sub')).toHaveText(/^no driver attached, last activity [\d: APM]+$/);
+    const clocks = () => page.locator('#now .tk, #kpis .kt.k-time').allTextContents();
+    const before = await clocks();
+    await page.waitForTimeout(2100);
+    expect(await clocks()).toEqual(before);
     await page.screenshot({path: path.join(shots, `${vp.name}-held.png`)});
     // the stop links to its event
     await stop.click();
-    await expect(page.locator('#tree .case.sel')).toHaveAttribute('data-case', 'IDEA-1/children/IDEA-1.direction');
+    await expect(page.locator('#tree .case.sel')).toHaveAttribute('data-case', new RegExp(`IDEA-1\\.${kase.replace(/\./g, '\\.')}$`));
     // the stopped run keeps the failure, frozen at the stop
     await page.goto(`${base}/?source=${src('stopped')}`);
     await expect(page.locator('#kpis .kt.k-time')).toHaveClass(/\bfail\b/);
