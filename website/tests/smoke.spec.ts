@@ -74,8 +74,20 @@ async function checkFlow(page: Page, width: number): Promise<void> {
 
 async function checkEvaluation(page: Page): Promise<void> {
   await expect(page.locator('#metric-clean-passes')).toBeVisible();
-  expect(await page.locator('.sdc-metric').count()).toBeGreaterThanOrEqual(17);
-  await expect(page.locator('#metric-conformance svg')).toHaveCount(0);
+  expect(await page.locator('.sdc-metric').count()).toBeGreaterThanOrEqual(18);
+  const conf = page.locator('#metric-conformance');
+  await expect(conf.locator('svg')).toBeVisible();
+  await expect(conf.locator('figcaption')).toContainText('lower bound');
+  await expect(conf.locator('figcaption')).toContainText('Higher is better');
+  await expect(conf.locator('.sdc-metric__missing').first()).toHaveText('not observed');
+  const confLabel = (await conf.locator('svg').getAttribute('aria-label')) ?? '';
+  expect(confLabel).toMatch(/0\.1\.0: All Haiku not observed; Sonnet work, Haiku decider median 32 %, min 13 %, max 79 %, n 3/);
+  await expect(page.locator('#conformance')).toBeAttached();
+  await expect(page.locator('a[href*="docs/conformance.md#L18-L19"]')).toBeAttached();
+  const runs010 = page.locator('section[aria-labelledby="runs-0.1.0"]');
+  await expect(runs010).toContainText('spec scenarios proven passed: 2 of 16 (lower bound)');
+  await expect(runs010).toContainText('of which 8: precondition not in the specification');
+  await expect(runs010).toContainText('not observed');
   for (const id of ['metric-cost', 'metric-wall', 'metric-llm', 'metric-decider', 'metric-loop-change-implement', 'metric-fpy-spec-author', 'metric-conformance']) {
     await expect(page.locator(`#${id}`)).toBeAttached();
   }

@@ -40,11 +40,11 @@ interface Props {
 
 const TAG = '0.1.1';
 
-function Cite({path, lines}: {path: string; lines?: [number, number?]}): ReactNode {
+function Cite({path, lines, at = TAG}: {path: string; lines?: [number, number?]; at?: string}): ReactNode {
   const anchor = lines ? `#L${lines[0]}${lines[1] ? `-L${lines[1]}` : ''}` : '';
   const label = lines ? `${path}:${lines[0]}${lines[1] ? `-${lines[1]}` : ''}` : path;
   return (
-    <a href={`https://github.com/beyond10x/sdc/blob/${TAG}/${path}${anchor}`}>
+    <a href={`https://github.com/beyond10x/sdc/blob/${at}/${path}${anchor}`}>
       <code>{label}</code>
     </a>
   );
@@ -54,6 +54,19 @@ const usd = (x: number | null | undefined) => (typeof x === 'number' ? `$${x.toF
 const mins = (x: number | null | undefined) => (typeof x === 'number' ? `${Math.round(x / 60)} min` : '–');
 const num = (x: number | null | undefined, d = 0) => (typeof x === 'number' ? (d ? x.toFixed(d) : String(x)) : '–');
 const pct = (x: number | null | undefined) => (typeof x === 'number' ? `${Math.round(x * 100)} %` : '–');
+
+/** The failed count, with the scenarios refused for a precondition the specification does not model split out. */
+function failedCell(run: LedgerRun): ReactNode {
+  const c = run.conformance;
+  if (!c) return <span className="sdc-muted">–</span>;
+  if (!c.measured || typeof c.f !== 'number') return <span className="sdc-muted">not measured</span>;
+  if (!c.p) return String(c.f);
+  return (
+    <>
+      {c.f} <span className="sdc-muted">(of which {c.p}: precondition not in the specification)</span>
+    </>
+  );
+}
 
 function RunTable({entry, settings, labels}: {entry: LedgerEntry; settings: string[]; labels: Map<string, string>}): ReactNode {
   const rows: Array<{setting: string; run: LedgerRun}> = settings.flatMap((s) => runsOf(entry, s).map((run) => ({setting: s, run})));
@@ -66,6 +79,8 @@ function RunTable({entry, settings, labels}: {entry: LedgerEntry; settings: stri
             <th scope="col">Setting</th>
             <th scope="col">End</th>
             <th scope="col">Clean</th>
+            <th scope="col">Conformance (lower bound)</th>
+            <th scope="col">Failed</th>
             <th scope="col">Cost</th>
             <th scope="col">Wall</th>
             <th scope="col">Model calls</th>
@@ -85,6 +100,8 @@ function RunTable({entry, settings, labels}: {entry: LedgerEntry; settings: stri
                 <td>{labels.get(setting) ?? setting}</td>
                 <td><code>{run.end}</code></td>
                 <td>{run.clean_pass ? '✓ yes' : 'no'}</td>
+                <td className="sdc-conf-text">{run.conformance ? run.conformance.summary : <span className="sdc-muted">not observed</span>}</td>
+                <td className="sdc-conf-failed">{failedCell(run)}</td>
                 <td>{usd(m?.cost_usd ?? run.cost_usd)}</td>
                 <td>{mins(m?.wall_s ?? run.wall_s)}</td>
                 <td>{num(m?.llm_calls)}</td>
@@ -274,6 +291,17 @@ export default function Evaluation({evaluation}: Props): ReactNode {
             <Cite path="docs/driver.md" lines={[164, 172]} />). The third rejection of one approval stops it with{' '}
             <code>rework_spent</code> (<Cite path="docs/releases/0.1.0.md" lines={[9]} />).
           </p>
+          <h3 id="conformance">Conformance of the delivered product</h3>
+          <p>
+            After a run closes, its delivered product is started and held to the specification that run itself wrote,
+            through three route tables per product, each written by a separate model session of the node{' '}
+            <code>conformance.table</code> and checked by a program against the specification and the delivered tree (
+            <Cite path="docs/conformance.md" lines={[3, 5]} at="main" />, <Cite path="docs/conformance.md" lines={[37, 40]} at="main" />).
+            The figure is a lower bound: a scenario counts as passed only when every table that reached it passed it,
+            what no table reached stays outside k, and a run without an observation shows "not observed", never 0 (
+            <Cite path="docs/conformance.md" lines={[23, 27]} at="main" />). Writing the tables costs about 1 to 3 USD
+            of node cost per product (<Cite path="docs/conformance.md" lines={[18, 19]} at="main" />).
+          </p>
           <h3>n, and when a difference counts</h3>
           <p>
             At least three runs per setting on each release tree (<Cite path="docs/improving.md" lines={[11, 12]} />). A
@@ -297,10 +325,6 @@ export default function Evaluation({evaluation}: Props): ReactNode {
           <div className="sdc-metrics">
             {METRICS.map((m) => <MetricChart key={m.id} metric={m} releases={rel} settings={settings} />)}
           </div>
-          <p id="metric-conformance" className="sdc-muted">
-            Conformance, the check of a delivered product against its specification, is being built, and its figure is
-            not published until it no longer depends on choices of the measurer.
-          </p>
           <h3 id="stops">Stops by cause</h3>
           <p>Ended runs that did not close, by the cause of their stop. Fewer is better.</p>
           {rel.map((e) => <StopsTable key={e.id} entry={e} settings={settings} />)}
@@ -310,7 +334,9 @@ export default function Evaluation({evaluation}: Props): ReactNode {
           <h2 id="runs">Every run</h2>
           <p>
             Per release, every run with its end and metrics, from the run summaries of the experiment records. "–" means
-            the summary has no value. Loop is the looping factor, FPY the first-pass yield.
+            the summary has no value. Loop is the looping factor, FPY the first-pass yield. Conformance is the line the
+            observer printed for the run; Failed splits out the failures refused for a precondition the specification does
+            not model.
           </p>
           {[...rel].reverse().map((e) => (
             <section key={e.id} aria-labelledby={`runs-${e.id}`}>

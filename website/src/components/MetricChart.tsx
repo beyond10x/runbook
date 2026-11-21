@@ -74,7 +74,7 @@ export default function MetricChart({metric, releases, settings}: {metric: Metri
           settings
             .map((s, si) => {
               const st = stats[ri][si];
-              return st ? `${s.label} median ${metric.format(st.median)}, min ${metric.format(st.min)}, max ${metric.format(st.max)}, n ${st.n}` : `${s.label} no value`;
+              return st ? `${s.label} median ${metric.format(st.median)}, min ${metric.format(st.min)}, max ${metric.format(st.max)}, n ${st.n}` : `${s.label} ${!cellsOf(e, s.id).length ? 'no runs' : metric.missing ? metric.missing(runsOf(e, s.id)) : 'no value'}`;
             })
             .join('; '),
     )
@@ -82,10 +82,13 @@ export default function MetricChart({metric, releases, settings}: {metric: Metri
   return (
     <figure className="sdc-metric" id={id}>
       <figcaption>
-        <strong>{metric.title}</strong>
+        <strong>
+          {metric.title}
+          {metric.tag ? <span className="sdc-metric__tag"> ({metric.tag})</span> : null}
+        </strong>
         <span className="sdc-metric__dir">{metric.direction}</span>
       </figcaption>
-      <svg viewBox={`0 0 ${width} ${H}`} width={width} height={H} role="img" aria-label={`${metric.title}. ${metric.direction} ${desc}.`} className="sdc-metric__svg">
+      <svg viewBox={`0 0 ${width} ${H}`} width={width} height={H} role="img" aria-label={`${metric.title}${metric.tag ? `, ${metric.tag}` : ''}. ${metric.direction} ${desc}.`} className="sdc-metric__svg">
         {ticks.map((t) => (
           <g key={t}>
             <line x1={LEFT} x2={width - RIGHT} y1={y(t)} y2={y(t)} className="sdc-metric__grid" />
@@ -101,6 +104,14 @@ export default function MetricChart({metric, releases, settings}: {metric: Metri
               settings.map((s, si) => {
                 const st = stats[ri][si];
                 const cx = x(ri, si);
+                if (!st && metric.missing && cellsOf(e, s.id).length) {
+                  const my = TOP + plotH / 2;
+                  return (
+                    <text key={s.id} x={cx} y={my} transform={`rotate(-90 ${cx} ${my})`} textAnchor="middle" dominantBaseline="middle" className="sdc-metric__missing">
+                      {metric.missing(runsOf(e, s.id))}
+                    </text>
+                  );
+                }
                 if (!st) return <text key={s.id} x={cx} y={TOP + plotH - 4} textAnchor="middle" className="sdc-metric__n">–</text>;
                 return (
                   <g key={s.id}>
