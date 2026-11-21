@@ -1,9 +1,20 @@
 {
+  "actions": {
+    "acceptance.run": "blocked",
+    "release.build": "admissible",
+    "release.observe": "blocked",
+    "release.publish": "admissible",
+    "release.rollback": "blocked",
+    "spec.gate": "blocked"
+  },
   "claims": {
+    "gate.checked": "true",
     "gate.passed": "true",
+    "release.acceptance_run": "true",
     "release.accepted": "true",
     "release.built": "true",
     "release.healthy": "unknown",
+    "release.observed": "unknown",
     "release.published": "unknown",
     "rollback.complete": "unknown"
   },
@@ -12,14 +23,6 @@
     "gate.required": "discharged",
     "health.required": "open",
     "provenance.required": "discharged"
-  },
-  "actions": {
-    "acceptance.run": "admissible",
-    "release.build": "admissible",
-    "release.observe": "blocked",
-    "release.publish": "admissible",
-    "release.rollback": "blocked",
-    "spec.gate": "admissible"
   },
   "outcomes": {
     "passed": "blocked",

@@ -1,0 +1,9 @@
+format: canon-case/1
+id: IDEA-5
+protocol: sdc
+revision: c1
+artifacts:
+  idea:
+    revision: i1
+  roadmap:
+    revision: r1

@@ -68,7 +68,7 @@
       "requires": []
     },
     "context.check": {
-      "description": "check the context",
+      "description": "check the context; only while no context check is recorded about the current context revision against the current requirements list: a second record with another result would leave context.valid unknown for good",
       "effect": "read",
       "may_produce": [
         {
@@ -76,7 +76,10 @@
         }
       ],
       "precondition": {
-        "all": []
+        "claim": {
+          "id": "context.checked",
+          "is": "unknown"
+        }
       },
       "requires": []
     },
@@ -159,7 +162,7 @@
       ]
     },
     "roadmap.validate": {
-      "description": "run aep plan artifact validate",
+      "description": "run aep plan artifact validate; only while no validation is recorded about the current roadmap revision: a second record with another result would leave roadmap.valid unknown for good",
       "effect": "read",
       "may_produce": [
         {
@@ -167,7 +170,10 @@
         }
       ],
       "precondition": {
-        "all": []
+        "claim": {
+          "id": "roadmap.checked",
+          "is": "unknown"
+        }
       },
       "requires": []
     },
@@ -309,6 +315,16 @@
         }
       }
     },
+    "context.checked": {
+      "description": "a context check is recorded about the current context revision, against the current requirements list, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "context_defaults",
+          "result": null,
+          "subject": "context"
+        }
+      }
+    },
     "context.valid": {
       "description": "the current context is valid, derived from the current requirements list",
       "true_when": {
@@ -325,6 +341,16 @@
         "evidence": {
           "kind": "roadmap_approval",
           "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "roadmap.checked": {
+      "description": "a validation is recorded about the current roadmap revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_validation",
+          "result": null,
           "subject": "roadmap"
         }
       }
@@ -372,6 +398,7 @@
     "requirements.revised": {
       "description": "a context check observed against an earlier requirements list no longer applies",
       "invalidates": [
+        "context.checked",
         "context.valid"
       ],
       "upstream": "requirements"
@@ -475,6 +502,6 @@
   "protocol": {
     "description": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every project context default (audience, source and target language, platform and operating systems, kind of thing, deployment and licence) is recorded as an assumption and checked; the context, the vision and the roadmap are each approved by a person. An approval is a record bound to the revision it approved, produced only by an action that needs the authority owner.approve. A revised requirements list invalidates the context check; a revised vision invalidates the roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or specifications happens before that. Late findings (docs/trial-2.md, \"The late-finding loop\"): the context check also runs the consistency rules of the context against the requirements list and reads the open findings, and is not valid while one is open; no vision or roadmap is written or approved then. amend.upstream resolves an open finding by amending the questions and the requirements list, which moves the requirements to a new revision, so the context check is observed again.",
     "id": "sdc.direction",
-    "revision": 4
+    "revision": 5
   }
 }

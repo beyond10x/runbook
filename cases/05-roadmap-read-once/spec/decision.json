@@ -1,0 +1,587 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "spec.traced",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.read": {
+      "reasons": [
+        {
+          "claim": "roadmap.copied",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.author": {
+      "status": "admissible"
+    },
+    "spec.compile": {
+      "reasons": [
+        {
+          "claim": "spec.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.reconstruct": {
+      "status": "admissible"
+    },
+    "spec.reuse": {
+      "status": "admissible"
+    },
+    "spec.review": {
+      "reasons": [
+        {
+          "claim": "spec.complete",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.scan": {
+      "reasons": [
+        {
+          "claim": "spec.sourced",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.synthesize": {
+      "reasons": [
+        {
+          "claim": "spec.compiled",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.trace": {
+      "reasons": [
+        {
+          "claim": "spec.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.validate": {
+      "reasons": [
+        {
+          "claim": "spec.sourced",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "SPEC-5",
+  "claims": {
+    "roadmap.approved": {
+      "value": "true"
+    },
+    "roadmap.copied": {
+      "value": "true"
+    },
+    "spec.approved": {
+      "value": "unknown"
+    },
+    "spec.compile_run": {
+      "value": "unknown"
+    },
+    "spec.compiled": {
+      "value": "unknown"
+    },
+    "spec.complete": {
+      "value": "unknown"
+    },
+    "spec.done": {
+      "value": "unknown"
+    },
+    "spec.reviewed": {
+      "value": "unknown"
+    },
+    "spec.scanned": {
+      "value": "unknown"
+    },
+    "spec.sourced": {
+      "value": "unknown"
+    },
+    "spec.synthesis_run": {
+      "value": "unknown"
+    },
+    "spec.synthesized": {
+      "value": "unknown"
+    },
+    "spec.trace_run": {
+      "value": "unknown"
+    },
+    "spec.traced": {
+      "value": "unknown"
+    },
+    "spec.unmarked": {
+      "value": "unknown"
+    },
+    "spec.valid": {
+      "value": "unknown"
+    },
+    "spec.validated": {
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "spec.traced",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "roadmap.read": {
+        "because": [
+          {
+            "claim": "roadmap.copied",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.compile": {
+        "because": [
+          {
+            "claim": "spec.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.review": {
+        "because": [
+          {
+            "claim": "spec.complete",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.scan": {
+        "because": [
+          {
+            "claim": "spec.sourced",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.synthesize": {
+        "because": [
+          {
+            "claim": "spec.compiled",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.trace": {
+        "because": [
+          {
+            "claim": "spec.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.validate": {
+        "because": [
+          {
+            "claim": "spec.sourced",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "roadmap.copied": {
+        "because": [
+          {
+            "evidence": "a1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.approved": {
+        "because": [
+          {
+            "kind": "spec_review",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.compile_run": {
+        "because": [
+          {
+            "kind": "spec_compile",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.compiled": {
+        "because": [
+          {
+            "kind": "spec_compile",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.complete": {
+        "because": [
+          {
+            "claim": "spec.compiled",
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.synthesized",
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.unmarked",
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.valid",
+            "value": "unknown"
+          },
+          {
+            "kind": "open_markers",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_compile",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_synthesis",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_validation",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.done": {
+        "because": [
+          {
+            "claim": "spec.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.complete",
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.sourced",
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.traced",
+            "value": "unknown"
+          },
+          {
+            "kind": "open_markers",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "scope_trace",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_compile",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_review",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_source",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_synthesis",
+            "status": "absent",
+            "subject": "spec"
+          },
+          {
+            "kind": "spec_validation",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.reviewed": {
+        "because": [
+          {
+            "kind": "spec_review",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.scanned": {
+        "because": [
+          {
+            "kind": "open_markers",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.sourced": {
+        "because": [
+          {
+            "kind": "spec_source",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.synthesis_run": {
+        "because": [
+          {
+            "kind": "spec_synthesis",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.synthesized": {
+        "because": [
+          {
+            "kind": "spec_synthesis",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.trace_run": {
+        "because": [
+          {
+            "kind": "scope_trace",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.traced": {
+        "because": [
+          {
+            "kind": "scope_trace",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.unmarked": {
+        "because": [
+          {
+            "kind": "open_markers",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.valid": {
+        "because": [
+          {
+            "kind": "spec_validation",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "spec.validated": {
+        "because": [
+          {
+            "kind": "spec_validation",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "findings": {
+            "revision": "none"
+          },
+          "requirements": {
+            "revision": "q1"
+          },
+          "roadmap": {
+            "revision": "r1"
+          },
+          "spec": {
+            "revision": "none"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "SPEC-5",
+        "protocol": "sdc.spec",
+        "revision": "c1"
+      },
+      "evidence": [
+        "a1"
+      ],
+      "protocol": "sdc.spec",
+      "protocol_revision": 5,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "gate.required": {
+        "because": [
+          {
+            "claim": "spec.complete",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "review.required": {
+        "because": [
+          {
+            "claim": "spec.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "source.required": {
+        "because": [
+          {
+            "claim": "spec.sourced",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "trace.required": {
+        "because": [
+          {
+            "claim": "spec.traced",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "abandoned": {
+        "because": [
+          {
+            "decision": "explicitly_abandoned",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "passed": {
+        "because": [
+          {
+            "claim": "spec.done",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "gate.required",
+      "status": "open"
+    },
+    {
+      "id": "review.required",
+      "status": "open"
+    },
+    {
+      "id": "roadmap.required",
+      "status": "discharged"
+    },
+    {
+      "id": "source.required",
+      "status": "open"
+    },
+    {
+      "id": "trace.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "abandoned": {
+      "reasons": [
+        {
+          "decision": "explicitly_abandoned",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "passed": {
+      "reasons": [
+        {
+          "claim": "spec.done",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.spec",
+  "protocol_revision": 5
+}

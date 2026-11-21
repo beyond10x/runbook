@@ -46,6 +46,51 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `03-ready-to-release/approved` | sdc.release | same with `release.approve` granted: `release.publish` admissible |
 | `04-roadmap-awaiting-approval/direction` | sdc.direction | vision revised after the roadmap approval: approval `invalidated`, `roadmap.approve` approval-required |
 | `04-roadmap-awaiting-approval/epic` | sdc.epic | no roadmap approval: every epic action blocked except `roadmap.read` |
+| `05-roadmap-read-once/{root,epic,spec,plan}` | sdc, sdc.epic, sdc.spec, sdc.plan | a roadmap approval record at r1, roadmap at r1: `roadmap.read` blocked (`roadmap.copied` true) |
+| `05-roadmap-read-once/*/revised` | same | same record, roadmap at r2: the record is set aside, `roadmap.read` admissible again |
+
+The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
+by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
+author's own review does not block `spec.review`, the independent one does),
+`02-spec-revised-tests-stale/story` (`tests.run_recorded` unknown: the run against s1 is
+invalidated), `03-ready-to-release` (`spec.gate`, `acceptance.run` blocked),
+`04-roadmap-awaiting-approval/direction` (`context.check`, `roadmap.validate` blocked).
+
+## An observation runs once per revision
+
+An observation that records a result is admissible only without a current record for the
+artifact's revision. Each such action (`effect: read`, producing a kind some claim reads with
+`result:`) carries a precondition `{claim: <kind>-recorded, is: unknown}` on a claim that reads its
+kind without a result about the same subject, for example `roadmap.copied`
+(`protocol/sdc-plan.protocol.yaml:45-50`) guarding `roadmap.read`
+(`protocol/sdc-plan.protocol.yaml:138-146`). Without it a second record with another result made
+the claim `unknown` (records that disagree, `../canon/website/docs/reference/evaluation.md:39-42`),
+which blocks every action that needs it, and only a new revision got the case out: `canon simulate`
+reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
+
+- A record about an older revision is not of the claim, so a new revision makes the action
+  admissible again (`cases/05-roadmap-read-once/*/revised`).
+- Where an invalidation rule sets a check's result aside, the guard claim is invalidated with it
+  (`protocol/sdc-plan.protocol.yaml:246-250`, `protocol/sdc-intake.protocol.yaml`
+  `dissection.revised`, `questions.revised`; sdc-direction `requirements.revised`; sdc-release and
+  sdc-story `spec.revised`), so an upstream revision makes the check admissible again too.
+- A review demanding independence is guarded by a claim with the same `independent_on`
+  (`spec.reviewed`, `change.review_recorded`): the author's own review neither counts nor blocks.
+- `release.observe` reads `health_observation` (max_age 30m): an expired observation is not of
+  `release.observed`, so the release is observed again after 30 minutes.
+- `questions.check` records two kinds in one run; it is admissible while either has no current
+  record (`protocol/sdc-intake.protocol.yaml` `questions.check`). Canon has no form "no current
+  record of kind K" other than a claim; a guard over both kinds (`all`) leaves `passed`
+  unreachable in `canon simulate`, whose step adds one record.
+- Guarded: sdc `roadmap.read`; sdc.epic `roadmap.read`, `spec.gate`; sdc.spec `roadmap.read`,
+  `spec.validate`, `spec.compile`, `spec.scan`, `spec.synthesize`, `spec.trace`, `spec.review`;
+  sdc.plan `roadmap.read`, `spec.gate`, `plan.validate`, `plan.cover`, `plan.scope`,
+  `plan.status`; sdc.intake `idea.check`, `dissection.check`, `questions.check`,
+  `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.release
+  `spec.gate`, `acceptance.run`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
+  `change.review`.
+- Not guarded (acts, not observations): the approvals of sdc.direction (`effect: write`,
+  `requires: owner.approve`) and `release.rollback` (`effect: external`).
 
 ## Evidence kinds and the action that produces each
 
@@ -145,8 +190,8 @@ are in `docs/limitations/`.
    - intake with its own abandon decision (`intake-with-abandon.protocol.yaml`):
      `... sdc.intake revision 2 has 131072 states`.
    Consequences: eight protocols; the gate is one composite kind outside sdc.spec; abandon lives
-   at the root for intake and plan; sdc.intake, sdc.spec and sdc.plan sit exactly at 65536
-   (states per protocol in `docs/check-output.txt`: sdc 4608, intake 65536, direction 49152,
+   at the root for intake and plan; sdc.spec and sdc.plan sit exactly at 65536
+   (states per protocol in `docs/check-output.txt`: sdc 4608, intake 49152, direction 49152,
    epic 36864, spec 65536, plan 65536, story 12288, release 24576); every child
    reports `passed`, so a parent's `children` form lists one outcome (two would cost 16 times 17).
 2. **Invalidation reaches every match of a claim built on an invalidated claim.** A derived claim

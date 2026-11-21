@@ -2,7 +2,7 @@ format: protocol/1
 
 protocol:
   id: sdc.direction
-  revision: 4
+  revision: 5
   description: >-
     Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every
     project context default (audience, source and target language, platform and operating systems,
@@ -63,6 +63,14 @@ claims:
         kind: context_defaults
         result: valid
         subject: context
+  context.checked:
+    description: >-
+      a context check is recorded about the current context revision, against the current
+      requirements list, whatever its result
+    true_when:
+      evidence:
+        kind: context_defaults
+        subject: context
   context.approved:
     description: the current context revision is approved
     true_when:
@@ -83,6 +91,12 @@ claims:
       evidence:
         kind: roadmap_validation
         result: valid
+        subject: roadmap
+  roadmap.checked:
+    description: a validation is recorded about the current roadmap revision, whatever its result
+    true_when:
+      evidence:
+        kind: roadmap_validation
         subject: roadmap
   roadmap.approved:
     description: the current roadmap revision is approved, against the current vision revision
@@ -144,8 +158,14 @@ actions:
       required: [field, value]
       additionalProperties: false
   context.check:
-    description: check the context
+    description: >-
+      check the context; only while no context check is recorded about the current context
+      revision against the current requirements list: a second record with another result would
+      leave context.valid unknown for good
     effect: read
+    precondition:
+      claim: context.checked
+      is: unknown
     may_produce:
       - evidence: context_defaults
   context.approve:
@@ -197,8 +217,14 @@ actions:
             - claim: roadmap.approved
               is: unknown
   roadmap.validate:
-    description: run aep plan artifact validate
+    description: >-
+      run aep plan artifact validate; only while no validation is recorded about the current
+      roadmap revision: a second record with another result would leave roadmap.valid unknown for
+      good
     effect: read
+    precondition:
+      claim: roadmap.checked
+      is: unknown
     may_produce:
       - evidence: roadmap_validation
   roadmap.approve:
@@ -242,6 +268,7 @@ invalidation:
     upstream: requirements
     invalidates:
       - context.valid
+      - context.checked
   vision.revised:
     description: a roadmap approval given against an earlier vision revision no longer applies
     upstream: vision

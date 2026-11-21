@@ -52,8 +52,8 @@ compiled outputs to the session scratch directory.
 
 | Where | What it does | Cite |
 |---|---|---|
-| Protocol `sdc` | `epics.open` opens one `sdc.epic` per roadmap epic from one action, argument `epics: [..]` | `protocol/sdc.protocol.yaml:103-125` |
-| Protocol `sdc.epic` | `stories.open` opens one `sdc.story` per AEP story, "opened together" | `protocol/sdc-epic.protocol.yaml:6`, `:133-159` |
+| Protocol `sdc` | `epics.open` opens one `sdc.epic` per roadmap epic from one action, argument `epics: [..]` | `protocol/sdc.protocol.yaml:112-134` |
+| Protocol `sdc.epic` | `stories.open` opens one `sdc.story` per AEP story, "opened together" | `protocol/sdc-epic.protocol.yaml:6`, `:152-178` |
 | Bindings | `child.each: "stories"` / `"epics"`: one child per argument entry | `driver/examples/sdc/sdc-epic.bindings.json:58-62`; `sdc.bindings.json:45-46` |
 | Driver: open | `open_children` creates every child at once and writes one `case_outcome` `open` per child | `driver/src/main.rs:446-478` |
 | Driver: run | `drive` walks `children()` in sorted order, recursing depth first; a child that is not terminable with exactly one outcome **stops the whole run**; only then one step in the parent | `main.rs:791-826`, sort `:288-293` |
@@ -73,9 +73,9 @@ N default 4: `W:408-414`, `:487-492`), run by instruction, outside Canon.
 ### 1.2 End conditions
 
 - Root `sdc`: outcome `operating` when the roadmap is approved, epics opened and every child
-  ended `passed`; or `abandoned` by decision (`sdc.protocol.yaml:131-142`). `operating` is a
+  ended `passed`; or `abandoned` by decision (`sdc.protocol.yaml:140-151`). `operating` is a
   terminal outcome: after it the case is closed (`main.rs:486-511`) and nothing reads it again.
-- `sdc.release` `passed` requires `release.healthy` (`sdc-release.protocol.yaml:150-161`), a
+- `sdc.release` `passed` requires `release.healthy` (`sdc-release.protocol.yaml:184-195`), a
   `health_observation` with `max_age: 30m` (`:37`). The expiry is real, but nothing re-observes
   after the case closes: the 30 minutes only matter until `passed` is taken.
 - Driver run verdicts: `terminable`, `awaiting_person`, `awaiting_authority`, `stuck`
@@ -162,7 +162,7 @@ Admitted only when all hold, otherwise `refused` with the failing rule:
 
 Admission is global to the area, not per epic: two epics touching one crate collide. This
 needs one change to the existing family (*proposed*): `sdc.epic` stops opening its own stories
-(`stories.open`, `sdc-epic.protocol.yaml:133-159`); it hands its accepted stories to the
+(`stories.open`, `sdc-epic.protocol.yaml:152-178`); it hands its accepted stories to the
 portfolio and waits for a copied `stories_delivered` record, the way `roadmap.read` copies today
 (`sdc.protocol.yaml` `roadmap.read`; copy limitation `docs/protocol-notes.md:168-173`).
 
@@ -202,7 +202,7 @@ Canon has child-to-parent evidence (`case_outcome`) and nothing in the other dir
   child if it can be; if it changes scope beyond the child, the child files it into `intake` and
   ends `dropped`;
 - spec revised under running stories: each `sdc.story` invalidates its own
-  `change.built`/`tests.pass` (`sdc-story.protocol.yaml:181-189`); the parent cannot (Canon
+  `change.built`/`tests.pass` (`sdc-story.protocol.yaml:218-226`); the parent cannot (Canon
   `inert-invalidation`, `docs/protocol-notes.md:158-162`) and does not need to;
 - a pre-existing finding becomes a backlog draft that waits for the next plan, exactly the AEP
   wave rule (`W:552-569`).
@@ -345,12 +345,12 @@ What the SDC intake would derive:
   context: Rust CLI, private, offline, from `Cargo.toml`, `AGENTS.md`;
 - vision: adopt `vision:decider` (draft: needs an approval decision); roadmap: **none**, the store
   has no initiative, so `sdc` root's `epics.open` (needs `roadmap.approved`,
-  `sdc.protocol.yaml:103-125`) is blocked until a one-epic roadmap is reconstructed and approved;
+  `sdc.protocol.yaml:112-134`) is blocked until a one-epic roadmap is reconstructed and approved;
 - spec source `reused` (in-repository).
 
 Where it would start: `sdc.epic` for `epic:decider-v1` at `spec.gate`, which fails, so the case
 sits in `sdc.spec` with the spec writer admissible: fix the ESS pin and the 45 refusals. Then
-`sdc.plan` needs every story `active` (`sdc-plan.protocol.yaml:73-78`): two activation decisions.
+`sdc.plan` needs every story `active` (`sdc-plan.protocol.yaml:79-84`): two activation decisions.
 Then waves of one story each: no parallelism is possible in this repository as planned. Each
 `sdc.story` would further need a conformance run against the implementation, which `decider` does
 not have (it runs `interpreted` only).

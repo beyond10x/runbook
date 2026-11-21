@@ -1,0 +1,509 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "plan.covers_spec",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "plan.cover": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "plan.decompose": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "plan.scope": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "plan.status": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "plan.validate": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.read": {
+      "status": "admissible"
+    },
+    "spec.gate": {
+      "reasons": [
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "PLAN-5",
+  "claims": {
+    "gate.checked": {
+      "value": "unknown"
+    },
+    "gate.passed": {
+      "value": "unknown"
+    },
+    "plan.active": {
+      "value": "unknown"
+    },
+    "plan.cover_checked": {
+      "value": "unknown"
+    },
+    "plan.covers_spec": {
+      "value": "unknown"
+    },
+    "plan.scope_checked": {
+      "value": "unknown"
+    },
+    "plan.scoped": {
+      "value": "unknown"
+    },
+    "plan.status_read": {
+      "value": "unknown"
+    },
+    "plan.valid": {
+      "value": "unknown"
+    },
+    "plan.validated": {
+      "value": "unknown"
+    },
+    "roadmap.approved": {
+      "excluded_evidence": [
+        {
+          "evidence": "a1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "roadmap.copied": {
+      "excluded_evidence": [
+        {
+          "evidence": "a1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "plan.covers_spec",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "plan.cover": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "plan.decompose": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "plan.scope": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "plan.status": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "plan.validate": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.gate": {
+        "because": [
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "gate.checked": {
+        "because": [
+          {
+            "kind": "ess_gate",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "gate.passed": {
+        "because": [
+          {
+            "kind": "ess_gate",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.active": {
+        "because": [
+          {
+            "kind": "story_states",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.cover_checked": {
+        "because": [
+          {
+            "kind": "decomposition_coverage",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.covers_spec": {
+        "because": [
+          {
+            "kind": "decomposition_coverage",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.scope_checked": {
+        "because": [
+          {
+            "kind": "stories_scoped",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.scoped": {
+        "because": [
+          {
+            "kind": "stories_scoped",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.status_read": {
+        "because": [
+          {
+            "kind": "story_states",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.valid": {
+        "because": [
+          {
+            "kind": "plan_validation",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.validated": {
+        "because": [
+          {
+            "kind": "plan_validation",
+            "status": "absent",
+            "subject": "plan"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.approved": {
+        "because": [
+          {
+            "evidence": "a1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.copied": {
+        "because": [
+          {
+            "evidence": "a1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "findings": {
+            "revision": "none"
+          },
+          "plan": {
+            "revision": "p1"
+          },
+          "requirements": {
+            "revision": "q1"
+          },
+          "roadmap": {
+            "revision": "r2"
+          },
+          "spec": {
+            "revision": "s1"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "PLAN-5",
+        "protocol": "sdc.plan",
+        "revision": "c1"
+      },
+      "evidence": [
+        "a1"
+      ],
+      "protocol": "sdc.plan",
+      "protocol_revision": 6,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "activation.required": {
+        "because": [
+          {
+            "claim": "plan.active",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "gate.required": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "plan.required": {
+        "because": [
+          {
+            "claim": "plan.covers_spec",
+            "value": "unknown"
+          },
+          {
+            "claim": "plan.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "scope.required": {
+        "because": [
+          {
+            "claim": "plan.scoped",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "passed": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "plan.active",
+            "value": "unknown"
+          },
+          {
+            "claim": "plan.covers_spec",
+            "value": "unknown"
+          },
+          {
+            "claim": "plan.scoped",
+            "value": "unknown"
+          },
+          {
+            "claim": "plan.valid",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "activation.required",
+      "status": "open"
+    },
+    {
+      "id": "gate.required",
+      "status": "open"
+    },
+    {
+      "id": "plan.required",
+      "status": "open"
+    },
+    {
+      "id": "scope.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "passed": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "plan.active",
+          "value": "unknown"
+        },
+        {
+          "claim": "plan.covers_spec",
+          "value": "unknown"
+        },
+        {
+          "claim": "plan.scoped",
+          "value": "unknown"
+        },
+        {
+          "claim": "plan.valid",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.plan",
+  "protocol_revision": 6
+}

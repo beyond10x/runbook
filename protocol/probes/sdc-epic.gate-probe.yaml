@@ -1,7 +1,7 @@
 format: protocol/1
 protocol:
   id: sdc.epic
-  revision: 2
+  revision: 3
   description: >-
     Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision.
 artifacts:
@@ -36,12 +36,24 @@ claims:
         kind: roadmap_approval
         result: approved
         subject: roadmap
+  roadmap.copied:
+    description: a roadmap approval record about the current roadmap revision is in this case, whatever its result
+    true_when:
+      evidence:
+        kind: roadmap_approval
+        subject: roadmap
   gate.passed:
     description: the ESS gate passes on the current specification revision
     true_when:
       evidence:
         kind: ess_gate
         result: passed
+        subject: spec
+  gate.checked:
+    description: an ESS gate run is recorded about the current specification revision, whatever its result
+    true_when:
+      evidence:
+        kind: ess_gate
         subject: spec
   children.passed:
     description: every child case ended passed
@@ -97,8 +109,11 @@ obligations:
 actions:
   roadmap.read:
     description: >-
-      copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with
+      copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with. Only while this case holds no roadmap approval record about the current roadmap revision: a second copy with another result would leave roadmap.approved unknown for good. A new roadmap revision sets the old record aside and makes it admissible again
     effect: read
+    precondition:
+      claim: roadmap.copied
+      is: unknown
     may_produce:
       - evidence: roadmap_approval
   spec.open:
@@ -115,10 +130,14 @@ actions:
     may_produce:
       - evidence: spec_opened
   spec.gate:
-    description: run the ESS gate over the current specification revision
+    description: >-
+      run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good
     effect: read
     precondition:
-      claim: roadmap.approved
+      all:
+        - claim: roadmap.approved
+        - claim: gate.checked
+          is: unknown
     may_produce:
       - evidence: ess_gate
   plan.open:

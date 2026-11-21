@@ -22,7 +22,13 @@
       "status": "admissible"
     },
     "context.check": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "context.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "context.default": {
       "reasons": [
@@ -47,7 +53,13 @@
       "status": "approval-required"
     },
     "roadmap.validate": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "roadmap.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "roadmap.write": {
       "status": "admissible"
@@ -76,6 +88,9 @@
     "context.approved": {
       "value": "true"
     },
+    "context.checked": {
+      "value": "true"
+    },
     "context.valid": {
       "value": "true"
     },
@@ -87,6 +102,9 @@
         }
       ],
       "value": "unknown"
+    },
+    "roadmap.checked": {
+      "value": "true"
     },
     "roadmap.valid": {
       "value": "true"
@@ -115,6 +133,15 @@
         ],
         "status": "approval-required"
       },
+      "context.check": {
+        "because": [
+          {
+            "claim": "context.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
       "context.default": {
         "because": [
           {
@@ -136,6 +163,15 @@
           }
         ],
         "status": "approval-required"
+      },
+      "roadmap.validate": {
+        "because": [
+          {
+            "claim": "roadmap.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
       },
       "vision.approve": {
         "because": [
@@ -166,6 +202,15 @@
         ],
         "value": "true"
       },
+      "context.checked": {
+        "because": [
+          {
+            "evidence": "x1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "context.valid": {
         "because": [
           {
@@ -184,6 +229,15 @@
           }
         ],
         "value": "unknown"
+      },
+      "roadmap.checked": {
+        "because": [
+          {
+            "evidence": "rv",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
       },
       "vision.approved": {
         "because": [
@@ -230,7 +284,7 @@
         "xa"
       ],
       "protocol": "sdc.direction",
-      "protocol_revision": 4,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -286,5 +340,5 @@
     }
   },
   "protocol": "sdc.direction",
-  "protocol_revision": 4
+  "protocol_revision": 5
 }

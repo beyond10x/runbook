@@ -1,0 +1,13 @@
+format: canon-case/1
+id: SPEC-5
+protocol: sdc.spec
+revision: c1
+artifacts:
+  roadmap:
+    revision: r1
+  spec:
+    revision: none
+  findings:
+    revision: none
+  requirements:
+    revision: q1

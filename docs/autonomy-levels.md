@@ -245,7 +245,7 @@ Holders:
 | context | direction `context.approve`, `owner.approve` | P | P+ | D→P | D→P | D→P | D* |
 | vision | direction `vision.approve`, `owner.approve` | P | P+ | P | D→P | D→P | D* |
 | roadmap | direction `roadmap.approve`, `owner.approve` | P | P+ | P | D→P | D→P | D* |
-| spec acceptance | spec `spec.review` → `spec_review`, `independent_on: [different_principal]` (`sdc-spec.protocol.yaml:102`); ESS gate always R | P | P+ | D→P | D→P | D→P | D* |
+| spec acceptance | spec `spec.review` → `spec_review`, `independent_on: [different_principal]` (`sdc-spec.protocol.yaml:108`); ESS gate always R | P | P+ | D→P | D→P | D→P | D* |
 | story activation | none: the decompose stub moves stories to active (`driver.md` gap 11) | P | P+ | D→P | D→P | D→P | D* |
 | code review | story `change.review` → `code_review`, `different_principal`; tests always R | P | P+ | D→P | D→P | D→P | D* |
 | merge | story `change.merge`, `change.merge` | P | P+ | P | P | R∧D→P | R∧D* |

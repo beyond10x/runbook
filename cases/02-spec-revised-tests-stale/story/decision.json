@@ -28,14 +28,20 @@
     "change.review": {
       "reasons": [
         {
-          "claim": "change.built",
-          "value": "unknown"
+          "claim": "change.review_recorded",
+          "value": "true"
         }
       ],
       "status": "blocked"
     },
     "spec.gate": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "gate.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "tests.run": {
       "reasons": [
@@ -61,6 +67,15 @@
     "change.merged": {
       "value": "unknown"
     },
+    "change.review_recorded": {
+      "excluded_evidence": [
+        {
+          "evidence": "k1",
+          "reason": "not_independent"
+        }
+      ],
+      "value": "true"
+    },
     "change.reviewed": {
       "excluded_evidence": [
         {
@@ -70,10 +85,22 @@
       ],
       "value": "true"
     },
+    "gate.checked": {
+      "value": "true"
+    },
     "gate.passed": {
       "value": "true"
     },
     "tests.pass": {
+      "excluded_evidence": [
+        {
+          "evidence": "t1",
+          "reason": "invalidated"
+        }
+      ],
+      "value": "unknown"
+    },
+    "tests.run_recorded": {
       "excluded_evidence": [
         {
           "evidence": "t1",
@@ -110,8 +137,17 @@
       "change.review": {
         "because": [
           {
-            "claim": "change.built",
-            "value": "unknown"
+            "claim": "change.review_recorded",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.gate": {
+        "because": [
+          {
+            "claim": "gate.checked",
+            "value": "true"
           }
         ],
         "status": "blocked"
@@ -147,7 +183,40 @@
         ],
         "value": "unknown"
       },
+      "change.review_recorded": {
+        "because": [
+          {
+            "evidence": "k1",
+            "reason": "not_independent",
+            "status": "excluded"
+          },
+          {
+            "evidence": "k2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "gate.checked": {
+        "because": [
+          {
+            "evidence": "g2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "tests.pass": {
+        "because": [
+          {
+            "evidence": "t1",
+            "reason": "invalidated",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "tests.run_recorded": {
         "because": [
           {
             "evidence": "t1",
@@ -193,7 +262,7 @@
         "t1"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 4,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -296,5 +365,5 @@
     }
   },
   "protocol": "sdc.story",
-  "protocol_revision": 4
+  "protocol_revision": 5
 }

@@ -1,0 +1,268 @@
+{
+  "actions": {
+    "direction.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "intake.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "epics.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "direction.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "intake.open": {
+      "status": "admissible"
+    },
+    "roadmap.read": {
+      "reasons": [
+        {
+          "claim": "roadmap.copied",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "IDEA-5",
+  "claims": {
+    "children.passed": {
+      "value": "unknown"
+    },
+    "direction.opened": {
+      "value": "unknown"
+    },
+    "epics.opened": {
+      "value": "unknown"
+    },
+    "intake.opened": {
+      "value": "unknown"
+    },
+    "roadmap.approved": {
+      "value": "true"
+    },
+    "roadmap.copied": {
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "direction.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "intake.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "epics.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "direction.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "roadmap.read": {
+        "because": [
+          {
+            "claim": "roadmap.copied",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "children.passed": {
+        "because": [
+          {
+            "children": [
+              "passed"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "value": "unknown"
+      },
+      "direction.opened": {
+        "because": [
+          {
+            "kind": "direction_opened",
+            "status": "absent",
+            "subject": "idea"
+          }
+        ],
+        "value": "unknown"
+      },
+      "epics.opened": {
+        "because": [
+          {
+            "kind": "epics_opened",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "intake.opened": {
+        "because": [
+          {
+            "kind": "intake_opened",
+            "status": "absent",
+            "subject": "idea"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.copied": {
+        "because": [
+          {
+            "evidence": "a1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "idea": {
+            "revision": "i1"
+          },
+          "roadmap": {
+            "revision": "r1"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "IDEA-5",
+        "protocol": "sdc",
+        "revision": "c1"
+      },
+      "evidence": [
+        "a1"
+      ],
+      "protocol": "sdc",
+      "protocol_revision": 5,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "epics.required": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "epics.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "intake.required": {
+        "because": [
+          {
+            "claim": "intake.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "abandoned": {
+        "because": [
+          {
+            "decision": "explicitly_abandoned",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "operating": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "epics.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "direction.required",
+      "status": "discharged"
+    },
+    {
+      "id": "epics.required",
+      "status": "open"
+    },
+    {
+      "id": "intake.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "abandoned": {
+      "reasons": [
+        {
+          "decision": "explicitly_abandoned",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "operating": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "epics.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc",
+  "protocol_revision": 5
+}

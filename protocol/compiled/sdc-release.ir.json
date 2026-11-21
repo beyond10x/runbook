@@ -1,7 +1,7 @@
 {
   "actions": {
     "acceptance.run": {
-      "description": "run the specification's conformance suite against the release",
+      "description": "run the specification's conformance suite against the release; only while no run is recorded about the current release revision against the current specification revision",
       "effect": "read",
       "may_produce": [
         {
@@ -9,10 +9,20 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "release.built",
-          "is": "true"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "release.acceptance_run",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.built",
+              "is": "true"
+            }
+          }
+        ]
       },
       "requires": []
     },
@@ -33,7 +43,7 @@
       "requires": []
     },
     "release.observe": {
-      "description": "observe the running release",
+      "description": "observe the running release; only while no observation of the current release revision is current (younger than its 30 minutes)",
       "effect": "read",
       "may_produce": [
         {
@@ -41,10 +51,20 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "release.published",
-          "is": "true"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "release.observed",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.published",
+              "is": "true"
+            }
+          }
+        ]
       },
       "requires": []
     },
@@ -105,7 +125,7 @@
       ]
     },
     "spec.gate": {
-      "description": "run the ESS gate over the current specification revision",
+      "description": "run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good",
       "effect": "read",
       "may_produce": [
         {
@@ -113,7 +133,10 @@
         }
       ],
       "precondition": {
-        "all": []
+        "claim": {
+          "id": "gate.checked",
+          "is": "unknown"
+        }
       },
       "requires": []
     }
@@ -127,6 +150,16 @@
     }
   },
   "claims": {
+    "gate.checked": {
+      "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "ess_gate",
+          "result": null,
+          "subject": "spec"
+        }
+      }
+    },
     "gate.passed": {
       "description": "the ESS gate passes on the current specification revision",
       "true_when": {
@@ -134,6 +167,16 @@
           "kind": "ess_gate",
           "result": "passed",
           "subject": "spec"
+        }
+      }
+    },
+    "release.acceptance_run": {
+      "description": "a conformance run is recorded about the current release revision, against the current specification revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "release_conformance",
+          "result": null,
+          "subject": "release"
         }
       }
     },
@@ -163,6 +206,16 @@
         "evidence": {
           "kind": "health_observation",
           "result": "healthy",
+          "subject": "release"
+        }
+      }
+    },
+    "release.observed": {
+      "description": "an observation of the current release revision within the last 30 minutes is recorded, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "health_observation",
+          "result": null,
           "subject": "release"
         }
       }
@@ -214,6 +267,7 @@
     "spec.revised": {
       "description": "a conformance run observed against an earlier specification revision no longer applies",
       "invalidates": [
+        "release.acceptance_run",
         "release.accepted"
       ],
       "upstream": "spec"
@@ -314,6 +368,6 @@
   "protocol": {
     "description": "Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running. The ESS gate must pass on the current specification revision. A revised specification invalidates the conformance runs observed against the earlier revision. The case ends passed (operating), rolled back on a complete rollback result, or withheld on an explicit decision.",
     "id": "sdc.release",
-    "revision": 3
+    "revision": 4
   }
 }

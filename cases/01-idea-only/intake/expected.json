@@ -2,7 +2,7 @@
   "actions": {
     "amend.upstream": "blocked",
     "dissection.check": "admissible",
-    "idea.check": "admissible",
+    "idea.check": "blocked",
     "idea.dissect": "admissible",
     "questions.answer": "blocked",
     "questions.check": "admissible",
@@ -12,10 +12,15 @@
     "scope.answer": "blocked"
   },
   "claims": {
+    "dissection.checked": "unknown",
     "dissection.valid": "unknown",
+    "idea.checked": "true",
     "idea.shaped": "true",
+    "interview.checked": "unknown",
+    "questions.checked": "unknown",
     "questions.settled": "unknown",
     "questions.shaped": "unknown",
+    "requirements.checked": "unknown",
     "requirements.valid": "unknown"
   },
   "obligations": {

@@ -71,7 +71,7 @@
       ]
     },
     "change.review": {
-      "description": "review the current change revision",
+      "description": "review the current change revision; only while no review by a reviewer the case lists as another principal than the implementer is recorded about it (the implementer's own review does not count and does not block)",
       "effect": "read",
       "may_produce": [
         {
@@ -79,15 +79,25 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "change.built",
-          "is": "true"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "change.built",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "change.review_recorded",
+              "is": "unknown"
+            }
+          }
+        ]
       },
       "requires": []
     },
     "spec.gate": {
-      "description": "run the ESS gate over the current specification revision",
+      "description": "run the ESS gate over the current specification revision; only while no gate run is recorded about it: a second record with another result would leave gate.passed unknown for good",
       "effect": "read",
       "may_produce": [
         {
@@ -95,12 +105,15 @@
         }
       ],
       "precondition": {
-        "all": []
+        "claim": {
+          "id": "gate.checked",
+          "is": "unknown"
+        }
       },
       "requires": []
     },
     "tests.run": {
-      "description": "run the specification's conformance suite against the current change revision",
+      "description": "run the specification's conformance suite against the current change revision; only while no run is recorded about it against the current specification revision",
       "effect": "read",
       "may_produce": [
         {
@@ -108,10 +121,20 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "change.built",
-          "is": "true"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "change.built",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "tests.run_recorded",
+              "is": "unknown"
+            }
+          }
+        ]
       },
       "requires": []
     }
@@ -151,6 +174,19 @@
         }
       }
     },
+    "change.review_recorded": {
+      "description": "a review by a reviewer the case lists as another principal than the implementer is recorded about the current change revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "independent_on": [
+            "different_principal"
+          ],
+          "kind": "code_review",
+          "result": null,
+          "subject": "change"
+        }
+      }
+    },
     "change.reviewed": {
       "description": "the current change revision is approved by a reviewer the case lists as another principal than the implementer",
       "true_when": {
@@ -161,6 +197,16 @@
           "kind": "code_review",
           "result": "approved",
           "subject": "change"
+        }
+      }
+    },
+    "gate.checked": {
+      "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "ess_gate",
+          "result": null,
+          "subject": "spec"
         }
       }
     },
@@ -180,6 +226,16 @@
         "evidence": {
           "kind": "conformance_run",
           "result": "passed",
+          "subject": "change"
+        }
+      }
+    },
+    "tests.run_recorded": {
+      "description": "a conformance run is recorded about the current change revision, against the current specification revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "conformance_run",
+          "result": null,
           "subject": "change"
         }
       }
@@ -213,7 +269,8 @@
       "description": "an implementation record or conformance run observed against an earlier specification revision no longer applies",
       "invalidates": [
         "change.built",
-        "tests.pass"
+        "tests.pass",
+        "tests.run_recorded"
       ],
       "upstream": "spec"
     }
@@ -304,6 +361,6 @@
   "protocol": {
     "description": "Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed by a principal other than its implementer, and merge it under authority. The ESS gate must pass on the current specification revision before anything is implemented and for the story to be delivered. A revised specification invalidates the implementation record and the conformance run observed against the earlier revision. The case ends passed (delivered), or dropped on an explicit decision. Late findings (docs/trial-2.md, \"The late-finding loop\"): the conformance run also reads the open findings and is not passed while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the change is re-derived.",
     "id": "sdc.story",
-    "revision": 4
+    "revision": 5
   }
 }

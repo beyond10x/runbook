@@ -74,7 +74,7 @@ Budgets are starting values *(inferred)*. L4's is derived from data. The dollar 
 M2. With M1 (`claude-haiku-5-5`) every level is capped at $0.50 per spec run (§ 5.2), as the
 profiles in `eval/levels/` hold.
 
-### 1.2 `spec.author` (`protocol/sdc-spec.protocol.yaml:139-154`)
+### 1.2 `spec.author` (`protocol/sdc-spec.protocol.yaml:192-207`)
 
 Inputs on every level: `requirements.yaml`, `context.yaml`, the roadmap, and the argument
 `domain`. It revises `spec/`. Verifier after it, the same on every level: `spec.validate`,
@@ -90,7 +90,7 @@ Inputs on every level: `requirements.yaml`, `context.yaml`, the roadmap, and the
 | L4 | The tools and argument classes that § 3.3 mines from L2 or L3 runs, nothing else. |
 | L5 | `submit_spec({domains: [{name, entities: [...], commands: [...], events: [...]}]})`, its schema derived from ESS's `system.yaml` and domain format *(inferred: the schema is not written yet)*. A program renders `spec/`; the ESS gate runs; failing check ids go back, up to 3 submits. |
 
-### 1.3 Story implementation `change.implement` (`protocol/sdc-story.protocol.yaml:106-114`)
+### 1.3 Story implementation `change.implement` (`protocol/sdc-story.protocol.yaml:138-146`)
 
 Inputs: the compiled spec, the story file, `mainline/`. It revises `change` (`impl/`). Verifier
 after it: `tests.run` (conformance), the independent `change.review`, the gate (`:115-143`).
