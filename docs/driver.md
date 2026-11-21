@@ -407,6 +407,18 @@ written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings am
 checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
 principal for a scope-changing answer (`sdc.intake` r5).
 
+**What comes after the decision** (2026-11-21, `runs/trial-3-mixed-3`: the decider refused
+`release.publish` because `health.required` was open, though only `release.observe`, admissible
+after the publish, can meet it). `sdc-reply later --ir <ir.json> --action <a>` derives from the
+compiled protocol the actions that need a claim only `a` (or such actions) can make true, the
+claims only those actions make true, and the obligations only those claims discharge. `decider.sh`
+leaves them out of `claims` and `open_obligations` in `in/checks.json` and lists them under
+`met_after_this_action` ("met after <a>, not a condition of this decision"); the prompt says so.
+Moved per approval action of the eight protocols: `release.publish` health.required
+(release.healthy, release.observed, rollback.complete); `context.approve` vision.required,
+roadmap.required; `vision.approve` roadmap.required; `merge.approve` no obligation (claim
+change.merged); none for `roadmap.approve`, `scope.answer`, `release.rollback`.
+
 **Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
 decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
 question and finding ids, `context.<key>`, the claims in `in/checks.json`), artifact revisions with
