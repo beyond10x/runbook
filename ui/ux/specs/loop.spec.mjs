@@ -5,7 +5,7 @@
 import {test, expect} from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
-import {scenarios, alwaysVisible, scrollAllowed, primary, cue} from '../adapter.mjs';
+import {scenarios, primary, cue, policy} from '../adapter.mjs';
 import {scrollOffenders, visibilityMisses, axeViolations, truncatedWithoutValue, startShifts, shiftsPerMinute, visibleControl, visibleText, wordsIn} from '../core/contract.mjs';
 import {record, median, p95, max} from '../core/metrics.mjs';
 import {start, OUT, SHOTS, gating} from './env.mjs';
@@ -62,15 +62,22 @@ for (const s of scenarios) {
 
     // ---- L3, first part: the screen-only user reads the truth while it is the truth ---------------
     const u = {actions: 0, looks: [], steers: 0, fixes: []};
+    // at a phone size the page scrolls vertically (D-005): what is below the fold is scrolled to, at
+    // the cost of a glance 3 (not in view), and is then read or used where it is
+    const pol = policy(vp);
+    const scrollTo = async (loc) => { if (!pol.pageScrollY || !(await loc.count())) return false; await loc.first().scrollIntoViewIfNeeded().catch(() => null); return true; };
     const read = async (scope, text) => {
-      const ok = await visibleText(page, scope, text);
+      let ok = await visibleText(page, scope, text);
+      if (!ok && await scrollTo(page.locator(scope).getByText(text, {exact: false}))) { ok = await visibleText(page, scope, text); if (ok) { u.looks.push(3); return true; } }
       u.looks.push(ok ? (scope === primary ? 1 : 2) : 3);
       return ok;
     };
     const use = async (role, name) => {
-      const c = await visibleControl(page, role, name, primary);
+      let c = await visibleControl(page, role, name, primary);
+      let scrolled = false;
+      if (!c && await scrollTo(page.getByRole(role, typeof name === 'string' ? {name, exact: true} : {name}))) { c = await visibleControl(page, role, name, primary); scrolled = true; }
       if (!c) { u.looks.push(3); return false; }
-      u.looks.push(c.glance);
+      u.looks.push(scrolled ? 3 : c.glance);
       await c.locator.click();
       u.actions++;
       return true;
@@ -91,9 +98,11 @@ for (const s of scenarios) {
     // ---- L2: sample the states while the run moves ------------------------------------------------
     const scroll = [], vis = [], trunc = [], words = [], keys = [];
     let axe = [];
+    if (pol.pageScrollY) await page.evaluate(() => window.scrollTo(0, 0));
+    const vw = page.viewportSize().width;
     for (let i = 0; i < SAMPLES; i++) {
-      scroll.push(...(await scrollOffenders(page, scrollAllowed)).map((x) => x.sel));
-      vis.push(...(await visibilityMisses(page, alwaysVisible)).map((x) => `${x.sel}: ${x.why}`));
+      scroll.push(...(await scrollOffenders(page, pol.scrollAllowed)).filter((x) => !(pol.pageScrollY && x.sel === 'document' && x.w <= vw + 1)).map((x) => x.sel));
+      vis.push(...(await visibilityMisses(page, pol.alwaysVisible)).map((x) => `${x.sel}: ${x.why}`));
       trunc.push((await truncatedWithoutValue(page)).length);
       words.push(await wordsIn(page, primary));
       keys.push(await page.locator('#now .now-cards > .nc').first().getAttribute('data-key').catch(() => null));
