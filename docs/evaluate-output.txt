@@ -47,4 +47,7 @@ pass cases/12-delivery/built
 pass cases/12-delivery/failed/epic
 pass cases/12-delivery/failed
 pass cases/12-delivery/failed/root
+pass cases/13-rework-spent/rejected
+pass cases/13-rework-spent/spent
+pass cases/13-rework-spent/spent/revised
 exit 0
