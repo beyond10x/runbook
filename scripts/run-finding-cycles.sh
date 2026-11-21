@@ -53,7 +53,8 @@
 #                   decision with no principal is not applied
 #   models          three dry runs: binding models, SDC_LLM_MODEL, SDC_LLM_MODEL_<CLASS>; each call
 #                   and decider record names its model, run-settings.jsonl the model per class
-# Prints each run's exit code and its KPIs L1-L6.
+# Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
+# <names>`; exits 1 when a cycle missed its expectation.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
 set -uo pipefail
@@ -63,6 +64,30 @@ fx=$sdc/driver/examples/sdc/fixtures
 mkdir -p "$s/runs"
 kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 [[ -x $kpis ]] || kpis=$HOME/beyond10x/sdc/driver/target/debug/sdc-finding-kpis
+# The cycles and their expectations. A cycle with a check line is as expected when it prints
+# "<name>: checks pass" and no "<name>: FAILED"; one without (exit_only) when its exit line shows
+# the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
+expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
+  scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent
+  story-late-person decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
+  decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
+  decider-escalate-nobest decider-reject principals models)
+declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
+  [scope-answer]=0 [finding-program]=0)
+summary() { # <log>
+  local log=$1 name ok=0 failed=()
+  for name in "${expected[@]}"; do
+    if grep -q "^$name: FAILED" "$log"; then failed+=("$name")
+    elif grep -q "^$name: checks pass" "$log"; then ok=$((ok + 1))
+    elif [[ -n ${exit_only[$name]:-} ]] && grep -q "^$name: exit ${exit_only[$name]} " "$log"; then ok=$((ok + 1))
+    else failed+=("$name")
+    fi
+  done
+  echo "cycles: ${#expected[@]} expected, $ok as expected, ${#failed[@]} failed: ${failed[*]:-none}"
+  (( ${#failed[@]} == 0 ))
+}
+{
 cycle() {
   local name=$1; shift
   env RUNS="$s/runs" "$@" "$sdc/scripts/run-full-cycle.sh" "$name" "$s/store-$name" > "$s/$name.txt" 2>&1
@@ -543,3 +568,5 @@ if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
 else
   echo "models: FAILED"
 fi
+} | tee "$s/cycles.log"
+summary "$s/cycles.log"
