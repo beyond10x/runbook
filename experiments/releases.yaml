@@ -334,3 +334,18 @@ entries:
     effect: none
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
+- id: 0.2.1
+  kind: release
+  version: 0.2.1
+  label: 0.2.1
+  short: docs checks fixed
+  date: 2026-11-21
+  tree: null
+  tree_note: not tagged yet; 0.2.0 (6cde564) with the fix e46a237 and its preparation on main
+  experiments: []
+  changes:
+  - commit: e46a237
+    line: the evaluation smoke test admits later releases without runs; the protocol index is current
+    effect: none
+  limits:
+  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'

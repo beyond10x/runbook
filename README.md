@@ -97,7 +97,7 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.2.0`; nothing is published to crates.io. The latest is 0.2.0 (2026-11-21).
+`0.2.1`; nothing is published to crates.io. The latest is 0.2.1 (2026-11-21).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).

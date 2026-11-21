@@ -3864,6 +3864,52 @@
       "tree": "6cde564f7d0cfbef221e372a6c7bfef79d512c26",
       "tree_note": "tag 0.2.0 at main 6cde564: 0.1.4 (7bbdee6) with the batch-13 and batch-14 merges below, the consistency pass and its preparation",
       "version": "0.2.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "e46a237",
+          "effect": "none",
+          "experiment": null,
+          "line": "the evaluation smoke test admits later releases without runs; the protocol index is current"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [],
+      "id": "0.2.1",
+      "kind": "release",
+      "label": "0.2.1",
+      "limits": [
+        "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": null,
+      "tree_note": "not tagged yet; 0.2.0 (6cde564) with the fix e46a237 and its preparation on main",
+      "version": "0.2.1"
     }
   ],
   "format": "sdc.progress/1",
@@ -4382,7 +4428,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "95442b7c3c6098ce1c2ba1a30c61d39460595fc1aed8c3c06bdc2895ba423b72"
+      "sha256": "5fdc9fe9a059e5053778150a6a77872ef866e53b5f5598e77c968b0f0477fe56"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
