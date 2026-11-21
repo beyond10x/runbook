@@ -251,8 +251,18 @@ D-004 took worse values the operator's wording asks for: the line "no driver att
 activity …" (reading load +7 to +9 words in person, decider and changes; a layout shift in agent
 and decider and two more cue changes in two at 1366x768 when the played driver detaches at the
 end), and 3 more truncated elements at 1366x768 (and in
-closed at 1600x1000) from the longer principal labels and stop marks of the same change. Round
-files are written with repository-relative paths.
+closed at 1600x1000) from the longer principal labels and stop marks of the same change.
+Decision D-005 made the measurement deterministic. The ratchet failed on a different sampled value
+from run to run because the fixture player ran on the wall clock, the server rescanned every 700 ms,
+and the loop sampled every 1.4 s of wall time and divided layout shift by wall minutes: which state
+changes fell into the window depended on the machine's load. The measured run now shares one clock
+(`vclock.mjs`) between the server, the player and the page, moved only by the loop: per step the
+clock moves 1.4 s, the player plays 1.4 s of its sleeps and waits, the server rescans when the
+player reports, and the page fetches and paints (`window.__sdcSync`) before anything is sampled.
+Animations and transitions are off in the measured page, layout shift is counted per minute of the
+steps' clock, and a scenario waiting on someone reaches its truth when the card names who it waits
+on. The values this changed (the measurement, not the UI) were taken under D-005, and the D-003
+tolerances were dropped. Round files are written with repository-relative paths.
 
 ### Phone sizes (decision D-006)
 

@@ -144,17 +144,20 @@ for (const s of scenarios) {
     test.skip(!isPhone(vp), 'phone sizes only');
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
-    const played = env.play(s);
+    // on the shared clock (decision D-005): the run stands still while a moment is measured
+    const played = await env.play(s);
     await page.addInitScript(() => { try { localStorage.clear(); } catch { /* first load */ } });
+    await env.prepare(page);
     await page.goto(`${env.base}/?source=${env.source(s)}`);
     await expect(page.locator('#now .now-h')).toBeVisible({timeout: 20000});
+    await env.sync(page);
     const truthOn = async () => {
       if (s.truth.running.length) return (await page.locator('#now .nc.run').count()) >= s.truth.running.length;
-      if (s.truth.waiting) return (await page.locator('#now .nc.wait').count()) > 0;
+      if (s.truth.waiting) return (await page.locator('#now .nc.wait').count()) > 0 && (!s.truth.waiting.who || (await page.locator('#now').innerText()).includes(s.truth.waiting.who));
       if (s.truth.completion === 'closed') return (await page.locator('#now.m-closed').count()) > 0;
       return true;
     };
-    for (let i = 0; i < 40 && !(await truthOn()); i++) await page.waitForTimeout(500);
+    for (let i = 0; i < 40 && !(await truthOn()); i++) await env.step(page);
     await moment(page, vp, s.name, 'truth');
     if (s.write) { await openSheet(page, 'drawer'); await moment(page, vp, s.name, 'drawer', {sheet: 'drawer'}); await closeSheet(page, 'drawer'); }
     if (s.tasks.some((t) => /open the (diff of the )?last change/.test(t))) {
@@ -170,7 +173,8 @@ for (const s of scenarios) {
       await moment(page, vp, s.name, 'graph');
     }
     expect.soft(errors, 'no page errors').toEqual([]);
-    if (played) await played;
+    env.release();
+    if (played) await played.done;
   });
 }
 

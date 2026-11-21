@@ -53,6 +53,10 @@ test('one agent in flight: action, model, live progress, elapsed time, files', a
   // the driver says it holds the tree (driver.json), and dates the step (observed.jsonl)
   await expect(page.locator('#now .now-drv.on')).toContainText('driver attached');
   await expect(page.locator('#now .now-drv.on')).toContainText('pid ');
+  // the band's layout does not follow the digits of the pid (a 6- or 7-digit pid moved the ux loop's layout shift)
+  const pidWidth = (v) => page.locator('#now .now-pid').evaluate((el, x) => { el.textContent = x; return el.getBoundingClientRect().width; }, v);
+  expect(await pidWidth('1')).toBe(await pidWidth('4194304'));
+  expect(await pidWidth('100291')).toBe(await pidWidth('4194304'));
   const storage = path.join(dir, 'agent/store/IDEA-1/children/IDEA-1.todolist/children/IDEA-1.todolist.storage');
   const obs = fs.readFileSync(path.join(storage, 'observed.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const started = obs.filter((o) => o.event === 'action_started').at(-1);
