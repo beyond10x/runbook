@@ -257,8 +257,15 @@ requester_call() {
     grounds: ($o[0].grounds // []), proposed_by: "llm"} + (if $o[0].option != null then {recommended_option: $o[0].option}
     else {recommended_answer: $o[0].answer} end))}' > "$prop" || { invalid "out/reply.json does not have the reply's keys"; return 0; }
   local at_args=(); [[ -n $(jq -r '.opened_at // empty' <<< "$request") ]] || at_args=(--at "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
-  chk=$("$here/../../../../tools/decision-grounds.sh" "$prop" --case "$case_dir" "${at_args[@]}" 2>&1)
+  # The verdict is read from stdout alone; stderr goes to its own file. Output that cannot be read
+  # is a tool error (126), not a refusal of the decider's reply.
+  chk=$("$here/../../../../tools/decision-grounds.sh" "$prop" --case "$case_dir" "${at_args[@]}" 2>"$rec/grounds-check.stderr")
+  gc=$?
   printf '%s\n' "$chk" > "$rec/grounds-check.json"
+  if (( gc != 0 && gc != 1 )) || ! jq -e 'type == "object"' <<< "$chk" >/dev/null 2>&1; then
+    echo "decider.sh: decision-grounds.sh exit $gc, its output could not be read: $(tail -n 3 "$rec/grounds-check.stderr")" >&2
+    exit 126
+  fi
   verdict=$(jq -r '.recommend.check_verdict // "refused"' <<< "$chk" 2>/dev/null || echo refused)
   [[ $verdict == verified ]] || { invalid "the grounding check refused it: $(jq -r '.recommend.check_report // empty' <<< "$chk" 2>/dev/null || tail -n 1 <<< "$chk")"; return 0; }
   letter=$(jq -r '.option // empty' "$reply_f")

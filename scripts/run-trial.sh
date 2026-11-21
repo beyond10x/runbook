@@ -600,7 +600,7 @@ checks_failing() {
 # goes on; else sets end_cause and end_reason: rework_spent on the third rejection (the approval
 # and the three reasons), rejected_without_rework_path when the approval cannot record a
 # rejection or no writer is sent back by it (rework_gap says which).
-reworked="" rework_gap=""
+reworked="" rework_gap="" rework_limit=$(jq -r .rework_limit "$ex/rule-ends.json")
 rework() { # <request> <decider reply>
   local req=$1 reply=$2 cdir act cap subj rev file prior n kind writers rec
   cdir=$(jq -r .case_dir <<< "$req") act=$(jq -r .action <<< "$req") cap=$(jq -r .capability <<< "$req")
@@ -620,8 +620,8 @@ rework() { # <request> <decider reply>
     rework_gap="\`$act\` cannot record a rejected result ($(tail -n 1 <<< "$last" | sed 's/^sdc-drive: //'))"
     return 1
   fi
-  echo "  recorded the rejection of $act at $rev as decider:$decider (rejection $n; at most 2 are reworked)"
-  if (( n > 2 )); then
+  echo "  recorded the rejection of $act at $rev as decider:$decider (rejection $n; at most $rework_limit are reworked)"
+  if (( n > rework_limit )); then
     end_cause=rework_spent
     end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
@@ -648,7 +648,10 @@ rework() { # <request> <decider reply>
 # (`sdc-drive decide --after-denial`, which refuses it in any other state), and the case is closed
 # through the outcome. The parents then end through the outcome their evaluation offers (epic
 # not_released, root not_delivered). Returns 1 when the action has no such end.
-declare -A refusal_end=([release.publish]="explicitly_withheld withheld")
+# The ends by rule are data (driver/examples/sdc/rule-ends.json), read by sdc-check-routes too.
+declare -A refusal_end=()
+while read -r a dn oc; do refusal_end[$a]="$dn $oc"; done < <(jq -r '.approvals | to_entries[] | select(.value.reject.decision != null)
+  | "\(.key | split("/")[1]) \(.value.reject.decision) \(.value.reject.outcome)"' "$ex/rule-ends.json")
 rework_file=""
 withhold() { # <request> <decider reply>
   local req=$1 reply=$2 cdir act cap subj dn oc

@@ -32,6 +32,10 @@ path = "src/bin/sdc-reply.rs"
 name = "sdc-bugfix"
 path = "src/bin/sdc-bugfix.rs"
 
+[[bin]]
+name = "sdc-check-routes"
+path = "src/bin/sdc-check-routes.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

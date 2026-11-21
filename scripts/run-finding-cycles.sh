@@ -80,10 +80,11 @@
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
 #   autopilot-close, autopilot-close-a3   runs/trial-3-haiku-5: the close in autopilot (D140)
 #   review-no-rework-prompt  after a merge.approve rejection the review gets no rejection as rework (D138)
-#   decider-question-reject, rework-fresh-allowance, spec-review-rework, and the pending
+#   decider-question-reject, rework-fresh-allowance, spec-review-rework, writer-own-error,
+#   implement-percause, writer-sees-test-failure, and the pending
 #   scope-unattributed-reject, finding-refused-reask, rework-spent-dropped, rework-spent-abandoned,
-#   review-invalid-named, writer-own-error, implement-percause: the reject and cap routes of
-#   docs/reject-routes.md (R1-R9)
+#   review-invalid-named: the reject and cap routes of
+#   docs/reject-routes.md (R1-R9, R13)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>` and `pending: N (K still failing: ...)`; exits 1 when an expected cycle missed its
 # expectation (a pending one never fails the script).
@@ -122,9 +123,10 @@ expected+=(decider-later-obligation replay-sibling writer-not-called)
 expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
-expected+=(decider-question-reject rework-fresh-allowance spec-review-rework)
+expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause
+  writer-sees-test-failure)
 pending=(scope-unattributed-reject finding-refused-reask rework-spent-dropped rework-spent-abandoned
-  review-invalid-named writer-own-error implement-percause)
+  review-invalid-named)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -1349,7 +1351,7 @@ if jq -e '."change.review".llm' "$sdc/driver/examples/sdc/sdc-story.bindings.jso
 else
   echo "review-invalid-named: FAILED (change.review is not a model call here: needs impl/review-node)"
 fi
-# writer-own-error (R9, pending): questions.answer (fixture adapter, apply step) changes the
+# writer-own-error (R9): questions.answer (fixture adapter, apply step) changes the
 # scope-changing question q2, which the apply step refuses (exit 1, nothing applied). Route: the
 # failed run's own log reaches the next run as in/feedback.md. Passes when the second
 # questions.answer call has in/feedback.md naming the refusal.
@@ -1362,11 +1364,11 @@ if [[ -n $second ]] && grep -q 'changed a scope-changing question' "$second/cwd/
 else
   echo "writer-own-error: FAILED (exit $code, second call ${second:-none}, no in/feedback.md naming the refusal)"
 fi
-# implement-percause (R7, pending): change.implement's trees: one that does not build (tests.run
+# implement-percause (R7): change.implement's trees: one that does not build (tests.run
 # fails), one with an empty README (the stub review rejects), one that does not build again, then
 # a good one. Route: runs counted per retry kind (conformance_run 2, code_review 1, each under 3),
 # with a backstop of 8 per arrival. Passes when the run closes with 4 change.implement runs and no
-# writer_spent. Today: writer_spent after 3 runs.
+# writer_spent. Before: writer_spent after 3 runs.
 trial implement-percause SDC_STUB_FIXTURES="$fx/implement-percause"
 code=$?
 st=$(rr_story implement-percause)
@@ -1376,6 +1378,22 @@ if (( code == 0 )) && [[ -n $st ]] &&
   echo "implement-percause: checks pass (two test failures and a review rejection: counted per kind, 4 runs; closed)"
 else
   echo "implement-percause: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$s/runs/implement-percause/run-stopped.json" 2>/dev/null | cut -c1-240))"
+fi
+# writer-sees-test-failure (R13): change.implement (fixture adapter, llm-node.sh) first writes a
+# tree whose tests build and one fails with a message, among 45 passing tests; tests.run fails.
+# Route: the failing test's own output (panic message included), not the build pool's last line,
+# reaches the next run's in/feedback.md. Passes when the second change.implement call's
+# in/feedback.md holds the assertion message, no `slot: job` line, and the run closes.
+trial writer-sees-test-failure SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.implement SDC_STUB_FIXTURES="$fx/test-failure"
+code=$?
+r=$s/runs/writer-sees-test-failure
+second=$(jq -rs '[.[] | select(.action == "change.implement") | .record] | .[1] // empty' "$r/llm-calls.jsonl" 2>/dev/null)
+if (( code == 0 )) && [[ -n $second ]] &&
+   grep -q 'fixture-failure: the second email of an account counts 2' "$second/cwd/in/feedback.md" 2>/dev/null &&
+   ! grep -q '^slot: job ' "$second/cwd/in/feedback.md"; then
+  echo "writer-sees-test-failure: checks pass (the failing test's message reached the next writer run; closed)"
+else
+  echo "writer-sees-test-failure: FAILED (exit $code, second call ${second:-none}, feedback without the test's message)"
 fi
 targs=()
 # The review on the adapter path a real run takes (runs/trial-3-strong-3 and -4 stopped stuck at

@@ -3,7 +3,8 @@
 # bound action is declared, every produced kind is in the action's may_produce, every placed
 # artifact is declared, a `child` binding is on a `case_open` action, and every action that may
 # produce evidence or opens a case is bound or is a person's (unbound) action. Run
-# check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/.
+# check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
+# (sdc-check-routes) against docs/reject-routes.md.
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 fail=0
@@ -32,4 +33,8 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
     echo "pass $name (unbound: ${unbound:-none})"
   fi
 done
+# The reject and cap routes (D148, docs/reject-routes.md): sdc-check-routes finds every state of
+# the autopilot where nothing points to a next step; its findings must equal the list in the doc.
+(cd "$sdc/driver" && cargo build --quiet --bin sdc-check-routes) || fail=1
+"$sdc/driver/target/debug/sdc-check-routes" --root "$sdc" --doc "$sdc/docs/reject-routes.md" || fail=1
 exit $fail
