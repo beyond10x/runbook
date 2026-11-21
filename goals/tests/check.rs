@@ -250,7 +250,10 @@ fn sources_is_a_non_empty_list() {
         "company/c1",
         "missing_source",
     );
-    let f = doc(&format!("  - {{{}}}", with(r#"source: "person:operator","#)));
+    let f = doc(&format!(
+        "  - {{{}}}",
+        with(r#"source: "person:operator","#)
+    ));
     let o = run(&["check", &f]);
     assert_eq!((o.code, o.stderr.lines().count()), (1, 1), "{}", o.stderr);
     has(&o, &f, "company/c1", "source_form");
@@ -295,7 +298,10 @@ fn each_source_is_exactly_one_of_the_four_forms() {
 #[test]
 fn stated_is_by_and_a_date() {
     let with = |s: &str| format!("id: company/c1, {OK}, stated: {s}");
-    let f = doc(&format!("  - {{{}}}", with("{by: operator, at: 2026-11-20}")));
+    let f = doc(&format!(
+        "  - {{{}}}",
+        with("{by: operator, at: 2026-11-20}")
+    ));
     assert_eq!(run(&["check", &f]).code, 0);
     one_finding(
         &with("{by: operator, at: yesterday}"),
@@ -718,4 +724,223 @@ fn resolve_refuses_findings_and_a_bad_instant() {
         2
     );
     assert_eq!(run(&["resolve", &fixture("company.good.yaml")]).code, 2);
+}
+
+/// `ground` on the given layer files, citing `goals@r1#<id>` with the current revision `current`.
+fn ground(id: &str, digest: Option<&str>, current: &str, at: &str, files: &[String]) -> Out {
+    let cite = format!("goals@r1#{id}");
+    let mut args = vec!["ground", "--at", at, "--cite", &cite, "--current", current];
+    if let Some(d) = digest {
+        args.extend(["--digest", d]);
+    }
+    args.extend(files.iter().map(String::as_str));
+    run(&args)
+}
+
+fn p1_digest() -> String {
+    run(&["digest", &fixture("product.good.yaml"), "product/p1"])
+        .stdout
+        .trim()
+        .to_string()
+}
+
+fn layers(product: &str) -> Vec<String> {
+    vec![fixture("company.good.yaml"), fixture(product)]
+}
+
+/// The refusal codes of a `ground` report, in order.
+fn refusals(o: &Out) -> Vec<String> {
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    v["refusals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["code"].as_str().unwrap().to_string())
+        .collect()
+}
+
+#[test]
+fn ground_holds_on_the_current_revision_and_digest() {
+    let d = p1_digest();
+    let o = ground(
+        "product/p1",
+        Some(&d),
+        "r1",
+        "2026-11-21",
+        &layers("product.good.yaml"),
+    );
+    assert_eq!((o.code, o.stderr.as_str()), (0, ""));
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["holds"], true);
+    assert_eq!(v["cite"], "goals@r1#product/p1");
+    assert_eq!(v["entry"], "product/p1");
+    assert_eq!(v["layer"], "product");
+    assert_eq!(v["digest"].as_str(), Some(d.as_str()));
+    assert_eq!(v["at"], "2026-11-21T00:00:00Z");
+    assert!(v["refusals"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn ground_without_a_digest_holds_and_prints_the_digest() {
+    let o = ground(
+        "product/p1",
+        None,
+        "r1",
+        "2026-11-21",
+        &layers("product.good.yaml"),
+    );
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["digest"].as_str(), Some(p1_digest().as_str()));
+}
+
+#[test]
+fn ground_is_refused_when_the_statement_changed() {
+    let o = ground(
+        "product/p1",
+        Some(&p1_digest()),
+        "r1",
+        "2026-11-21",
+        &layers("product.p1-changed.yaml"),
+    );
+    assert_eq!(o.code, 1);
+    assert_eq!(refusals(&o), ["digest_changed"]);
+    assert!(
+        o.stderr.contains("goals@r1#product/p1: digest_changed: "),
+        "{}",
+        o.stderr
+    );
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["holds"], false);
+}
+
+#[test]
+fn ground_is_refused_when_the_entry_was_removed() {
+    let o = ground(
+        "product/p1",
+        Some(&p1_digest()),
+        "r1",
+        "2026-11-21",
+        &layers("product.p1-removed.yaml"),
+    );
+    assert_eq!(o.code, 1);
+    assert_eq!(refusals(&o), ["no_entry"]);
+    assert!(o.stderr.contains("goals@r1#product/p1: no_entry: "));
+}
+
+#[test]
+fn ground_is_refused_at_a_revision_that_is_not_current() {
+    let o = ground(
+        "product/p1",
+        Some(&p1_digest()),
+        "r2",
+        "2026-11-21",
+        &layers("product.good.yaml"),
+    );
+    assert_eq!(o.code, 1);
+    assert_eq!(refusals(&o), ["not_current"]);
+    assert!(o.stderr.contains("goals@r1#product/p1: not_current: "));
+    assert!(o.stderr.contains("r2"), "{}", o.stderr);
+}
+
+#[test]
+fn ground_is_refused_outside_the_entry_window() {
+    let f = doc(
+        r#"  - {id: company/c1, kind: goal, priority: 1, statement: "S.", sources: ["person:operator"], valid_from: 2026-11-21, valid_until: 2026-12-01}"#,
+    );
+    let at = |t: &str| ground("company/c1", None, "r1", t, std::slice::from_ref(&f));
+    assert_eq!(at("2026-11-21").code, 0);
+    let o = at("2026-11-20T23:59:59Z");
+    assert_eq!(
+        (o.code, refusals(&o)),
+        (1, vec!["not_yet_valid".to_string()])
+    );
+    let o = at("2026-12-01");
+    assert_eq!((o.code, refusals(&o)), (1, vec!["expired".to_string()]));
+}
+
+#[test]
+fn ground_is_refused_while_a_lower_layer_overrides_the_entry() {
+    let files = layers("product.override-principle.yaml");
+    let o = ground("company/c3", None, "r1", "2026-11-21", &files);
+    assert_eq!((o.code, refusals(&o)), (1, vec!["overridden".to_string()]));
+    assert!(o.stderr.contains("product/p3"), "{}", o.stderr);
+    assert_eq!(
+        ground("company/c3", None, "r1", "2027-01-01", &files).code,
+        0
+    );
+}
+
+#[test]
+fn ground_names_every_cause_at_once() {
+    let o = ground(
+        "product/p1",
+        Some(&p1_digest()),
+        "r2",
+        "2026-11-20",
+        &layers("product.p1-changed.yaml"),
+    );
+    assert_eq!(o.code, 1);
+    assert_eq!(
+        refusals(&o),
+        ["not_current", "digest_changed", "not_yet_valid"]
+    );
+}
+
+#[test]
+fn ground_is_refused_on_invalid_goals() {
+    let o = ground(
+        "company/c1",
+        None,
+        "r1",
+        "2026-11-21",
+        &[fixture("bad.unknown-kind.yaml")],
+    );
+    assert_eq!(o.code, 1);
+    assert_eq!(refusals(&o), ["invalid_goals"]);
+    assert!(o.stderr.contains("unknown_kind"), "{}", o.stderr);
+}
+
+#[test]
+fn ground_usage_errors_exit_2() {
+    let c = fixture("company.good.yaml");
+    for cite in [
+        "goals@r1",
+        "goals#company/c1",
+        "vision@r1#company/c1",
+        "goals@#company/c1",
+        "goals@r1#",
+    ] {
+        let o = run(&[
+            "ground",
+            "--at",
+            "2026-11-21",
+            "--cite",
+            cite,
+            "--current",
+            "r1",
+            &c,
+        ]);
+        assert_eq!(o.code, 2, "{cite}: {}", o.stderr);
+    }
+    let o = run(&[
+        "ground",
+        "--at",
+        "2026-11-21",
+        "--cite",
+        "goals@r1#company/c1",
+        &c,
+    ]);
+    assert_eq!(o.code, 2, "--current is required");
+    let o = run(&[
+        "ground",
+        "--at",
+        "2026-11-21",
+        "--cite",
+        "goals@r1#company/c1",
+        "--current",
+        "r1",
+        "/nonexistent/goals.yaml",
+    ]);
+    assert_eq!(o.code, 2);
 }

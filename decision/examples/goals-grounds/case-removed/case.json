@@ -1,0 +1,12 @@
+{
+  "id": "IDEA-1.intake",
+  "revision": "c12",
+  "artifacts": {
+    "goals": {
+      "revision": "tg0003"
+    },
+    "questions": {
+      "revision": "tq0001"
+    }
+  }
+}

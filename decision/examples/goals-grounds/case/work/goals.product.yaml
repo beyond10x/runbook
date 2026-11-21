@@ -1,0 +1,6 @@
+format: sdc.goals/1
+layer: product
+requester: operator
+entries:
+  - {id: product/p1, kind: goal, priority: 1, statement: "Each of us keeps our own to-dos, organised in several lists.", sources: ["person:operator"], valid_from: 2026-11-21}
+  - {id: product/p2, kind: constraint, statement: "Everything works offline; no edit is lost, also when both of us edit offline.", sources: ["person:operator"], valid_from: 2026-11-21}

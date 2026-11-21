@@ -46,8 +46,10 @@ or run. *(inferred)* marks design not observed.
 
 Gaps found: `check-questions` accepts a scope-changing answer under any `answered_by` except empty
 and `non-interactive` (`sdc-tool.sh:65-67`), so `derived` passes with no basis checked. The
-contract has no free answer: `Decide` takes an option letter only (`decision.yaml:517-525`), yet
-both of the operator's trial-2 answers were "neither option as asked" (`questions.yaml:11`, `:33`).
+contract had no free answer: `Decide` took an option letter only, yet both of the operator's
+trial-2 answers were "neither option as asked" (`questions.yaml:11`, `:33`). Closed by
+story:decision-contract-goals-grounds: `Decide` and `Recommend` take a free `answer` on a question
+request (`decisions.md`, "The decision"; scenario `ess/scenarios/question-free-answer.yaml`).
 
 ## 2. The goals document, `sdc.goals/1`
 
@@ -181,11 +183,14 @@ their entries, in the digest (`autonomy-levels.md:328`). Reversing one is an edi
 |---|---|
 | Canon | nothing new: `goals` is one more artifact; a ground is an `artifact@revision` citation, which story:decision-grounds (canon wave 6) already covers (`decisions.md:294-296`) |
 | Loom | the host passes the resolved goals document and, per decision class, a decider configuration (principal, inputs, prompt) and eligible principals per side: `upstream-blocker:loom-decider-per-class` |
-| SDC | `sdc.goals/1`, `goals/` (`sdc-goals check|digest|resolve`), `side` in the classes document, the requester prompt, `questions.derive`, the basis check, rules over constraints, the persona format, G1 to G6, the UI |
+| SDC | `sdc.goals/1`, `goals/` (`sdc-goals check|digest|resolve|ground`), `side` in the classes document, the requester prompt, `questions.derive`, the basis check, rules over constraints, the persona format, G1 to G6, the UI |
 
-Contract additions for the owner of `ess/domains/decision.yaml` (being edited by another session):
-`GroundSource` value `goals`, `ArtifactRevisionCitation.entry`, and an optional free `answer` on
-`Decide` for question requests.
+Contract additions in `ess/domains/decision.yaml` (story:decision-contract-goals-grounds):
+`GroundSource` value `goals`; `ArtifactRevisionCitation.entry` and `.digest`; `Ground.supports`
+optional (absent: the free answer); an optional free `answer` on `Decide` and
+`recommended_answer` on `Recommend`, for question requests only (guards `option-or-answer`,
+`answer-not-allowed`). The grounding check calls `sdc-goals ground` for a goals entry
+(`decisions.md`, "The grounding rule").
 
 ## 8. Worked example: trial 2
 

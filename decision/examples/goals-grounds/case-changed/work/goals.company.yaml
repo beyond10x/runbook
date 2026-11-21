@@ -1,0 +1,7 @@
+format: sdc.goals/1
+layer: company
+requester: operator
+entries:
+  - {id: company/c1, kind: principle, priority: 1, statement: "Build the simplest thing that serves the named users; nothing for users nobody named.", sources: ["person:operator"], valid_from: 2026-11-21}
+  - {id: company/c2, kind: constraint, statement: "Data stays on devices and servers we run; no third-party cloud, account or mail service.", sources: ["person:operator"], valid_from: 2026-11-21}
+  - {id: company/c3, kind: principle, priority: 2, statement: "Every user signs in to an own account; no anonymous or link-based access.", sources: ["person:operator"], valid_from: 2026-11-21}

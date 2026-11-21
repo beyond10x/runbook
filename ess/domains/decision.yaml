@@ -274,8 +274,6 @@ entities:
     invariants:
       - {any: [not defined(recommended_option), not defined(no_recommendation_reason)]}
       - {any: [not defined(recommended_answer), not defined(no_recommendation_reason)]}
-      - {any: [not defined(recommended_option), not defined(recommended_answer)]}
-      - {any: [not defined(decided_option), not defined(decided_answer)]}
       - {any: [default_on_silence == false, recommendation_strength == strong]}
     lifecycle:
       initial: Open

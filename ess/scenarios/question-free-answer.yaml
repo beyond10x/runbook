@@ -1,4 +1,7 @@
-type: ess-scenario/1
+type: ess-scenario/7
+covers:
+  - sdc.decision.RecordProduced/outcome/recorded
+  - sdc.decision.DecisionRequest/transition/record_produced/by/sdc.decision.RecordProduced/recorded
 domain: sdc.decision
 scenario: question-free-answer
 summary: "A free answer to a scope question, grounded in a goals entry, is taken at A3; an approval takes none."
