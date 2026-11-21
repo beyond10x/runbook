@@ -17,9 +17,12 @@
 //! ```
 //!
 //! `findings.yaml`: `{findings: [{id, type, stage, raised_by, cites, says, options, default,
-//! scope_changing, status, scope, basis, decision, decided_by, resolution, attempts}]}`. status:
-//! open | needs_person | resolved | dismissed | rejected. A person answers a needs_person finding
-//! by setting `decision` (one of the options or their own text), or `status: dismissed`.
+//! scope_changing, status, scope, basis, decision, decided_by, resolution, attempts,
+//! refused_decision}]}`. status: open | needs_person | resolved | dismissed | rejected. A person
+//! answers a needs_person finding by setting `decision` (one of the options or their own text),
+//! or `status: dismissed`. A decider sets `decision` and `decided_by: decider:<kind>`; its
+//! amendment is checked as the agent's are, and a refused one is reverted, taken off the finding
+//! and kept as `refused_decision` {decision, decided_by, why}, so the finding waits for a person.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -41,6 +44,11 @@ type R<T> = Result<T, String>;
 
 fn is_open(s: &str) -> bool {
     s == "open" || s == "needs_person"
+}
+
+/// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it.
+fn is_decider(principal: &str) -> bool {
+    principal.strip_prefix("decider:").is_some_and(|k| !k.is_empty())
 }
 
 fn load(path: &str) -> Value {
@@ -432,14 +440,15 @@ fn amend_one(w: &mut Work, f: &Value, decision: &str, decided_by: &str, basis: &
     let qid = next_qid(w);
     let fid = st(f, "id").to_string();
     let reason = format!("finding {fid} ({}, raised by {}): {basis}", st(f, "type"), st(f, "raised_by"));
-    let answered_by = if decided_by == "human" { "human" } else if basis.starts_with("derived") { "derived" } else { "non-interactive" };
+    let answered_by = if decided_by == "human" || is_decider(decided_by) { decided_by }
+        else if basis.starts_with("derived") { "derived" } else { "non-interactive" };
     let mut q = Mapping::new();
     q.insert(s("id"), s(&qid));
     q.insert(s("item"), s(&fid));
     q.insert(s("question"), f.get("says").cloned().unwrap_or(Value::Null));
     q.insert(s("options"), f.get("options").cloned().unwrap_or(Value::Null));
     q.insert(s("default"), f.get("default").cloned().unwrap_or(Value::Null));
-    q.insert(s("scope_changing"), Value::Bool(decided_by == "human"));
+    q.insert(s("scope_changing"), Value::Bool(decided_by == "human" || is_decider(decided_by)));
     q.insert(s("status"), s(if decision == st(f, "default") { "accepted" } else { "changed" }));
     q.insert(s("answer"), s(decision));
     q.insert(s("answered_by"), s(answered_by));
@@ -635,9 +644,12 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         let (decision, decided_by, basis);
         if status == "needs_person" {
             decision = scalar(&f["decision"]);
-            decided_by = "human".to_string();
-            basis = "a person decided".to_string();
-            w.findings_mut()[i]["decided_by"] = s("human");
+            // A decider writes its principal with its decision (scripts/run-trial.sh); any other
+            // edit is a person's.
+            let by = st(&f, "decided_by");
+            decided_by = if is_decider(by) { by.to_string() } else { "human".to_string() };
+            basis = if is_decider(by) { format!("{by} decided") } else { "a person decided".to_string() };
+            w.findings_mut()[i]["decided_by"] = s(&decided_by);
         } else {
             let (scope, default, why) = classify(&w, &f);
             {
@@ -665,13 +677,31 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         let hits_before: BTreeSet<String> = w.rule_hits()?.iter().map(|h| st(h, "id").to_string()).collect();
         let amended = amend_one(&mut w, &f, &decision, &decided_by, &basis)?;
         let new_q = amended.first().cloned().unwrap_or_default();
-        if let Some(why) = verify(&before, &snap.2, &hits_before, &w, &f, &decision, &new_q, decided_by == "agent")? {
+        // A decider's decision goes through the same checks as the agent's amendments: only a
+        // person's decision stands unchecked.
+        let checked = decided_by == "agent" || is_decider(&decided_by);
+        if let Some(why) = verify(&before, &snap.2, &hits_before, &w, &f, &decision, &new_q, checked)? {
             (w.req, w.qs, w.ctx) = snap;
             let attempts = f.get("attempts").and_then(Value::as_u64).unwrap_or(0) + 1;
             let e = &mut w.findings_mut()[i];
             e["attempts"] = Value::from(attempts);
             e["status"] = s("needs_person");
-            e["basis"] = s(&format!("program check of the agent's amendment failed: {why}"));
+            if is_decider(&decided_by) {
+                // Reverted: the decision is taken off the finding, so it waits for a person, and
+                // kept as refused_decision, so the decider is not asked again.
+                if let Some(m) = e.as_mapping_mut() {
+                    m.remove("decision");
+                    m.remove("decided_by");
+                }
+                let mut rd = Mapping::new();
+                rd.insert(s("decision"), s(&decision));
+                rd.insert(s("decided_by"), s(&decided_by));
+                rd.insert(s("why"), s(&why));
+                e["refused_decision"] = Value::Mapping(rd);
+                e["basis"] = s(&format!("program check of {decided_by}'s amendment failed: {why}"));
+            } else {
+                e["basis"] = s(&format!("program check of the agent's amendment failed: {why}"));
+            }
             println!("amend: {fid} needs a person: {why}");
             changed = true;
             continue;

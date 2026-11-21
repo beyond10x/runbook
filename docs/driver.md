@@ -372,9 +372,13 @@ root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `
 writes `out/decision.json` {decision, answer, reasons, cites, best}, a jq program validates it,
 invalid counts as escalate). The script, not the driver, applies a decision: `sdc-drive approve
 --principal decider:<kind>` (grant and approval record carry that principal) or `answered_by:
-decider:<kind>` in `questions.yaml`; `decisions.jsonl` keeps every decision with its reasons. No
-driver change. Limit: `check-questions` still demands `answered_by: human` for a scope-changing
-answer (see `trial-1.md`).
+decider:<kind>` in `questions.yaml`; `decisions.jsonl` keeps every decision with its reasons and
+its `class`. No driver change. `scope.answer` is put to the decider one open scope-changing
+question at a time (class `scope_changing_answer`), then taken as `decider:<kind>`; a finding
+waiting at `amend.upstream` is put to it as a finding request (class `finding`) and its answer
+written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings amend` checks as it
+checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
+principal for a scope-changing answer (`sdc.intake` r5).
 
 **Where another model source plugs in** (not built):
 

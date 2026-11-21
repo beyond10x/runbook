@@ -43,7 +43,7 @@ Lines marked *(inferred)* were not observed.
 - Does not work: the wrong amendment (f11's default emptied f9's decision, R7): `story:amendment-keeps-person-decisions`.
 - Does not work: story-stage findings cannot reach the specification (f9, f16): `story:story-finding-reopens-spec`.
 - Does not work: 8 of 14 late findings arose in the story stage: `story:intake-asks-what-stories-will-need`, `story:late-findings-per-stage-kpi`.
-- Does not work: the decider cannot take a finding decision (f1, f9, f16 went to a person): `story:decider-finding-decision`.
+- Did not work: the decider could not take a finding decision (f1, f9, f16 went to a person): `story:decider-finding-decision`, built since (cycles `decider-finding*`).
 - Does not work: the driver counts 30 calls, the record 27: `story:llm-call-count-matches-record`.
 - Does not work: replay of the root fails after a child closes: `story:replay-after-child-close`.
 - Fixed R1: edit-then-approve refused; `sdc.intake` r6, cycle `scope-changed`.
@@ -204,8 +204,13 @@ unchanged.
   not the specification, whose case has already ended: `sdc.epic` (36,864 = 9 × 2^12) has no room
   to reopen `sdc.spec` on a requirements revision.
 - A person's decision on a finding after intake goes through the handoff edit, not through
-  `scope.answer`: no protocol after intake has room for a second capability. A decider (A3+)
-  therefore cannot decide those yet; `run-trial.sh`'s decider stops there for a person.
+  `scope.answer`: no protocol after intake has room for a second capability. Under a decider
+  (A3+) `run-trial.sh` takes that edit itself (added 2026-11-21, `story:decider-finding-decision`):
+  each finding waiting for a decision goes to the decider as a decision request (its text,
+  options, default, cites, and the requirements, prior decisions and context fields it touches);
+  the answer is written as `decision:` with `decided_by: decider:<kind>`, `amend.upstream` applies
+  it through the same program check as the agent's amendments, and a refused one is reverted and
+  kept as `refused_decision`, and the finding waits for a person.
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
@@ -343,6 +348,9 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `story-late-person` (added 2026-11-21, R8: `fixtures/finding-story-late-person.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s third run raises a scope-changing finding: `awaiting_person` (due `handoff_when`) rather than `writer_spent`, then a fresh allowance, `operating`. Before: exit 1, `stuck` after the person's decision |
 | `decider-scope-answer` (added 2026-11-21, `runs/trial-2b-fresh`'s first stop: `scripts/run-trial.sh` with `SDC_DECIDER=haiku` on `tools/llm-adapter-fixture.sh`, `fixtures/scope-two`) | 0 | two scope-changing questions open at `scope.answer`; each goes to the decider on its own (text, options, default, dissection item, idea excerpt; `questions.settled` marked `settled_by_this_decision`): q2 by its default (`accepted`), q3 a free answer (`changed`), both `answered_by: decider:haiku`, class `scope_changing_answer` in `decisions.jsonl`; `scope.answer` taken as `decider:haiku`; closed, replay 8 of 8. Before: exit 3, the decider escalated the approval of `scope.answer` reading `questions.settled` false as a failed check |
 | `decider-scope-final` (added 2026-11-21, as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating q3) | 0 | q3 `escalation_suppressed`, its default taken. Before: exit 6 (the escalated approval had no `best`, counted as reject) |
+| `decider-finding` (added 2026-11-21, `story:decider-finding-decision`: `fixtures/finding-spec-person.yaml` under the decider) | 0 | f1 (scope-changing) goes to the decider as a finding request; it answers option 2; f1 resolved with `decided_by: decider:haiku`, the amendment's question `answered_by: decider:haiku`, class `finding` in `decisions.jsonl`; closed, replay 8 of 8. Before: exit 3, "nothing for decider:haiku at amend.upstream" |
+| `decider-finding-final` (as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating with no `best`) | 0 | `escalation_suppressed`, f1's default taken. Before: exit 3 |
+| `decider-finding-refused` (`fixtures/offline-decision` under the decider) | 3 | the decider takes the default the agent's check already refused; the same check refuses the decider's amendment (it states against decision q3): reverted, `refused_decision` kept, the decider not asked again, a person decides. Before: exit 3 with no decider request and no `refused_decision` |
 | `scripts/run-trial.sh --dry trial-2-dry` (`SDC_RUNS_DIR=$S/runs`) | 0 | 10 LLM commands printed, none run; scripted approvals; `operating`; replay 8 of 8 match |
 | `$S/t1-replay.sh` (trial 1's own files, copied; q3/r3 put back to browser storage) | 0 | `sdc-findings consistency` exit 5 (`p-storage-location-r3`, cites `context.deployment`, `context.platform`, `r3`); `amend context` resolves it by agent; gate exit 0; `check-questions` 0, `check-requirements` 0. Trial 1's contradiction would have been found at the context check and repaired with no person |
 

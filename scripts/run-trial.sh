@@ -38,6 +38,10 @@
 # are written as a person's are, then `scope.answer` is taken as `decider:<kind>`; under
 # SDC_DECIDER_ESCALATE=final an escalated question takes its default. Each line of
 # decisions.jsonl names its `class`: scope_changing_answer, finding, approval or close.
+# At amend.upstream's handoff each finding waiting for a decision goes to the decider (its text,
+# options, default, cites and what it touches); the answer is written as `decision:` with
+# `decided_by: decider:<kind>` and amend.upstream applies it; under final, `best`, else the
+# default. A decision the program check refuses (`refused_decision`) waits for a person.
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
 # 6 refused by the decider.
@@ -181,11 +185,11 @@ waiting() { jq -r '.message' <<< "$last"; echo "then run again: scripts/run-tria
 # when it waits on a person) and $ans (a question's answer); appends to decisions.jsonl.
 decide() {
   local req=$1 key rec n reply line before
-  key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // ""), .revision] | join("|")' <<< "$req")
+  key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
   dec="" ans=""
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
      jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
-       and ([.case, .action, (.question // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
+       and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
     echo "  decider:$decider escalated $key before: a person decides"
     return 0
   fi
@@ -207,7 +211,7 @@ decide() {
     jq -cn --arg at "$(now)" --arg p "decider:$decider" --arg d "$1" --argjson q "$req" --argjson r "$reply" --argjson x "$x" '{
       time: $at, case: ($q.case_dir | split("/") | last), type: $q.type,
       class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
-      question: ($q.question.id // null), capability: $q.capability, outcome: $q.outcome,
+      question: ($q.question.id // null), finding: ($q.finding.id // null), capability: $q.capability, outcome: $q.outcome,
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
       cites: $r.cites, model: $r.model, adapter: $r.adapter, tokens: $r.usage, cost_usd: $r.cost_usd,
       duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
@@ -222,6 +226,11 @@ decide() {
       dec=approve ans=$(jq -r .question.default <<< "$req")
       reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); the default taken"] + .reasons
         | .usage = null | .cost_usd = null' <<< "$reply")
+    elif [[ $(jq -r .type <<< "$req") == finding ]]; then
+      # A finding takes the decider's best answer, else its default.
+      dec=approve ans=$(jq -r --argjson q "$req" '.best // $q.finding.default' <<< "$reply")
+      reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); "
+        + (if .best then "best answer" else "the default" end) + " taken"] + .reasons | .usage = null | .cost_usd = null' <<< "$reply")
     else
       dec=$(jq -r '.best // "reject"' <<< "$reply")
       reply=$(jq -c '.reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); best decision taken"] + .reasons
@@ -262,6 +271,32 @@ answer_questions() {
   [[ $found == yes ]] || return 2
 }
 
+# The findings in case $1 that wait for a decision (amend.upstream's handoff, action $2, position
+# $3), one decider decision each: the decision is written as a person's is (`decision:` on the
+# finding) with `decided_by: decider:<kind>`, and amend.upstream applies it on the next round
+# through the same program check as the agent's amendments. A finding whose decider decision
+# that check refused (`refused_decision`) waits for a person. Returns as answer_questions.
+decide_findings() {
+  local cdir=$1 act=$2 pos=$3 ff=$1/work/findings.yaml found=no rev f fid fs=()
+  rev=$(jq -r '.artifacts.findings.revision // "none"' "$cdir/case.json")
+  mapfile -t fs < <(yq -o=json -I=0 '.findings[] | select(.status == "needs_person" and (.decision // "") == "")' "$ff" 2>/dev/null)
+  for f in "${fs[@]}"; do
+    [[ -n $f ]] || continue
+    found=yes
+    fid=$(jq -r .id <<< "$f")
+    if jq -e '.refused_decision' <<< "$f" > /dev/null; then
+      echo "  $fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f")): a person decides"
+      return 1
+    fi
+    decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson f "$f" --argjson pos "$pos" \
+      '{type: "finding", case_dir: $c, action: $a, capability: null, subject: "findings",
+        path: "findings.yaml", revision: $rev, question: null, finding: $f, outcome: null, position: $pos}')"
+    [[ -n $dec ]] || return 1
+    ANS=$ans yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"decider:$decider\")" "$ff"
+  done
+  [[ $found == yes ]] || return 2
+}
+
 # Every pending decision of the stop in $last, through the decider. Returns 0 when all were
 # taken; exits on a refusal; returns 1 when one waits on a person.
 declare -A taken
@@ -272,8 +307,15 @@ decide_all() {
   while IFS= read -r n; do
     act=$(jq -r .action <<< "$n")
     if jq -e '.command | test(" run --at ")' <<< "$n" > /dev/null; then
-      # A handoff: the open scope-changing questions of the interview.
-      rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?
+      # A handoff: the findings that wait for a decision (amend.upstream), else the open
+      # scope-changing questions of the interview.
+      rc=0
+      if [[ $act == amend.upstream ]]; then
+        decide_findings "$cdir" "$act" "$pos" || rc=$?
+        (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no finding waits for a decision"; return 1; }
+      else
+        answer_questions "$cdir" "$act" "$pos" || rc=$?
+      fi
       (( rc == 1 )) && return 1
       (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; return 1; }
       continue

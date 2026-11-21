@@ -34,6 +34,10 @@
 #                   (default, free answer) and takes scope.answer; the run closes
 #   decider-scope-final as above under SDC_DECIDER_ESCALATE=final: an escalated question takes
 #                   its default, escalation_suppressed recorded
+#   decider-finding a scope-changing spec finding decided by the decider (option 2); amended
+#   decider-finding-final the decider escalates the finding under final: its default taken
+#   decider-finding-refused the decider's amendment contradicts decision q3: refused, reverted,
+#                   a person decides (exit 3)
 # Prints each run's exit code and its KPIs L1-L6.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
@@ -224,7 +228,7 @@ trial decider-scope-answer SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES
   q3: {decision: "approve", answer: $f, best: null, cites: ["d5", "d2"], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}}')"
 code=$?
 r=$s/runs/decider-scope-answer
-q=$r/store/IDEA-1/children/IDEA-1.intake/work/questions.yaml
+q=$r/store/IDEA-1/work/questions.yaml
 if (( code == 0 )) &&
    yq -o=json "$q" | jq -e --arg f "$free" '[.questions[] | select(
      (.id == "q2" and .status == "accepted" and .answer == .default and .answered_by == "decider:haiku")
@@ -242,11 +246,62 @@ trial decider-scope-final SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_ESCALATE
   q3: {decision: "escalate", answer: null, best: null, cites: ["d5"], reasons: ["Who else is emailed adds a kind of recipient the idea does not name."]}}')"
 code=$?
 r=$s/runs/decider-scope-final
-q=$r/store/IDEA-1/children/IDEA-1.intake/work/questions.yaml
+q=$r/store/IDEA-1/work/questions.yaml
 if (( code == 0 )) &&
    yq -o=json "$q" | jq -e '.questions[] | select(.id == "q3") | .status == "accepted" and .answer == .default and .answered_by == "decider:haiku"' >/dev/null &&
    jq -se '[.[] | select(.question == "q3") | .decision] == ["escalation_suppressed", "approve"]' "$r/decisions.jsonl" >/dev/null; then
   echo "decider-scope-final: checks pass (q3 escalated, suppressed, its default taken)"
 else
   echo "decider-scope-final: FAILED (run exit $code, or q3 not at its default, or no escalation_suppressed)"
+fi
+# decider-finding: trial 2's f1/f9/f16 stops ("nothing for decider:haiku at amend.upstream"). The
+# spec stage's scope-changing finding (fixtures/finding-spec-person.yaml) is put to the decider as
+# a decision request; it picks option 2. Passes when the run ends 0, the finding is resolved with
+# that option and `decided_by: decider:haiku`, the amendment's question is answered by
+# decider:haiku, and decisions.jsonl records it with class finding.
+opt2="the customer and the billing clerk"
+trial decider-finding SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_DECIDER_REPLIES="$(jq -cn --arg o "$opt2" '{
+  f1: {decision: "approve", answer: $o, best: null, cites: ["r2"], reasons: ["The clerk who issues an invoice is the one asked about it, so the clerk gets the email too."]}}')"
+code=$?
+r=$s/runs/decider-finding
+f=$r/store/IDEA-1/work/findings.yaml
+if (( code == 0 )) &&
+   yq -o=json "$f" | jq -e --arg o "$opt2" '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == $o and .decided_by == "decider:haiku"' >/dev/null &&
+   yq -o=json "$(dirname "$f")/questions.yaml" | jq -e --arg o "$opt2" 'any(.questions[]; .item == "f1" and .answer == $o and .answered_by == "decider:haiku")' >/dev/null &&
+   jq -se '[.[] | select(.class == "finding")] | length == 1 and .[0].finding == "f1" and .[0].decision == "approve"' "$r/decisions.jsonl" >/dev/null; then
+  echo "decider-finding: checks pass (f1 option 2 by decider:haiku, amended, class finding)"
+else
+  echo "decider-finding: FAILED (run exit $code, or f1 not decided by the decider, or not recorded)"
+fi
+# decider-finding-final: as decider-finding under SDC_DECIDER_ESCALATE=final, the decider
+# escalating f1 with no best: the default is taken, escalation_suppressed recorded.
+trial decider-finding-final SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_DECIDER_ESCALATE=final SDC_DECIDER_REPLIES="$(jq -cn '{
+  f1: {decision: "escalate", answer: null, best: null, cites: ["r2"], reasons: ["Who else is emailed is the requester'"'"'s call."]}}')"
+code=$?
+r=$s/runs/decider-finding-final
+f=$r/store/IDEA-1/work/findings.yaml
+if (( code == 0 )) &&
+   yq -o=json "$f" | jq -e '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == .default and .decided_by == "decider:haiku"' >/dev/null &&
+   jq -se '[.[] | select(.finding == "f1") | .decision] == ["escalation_suppressed", "approve"]' "$r/decisions.jsonl" >/dev/null; then
+  echo "decider-finding-final: checks pass (f1 escalated, suppressed, its default taken)"
+else
+  echo "decider-finding-final: FAILED (run exit $code, or f1 not at its default, or no escalation_suppressed)"
+fi
+# decider-finding-refused: fixtures/offline-decision. The agent's amendment contradicted decision
+# q3 and went to a person; the decider then takes the same option (its default), which the same
+# program check refuses: reverted, the finding waits for a person (exit 3) with the refused
+# decision recorded, and the decider is not asked again.
+trial decider-finding-refused SDC_STUB_FIXTURES="$fx/offline-decision"
+code=$?
+r=$s/runs/decider-finding-refused
+f=$r/store/IDEA-1/work/findings.yaml
+if (( code == 3 )) &&
+   yq -o=json "$f" | jq -e '.findings[] | select(.id == "p-offline-hosted-context.deployment")
+     | .status == "needs_person" and (.decision // "") == "" and .refused_decision.decided_by == "decider:haiku"
+       and (.refused_decision.why | test("q3"))' >/dev/null &&
+   jq -se '[.[] | select(.class == "finding")] | length == 1' "$r/decisions.jsonl" >/dev/null &&
+   [[ $(yq -r '.deployment.value' "$(dirname "$f")/context.yaml") == "a hosted web server reachable over the internet" ]]; then
+  echo "decider-finding-refused: checks pass (the decider's amendment refused and reverted, a person decides)"
+else
+  echo "decider-finding-refused: FAILED (run exit $code, or the decider's amendment stood, or no refused_decision)"
 fi

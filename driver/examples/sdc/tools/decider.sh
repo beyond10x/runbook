@@ -8,11 +8,17 @@
 #
 # kind: approve (rule: approve every approval, accept every question's default, close),
 #       reject (rule: refuse every decision), haiku (one bounded LLM call per decision).
-# request: {type: approval|question|close, case_dir, action, capability, subject, path, revision,
-#           question (the question object, for type question), outcome (for type close),
+# request: {type: approval|question|finding|close, case_dir, action, capability, subject, path,
+#           revision, question (the question object, for type question), finding (the finding
+#           object of findings.yaml, for type finding), outcome (for type close),
 #           position (the stopping case's position: claims, open obligations), record_dir}
-# reply:   {decision: approve|reject|escalate, answer (questions only), reasons: [..], cites: [..],
-#           kind, model, adapter, usage, cost_usd, duration_ms, valid, invalid_reason, dry, record}
+# reply:   {decision: approve|reject|escalate, answer (questions and findings), reasons: [..],
+#           cites: [..], kind, model, adapter, usage, cost_usd, duration_ms, valid, invalid_reason,
+#           dry, record}
+# A finding (type finding, amend.upstream's handoff) is decided with `approve` and an `answer`: one
+# of its options, or, when it is not a rule's contradiction (no `sides`), an answer of its own; or
+# `escalate`. Its in/decision.json adds `touches`: the requirements, prior decisions (answered
+# questions) and context fields it cites.
 #
 # haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
 # metaharness default, claude-cli, dry, or a path), model SDC_DECIDER_MODEL (default claude-haiku-5-5), at most
@@ -22,8 +28,8 @@
 # (marked dry), as llm-node.sh falls back to its stub.
 # SDC_DECIDER_ESCALATE=final (eval runs, no person at all): the prompt also asks for `best`
 # (approve or reject), required on an escalate; scripts/run-trial.sh records
-# `escalation_suppressed` and takes `best` (for a question: its default). Default `stop`: an
-# escalate waits for a person.
+# `escalation_suppressed` and takes `best` (for a question: its default; for a finding: `best` as
+# its answer, else its default). Default `stop`: an escalate waits for a person.
 # Claims: in/checks.json marks `settled_by_this_decision` on each claim the decided action's
 # precondition admits only while it is not true (the action is there to settle it).
 set -uo pipefail
@@ -39,6 +45,7 @@ final=no
 rule() { # $1 decision, $2 reason
   local answer=null
   [[ $type == question && $1 == approve ]] && answer=$(jq '.question.default' <<< "$req")
+  [[ $type == finding && $1 == approve ]] && answer=$(jq '.finding.default' <<< "$req")
   jq -cn --arg d "$1" --arg why "$2" --arg k "$kind" --argjson answer "$answer" --argjson dry "${3:-false}" \
     '{decision: $d, answer: $answer, best: null, reasons: [$why], cites: [], kind: $k, model: null, adapter: "rule",
       usage: null, cost_usd: 0, valid: true, dry: $dry}'
@@ -56,27 +63,35 @@ validate() {
   acode=$(jq '.exit // 0' "$rec/response.json" 2>/dev/null || echo 0)
   meta=$(jq -c --arg k haiku --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, adapter, usage,
     cost_usd, duration_ms, exit: $acode, record: $rec}' "$rec/response.json" 2>/dev/null || echo '{}')
-  # Citable: requirement, dissection item and question ids, and the claim ids in in/checks.json.
+  # Citable: requirement, dissection item, question and finding ids, context fields, and the
+  # claim ids in in/checks.json.
   ids=$( { yq -r '.requirements[].id' "$work/requirements.yaml"; yq -r '.items[].id' "$work/dissection.yaml"
-           yq -r '.questions[].id' "$work/questions.yaml"; jq -r '.claims // {} | keys[]' "$cwd/in/checks.json"
+           yq -r '.questions[].id' "$work/questions.yaml"; yq -r '.findings[].id' "$work/findings.yaml"
+           yq -r 'keys[] | "context." + .' "$work/context.yaml"; jq -r '.claims // {} | keys[]' "$cwd/in/checks.json"
          } 2>/dev/null | jq -Rsc 'split("\n") | map(select(. != ""))')
   if [[ ! -s $out ]]; then why="out/decision.json is missing"
   elif ! jq -e . "$out" > /dev/null 2>&1; then why="out/decision.json is not JSON"
   else
-    why=$(jq -r --arg type "$type" --arg final "$final" --argjson ids "$ids" '
+    why=$(jq -r --arg type "$type" --arg final "$final" --argjson ids "$ids" --argjson req "$req" '
       def known: ["answer", "best", "cites", "decision", "reasons"];
-      if type != "object" then "not a JSON object"
+      ($req.finding.options // []) as $opts | ($req.finding.sides != null) as $rule
+      | if type != "object" then "not a JSON object"
       else .decision as $d | .best as $b | (.cites // []) as $c | .answer as $a | .reasons as $r
       | if (keys - known) != [] then "unknown keys \(keys - known)"
         elif ($d | IN("approve", "reject", "escalate") | not) then "decision is not approve, reject or escalate"
+        elif $type == "finding" and $d == "reject" then "a finding is decided with approve and an answer, or escalate"
         elif ($r | type) != "array" or ($r | length) == 0 or any($r[]; type != "string" or . == "") then "reasons is not a non-empty list of sentences"
         elif ($c | type) != "array" or any($c[]; type != "string") then "cites is not a list of ids"
         elif any($c[]; IN($ids[]) | not) then "cites an id that does not exist: \([$c[] | select(IN($ids[]) | not)])"
         elif $b != null and $d != "escalate" then "best is only for an escalate"
-        elif $b != null and ($b | IN("approve", "reject") | not) then "best is not approve or reject"
-        elif $final == "yes" and $d == "escalate" and $b == null and $type != "question" then "an escalate needs best: approve or reject (SDC_DECIDER_ESCALATE=final)"
+        elif $type == "finding" and $b != null and (($b | type) != "string" or $b == "") then "best is not an answer"
+        elif $type == "finding" and $rule and $b != null and ($b | IN($opts[]) | not) then "best is not one of the options of a rule finding"
+        elif $type != "finding" and $b != null and ($b | IN("approve", "reject") | not) then "best is not approve or reject"
+        elif $final == "yes" and $d == "escalate" and $b == null and ($type | IN("question", "finding") | not) then "an escalate needs best: approve or reject (SDC_DECIDER_ESCALATE=final)"
         elif $type == "question" and ($d == "approve" or $b == "approve") and (($a | type) != "string" or $a == "") then "an approved question needs an answer"
-        elif $type != "question" and $a != null then "answer is only for a question"
+        elif $type == "finding" and $d == "approve" and (($a | type) != "string" or $a == "") then "an approved finding needs an answer"
+        elif $type == "finding" and $d == "approve" and $rule and ($a | IN($opts[]) | not) then "the answer to a rule finding is one of its options"
+        elif ($type | IN("question", "finding") | not) and $a != null then "answer is only for a question or a finding"
         else "" end end' "$out" 2>&1) || why="validator error: $why"
   fi
   if [[ -n $why ]]; then
@@ -143,7 +158,7 @@ reads=null settles=[]
 if [[ -s $ir ]]; then
   case $type in
     approval) reads=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects | .id] | unique' "$ir") ;;
-    question) reads=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects | .id] | unique
+    question|finding) reads=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects | .id] | unique
       | if . == [] then null else . end' "$ir") ;;
     close) reads=$(jq -c --arg o "$(r .outcome)" '[.outcomes[$o].requires // {} | .. | objects | .claim? | objects | .id] | unique' "$ir") ;;
   esac
@@ -166,8 +181,26 @@ if [[ $type == question ]]; then
   item=$(yq -o=json -I=0 ".items[] | select(.id == \"$(r '.question.item // ""')\")" "$work/dissection.yaml" 2>/dev/null)
   [[ -n $item ]] || item=null
 fi
-jq --argjson item "$item" '{type, case: (.case_dir | split("/") | last), action, capability, subject, artifact_path: .path,
-  revision, question, item: $item, idea_excerpt: ($item.span // null), outcome}' <<< "$req" > "$cwd/in/decision.json"
+# A finding comes with what it touches: the requirements it cites, the prior decisions (answered
+# questions) it or those requirements cite, and the context fields it cites.
+touches=null
+if [[ $type == finding ]]; then
+  input findings.yaml
+  touches=$(jq -cn --argjson f "$(r .finding)" \
+    --argjson req "$(yq -o=json -I=0 . "$work/requirements.yaml" 2>/dev/null || echo null)" \
+    --argjson qs "$(yq -o=json -I=0 . "$work/questions.yaml" 2>/dev/null || echo null)" \
+    --argjson ctx "$(yq -o=json -I=0 . "$work/context.yaml" 2>/dev/null || echo null)" '
+    ($f.cites // []) as $c | [($req.requirements // [])[] | select(.id | IN($c[]))] as $rs
+    | ($c + [$rs[].cites[]?]) as $qids
+    | {requirements: $rs,
+       decisions: [($qs.questions // [])[] | select((.id | IN($qids[])) and (.status == "accepted" or .status == "changed"))
+         | {id, question, answer, status, answered_by}],
+       context: [$c[] | select(startswith("context.")) | ltrimstr("context.") as $k
+         | {field: ("context." + $k), value: $ctx[$k].value, status: $ctx[$k].status}]}')
+fi
+jq --argjson item "$item" --argjson touches "$touches" '{type, case: (.case_dir | split("/") | last), action, capability,
+  subject, artifact_path: .path, revision, question, item: $item, idea_excerpt: ($item.span // null),
+  finding: (.finding // null), touches: $touches, outcome}' <<< "$req" > "$cwd/in/decision.json"
 
 case $type in
   approval) what="Decide whether to approve \`$(r .action)\`: the $(r .subject) at revision $(r .revision) (in/$path).
@@ -187,6 +220,13 @@ Approve with \`answer\` = the default, unless the default contradicts the idea; 
 option (or a short better answer) that fits the idea. The question is scope-changing: escalate when
 every answer, the default included, would add a capability, a kind of user or a component the idea
 does not ask for." ;;
+  finding) what="Decide the finding in in/decision.json (\`finding\`: \`says\`, \`options\`, \`default\`, \`cites\`;
+\`touches\`: the requirements, the prior decisions and the context fields it cites; all findings
+in in/findings.yaml). Approve with \`answer\` = the option that fits the idea and the requirements
+best$( [[ $(r '.finding.sides != null') == true ]] && echo " (this finding is a rule's contradiction: answer with one of its options exactly)" || echo ", or a short answer of your own when no option fits"). Your answer amends the cited requirements.
+Never choose an answer that contradicts or empties a prior decision in \`touches.decisions\` that
+a person or an earlier decider took (answered_by not non-interactive): escalate instead. A program
+checks the amendment and refuses one that does; then a person decides." ;;
   close) what="Decide whether to close the idea through the outcome \`$(r .outcome)\`. Approve when every
 obligation is discharged and the checks in in/checks.json hold; reject when the result does not
 meet the requirements." ;;
@@ -212,11 +252,20 @@ prompt=$rec/prompt.md
   echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
   echo
   echo "Write out/decision.json, exactly these keys:"
-  echo '{"decision": "approve" | "reject" | "escalate",'
-  echo ' "answer": <for a question: the answer string; otherwise null>,'
+  if [[ $type == finding ]]; then
+    echo '{"decision": "approve" | "escalate",'
+    echo ' "answer": <when approve: the answer string>,'
+  else
+    echo '{"decision": "approve" | "reject" | "escalate",'
+    echo ' "answer": <for a question: the answer string; otherwise null>,'
+  fi
   echo ' "reasons": ["<one sentence each, at least one>"],'
-  echo ' "cites": ["<ids your reasons rest on: requirement ids (r1, ...), else dissection item or question ids, or claim ids from in/checks.json>"],'
-  if [[ $final == yes && $type == question ]]; then
+  echo ' "cites": ["<ids your reasons rest on: requirement ids (r1, ...), else dissection item, question or finding ids, context.<field>, or claim ids from in/checks.json>"],'
+  if [[ $final == yes && $type == finding ]]; then
+    echo ' "best": <when decision is escalate: the answer you would take if no person could be asked; otherwise null>}'
+    echo
+    echo "No person is available in this run: on escalate, \`best\` is taken, else the finding's default."
+  elif [[ $final == yes && $type == question ]]; then
     echo ' "best": null}'
     echo
     echo "No person is available in this run: on escalate, the question's default is taken."
