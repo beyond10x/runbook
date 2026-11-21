@@ -22,7 +22,7 @@ scope:
   path: docs/protocol-notes.md
 - confidence: cited
   path: protocol/simulate
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T22:49:15Z", actor: "human:operator", revision: 2, executor: "agent:rb1-canon-pin", correlation: "operator-standing-acceptance-2026-11-21"}
 - {from: "proposed", to: "active", at: "2026-11-21T22:49:16Z", actor: "human:operator", revision: 3, executor: "agent:rb1-canon-pin", correlation: "operator-standing-acceptance-2026-11-21"}
@@ -52,3 +52,20 @@ what changed byte for byte in the 158 expected decisions.
 - `scripts/check-bindings.sh`, `aep plan artifact validate` and `sdc-protocol-site check` exit 0.
 - The docs that say which Canon is pinned say 0.10.0; statements about what arrived in 0.9.0 are
   unchanged.
+
+## As built (review fix B1, branch `wave-rb1/canon-pin-check`)
+
+The pin is now checked, not only stated. `CANON_DIR` and the sibling-checkout default are gone.
+
+- `driver/canon-pin.json` (`sdc.canon-pin/1`): version `0.10.0` and the full commit of tag `0.10.0`.
+  `scripts/check-protocols.sh` fails unless `protocol/simulate/CANON_REV` is a prefix of that commit.
+- `canon_resolve` in `scripts/evaluate-cases.sh`, sourced by the other five scripts (one copy; the
+  file returns before any step when sourced): `CANON` when set, else the cached install of the
+  pinned commit (`check-protocols.sh` makes it with `cargo install`, nothing builds in a Canon
+  checkout); refused with both versions unless `canon --version` equals the pin; refused with the
+  install command when `CANON` is unset and no cache exists.
+- `evaluate-cases.sh`, `check-protocols.sh` and `limitations.sh` call the resolved binary
+  (`compile`, `evaluate`, `check`, `validate`, `simulate`); `run-trial.sh`, `run-full-cycle.sh` and
+  `run-finding-cycles.sh` use the same step and no longer default to `$HOME/beyond10x/canon`.
+- `runbook doctor` compares the version of the canon it finds (`CANON`, the cached pinned install,
+  `canon` on `PATH`) with the compiled-in pin and fails a different version.

@@ -9,6 +9,7 @@ bare-version tags (`docs/releasing.md`).
 
 ### Added
 
+- `driver/canon-pin.json` pins Canon 0.10.0: every script resolves one binary (`CANON`, else the cached pinned install) and refuses another `canon --version`, none builds or enters a Canon checkout (`CANON_DIR` and the `$HOME` default are gone), and `runbook doctor` compares the version with the pin (`story:canon-0-10-0-pin`).
 - Loom mode of `llm-node.sh` takes the `llm` object's `instructions` as `--instructions <json>` (`bindings/*.yaml` names it for the 14 agent nodes), so the instruction files load under Loom as under the driver. `bugfix_prompt` and `questions_check` name the tools at `bindings/tools/`.
 - `cycles/suite.yaml` (`runbook.cycles/1`, `story:cycles-suite-as-data`): the finding cycles of
   `scripts/run-finding-cycles.sh` as data, what cannot be said declaratively listed per cycle as

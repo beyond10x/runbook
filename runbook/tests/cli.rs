@@ -27,9 +27,11 @@ impl World {
     }
 
     fn fake(&self, name: &str) {
+        let canon = format!("canon {}", canon_pin()["version"].as_str().unwrap());
         let out = match name {
             "yq" => "yq version v4.30.8",
             "jq" => "jq-1.7",
+            "canon" => canon.as_str(),
             _ => "1.2.3",
         };
         let p = self.root.join("bin").join(name);
@@ -216,11 +218,14 @@ fn doctor_json_reports_every_check() {
     assert_eq!((git["found"].as_bool(), git["install"].is_string()), (Some(false), true));
 }
 
-fn fake_canon_checkout(dir: &Path) {
-    let p = dir.join("target/debug/canon");
+fn canon_pin() -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(repo().join("driver/canon-pin.json")).unwrap()).unwrap()
+}
+
+fn fake_canon_at(p: &Path, version: &str) {
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(&p, "#!/bin/sh\necho 'canon 0.0.0-fixture'\n").unwrap();
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(p, format!("#!/bin/sh\necho 'canon {version}'\n")).unwrap();
+    std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 fn canon_path(o: &Output) -> String {
@@ -230,34 +235,43 @@ fn canon_path(o: &Output) -> String {
 }
 
 #[test]
-fn doctor_finds_the_sibling_canon_checkout_of_the_asset_root() {
-    let w = World::new("doctor-canon-sibling");
+fn doctor_finds_the_cached_pinned_canon_and_ignores_a_sibling_checkout() {
+    let w = World::new("doctor-canon-cache");
     w.fakes(&PROGRAMS[1..]);
     w.fakes(&HELPERS);
     w.login("{}");
+    fake_canon_at(&w.root.join("canon/target/debug/canon"), canon_pin()["version"].as_str().unwrap());
     let o = w.run(&["doctor"], &[]);
     assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
     assert_eq!(failed(&o), ["canon"]);
     assert!(line_of(&o, "canon").contains("-- fix:"));
-    fake_canon_checkout(&w.root.join("canon"));
-    let o = w.run(&["doctor"], &[]);
-    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
-    assert!(line_of(&o, "canon").starts_with("pass") && line_of(&o, "canon").contains("0.0.0-fixture"));
+    let pin = canon_pin();
+    let cached = w.root.join("home/.cache/sdc/canon-simulate").join(&pin["commit"].as_str().unwrap()[..8]).join("bin/canon");
+    fake_canon_at(&cached, pin["version"].as_str().unwrap());
     let o = w.run(&["doctor", "--json"], &[]);
-    assert!(canon_path(&o).ends_with("canon/target/debug/canon"), "{}", canon_path(&o));
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    assert_eq!(canon_path(&o), cached.to_str().unwrap());
+    let o = w.run(&["doctor"], &[]);
+    assert!(line_of(&o, "canon").starts_with("pass") && line_of(&o, "canon").contains("(the pin)"), "{}", line_of(&o, "canon"));
 }
 
 #[test]
-fn doctor_takes_the_canon_checkout_from_canon_dir() {
-    let w = World::new("doctor-canon-dir");
+fn doctor_fails_a_canon_whose_version_is_not_the_pin() {
+    let w = World::new("doctor-canon-version");
     w.fakes(&PROGRAMS[1..]);
     w.fakes(&HELPERS);
     w.login("{}");
-    let elsewhere = w.root.join("elsewhere/kernel");
-    fake_canon_checkout(&elsewhere);
-    let o = w.run(&["doctor", "--json"], &[("CANON_DIR", elsewhere.to_str().unwrap())]);
+    let wrong = w.root.join("elsewhere/canon");
+    fake_canon_at(&wrong, "0.9.0");
+    let o = w.run(&["doctor"], &[("CANON", wrong.to_str().unwrap())]);
+    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+    assert_eq!(failed(&o), ["canon"]);
+    let line = line_of(&o, "canon");
+    let want = format!("0.9.0, pin is {}", canon_pin()["version"].as_str().unwrap());
+    assert!(line.contains(&want) && line.contains("-- fix:"), "{line}");
+    fake_canon_at(&wrong, canon_pin()["version"].as_str().unwrap());
+    let o = w.run(&["doctor"], &[("CANON", wrong.to_str().unwrap())]);
     assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
-    assert!(canon_path(&o).ends_with("elsewhere/kernel/target/debug/canon"), "{}", canon_path(&o));
 }
 
 #[test]

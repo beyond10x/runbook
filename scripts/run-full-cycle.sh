@@ -24,7 +24,8 @@
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 name=$1 store=$2
-canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
+source "$sdc/scripts/evaluate-cases.sh"
+canon_resolve || exit 1
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
 # The scripted person is a stand-in: its principal says so (person:stand-in), and run-settings.jsonl
 # labels the run stand_in, an end-to-end test of the person path whose numbers are not eval numbers.

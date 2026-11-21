@@ -1,0 +1,6 @@
+{
+  "format": "sdc.canon-pin/1",
+  "version": "0.10.0",
+  "release": "https://github.com/beyond10x/canon/releases/tag/0.10.0",
+  "commit": "2c7a1ea6a9dc2e19633fb225290c826b1c9988ce"
+}
