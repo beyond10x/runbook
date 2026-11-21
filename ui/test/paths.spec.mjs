@@ -9,6 +9,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {needDriver} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -34,6 +35,7 @@ test('no committed file under ui/ names an absolute home path', () => {
 
 test('no served page or API answer names an absolute home path', async ({page}) => {
   test.setTimeout(120000);
+  needDriver('paths.spec.mjs (test/scope-fixture.mjs)', test);
   const r = spawnSync('node', ['test/scope-fixture.mjs', dir, 'one'], {cwd: ui, encoding: 'utf8'});
   if (r.status !== 0) throw new Error(`scope-fixture: ${r.stderr}`);
   // the store already names absolute paths (the bindings' tool argv); add the run's own records

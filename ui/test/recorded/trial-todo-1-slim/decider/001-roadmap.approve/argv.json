@@ -1,0 +1,22 @@
+[
+  "metaharness",
+  "run",
+  "claude",
+  "--frame",
+  "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve/frame.json",
+  "--decisions",
+  "frame",
+  "--cwd",
+  "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve/cwd",
+  "--scratch-cwd",
+  "--model",
+  "claude-haiku-5-5",
+  "--max-turns",
+  "8",
+  "--max-budget-usd",
+  "0.25",
+  "--retain-dir",
+  "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve/transcripts",
+  "-p",
+  "<prompt_file>"
+]

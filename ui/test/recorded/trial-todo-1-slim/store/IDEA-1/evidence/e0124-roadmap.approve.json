@@ -1,0 +1,10 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0124-roadmap.approve",
+  "kind": "roadmap_approval",
+  "observed_at": "2026-11-20T23:57:02Z",
+  "producer": "decider:haiku",
+  "result": "approved",
+  "subject": "roadmap",
+  "subject_revision": "t2b3f8657120d0679"
+}

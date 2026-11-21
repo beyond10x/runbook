@@ -1,0 +1,10 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0008-idea.check",
+  "kind": "idea_shape",
+  "observed_at": "2026-11-20T23:16:04Z",
+  "producer": "sdc-check",
+  "result": "valid",
+  "subject": "idea",
+  "subject_revision": "td9fda9924178dca3"
+}

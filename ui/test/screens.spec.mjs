@@ -5,8 +5,11 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 let FULL = 0, TRIAL = 1;
-test.beforeAll(async ({request}) => {
-  const s = await (await request.get('/api/sources')).json();
+test.beforeAll(async ({request, baseURL}) => {
+  // a checkout without runs/ (git-ignored) has no server over full-cycle-1: skipped, with the reason
+  const s = await request.get('/api/sources').then((r) => r.json(), () => null);
+  test.skip(!s, `screens.spec.mjs: no server at ${baseURL} (SDC_UI_URL); start one over runs/full-cycle-1/store as the head of this file says`);
+  test.skip(!s.some((x) => x.name.startsWith('full-cycle-1')), `screens.spec.mjs: the server at ${baseURL} serves no full-cycle-1 store (missing run directory runs/full-cycle-1: runs/ is git-ignored)`);
   FULL = s.find((x) => x.name.startsWith('full-cycle-1'))?.index ?? 0;
   TRIAL = s.find((x) => x.name.startsWith('trial-todo-1'))?.index ?? 1;
 });

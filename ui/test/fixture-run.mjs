@@ -3,7 +3,8 @@
 //
 //   node test/fixture-run.mjs <scenario> <target-run-dir> [speed]
 //
-// Copies the recorded store (default ../runs/trial-todo-1, SDC_UI_FIXTURE_SOURCE to change) into
+// Copies the recorded store (default ../runs/trial-todo-1, else test/recorded/trial-todo-1-slim for the
+// scenarios person, stopped, human, decider and autopilot; SDC_UI_FIXTURE_SOURCE to change) into
 // <target-run-dir>/store, cuts each case's events.jsonl back to the scenario's point, then plays
 // the rest as the driver and the adapters would write it: an `action_started` line, an LLM or
 // decider record directory whose response.json is empty while its metaharness event stream grows,
@@ -38,11 +39,13 @@ import crypto from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {unifiedDiff} from '../udiff.mjs';
-import {missingRun} from './need-run.mjs';
+import {missingRun, fixtureSource} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(here, '../../runs/trial-todo-1'));
 const [scenario, targetArg, speedArg] = process.argv.slice(2);
+// the recorded run when it is there (runs/ is git-ignored); else, for the scenarios that need only the
+// cases intake and direction, its committed slim copy (need-run.mjs fixtureSource)
+const SRC = fixtureSource(scenario);
 const TWO = {cut: {'IDEA-1': 22, 'IDEA-1.todolist': 24, 'IDEA-1.todolist.spec': 7, 'IDEA-1.todolist.plan': 11, 'IDEA-1.todolist.storage': 'drop', 'IDEA-1.todolist.release': 'drop'}, active: ['IDEA-1.todolist.spec', 'IDEA-1.todolist.plan']};
 const SCEN = {
   agent: {cut: {'IDEA-1': 22, 'IDEA-1.todolist': 30, 'IDEA-1.todolist.storage': 7, 'IDEA-1.todolist.release': 'drop'}, active: ['IDEA-1.todolist.storage'], signals: true},
@@ -76,6 +79,9 @@ fs.rmSync(target, {recursive: true, force: true});
 fs.rmSync(part, {recursive: true, force: true});
 fs.mkdirSync(part, {recursive: true});
 fs.cpSync(path.join(SRC, 'store'), path.join(part, 'store'), {recursive: true, verbatimSymlinks: true});
+// the slim copy names its own directory @SRC@: the copy names the target
+const unslim = (d) => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); const st = fs.lstatSync(p); if (st.isDirectory()) unslim(p); else if (st.isFile() && /\.(json|jsonl|ya?ml|md)$/.test(n)) { const t = fs.readFileSync(p, 'utf8'); if (t.includes('@SRC@')) fs.writeFileSync(p, t.split('@SRC@').join(target)); } } };
+unslim(path.join(part, 'store'));
 const caseDirs = new Map();
 const visit = (d) => {
   caseDirs.set(JSON.parse(fs.readFileSync(path.join(d, 'case.json'), 'utf8')).id, d);
@@ -158,7 +164,7 @@ if (signals) {
   process.on('exit', () => fs.rmSync(path.join(root, 'driver.json'), {force: true}));
 }
 const calls = fs.existsSync(path.join(SRC, 'llm-calls.jsonl')) ? lines(path.join(SRC, 'llm-calls.jsonl')).map((l) => JSON.parse(l)) : [];
-const rel = (p) => p.replace(SRC, target);
+const rel = (p) => p.split(SRC).join(target).split('@SRC@').join(target);
 
 // ---- file changes ---------------------------------------------------------------------------------
 let fsSeq = 0;

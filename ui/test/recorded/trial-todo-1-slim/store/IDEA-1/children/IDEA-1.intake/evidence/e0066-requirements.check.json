@@ -1,0 +1,13 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0066-requirements.check",
+  "kind": "requirements_shape",
+  "observed_at": "2026-11-20T23:19:43Z",
+  "producer": "sdc-check",
+  "result": "valid",
+  "subject": "requirements",
+  "subject_revision": "t0c28adffbcee3479",
+  "upstream_revisions": {
+    "questions": "td05a064f047676ee"
+  }
+}

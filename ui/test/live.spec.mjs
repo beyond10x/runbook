@@ -16,7 +16,7 @@ const source = process.env.SDC_UI_LIVE_SOURCE;
 test('empty store grows in place', async ({page}, info) => {
   test.skip(!target || !source || info.project.name !== 'wide', 'needs SDC_UI_LIVE_DIR and SDC_UI_LIVE_SOURCE');
   test.setTimeout(90000);
-  needRun(path.join(sdc, 'runs/full-cycle-1/store'), 'live.spec.mjs (replay source)');
+  needRun(path.join(sdc, 'runs/full-cycle-1/store'), 'live.spec.mjs (replay source)', test);
   fs.rmSync(target, {recursive: true, force: true});
   await page.goto(`/?source=${source}`);
   await expect(page.locator('#tree .empty')).toBeVisible();

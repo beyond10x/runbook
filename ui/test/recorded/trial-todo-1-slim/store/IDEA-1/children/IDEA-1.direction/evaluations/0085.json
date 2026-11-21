@@ -1,0 +1,280 @@
+{
+  "actions": {
+    "context.approve": {
+      "status": "admissible"
+    },
+    "context.change": {
+      "status": "admissible"
+    },
+    "context.check": {
+      "status": "admissible"
+    },
+    "context.default": {
+      "reasons": [
+        {
+          "claim": "context.approved",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.approve": {
+      "reasons": [
+        {
+          "claim": "roadmap.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.validate": {
+      "status": "admissible"
+    },
+    "roadmap.write": {
+      "status": "admissible"
+    },
+    "vision.approve": {
+      "status": "admissible"
+    },
+    "vision.write": {
+      "reasons": [
+        {
+          "claim": "vision.approved",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "IDEA-1.direction",
+  "claims": {
+    "context.approved": {
+      "value": "true"
+    },
+    "context.valid": {
+      "excluded_evidence": [
+        {
+          "evidence": "e0004-context.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0017-context.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0024-context.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0033-context.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0040-context.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0049-context.check",
+          "reason": "invalidated"
+        }
+      ],
+      "value": "true"
+    },
+    "roadmap.approved": {
+      "value": "unknown"
+    },
+    "roadmap.valid": {
+      "excluded_evidence": [
+        {
+          "evidence": "e0008-roadmap.validate",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "vision.approved": {
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "context.default": {
+        "because": [
+          {
+            "claim": "context.approved",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "roadmap.approve": {
+        "because": [
+          {
+            "claim": "roadmap.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "vision.write": {
+        "because": [
+          {
+            "claim": "vision.approved",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "context.approved": {
+        "because": [
+          {
+            "evidence": "e0056-context.approve",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "roadmap.approved": {
+        "because": [
+          {
+            "kind": "roadmap_approval",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.valid": {
+        "because": [
+          {
+            "evidence": "e0008-roadmap.validate",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "vision.approved": {
+        "because": [
+          {
+            "evidence": "e0079-vision.approve",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      }
+    },
+    "computed_from": {
+      "at": "2026-11-20T23:41:07Z",
+      "authority": [
+        {
+          "capability": "owner.approve",
+          "decision": "granted"
+        }
+      ],
+      "case": {
+        "artifacts": {
+          "context": {
+            "revision": "ta145d98b03da5394"
+          },
+          "requirements": {
+            "revision": "t191308028de74057"
+          },
+          "roadmap": {
+            "revision": "t652c58ef05f60e1c"
+          },
+          "vision": {
+            "revision": "t1f6774e18a844d5d"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "IDEA-1.direction",
+        "protocol": "sdc.direction",
+        "revision": "c10"
+      },
+      "decisions": [],
+      "evidence": [
+        "e0004-context.check",
+        "e0008-roadmap.validate",
+        "e0017-context.check",
+        "e0024-context.check",
+        "e0033-context.check",
+        "e0040-context.check",
+        "e0049-context.check",
+        "e0056-context.approve",
+        "e0068-context.check",
+        "e0079-vision.approve"
+      ],
+      "protocol": "sdc.direction",
+      "protocol_revision": 3,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "roadmap.required": {
+        "because": [
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "passed": {
+        "because": [
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "context.required",
+      "status": "discharged"
+    },
+    {
+      "id": "roadmap.required",
+      "status": "open"
+    },
+    {
+      "id": "vision.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "passed": {
+      "reasons": [
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.direction",
+  "protocol_revision": 3
+}

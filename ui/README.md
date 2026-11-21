@@ -213,9 +213,15 @@ person names the writer that used its runs and its last error).
 `test/paths.spec.mjs` (port 7526, `SDC_UI_PATHS_PORT`) fails when a file git would commit under
 `ui/` or any page or API answer names an absolute home path; the server shows paths relative to
 the repository, its workspace (`../`) or `~`.
-`runs/` is git-ignored: `fixture-run.mjs`, `now.spec.mjs`, `changes.spec.mjs`,
-`meaning-model.spec.mjs`, `live.spec.mjs`, the ux loop and the server without arguments need the
-recorded runs `runs/trial-todo-1` and `runs/full-cycle-1`, and fail naming the missing directory.
+`runs/` is git-ignored, and the suite exits 0 on a checkout without it. `stopped.spec.mjs` and
+`autopilot.spec.mjs` play their runs from `test/recorded/trial-todo-1-slim`, a committed slim copy of
+`runs/trial-todo-1` (cases intake and direction; no prompt, transcript or answer of an LLM, no
+absolute home path; remade with `node test/slim-source.mjs`). `now.spec.mjs`, `changes.spec.mjs`,
+`meaning-model.spec.mjs` and `live.spec.mjs` need the recorded runs `runs/trial-todo-1` and
+`runs/full-cycle-1`, `screens.spec.mjs` a server over `runs/full-cycle-1`, and `scope.spec.mjs`,
+`preflight.spec.mjs` and the second test of `paths.spec.mjs` the built `sdc-drive` and `canon`:
+without them they are skipped through `test/need-run.mjs`, the reason naming what is missing. The
+ux loop and the server without arguments still need the recorded runs and say which is missing.
 
 ## UI iteration loop
 

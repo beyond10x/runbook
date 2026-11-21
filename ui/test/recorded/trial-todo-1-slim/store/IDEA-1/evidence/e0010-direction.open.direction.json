@@ -1,0 +1,11 @@
+{
+  "child_case": "IDEA-1.direction",
+  "format": "canon-evidence/1",
+  "id": "e0010-direction.open.direction",
+  "kind": "case_outcome",
+  "observed_at": "2026-11-20T23:57:02Z",
+  "producer": "sdc-drive",
+  "result": "passed",
+  "subject": "idea",
+  "subject_revision": "td9fda9924178dca3"
+}

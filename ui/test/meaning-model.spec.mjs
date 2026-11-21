@@ -11,7 +11,7 @@ import {needRun} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const WORK = path.resolve(here, '../../runs/trial-todo-1/store/IDEA-1/work');
-const read = (p) => { needRun(WORK, 'meaning-model.spec.mjs'); return fs.readFileSync(path.join(WORK, p), 'utf8'); };
+const read = (p) => { needRun(WORK, 'meaning-model.spec.mjs', test); return fs.readFileSync(path.join(WORK, p), 'utf8'); };
 const texts = (m) => m.items.map((i) => i.text);
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure model tests run once'));
 

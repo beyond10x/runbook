@@ -16,8 +16,8 @@ const procs = [];
 let base, dir;
 
 test.beforeAll(async ({}, info) => {
-  needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'now.spec.mjs (fixture source)');
-  needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'now.spec.mjs');
+  needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'now.spec.mjs (fixture source)', test);
+  needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'now.spec.mjs', test);
   const k = info.project.name === 'wide' ? 0 : 1;
   const port = Number(process.env.SDC_UI_NOW_PORT || 7496) + k;
   dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
