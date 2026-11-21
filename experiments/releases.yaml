@@ -192,7 +192,7 @@ entries:
   kind: release
   version: 0.1.1
   label: 0.1.1
-  short: keep-going, unstick, replay
+  short: keep-going, unstick, routes
   date: 2026-11-21
   tree: null
   tree_note: not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)
@@ -224,9 +224,6 @@ entries:
     effect: none
   - commit: a007344
     line: sdc-run-compare and the KPI strip count every decider call made, once per record
-    effect: none
-  - commit: 69ba820
-    line: recorded replay re-drives a recorded run with its recorded model replies (sdc-replay)
     effect: none
   - commit: 0f7eb8f
     line: run.unstick gets an explicit default effort, xhigh

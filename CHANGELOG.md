@@ -33,8 +33,6 @@ Fixes and tools after the first release; no protocol of the nine changed. The lo
   ledger `docs/progress.md` with its image `docs/img/progress.svg`, written from
   `experiments/releases.yaml` (`a0f8e9e`, `6296229`; `docs/workflow-metrics.md`,
   `docs/improving.md`).
-- Recorded replay: `run-trial.sh <run> --autopilot --recorded <source>` re-drives a recorded run
-  with the real driver and programs and the recorded model replies (`sdc-replay`, `332d3aa`).
 - The live view's run picker: a search over recent runs with their facts, grouped by experiment
   (`009b8fd`, `4e09b4c`, `ab8472f`).
 - Three more `sdc-bugfix` seeds and four scripted bug-fix cycles (`99238c0`, `e108d5e`).

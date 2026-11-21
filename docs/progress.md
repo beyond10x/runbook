@@ -206,7 +206,6 @@ What changed:
 | `f82ec2e` | the progress ledger and its image | no run metric affected |
 | `d70cc11` | the live view's run picker | no run metric affected |
 | `a007344` | sdc-run-compare and the KPI strip count every decider call made, once per record | no run metric affected |
-| `69ba820` | recorded replay re-drives a recorded run with its recorded model replies (sdc-replay) | no run metric affected |
 | `0f7eb8f` | run.unstick gets an explicit default effort, xhigh | not measured: no experiment has tested this change |
 
 Tested by: no experiment yet. No run used this tree, so there is no figure for it.

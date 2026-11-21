@@ -946,12 +946,6 @@
           "line": "sdc-run-compare and the KPI strip count every decider call made, once per record"
         },
         {
-          "commit": "69ba820",
-          "effect": "none",
-          "experiment": null,
-          "line": "recorded replay re-drives a recorded run with its recorded model replies (sdc-replay)"
-        },
-        {
           "commit": "0f7eb8f",
           "effect": "unmeasured",
           "experiment": null,
@@ -1270,7 +1264,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "a993cd8909dff7e0ad22e228f1a5adedaa7d973c721f30985dc3c1f1e62ec962"
+      "sha256": "33fddf4d9d3f278af24765d705e4109f527a7c5c47fd6c15be15b955b024e340"
     },
     {
       "path": "experiments/bugfix-seeds-1.yaml",

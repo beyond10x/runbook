@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 713" width="800" height="713" role="img" aria-labelledby="title desc">
 <title id="title">SDC progress: unattended runs from an idea to a delivered app</title>
-<desc id="desc">Clean passes of ended runs per column: Attempts 1-5 (pre-release, 5 trees) 0 of 9; acd6f12 (pre-release, batch tree) 5 of 8; 8db4b93 (pre-release, review node) 0 of 4; 1001970 (pre-release, review reply fix) 2 of 4; 0.1.0 (release, hermetic decider, effort set) no runs yet; 0.1.1 (release, keep-going, unstick, replay) no runs yet. Rows give the same per model setting with the median cost and wall time of a clean pass.</desc>
+<desc id="desc">Clean passes of ended runs per column: Attempts 1-5 (pre-release, 5 trees) 0 of 9; acd6f12 (pre-release, batch tree) 5 of 8; 8db4b93 (pre-release, review node) 0 of 4; 1001970 (pre-release, review reply fix) 2 of 4; 0.1.0 (release, hermetic decider, effort set) no runs yet; 0.1.1 (release, keep-going, unstick, routes) no runs yet. Rows give the same per model setting with the median cost and wall time of a clean pass.</desc>
 <style>text{font-family:system-ui,sans-serif}.bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.gr{stroke:#e1e0d9}.ax{stroke:#c3c2b7}.ok{fill:#0ca30c}.no{fill:#fcfcfb;stroke:#898781}@media (prefers-color-scheme:dark){.bg{fill:#1a1a19}.t1{fill:#f0efec}.t2{fill:#c3c2b7}.gr{stroke:#2c2c2a}.ax{stroke:#454542}.no{fill:#1a1a19;stroke:#a3a29b}}</style>
 <rect width="800" height="713" class="bg"/>
 <text x="24" y="34" class="t1" font-size="18" font-weight="600">SDC progress: unattended runs from an idea to a delivered app</text>
@@ -38,7 +38,7 @@
 <text x="691.3" y="140" class="t1" font-size="14" font-weight="600">0.1.1</text>
 <text x="691.3" y="156" class="t2" font-size="11">keep-going,</text>
 <text x="691.3" y="168.5" class="t2" font-size="11">unstick,</text>
-<text x="691.3" y="181" class="t2" font-size="11">replay</text>
+<text x="691.3" y="181" class="t2" font-size="11">routes</text>
 <text x="691.3" y="196" class="t2" font-size="10">no experimen…</text>
 <line x1="24" y1="206" x2="776" y2="206" class="ax" stroke-width="1"/>
 <text x="24" y="227" class="t1" font-size="13" font-weight="600">All settings</text>
