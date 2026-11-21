@@ -38,6 +38,51 @@ test('keyboard alone: from the page to the decision', async ({page}, info) => {
   expect.soft(await focusText(), 'Tab reaches the Approve control').toMatch(/^Approve t/);
 });
 
+// The run picker (decision D-009), with the keyboard alone: Tab to its button, Enter opens it with the
+// focus in the search field, a few letters find another run, Enter opens it. The open panel is in
+// view, axe finds nothing serious (hard gate 5), and the first rows out of view are counted.
+test('run picker: keyboard alone, from the page to another run', async ({page}, info) => {
+  const vp = info.project.name;
+  const from = scenarios.find((x) => x.name === 'closed'), to = scenarios.find((x) => x.write);
+  const m = (k, v) => record(OUT, vp, from.name, k, v);
+  await env.prepare(page);
+  await page.goto(`${env.base}/?source=${env.source(from)}`);
+  await expect(page.locator('#now .now-h')).toBeVisible({timeout: 20000});
+  await env.sync(page);
+  const focus = () => page.evaluate(() => document.activeElement?.id || '');
+  let tabs = 0;
+  while (tabs < 60 && (await focus()) !== 'runpick') { await page.keyboard.press('Tab'); tabs++; }
+  m('picker.tabs_to_button', tabs);
+  expect.soft(await focus(), 'Tab reaches the run picker').toBe('runpick');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#pk-panel')).toBeVisible();
+  await expect(page.locator('#pk-list [role=option]').first()).toBeVisible();
+  expect.soft(await focus(), 'the search field has the focus').toBe('pk-q');
+  const vis = (await visibilityMisses(page, ['#pk-panel', '#pk-q'])).map((x) => `${x.sel}: ${x.why}`);
+  const axe = await axeViolations(page);
+  // of the first 8 rows listed (the brief: 8 to 10 in view), how many are not in view without scrolling
+  const rowsOut = await page.evaluate(() => { const l = document.querySelector('#pk-list').getBoundingClientRect(), all = [...document.querySelectorAll('#pk-list [role=option]')].slice(0, 8); return all.filter((o) => { const r = o.getBoundingClientRect(); return !(r.top >= l.top - 1 && r.bottom <= Math.min(l.bottom, innerHeight) + 1); }).length; });
+  await shot(page, info, 'picker-open');
+  m('picker.hidden', vis.length);
+  m('picker.axe_serious', axe.length);
+  m('picker.rows_out_of_view', rowsOut);
+  // the person's run by a part of its name, then Enter
+  const word = 'person';
+  await page.keyboard.type(word);
+  await expect(page.locator('#pk-list [role=option].act')).toContainText(word);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#pk-panel')).toBeHidden();
+  m('picker.keys_to_open', 1 + word.length + 1);
+  const url = new URL(page.url());
+  expect.soft(url.searchParams.get('source'), 'the URL names the run opened').toBe(String(env.source(to)));
+  await expect.soft(page.locator('#runpick')).toContainText(word);
+  expect.soft(await focus(), 'the focus is back on the button').toBe('runpick');
+  if (gating(vp)) {
+    expect.soft(vis, 'hard gate 2: the open run picker in view').toEqual([]);
+    expect.soft(axe, 'hard gate 5: axe serious or critical, run picker open').toEqual([]);
+  }
+});
+
 for (const s of scenarios) {
   test(`${s.name}: layout contract and the screen-only user`, async ({page}, info) => {
     const vp = info.project.name;

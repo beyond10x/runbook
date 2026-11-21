@@ -122,7 +122,85 @@ function programOf(runDir) {
 }
 // when the run last wrote: its directory, its settings, calls and log, its store
 const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }));
-const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path)});
+const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s)});
+
+// ---- the run picker's rows (decision D-009): what each run is, read in one request ----------------
+// From status.json (sdc.run-status/1: closed, outcome, delivered; forced, unstuck and reopens when it
+// carries them), run-stopped.json (who, when, the cause), run-settings.jsonl (when it started, the
+// models), llm-calls.jsonl and decisions.jsonl (cost and calls), the cases' first and last event times
+// (the root's terminated event), and whether it runs now (a driver, or a call in progress). Cached per run on the
+// signatures of those files; only the check whether it runs now is made on every request.
+const MODEL = (m) => { const x = /claude-([a-z]+)/i.exec(String(m || '')); return x ? x[1][0].toUpperCase() + x[1].slice(1).toLowerCase() : m ? String(m) : null; };
+const msOf = (t) => { const v = typeof t === 'string' && t !== '-' ? Date.parse(t) : NaN; return isNaN(v) ? null : v; };
+const lines = (p) => (readText(p) || '').split('\n').filter((l) => l.trim()).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+const count = (v) => (Number.isInteger(v) && v >= 0 ? v : Array.isArray(v) ? v.length : null);
+// "decider Opus · work Sonnet": the decider's model (or a person), and the models of the work classes
+function settingText(set, calls) {
+  const work = [...new Set(set?.models ? Object.entries(set.models).filter(([k]) => k !== 'decider').map(([, v]) => MODEL(v?.model)).filter(Boolean)
+    : calls.map((c) => MODEL(c.model)).filter(Boolean))];
+  const d = set?.decider || null;
+  const dec = !d ? null : d.kind === 'person' ? 'person' : MODEL(set.models?.decider?.model || d.model) || d.kind || null;
+  return [dec && `decider ${dec}`, work.length && `work ${work.join('/')}`].filter(Boolean).join(' · ') || null;
+}
+const summaries = new Map();
+function runSummary(s) {
+  const runDir = runDirOf(s);
+  const files = ['status.json', 'run-stopped.json', 'run-settings.jsonl', 'llm-calls.jsonl', 'decisions.jsonl'].map((f) => path.join(runDir, f));
+  const caseDirs = Array.from(s.cases.values());
+  const sig = files.map(statSig).join('|') + '#' + caseDirs.map((e) => `${e.dir}:${e.sig}`).join('|');
+  let c = summaries.get(s.path);
+  if (!c || c.sig !== sig) {
+    const st = readJson(files[0]);
+    const status = st && st.format === 'sdc.run-status/1' ? st : null;
+    const stop = readJson(files[1]);
+    const sets = lines(files[2]).filter((r) => r.format === 'sdc.run-settings/1');
+    const calls = lines(files[3]).filter((r) => r.model || r.usage || r.adapter);
+    const decs = lines(files[4]).filter((r) => r.model || r.cost_usd != null || r.cost != null);
+    // the cases' event times: the first and the last, and the root's close
+    let first = null, last = null, term = null;
+    const times = c?.times || new Map();
+    for (const e of caseDirs) {
+      let t = times.get(e.dir);
+      if (!t || t.sig !== e.sig) {
+        const evs = readEvents(e.dir);
+        const ats = evs.map((x) => msOf(x.at)).filter((x) => x != null);
+        const tm = evs.findLast?.((x) => x.event === 'terminated') ?? [...evs].reverse().find((x) => x.event === 'terminated');
+        t = {sig: e.sig, first: ats.length ? Math.min(...ats) : null, last: ats.length ? Math.max(...ats) : null, term: tm ? {at: msOf(tm.at), outcome: tm.outcome ?? null} : null};
+        times.set(e.dir, t);
+      }
+      if (t.first != null && (first == null || t.first < first)) first = t.first;
+      if (t.last != null && (last == null || t.last > last)) last = t.last;
+      if (e.depth === 0 && t.term) term = t.term;
+    }
+    const started = msOf(sets[0]?.at) ?? msOf(calls[0]?.started) ?? first;
+    const recorded = fs.existsSync(files[3]) || fs.existsSync(files[4]);
+    const cost = recorded ? calls.reduce((a, r) => a + (Number(r.cost_usd) || 0), 0) + decs.reduce((a, r) => a + (Number(r.cost_usd ?? r.cost) || 0), 0) : null;
+    const v = {
+      started, last,
+      status: status ? {state: status.state ?? null, at: msOf(status.at), outcome: status.outcome ?? null, delivered: typeof status.delivered === 'boolean' ? status.delivered : null, closedBy: status.closed_by ?? null} : null,
+      stop: stop && stop.format === 'sdc.run-stopped/1' && msOf(stop.at) != null ? {at: msOf(stop.at), by: stop.by ?? null, cause: stop.cause || stop.verdict_at_stop || null} : null,
+      term,
+      cost, calls: recorded ? calls.length + decs.length : null, work: recorded ? calls.length : null, decider: recorded ? decs.length : null,
+      setting: settingText(sets.at(-1), calls), autonomy: sets.at(-1)?.autonomy ?? null,
+      forced: count(status?.forced), unstuck: count(status?.unstuck), reopens: count(status?.reopens),
+    };
+    c = {sig, times, v};
+    summaries.set(s.path, c);
+  }
+  const v = c.v;
+  // running now: a driver holds a case tree (driver.json with a live pid, or a live pid in the tree's lock),
+  // or a model or decider call is in progress (the newest records' status.json: running, its pid alive)
+  const driving = rootsOf(s).some((r) => { const j = readJson(path.join(r, 'driver.json')); const lock = (readText(path.join(r, '.sdc-drive.lock')) || '').trim(); return (j && alive(j.pid)) || (lock && alive(lock)); })
+    || RECORD_KINDS.some((k) => listDir(path.join(runDir, k)).slice(-2).some((n) => { const st = callStatus(path.join(runDir, k, n)); return st?.state === 'running' && alive(st.pid); }));
+  const closed = v.status?.state === 'closed' ? {at: v.status.at, outcome: v.status.outcome ?? v.term?.outcome ?? null, delivered: v.status.delivered}
+    : v.term ? {at: v.term.at, outcome: v.term.outcome, delivered: null} : null;
+  if (closed && closed.delivered == null) closed.delivered = /^(operating|delivered)$/.test(String(closed.outcome || ''));
+  const state = v.stop ? 'stopped' : closed ? 'closed' : driving ? 'running' : 'idle';
+  const ended = state === 'stopped' ? v.stop.at : state === 'closed' ? closed.at ?? v.last : state === 'running' ? null : v.last;
+  return {state, started: v.started, ended, last: v.last, outcome: closed?.outcome ?? null, delivered: closed ? closed.delivered : null, closedBy: v.status?.closedBy ?? null,
+    stopBy: v.stop?.by ?? null, cause: v.stop?.cause ?? null, cost: v.cost, calls: v.calls, work: v.work, decider: v.decider, setting: v.setting, autonomy: v.autonomy,
+    forced: v.forced, unstuck: v.unstuck, reopens: v.reopens};
+}
 
 // When each event was written. The events' own `at` is the instant the caller passed to the whole
 // `sdc-drive run` (every step of one run shares it), so the wall clock of a step comes from here:
@@ -584,9 +662,6 @@ function push(name, data) {
 let sourcesSig = '';
 function tick() {
   discover();
-  // the list the store selector shows: a run that appeared, a store that came, a run that was stopped
-  const sig = sources.map((s) => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}`).join('|');
-  if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
   for (const src of sources) {
     const existed = src.exists;
     src.exists = fs.existsSync(src.path);
@@ -595,6 +670,10 @@ function tick() {
       push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
     }
   }
+  // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
+  // was stopped (its state); cost, calls and times are fetched when the picker opens
+  const sig = sources.map((s) => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`).join('|');
+  if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
 }
 
 const MIME = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'};

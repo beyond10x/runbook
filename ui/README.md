@@ -12,17 +12,17 @@ allowed to do and did, and run metrics. It updates live while a run writes the s
 node server.mjs --port 7490 ../runs/trial-todo-1/store ../runs/full-cycle-1/store
 ```
 
-Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directory, `task serve`.
+Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, from this directory, `task serve`.
 
 - Each argument is a store directory (its subdirectories are root cases) or one case directory. A
   path that does not exist yet is waited for; cases and events show up as the run writes them.
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
-  store selector without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
+  run picker without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
   first and are not listed twice.
 - A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
-  at the stop; the store selector and the case tree mark it; its open decisions show greyed in the
+  at the stop; the run picker and the case tree mark it; its open decisions show greyed in the
   drawer, and the server refuses to take them (continuing the run stays possible).
 - A run with no stop record, not closed, and no driver attached (no live pid in `driver.json` or
   `.sdc-drive.lock`) moves no more: the Now band adds "no driver attached, last activity <time>" and
@@ -46,6 +46,17 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
 
 ## Use
 
+- **Run picker** (header, decision D-009): the button shows the run on screen with its state as a
+  shape and a word. It opens a panel with a search field (focus on open) and the runs, most recent
+  first: "Running now", then "Recent", and stub and fixture runs in their own group, collapsed
+  unless the run on screen is one of them. Each row has the run's name, its state (running; closed
+  with its outcome; closed, not delivered; stopped with its cause; not running), when it started
+  (absolute on hover), how long it ran (ticking while it runs), cost and LLM calls, the models in
+  short ("decider Opus · work Sonnet") and reopen, forced and unstuck counts from `status.json`.
+  The search filters on name, state, outcome, stop cause and model, every word must match; arrow
+  keys and Enter pick, Escape closes. The pick goes into the URL (`?source=N&run=<name>`; `run`
+  wins when both are given). The rows come from `/api/sources` (`run` per source), one request.
+  On a phone the panel is a full-width sheet.
 - **Now** (top band): every action in flight in the case tree, each with its case, who runs it (LLM
   agent and model, program and its command, copy, driver), a clock that ticks in the browser since
   the step started, and for an agent call its turns, tool calls, denials and last tool call, read
@@ -208,6 +219,10 @@ and checks the stopped state, the failed waiting KPI and the live store list; `t
 (port 7530, `SDC_UI_AUTOPILOT_PORT`) checks that an autopilot run (fixture `autopilot`) never names a
 person and that a legacy run (fixture `human`) says "recorded as human". Screenshots at both gating
 viewports: `screenshots/{1600x1000,1366x768}-{stopped,stopped-drawer,held,autopilot,autopilot-drawer,human}.png`.
+`test/run-picker.spec.mjs` (port 7536, `SDC_UI_PICKER_PORT`) serves `--runs` over six played runs
+(running with a live driver, closed delivered, closed not delivered, stopped, not running, stub) and
+checks the run fields of `/api/sources`, the picker's groups, rows, search and keyboard, its fit in
+the operator tile and the phone sheet: `screenshots/{1600x1000,805x1270,390x844}-run-picker.png`.
 `test/stall-model.spec.mjs` tests the stalled case (a wait on `amend.upstream` with no finding for a
 person names the writer that used its runs and its last error).
 `test/paths.spec.mjs` (port 7526, `SDC_UI_PATHS_PORT`) fails when a file git would commit under
@@ -228,7 +243,7 @@ ux loop and the server without arguments still need the recorded runs and say wh
 `ux/` holds the measured loop of the `ui-iteration-loop` skill. `ux/adapter.mjs` names the gating
 viewports (1600x1000, 1366x768, the operator tile 805x1270 and the phone 390x844; 1280x720,
 1920x1080 and the phones 360x800, 414x896 and 768x1024 are measured only), the one theme, what is
-always visible (Now band with its run state, KPI strip, phase bar, store selector, Decisions), the
+always visible (Now band with its run state, KPI strip, phase bar, the run picker, Decisions; decision D-009), the
 desktop order from the top and the KPI tiles that must be whole (decision D-008), the scroll exceptions (decision
 D-001), the guidance cue (the Now band's waiting card and its Decide control) and six scenarios
 with their truth. `ux/core/` is generic: the layout contract with axe-core, the screen-only user's
@@ -324,6 +339,6 @@ had switched on at `max-width: 900px`, so any narrow desktop window got the phon
   executor, model and holder whole; the run's state text breaks a long name inside its column
   instead of running under the cards and, in the desktop layout at any width, ends after 12 lines
   with an ellipsis, the whole text in its title (a stop's reason kept the band 800 px tall); the live pill's time and a stub run's header mark give way
-  with an ellipsis and a title, and the store select is as wide as its choice.
+  with an ellipsis and a title, and the run picker's button narrows to its choice (at most 230 px).
 - The phone sizes are measured as phones (touch and a coarse pointer: `isMobile`, `hasTouch`), in
   the loop, `test/mobile.spec.mjs` and `test/stub-runs.spec.mjs`, which also checks the tile.

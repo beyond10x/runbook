@@ -42,17 +42,76 @@ header { display: flex; align-items: center; gap: 24px; height: 56px; padding: 0
 .bt { font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
 .bs { color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hctl { display: flex; align-items: center; gap: 16px; min-width: 0; }
-/* a narrow desktop window (the operator tile, 805 px): the live pill's time and a stub run's header mark give way, the store select is as wide as its choice; nothing else moves */
+/* a narrow desktop window (the operator tile, 805 px): the live pill's time and a stub run's header mark give way, the run picker button is at most 230 px, its name cut with a title; nothing else moves */
 .hctl > .live { min-width: 0; }
 .hctl > .live:not(:has(.lt)) { flex-shrink: 0; }
 .live > i, .live > span:not(.lt) { flex-shrink: 0; }
 #runmark > .rm { flex-shrink: 0; }
 #runmark:has(.rm-stub) { flex-shrink: 1; min-width: 0; }
 #runmark > .rm-stub { flex-shrink: 1; }
-@media (max-width: 1000px) { #source { field-sizing: content; } }
 .selectw { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
 select { appearance: none; font: 500 12.5px var(--sans); color: var(--text); background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a4abb8' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center; border: 1px solid var(--line-2); border-radius: var(--r); padding: 6px 30px 6px 12px; min-width: 200px; max-width: 340px; cursor: pointer; transition: border-color .15s; }
 select:hover, select:focus { border-color: var(--line-3); outline: none; }
+/* the run picker (decision D-009): the button names the run on screen and its state; the panel searches
+   and lists the runs. Each state has a shape and a word, never colour alone. */
+.picker { position: relative; min-width: 0; }
+.pk-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 200px; max-width: 340px; height: 32px; font: 500 12.5px var(--sans); color: var(--text); text-align: left;
+  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a4abb8' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--line-2); border-radius: var(--r); padding: 0 30px 0 10px; cursor: pointer; transition: border-color .15s; }
+.pk-btn:hover, .pk-btn[aria-expanded="true"] { border-color: var(--line-3); }
+.pk-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pk-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the state's word has the width of the longest one ("not delivered"): when the run's state changes (a driver detaches,
+   the run closes) the button keeps its width and the header's other controls stay where they are */
+.pk-btn .pk-mt { width: 76px; }
+/* below 1000 px (the operator tile, a phone) the button keeps the state's shape and the name; the state's word stays in
+   its accessible name and its title */
+@media (max-width: 1000px) {
+  .pk-btn { min-width: 0; max-width: 230px; }
+  .pk-btn .pk-mt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.pk-btn .pk-stub { flex: none; }
+.pk-mk { display: inline-flex; align-items: baseline; gap: 5px; flex: none; min-width: 0; font-size: 11px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.pk-mk i { width: 10px; text-align: center; font-style: normal; font-size: 10px; line-height: 1; flex: none; }
+.pk-mk.m-run i::before { content: '●'; color: var(--accent-2); }
+.pk-mk.m-ok i::before { content: '✓'; color: var(--true); font-weight: 800; }
+.pk-mk.m-bad i::before { content: '✕'; color: var(--false); font-weight: 800; }
+.pk-mk.m-stop i::before { content: '■'; color: var(--text-2); }
+.pk-mk.m-idle i::before { content: '○'; color: var(--text-3); }
+.pk-mk.m-wait i::before { content: '…'; color: var(--text-3); }
+.pk-mk.m-run { color: var(--accent-2); }
+.pk-mk.m-ok { color: var(--true); }
+.pk-mk.m-bad { color: #ff8a8f; }
+.pk-mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pk-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: min(620px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  background: var(--bg-2); border: 1px solid var(--line-3); border-radius: var(--r-lg); box-shadow: 0 18px 48px rgba(0, 0, 0, .55); }
+.pk-panel[hidden] { display: none; }
+.pk-top { display: flex; gap: 8px; }
+#pk-q { flex: 1; min-width: 0; height: 34px; font: 13px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); padding: 0 10px; }
+#pk-q:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#pk-q::placeholder { color: var(--text-3); }
+#pk-close { display: none; }
+#pk-list { max-height: 476px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+.pk-gh { position: sticky; top: 0; z-index: 1; padding: 6px 8px 4px; background: var(--bg-2); font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.pk-gh b { color: var(--text-2); font-weight: 650; }
+.pk-row { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 6px 10px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.pk-row:hover { background: var(--surface-2); }
+.pk-row.act { background: var(--accent-bg); border-color: rgba(110, 139, 255, .4); }
+.pk-row[aria-selected="true"] { box-shadow: inset 3px 0 0 var(--accent); }
+.pk-r1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.pk-rn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px var(--mono); color: var(--text); }
+.pk-r1 .pk-mk { margin-left: auto; flex: 0 1 auto; }
+.pk-stub { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--text-2); border: 1px dashed var(--line-3); border-radius: 4px; padding: 0 5px; }
+.pk-r2 { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+.pk-r2 .pk-dur { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.pk-r2 .pk-set { color: var(--text-2); }
+.pk-r2 .pk-n { color: var(--appr); }
+.pk-sep { white-space: pre; }
+.pk-none p, .pk-none { margin: 0; padding: 10px; font-size: 12.5px; color: var(--text-3); }
+#pk-none:empty { display: none; }
+.pk-more { align-self: flex-start; height: 28px; padding: 0 10px; font: 500 12px var(--sans); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
+.pk-more[hidden] { display: none; }
+.pk-more:hover { border-color: var(--line-3); color: var(--text); }
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap; }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
 .sw { width: 28px; height: 16px; border-radius: 8px; background: var(--surface-3); border: 1px solid var(--line-2); position: relative; transition: background .2s, border-color .2s; }
@@ -1357,4 +1416,25 @@ html:where(.phone):not(.rp-open) #tabs button[data-tab],
 :where(html.phone) .drow .d1 b { white-space: normal; overflow-wrap: anywhere; }
 :where(html.phone) .fr.fr-m .fmt { display: block; -webkit-line-clamp: unset; }
 :where(html.phone) .unl-k { font-size: 14px; text-transform: none; letter-spacing: 0; }
+/* the run picker on a phone (D-009): the button fills its header cell, the panel is a full-screen sheet with
+   its Close in view; rows and controls are 44 px targets, text at the phone sizes */
+:where(html.phone) .picker { width: 100%; }
+:where(html.phone) .pk-btn { width: 100%; max-width: none; height: 44px; font-size: 14px; }
+:where(html.phone) .pk-mk { font-size: 14px; }
+/* the header's stub mark says it on a phone (its own row); the button keeps the room for the name */
+:where(html.phone) .pk-btn .pk-stub { display: none; }
+:where(html.phone) .pk-panel { position: fixed; inset: 0; width: auto; z-index: 70; padding: 10px; gap: 8px; border: 0; border-radius: 0; box-shadow: none; }
+:where(html.phone) #pk-q { height: 44px; font-size: 16px; }
+:where(html.phone) #pk-close { display: inline-flex; align-items: center; justify-content: center; min-width: 64px; height: 44px; font-size: 14px; }
+:where(html.phone) #pk-list { flex: 1; min-height: 0; max-height: none; }
+:where(html.phone) .pk-gh { font-size: 12px; padding: 8px 8px 6px; }
+:where(html.phone) .pk-row { min-height: 44px; padding: 10px; }
+:where(html.phone) .pk-rn { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+:where(html.phone) .pk-r1 { flex-wrap: wrap; }
+:where(html.phone) .pk-r1 .pk-mk { margin-left: 0; }
+:where(html.phone) .pk-mt { white-space: normal; }
+:where(html.phone) .pk-r2 { font-size: 14px; }
+:where(html.phone) .pk-stub { font-size: 12px; }
+:where(html.phone) .pk-more { height: 44px; font-size: 14px; }
+html:where(.phone.pk-open) body { overflow: hidden; }
 

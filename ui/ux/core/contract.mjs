@@ -79,14 +79,15 @@ export async function orderMisses(page, selectors) {
   }, selectors);
 }
 
-// Hard gate 5. axe-core serious and critical violations.
-export async function axeViolations(page, {tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'], exclude = []} = {}) {
+// Hard gate 5. axe-core serious and critical violations (of the page, or of the parts named in include).
+export async function axeViolations(page, {tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'], exclude = [], include = []} = {}) {
   // judge the settled frame (the skill's 0.75 s rule): finite animations run to their end first
   await page.evaluate(() => Promise.race([
     Promise.all(document.getAnimations().filter((a) => a.effect?.getComputedTiming?.().iterations !== Infinity).map((a) => a.finished.catch(() => null))),
     new Promise((r) => setTimeout(r, 750)),
   ]));
   let b = new AxeBuilder({page}).withTags(tags);
+  for (const e of include) b = b.include(e);
   for (const e of exclude) b = b.exclude(e);
   const r = await b.analyze();
   return r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => ({id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.length, target: v.nodes.slice(0, 3).map((n) => n.target.join(' '))}));
