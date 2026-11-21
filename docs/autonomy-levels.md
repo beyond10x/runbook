@@ -446,10 +446,12 @@ Mapping to today's switches:
 | Level | Switches |
 |---|---|
 | A0 | `SDC_DECIDER=person` |
-| A5 | `SDC_DECIDER=haiku SDC_DECIDER_ESCALATE=final` |
-| A1 to A4 | need per-class routing in `run-trial.sh`, which today sends every decision type to one decider: route by the action's class and record the holder per decision *(not built)* |
+| A5 | `SDC_DECIDER=haiku SDC_DECIDER_ESCALATE=final`; built 2026-11-21 as `SDC_AUTONOMY=A5` or `scripts/run-trial.sh … --autopilot`: refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
+| A1 to A4 | need per-class routing in `run-trial.sh`, which today sends every decision type to one decider: route by the action's class and record the holder per decision *(not built: `SDC_AUTONOMY=A1`..`A4` is recorded and the run behaves as `SDC_DECIDER` says)* |
 
-`SDC_AUTONOMY=A3` is the environment form.
+`SDC_AUTONOMY=A3` is the environment form. The level, where it came from (`SDC_AUTONOMY`,
+`--autopilot`, or derived: person A0, a final decider A5, otherwise none) and any stand-in are
+written into each `run-settings.jsonl` line.
 
 ### 3.4 Eval runs: A5, no person
 

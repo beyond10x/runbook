@@ -18,6 +18,8 @@
 #                    other node runs its stub (one node through the apply path, for example with
 #                    tools/llm-adapter-fixture.sh)
 #   SDC_LLM_MODEL    overrides the binding's model
+#   SDC_LLM_MODEL_<CLASS> overrides both for the node's class (tools/node-classes.json): WRITER
+#                    (spec.author, plan.decompose), IMPLEMENT (change.implement), REVIEW, OTHER
 #   SDC_LLM_RECORD   where each call's record goes (default work/.sdc/llm); one NNN-<action>/ per call
 #   SDC_LLM_LOG      JSON lines, one per call (default $SDC_LLM_RECORD/calls.jsonl)
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
@@ -176,7 +178,32 @@ out/questions.yaml with one top-level key \`questions\`, a list. Each question h
 - default: the recommended answer, one of the options, the simplest that fits the idea
 - scope_changing: true when the answer adds or removes a user-visible capability, a kind of user
   or a component; else false
-- status: open" ;;
+- status: open
+A question with scope_changing: true has three more keys, so that a person can answer it without
+reading anything else; a question with scope_changing: false has none of them:
+- excerpt: the words of the idea (in/idea.yaml, field \`text\`) the question is about, copied
+  character by character, as one string
+- default_reason: one sentence: why the default is the recommended answer, citing the idea
+- consequences: a list with exactly one entry per option, in the order of options. Each entry has
+  exactly two keys, both one sentence in plain words: \`does\` (what is built, or not built, if that
+  option is chosen) and \`cost\` (what that option costs: build size, upkeep, or what is given up)
+Example of a scope-changing question (idea: 'A recipe box for my family'):
+- id: q1
+  item: d2
+  excerpt: for my family
+  question: Should family members have their own sign-in?
+  options:
+  - No sign-in; one shared recipe box
+  - Each family member signs in
+  default: No sign-in; one shared recipe box
+  default_reason: The idea names one box for the family and no account for anyone.
+  consequences:
+  - does: Builds one recipe box that anyone with the link opens; no sign-in is built.
+    cost: The smallest build; anyone holding the link can change recipes.
+  - does: Builds sign-in and a recipe box that only signed-in family members open.
+    cost: Accounts and a way to invite and remove members must be built and kept.
+  scope_changing: true
+  status: open" ;;
 questions.answer)
   input idea.yaml; input dissection.yaml; input questions.yaml; seed questions.yaml; out=questions.yaml
   task="Answer the interview. out/questions.yaml is a copy of the current interview: edit it in place.
@@ -323,7 +350,11 @@ prompt=$rec/prompt.md
   echo "When the files are written, reply with the single word: done."
 } > "$prompt"
 
-model=${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}
+# The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
+# writer, implement, review, other), else SDC_LLM_MODEL, else the binding's llm.model.
+class=$(jq -r --arg n "$node" '[.classes | to_entries[] | select(.value | index($n)) | .key] | first // "other"' "$here/node-classes.json")
+cvar=SDC_LLM_MODEL_${class^^}
+model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
   --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" \
   --arg case "${SDC_CASE:-}" --arg case_dir "${SDC_CASE_DIR:-}" '{
@@ -414,10 +445,10 @@ fi
 
 # One line per call, for the run log and the viewer.
 jq -c -n --arg node "$node" --arg case "${SDC_CASE:-}" --arg started "$started" --arg rec "$rec" \
-  --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" \
+  --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" --arg class "$class" \
   --arg feedback "$feedback" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
   {action: $node, case: $case, started: $started, attempt: $attempt, retry: ($feedback == "yes"),
-   adapter: $res[0].adapter, model: $req[0].model, allowed_operations: $req[0].operations,
+   adapter: $res[0].adapter, model: $req[0].model, class: $class, allowed_operations: $req[0].operations,
    max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
    exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
    cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,

@@ -7,12 +7,29 @@
 # SDC_FIXTURE_STUB (JSON {node: [fixture, artifact]}) gives a node such a stub when its binding's
 # stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json).
 #
+# The decider's calls (node `decide.<action>`, tools/decider.sh) get a scripted reply in
+# out/decision.json: SDC_DECIDER_REPLIES (JSON {key: reply}) by key, the request's question id,
+# finding id or action (in/decision.json); without one, approve, with a question's or a finding's
+# default as the answer. The response names the model the request named.
+#
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
 for p in jq; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-fixture.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 here=$(cd "$(dirname "$0")" && pwd)
 cwd=$(jq -r .cwd "$1")
 node=$(jq -r .node "$1")
+model=$(jq -r '.model // "none"' "$1")
+if [[ $node == decide.* ]]; then
+  mkdir -p "$cwd/out"
+  jq --argjson r "${SDC_DECIDER_REPLIES:-"{}"}" '(.question.id // .finding.id // .action) as $k
+    | $r[$k] // {decision: "approve", answer: (if .type == "question" then .question.default
+        elif .type == "finding" then .finding.default else null end),
+      reasons: ["fixture decider: approve, the default where there is one"], cites: [], best: null}' \
+    "$cwd/in/decision.json" > "$cwd/out/decision.json" || exit 1
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
 cfg=${SDC_LLM_NODE:-'{}'}
 mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
 o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
@@ -21,5 +38,5 @@ o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
   { echo "llm-adapter-fixture: node $node has no stub-file stub" >&2; exit 64; }
 mkdir -p "$cwd/out"
 (cd "$cwd" && "$here/sdc-tool.sh" stub-file "${a[1]}" "out/${a[2]}") || exit 1
-jq -n --arg node "$node" '{adapter: "fixture", model: "none", exit: 0, duration_ms: 0, cost_usd: 0,
+jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
   num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'

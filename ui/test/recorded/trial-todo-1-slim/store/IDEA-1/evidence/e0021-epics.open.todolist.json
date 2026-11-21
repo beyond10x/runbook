@@ -1,0 +1,11 @@
+{
+  "child_case": "IDEA-1.todolist",
+  "format": "canon-evidence/1",
+  "id": "e0021-epics.open.todolist",
+  "kind": "case_outcome",
+  "observed_at": "2026-11-21T00:01:22Z",
+  "producer": "sdc-drive",
+  "result": "passed",
+  "subject": "roadmap",
+  "subject_revision": "t2b3f8657120d0679"
+}

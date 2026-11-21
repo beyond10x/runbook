@@ -1,0 +1,35 @@
+questions:
+  - id: q1
+    item: d2
+    question: Should the to-do list belong to a single user, or be shared between several users?
+    options:
+      - Single user only
+      - Shared between several users
+    default: Single user only
+    scope_changing: true
+    status: accepted
+    answer: Single user only
+    answered_by: human
+  - id: q2
+    item: d3
+    question: Who are the users of the application, and do they need to sign in or have accounts?
+    options:
+      - No sign-in; one anonymous user
+      - Each user signs in with their own account
+    default: No sign-in; one anonymous user
+    scope_changing: true
+    status: accepted
+    answer: No sign-in; one anonymous user
+    answered_by: human
+  - id: q3
+    item: d4
+    question: Should to-do items be kept between sessions, and if so, where are they stored?
+    options:
+      - Lost when the page is closed
+      - Kept in browser storage
+      - Kept on a server database
+    default: Kept in browser storage
+    scope_changing: true
+    status: changed
+    answer: Kept on the server, in the daemon's data file
+    answered_by: human

@@ -1,0 +1,21 @@
+{
+  "artifacts": {
+    "context": {
+      "revision": "td1e3bfc8da7ec670"
+    },
+    "requirements": {
+      "revision": "t191308028de74057"
+    },
+    "roadmap": {
+      "revision": "t2b3f8657120d0679"
+    },
+    "vision": {
+      "revision": "t1f6774e18a844d5d"
+    }
+  },
+  "format": "canon-case/1",
+  "id": "IDEA-1.direction",
+  "protocol": "sdc.direction",
+  "revision": "c14",
+  "termination": "passed"
+}

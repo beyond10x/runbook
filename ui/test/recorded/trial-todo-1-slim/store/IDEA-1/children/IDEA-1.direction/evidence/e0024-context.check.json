@@ -1,0 +1,13 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0024-context.check",
+  "kind": "context_defaults",
+  "observed_at": "2026-11-20T23:31:05Z",
+  "producer": "sdc-check",
+  "result": "valid",
+  "subject": "context",
+  "subject_revision": "tfeeb440fa91c28d2",
+  "upstream_revisions": {
+    "requirements": "t0c28adffbcee3479"
+  }
+}

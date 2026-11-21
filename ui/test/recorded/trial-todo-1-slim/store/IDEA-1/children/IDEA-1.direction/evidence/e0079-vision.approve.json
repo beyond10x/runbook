@@ -1,0 +1,10 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0079-vision.approve",
+  "kind": "vision_approval",
+  "observed_at": "2026-11-20T23:41:06Z",
+  "producer": "operator",
+  "result": "approved",
+  "subject": "vision",
+  "subject_revision": "t1f6774e18a844d5d"
+}

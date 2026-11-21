@@ -107,6 +107,27 @@ The mode is set by the word count of `idea.text`. A program counts it, not an LL
 - Evidence:
   - `questions_shape`: subject `questions`, result `valid|invalid`.
   - `questions_settled`: subject `questions`, result `settled|open|needs_human`.
+- The questions.yaml the driver example writes (`driver/examples/sdc/tools/llm-node.sh:167-204`) is
+  flat: `id`, `item` (the dissection item), `question`, `options`, `default`, `scope_changing`,
+  `status`, `answer`, `answered_by`. A scope-changing question also carries, so that a person can
+  answer it without reading the run (`story:interview-question-context`):
+  - `excerpt`: the words of the idea it is about, one string;
+  - `default_reason`: one sentence, why the default is recommended;
+  - `consequences`: a list parallel to `options`, each entry `{does, cost}` (what is built or not
+    built, and what it costs).
+
+  `questions.check` exits 2 on a scope-changing question that lacks `excerpt`, `default_reason`, or a
+  `consequences` entry with `does` and `cost` for every option, and names the question id and the
+  key on stderr (`driver/examples/sdc/tools/sdc-tool.sh:79-94`). A question that is not
+  scope-changing is not required to carry them. `sdc-decision-request` parses exactly this shape
+  (`driver/src/bin/sdc-decision-request.rs`, on branch `impl/decision-request-from-question`);
+  the cases are `driver/tests/questions_check.rs`. `driver/examples/sdc/fixtures/questions-trial-2.yaml`
+  is one recorded `questions.write` reply (Haiku, the trial-2 idea): four scope-changing questions
+  with the three keys. A question that `sdc-findings amend` adds from a finding a person decided is
+  scope-changing too (`driver/src/bin/sdc-findings.rs:443-456`): it takes the finding's own
+  `excerpt`, `default_reason` and `consequences` when the raiser wrote them, else the finding's
+  `says`, its basis and one entry per option that says the raiser stated no cost. The finding
+  prompt does not ask for the three keys yet (not met, follow-up).
 
 ### I3 ESS draft and the hard gate
 

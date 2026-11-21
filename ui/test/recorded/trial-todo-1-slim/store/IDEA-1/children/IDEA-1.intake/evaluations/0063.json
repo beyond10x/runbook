@@ -1,0 +1,328 @@
+{
+  "actions": {
+    "dissection.check": {
+      "status": "admissible"
+    },
+    "idea.check": {
+      "status": "admissible"
+    },
+    "idea.dissect": {
+      "reasons": [
+        {
+          "claim": "dissection.valid",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "questions.answer": {
+      "reasons": [
+        {
+          "claim": "questions.settled",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "questions.check": {
+      "status": "admissible"
+    },
+    "questions.write": {
+      "reasons": [
+        {
+          "claim": "questions.shaped",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "requirements.check": {
+      "status": "admissible"
+    },
+    "requirements.normalise": {
+      "status": "admissible"
+    }
+  },
+  "case": "IDEA-1.intake",
+  "claims": {
+    "dissection.valid": {
+      "excluded_evidence": [
+        {
+          "evidence": "e0004-dissection.check",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "idea.shaped": {
+      "value": "true"
+    },
+    "questions.settled": {
+      "excluded_evidence": [
+        {
+          "evidence": "e0012-questions.check.questions_settled",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0029-questions.check.questions_settled",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0038-questions.check.questions_settled",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "questions.shaped": {
+      "excluded_evidence": [
+        {
+          "evidence": "e0012-questions.check.questions_shape",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0029-questions.check.questions_shape",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0038-questions.check.questions_shape",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "requirements.valid": {
+      "excluded_evidence": [
+        {
+          "evidence": "e0016-requirements.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0042-requirements.check",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "e0057-requirements.check",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "idea.dissect": {
+        "because": [
+          {
+            "claim": "dissection.valid",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "questions.answer": {
+        "because": [
+          {
+            "claim": "questions.settled",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "questions.write": {
+        "because": [
+          {
+            "claim": "questions.shaped",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "dissection.valid": {
+        "because": [
+          {
+            "evidence": "e0004-dissection.check",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0025-dissection.check",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "questions.settled": {
+        "because": [
+          {
+            "evidence": "e0012-questions.check.questions_settled",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0029-questions.check.questions_settled",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0038-questions.check.questions_settled",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0053-questions.check.questions_settled",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "questions.shaped": {
+        "because": [
+          {
+            "evidence": "e0012-questions.check.questions_shape",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0029-questions.check.questions_shape",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0038-questions.check.questions_shape",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0053-questions.check.questions_shape",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "requirements.valid": {
+        "because": [
+          {
+            "evidence": "e0016-requirements.check",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0042-requirements.check",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "e0057-requirements.check",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "at": "2026-11-20T23:19:43Z",
+      "authority": [],
+      "case": {
+        "artifacts": {
+          "dissection": {
+            "revision": "tb9dcaedb60926c30"
+          },
+          "idea": {
+            "revision": "td9fda9924178dca3"
+          },
+          "questions": {
+            "revision": "td05a064f047676ee"
+          },
+          "requirements": {
+            "revision": "t0c28adffbcee3479"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "IDEA-1.intake",
+        "protocol": "sdc.intake",
+        "revision": "c5"
+      },
+      "decisions": [],
+      "evidence": [
+        "e0004-dissection.check",
+        "e0008-idea.check",
+        "e0012-questions.check.questions_settled",
+        "e0012-questions.check.questions_shape",
+        "e0016-requirements.check",
+        "e0025-dissection.check",
+        "e0029-questions.check.questions_settled",
+        "e0029-questions.check.questions_shape",
+        "e0038-questions.check.questions_settled",
+        "e0038-questions.check.questions_shape",
+        "e0042-requirements.check",
+        "e0053-questions.check.questions_settled",
+        "e0053-questions.check.questions_shape",
+        "e0057-requirements.check"
+      ],
+      "protocol": "sdc.intake",
+      "protocol_revision": 4,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "requirements.required": {
+        "because": [
+          {
+            "claim": "requirements.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "passed": {
+        "because": [
+          {
+            "claim": "requirements.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "dissection.required",
+      "status": "discharged"
+    },
+    {
+      "id": "idea.required",
+      "status": "discharged"
+    },
+    {
+      "id": "interview.required",
+      "status": "discharged"
+    },
+    {
+      "id": "requirements.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "passed": {
+      "reasons": [
+        {
+          "claim": "requirements.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.intake",
+  "protocol_revision": 4
+}

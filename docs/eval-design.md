@@ -630,3 +630,9 @@ The pilot is built so that it needs nothing more than that adapter.
 ## 7. Autonomy level of eval runs
 
 Eval runs always run at autonomy level A5, with no person at any decision: the decider's decision is final, every would-be escalation is recorded and counted as `escalation_suppressed`, and hard limits end the run (`docs/autonomy-levels.md` § 3.4).
+
+The operator, 2026-11-21: "the eval should just be: run this in full autopilot and use the decider to make the decisions"; "it should never say person if there isn't a person". So:
+
+- An eval run is an autopilot run: `scripts/run-trial.sh <run> "<idea>" --autopilot` (or `SDC_AUTONOMY=A5`). The decider takes the scope-changing answers, the findings and every approval; a stop that would need a person ends the run (exit 7) with a stop record by `rule:autopilot`; KPI L7 (time waiting on a person) is 0 or the run failed.
+- A run in which a session or a script stands in for a person (the scripted person of `run-full-cycle.sh`, `--dry`'s scripted approvals, a coordinating session deciding for the operator) is an end-to-end test of the person path, not an eval run. It is labelled in its run settings (`stand_in: true`, `stand_in_by: <who>`; `SDC_STAND_IN=<who>` on `run-trial.sh`), records its principal as such (`person:stand-in`), and its numbers are not eval numbers.
+- Principals are what took the decision: `person:<id>` only where a person acted, `decider:<kind>`, `rule:<name>`; nothing writes `human` or a person's id by default.

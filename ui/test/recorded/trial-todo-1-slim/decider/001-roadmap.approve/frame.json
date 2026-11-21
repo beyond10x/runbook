@@ -1,0 +1,41 @@
+{
+  "digest": "7b92bf13126766cbb3f153cd48290c6ab67bf365174c7c67f2b245fc3c26ffe9",
+  "entities": null,
+  "format": "metaharness.frame/1",
+  "handoff": {
+    "handoff": "none"
+  },
+  "next": [],
+  "node": {
+    "id": "decide.roadmap.approve"
+  },
+  "obligations": [
+    {
+      "asked_by": null,
+      "text": "write the output under out/ only"
+    }
+  ],
+  "operations": [
+    {
+      "op": "dir.list"
+    },
+    {
+      "op": "file.read"
+    },
+    {
+      "op": "file.write"
+    }
+  ],
+  "prior": [],
+  "reaching": [],
+  "step": {
+    "attempt": 1,
+    "index": 1,
+    "state": "decide.roadmap.approve",
+    "workflow": "sdc"
+  },
+  "workflow": {
+    "id": "sdc",
+    "version": "1"
+  }
+}

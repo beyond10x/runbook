@@ -1,0 +1,17 @@
+items:
+  - id: d1
+    type: wish
+    span: "I want to build a to-do list web application"
+    note: "The author wants to build a to-do list web application."
+  - id: d2
+    type: ambiguity
+    span: "to-do list web application"
+    note: "It is unclear whether the application is single-user or shared between several users."
+  - id: d3
+    type: dark_spot
+    span: "web application"
+    note: "Nothing is said about who the users are or whether they need sign-in or accounts."
+  - id: d4
+    type: dark_spot
+    span: "to-do list"
+    note: "Nothing is said about how to-do items are stored or kept between sessions."

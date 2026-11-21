@@ -1,0 +1,32 @@
+audience:
+  value: "single end user (personal use)"
+  status: default
+  reason: "Requirements r1 and r2 state the application is used by exactly one user who needs no account."
+source_language:
+  value: en
+  status: default
+  reason: "The input idea and requirements are written in English."
+target_language:
+  value: en
+  status: default
+  reason: "No other language is requested, so the product's text defaults to English."
+platform:
+  value: Linux server process with a web browser client
+  status: changed
+  reason: "Timo, 2026-11-21, a server-like application that runs as a daemon; the user works in the browser."
+kind:
+  value: service
+  status: accepted
+  reason: "Timo, 2026-11-21, a server-like application running as a daemon."
+deployment:
+  value: a daemon serving the web UI and a JSON API; several instances can run side by side, each on its own port and data file
+  status: changed
+  reason: "Timo, 2026-11-21, a daemon that can run multiple instances at the same time."
+licence:
+  value: MIT
+  status: changed
+  reason: "Coordinator default for the trial, replacing the model's \"proprietary\"; MIT as in the first context pass."
+implementation_language:
+  value: Rust, edition 2021, standard library only
+  status: changed
+  reason: 'Timo, 2026-11-21: the whole ecosystem is Rust, so the daemon is written in Rust.'

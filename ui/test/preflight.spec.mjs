@@ -7,6 +7,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {needDriver} from './need-run.mjs';
 import {missingPrograms, onPath} from '../decisions.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -27,6 +28,7 @@ test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'once'));
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   test.setTimeout(120000);
+  needDriver('preflight.spec.mjs (test/scope-fixture.mjs)', test);
   fs.rmSync(root, {recursive: true, force: true});
   const r = spawnSync('node', ['test/scope-fixture.mjs', dir, 'one'], {cwd: ui, encoding: 'utf8'});
   if (r.status !== 0) throw new Error(`scope-fixture: ${r.stderr}`);

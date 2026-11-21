@@ -1,0 +1,136 @@
+{
+  "$artifacts": {
+    "context": "context.yaml",
+    "requirements": "requirements.yaml",
+    "roadmap": "aep/initiative/roadmap.md",
+    "vision": "aep/vision/product.md"
+  },
+  "context.approve": {
+    "argv": [
+      "true"
+    ],
+    "manual": true,
+    "producer": "{principal}",
+    "produces": "context_approval",
+    "results": {
+      "0": "approved"
+    },
+    "subject": "context"
+  },
+  "context.check": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "check-context"
+    ],
+    "producer": "sdc-check",
+    "produces": "context_defaults",
+    "results": {
+      "*": "invalid",
+      "0": "valid"
+    },
+    "subject": "context",
+    "upstream": [
+      "requirements"
+    ]
+  },
+  "context.default": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "context.default"
+    ],
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-file",
+        "context.yaml",
+        "context.yaml"
+      ]
+    },
+    "max_runs": 3,
+    "retry_when": {
+      "context_defaults": [
+        "invalid"
+      ]
+    },
+    "timeout_s": 900
+  },
+  "roadmap.approve": {
+    "argv": [
+      "true"
+    ],
+    "manual": true,
+    "producer": "{principal}",
+    "produces": "roadmap_approval",
+    "results": {
+      "0": "approved"
+    },
+    "subject": "roadmap",
+    "upstream": [
+      "vision"
+    ]
+  },
+  "roadmap.validate": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "roadmap-validate"
+    ],
+    "producer": "aep",
+    "produces": "roadmap_validation",
+    "results": {
+      "*": "invalid",
+      "0": "valid"
+    },
+    "subject": "roadmap"
+  },
+  "roadmap.write": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "roadmap.write"
+    ],
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-roadmap"
+      ]
+    },
+    "max_runs": 3,
+    "retry_when": {
+      "roadmap_validation": [
+        "invalid"
+      ]
+    },
+    "timeout_s": 900
+  },
+  "vision.approve": {
+    "argv": [
+      "true"
+    ],
+    "manual": true,
+    "producer": "{principal}",
+    "produces": "vision_approval",
+    "results": {
+      "0": "approved"
+    },
+    "subject": "vision"
+  },
+  "vision.write": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "vision.write"
+    ],
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-vision"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  }
+}

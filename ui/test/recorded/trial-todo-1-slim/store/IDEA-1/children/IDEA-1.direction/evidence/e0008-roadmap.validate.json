@@ -1,0 +1,10 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0008-roadmap.validate",
+  "kind": "roadmap_validation",
+  "observed_at": "2026-11-20T23:19:43Z",
+  "producer": "aep",
+  "result": "invalid",
+  "subject": "roadmap",
+  "subject_revision": "none"
+}
