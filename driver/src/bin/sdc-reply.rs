@@ -4,6 +4,7 @@
 //!   sdc-reply resolve --cwd <call dir> --case-dir <case> <cite>...
 //!   sdc-reply schema  --cwd <call dir> --case-dir <case> --type approval|question|finding|close
 //!                     [--final] [--options '<JSON list>'] [--rule]
+//!   sdc-reply rejections --case-dir <case> --action <approval action>
 //!
 //! The call dir holds the inputs the model was shown (`in/`), as tools/decider.sh writes them.
 //! Citable (the forms of sdc.decision.Citation, ess/domains/decision.yaml, docs/decisions.md):
@@ -47,6 +48,32 @@ enum Cmd {
         #[arg(long, default_value = "[]")] options: String,
         #[arg(long)] rule: bool,
     },
+    /// The rejected records of an approval action in a case, oldest first, each with the reasons
+    /// its step kept (the sdc.rejection/1 log blob of `approve --result rejected`).
+    Rejections { #[arg(long)] case_dir: PathBuf, #[arg(long)] action: String },
+}
+
+/// The rejected records of `action` (the evidence kind its binding produces, result `rejected`)
+/// in the case, oldest first: `{record, revision, at, principal, reasons, citations}`. Derived from
+/// the evidence and the event log, so no counter is kept anywhere.
+fn rejections(case_dir: &Path, action: &str) -> Value {
+    let bindings = read_json(&case_dir.join("bindings.json"));
+    let Some(kind) = bindings[action]["produces"].as_str() else { return json!([]) };
+    let events: Vec<Value> = fs::read_to_string(case_dir.join("events.jsonl")).unwrap_or_default().lines()
+        .filter_map(|l| serde_json::from_str(l).ok()).collect();
+    let mut out = Vec::new();
+    for e in events.iter().filter(|e| e["event"] == "action_finished" && e["action"] == action) {
+        for id in e["evidence"].as_array().into_iter().flatten().filter_map(|i| i.as_str()) {
+            let r = read_json(&case_dir.join("evidence").join(format!("{id}.json")));
+            if r["kind"] != kind || r["result"] != "rejected" {
+                continue;
+            }
+            let why = e["log"].as_str().map(|l| read_json(&case_dir.join("blobs").join(l))).unwrap_or(Value::Null);
+            out.push(json!({"record": id, "revision": r["subject_revision"], "at": r["observed_at"],
+                "principal": r["producer"], "reasons": why["reasons"], "citations": why["citations"]}));
+        }
+    }
+    Value::Array(out)
 }
 
 fn read_json(p: &Path) -> Value {
@@ -278,6 +305,10 @@ fn main() -> ExitCode {
         Cmd::Schema { cwd, case_dir, kind, r#final, options, rule } => {
             let opts: Vec<String> = serde_json::from_str(&options).unwrap_or_default();
             println!("{}", decider_schema(&ctx(&cwd, &case_dir), &kind, r#final, &opts, rule));
+            ExitCode::SUCCESS
+        }
+        Cmd::Rejections { case_dir, action } => {
+            println!("{}", rejections(&case_dir, &action));
             ExitCode::SUCCESS
         }
     }

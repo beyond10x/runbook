@@ -457,8 +457,19 @@ written into each `run-settings.jsonl` line.
 
 - Every eval run runs at A5. No decision, in any class, waits on a person.
 - Where a lower level would escalate, the **decider's decision is final**: its `best` (approve or
-  reject) is taken. An invalid reply has no `best` and counts as reject (`run-trial.sh:28-30`,
-  already built).
+  reject) is taken. An invalid reply is asked again (2 retries), then takes the fallback of its
+  kind (`docs/driver.md`, "Decider replies"); it never counts as a reject by itself.
+- **A rejected approval in autopilot is not an end** (operator's rule, 2026-11-21). The rejection
+  is recorded with its reasons and citations; the action that writes the rejected artifact
+  (`change.implement` for `merge.approve`; `context.default`, `vision.write` and `roadmap.write`
+  for the direction approvals) runs again with the reasons in its inputs (`in/rejection.json`),
+  its checks run again on the new revision, and the approval is asked again. At most 2 rejections
+  per approval per case: the third stops the run by `rule:autopilot` with cause `rework_spent`,
+  naming the approval and the three reasons. A rejected `release.publish` (the capability
+  `release.approve`, no writer) ends the tree instead: the release is withheld, the epic ends
+  `not_released`, the root `not_delivered`, and the run is closed, not stopped (`docs/driver.md`,
+  "A refused release"). A reject that has neither a writer nor such an end stops with
+  `rejected_without_rework_path`. No message says a person decides.
 - **Every would-be escalation is recorded** as the event `escalation_suppressed`, with the class,
   the subject at revision, the reasons and `best`. It is counted as the KPI R21, escalations
   suppressed (§ 5).

@@ -75,7 +75,15 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   story-late-person decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-reject principals models)
+  decider-escalate-nobest decider-release-a3 principals models)
+# The rejection cycles follow what the protocols give: decider-reject (no rework path) while
+# context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
+# decider-rework-spent where merge.approve exists.
+ctx_rework=no
+jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
+if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
+yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
+  expected+=(decider-rework decider-rework-spent)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -431,7 +439,8 @@ fi
 # decision and is final. On a fixture with two open scope-changing questions (fixtures/scope-two)
 # and a scope-changing spec finding (finding-spec-person.yaml), the run closes with no person
 # principal anywhere: decisions.jsonl, findings.yaml, questions.yaml and the events' grants and
-# approvals; L7 is 0, and run-settings.jsonl names A5, escalate final. With SDC_DECIDER=person it
+# approvals; L7 is 0, run-settings.jsonl names A5, escalate final, and the run's planning store
+# (work/aep) records its transitions by an agent: actor, no human:. With SDC_DECIDER=person it
 # refuses to start (exit 64); a stop that needs a person (fixtures/offline-decision: the decider's
 # amendment is refused) ends the run with a stop record by rule:autopilot (exit 7).
 nonperson='^(decider:|rule:|agent$|non-interactive$|derived$)'
@@ -448,10 +457,11 @@ people=$( { jq -r '.principal' "$r/decisions.jsonl"
           } | grep -Evc "$nonperson")
 if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <<< "$l7" >/dev/null &&
    jq -se 'all(.autonomy == "A5" and .decider.escalate == "final" and .decider.kind == "haiku")' "$r/run-settings.jsonl" >/dev/null &&
-   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:haiku"' "$w/findings.yaml" >/dev/null; then
-  echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final)"
+   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:haiku"' "$w/findings.yaml" >/dev/null &&
+   [[ -d $w/aep ]] && ! grep -rqs 'human:' "$w/aep" && grep -rqs 'actor: "agent:' "$w/aep"; then
+  echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final; work/aep transitions by agent:, no human:)"
 else
-  echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, or the settings do not name A5)"
+  echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, the settings do not name A5, or work/aep has a human: actor or no agent: one)"
 fi
 trial autopilot-person SDC_DECIDER=person
 code=$?
@@ -533,6 +543,9 @@ if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "approve"] a
 else
   echo "decider-escalate-nobest: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
+# Only while context.approve cannot record a rejection (no writer reworks the context): with one,
+# the reject is reworked, which the decider-rework cycles check.
+if [[ $ctx_rework == no ]]; then
 trial decider-reject SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/decider-reject
@@ -543,6 +556,136 @@ if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rejected_wit
   echo "decider-reject: checks pass (exit 6, rejected_without_rework_path, step and case named, no person, L7 0)"
 else
   echo "decider-reject: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+else
+# decider-rework-context: context.approve rejected every time: context.default reworks the context
+# twice with the rejection (the stub appends it to context.yaml as a comment), context.check runs
+# on each new revision, the third rejection stops by rule:autopilot with cause rework_spent.
+trial decider-rework-context SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+code=$?
+r=$s/runs/decider-rework-context
+ev=$(find "$r/store" -type d -name 'IDEA-1.direction' | head -n 1)/events.jsonl
+if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rework_spent" and .case == "IDEA-1.direction"
+     and (.reason | test("^autopilot: context.approve in IDEA-1.direction: rework_spent") and test("1: .*2: .*3: ")
+       and (test("person") | not) and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
+   jq -se '[.[] | select(.event == "action_started" and .action == "context.default" and .retry_of == ["context_approval"])] | length == 2' "$ev" >/dev/null &&
+   jq -se '[.[] | select(.event == "action_finished" and .action == "context.approve" and .result == "rejected")] | length == 3' "$ev" >/dev/null; then
+  echo "decider-rework-context: checks pass (context.default reworked the context twice with the rejection, the third rejection is rework_spent)"
+else
+  echo "decider-rework-context: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+# decider-rework-model: as decider-rework-context with context.default on a model adapter
+# (llm-adapter-fixture.sh, which writes the same context every time): the writer gets the rejection
+# as in/rejection.json and writes the artifact itself, so the stub's rework marker is in no file
+# of the run's work/ and the unchanged context makes no new revision (the run stops, not closed).
+trial decider-rework-model SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=context.default \
+  SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+code=$?
+r=$s/runs/decider-rework-model
+w=$r/store/IDEA-1/work
+if (( code == 4 )) && [[ -d $w ]] && ! grep -rqs 'of the rejection of ' "$w" &&
+   jq -e '.cause == "writer_spent" and (.reason | test("^autopilot: context.default in IDEA-1.direction: writer_spent \\([0-9]+ runs"))' "$r/run-stopped.json" >/dev/null &&
+   jq -rs '[.[] | select(.action == "context.default") | .record] | last' "$r/llm-calls.jsonl" | xargs -I{} jq -e '.format == "sdc.rejection/1" and .approval == "context.approve"' {}/cwd/in/rejection.json >/dev/null; then
+  echo "decider-rework-model: checks pass (the model writer got in/rejection.json; no rework marker in work/; writer_spent names context.default)"
+else
+  echo "decider-rework-model: FAILED (exit $code, or a rework marker in work/, no in/rejection.json for the model writer, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+fi
+fi
+# Rework of a rejected approval under autopilot (docs/autonomy-levels.md, "A rejected approval in
+# autopilot"). decider-rework and decider-rework-spent run where the story protocol has
+# merge.approve (merge_approval approved or rejected). decider-rework: merge.approve rejected once,
+# then approved: change.implement runs again with the rejection (SDC_FEEDBACK; the stub records it
+# in impl/.rework), the approval is asked again with prior_rejections, the run closes.
+# decider-rework-spent: rejected three times: stop by rule:autopilot, cause rework_spent, the three
+# reasons named. decider-rework-none: release.publish rejected; its approval is the capability
+# release.approve with no `rejected` result, so the rejection cannot be recorded: cause
+# rejected_without_rework_path, nothing recorded.
+if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
+  rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], "cites": ["r1"], "best": null}'
+  app='{"decision": "approve", "answer": null, "reasons": ["fixture: the rework addresses the rejection"], "cites": ["r1"], "best": null}'
+  trial decider-rework SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{"merge.approve": {"rounds": [$j, $a]}}')"
+  code=$?
+  r=$s/runs/decider-rework
+  st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' | head -n 1)
+  a=$(attempts "$r" merge.approve)
+  if (( code == 0 )) && jq -e '[.[] | .decision] == ["reject", "approve"]' <<< "$a" >/dev/null &&
+     jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] | length == 2' "$st/events.jsonl" >/dev/null &&
+     jq -se '[.[] | select(.event == "action_started" and .action == "change.implement")] | last | .retry_of == ["merge_approval"]' "$st/events.jsonl" >/dev/null &&
+     grep -q '127.0.0.1' "$st/work/impl/.rework" &&
+     jq -e '.prior_rejections | length == 1' "$(ls -d "$r"/decider/*-merge.approve | tail -n 1)/cwd/in/decision.json" >/dev/null &&
+     [[ $(jq -s '[.[] | select(.kind == "merge_approval" and .result == "rejected")] | length' "$st"/evidence/*.json) == 1 ]]; then
+    echo "decider-rework: checks pass (rejected once, change.implement ran again with the rejection, approved, closed)"
+  else
+    echo "decider-rework: FAILED (exit $code: $(jq -c '[.[] | .decision]' <<< "$a" 2>/dev/null))"
+  fi
+  trial decider-rework-spent SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
+  code=$?
+  r=$s/runs/decider-rework-spent
+  if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rework_spent"
+       and (.reason | test("^autopilot: merge.approve in IDEA-1[.][a-z]+[.][a-z]+: rework_spent") and test("1: .*2: .*3: ")
+         and (test("person") | not) and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
+     ! sed -n '/^round /,$p' "$s/decider-rework-spent.txt" | sed 's/awaiting_person//g' | grep -qi 'person'; then
+    echo "decider-rework-spent: checks pass (three rejections: rework_spent by rule:autopilot, the three reasons named)"
+  else
+    echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+  fi
+fi
+# A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
+# capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3
+# the decider's reject ends the run with rejected_without_rework_path (exit 6) and nothing is
+# recorded in the release case: the withheld decision is autopilot's only. A copy of that release
+# case, awaiting the approval, refuses `sdc-drive decide` (the decision outside the refused
+# state). Where the epic protocol has not_released: decider-release-withheld: under autopilot the
+# decider rejects release.publish; release.approve is denied by the decider, explicitly_withheld
+# recorded by rule:autopilot with the rejection as its log blob, the release closes withheld, the
+# epic not_released, the root not_delivered; exit 0, the closed line names the reason,
+# status.json says not delivered, no stop record, no person principal, L7 0, replay matches.
+rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the release notes name no version"], "cites": ["r1"], "best": null}'
+targs=()
+trial decider-release-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
+code=$?
+r=$s/runs/decider-release-a3
+rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
+cp_=$s/decide-refused; rm -rf "$cp_"; [[ -n $rs ]] && cp -r "$rs" "$cp_"
+printf '{"format": "sdc.rejection/1", "reasons": ["fixture"]}\n' > "$s/decide-refused.json"
+refusal=$("$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$cp_" decide \
+  --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --decision explicitly_withheld --outcome withheld --principal rule:autopilot \
+  --after-denial release.approve --reasons "$s/decide-refused.json" 2>&1)
+rcode=$?
+if (( code == 6 )) && [[ -n $rs && ! -f $r/run-stopped.json && ! -f $r/status.json ]] &&
+   grep -q 'release.publish in .*rejected_without_rework_path' "$s/decider-release-a3.txt" &&
+   jq -e 'length == 0' "$rs/decisions.json" >/dev/null && jq -e 'all(.decision != "denied")' "$rs/authority.json" >/dev/null &&
+   (( rcode != 0 )) && grep -q 'taken only directly after `release.approve` was denied' <<< "$refusal" &&
+   jq -e 'length == 0' "$cp_/decisions.json" >/dev/null; then
+  echo "decider-release-a3: checks pass (A3: rejected_without_rework_path, nothing recorded; decide refused outside the refused state)"
+else
+  echo "decider-release-a3: FAILED (exit $code, decide exit $rcode: $(tail -n 1 <<< "$refusal"))"
+fi
+targs=(--autopilot)
+if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1; then
+  trial decider-release-withheld SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
+  code=$?
+  r=$s/runs/decider-release-withheld
+  rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
+  ep=$(dirname "$(dirname "$rs")")
+  blob=$(jq -r 'select(.event == "decision_recorded") | .log' "$rs/events.jsonl" 2>/dev/null)
+  people=$( { jq -r '.principal' "$r/decisions.jsonl"
+              find "$r/store" -name events.jsonl -exec jq -r 'select(.event == "authority_recorded" or .event == "decision_recorded" or (.event == "action_finished" and .principal != null)) | .principal' {} +
+            } | grep -Evc "$nonperson")
+  if (( code == 0 && people == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+     grep -q '^closed IDEA-1: "not_delivered" (release withheld: fixture: the release notes name no version)' "$s/decider-release-withheld.txt" &&
+     jq -e '.state == "closed" and .outcome == "not_delivered" and .delivered == false' "$r/status.json" >/dev/null &&
+     jq -e '. == [{"capability": "release.approve", "decision": "denied"}]' "$rs/authority.json" >/dev/null &&
+     jq -e 'length == 1 and .[0].decision == "explicitly_withheld" and .[0].outcome == "withheld" and .[0].principal == "rule:autopilot"' "$rs/decisions.json" >/dev/null &&
+     jq -e '.format == "sdc.rejection/1" and .approval == "release.publish" and .reasons == ["fixture: the release notes name no version"]' "$rs/blobs/$blob" >/dev/null &&
+     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["withheld"]' "$rs/events.jsonl" >/dev/null &&
+     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["not_released"]' "$ep/events.jsonl" >/dev/null &&
+     "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0' >/dev/null &&
+     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
+    echo "decider-release-withheld: checks pass (release withheld by rule:autopilot after the decider's refusal, epic not_released, root not_delivered; exit 0, no person, L7 0, replay matches)"
+  else
+    echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+  fi
 fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted

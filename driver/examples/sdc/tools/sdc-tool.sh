@@ -37,6 +37,12 @@ esac
 # The case's aep store keeps aep's own lifecycles, not those of a project above the case directory
 # (runs/ inside this repository is under development.standard); see llm-node.sh.
 aep() { command aep "$@" --root .; }
+# aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, as in
+# llm-node.sh: SDC_PRINCIPAL when it is a <kind>:<name> principal and no person, else agent:<action>.
+executor=agent:${SDC_ACTION:-sdc-tool}
+aep_actor=${SDC_PRINCIPAL:-}
+[[ $aep_actor =~ ^[a-z][a-z-]*:[^[:space:]]+$ && $aep_actor != human:* && $aep_actor != person:* ]] || aep_actor=$executor
+export AEP_ACTOR=$aep_actor
 
 case $1 in
 # --- stub LLM executors: fixed drafts -------------------------------------------------------
@@ -56,8 +62,8 @@ stub-decompose)
   aep plan artifact new story invoices --store aep --title "Invoices" \
     --summary "covers $cmds" --relate delivers:epic:billing --relate serves:vision:product &&
   aep plan artifact scope story:invoices --store aep --add impl &&
-  aep plan artifact move epic:billing --to active --store aep &&
-  aep plan artifact move story:invoices --to active --store aep ;;
+  aep plan artifact move epic:billing --to active --store aep --executor "$executor" &&
+  aep plan artifact move story:invoices --to active --store aep --executor "$executor" ;;
 
 # --- sdc.intake checks ----------------------------------------------------------------------
 check-idea) yq -e '.text | (tag == "!!str") and (length > 0)' idea.yaml >/dev/null ;;
