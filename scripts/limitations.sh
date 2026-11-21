@@ -39,7 +39,7 @@ show validate --path "$lim/child-outcomes-invalidated.protocol.yaml"
 
 mkdir -p "$lim/missing-artifact/evidence" "$lim/evidence-with-gitkeep/evidence"
 printf '%s\n' 'format: canon-case/1' 'id: IDEA-1' 'protocol: sdc' 'revision: c1' 'artifacts:' \
-  '  idea: {revision: i1}' > "$lim/missing-artifact/case.yaml"
+  '  idea: {revision: i1}' '  goals: {revision: none}' > "$lim/missing-artifact/case.yaml"
 show evaluate --ir "$sdc/protocol/compiled/sdc.ir.json" --case "$lim/missing-artifact/case.yaml" \
   --evidence "$lim/missing-artifact/evidence"
 
