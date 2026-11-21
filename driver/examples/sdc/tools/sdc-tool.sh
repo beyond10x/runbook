@@ -34,6 +34,36 @@ bugfix() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
   "$b" "$@"
 }
+# The specification's conformance as the spec stage checks it (spec.synthesize, and spec.gate's
+# ess-gate): the suite is synthesized with no refusal, then run against ESS's interpreter of the
+# specification (`--target interpreted --strict`), and every scenario must pass. A scenario the
+# interpreter reports unsupported, failed or errored is a specification it cannot carry out, which
+# no implementation can be held to (release-0.1.2.mixed.1: 8 unsupported scenarios, "binding
+# command has an unmet outcome obligation", first met at a story's tests.run, where only the
+# implementing writer is sent back). The list of those scenarios, with ESS's reason, ends the
+# output: the writer sent back (spec.author) reads the last lines of the check's log. ess 0.96.0
+# gives the per-scenario detail with `--format json` (ess-conformance-run/2). An ess that writes
+# no readable result is a failed check, as before (exit 1).  spec_conform <suite path>
+spec_conform() {
+  local suite=$1 out rc json
+  out=$(ess verify conform synthesize --path spec --suite-format 5 --out "$suite" 2>&1)
+  echo "$out"
+  grep -q ' 0 refusal occurrence' <<< "$out" || return 1
+  json=$(ess verify conform run --path spec --target interpreted --suite "$suite" --report-format 2 \
+    --report-out "${suite%.json}-interpreted.json" --strict --format json 2> "${suite%.json}-interpreted.err"); rc=$?
+  if ! jq -e '.scenarios | type == "array"' <<< "$json" > /dev/null 2>&1; then
+    echo "interpreted run: \`ess verify conform run --target interpreted\` exited $rc with no readable result: $(tail -n 3 "${suite%.json}-interpreted.err")"
+    return 1
+  fi
+  jq -r --argjson rc "$rc" '[.scenarios[] | select(.status != "passed")] as $bad | (.scenarios | length) as $n
+    | if ($bad | length) == 0 and $rc == 0 then "interpreted run: \($n) scenarios, all passed"
+      else "interpreted run: \($bad | length) of \($n) scenarios did not pass against ESS'"'"'s interpreter of the specification (ess verify conform run --target interpreted --strict, exit \($rc)). The interpreter cannot carry them out, so no implementation can be held to them: change the specification so that each passes.",
+        ($bad[] | "  \(.status) \(.scenario): " + ([.checks[]? | select(.status != "passed")
+          | (.diagnostic.code // .code // "?") + ": " + ((.diagnostic.observed // []) | join("; "))] | join(" | ")))
+      end' <<< "$json"
+  [[ $rc == 0 ]] && jq -e 'all(.scenarios[]; .status == "passed")' <<< "$json" > /dev/null
+}
+
 case $1 in
   ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
   conform-run|story-tests|story-tests-run|impl-gate) need ess slot ;;
@@ -163,14 +193,11 @@ ess-gate)
   ess specify validate --path spec --strict-requires &&
   ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null &&
   ! grep -rn 'UNMAPPED:' spec &&
-  ess verify conform synthesize --path spec --suite-format 5 --out .sdc/gate/suite.json \
-    | grep -q ' 0 refusal occurrence' ;;
+  spec_conform .sdc/gate/suite.json ;;
 spec-validate) ess specify validate --path spec --strict-requires ;;
 spec-compile) ess specify compile --path spec --out .sdc/spec-ir.json ;;
 spec-scan) grep -rn 'UNMAPPED:' spec; [[ $? == 1 ]] ;;
-spec-synthesize)
-  ess verify conform synthesize --path spec --suite-format 5 --out .sdc/suite.json \
-    | tee /dev/stderr | grep -q ' 0 refusal occurrence' ;;
+spec-synthesize) spec_conform .sdc/suite.json ;;
 spec-trace-shape)
   # every domain the specification declares is cited by a requirement
   yq -r '.domains[]' spec/system.yaml | while read -r d; do

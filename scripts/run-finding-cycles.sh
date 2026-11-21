@@ -89,7 +89,7 @@
 #   keep-going-three, keep-going-off, keep-going-repeat  --keep-going (D142)
 #   reopen-refused-decision  --reopen puts a refused decision back
 #   unstick-end, unstick-rerun, unstick-invalid, unstick-limit, unstick-off  run.unstick (D147)
-#   decider-question-reject, rework-fresh-allowance, spec-review-rework, writer-own-error,
+#   decider-question-reject, rework-fresh-allowance, spec-review-rework, spec-interp-unsupported, writer-own-error,
 #   implement-percause, writer-sees-test-failure, scope-unattributed-reject, finding-refused-reask,
 #   review-invalid-named, and the pending rework-spent-dropped, rework-spent-abandoned: the reject
 #   and cap routes of docs/reject-routes.md (R1-R9, R13)
@@ -143,7 +143,7 @@ expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a
 expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
-expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause
+expected+=(decider-question-reject rework-fresh-allowance spec-review-rework spec-interp-unsupported writer-own-error implement-percause
   writer-sees-test-failure scope-unattributed-reject finding-refused-reask review-invalid-named)
 pending=(rework-spent-dropped rework-spent-abandoned)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
@@ -1553,6 +1553,36 @@ if (( code == 0 )) &&
   echo "spec-review-rework: checks pass (a rejected spec review sends spec.author back; operating)"
 else
   echo "spec-review-rework: FAILED (cycle exit $code, or spec.author not sent back by spec_review)"
+fi
+# spec-interp-unsupported: runs/release-0.1.2.mixed.1 stopped writer_spent at change.implement
+# because its spec had scenarios ESS's interpreter reports unsupported ("binding command has an
+# unmet outcome obligation"), first met at the story's tests.run, where the implementing writer
+# cannot change the spec. The spec stage now runs the synthesized suite against the interpreter.
+# fixtures/spec-interp-unsupported/billing-spec.0 is the billing spec plus a binding that invokes a
+# command updating an Account the chain never created: it validates, compiles and synthesizes with
+# no refusal, and one scenario is unsupported. spec.author (fixture adapter, through llm-node.sh)
+# writes it first, then the clean billing spec. Passes when sdc-tool.sh ess-gate refuses the fixture
+# naming the scenario and passes the clean spec, spec.synthesize is refused then clean, spec.author
+# is sent back by spec_synthesis with the scenario id and ESS's reason in its in/feedback.md, and
+# the cycle ends operating. Before: the fixture passed the gate and spec.author ran once.
+sg=$s/spec-interp-gate
+rm -rf "$sg" && mkdir -p "$sg/bad" "$sg/clean"
+cp -r "$fx/spec-interp-unsupported/billing-spec.0" "$sg/bad/spec" && cp -r "$fx/billing-spec" "$sg/clean/spec"
+(cd "$sg/bad" && "$sdc/driver/examples/sdc/tools/sdc-tool.sh" ess-gate > "$sg/bad.txt" 2>&1); bad=$?
+(cd "$sg/clean" && "$sdc/driver/examples/sdc/tools/sdc-tool.sh" ess-gate > "$sg/clean.txt" 2>&1); clean=$?
+cycle spec-interp-unsupported SDC_STUB_FIXTURES="$fx/spec-interp-unsupported" SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=spec.author
+code=$?
+sid="unsupported billing.email.RequestRename/outcome/requested: ESS-CF-TARGET: cannot expose interpreted binding: binding command has an unmet outcome obligation"
+fb=$(find "$s/store-spec-interp-unsupported" -path '*-spec.author/cwd/in/feedback.md' 2>/dev/null | sort | tail -n 1)
+if (( code == 0 && bad == 1 && clean == 0 )) && grep -qF "$sid" "$sg/bad.txt" && grep -q '^interpreted run: 32 scenarios, all passed$' "$sg/clean.txt" &&
+   jq -se '([.[] | select(.event == "action_finished" and .action == "spec.author")] | length) == 2
+     and ([.[] | select(.event == "action_started" and .action == "spec.author")] | last | .retry_of | index("spec_synthesis"))
+     and ([.[] | select(.event == "action_finished" and .action == "spec.synthesize") | .exit] == ["1", "0"])' \
+     "$s/store-spec-interp-unsupported/$spec" >/dev/null &&
+   [[ -n $fb ]] && grep -qF "$sid" "$fb"; then
+  echo "spec-interp-unsupported: checks pass (the gate refuses a spec its interpreter cannot carry out, naming the scenario; spec.author sent back with it; the clean spec passes; operating)"
+else
+  echo "spec-interp-unsupported: FAILED (cycle exit $code, gate on the fixture $bad, on the clean spec $clean, feedback ${fb:-none})"
 fi
 # scope-unattributed-reject (R2): the interview's scope-changing answers q2 and q3 are
 # given but unattributed (answered_by non-interactive), none is open, so scope.answer goes to the
