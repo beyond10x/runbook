@@ -6,8 +6,9 @@
 #            default_on_silence, grounds, proposed_by}}. Prints the Recommend input with check_verdict
 # and check_report, plus checks (one line per ground) and reuse_of. Exit 0 verified, 1 refused, 64 usage.
 # Rules: at least one ground; every citation resolves (path:line in range, record id present,
-# artifact@revision current; a goals entry goals@<rev>#<id> through `sdc-goals ground`: current
-# revision, entry present, digest unchanged, inside its window at --at, not overridden); a ground
+# artifact@revision current; a goals entry goals@<rev>#<id> through `sdc-goals ground`: entry
+# present, digest unchanged, inside its window at --at, not overridden; a moved goals revision
+# alone is a note, revision_moved, in checks and check_report); a ground
 # supports the recommended option, or the free answer (a question request only; supports absent).
 # A Decided request in --log with the same question_key and subject revision is reused when its
 # grounds still resolve unchanged.
@@ -34,8 +35,9 @@ goals_ground() {
   ((${#files[@]})) || { jq -nc --arg w "goals@$r#$entry: no goals layer file in $dir/work" '{ok: false, why: $w}'; return; }
   out=$("$goals_bin" ground --at "$at" --cite "goals@$r#$entry" --current "$cur" ${d:+--digest "$d"} "${files[@]}" 2>/dev/null); code=$?
   case $code in
-    0) jq -c '{ok: true, why: "\(.cite) holds (\(.layer), at \(.at))", digest}' <<< "$out" ;;
-    1) jq -c '{ok: false, why: "\(.cite): " + ([.refusals[] | "\(.code): \(.message)"] | join("; "))}' <<< "$out" ;;
+    0|1) jq -c '.entry as $e | ([.notes[] | "\(.code): goals@\(.cited)#\($e) cited, current revision \(.current)"] | first) as $note
+      | if .holds then {ok: true, why: "\(.cite) holds (\(.layer), at \(.at))", digest, note: $note}
+        else {ok: false, why: ("\(.cite): " + ([.refusals[] | "\(.code): \(.message)"] | join("; "))), note: $note} end' <<< "$out" ;;
     *) jq -nc --arg w "goals@$r#$entry: sdc-goals ground could not run (exit $code, at '$at')" '{ok: false, why: $w}' ;;
   esac
 }
@@ -88,9 +90,9 @@ check() {
   while IFS= read -r g; do
     [[ -n $g ]] || continue
     r=$(resolve "$(jq -c .citation <<< "$g")")
-    out=$(jq -c --argjson g "$g" --argjson r "$r" '. + [{ground: ($g | if $r.digest then .citation.value.digest = $r.digest else . end), ok: $r.ok, why: $r.why}]' <<< "$out")
+    out=$(jq -c --argjson g "$g" --argjson r "$r" '. + [{ground: ($g | if $r.digest then .citation.value.digest = $r.digest else . end), ok: $r.ok, why: $r.why, note: $r.note}]' <<< "$out")
   done < <(jq -c '.[]' <<< "$gs")
-  jq -c '{ok: all(.[]; .ok), checks: [.[] | "\(if .ok then "ok" else "REFUSED" end) \(.ground.source) \(.why)"], grounds: [.[].ground]}' <<< "$out"
+  jq -c '{ok: all(.[]; .ok), checks: [.[] | "\(if .ok then "ok" else "REFUSED" end) \(.ground.source) \(.why)\(if .note then " (note \(.note))" else "" end)"], grounds: [.[].ground], notes: [.[] | .note // empty]}' <<< "$out"
 }
 
 # 1. A prior decision on the same question and subject revision, its grounds unchanged, is reused.
@@ -132,6 +134,7 @@ res=$(jq -n --argjson req "$req" --argjson p "$prop" --argjson c "$c" --argjson 
   | {recommend: ({request_id: $req.request_id, recommended_option: $p.recommended_option, recommended_answer: $ans, strength: $p.strength, default_on_silence: $p.default_on_silence,
       grounds: $c.grounds, proposed_by: $p.proposed_by, check_verdict: (if $why == [] then "verified" else "refused" end),
       check_report: (if $why == [] then "\($c.grounds | length) grounds, all resolve" + (if $reuse then "; reuses \($p.grounds[0].citation.value.record_id)" else "" end)
+                       + (if $c.notes != [] then "; note " + ($c.notes | join("; ")) else "" end)
                      else "no recommendation: " + ($why | join("; ")) end)} | if .recommended_answer == null then del(.recommended_answer) else . end),
      checks: ($notes + $c.checks), reuse_of: (if $reuse then $p.grounds[0].citation.value.record_id else null end)}') || exit 64
 echo "$res"

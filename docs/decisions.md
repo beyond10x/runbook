@@ -137,9 +137,14 @@ verified, 1 refused.
    in its store (case `evidence/`, `authority.json`, `decisions.json`, the decision log, or the
    AEP store under `work/aep/`); an `artifact@revision` is the current revision in `case.json`.
    A goals entry (`goals@<rev>#<id>`) goes to `sdc-goals ground --at <instant> --cite <it>
-   --current <revision in case.json> [--digest <d>] <layer files>`, which refuses, naming each
-   cause: `not_current`, `no_entry`, `digest_changed`, `not_yet_valid`, `expired`, `overridden`
-   (by an applying lower-layer entry), `invalid_goals`. The instant is `--at`, else the request's
+   --current <revision in case.json> [--digest <d>] <layer files>`. The ground rests on the
+   entry, not on the document (`requester.md` § 0, decision 3; plan decision D93): it holds when
+   the entry exists in the current layers, its digest is the cited one, it is inside its validity
+   window at the instant and no applying lower-layer entry overrides it. Otherwise it is refused,
+   naming each cause: `no_entry`, `digest_changed`, `not_yet_valid`, `expired`, `overridden`
+   (and `invalid_goals` when the layer files fail `sdc-goals check`). A cited revision that is no
+   longer current is not a refusal: `checks` and `check_report` carry the note `revision_moved`
+   with the cited and the current revision. The instant is `--at`, else the request's
    `opened_at`; the layers are `--goals`, else `work/goals.yaml` and `work/goals.*.yaml` of the
    cited case; the binary is `$SDC_GOALS`, else `goals/target/debug/sdc-goals`, else `PATH`.
    The digest of each cited range or entry is written into the ground, so a later check sees a
@@ -174,16 +179,11 @@ case snapshots that differ only in the goals layers and their revision):
 | `--case` | exit | result |
 |---|---|---|
 | `case` | 0 | verified, "1 grounds, all resolve" |
-| `case-changed` (p1's statement edited, revision `tg0002`) | 1 | `not_current`; `digest_changed` |
-| `case-removed` (p1 removed, `tg0003`) | 1 | `not_current`; `no_entry` |
-| `case-moved` (only a new preference `p3` added, `tg0004`) | 1 | `not_current` |
+| `case-changed` (p1's statement edited, revision `tg0002`) | 1 | `digest_changed`; note `revision_moved` |
+| `case-removed` (p1 removed, `tg0003`) | 1 | `no_entry`; note `revision_moved` |
+| `case-moved` (only a new preference `p3` added, `tg0004`) | 0 | verified; note `revision_moved`: `goals@tg0001#product/p1` cited, current revision `tg0004` |
 | `case --at 2026-11-20T23:00:00Z` | 1 | `not_yet_valid` |
 | `beyond10x-q1.json --case beyond10x --goals eval/personas/beyond10x/goals.company.yaml --goals eval/personas/beyond10x/goals.product.trial.yaml` | 0 | verified, "2 grounds, all resolve" (`product/p07`, `company/c28` of the drafted persona; an edit of either entry turns it to 1) |
-
-`case-moved` shows a conflict with `requester.md` § 0 decision 3 ("one new preference must not
-reopen every answer"): the story's acceptance requires a non-current revision to be refused, so a
-new entry refuses every goals ground until it is cited again at the new revision. Open for the
-operator: accept on an unchanged entry digest alone at a newer revision.
 
 ### The 5 real decider records of `runs/trial-todo-1`
 

@@ -828,8 +828,23 @@ fn ground_is_refused_when_the_entry_was_removed() {
     assert!(o.stderr.contains("goals@r1#product/p1: no_entry: "));
 }
 
+/// The notes of a `ground` report: (code, cited, current).
+fn notes(o: &Out) -> Vec<(String, String, String)> {
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    v["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| {
+            let s = |k: &str| n[k].as_str().unwrap().to_string();
+            (s("code"), s("cited"), s("current"))
+        })
+        .collect()
+}
+
 #[test]
-fn ground_is_refused_at_a_revision_that_is_not_current() {
+fn ground_holds_at_a_moved_revision_with_a_note() {
+    // requester.md decision 3: the ground rests on the entry, not on the document revision.
     let o = ground(
         "product/p1",
         Some(&p1_digest()),
@@ -837,10 +852,22 @@ fn ground_is_refused_at_a_revision_that_is_not_current() {
         "2026-11-21",
         &layers("product.good.yaml"),
     );
-    assert_eq!(o.code, 1);
-    assert_eq!(refusals(&o), ["not_current"]);
-    assert!(o.stderr.contains("goals@r1#product/p1: not_current: "));
-    assert!(o.stderr.contains("r2"), "{}", o.stderr);
+    assert_eq!((o.code, o.stderr.as_str()), (0, ""));
+    assert!(refusals(&o).is_empty());
+    assert_eq!(
+        notes(&o),
+        [("revision_moved".into(), "r1".into(), "r2".into())]
+    );
+    let v: Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["holds"], true);
+    let o = ground(
+        "product/p1",
+        Some(&p1_digest()),
+        "r1",
+        "2026-11-21",
+        &layers("product.good.yaml"),
+    );
+    assert!(notes(&o).is_empty());
 }
 
 #[test]
@@ -881,10 +908,8 @@ fn ground_names_every_cause_at_once() {
         &layers("product.p1-changed.yaml"),
     );
     assert_eq!(o.code, 1);
-    assert_eq!(
-        refusals(&o),
-        ["not_current", "digest_changed", "not_yet_valid"]
-    );
+    assert_eq!(refusals(&o), ["digest_changed", "not_yet_valid"]);
+    assert_eq!(notes(&o).len(), 1);
 }
 
 #[test]

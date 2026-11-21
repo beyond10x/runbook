@@ -143,7 +143,7 @@ types:
       - {name: artifact, type: sdc.decision.ArtifactId}
       - {name: revision, type: sdc.decision.Revision}
       - {name: case, type: Optional<sdc.decision.CaseId>, summary: "The case whose snapshot holds the artifact; absent means the request's case."}
-      - {name: entry, type: Optional<String>, summary: "One entry of the artifact, for artifact goals: the entry id (product/p1). The ground rests on that entry: it must exist in the goals layers at that revision, apply at the check's instant (inside its validity window, not overridden by a lower layer) and still have the digest."}
+      - {name: entry, type: Optional<String>, summary: "One entry of the artifact, for artifact goals: the entry id (product/p1). The ground rests on that entry: it must exist in the current goals layers, apply at the check's instant (inside its validity window, not overridden by a lower layer) and still have the digest. A revision that moved since is noted (revision_moved), not refused (docs/requester.md decision 3)."}
       - {name: digest, type: Optional<String>, summary: "sha256:<hex> of the cited entry as sdc-goals digest prints it; written by the grounding check when absent, so a later check sees a change."}
 
   - name: sdc.decision.Citation
