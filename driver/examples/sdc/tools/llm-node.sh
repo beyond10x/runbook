@@ -54,6 +54,15 @@ if [[ $node == questions.write && -s questions.yaml && -z ${SDC_FEEDBACK:-} ]]; 
 fi
 cfg=${SDC_LLM_NODE:-'{}'}
 adapter=${SDC_LLM_ADAPTER:-stub}
+# The review's reply is a data document made under a response schema, so its class has its own
+# adapter (sdc-reply adapters: SDC_REVIEW_ADAPTER, else claude-cli where the writers run on
+# metaharness): the model replies through the schema channel, never by writing a file.
+if [[ $node == change.review ]]; then
+  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
+  res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.review.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
+    { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
+fi
 [[ -n ${SDC_LLM_NODES:-} && " $SDC_LLM_NODES " != *" $node "* ]] && adapter=stub
 work=$PWD
 
@@ -597,7 +606,7 @@ if [[ $node == change.review ]]; then
     0) echo "change.review approved by $principal ($(jq -r '.notes | length' "$rec/review-check.out") outside-the-story note(s))" ;;
     1) jq -c . "$rec/review-check.out" ;;
     75) echo "llm-node: change.review could not run: the model's API ended the session; nothing recorded, resume later" ;;
-    *) echo "llm-node: change.review recorded nothing after $((try + 1)) attempt(s): $(cat "$rec/review-check.err")" ;;
+    *) echo "llm-node: change.review recorded nothing after $((try + 1)) attempt(s) on adapter $adapter (call llm/$(basename "$rec")): $(cat "$rec/review-check.err")" ;;
   esac
   log_call
   exit $code

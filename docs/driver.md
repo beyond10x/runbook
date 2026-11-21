@@ -475,7 +475,15 @@ this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer n
 **The code review** (2026-11-21, `story:review-node-is-a-model`). `change.review` is an LLM call
 of class REVIEW (`SDC_LLM_MODEL_REVIEW`) by `llm-node.sh change.review`, producer `llm-review`,
 which the story bindings list as independent (`different_principal`): the implementer is
-`llm-node`. A fresh session with no implementer context and read-only operations. Its inputs are
+`llm-node`. A fresh session with no implementer context and read-only operations; the model
+replies only through the response schema, never by writing a file. Its adapter is the review
+class's own (`sdc-reply adapters`): `SDC_REVIEW_ADAPTER`, else `claude-cli` when `SDC_LLM_ADAPTER`
+is `metaharness` (which has no response-schema option), else `SDC_LLM_ADAPTER`. `run-trial.sh`
+checks at start that every class in `schema_reply` (`tools/node-classes.json`) is on an adapter
+that takes a schema, else refuses with exit 64 naming class and adapter, and records `adapters` in
+`run-settings.jsonl`. A review that stays invalid after its retries stops an autopilot run with
+cause `review_invalid`, naming case and call, not `stuck` (2026-11-21: `runs/trial-3-strong-3` and
+`-4` stopped `stuck` because on metaharness the review could only reply by file). Its inputs are
 built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary and an
 `## Acceptance` section), the requirements it delivers (`spec/traces.json`: a covered command, or a
 view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`

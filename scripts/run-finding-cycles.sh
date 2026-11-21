@@ -41,6 +41,10 @@
 #                   implementer reworks with in/rejection.json, the second review approves
 #   review-invalid  a rejection whose finding cites no line of the change: refused, never recorded
 #   review-spent    every review rejects: `writer_spent` on change.implement, sent back by change.review
+#   review-real-path   run-trial.sh --autopilot on metaharness (fake model CLIs, fixtures/fake-model):
+#                   the review takes the real adapter selection, claude-cli with a response schema
+#   review-invalid-stop the review's reply stays invalid there: the run stops review_invalid, not stuck
+#   review-adapter-refused SDC_REVIEW_ADAPTER=metaharness: the run refuses to start (exit 64)
 # and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
@@ -100,7 +104,8 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   review-reject-once review-invalid review-spent decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot decider-input autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models)
+  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models
+  review-real-path review-invalid-stop review-adapter-refused)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -1320,5 +1325,59 @@ else
   echo "implement-percause: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$s/runs/implement-percause/run-stopped.json" 2>/dev/null | cut -c1-240))"
 fi
 targs=()
+# The review on the adapter path a real run takes (runs/trial-3-strong-3 and -4 stopped stuck at
+# their first change.review: on metaharness the review could reply only by writing a file, which
+# its read-only operations refused). run-trial.sh --autopilot with SDC_LLM_ADAPTER=metaharness,
+# every node but change.review on its stub, the decider on the fixture adapter, and both model CLIs
+# replaced by fixtures/fake-model: it writes no file and replies only through a response schema.
+targs=(--autopilot)
+fm=$fx/fake-model
+real_env=(SDC_LLM_ADAPTER=metaharness SDC_LLM_NODES=change.review METAHARNESS="$fm/metaharness" CLAUDE="$fm/claude")
+# review-real-path: passes when the run closes, run-settings records the review adapter claude-cli
+# (the default on a metaharness run), the review call went to claude with --json-schema and only
+# read tools, its reply was schema-constrained, and the story's code_review is approved by llm-review.
+rm -f "$s/review-real-path.model.jsonl"
+trial review-real-path "${real_env[@]}" FAKE_MODEL_LOG="$s/review-real-path.model.jsonl"
+code=$?
+r=$s/runs/review-real-path
+st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' 2>/dev/null | head -n 1)
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   jq -se 'last.adapters.review | .adapter == "claude-cli" and .json_schema == true and (.source | startswith("default: claude-cli"))' "$r/run-settings.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.action == "change.review")] | length >= 1 and all(.adapter == "claude-cli")' "$r/llm-calls.jsonl" >/dev/null &&
+   jq -se 'map(select(.cli == "claude")) | length >= 1 and all(.argv | index("--json-schema") != null
+     and (.[index("--allowedTools") + 1] | split(",") | sort == ["Glob", "Grep", "Read"]))' "$s/review-real-path.model.jsonl" >/dev/null &&
+   jq -e '.schema_constrained == true' "$(ls -d "$r"/llm/*-change.review | tail -n 1)/response.json" >/dev/null &&
+   jq -se '[.[] | select(.kind == "code_review")] | length >= 1 and all(.result == "approved" and .producer == "llm-review")' "$st"/evidence/*.json >/dev/null; then
+  echo "review-real-path: checks pass (metaharness run: the review on claude-cli with a response schema and read-only tools, approved, the run closed)"
+else
+  echo "review-real-path: FAILED (exit $code, or the review was not on claude-cli under a schema: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
+fi
+# review-invalid-stop: the fake model's reply cites a line the README does not have, on every
+# attempt. Passes when the run stops by rule:autopilot with cause review_invalid, the reason names
+# the story case, the call and the check's reason, and nothing about the review is recorded.
+bad='{"decision": "rejected", "summary": "fake", "findings": [{"kind": "violation", "at": "impl/README.md:9999", "violates": "r1", "says": "a line that does not exist"}]}'
+trial review-invalid-stop "${real_env[@]}" FAKE_MODEL_REPLY="$bad"
+code=$?
+r=$s/runs/review-invalid-stop
+st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' 2>/dev/null | head -n 1)
+if (( code != 0 )) && jq -e '.by == "rule:autopilot" and .cause == "review_invalid"
+     and (.reason | test("change.review in IDEA-1[.][a-z]+[.]invoices: review_invalid") and test("call llm/[0-9]+-change.review")
+       and test("lines 9999-9999 outside impl/README.md") and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
+   [[ $(jq -s '[.[] | select(.kind == "code_review")] | length' "$st"/evidence/*.json) == 0 ]]; then
+  echo "review-invalid-stop: checks pass (the review stayed invalid: the run stopped review_invalid, naming case and call)"
+else
+  echo "review-invalid-stop: FAILED (exit $code, stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
+fi
+# review-adapter-refused: the review class bound to metaharness, which takes no response schema.
+# Passes when run-trial.sh exits 64 before any call, naming the class and the adapter.
+rm -f "$s/review-adapter-refused.model.jsonl"
+trial review-adapter-refused "${real_env[@]}" SDC_REVIEW_ADAPTER=metaharness FAKE_MODEL_LOG="$s/review-adapter-refused.model.jsonl"
+code=$?
+if (( code == 64 )) && grep -q 'refused: node class review (spec.review, change.review) replies under a response schema, but its adapter metaharness (SDC_REVIEW_ADAPTER) takes none' "$s/review-adapter-refused.txt" &&
+   [[ ! -s $s/review-adapter-refused.model.jsonl ]]; then
+  echo "review-adapter-refused: checks pass (a schema class on an adapter without a schema: the run refused to start, exit 64)"
+else
+  echo "review-adapter-refused: FAILED (exit $code: $(tail -n 1 "$s/review-adapter-refused.txt" | cut -c1-200))"
+fi
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"

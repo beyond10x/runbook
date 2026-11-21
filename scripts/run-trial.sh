@@ -192,6 +192,13 @@ else
   export SDC_LLM_ADAPTER=${SDC_LLM_ADAPTER:-metaharness}
   [[ $SDC_LLM_ADAPTER == dry ]] && export SDC_LLM_DRY_LOG=${SDC_LLM_DRY_LOG:-$out/dry-commands.txt}
 fi
+# Every node class whose reply is a data document runs on an adapter that takes a response schema
+# (sdc-reply adapters; the review: SDC_REVIEW_ADAPTER, else claude-cli on a metaharness run). One
+# that cannot take one refuses the run before any call (exit 64), naming the class and adapter.
+adapters=$("${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}" adapters --tools "$ex/tools" 2>&1) ||
+  { grep -v '^{' <<< "$adapters" | sed 's/^/run-trial.sh: /' >&2; exit 64; }
+SDC_REVIEW_ADAPTER=$(jq -r '.review.adapter' <<< "$adapters")
+export SDC_REVIEW_ADAPTER
 
 # The file-change recorder (scripts/watch-run.sh, docs/fs-changes.md) runs while this script
 # does: started before the first driver call, stopped on every exit. SDC_WATCH=0 skips it; any
@@ -297,7 +304,7 @@ models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
       elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
       else {model: "claude-haiku-5-5", source: "default"} end)}')
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
-  --argjson models "$models" \
+  --argjson models "$models" --argjson adapters "$adapters" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
   --arg stand "$stand_in" --arg rq "${SDC_REQUESTER_DECIDER:-}" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
@@ -306,11 +313,11 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, adapters: $adapters, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
-  echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
+  echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
 else
-  echo "resuming $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
+  echo "resuming $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
 fi
 
 save() {
@@ -324,7 +331,8 @@ save() {
 # record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path, rework_spent,
 # decider_budget_spent, decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
-# driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent).
+# driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent),
+# and review_invalid (stuck after a change.review that recorded nothing: its reply stayed invalid).
 end_reason="" end_cause="" end_action="" end_case="" wait_why=""
 autopilot_end() {
   local rc=$1 v
@@ -337,7 +345,19 @@ autopilot_end() {
     case $v in
       writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
       writer_not_called) end_reason="$end_action in $end_case: writer_not_called ($(jq -r '(.position.not_called // [])[0].reason // ""' <<< "$last" | cut -c1-200)): nothing else is useful; it waits on a fix of the writer or a decision, then --reopen" ;;
-      stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen" ;;
+      stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen"
+        # Stuck because the case's last step was a review that recorded nothing (its reply stayed
+        # invalid after its retries, or its call failed): cause review_invalid, naming the call.
+        local cd line
+        cd=$(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null)
+        line=$(jq -rs '[.[] | select(.event == "action_finished")] | last
+          | select(.action == "change.review" and (.exit | IN("0", "1") | not)) | .log // empty' "$cd/events.jsonl" 2>/dev/null)
+        line=$([[ -n $line ]] && grep -v '^[[:space:]]*$' "$cd/blobs/$line" 2>/dev/null | tail -n 1)
+        if [[ $line == *"change.review recorded nothing after"* ]]; then
+          end_cause=review_invalid end_action=change.review
+          end_reason="change.review in $end_case: review_invalid (${line#llm-node: }): it waits on a fix of the review node or its adapter, then --reopen"
+          end_reason=${end_reason:0:600}
+        fi ;;
       *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
       *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
     esac
