@@ -242,19 +242,23 @@ Holders:
 | Class | Canon action, capability (today) | A0 | A1 | A2 | A3 | A4 | A5 |
 |---|---|---|---|---|---|---|---|
 | scope-changing answers | intake `questions.answer` on a `scope_changing` question; the human rule is hard-coded in `questions.check` (`sdc-tool.sh:55-56`); no capability | P | P+ | P | D→P | D→P | D* |
-| context | direction `context.approve`, `owner.approve` | P | P+ | D→P | D→P | D→P | D* |
+| context | direction `context.approve`, `owner.approve` | P | P+ | D→P | D→P | D→P | R (`context.check` passed at this revision: `rule:autopilot`; else D*) |
 | vision | direction `vision.approve`, `owner.approve` | P | P+ | P | D→P | D→P | D* |
-| roadmap | direction `roadmap.approve`, `owner.approve` | P | P+ | P | D→P | D→P | D* |
+| roadmap | direction `roadmap.approve`, `owner.approve` | P | P+ | P | D→P | D→P | R (`roadmap.validate` passed at this revision: `rule:autopilot`; else D*) |
 | spec acceptance | spec `spec.review` → `spec_review`, `independent_on: [different_principal]` (`sdc-spec.protocol.yaml:108`); ESS gate always R | P | P+ | D→P | D→P | D→P | D* |
 | story activation | none: the decompose stub moves stories to active (`driver.md` gap 11) | P | P+ | D→P | D→P | D→P | D* |
 | code review | story `change.review` → `code_review`, `different_principal`; tests always R | P | P+ | D→P | D→P | D→P | D* |
 | merge | story `change.merge`, `change.merge` | P | P+ | P | P | R∧D→P | R∧D* |
-| release | release `release.approve`, `release.approve` | P | P+ | P | P | P | D* |
+| release | release `release.approve`, `release.approve` | P | P+ | P | P | P | R (`spec.gate`, `release.build` and `acceptance.run` passed at this revision: `rule:autopilot`; else D*) |
 | operate: rollback | release `release.rollback`, `release.approve` (unbound today) | P | P+ | P | R | R | R: end |
 | operate: close | root close `operating` | P | P+ | P | P | D→P | R (D140: its claims are settled upstream; `rule:autopilot` closes) |
 | budget overrun | driver caps: `--max-llm-calls`, `SDC_MAX_DECIDER_CALLS`, USD | P | P | P | R, then P | R, then P | R: end |
 | limit hit | `--max-wall-seconds`, `--max-steps`, `timeout_s`, Substrate refusals | R, then P | R, then P | R, then P | R, then P | R, then P | R: end |
 | escalation | decider reply `escalate` or an invalid reply | — | — | P | P | P | D* |
+
+The R cells of context, roadmap and release are built (`story:decider-program-approvals`,
+`driver.md` "Approvals by program", data `rule-ends.json`, off with `SDC_RULE_APPROVALS=off`);
+vision has no program check and stays D*.
 
 Rules named in the table *(inferred: proposed, not built)*:
 

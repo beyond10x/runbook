@@ -220,6 +220,49 @@ fn check(protocols: &[Protocol], classes: &Value, ends: &Value) -> Vec<String> {
             }
         }
     }
+    // rule-guard: an approval taken by rule (`by_rule`) rests on program checks; each guard's claim
+    // must be a condition of the action and its check a bound program action (no person, no model)
+    // that produces the claim's evidence kind about the claim's subject.
+    for (qa, end) in ends["approvals"].as_object().into_iter().flatten() {
+        let Some(guards) = end["by_rule"]["guards"].as_array() else { continue };
+        let (pname, act) = qa.split_once('/').unwrap_or(("", qa));
+        let Some(p) = protocols.iter().find(|p| p.name == pname) else {
+            f.push(format!("rule-guard {qa}: no protocol {pname}"));
+            continue;
+        };
+        if p.ir["actions"][act].is_null() {
+            f.push(format!("rule-guard {qa}: the protocol has no action {act}"));
+            continue;
+        }
+        let mut cond = Vec::new();
+        claim_refs(&p.ir["actions"][act]["precondition"], &mut cond);
+        if guards.is_empty() {
+            f.push(format!("rule-guard {qa}: a rule with no guard rests on nothing"));
+        }
+        for g in guards {
+            let (claim, check) = (g["claim"].as_str().unwrap_or(""), g["check"].as_str().unwrap_or(""));
+            let w = &p.ir["claims"][claim]["true_when"]["evidence"];
+            let b = &p.bindings[check];
+            let why = if !cond.iter().any(|(c, is)| c == claim && is == "true") {
+                Some(format!("{claim} is not a condition of {act}"))
+            } else if !w.is_object() {
+                Some(format!("{claim} is no evidence claim"))
+            } else if !b.is_object() {
+                Some(format!("{check} is not bound"))
+            } else if b["manual"] == true || is_llm_node(b) || !b["llm"].is_null() {
+                Some(format!("{check} is a person's or a model's action, not a program check"))
+            } else if !kinds_of(b).iter().any(|k| w["kind"] == k.as_str()) {
+                Some(format!("{check} does not produce {}", w["kind"].as_str().unwrap_or("")))
+            } else if b["subject"] != w["subject"] {
+                Some(format!("{check} checks {}, {claim} is about {}", b["subject"], w["subject"]))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                f.push(format!("rule-guard {qa}: {why}"));
+            }
+        }
+    }
     if ends["findings"]["refused_by_check"].is_null() {
         f.push("no-reject-route amend.upstream (finding): a decision the program check refuses ends in the stop decision_not_takeable".into());
     }
@@ -391,6 +434,28 @@ mod tests {
         assert_eq!(check(&proto(i.clone(), b.clone()), &classes, &ends(json!({}))).len(), 1);
         let e = ends(json!({"approvals": {"t.p/doc.approve": {"reject": {"decision": "explicitly_withheld", "outcome": "withheld"}}}}));
         assert!(check(&proto(i, b), &classes, &e).is_empty());
+    }
+
+    #[test]
+    fn a_rule_guard_must_be_a_program_check_of_a_condition() {
+        let classes = json!({"classes": {}});
+        let guard = |claim: &str, check: &str| ends(json!({"approvals": {"t.p/doc.approve": {"by_rule": {"guards": [{"claim": claim, "check": check}]}}}}));
+        let mut i = ir();
+        i["actions"]["doc.approve"]["precondition"] = json!({"claim": {"id": "doc.ok", "is": "true"}});
+        i["claims"]["doc.ok"]["true_when"]["evidence"]["subject"] = json!("doc");
+        let b = json!({"doc.check": {"argv": ["sdc-tool.sh", "check"], "produces": "doc_check", "subject": "doc", "results": {"0": "valid", "*": "invalid"}}});
+        let run = |i: &Value, b: &Value, e: &Value| check(&proto(i.clone(), b.clone()), &classes, e).into_iter().filter(|l| l.starts_with("rule-guard")).collect::<Vec<_>>();
+        assert!(run(&i, &b, &guard("doc.ok", "doc.check")).is_empty());
+        assert_eq!(run(&i, &b, &guard("doc.approved", "doc.check")), vec!["rule-guard t.p/doc.approve: doc.approved is not a condition of doc.approve"]);
+        assert_eq!(run(&i, &b, &guard("doc.ok", "doc.nope")), vec!["rule-guard t.p/doc.approve: doc.nope is not bound"]);
+        let mut manual = b.clone();
+        manual["doc.check"]["manual"] = json!(true);
+        assert_eq!(run(&i, &manual, &guard("doc.ok", "doc.check")), vec!["rule-guard t.p/doc.approve: doc.check is a person's or a model's action, not a program check"]);
+        let model = json!({"doc.check": {"argv": [LLM, "doc.check"], "llm": {}, "produces": "doc_check", "subject": "doc"}});
+        assert_eq!(run(&i, &model, &guard("doc.ok", "doc.check")).len(), 1);
+        let mut other = b.clone();
+        other["doc.check"]["subject"] = json!("elsewhere");
+        assert_eq!(run(&i, &other, &guard("doc.ok", "doc.check")).len(), 1);
     }
 
     #[test]
