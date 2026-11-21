@@ -344,7 +344,7 @@ Every agent node binds `argv: ["{dir}/tools/llm-node.sh", "<action>"]` plus an `
 (the `sdc-tool.sh` subcommand that writes the fixed draft). Agent nodes: `idea.dissect`,
 `questions.write`, `questions.answer`, `requirements.normalise` (intake); `context.default`,
 `vision.write`, `roadmap.write` (direction); `spec.author`; `plan.decompose`;
-`change.implement` (story). Reviews (`spec.review`, `change.review`) stay program stubs.
+`change.implement` (story). `change.review` is a model call too (see "The code review" below); `spec.review` stays a program stub.
 
 What one call does (`llm-node.sh`):
 
@@ -373,6 +373,39 @@ node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The 
 not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
 `models` per class (`model`, `source`, and per node).
 
+**Reasoning effort per node** (2026-11-21). The same way as the model: `SDC_LLM_EFFORT_WRITER`,
+`_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_OTHER`, else `SDC_LLM_EFFORT` for every node and the decider
+(per class wins), else the class default in `tools/node-classes.json` (`default_efforts`): `high`
+for writer, implement, review and other, `xhigh` for the decider and the requester (which takes
+`SDC_LLM_EFFORT_REQUESTER`, then `_DECIDER`, first). A level is always passed, so a run is the same
+on any host and no adapter falls back to its own default (the `high` the `metaharness` adapter
+used, the `xhigh` the decider's `claude -p` took from this host's `~/.claude/settings.json`).
+Accepted: `low`, `medium`, `high`, `xhigh`, `max` (`claude --help`; list in
+`tools/node-classes.json`). `scripts/run-trial.sh` refuses any other value with exit 64 and the
+list, because both CLIs ignore an unknown one with a warning and run at their own default. The
+value reaches `request.json` (`effort`) and each adapter as `--effort <level>`
+(`tools/llm-adapter-metaharness.sh:38` to `metaharness run claude --effort`, which passes it to
+Claude Code's `--effort`; `tools/llm-adapter-claude-cli.sh:35` to `claude -p --effort`). Each call
+line, decider record and adapter response names its `effort`; `run-settings.jsonl` records
+`efforts` per class and for the requester (`effort`, `source`: the variable, or `default`). A model
+may silently lower a level it does not offer.
+
+**Hermetic `claude-cli` adapter** (ruling D153: a decision does not depend on the machine's personal
+settings). A recorded decider call of the old adapter (`claude -p` with no `--setting-sources`,
+`trial-3-strong-2/decider/001-q1/events.jsonl`) shows the host's setup in its `init` event: 6
+`SessionStart` hooks fired, 60 skills, 11 plugins (7 the user installed, 4 built in),
+26 agents, output style `Operator Report`, 14 tools
+(`SendMessage`, `PushNotification`, `ToolSearch` ...), and the user's global instructions load from
+`~/.claude/CLAUDE.md` (*inferred* from that: the transcript does not print the system prompt). The
+adapter now runs as the `metaharness` adapter does (`../metaharness/crates/metaharness-claude/src/launch.rs:1353`):
+`--setting-sources ""`, a fresh `CLAUDE_CONFIG_DIR` per call holding only a copy of the login file
+`.credentials.json` (mode 600, removed on exit; or `ANTHROPIC_API_KEY`), `--strict-mcp-config`,
+`--disable-slash-commands`, `--tools` limited to the request's operations, auto-memory and the git
+status block off, `CLAUDE_CODE_EFFORT_LEVEL` unset (`tools/llm-adapter-claude-cli.sh:1-14`). A call
+with the new adapter lists tools `Glob`, `Read`, `StructuredOutput`, no hook, no skill, output style
+`default`, only the built-in plugins and agents, and authenticates (probe, 2 Haiku calls). The
+login copy shares the host's refresh token, as the `metaharness` adapter's does.
+
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):
@@ -382,7 +415,7 @@ attempt}; one response JSON on stdout; the session's exit):
 | `stub` (default) | the binding's `llm.stub`, no LLM |
 | `dry` | builds the metaharness frame and argv, appends `would run: metaharness …` to `SDC_LLM_DRY_LOG`, runs nothing, then the stub |
 | `metaharness` | `metaharness run claude --frame <sealed metaharness.frame/1> --decisions frame --cwd <cwd> --scratch-cwd --model M --max-turns N --max-budget-usd B --retain-dir <record>/transcripts -p <prompt>`: Claude Code with the operator's login, its tool calls decided per call against the frame's operations. Record: `frame.json`, `argv.json`, `events.jsonl` (`metaharness.event/1`), `transcripts/` |
-| `claude-cli` | `claude -p … --allowedTools Read,Write,Edit,Glob,Grep --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --permission-mode acceptEdits --output-format stream-json`, the fallback |
+| `claude-cli` | `claude -p … --tools <operations> --allowedTools <operations> --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --setting-sources "" --strict-mcp-config --permission-mode acceptEdits --output-format stream-json` in a fresh config home, hermetic (below), the fallback |
 | a path | any program with the same contract |
 | `tools/llm-adapter-fixture.sh` (a path) | tests, no LLM: writes the node's `stub-file` output into `out/`, so the apply step runs as on a real reply. With `SDC_LLM_NODES="<node> …"` only the named nodes go to the adapter, the rest run their stub (`scope-changed` cycle). `SDC_FIXTURE_STUB='{"<node>": [<fixture>, <artifact>]}'` gives a node without a `stub-file` stub one (`plan-in-project` cycle). `llm-node.sh` and `sdc-tool.sh` call `aep … --root .`: the case store keeps aep's own lifecycles even inside a project with another profile |
 
@@ -418,6 +451,19 @@ Moved per approval action of the eight protocols: `release.publish` health.requi
 (release.healthy, release.observed, rollback.complete); `context.approve` vision.required,
 roadmap.required; `vision.approve` roadmap.required; `merge.approve` no obligation (claim
 change.merged); none for `roadmap.approve`, `scope.answer`, `release.rollback`.
+
+**What the decider reads** (2026-11-21, `runs/trial-3-haiku-5`'s close: rejected because the
+roadmap's aep front matter said `status: draft` beside `roadmap.approved` true, and because eight
+decisions were "answered by decider:haiku, not a person"). Tree inputs keep `Cargo.lock` (the copy
+dropped it, and the decider doubted the `--locked` build the checks had recorded). A `close` reads
+`published/README.md` and no `aep/` file: it judges the result, and the roadmap's approval is a claim
+in `in/checks.json`. A prompt with `aep/` inputs says that `status` and `revision` in their front
+matter belong to the planning tool and say nothing about approval. Under `SDC_DECIDER_ESCALATE=final`
+the prompt says that a decider takes every decision a person would take, so an answer by
+`decider:<kind>` is the product owner's own and never a reason to reject or escalate; and in place
+of "escalate to a person" it says that no person can be asked: write `escalate`, say in `reasons`
+what cannot be told, and give `best`. Cycle `decider-input` checks the records of the `autopilot`
+cycle.
 
 **Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
 decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
@@ -462,7 +508,15 @@ this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer n
 **The code review** (2026-11-21, `story:review-node-is-a-model`). `change.review` is an LLM call
 of class REVIEW (`SDC_LLM_MODEL_REVIEW`) by `llm-node.sh change.review`, producer `llm-review`,
 which the story bindings list as independent (`different_principal`): the implementer is
-`llm-node`. A fresh session with no implementer context and read-only operations. Its inputs are
+`llm-node`. A fresh session with no implementer context and read-only operations; the model
+replies only through the response schema, never by writing a file. Its adapter is the review
+class's own (`sdc-reply adapters`): `SDC_REVIEW_ADAPTER`, else `claude-cli` when `SDC_LLM_ADAPTER`
+is `metaharness` (which has no response-schema option), else `SDC_LLM_ADAPTER`. `run-trial.sh`
+checks at start that every class in `schema_reply` (`tools/node-classes.json`) is on an adapter
+that takes a schema, else refuses with exit 64 naming class and adapter, and records `adapters` in
+`run-settings.jsonl`. A review that stays invalid after its retries stops an autopilot run with
+cause `review_invalid`, naming case and call, not `stuck` (2026-11-21: `runs/trial-3-strong-3` and
+`-4` stopped `stuck` because on metaharness the review could only reply by file). Its inputs are
 built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary and an
 `## Acceptance` section), the requirements it delivers (`spec/traces.json`: a covered command, or a
 view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`
@@ -681,6 +735,8 @@ moving an artifact put its records under `revision_mismatch`; `{}` for an action
 arguments was refused at the missing key. The first SDC attempt stopped `stuck` at `story.open`.
 
 ## Gaps
+
+Every reject point and writer cap in autopilot, with its route and pending cycles: `reject-routes.md`.
 
 Status 2026-11-21: 2, 3, 7, 13 closed; 12 and 14 partly; 16-23 new.
 

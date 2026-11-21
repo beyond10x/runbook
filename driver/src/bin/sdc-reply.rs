@@ -9,6 +9,16 @@
 //!   sdc-reply review-inputs --cwd <call dir> --case-dir <case> --story <story>
 //!   sdc-reply schema --cwd <call dir> --case-dir <case> --type review
 //!   sdc-reply check-review --cwd <call dir> --case-dir <case> --reply <file> --principal <p>
+//!   sdc-reply adapters --tools <tools dir>
+//!
+//! `adapters`: the adapter of every node class whose reply is a data document made under a
+//! response schema (`schema_reply` in tools/node-classes.json: review), and whether it can take a
+//! schema. The class's adapter: SDC_<CLASS>_ADAPTER, else claude-cli when SDC_LLM_ADAPTER is
+//! metaharness (it has no response-schema option), else SDC_LLM_ADAPTER (stub when unset).
+//! claude-cli takes a schema, metaharness none, stub and dry call no model; an adapter program
+//! (a path) answers `<path> --capabilities` with `{"json_schema": true|false}`. Prints
+//! `{<class>: {adapter, source, json_schema, nodes}}`; exit 64 (stderr names the class and
+//! the adapter) when a class's adapter cannot take a schema.
 //!
 //! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/` (the
 //! story, its acceptance lines, the requirements it delivers and those no story covers, the
@@ -76,6 +86,52 @@ enum Cmd {
         #[arg(long)] reply: PathBuf,
         #[arg(long)] principal: String,
     },
+    /// The adapter of every schema-reply node class and whether it takes a schema (exit 64 if not).
+    Adapters { #[arg(long)] tools: PathBuf },
+}
+
+/// The adapter of a schema-reply class from the environment, and where it came from.
+fn class_adapter(class: &str, env: &dyn Fn(&str) -> Option<String>) -> (String, String) {
+    let var = format!("SDC_{}_ADAPTER", class.to_ascii_uppercase());
+    if let Some(a) = env(&var).filter(|a| !a.is_empty()) {
+        return (a, var);
+    }
+    match env("SDC_LLM_ADAPTER").filter(|a| !a.is_empty()) {
+        Some(a) if a == "metaharness" => ("claude-cli".into(), "default: claude-cli, SDC_LLM_ADAPTER is metaharness (no response schema)".into()),
+        Some(a) => (a, "SDC_LLM_ADAPTER".into()),
+        None => ("stub".into(), "default: stub".into()),
+    }
+}
+
+/// Whether an adapter takes a response schema: Some(true|false), or None when it calls no model.
+fn takes_schema(adapter: &str) -> Option<bool> {
+    match adapter {
+        "stub" | "dry" => None,
+        "claude-cli" => Some(true),
+        "metaharness" => Some(false),
+        path => Some(std::process::Command::new(path).arg("--capabilities").output().ok()
+            .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
+            .is_some_and(|v| v["json_schema"] == true)),
+    }
+}
+
+/// `{class: {adapter, source, json_schema, nodes}}` for every schema-reply class, and the refusals.
+fn adapters(tools: &Path, env: &dyn Fn(&str) -> Option<String>) -> (Value, Vec<String>) {
+    let classes = read_json(&tools.join("node-classes.json"));
+    let mut out = Map::new();
+    let mut refused = Vec::new();
+    for c in classes["schema_reply"].as_array().into_iter().flatten().filter_map(|c| c.as_str()) {
+        let (a, src) = class_adapter(c, env);
+        let schema = takes_schema(&a);
+        let nodes = classes["classes"][c].clone();
+        if schema == Some(false) {
+            refused.push(format!("node class {c} ({}) replies under a response schema, but its adapter {a} ({src}) takes none: \
+                set SDC_{}_ADAPTER=claude-cli", nodes.as_array().into_iter().flatten().filter_map(|n| n.as_str()).collect::<Vec<_>>().join(", "),
+                c.to_ascii_uppercase()));
+        }
+        out.insert(c.to_string(), json!({"adapter": a, "source": src, "json_schema": schema, "nodes": nodes}));
+    }
+    (Value::Object(out), refused)
 }
 
 /// The actions that may produce evidence `kind`.
@@ -349,7 +405,7 @@ fn decider_schema(c: &Ctx, kind: &str, fin: bool, options: &[String], rule: bool
     let set = citable_set(c);
     let mut cites: Vec<Value> = set["ids"].as_array().cloned().unwrap_or_default();
     cites.extend(set["addresses"].as_array().cloned().unwrap_or_default());
-    let decisions: Vec<&str> = if kind == "finding" { vec!["approve", "escalate"] } else { vec!["approve", "reject", "escalate"] };
+    let decisions: Vec<&str> = if kind == "finding" || kind == "question" { vec!["approve", "escalate"] } else { vec!["approve", "reject", "escalate"] };
     let answer = match kind {
         "finding" if rule => json!({"anyOf": [{"type": "string", "enum": options}, {"type": "null"}]}),
         "question" | "finding" => json!({"type": ["string", "null"]}),
@@ -649,6 +705,17 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Cmd::Adapters { tools } => {
+            let (v, refused) = adapters(&tools, &|k| std::env::var(k).ok());
+            println!("{v}");
+            if refused.is_empty() {
+                return ExitCode::SUCCESS;
+            }
+            for r in refused {
+                eprintln!("refused: {r}");
+            }
+            ExitCode::from(64)
+        }
         Cmd::CheckReview { cwd, case_dir, reply, principal } => {
             let r = read_json(&reply);
             match check_review(&cwd, &case_dir, &r, &principal) {
@@ -661,7 +728,8 @@ fn main() -> ExitCode {
                     ExitCode::from(1)
                 }
                 Err(why) => {
-                    let what = if r.is_null() { format!("no readable reply in {}", reply.display()) } else { why.join("; ") };
+                    let name = reply.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+                    let what = if r.is_null() { format!("no readable reply ({name}: the adapter's structured output, else out/review.json)") } else { why.join("; ") };
                     eprintln!("invalid review reply: {what}");
                     ExitCode::from(2)
                 }
@@ -673,6 +741,32 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn env_of(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn the_review_runs_on_claude_cli_when_the_writers_run_on_metaharness() {
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools");
+        let (v, refused) = adapters(&tools, &env_of(&[("SDC_LLM_ADAPTER", "metaharness")]));
+        assert_eq!((v["review"]["adapter"].as_str(), v["review"]["json_schema"].as_bool()), (Some("claude-cli"), Some(true)));
+        assert!(refused.is_empty());
+        // Unset: the stub (no model); an explicit setting wins.
+        assert_eq!(adapters(&tools, &env_of(&[])).0["review"]["adapter"], "stub");
+        assert_eq!(adapters(&tools, &env_of(&[("SDC_LLM_ADAPTER", "metaharness"), ("SDC_REVIEW_ADAPTER", "claude-cli")])).0["review"]["source"], "SDC_REVIEW_ADAPTER");
+    }
+
+    #[test]
+    fn a_schema_class_on_an_adapter_without_a_schema_is_refused() {
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools");
+        let (v, refused) = adapters(&tools, &env_of(&[("SDC_REVIEW_ADAPTER", "metaharness")]));
+        assert_eq!(v["review"]["json_schema"], false);
+        assert_eq!(refused.len(), 1);
+        assert!(refused[0].starts_with("node class review (spec.review, change.review) replies under a response schema, but its adapter metaharness (SDC_REVIEW_ADAPTER) takes none"));
+        // An adapter program that does not answer --capabilities takes none.
+        assert_eq!(takes_schema("/bin/false"), Some(false));
+    }
 
     fn ir(name: &str) -> Value {
         read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol/compiled").join(format!("{name}.ir.json")))

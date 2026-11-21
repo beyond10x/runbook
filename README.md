@@ -20,13 +20,13 @@ and [docs/releasing.md](docs/releasing.md).
   designed, on three scope-changing questions for a person.
 - Trial 2 (`docs/trial-2.md`): a late-found ambiguity and the loop that repairs it; verified with
   stub executors, the real-LLM run is recorded in its run notes.
-- Trial 3 (`docs/trial-3.md`, `docs/releases/0.1.0.md`): five of eight autopilot runs
+- Trial 3 (`docs/trial-3.md`, `docs/releases/0.1.0.md`): five of eight autopilot runs (two more with the review model call)
   of the to-do idea closed delivered; the limits are in the release notes.
 - Recorded runs (`runs/`) are not in this repository.
 
 ## Layout
 
-- `protocol/`: the eight protocols; `cases/`: fixture cases with expected decisions.
+- `protocol/`: the eight protocols of the cycle and `sdc-bugfix`; `cases/`: fixture cases with expected decisions.
 - `driver/`: the Rust crate `sdc-drive` and its tool bindings (`driver/examples/sdc/`).
 - `watch/`: file changes of a run; `ui/`: a live web view of a run; `goals/`: `sdc-goals`, checks of
   `sdc.goals/1` documents (`docs/requester.md`).

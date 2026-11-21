@@ -54,7 +54,7 @@ Lines marked *(inferred)* were not observed.
 - Fixed R6: `aep` took the repository's lifecycles for the case store; cycle `plan-in-project`.
 - Fixed R7: flat run cap per case, `stuck` after a person's decision; cycles `story-decision`, `story-spent`.
 - Fixed R8: 429s counted as runs, a spent writer hid a due handoff; cycle `story-late-person`.
-- Next: trial 3 (`story:clean-unattended-run-compare`): the same idea run unattended twice in two model settings.
+- Next: trial 3 (`story:clean-unattended-run-compare`), the same idea run unattended in several model settings; the report is `docs/trial-3.md`.
 - Stand-in: for findings f1 and f9 this was an end-to-end test of the person path, not an eval run: the coordinating session decided them for the operator, and the tool of the time recorded `decided_by: human`.
 
 ## What trial 1 showed
@@ -224,6 +224,27 @@ unchanged.
   time): every cite is a fact, a wish, a question, or an open item (belief, unknown, ambiguity,
   dark spot: the items that get exactly one question) beside a cited question that asks about it
   (the question's `item`); at least one cite is a fact, a wish or a question.
+- A decision that replaces an earlier answer marks it superseded (D141, the operator, 2026-11-21,
+  `runs/trial-3-haiku-5`: the spec agent's q10 "Postgres database for the list" and the build's
+  q12 "store the list in the data file" were both accepted and both cited by r1). `sdc-findings`
+  `amend_one`: each question a contradiction finding cites whose answer differs from the decision
+  gets `status: superseded` and `superseded_by: <new question>`; each requirement citing it drops
+  the cite and its sentence `Decision qX: <answer>.` and cites the new decision. A requirement
+  citing a superseded question is a citation fault (`citation_fault`, so `requirements.check`),
+  refuses the amendment that left it (`verify`) and blocks every stage's finding gate (`blocking`).
+  `superseded` is an answered status for `questions.check` and the KPIs. A finding decided again
+  (a trace gap reopened after its first decision) supersedes its earlier answers the same way.
+- A trace gap's scope decision is applied when the decision is the option or starts with it
+  (`trace_kind`; `runs/trial-3-small-sonnet-1`: the decider answered "r5 is a constraint, not
+  behaviour: mark r5 as a constraint outside the specification", no option matched exactly, nothing
+  set `behaviour`, and p-trace-r5 and p-trace-r7 took 17 of the 20 decider calls). The decider answers
+  a trace gap, like a rule's contradiction, with one of its options exactly (schema enum).
+- A program finding raised again after the decision on it was applied is a defect of the apply,
+  never a new question: a resolved rule hit that fires again, or a trace gap a person or a decider
+  resolved that comes back (the agent's send-back of the writer is the one designed reopen). It
+  waits with `reraised` {decision, decided_by, says}, and under autopilot `run-trial.sh` stops the run
+  `finding_reraised` naming the finding and the decision. The `decider_budget_spent` stop record
+  names the step and the cap (it read only "autopilot: ").
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
@@ -362,8 +383,12 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `trace-gap` (added 2026-11-21, `runs/trial-3-haiku-3`: `fixtures/trace-gap`, spec trees `billing-spec.0`, `.1`) | 0 | r3 traced to `billing.audit` (an actor, no command): `p-trace-r3`, the agent sends the writer back, the second spec traces r3 to two views. Before: exit 0, no finding |
 | `trace-gap-drop` (`fixtures/trace-gap-drop`, `FINDING_DECISION=option:3`) | 0 | the writer never specifies r3: after one send-back the gap needs a person, who drops r3 (`behaviour: dropped`). Before: exit 0, no finding |
 | `trace-constraint` (`fixtures/trace-constraint`) | 0 | r3 `behaviour: constraint` with its reason: passes, counted ("1 constraint (r3)") |
+| `trace-constraint-decided` (added 2026-11-21, `runs/trial-3-small-sonnet-1`: `fixtures/trace-gap-drop`, `FINDING_DECISION` = the decider's words of that run) | 0 | the person answers p-trace-r3 "r3 is a constraint, not behaviour: mark r3 as a constraint outside the specification.": r3 `behaviour: constraint`, counted; the agent's send-back answer superseded, r3 cites only the person's. Before: the answer matched no option, the gap came back 27 times, r3 cited every answer |
+| `trace-reraised` (added 2026-11-21, `runs/trial-3-small-sonnet-1`: `--autopilot`, `fixtures/trace-gap-drop`, the decider answers "specify r3") | 7 | the writer never specifies r3: on the second raise the run stops `finding_reraised` by rule:autopilot, the reason naming p-trace-r3 and the decision; one decider call on it. Before: exit 5 `decider_budget_spent`, reason "autopilot: " |
+| `decider-budget-reason` (added 2026-11-21: `--autopilot`, `fixtures/scope-two`, `SDC_MAX_DECIDER_CALLS=1`) | 5 | the stop record's reason names `scope.answer in IDEA-1.intake` and the cap. Before: "autopilot: " |
 | `spec-own-default` (added 2026-11-21, `runs/trial-3-haiku-2`'s stop: `fixtures/finding-spec-rounds.yaml`, `spec.author` on `tools/llm-adapter-fixture.sh`) | 0 | a new agent finding on every LLM call: the amendment records the default the spec follows, no LLM re-derivation, `spec.author` 2 runs, 1 call. Before: exit 1, `writer_spent` after 4 runs and 4 calls |
 | `story-late-person` (added 2026-11-21, R8: `fixtures/finding-story-late-person.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s third run raises a scope-changing finding: `awaiting_person` (due `handoff_when`) rather than `writer_spent`, then a fresh allowance, `operating`. Before: exit 1, `stuck` after the person's decision |
+| `superseded-answer` (added 2026-11-21, D141, `runs/trial-3-haiku-5`: `SDC_STUB_FINDINGS=fixtures/finding-superseded-spec.yaml:fixtures/finding-superseded-story.yaml`) | 0 | `spec.author` raises a missing decision on r1, answered by the agent's default "Postgres" (q3); `change.implement` raises a contradiction citing q3 and r1, answered by the default "the data file" (q4): q3 `superseded` by q4, r1 cites q4 and not q3, its text names no Postgres; `operating`. Before: q3 and q4 both `accepted`, r1 cites both and states both |
 | `decider-scope-answer` (added 2026-11-21, `runs/trial-2b-fresh`'s first stop: `scripts/run-trial.sh` with `SDC_DECIDER=haiku` on `tools/llm-adapter-fixture.sh`, `fixtures/scope-two`) | 0 | two scope-changing questions open at `scope.answer`; each goes to the decider on its own (text, options, default, dissection item, idea excerpt; `questions.settled` marked `settled_by_this_decision`): q2 by its default (`accepted`), q3 a free answer (`changed`), both `answered_by: decider:haiku`, class `scope_changing_answer` in `decisions.jsonl`; `scope.answer` taken as `decider:haiku`; closed, replay 8 of 8. Before: exit 3, the decider escalated the approval of `scope.answer` reading `questions.settled` false as a failed check |
 | `decider-scope-final` (added 2026-11-21, as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating q3) | 0 | q3 `escalation_suppressed`, its default taken. Before: exit 6 (the escalated approval had no `best`, counted as reject) |
 | `decider-finding` (added 2026-11-21, `story:decider-finding-decision`: `fixtures/finding-spec-person.yaml` under the decider) | 0 | f1 (scope-changing) goes to the decider as a finding request; it answers option 2; f1 resolved with `decided_by: decider:haiku`, the amendment's question `answered_by: decider:haiku`, class `finding` in `decisions.jsonl`; closed, replay 8 of 8. Before: exit 3, "nothing for decider:haiku at amend.upstream" |

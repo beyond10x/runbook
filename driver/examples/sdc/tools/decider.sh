@@ -22,7 +22,8 @@
 # questions) and context fields it cites.
 #
 # haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
-# metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5), at most
+# metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5),
+# reasoning effort SDC_LLM_EFFORT_DECIDER, else SDC_LLM_EFFORT, else node-classes.json default_efforts (xhigh), at most
 # SDC_DECIDER_MAX_TURNS (8) turns and SDC_DECIDER_MAX_BUDGET_USD (0.25). The LLM reads in/ and
 # writes out/decision.json; a program validates it, and an invalid or missing reply is `escalate`.
 # Under the dry adapter the command is printed, nothing is called, and the `approve` rule decides
@@ -68,7 +69,7 @@ validate() {
   local why out=$cwd/out/decision.json acode res='[]' cites=()
   need_reply
   acode=$(jq '.exit // 0' "$rec/response.json" 2>/dev/null || echo 0)
-  meta=$(jq -c --arg k haiku --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, adapter, usage,
+  meta=$(jq -c --arg k haiku --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, effort, adapter, usage,
     cost_usd, duration_ms, exit: $acode, record: $rec, schema_constrained: (.schema_constrained // false),
     schema_note: (.schema_note // null)}' "$rec/response.json" 2>/dev/null || echo '{}')
   if [[ -s $out ]] && jq -e . "$out" > /dev/null 2>&1; then
@@ -80,12 +81,13 @@ validate() {
   else
     why=$(jq -r --arg type "$type" --arg final "$final" --argjson res "$res" --argjson req "$req" '
       def known: ["answer", "best", "cites", "decision", "reasons"];
-      ($req.finding.options // []) as $opts | ($req.finding.sides != null) as $rule
+      ($req.finding.options // []) as $opts | ($req.finding.sides != null or $req.finding.trace != null) as $rule
       | if type != "object" then "not a JSON object"
       else .decision as $d | .best as $b | (.cites // []) as $c | .answer as $a | .reasons as $r
       | if (keys - known) != [] then "unknown keys \(keys - known)"
         elif ($d | IN("approve", "reject", "escalate") | not) then "decision is not approve, reject or escalate"
         elif $type == "finding" and $d == "reject" then "a finding is decided with approve and an answer, or escalate"
+        elif $type == "question" and $d == "reject" then "a question is decided with approve and an answer, or escalate"
         elif ($r | type) != "array" or ($r | length) == 0 or any($r[]; type != "string" or . == "") then "reasons is not a non-empty list of sentences"
         elif ($c | type) != "array" or any($c[]; type != "string") then "cites is not a list of ids"
         elif any($res[]; .ok | not) then "cites what does not resolve: " + ([$res[] | select(.ok | not) | "\(.cite) (\(.why))"] | join("; "))
@@ -221,15 +223,16 @@ requester_call() {
     echo "When the file is written, reply with the single word: done."
   } > "$prompt"
   model=${SDC_LLM_MODEL_REQUESTER:-${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}}
+  effort=${SDC_LLM_EFFORT_REQUESTER:-${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-$(jq -r .default_efforts.requester "$here/node-classes.json")}}}
   node=requester.$(r '.question.id // .action')
-  jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
-    --arg case "$(jq -r '.id // ""' "$case_dir/case.json")" --arg case_dir "$case_dir" '{model: $model, prompt_file: $prompt, cwd: $cwd,
+  jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg effort "$effort" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
+    --arg case "$(jq -r '.id // ""' "$case_dir/case.json")" --arg case_dir "$case_dir" '{model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd,
     record_dir: $rec, node: $node, attempt: $attempt, case: $case, case_dir: $case_dir, operations: ["dir.list", "file.read", "file.write"],
     max_turns: ($ENV.SDC_DECIDER_MAX_TURNS // "8" | tonumber), max_budget_usd: ($ENV.SDC_DECIDER_MAX_BUDGET_USD // "0.25" | tonumber)}' > "$rec/request.json"
   "$adapter_bin" "$rec/request.json" > "$rec/response.json"
   acode=$?
   jq -e 'type == "object"' "$rec/response.json" > /dev/null 2>&1 || echo '{}' > "$rec/response.json"
-  meta=$(jq -c --arg rec "$rec" --argjson acode "$acode" '{kind: "requester", model, adapter, usage, cost_usd, duration_ms, exit: $acode,
+  meta=$(jq -c --arg rec "$rec" --argjson acode "$acode" '{kind: "requester", model, effort, adapter, usage, cost_usd, duration_ms, exit: $acode,
     record: $rec}' "$rec/response.json" 2>/dev/null || echo '{"kind": "requester"}')
   if [[ $adapter == dry ]]; then
     rule approve "dry run: no LLM was called; the approve rule decided" true | jq -c --argjson m "$meta" '. + $m + {dry: true}'
@@ -290,11 +293,19 @@ input() {
   local p=$1
   [[ -e $work/$p ]] || return 0
   mkdir -p "$cwd/in/$(dirname "$p")"
-  rsync -a --exclude target --exclude .git --exclude '*.lock' "$work/$p" "$cwd/in/$(dirname "$p")/"
+  # Cargo.lock is kept: without it the decider doubts a `--locked` build the checks recorded
+  # (runs/trial-3-haiku-5 release.publish, runs/trial-3-mixed-3 merge.approve and release.publish).
+  rsync -a --exclude target --exclude .git --include Cargo.lock --exclude '*.lock' "$work/$p" "$cwd/in/$(dirname "$p")/"
   inputs+=("in/$p")
 }
 input idea.yaml; input dissection.yaml; input questions.yaml; input requirements.yaml; input context.yaml
-input aep/vision/product.md; input aep/initiative/roadmap.md; input aep/epic
+# A close judges the result, not the plan: the published README instead of aep/ (runs/trial-3-haiku-5:
+# the close read the roadmap's aep `status: draft` as a disagreement with roadmap.approved).
+if [[ $type == close ]]; then
+  input published/README.md
+else
+  input aep/vision/product.md; input aep/initiative/roadmap.md; input aep/epic
+fi
 story=$(cut -d. -f3 <<< "$(jq -r .id "$(r .case_dir)/case.json")")
 [[ -n $story ]] && input "aep/story/$story.md"
 path=$(r '.path // ""')
@@ -372,7 +383,7 @@ jq --argjson item "$item" --argjson touches "$touches" --argjson cit "$citable" 
 schema_args=(--type "$type")
 [[ $final == yes ]] && schema_args+=(--final)
 [[ $type == finding ]] && schema_args+=(--options "$(jq -c '.finding.options // []' <<< "$req")")
-[[ $type == finding && $(r '.finding.sides != null') == true ]] && schema_args+=(--rule)
+[[ $type == finding && $(r '.finding.sides != null or .finding.trace != null') == true ]] && schema_args+=(--rule)
 "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" "${schema_args[@]}" > "$rec/reply-schema.json"
 
 case $type in
@@ -396,7 +407,7 @@ does not ask for." ;;
   finding) what="Decide the finding in in/decision.json (\`finding\`: \`says\`, \`options\`, \`default\`, \`cites\`;
 \`touches\`: the requirements, the prior decisions and the context fields it cites; all findings
 in in/findings.yaml). Approve with \`answer\` = the option that fits the idea and the requirements
-best$( [[ $(r '.finding.sides != null') == true ]] && echo " (this finding is a rule's contradiction: answer with one of its options exactly)" || echo ", or a short answer of your own when no option fits"). Your answer amends the cited requirements.
+best$( [[ $(r '.finding.sides != null or .finding.trace != null') == true ]] && echo " (this finding is a rule's contradiction or a trace gap, and the program applies only its options: answer with one of them exactly)" || echo ", or a short answer of your own when no option fits"). Your answer amends the cited requirements.
 Never choose an answer that contradicts or empties a prior decision in \`touches.decisions\` that
 a person or an earlier decider took (answered_by not non-interactive): escalate instead. A program
 checks the amendment and refuses one that does; then a person decides." ;;
@@ -414,6 +425,8 @@ fi
 prompt=$rec/prompt.md
 {
   echo "You take one decision in a governed software delivery cycle in place of the product owner."
+  [[ $final == yes ]] &&
+    echo "In this run a decider takes every decision a person would take: an answer with \`answered_by: decider:<kind>\` is the product owner's own decision, as binding as a person's, and is never a reason to reject or escalate."
   echo "Work only in the current directory. Read the inputs under in/; write only out/decision.json."
   echo "You have no shell. A program validates what you write; anything else in your reply is ignored."
   echo
@@ -427,13 +440,27 @@ prompt=$rec/prompt.md
   echo "makes true: its value now (false or unknown) is not a failed check."
   jq -e '.met_after_this_action' "$cwd/in/checks.json" > /dev/null 2>&1 &&
     echo "\`met_after_this_action\` in in/checks.json lists what can only be met by a step after $(r .action): not a condition of this decision, never a reason to reject it."
+  [[ -e $cwd/in/aep ]] &&
+    echo "\`status\` and \`revision\` in the front matter of in/aep/ files belong to the planning tool and say nothing about approval: an approval is its claim in in/checks.json."
   echo
-  echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
-  echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
-  echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
+  if [[ $final == yes ]]; then
+    case $type in
+      question) taken="the question's default is taken" ;;
+      finding) taken="give \`best\`, the answer that is then taken (without it, the finding's default)" ;;
+      *) taken="give \`best\`, the decision that is then taken" ;;
+    esac
+    echo "No person can be asked in this run, so escalating hands the decision to no one. When the decision"
+    echo "would change scope beyond the requirements (or, before requirements exist, beyond the idea), when"
+    echo "the evidence conflicts (checks disagree, the artifact contradicts an input), or when you cannot"
+    echo "tell: write \`escalate\`, say in \`reasons\` what cannot be told, and $taken."
+  else
+    echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
+    echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
+    echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
+  fi
   echo
   echo "Write out/decision.json, exactly these keys:"
-  if [[ $type == finding ]]; then
+  if [[ $type == finding || $type == question ]]; then
     echo '{"decision": "approve" | "escalate",'
     echo ' "answer": <when approve: the answer string>,'
   else
@@ -442,19 +469,13 @@ prompt=$rec/prompt.md
   fi
   echo ' "reasons": ["<one sentence each, at least one>"],'
   echo ' "cites": ["<what your reasons rest on, each in one of the forms below>"],'
+  # Final: what an escalate takes is said once, in the escalate paragraph above.
   if [[ $final == yes && $type == finding ]]; then
-    echo ' "best": <when decision is escalate: the answer you would take if no person could be asked; otherwise null>}'
-    echo
-    echo "No person is available in this run: on escalate, \`best\` is taken, else the finding's default."
+    echo ' "best": <when decision is escalate: the answer that is taken; otherwise null>}'
   elif [[ $final == yes && $type == question ]]; then
     echo ' "best": null}'
-    echo
-    echo "No person is available in this run: on escalate, the question's default is taken."
   elif [[ $final == yes ]]; then
-    echo ' "best": <when decision is escalate: "approve" or "reject", the decision you would take if no'
-    echo '          person could be asked; otherwise null>}'
-    echo
-    echo "No person is available in this run: on escalate, \`best\` is taken."
+    echo ' "best": <when decision is escalate: "approve" or "reject", the decision that is taken; otherwise null>}'
   else
     echo ' "best": null}'
   fi
@@ -475,10 +496,11 @@ prompt=$rec/prompt.md
 } > "$prompt"
 
 model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
+effort=${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-$(jq -r .default_efforts.decider "$here/node-classes.json")}}
 node=decide.$(r .action)
-jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
+jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg effort "$effort" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
   --arg case "$(jq -r '.id // ""' "$(r .case_dir)/case.json" 2>/dev/null)" --arg case_dir "$(r .case_dir)" '{
-  model: $model, prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node,
+  model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node,
   attempt: $attempt, json_schema: ($rec + "/reply-schema.json"),
   case: $case, case_dir: $case_dir,
   operations: ["dir.list", "file.read", "file.write"],
@@ -503,7 +525,7 @@ jq --argjson acode "$acode" '.exit = $acode' "$rec/response.json" > "$rec/respon
 
 if [[ $adapter == dry ]]; then
   rule approve "dry run: no LLM was called; the approve rule decided" true | jq -c --arg rec "$rec" \
-    --slurpfile m "$rec/response.json" '. + {kind: "haiku", model: $m[0].model, adapter: "dry", exit: $m[0].exit, record: $rec, dry: true}'
+    --slurpfile m "$rec/response.json" '. + {kind: "haiku", model: $m[0].model, effort: $m[0].effort, adapter: "dry", exit: $m[0].exit, record: $rec, dry: true}'
   exit 0
 fi
 validate

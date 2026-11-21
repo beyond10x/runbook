@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: d1
+kind: dissection_check
+result: invalid
+subject: dissection
+subject_revision: d1
+producer: sdc-bugfix
+observed_at: 2026-11-21T09:00:00Z

@@ -317,7 +317,7 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
     let findings = yaml_opt(&work.join("findings.yaml"))?;
     let context = yaml_opt(&work.join("context.yaml"))?;
     let q_by_person = questions.as_ref().map_or(0, |q| {
-        seq(q, "questions").iter().filter(|q| person(st(q, "answered_by")) && matches!(st(q, "status"), "accepted" | "changed")).count()
+        seq(q, "questions").iter().filter(|q| person(st(q, "answered_by")) && matches!(st(q, "status"), "accepted" | "changed" | "superseded")).count()
     });
     let f_by_person = findings.as_ref().map_or(0, |f| {
         seq(f, "findings").iter().filter(|f| st(f, "status") == "resolved" && person(st(f, "decided_by"))).count()
@@ -486,7 +486,7 @@ fn replay_summary(r: &J) -> String {
     format!("{ok} of {} cases match", a.len())
 }
 
-/// Who held the decisions, and the models the settings record names.
+/// Who held the decisions, and the models and reasoning efforts the settings record names.
 fn setting_summary(s: &J) -> String {
     let mut p: Vec<String> = vec![];
     if let Some(a) = s["autonomy"].as_str() {
@@ -501,7 +501,7 @@ fn setting_summary(s: &J) -> String {
             None => format!("decider {k}"),
         });
     }
-    for key in ["models", "model"] {
+    for key in ["models", "efforts", "model"] {
         if !s[key].is_null() {
             p.push(format!("{key} {}", s[key].as_str().map(String::from).unwrap_or_else(|| s[key].to_string())));
         }

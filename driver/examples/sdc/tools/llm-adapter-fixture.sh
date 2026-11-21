@@ -5,7 +5,8 @@
 # runs, which the stub adapter skips. Only for nodes whose stub is `stub-file <fixture> <artifact>`
 # or `stub-tree <fixture dir> <tree>` (spec.author); use it with SDC_LLM_NODES naming those nodes. SDC_STUB_FIXTURES applies as for the stub.
 # SDC_FIXTURE_STUB (JSON {node: [fixture, artifact]}) gives a node such a stub when its binding's
-# stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json).
+# stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json); three
+# entries name the subcommand too (test.reproduce: ["stub-tree", "bugfix-pager/stub-repro", "repro"]).
 #
 # The decider's calls (node `decide.<action>`, tools/decider.sh) get a scripted reply in
 # out/decision.json: SDC_DECIDER_REPLIES (JSON {key: reply}) by key, the request's question id,
@@ -22,6 +23,7 @@
 #
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
+[[ ${1:-} == --capabilities ]] && { echo '{"json_schema": true}'; exit 0; } # scripted replies are the schema document
 for p in jq; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-fixture.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 here=$(cd "$(dirname "$0")" && pwd)
 cwd=$(jq -r .cwd "$1")
@@ -78,7 +80,7 @@ fi
 cfg=${SDC_LLM_NODE:-'{}'}
 mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
 o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
-[[ -n $o ]] && mapfile -t a < <(jq -r '"stub-file", .[]' <<< "$o")
+[[ -n $o ]] && mapfile -t a < <(jq -r 'if length == 3 then .[] else ("stub-file", .[]) end' <<< "$o")
 [[ ${a[0]:-} == stub-file || ${a[0]:-} == stub-tree ]] && [[ -n ${a[2]:-} ]] ||
   { echo "llm-adapter-fixture: node $node has no stub-file or stub-tree stub" >&2; exit 64; }
 mkdir -p "$cwd/out"

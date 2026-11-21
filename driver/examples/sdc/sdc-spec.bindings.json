@@ -56,6 +56,9 @@
       ],
       "scope_trace": [
         "untraced"
+      ],
+      "spec_review": [
+        "rejected"
       ]
     },
     "max_runs": 4,

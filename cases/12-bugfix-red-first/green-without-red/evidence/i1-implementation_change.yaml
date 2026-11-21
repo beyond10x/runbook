@@ -1,0 +1,9 @@
+format: canon-evidence/1
+id: i1
+kind: implementation_change
+subject: change
+subject_revision: c2
+producer: sdc-bugfix
+observed_at: 2026-11-21T09:00:00Z
+upstream_revisions:
+  repro: r1

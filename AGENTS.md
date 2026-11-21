@@ -15,9 +15,9 @@
 
 ## Directory map
 
-- `protocol/` the eight protocols, `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
+- `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
-- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`); bindings in `driver/examples/sdc/`.
+- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`); bindings in `driver/examples/sdc/`.
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `decision/` decision-contract examples (`docs/decisions.md`).

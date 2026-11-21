@@ -1,0 +1,380 @@
+{
+  "actions": {
+    "bug.dissect": {
+      "reasons": [
+        {
+          "claim": "dissection.valid",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "change.fix": {
+      "status": "admissible"
+    },
+    "dissection.check": {
+      "reasons": [
+        {
+          "claim": "dissection.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "gate.run": {
+      "reasons": [
+        {
+          "claim": "story.updated",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "repro.run": {
+      "reasons": [
+        {
+          "claim": "repro.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "story.update": {
+      "reasons": [
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "test.reproduce": {
+      "reasons": [
+        {
+          "claim": "repro.red",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "tests.run": {
+      "status": "admissible"
+    }
+  },
+  "case": "BUG-12",
+  "claims": {
+    "change.built": {
+      "value": "true"
+    },
+    "dissection.checked": {
+      "value": "true"
+    },
+    "dissection.valid": {
+      "value": "true"
+    },
+    "gate.checked": {
+      "value": "unknown"
+    },
+    "gate.passed": {
+      "value": "unknown"
+    },
+    "repro.checked": {
+      "value": "true"
+    },
+    "repro.red": {
+      "value": "true"
+    },
+    "story.updated": {
+      "value": "unknown"
+    },
+    "tests.pass": {
+      "value": "unknown"
+    },
+    "tests.run_recorded": {
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "bug.dissect": {
+        "because": [
+          {
+            "claim": "dissection.valid",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "dissection.check": {
+        "because": [
+          {
+            "claim": "dissection.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "gate.run": {
+        "because": [
+          {
+            "claim": "story.updated",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "repro.run": {
+        "because": [
+          {
+            "claim": "repro.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "story.update": {
+        "because": [
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "test.reproduce": {
+        "because": [
+          {
+            "claim": "repro.red",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "dissection.checked": {
+        "because": [
+          {
+            "evidence": "d1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "dissection.valid": {
+        "because": [
+          {
+            "evidence": "d1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "gate.checked": {
+        "because": [
+          {
+            "kind": "gate_run",
+            "status": "absent",
+            "subject": "change"
+          }
+        ],
+        "value": "unknown"
+      },
+      "gate.passed": {
+        "because": [
+          {
+            "kind": "gate_run",
+            "status": "absent",
+            "subject": "change"
+          }
+        ],
+        "value": "unknown"
+      },
+      "repro.checked": {
+        "because": [
+          {
+            "evidence": "p1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "repro.red": {
+        "because": [
+          {
+            "evidence": "p1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "story.updated": {
+        "because": [
+          {
+            "kind": "story_record",
+            "status": "absent",
+            "subject": "story"
+          }
+        ],
+        "value": "unknown"
+      },
+      "tests.pass": {
+        "because": [
+          {
+            "kind": "test_run",
+            "status": "absent",
+            "subject": "change"
+          }
+        ],
+        "value": "unknown"
+      },
+      "tests.run_recorded": {
+        "because": [
+          {
+            "kind": "test_run",
+            "status": "absent",
+            "subject": "change"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "change": {
+            "revision": "c2"
+          },
+          "dissection": {
+            "revision": "d1"
+          },
+          "report": {
+            "revision": "b1"
+          },
+          "repro": {
+            "revision": "r1"
+          },
+          "story": {
+            "revision": "s2"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "BUG-12",
+        "protocol": "sdc.bugfix",
+        "revision": "c2"
+      },
+      "evidence": [
+        "d1",
+        "i1",
+        "p1"
+      ],
+      "protocol": "sdc.bugfix",
+      "protocol_revision": 1,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "outcomes": {
+      "fixed": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "story.updated",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_fixed": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_reproduced": {
+        "because": [
+          {
+            "claim": "dissection.valid",
+            "value": "true"
+          },
+          {
+            "claim": "repro.red",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "outcomes": {
+    "fixed": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "story.updated",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "not_fixed": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "not_reproduced": {
+      "reasons": [
+        {
+          "claim": "dissection.valid",
+          "value": "true"
+        },
+        {
+          "claim": "repro.red",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.bugfix",
+  "protocol_revision": 1
+}

@@ -20,6 +20,8 @@
 #   SDC_LLM_MODEL    overrides the binding's model
 #   SDC_LLM_MODEL_<CLASS> overrides both for the node's class (tools/node-classes.json): WRITER
 #                    (spec.author, plan.decompose), IMPLEMENT (change.implement), REVIEW, OTHER
+#   SDC_LLM_EFFORT, SDC_LLM_EFFORT_<CLASS>  the reasoning effort (low, medium, high, xhigh, max), the same way;
+#                    unset: the class's default_efforts in tools/node-classes.json, always passed (request.json `effort`)
 #   SDC_LLM_RECORD   where each call's record goes (default work/.sdc/llm); one NNN-<action>/ per call
 #   SDC_LLM_LOG      JSON lines, one per call (default $SDC_LLM_RECORD/calls.jsonl)
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
@@ -54,6 +56,15 @@ if [[ $node == questions.write && -s questions.yaml && -z ${SDC_FEEDBACK:-} ]]; 
 fi
 cfg=${SDC_LLM_NODE:-'{}'}
 adapter=${SDC_LLM_ADAPTER:-stub}
+# The review's reply is a data document made under a response schema, so its class has its own
+# adapter (sdc-reply adapters: SDC_REVIEW_ADAPTER, else claude-cli where the writers run on
+# metaharness): the model replies through the schema channel, never by writing a file.
+if [[ $node == change.review ]]; then
+  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
+  res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.review.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
+    { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
+fi
 [[ -n ${SDC_LLM_NODES:-} && " $SDC_LLM_NODES " != *" $node "* ]] && adapter=stub
 work=$PWD
 
@@ -85,18 +96,25 @@ fi
 post() {
   local raised=$1
   [[ $raises == yes ]] || return 0
-  if [[ -z $raised && -n ${SDC_STUB_FINDINGS:-} && -f $SDC_STUB_FINDINGS ]] &&
-    [[ $(yq -r '.node' "$SDC_STUB_FINDINGS") == "$node" ]]; then
-    raised=$SDC_STUB_FINDINGS
+  # SDC_STUB_FINDINGS: one fixture, or several separated by ':' (one per node); the one whose
+  # `node` is this node raises.
+  local sf="" f
+  if [[ -z $raised && -n ${SDC_STUB_FINDINGS:-} ]]; then
+    for f in ${SDC_STUB_FINDINGS//:/ }; do
+      [[ -f $f && $(yq -r '.node' "$f") == "$node" ]] && { sf=$f; break; }
+    done
+  fi
+  if [[ -n $sf ]]; then
+    raised=$sf
     # A fixture with `rounds:` raises rounds[n] on the node's n-th applied run (0-based), then none.
-    if yq -e 'has("rounds")' "$SDC_STUB_FINDINGS" >/dev/null 2>&1; then
+    if yq -e 'has("rounds")' "$sf" >/dev/null 2>&1; then
       mkdir -p "$work/.sdc"
       local c=$work/.sdc/stub-round.$node n
       n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
       raised=
-      if (( n < $(yq '.rounds | length' "$SDC_STUB_FINDINGS") )); then
+      if (( n < $(yq '.rounds | length' "$sf") )); then
         raised=$work/.sdc/stub-findings.$node.yaml
-        N=$n yq '{"node": .node, "findings": .rounds[env(N)]}' "$SDC_STUB_FINDINGS" > "$raised"
+        N=$n yq '{"node": .node, "findings": .rounds[env(N)]}' "$sf" > "$raised"
       fi
     fi
   fi
@@ -406,6 +424,44 @@ Reply with the JSON object of the response schema:
 - summary: one or two sentences
 A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
 the reply otherwise. Judge from the inputs only; you cannot run anything." ;;
+# sdc.bugfix (docs/bugfix.md): the dissection is a data document under a schema (sdc-bugfix schema
+# dissection), checked by dissection.check; the test and the fix are code.
+bug.dissect)
+  input bug.yaml; input impl; out=bug-dissection.json
+  "$here/sdc-tool.sh" bugfix schema dissection > "$rec/schema.json" && node_schema=$rec/schema.json
+  task="Dissect the bug report in in/bug.yaml (field \`text\`) against the code in in/impl/. Write
+out/bug-dissection.json, one JSON object with exactly these four string keys (schema:
+$(jq -c . "$rec/schema.json")):
+- observed: what happens, as the report states it: the inputs and the wrong result
+- expected: what should happen instead, for the same inputs
+- where: the file of the code tree the bug is in, relative to in/impl/ (for example src/lib.rs),
+  optionally with :<line> of the faulty line (src/lib.rs:9)
+- reproduce: how to reproduce it: the call or command and its inputs
+Each value is one or two sentences. Do not fix anything." ;;
+test.reproduce)
+  input bug.yaml; input bug-dissection.json; input impl; out=repro
+  task="Write ONE Rust integration test that reproduces the bug in in/bug.yaml, as dissected in
+in/bug-dissection.json, for the crate in in/impl/ (do not change in/impl/). Write two files:
+- out/repro/<name>.rs: a new integration test file (<name> lower case, letters, digits and _;
+  not a file that exists in in/impl/tests/), using the crate's public API, with exactly one
+  #[test] function. It asserts the expected behaviour, so it FAILS on the current code because of
+  the bug, and will pass once the bug is fixed. No #[ignore], no #[should_panic]. It must compile
+  against the current code: call only functions that exist.
+- out/repro/repro.json: {\"file\": \"tests/<name>.rs\", \"test\": \"<the #[test] function's name>\"}
+A program then runs the whole suite on the unchanged code: your test must fail, every other test
+must pass. You cannot run commands." ;;
+change.fix)
+  input bug.yaml; input bug-dissection.json; input repro; input impl; seed impl; out=impl
+  repro_file=$(jq -r '.file // ""' "$work/repro/repro.json" 2>/dev/null)
+  task="Fix the bug in in/bug.yaml (dissected in in/bug-dissection.json) in out/impl/, a copy of the
+crate. The test $(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null) in out/impl/$repro_file
+reproduces the bug: it fails now and must pass after your fix.
+- Do not change out/impl/$repro_file in any way: a program compares it byte for byte and refuses
+  the fix otherwise. Do not delete, weaken or ignore any test.
+- Change as little as the fix needs; keep the public API. Standard library only.
+- The whole suite must pass, and the crate must pass \`cargo clippy --all-targets -- -D warnings\`
+  and \`cargo fmt --check\` (rustfmt's default style).
+You cannot run commands: write code that passes the tests." ;;
 *) echo "llm-node: no agent node $node" >&2; exit 64 ;;
 esac
 
@@ -478,15 +534,22 @@ prompt=$rec/prompt.md
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
 # writer, implement, review, other; $class, set above), else SDC_LLM_MODEL, else the binding's llm.model.
+# The reasoning effort the same way (SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT, else node-classes.json
+# default_efforts).
 cvar=SDC_LLM_MODEL_${class^^}
 model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}}
+evar=SDC_LLM_EFFORT_${class^^}
+effort=${!evar:-${SDC_LLM_EFFORT:-$(jq -r --arg c "$class" '.default_efforts[$c] // empty' "$here/node-classes.json")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
-  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" \
+  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" --arg effort "$effort" \
   --arg case "${SDC_CASE:-}" --arg case_dir "${SDC_CASE_DIR:-}" '{
-    model: $model, prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
+    model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
     case: $case, case_dir: $case_dir,
     operations: ($cfg.operations // $ops), max_turns: ($cfg.max_turns // 30),
     max_budget_usd: ($cfg.max_budget_usd // 1)}' > "$rec/request.json"
+# A data-document node passes its schema (an adapter that has a response-schema option uses it).
+[[ -n ${node_schema:-} ]] && jq --arg s "$node_schema" '. + {json_schema: $s}' "$rec/request.json" > "$rec/request.json.tmp" &&
+  mv "$rec/request.json.tmp" "$rec/request.json"
 
 # One line per call, for the run log and the viewer.
 log_call() {
@@ -494,7 +557,7 @@ log_call() {
     --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" --arg class "$class" \
     --arg feedback "$feedback" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
     {action: $node, case: $case, started: $started, attempt: $attempt, retry: ($feedback == "yes"),
-     adapter: $res[0].adapter, model: $req[0].model, class: $class, allowed_operations: $req[0].operations,
+     adapter: $res[0].adapter, model: $req[0].model, effort: ($req[0].effort // "default"), class: $class, allowed_operations: $req[0].operations,
      max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
      exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
      cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,
@@ -549,7 +612,7 @@ if [[ $node == change.review ]]; then
     0) echo "change.review approved by $principal ($(jq -r '.notes | length' "$rec/review-check.out") outside-the-story note(s))" ;;
     1) jq -c . "$rec/review-check.out" ;;
     75) echo "llm-node: change.review could not run: the model's API ended the session; nothing recorded, resume later" ;;
-    *) echo "llm-node: change.review recorded nothing after $((try + 1)) attempt(s): $(cat "$rec/review-check.err")" ;;
+    *) echo "llm-node: change.review recorded nothing after $((try + 1)) attempt(s) on adapter $adapter (call llm/$(basename "$rec")): $(cat "$rec/review-check.err")" ;;
   esac
   log_call
   exit $code
@@ -612,6 +675,15 @@ apply() {
          "$(yq -o=json -I=0 '[.questions[] | select(.scope_changing == true)]' "$work/questions.yaml")" ]] ||
         { echo "questions.answer changed a scope-changing question: not applied"; return 1; }
       cp "$f" "$work/questions.yaml" ;;
+    bug.dissect)
+      # The reply under the response schema, when the adapter had one, else the written file.
+      f=$cwd/out/bug-dissection.json
+      [[ -s $rec/structured-output.json ]] && f=$rec/structured-output.json
+      [[ -f $f ]] || return 1
+      cp "$f" "$work/bug-dissection.json" ;;
+    test.reproduce)
+      [[ -d $cwd/out/repro ]] || return 1
+      rm -rf "${work:?}/repro" && cp -r "$cwd/out/repro" "$work/repro" && "$here/sdc-tool.sh" bugfix repro-install ;;
     *)
       [[ -e $cwd/out/$out ]] || return 1
       rm -rf "${work:?}/$out" && mkdir -p "$(dirname "$work/$out")" && cp -r "$cwd/out/$out" "$work/$out" ;;

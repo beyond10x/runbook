@@ -13,6 +13,11 @@
 #   scripts/run-trial.sh <name> --reopen        resume a stopped run: the record is renamed
 #                                               run-stopped.<at>.json; without it a resume of a
 #                                               stopped run is refused (exit 8)
+#   scripts/run-trial.sh <name> --bugfix <seed dir> ["<bug report>"]  one bug fix instead of an
+#                                               idea (docs/bugfix.md): root BUG-1 on sdc.bugfix, work/
+#                                               seeded by `sdc-bugfix seed` from the crate (<seed dir>
+#                                               or <seed dir>/crate) and the report (the text, else
+#                                               <seed dir>/bug.yaml); with --dry the stubs write
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -31,6 +36,10 @@
 # change.review: no LLM yet), SDC_LLM_MODEL_OTHER (every other node), else SDC_LLM_MODEL for all
 # nodes, else each binding's `llm.model` (claude-haiku-5-5); the decider SDC_LLM_MODEL_DECIDER,
 # else SDC_DECIDER_MODEL. run-settings.jsonl `models` records the effective model per class.
+# Reasoning effort per class, the same way: SDC_LLM_EFFORT_<CLASS> (WRITER, IMPLEMENT, REVIEW, DECIDER,
+# OTHER), else SDC_LLM_EFFORT, else the class default in tools/node-classes.json (high; the decider and
+# the requester xhigh), always passed to the adapter; low, medium, high, xhigh or max, anything else
+# exits 64. run-settings.jsonl `efforts` records it per class and for the requester (source `default`).
 #
 # Decider (SDC_DECIDER): who takes the decisions that wait on a person: the pending approvals, the
 # open scope-changing interview questions, and closing the root.
@@ -90,6 +99,7 @@ while (($#)); do
     --autopilot) autopilot=yes ;;
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
+    --bugfix) bugfix=${2:-}; [[ -d $bugfix ]] || { echo "--bugfix needs a seed directory, not '$bugfix'"; exit 64; }; bugfix=$(cd "$bugfix" && pwd); shift ;;
     *) pos+=("$1") ;;
   esac
   shift
@@ -103,6 +113,7 @@ ex=$sdc/driver/examples/sdc
 out=${SDC_RUNS_DIR:-$sdc/runs}/$name
 store=$out/store
 root=$store/IDEA-1
+[[ -n ${bugfix:-} || -d $store/BUG-1 ]] && root=$store/BUG-1
 log=$out/run.log
 max_llm=${SDC_MAX_LLM_CALLS:-30}
 max_wall=${SDC_MAX_WALL_SECONDS:-5400}
@@ -146,6 +157,14 @@ fi
 
 case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
 
+# The reasoning effort per node class (SDC_LLM_EFFORT_<CLASS>, SDC_LLM_EFFORT): an unknown value is
+# refused here, before anything is created. The adapters' CLIs ignore one with a warning.
+accepted=$(jq -r '.efforts | join(", ")' "$ex/tools/node-classes.json")
+for v in SDC_LLM_EFFORT SDC_LLM_EFFORT_REQUESTER $(jq -r '.classes | keys[] | "SDC_LLM_EFFORT_" + ascii_upcase' "$ex/tools/node-classes.json"); do
+  [[ -z ${!v:-} ]] || jq -e --arg e "${!v}" '.efforts | index($e)' "$ex/tools/node-classes.json" > /dev/null ||
+    { echo "$v: '${!v}' is not a reasoning effort; accepted: $accepted (unset: the adapter's own default)"; exit 64; }
+done
+
 # The run mode (docs/autonomy-levels.md § 3.3): SDC_AUTONOMY, or --autopilot for A5. A0 is the
 # person (SDC_DECIDER=person); A5 is autopilot: the decider (haiku unless SDC_DECIDER names another)
 # holds every decision and is final (escalate final), and a stop that would need a person ends the
@@ -185,6 +204,13 @@ else
   export SDC_LLM_ADAPTER=${SDC_LLM_ADAPTER:-metaharness}
   [[ $SDC_LLM_ADAPTER == dry ]] && export SDC_LLM_DRY_LOG=${SDC_LLM_DRY_LOG:-$out/dry-commands.txt}
 fi
+# Every node class whose reply is a data document runs on an adapter that takes a response schema
+# (sdc-reply adapters; the review: SDC_REVIEW_ADAPTER, else claude-cli on a metaharness run). One
+# that cannot take one refuses the run before any call (exit 64), naming the class and adapter.
+adapters=$("${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}" adapters --tools "$ex/tools" 2>&1) ||
+  { grep -v '^{' <<< "$adapters" | sed 's/^/run-trial.sh: /' >&2; exit 64; }
+SDC_REVIEW_ADAPTER=$(jq -r '.review.adapter' <<< "$adapters")
+export SDC_REVIEW_ADAPTER
 
 # The file-change recorder (scripts/watch-run.sh, docs/fs-changes.md) runs while this script
 # does: started before the first driver call, stopped on every exit. SDC_WATCH=0 skips it; any
@@ -229,7 +255,22 @@ expected() {
   echo "expected LLM calls on the happy path: $fixed (intake 4, direction 3, spec 1, plan 1) + $per_story per story (plan.decompose writes 1 to 3) = $((fixed + per_story)) to $((fixed + 3 * per_story)); retries raise it, capped at $max_llm over the tree"
 }
 
-if [[ ! -d $root ]]; then
+if [[ -n ${bugfix:-} && ! -d $root ]]; then
+  # One bug fix (docs/bugfix.md): the seed program stands in for a parent handing in the report,
+  # the code tree and the story.
+  rm -rf "$out"
+  mkdir -p "$out/events"
+  watch_start
+  : > "$log"
+  d "$root" init --protocol "$sdc/protocol/sdc-bugfix.protocol.yaml" --id BUG-1 --bindings "$ex/sdc-bugfix.bindings.json"
+  [[ $code == 0 ]] || { echo "init failed: $last"; exit 1; }
+  seed=(--from "$bugfix")
+  [[ -n $idea_text ]] && seed+=(--text "$idea_text" --story "story:bug-$name")
+  (cd "$root/work" && "${SDC_BUGFIX:-$sdc/driver/target/debug/sdc-bugfix}" seed "${seed[@]}") >> "$log" 2>&1 ||
+    { echo "seed failed: $(tail -n 3 "$log")"; exit 1; }
+  echo "# the bug report: $(cat "$root/work/bug.yaml")" >> "$log"
+  leg=started
+elif [[ ! -d $root ]]; then
   rm -rf "$out"
   mkdir -p "$out/events"
   watch_start
@@ -274,8 +315,24 @@ models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
   + {decider: (if $dclass != "" then {model: $dclass, source: "SDC_LLM_MODEL_DECIDER"}
       elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
       else {model: "claude-haiku-5-5", source: "default"} end)}')
+# The effective effort per node class, and for the requester: the first set of SDC_LLM_EFFORT_<CLASS>
+# (the requester: _REQUESTER, then _DECIDER), SDC_LLM_EFFORT, else the class's `default_efforts` in
+# node-classes.json (source "default"): the level is always passed, never left to the adapter's host.
+eff() { # <default level> <variable>...
+  local v
+  for v in "${@:2}" SDC_LLM_EFFORT; do
+    [[ -z ${!v:-} ]] || { jq -cn --arg e "${!v}" --arg s "$v" '{effort: $e, source: $s}'; return; }
+  done
+  jq -cn --arg e "$1" '{effort: $e, source: "default"}'
+}
+efforts=$({
+  for c in $(jq -r '.classes | keys[]' "$ex/tools/node-classes.json"); do
+    jq -cn --arg c "$c" --argjson e "$(eff "$(jq -r --arg c "$c" '.default_efforts[$c]' "$ex/tools/node-classes.json")" "SDC_LLM_EFFORT_${c^^}")" '{($c): $e}'
+  done
+  jq -cn --argjson e "$(eff "$(jq -r '.default_efforts.requester' "$ex/tools/node-classes.json")" SDC_LLM_EFFORT_REQUESTER SDC_LLM_EFFORT_DECIDER)" '{requester: $e}'
+} | jq -cs add)
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
-  --argjson models "$models" \
+  --argjson models "$models" --argjson adapters "$adapters" --argjson efforts "$efforts" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
   --arg stand "$stand_in" --arg rq "${SDC_REQUESTER_DECIDER:-}" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
@@ -284,11 +341,11 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
-  echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
+  echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
 else
-  echo "resuming $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
+  echo "resuming $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
 fi
 
 save() {
@@ -300,9 +357,11 @@ save() {
 # need a person, a cap, stuck, a refusal) is stopped with a record by rule:autopilot.
 # The record names the step (action, case as a run-relative id), the cause (end_cause, also the
 # record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path, rework_spent,
-# decider_budget_spent, decision_not_takeable (a stop no holder of this run can take: the program
+# decider_budget_spent, finding_reraised (a program finding raised again after its decision was
+# applied), decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
-# driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent).
+# driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent),
+# and review_invalid (stuck after a change.review that recorded nothing: its reply stayed invalid).
 end_reason="" end_cause="" end_action="" end_case="" wait_why=""
 autopilot_end() {
   local rc=$1 v
@@ -315,7 +374,19 @@ autopilot_end() {
     case $v in
       writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
       writer_not_called) end_reason="$end_action in $end_case: writer_not_called ($(jq -r '(.position.not_called // [])[0].reason // ""' <<< "$last" | cut -c1-200)): nothing else is useful; it waits on a fix of the writer or a decision, then --reopen" ;;
-      stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen" ;;
+      stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen"
+        # Stuck because the case's last step was a review that recorded nothing (its reply stayed
+        # invalid after its retries, or its call failed): cause review_invalid, naming the call.
+        local cd line
+        cd=$(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null)
+        line=$(jq -rs '[.[] | select(.event == "action_finished")] | last
+          | select(.action == "change.review" and (.exit | IN("0", "1") | not)) | .log // empty' "$cd/events.jsonl" 2>/dev/null)
+        line=$([[ -n $line ]] && grep -v '^[[:space:]]*$' "$cd/blobs/$line" 2>/dev/null | tail -n 1)
+        if [[ $line == *"change.review recorded nothing after"* ]]; then
+          end_cause=review_invalid end_action=change.review
+          end_reason="change.review in $end_case: review_invalid (${line#llm-node: }): it waits on a fix of the review node or its adapter, then --reopen"
+          end_reason=${end_reason:0:600}
+        fi ;;
       *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
       *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
     esac
@@ -334,10 +405,10 @@ print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"
 end_note=""
 finish() { # <outcome> [principal that closed it]
   if [[ -n ${2:-} ]]; then d "$root" close --at "$(now)" --outcome "$1" --principal "$2"; else d "$root" close --at "$(now)" --outcome "$1"; fi
-  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2} (exit $code)"
+  echo "closed ${root##*/}: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2} (exit $code)"
   [[ $code == 0 ]] || exit 4
   jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" --arg by "${2:-}" '{format: "sdc.run-status/1", at: $at, state: "closed",
-    outcome: $o, delivered: ($o == "operating"), note: (if $note == "" then null else $note end),
+    outcome: $o, delivered: ($o == "operating" or $o == "fixed"), note: (if $note == "" then null else $note end),
     closed_by: (if $by == "" then null else $by end)}' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
@@ -409,7 +480,7 @@ decide() {
       class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
       question: ($q.question.id // null), finding: ($q.finding.id // null), capability: $q.capability, outcome: $q.outcome,
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
-      cites: $r.cites, citations: ($r.citations // null), model: $r.model, adapter: $r.adapter, tokens: $r.usage,
+      cites: $r.cites, citations: ($r.citations // null), model: $r.model, effort: $r.effort, adapter: $r.adapter, tokens: $r.usage,
       cost_usd: $r.cost_usd, duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
       schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record, side: ($q.side // null),
       no_ground_in_goals: $r.no_ground_in_goals, strength: ($r.strength // null), grounds: ($r.grounds // null)} + $x' >> "$out/decisions.jsonl"
@@ -418,6 +489,7 @@ decide() {
     if [[ $llm == yes ]]; then
       n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
       (( n <= max_decider )) || { end_cause=decider_budget_spent end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
+        end_reason="$end_action in $end_case: decider_budget_spent ($max_decider LLM decider calls, SDC_MAX_DECIDER_CALLS; the last request: $(jq -r '.question.id // .finding.id // .action' <<< "$req")): it waits on a higher cap or a fix of what spent it, then --reopen"
         echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
       rec=$out/decider/$(printf '%03d' "$n")-$(jq -r '.question.id // .finding.id // .action' <<< "$req")
     else
@@ -632,6 +704,20 @@ decide_findings() {
     [[ -n $f ]] || continue
     found=yes
     fid=$(jq -r .id <<< "$f")
+    # A program finding raised again after the decision on it was applied (sdc-findings `reraised`):
+    # a defect of that apply, never a new question (runs/trial-3-small-sonnet-1: p-trace-r5 asked
+    # 8 times until the decider budget was spent). The run stops finding_reraised.
+    if jq -e '.reraised' <<< "$f" > /dev/null; then
+      wait_why="$fid raised again after $(jq -r '.reraised.decided_by // "?"' <<< "$f")'s decision \"$(jq -r '.reraised.decision // ""' <<< "$f" | cut -c1-160)\" was applied ($(jq -r '.reraised.says // ""' <<< "$f" | cut -c1-160))"
+      if [[ $autonomy == A5 ]]; then
+        end_cause=finding_reraised end_action=$act end_case=$(basename "$cdir")
+        end_reason="$act in $end_case: finding_reraised: $wait_why: the apply of that decision did not take effect; it waits on a fix of that apply, then --reopen"
+        echo "$end_reason"
+        exit 7
+      fi
+      echo "  $wait_why: a person decides"
+      return 1
+    fi
     if jq -e '.refused_decision' <<< "$f" > /dev/null; then
       wait_why="$fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f"))"
       if [[ $autonomy == A5 ]]; then echo "  $wait_why"; else echo "  $wait_why: a person decides"; fi

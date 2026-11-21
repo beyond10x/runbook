@@ -1,0 +1,165 @@
+{
+  "$artifacts": {
+    "report": "bug.yaml",
+    "dissection": "bug-dissection.json",
+    "repro": "repro",
+    "change": "impl",
+    "story": "aep"
+  },
+  "bug.dissect": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "bug.dissect"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 20,
+      "max_budget_usd": 1,
+      "stub": [
+        "stub-file",
+        "bugfix-pager/stub-dissection.json",
+        "bug-dissection.json"
+      ]
+    },
+    "retry_when": {
+      "dissection_check": [
+        "invalid"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 600
+  },
+  "dissection.check": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "bugfix",
+      "dissection-check"
+    ],
+    "produces": "dissection_check",
+    "subject": "dissection",
+    "producer": "sdc-bugfix",
+    "results": {
+      "0": "valid",
+      "*": "invalid"
+    }
+  },
+  "test.reproduce": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "test.reproduce"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 30,
+      "max_budget_usd": 1,
+      "stub": [
+        "stub-repro",
+        "bugfix-pager/stub-repro"
+      ]
+    },
+    "retry_when": {
+      "repro_run": [
+        "not_red"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "repro.run": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "bugfix",
+      "repro-run"
+    ],
+    "produces": "repro_run",
+    "subject": "repro",
+    "upstream": [
+      "change"
+    ],
+    "producer": "sdc-bugfix",
+    "results": {
+      "0": "red",
+      "*": "not_red"
+    }
+  },
+  "change.fix": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "change.fix"
+    ],
+    "produces": "implementation_change",
+    "subject": "change",
+    "upstream": [
+      "repro"
+    ],
+    "producer": "llm-node",
+    "results": {
+      "0": null
+    },
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 40,
+      "max_budget_usd": 2,
+      "stub": [
+        "stub-tree",
+        "bugfix-pager/stub-fix",
+        "impl"
+      ]
+    },
+    "retry_when": {
+      "test_run": [
+        "failed"
+      ],
+      "gate_run": [
+        "failed"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 1500
+  },
+  "tests.run": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "bugfix",
+      "tests-run"
+    ],
+    "produces": "test_run",
+    "subject": "change",
+    "upstream": [
+      "repro"
+    ],
+    "producer": "sdc-bugfix",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  },
+  "story.update": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "bugfix",
+      "story-update"
+    ],
+    "produces": "story_record",
+    "subject": "story",
+    "producer": "sdc-bugfix",
+    "results": {
+      "0": null
+    },
+    "max_runs": 2
+  },
+  "gate.run": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "bugfix",
+      "gate-run"
+    ],
+    "produces": "gate_run",
+    "subject": "change",
+    "producer": "sdc-bugfix",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  }
+}
