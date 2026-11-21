@@ -28,7 +28,8 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
 
 4. **`canon simulate`**: exhaustive walk over action sequences. Stuck states with the shortest
    action path, cycles, dead actions, no outcome reachable. Detail: `canon-simulation-request.md`.
-   No story found.
+   Exists on Canon branch `wave/2026-11-20` at `49ff2ce`, unreleased (the Canon session,
+   2026-11-21); uptake in items 9-11.
 
 5. **Child outcome bound to the parent's current revision.** Canon counts a child's outcome whatever
    its subject revision (`protocol.md:194-196`), so a spec revised after its stories passed still
@@ -44,6 +45,19 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
    (`main.rs:240-254`, `driver.md:224`).
 
 8. **Optional, low value:** an explicit "absent" artifact revision (`output.txt:34`).
+
+9. **Release of `canon simulate`** with waves 6-8 (`simulate-child-outcome-step`,
+   `simulate-record-groups`, `simulate-revise-step`). 87 findings on SDC's protocols at `f364b6b`,
+   most of them walk artifacts until those waves land. SDC story
+   `story:simulate-as-a-protocol-gate`; blocker `upstream-blocker:canon-simulate-release`.
+
+10. **`revises`, `author` and `decided_by` in a released `protocol/1`.** Accepted on the branch with
+    no evaluation meaning yet; the revise step reads them. SDC story
+    `story:protocols-declare-revises-and-authors`; same blocker.
+
+11. **`records_together`** (Canon `story:simulate-record-groups`, wave 7) for `questions.check`.
+    SDC story `story:questions-check-records-together`; blocker
+    `upstream-blocker:canon-simulate-record-groups`.
 
 ## SDK (the operator's direction, not yet evidenced in the repository)
 
