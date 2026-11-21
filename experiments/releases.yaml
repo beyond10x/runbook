@@ -195,8 +195,8 @@ entries:
   label: 0.1.1
   short: keep-going, unstick, routes
   date: 2026-11-21
-  tree: null
-  tree_note: not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)
+  tree: d79975dd70dcbdca1b8820b2bdb2774b28e76028
+  tree_note: 'tag 0.1.1 at main d79975d: 0.1.0 (4468bfd) with the batch-9 merges below, recorded replay reverted (7c5dd5e), and the baseline of 0.1.0 (c798d1a)'
   experiments: []
   changes:
   - commit: 297fb7a

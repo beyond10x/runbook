@@ -15,7 +15,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
 | [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
 | [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
-| [0.1.1](#011) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
+| [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -204,7 +204,7 @@ Limits of this measurement:
 
 ## 0.1.1
 
-Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd).
+Release, 2026-11-21. Tree: `d79975d` (tag 0.1.1 at main d79975d: 0.1.0 (4468bfd) with the batch-9 merges below, recorded replay reverted (7c5dd5e), and the baseline of 0.1.0 (c798d1a)).
 
 What changed:
 
