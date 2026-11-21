@@ -121,15 +121,12 @@ check-questions)
   yq -e '([.questions[] | select(.status != "accepted" and .status != "changed")] | length) == 0' \
     questions.yaml >/dev/null || exit 1 ;;
 check-requirements-shape)
-  [[ -f requirements.yaml ]] || exit 1
-  ids=$( (yq -r '.items[] | select(.type == "fact" or .type == "wish") | .id' dissection.yaml;
-          yq -r '.questions[].id' questions.yaml) | sort -u)
-  yq -e '(.requirements | length) > 0' requirements.yaml >/dev/null || exit 1
-  yq -o=json requirements.yaml | jq -r '.requirements[] | "\(.cites // [] | length) \((.cites // []) | join(" "))"' \
-    | while read -r n cites; do
-      [[ $n -gt 0 ]] || { echo false; continue; }
-      for c in $cites; do grep -qx "$c" <<< "$ids" && echo true || echo false; done
-    done | all_true ;;
+  # The citation rule, the same program the amendment check uses (sdc-findings citation_fault):
+  # one line per fault, so a writer sent back reads why (runs/trial-3-mixed-4).
+  [[ -f requirements.yaml ]] || { echo "requirements: no requirements.yaml"; exit 1; }
+  findings check-requirements; rc=$?
+  passon $rc
+  (( rc == 0 )) ;;
 
 # --- sdc.direction checks -------------------------------------------------------------------
 check-context-shape)

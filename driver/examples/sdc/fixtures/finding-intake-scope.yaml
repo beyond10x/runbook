@@ -1,0 +1,11 @@
+node: requirements.normalise
+findings:
+  - key: cancelled-invoice-visibility
+    type: missing_decision
+    cites: [r1, q2]
+    says: The inputs do not say whether a cancelled invoice is shown to the customer
+    options:
+      - a cancelled invoice stays visible to the customer
+      - a cancelled invoice is hidden from the customer
+    default: a cancelled invoice stays visible to the customer
+    scope_changing: true
