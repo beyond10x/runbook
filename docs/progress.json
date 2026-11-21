@@ -3008,18 +3008,18 @@
           "clean_passes": 0,
           "ended": 0,
           "id": "xhigh",
-          "listed": 0,
+          "listed": 2,
           "primary": null
         },
         {
           "clean_passes": 0,
           "ended": 0,
           "id": "medium",
-          "listed": 0,
+          "listed": 1,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "inconclusive",
       "why": "too few ended runs with the metric: xhigh 0 and medium 0, the rule needs 3 each"
     },
     {
@@ -3087,28 +3087,28 @@
       "tree": "72a3eef",
       "variants": [
         {
-          "clean_passes": 0,
-          "ended": 0,
+          "clean_passes": 3,
+          "ended": 3,
           "id": "strong",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
-          "clean_passes": 0,
-          "ended": 0,
+          "clean_passes": 2,
+          "ended": 3,
           "id": "mixed",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
-          "clean_passes": 0,
-          "ended": 0,
+          "clean_passes": 2,
+          "ended": 3,
           "id": "haiku",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "descriptive",
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
@@ -3137,7 +3137,7 @@
           "clean_passes": 0,
           "ended": 0,
           "id": "haiku-review",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         }
       ],
@@ -3453,7 +3453,7 @@
     },
     {
       "path": "experiments/effort-decider-mixed.yaml",
-      "sha256": "ee631814e05fd4fb10d50044552a2b61f7748e9e037773ae8f5cd76dd44a62a4"
+      "sha256": "c3f4116be9726a420a642eadd70693f88219ffb05101b44a14b942d6946ffd2a"
     },
     {
       "path": "experiments/effort-implement-levels.yaml",
@@ -3461,11 +3461,47 @@
     },
     {
       "path": "experiments/release-0.1.2.yaml",
-      "sha256": "c2e7d4c9fa21149f9f8420106371cd8370440feee0d6771d952cd362ccd365ac"
+      "sha256": "04e94752d01b60101d6fb1de915df6d40827dfd52cb2eb81e2b9f736ee1c0da7"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.haiku.1.json",
+      "sha256": "98303a8964badd800664ca9f268644e81c0b12a872ed2c0dc92014fd3f599563"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.haiku.2.json",
+      "sha256": "eae367edcbc5ccbc53806a6f2635b8c959462578fa3d987679fa6656ffa3974a"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.haiku.3.json",
+      "sha256": "06a6b7c9d47d5427bcafb733d62a3a2b39c2db20580ac0a6c9a070bd978da98f"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.mixed.1.json",
+      "sha256": "2c562c4c5d09e0ccfc2c5a427dffb20b8d8502982bcaa642c10197e2190a44d8"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.mixed.2.json",
+      "sha256": "5b49f48c9431e540ab6af2f830c731bd1ea5424ff44109f3e794c30d514ca539"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.mixed.3.json",
+      "sha256": "42f4d846a661a7d279e9424dd8cf08132eddec4c13ae68faace728ece5de3b0a"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.strong.1.json",
+      "sha256": "49812dd60248276a9621d4e5008d1282547a924f30325a01207386615474487b"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.strong.2.json",
+      "sha256": "eda12547011239dfc3bfc59bd7f8a37fed236a880b564d05da4fa0905873a17e"
+    },
+    {
+      "path": "experiments/release-0.1.2/runs/release-0.1.2.strong.3.json",
+      "sha256": "e40c3ffd64c9a63cadb787f631590297c8bca2336af673fa407f5b682192b49e"
     },
     {
       "path": "experiments/review-haiku-replay.yaml",
-      "sha256": "086db23883f80f2ec6d07b7c2ad4f604a87289d37abc577ddb18e1fc00a01ed7"
+      "sha256": "f49f67150e06c8490e82364b1510d75413213bac7f56ae8491c4fe06cf39ed46"
     },
     {
       "path": "experiments/review-minimal-facts.yaml",

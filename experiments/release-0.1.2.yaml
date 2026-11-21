@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: release-0.1.2
 kind: prospective
-status: planned
+status: complete
 created: 2026-11-21
 title: Release 0.1.2 on main 72a3eef, the to-do idea in the three baseline settings
 purpose: Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0.
@@ -29,7 +29,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-sonnet-5-5
     decider.model: claude-opus-5-5
-  runs: []
+  runs:
+  - release-0.1.2.strong.1
+  - release-0.1.2.strong.2
+  - release-0.1.2.strong.3
 - id: mixed
   settings:
     models.writer.model: claude-sonnet-5-5
@@ -37,7 +40,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-haiku-5-5
     decider.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - release-0.1.2.mixed.1
+  - release-0.1.2.mixed.2
+  - release-0.1.2.mixed.3
 - id: haiku
   settings:
     models.writer.model: claude-haiku-5-5
@@ -45,7 +51,10 @@ variants:
     models.review.model: claude-haiku-5-5
     models.other.model: claude-haiku-5-5
     decider.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - release-0.1.2.haiku.1
+  - release-0.1.2.haiku.2
+  - release-0.1.2.haiku.3
 runs_per_variant: 3
 pass_rule: clean-delivery
 decision_rule:
@@ -112,3 +121,23 @@ facts:
 - 'trial-0.1.0-haiku-2: run-stopped.json names f11, the decider''s amendment refused by the program check (context.deployment and context.platform against r6); R3 of 0.1.1 is the route for it.'
 links:
 - 'experiments/baseline-0.1.0.yaml: the baseline this record is compared with'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 3
+    ended: 3
+    id: strong
+    listed: 3
+    without_summary: []
+  - clean_passes: 2
+    ended: 3
+    id: mixed
+    listed: 3
+    without_summary: []
+  - clean_passes: 2
+    ended: 3
+    id: haiku
+    listed: 3
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'
