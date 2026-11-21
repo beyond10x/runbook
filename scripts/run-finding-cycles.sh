@@ -61,9 +61,10 @@
 #                   and decider record names its model, run-settings.jsonl the model per class
 #   rework-not-called, rework-pending-rejection, decider-later-obligation, replay-sibling,
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
-#   decider-question-reject, rework-fresh-allowance, spec-review-rework, and the pending
+#   decider-question-reject, rework-fresh-allowance, spec-review-rework, writer-own-error,
+#   implement-percause, and the pending
 #   scope-unattributed-reject, finding-refused-reask, rework-spent-dropped, rework-spent-abandoned,
-#   review-invalid-named, writer-own-error, implement-percause: the reject and cap routes of
+#   review-invalid-named: the reject and cap routes of
 #   docs/reject-routes.md (R1-R9)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>` and `pending: N (K still failing: ...)`; exits 1 when an expected cycle missed its
@@ -100,9 +101,9 @@ yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/n
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
-expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error)
+expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause)
 pending=(scope-unattributed-reject finding-refused-reask rework-spent-dropped rework-spent-abandoned
-  review-invalid-named implement-percause)
+  review-invalid-named)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -1101,11 +1102,11 @@ if [[ -n $second ]] && grep -q 'changed a scope-changing question' "$second/cwd/
 else
   echo "writer-own-error: FAILED (exit $code, second call ${second:-none}, no in/feedback.md naming the refusal)"
 fi
-# implement-percause (R7, pending): change.implement's trees: one that does not build (tests.run
+# implement-percause (R7): change.implement's trees: one that does not build (tests.run
 # fails), one with an empty README (the stub review rejects), one that does not build again, then
 # a good one. Route: runs counted per retry kind (conformance_run 2, code_review 1, each under 3),
 # with a backstop of 8 per arrival. Passes when the run closes with 4 change.implement runs and no
-# writer_spent. Today: writer_spent after 3 runs.
+# writer_spent. Before: writer_spent after 3 runs.
 trial implement-percause SDC_STUB_FIXTURES="$fx/implement-percause"
 code=$?
 st=$(rr_story implement-percause)

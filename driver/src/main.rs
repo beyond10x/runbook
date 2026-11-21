@@ -589,7 +589,8 @@ fn log_line(dir: &Path, e: &Value) -> String {
 /// for each counted run, the first other action after it (before the writer's next run) that
 /// exited non-zero, with its last log line: what made the writer useful again (runs/trial-3-haiku-2
 /// stopped with "last exit 0:" and nothing else, though each run was sent back by a new finding).
-fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, evs: &[Value]) -> Value {
+#[allow(clippy::too_many_arguments)]
+fn spent_entry(dir: &Path, a: &str, kind: &str, runs: u64, max: u64, total: u64, since: usize, evs: &[Value]) -> Value {
     let finished: Vec<&Value> = evs.iter().filter(|e| e["event"] == "action_finished").collect();
     let last = finished.iter().rev().find(|e| e["action"] == a && !program_error(&e["exit"]));
     let line = last.map(|e| log_line(dir, e)).unwrap_or_default();
@@ -600,7 +601,7 @@ fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, evs: &[Va
         sent_back.push(json!({"run_seq": run["seq"], "by": by.map(|e| e["action"].clone()),
             "exit": by.map(|e| e["exit"].clone()), "line": by.map(|e| log_line(dir, e))}));
     }
-    json!({"action": a, "runs": runs, "max_runs": max, "since_seq": since,
+    json!({"action": a, "kind": kind, "runs": runs, "max_runs": max, "total_runs": total, "since_seq": since,
         "last_exit": last.map(|e| e["exit"].clone()), "last_failure": line, "sent_back": sent_back})
 }
 
@@ -623,7 +624,10 @@ fn sent_back_text(s: &Value) -> String {
 ///   ran once at this snapshot);
 /// - a writer has `max_runs` (default 8) per arrival: its runs since the last arrival
 ///   (`last_arrival`) count, so a person's decision, an outside revision or a recorded rejection
-///   gives the writers a fresh allowance. A writer that would be useful but has none left is returned as spent.
+///   gives the writers a fresh allowance. The cap holds per retry kind (D145, docs/reject-routes.md
+///   R7): a kind due now is out when the runs it sent back, with the runs no kind sent back, reach
+///   `max_runs`; all runs together are capped at `max(max_runs, 8)`. A writer that would be useful
+///   but has none left is returned as spent, naming the kind that ran out.
 ///
 /// A run that ended in a program error (exit 126/127) never counts, nor one that ended
 /// `not_called` (the tool did nothing: `llm-node.sh`'s "not called" exits, runs/trial-3-haiku-4).
@@ -692,18 +696,32 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
             continue;
         }
         if writer {
-            let runs = evs[since..]
-                .iter()
-                .filter(|e| {
-                    e["event"] == "action_finished"
-                        && e["action"] == a.as_str()
-                        && !program_error(&e["exit"])
-                        && !e["not_called"].is_string()
-                })
-                .count() as u64;
+            // The counted runs since the last arrival, each with the kinds that sent it back
+            // (`retry_of` of its `action_started`; none when it was due for another reason).
+            let mut runs_by: Vec<Vec<Value>> = Vec::new();
+            let mut started: Vec<Value> = Vec::new();
+            for e in evs[since..].iter().filter(|e| e["action"] == a.as_str()) {
+                if e["event"] == "action_started" {
+                    started = e["retry_of"].as_array().cloned().unwrap_or_default();
+                } else if e["event"] == "action_finished" && !program_error(&e["exit"]) && !e["not_called"].is_string() {
+                    runs_by.push(std::mem::take(&mut started));
+                }
+            }
+            // Each kind due now has the binding's cap of its own: the runs it sent back, plus the
+            // runs no kind sent back (the first). A backstop caps all kinds together.
             let max = b["max_runs"].as_u64().unwrap_or(8);
-            if runs >= max {
-                spent.push(spent_entry(dir, a, runs, max, since, &evs));
+            let backstop = max.max(8);
+            let count = |k: &Value| runs_by.iter().filter(|r| r.is_empty() || r.contains(k)).count() as u64;
+            let due: Vec<Value> = retry_records(b, &current).iter().map(|r| r["kind"].clone()).collect();
+            let total = runs_by.len() as u64;
+            let out = if due.is_empty() {
+                Some(("none".to_string(), runs_by.iter().filter(|r| r.is_empty()).count() as u64)).filter(|(_, n)| *n >= max)
+            } else {
+                due.iter().map(|k| (k.as_str().unwrap_or("").to_string(), count(k))).find(|(_, n)| *n >= max)
+            };
+            let out = out.or_else(|| (total >= backstop).then(|| (format!("all kinds (backstop {backstop})"), total)));
+            if let Some((kind, n)) = out {
+                spent.push(spent_entry(dir, a, &kind, n, max, total, since, &evs));
                 continue;
             }
         }
@@ -1204,8 +1222,8 @@ fn step(
                     // dropped above).
                     let s = &pos["spent"][0];
                     event(dir, at, "writer_spent", json!({"state": pos["state"], "spent": pos["spent"]}))?;
-                    let message = format!("writer `{}` is spent at {}: {} runs since event {} (max_runs {}), last exit {}: {}{}",
-                        s["action"].as_str().unwrap_or(""), dir.display(), s["runs"], s["since_seq"], s["max_runs"],
+                    let message = format!("writer `{}` is spent at {}: {} runs sent back by {} since event {} (max_runs {}), last exit {}: {}{}",
+                        s["action"].as_str().unwrap_or(""), dir.display(), s["runs"], s["kind"].as_str().unwrap_or("?"), s["since_seq"], s["max_runs"],
                         s["last_exit"].as_str().unwrap_or("?"), s["last_failure"].as_str().unwrap_or(""), sent_back_text(s));
                     return Ok((json!({"verdict": "writer_spent", "case_dir": dir, "spent": pos["spent"],
                         "message": message, "next": next, "position": pos, "explanation": decision["explanation"]}), 4));
