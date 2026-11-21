@@ -279,6 +279,7 @@ Notes:
 - L4 and L5 read the final `findings.yaml`. A finding is never deleted: resolved, dismissed and
   rejected ones stay, so the counts are over the whole run.
 - Measured values (stub runs, 2026-11-21): see `docs/trial-2.md`, "Verification".
+- `sdc-run-compare` reads two or more run directories and writes one comparison report of these figures and the run's cost, time and end state (`docs/run-compare.md`).
 
 ## 5. Flow (multi-item runs) (added 2026-11-21, decided)
 

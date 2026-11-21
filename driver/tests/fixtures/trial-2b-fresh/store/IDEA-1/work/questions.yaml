@@ -1,0 +1,31 @@
+questions:
+  - id: q1
+    item: d4
+    question: "When the train has no connection, should you be able to both view and edit the list, or only view it?"
+    options:
+      - "View and edit offline, syncing when back online"
+      - "View only offline"
+    default: "View and edit offline, syncing when back online"
+    scope_changing: true
+    status: open
+  - id: q2
+    item: d5
+    question: "How should you and your partner share the list across your devices?"
+    options:
+      - "One shared list, synced through a server account for both of you"
+      - "Separate lists, one per person"
+      - "One shared list stored on a single device only"
+    default: "One shared list, synced through a server account for both of you"
+    scope_changing: true
+    status: open
+  - id: q3
+    item: d6
+    question: "When an offline edit conflicts with a change made elsewhere, which version should win after reconnecting?"
+    options:
+      - "The most recent change wins"
+      - "Keep both versions and let me choose"
+    default: "The most recent change wins"
+    scope_changing: false
+    status: accepted
+    answer: "The most recent change wins"
+    answered_by: non-interactive

@@ -1,0 +1,35 @@
+findings:
+- id: f1
+  type: ambiguity
+  stage: requirements
+  raised_by: llm:requirements.normalise
+  status: resolved
+  scope: person
+  decision: Each list can be shared with the partner
+  decided_by: decider:haiku
+  resolution:
+    amends: [q7, r2]
+    default_taken: false
+- id: f2
+  type: missing_decision
+  stage: spec
+  raised_by: llm:spec.author
+  status: resolved
+  scope: agent
+  decision: Open or done
+  decided_by: agent
+  resolution:
+    amends: [q5, r3]
+    default_taken: true
+- id: f3
+  type: ambiguity
+  stage: story
+  raised_by: llm:change.implement
+  status: dismissed
+  scope: agent
+  decided_by: agent
+- id: f4
+  type: contradiction
+  stage: context
+  raised_by: llm:context.default
+  status: rejected

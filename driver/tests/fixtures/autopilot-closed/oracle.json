@@ -1,0 +1,1 @@
+{"format": "sdc-eval.oracle/1", "checks": [{"id": "spec-conformance", "result": "held"}, {"id": "mainline-tests", "result": "held"}]}
