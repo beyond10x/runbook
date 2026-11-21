@@ -1,0 +1,6 @@
+{
+  "observed": "page_count(11, 5) returns 2 and page(&items, 3, 5) returns an empty slice, so item 11 is never shown",
+  "expected": "page_count(11, 5) returns 3 and page(&items, 3, 5) returns the slice holding item 11",
+  "where": "src/lib.rs:9",
+  "reproduce": "call pager::page_count(11, 5) and pager::page(&items, 3, 5) with items 1 to 11"
+}

@@ -1,0 +1,245 @@
+format: protocol/1
+
+protocol:
+  id: sdc.bugfix
+  revision: 1
+  description: >-
+    Fix one reported bug in an existing code tree, red first: the bug report is dissected into a
+    checked data document, a test that reproduces the bug is written and observed failing on the
+    unchanged code while the rest of the suite passes, and only then is the fix admissible; the same
+    test and the whole suite must pass on the fixed revision, the bug's story is moved to
+    implemented, and the code tree's gate (build, test, lint, format) passes. One case, no child
+    cases; its inputs are the bug report and the code tree in the case's work directory, so a parent
+    can open it as a child. No approval in this revision: a merge approval is the next addition.
+
+artifacts:
+  report:
+    description: the bug report, the case's input (bug.yaml)
+  dissection:
+    description: >-
+      the bug report dissected into a data document: observed, expected, where, how to reproduce
+  repro:
+    description: >-
+      the reproducing test: one test file and the record naming its test id; written once the
+      dissection is valid, kept as written by every later step
+  change:
+    description: the code tree; its revision is its content digest
+  story:
+    description: the planning store holding the bug's story
+
+evidence_kinds:
+  dissection_check:
+    description: >-
+      a program's check of the dissection against its schema and the code tree; valid or invalid
+  repro_run:
+    description: >-
+      a program runs the reproducing test on the code tree with the code otherwise unchanged; red
+      when the test compiles and fails and every other test passes, not_red otherwise (it passes,
+      it does not compile, another test fails, or the code was changed)
+  implementation_change:
+    description: the record that the fix moved the code tree to a new revision
+  test_run:
+    description: >-
+      a program runs the whole suite on a code revision; passed when the reproducing test is
+      unchanged, reported ok under its test id, and nothing fails or is ignored
+  story_record:
+    description: the record that the bug's story was moved to implemented in the planning store
+  gate_run:
+    description: >-
+      the code tree's gate run by a program: build, test, lint with warnings as errors, format
+      check; passed or failed
+
+claims:
+  dissection.valid:
+    description: the current dissection is valid
+    true_when:
+      evidence:
+        kind: dissection_check
+        result: valid
+        subject: dissection
+  dissection.checked:
+    description: a check is recorded about the current dissection, whatever its result
+    true_when:
+      evidence:
+        kind: dissection_check
+        subject: dissection
+  repro.red:
+    description: the current reproducing test was observed red on the unchanged code
+    true_when:
+      evidence:
+        kind: repro_run
+        result: red
+        subject: repro
+  repro.checked:
+    description: a run of the current reproducing test is recorded, whatever its result
+    true_when:
+      evidence:
+        kind: repro_run
+        subject: repro
+  change.built:
+    description: the current code revision is a fix written after the red record
+    true_when:
+      evidence:
+        kind: implementation_change
+        subject: change
+  tests.pass:
+    description: the reproducing test and the whole suite pass on the current code revision
+    true_when:
+      evidence:
+        kind: test_run
+        result: passed
+        subject: change
+  tests.run_recorded:
+    description: a suite run is recorded about the current code revision, whatever its result
+    true_when:
+      evidence:
+        kind: test_run
+        subject: change
+  story.updated:
+    description: the bug's story is implemented in the current planning store
+    true_when:
+      evidence:
+        kind: story_record
+        subject: story
+  gate.passed:
+    description: the gate passes on the current code revision
+    true_when:
+      evidence:
+        kind: gate_run
+        result: passed
+        subject: change
+  gate.checked:
+    description: a gate run is recorded about the current code revision, whatever its result
+    true_when:
+      evidence:
+        kind: gate_run
+        subject: change
+
+actions:
+  bug.dissect:
+    description: >-
+      dissect the bug report into the dissection document; while no valid dissection is recorded
+    effect: write
+    precondition:
+      any:
+        - claim: dissection.valid
+          is: "false"
+        - claim: dissection.valid
+          is: unknown
+  dissection.check:
+    description: check the current dissection; once per dissection revision
+    effect: read
+    precondition:
+      claim: dissection.checked
+      is: unknown
+    may_produce:
+      - evidence: dissection_check
+  test.reproduce:
+    description: >-
+      write one test that reproduces the bug, into the code tree and the repro record, without
+      changing any other file; once the dissection is valid and while no red is recorded
+    effect: write
+    precondition:
+      all:
+        - claim: dissection.valid
+        - any:
+            - claim: repro.red
+              is: "false"
+            - claim: repro.red
+              is: unknown
+  repro.run:
+    description: >-
+      run the reproducing test on the code tree; once per repro revision, once the dissection is
+      valid
+    effect: read
+    precondition:
+      all:
+        - claim: dissection.valid
+        - claim: repro.checked
+          is: unknown
+    may_produce:
+      - evidence: repro_run
+  change.fix:
+    description: >-
+      fix the code so the reproducing test passes, without changing that test; admissible only once
+      the red is recorded; the writer again after a failed suite run or a failed gate
+    effect: write
+    precondition:
+      claim: repro.red
+    may_produce:
+      - evidence: implementation_change
+  tests.run:
+    description: >-
+      run the whole suite on the current fix revision; once per code revision
+    effect: read
+    precondition:
+      all:
+        - claim: repro.red
+        - claim: change.built
+        - claim: tests.run_recorded
+          is: unknown
+    may_produce:
+      - evidence: test_run
+  story.update:
+    description: >-
+      move the bug's story to implemented in the planning store (create it first when no parent
+      handed it in), once the suite passes on the fix
+    effect: write
+    precondition:
+      all:
+        - claim: repro.red
+        - claim: change.built
+        - claim: tests.pass
+    may_produce:
+      - evidence: story_record
+  gate.run:
+    description: >-
+      run the code tree's gate on the current fix revision, once the suite passes and the story is
+      updated; once per code revision
+    effect: read
+    precondition:
+      all:
+        - claim: change.built
+        - claim: tests.pass
+        - claim: story.updated
+        - claim: gate.checked
+          is: unknown
+    may_produce:
+      - evidence: gate_run
+
+outcomes:
+  fixed:
+    description: >-
+      the reproducing test was red on the unchanged code, the fix passes it and the whole suite,
+      the story is implemented and the gate passes
+    requires:
+      all:
+        - claim: dissection.valid
+        - claim: repro.red
+        - claim: change.built
+        - claim: tests.pass
+        - claim: story.updated
+        - claim: gate.passed
+  not_reproduced:
+    description: >-
+      no valid dissection, or no test that is red on the unchanged code (ends the case once the
+      writers are spent)
+    requires:
+      any:
+        - claim: dissection.valid
+          is: "false"
+        - claim: repro.red
+          is: "false"
+  not_fixed:
+    description: >-
+      the bug was reproduced, but the fix fails the suite or the gate (ends the case once the
+      writer is spent)
+    requires:
+      all:
+        - claim: repro.red
+        - claim: change.built
+        - any:
+            - claim: tests.pass
+              is: "false"
+            - claim: gate.passed
+              is: "false"

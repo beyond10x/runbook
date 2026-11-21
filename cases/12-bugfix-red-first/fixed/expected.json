@@ -1,0 +1,30 @@
+{
+  "actions": {
+    "bug.dissect": "blocked",
+    "change.fix": "admissible",
+    "dissection.check": "blocked",
+    "gate.run": "blocked",
+    "repro.run": "blocked",
+    "story.update": "admissible",
+    "test.reproduce": "blocked",
+    "tests.run": "blocked"
+  },
+  "claims": {
+    "change.built": "true",
+    "dissection.checked": "true",
+    "dissection.valid": "true",
+    "gate.checked": "true",
+    "gate.passed": "true",
+    "repro.checked": "true",
+    "repro.red": "true",
+    "story.updated": "true",
+    "tests.pass": "true",
+    "tests.run_recorded": "true"
+  },
+  "obligations": {},
+  "outcomes": {
+    "fixed": "legitimate",
+    "not_fixed": "blocked",
+    "not_reproduced": "blocked"
+  }
+}

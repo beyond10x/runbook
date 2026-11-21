@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: g1
+kind: gate_run
+result: passed
+subject: change
+subject_revision: c2
+producer: sdc-bugfix
+observed_at: 2026-11-21T09:00:00Z

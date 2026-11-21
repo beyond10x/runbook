@@ -2,10 +2,10 @@
   "format": "sdc.node-classes/1",
   "classes": {
     "writer": ["spec.author", "plan.decompose"],
-    "implement": ["change.implement"],
+    "implement": ["change.implement", "test.reproduce", "change.fix"],
     "review": ["spec.review", "change.review"],
     "decider": [],
     "other": ["idea.dissect", "questions.write", "questions.answer", "requirements.normalise",
-              "context.default", "vision.write", "roadmap.write"]
+              "context.default", "vision.write", "roadmap.write", "bug.dissect"]
   }
 }
