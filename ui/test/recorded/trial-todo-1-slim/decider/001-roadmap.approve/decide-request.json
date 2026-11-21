@@ -1,0 +1,93 @@
+{
+  "type": "approval",
+  "case_dir": "~/beyond10x/sdc/runs/trial-todo-1/store/IDEA-1/children/IDEA-1.direction",
+  "action": "roadmap.approve",
+  "capability": "owner.approve",
+  "subject": "roadmap",
+  "path": "aep/initiative/roadmap.md",
+  "revision": "t652c58ef05f60e1c",
+  "question": null,
+  "outcome": null,
+  "position": {
+    "admissible": [
+      "context.approve",
+      "context.change",
+      "context.check",
+      "roadmap.approve",
+      "roadmap.validate",
+      "roadmap.write",
+      "vision.approve"
+    ],
+    "approval_required": [],
+    "awaiting_person": [
+      "roadmap.approve"
+    ],
+    "case": "IDEA-1.direction",
+    "claims": {
+      "context.approved": {
+        "excluded_evidence": [
+          {
+            "evidence": "e0056-context.approve",
+            "reason": "revision_mismatch"
+          }
+        ],
+        "value": "true"
+      },
+      "context.valid": {
+        "excluded_evidence": [
+          {
+            "evidence": "e0004-context.check",
+            "reason": "revision_mismatch"
+          },
+          {
+            "evidence": "e0017-context.check",
+            "reason": "revision_mismatch"
+          },
+          {
+            "evidence": "e0024-context.check",
+            "reason": "revision_mismatch"
+          },
+          {
+            "evidence": "e0033-context.check",
+            "reason": "revision_mismatch"
+          },
+          {
+            "evidence": "e0040-context.check",
+            "reason": "revision_mismatch"
+          },
+          {
+            "evidence": "e0049-context.check",
+            "reason": "revision_mismatch"
+          },
+          {
+            "evidence": "e0068-context.check",
+            "reason": "revision_mismatch"
+          }
+        ],
+        "value": "true"
+      },
+      "roadmap.approved": {
+        "value": "unknown"
+      },
+      "roadmap.valid": {
+        "excluded_evidence": [
+          {
+            "evidence": "e0008-roadmap.validate",
+            "reason": "revision_mismatch"
+          }
+        ],
+        "value": "true"
+      },
+      "vision.approved": {
+        "value": "true"
+      }
+    },
+    "legitimate_outcomes": [],
+    "open_obligations": [
+      "roadmap.required"
+    ],
+    "state": "978881303fc9df1f829c7b6862c55ab566b967520b8d332426d393f979b16d8b",
+    "useful": []
+  },
+  "record_dir": "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve"
+}

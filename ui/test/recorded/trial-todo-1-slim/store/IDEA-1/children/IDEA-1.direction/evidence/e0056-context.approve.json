@@ -1,0 +1,10 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0056-context.approve",
+  "kind": "context_approval",
+  "observed_at": "2026-11-20T23:32:11Z",
+  "producer": "operator",
+  "result": "approved",
+  "subject": "context",
+  "subject_revision": "ta145d98b03da5394"
+}

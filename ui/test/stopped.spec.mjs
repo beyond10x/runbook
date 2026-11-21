@@ -11,7 +11,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {needRun} from './need-run.mjs';
+import {needRun, fixtureSource} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -32,7 +32,7 @@ test.afterAll(() => srv?.kill());
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   test.setTimeout(120000);
-  needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'stopped.spec.mjs (fixture source)');
+  needRun(fixtureSource('stopped'), 'stopped.spec.mjs (fixture source)', test);
   fs.rmSync(root, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
   fixture('person', 'person');

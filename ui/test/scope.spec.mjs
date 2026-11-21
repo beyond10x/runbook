@@ -11,6 +11,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {needDriver} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -34,6 +35,7 @@ test.use({baseURL: base});
 
 test.beforeAll(async () => {
   test.setTimeout(120000);
+  needDriver('scope.spec.mjs (test/scope-fixture.mjs)', test);
   for (const [d, v] of [[dOne, 'one'], [dTwo, 'two'], [dEdit, 'one']]) {
     const r = spawnSync('node', ['test/scope-fixture.mjs', d, v], {cwd: ui, encoding: 'utf8'});
     if (r.status !== 0) throw new Error(`scope-fixture ${v}: ${r.stderr}`);

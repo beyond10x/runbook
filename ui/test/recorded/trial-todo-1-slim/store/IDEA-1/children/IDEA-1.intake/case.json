@@ -1,0 +1,21 @@
+{
+  "artifacts": {
+    "dissection": {
+      "revision": "tb9dcaedb60926c30"
+    },
+    "idea": {
+      "revision": "td9fda9924178dca3"
+    },
+    "questions": {
+      "revision": "td05a064f047676ee"
+    },
+    "requirements": {
+      "revision": "t0c28adffbcee3479"
+    }
+  },
+  "format": "canon-case/1",
+  "id": "IDEA-1.intake",
+  "protocol": "sdc.intake",
+  "revision": "c5",
+  "termination": "passed"
+}

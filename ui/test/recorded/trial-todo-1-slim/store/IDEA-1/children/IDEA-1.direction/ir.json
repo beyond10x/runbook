@@ -1,0 +1,414 @@
+{
+  "actions": {
+    "context.approve": {
+      "description": "a person approves the current context revision",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "context_approval"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "context.valid",
+          "is": "true"
+        }
+      },
+      "requires": [
+        {
+          "capability": "owner.approve"
+        }
+      ]
+    },
+    "context.change": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "field": {
+            "enum": [
+              "audience",
+              "source_language",
+              "target_language",
+              "platform",
+              "kind",
+              "deployment",
+              "licence"
+            ],
+            "type": "string"
+          },
+          "value": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ],
+        "type": "object"
+      },
+      "description": "change one context assumption; moves the context to a new revision",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "context.check": {
+      "description": "check the context",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "context_defaults"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "context.default": {
+      "description": "fill every context field from the requirements list or its default, each recorded as an assumption; moves the context to a new revision; not once the current context revision is approved (a person changes an approved context with context.change)",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "any": [
+          {
+            "claim": {
+              "id": "context.approved",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "context.approved",
+              "is": "unknown"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "roadmap.approve": {
+      "description": "a person approves the current roadmap revision",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "roadmap_approval"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.valid",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "vision.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": [
+        {
+          "capability": "owner.approve"
+        }
+      ]
+    },
+    "roadmap.validate": {
+      "description": "run aep plan artifact validate",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "roadmap_validation"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "roadmap.write": {
+      "description": "write the roadmap naming its epics; moves the roadmap to a new revision; not once the current roadmap revision is approved",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "all": [
+          {
+            "any": [
+              {
+                "claim": {
+                  "id": "roadmap.approved",
+                  "is": "false"
+                }
+              },
+              {
+                "claim": {
+                  "id": "roadmap.approved",
+                  "is": "unknown"
+                }
+              }
+            ]
+          },
+          {
+            "claim": {
+              "id": "vision.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "vision.approve": {
+      "description": "a person approves the current vision revision",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "vision_approval"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "context.approved",
+          "is": "true"
+        }
+      },
+      "requires": [
+        {
+          "capability": "owner.approve"
+        }
+      ]
+    },
+    "vision.write": {
+      "description": "write the vision with `aep plan artifact new vision`; moves the vision to a new revision; not once the current vision revision is approved",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "all": [
+          {
+            "any": [
+              {
+                "claim": {
+                  "id": "vision.approved",
+                  "is": "false"
+                }
+              },
+              {
+                "claim": {
+                  "id": "vision.approved",
+                  "is": "unknown"
+                }
+              }
+            ]
+          },
+          {
+            "claim": {
+              "id": "context.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    }
+  },
+  "artifacts": {
+    "context": {
+      "description": "context.yaml: audience, source and target language, platform and operating systems, kind of thing (service, multi-tenant application, CLI, library), deployment and licence, each with its status default, accepted or changed"
+    },
+    "requirements": {
+      "description": "the requirements list from sdc.intake"
+    },
+    "roadmap": {
+      "description": "the roadmap, the outermost planning structure, naming the epics; AEP 0.80.0 has no roadmap kind, so it is an AEP initiative"
+    },
+    "vision": {
+      "description": "the vision document, an AEP vision artifact"
+    }
+  },
+  "claims": {
+    "context.approved": {
+      "description": "the current context revision is approved",
+      "true_when": {
+        "evidence": {
+          "kind": "context_approval",
+          "result": "approved",
+          "subject": "context"
+        }
+      }
+    },
+    "context.valid": {
+      "description": "the current context is valid, derived from the current requirements list",
+      "true_when": {
+        "evidence": {
+          "kind": "context_defaults",
+          "result": "valid",
+          "subject": "context"
+        }
+      }
+    },
+    "roadmap.approved": {
+      "description": "the current roadmap revision is approved, against the current vision revision",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "roadmap.valid": {
+      "description": "the current roadmap validates in the planning store",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_validation",
+          "result": "valid",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "vision.approved": {
+      "description": "the current vision revision is approved",
+      "true_when": {
+        "evidence": {
+          "kind": "vision_approval",
+          "result": "approved",
+          "subject": "vision"
+        }
+      }
+    }
+  },
+  "evidence_kinds": {
+    "context_approval": {
+      "description": "a person's approval of a context revision; its result is approved"
+    },
+    "context_defaults": {
+      "description": "the context check: schema-valid, every field present and recorded as an assumption with its status; its result is valid or invalid"
+    },
+    "roadmap_approval": {
+      "description": "a person's approval of a roadmap revision; its result is approved"
+    },
+    "roadmap_validation": {
+      "description": "the result of `aep plan artifact validate` over the store holding the vision and the roadmap, valid or invalid"
+    },
+    "vision_approval": {
+      "description": "a person's approval of a vision revision; its result is approved"
+    }
+  },
+  "format": "canon-ir/1",
+  "invalidation": {
+    "requirements.revised": {
+      "description": "a context check observed against an earlier requirements list no longer applies",
+      "invalidates": [
+        "context.valid"
+      ],
+      "upstream": "requirements"
+    },
+    "vision.revised": {
+      "description": "a roadmap approval given against an earlier vision revision no longer applies",
+      "invalidates": [
+        "roadmap.approved"
+      ],
+      "upstream": "vision"
+    }
+  },
+  "obligations": {
+    "context.required": {
+      "description": "the context is valid and approved",
+      "discharged_when": {
+        "all": [
+          {
+            "claim": {
+              "id": "context.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "context.valid",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "roadmap.required": {
+      "description": "the roadmap is valid and approved",
+      "discharged_when": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.valid",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "vision.required": {
+      "description": "the vision is approved",
+      "discharged_when": {
+        "claim": {
+          "id": "vision.approved",
+          "is": "true"
+        }
+      }
+    }
+  },
+  "outcomes": {
+    "passed": {
+      "description": "the context, the vision and the roadmap are valid and approved",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "context.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "context.valid",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.valid",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "vision.approved",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "protocol": {
+    "description": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every project context default (audience, source and target language, platform and operating systems, kind of thing, deployment and licence) is recorded as an assumption and checked; the context, the vision and the roadmap are each approved by a person. An approval is a record bound to the revision it approved, produced only by an action that needs the authority owner.approve. A revised requirements list invalidates the context check; a revised vision invalidates the roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or specifications happens before that.",
+    "id": "sdc.direction",
+    "revision": 3
+  }
+}
