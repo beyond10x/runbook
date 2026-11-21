@@ -29,6 +29,9 @@
 #   story-spent     change.implement raises a new finding on every run: `writer_spent`
 #   story-late-person the spent writer's last finding needs a person: `awaiting_person`, then a
 #                   fresh allowance
+#   spec-duplicate  spec.author raises the same finding twice: the repeat is not added
+#   spec-own-default spec.author (apply path) raises a new agent finding on every LLM call: the
+#                   amendment records its default, no LLM re-derivation, no writer_spent
 # and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
@@ -240,6 +243,32 @@ if (( code == 0 )) && jq -se '([.[] | select(.event == "awaiting_person")] | len
   echo "story-late-person: checks pass (person stop on the late finding, then a fresh allowance)"
 else
   echo "story-late-person: FAILED (cycle exit $code, or writer_spent instead of the person stop)"
+fi
+# spec-duplicate: runs/trial-3-haiku-2 (f10-f13 = f6-f9, f15 = f14). spec.author raises a finding,
+# then raises it again with no key (fixtures/finding-spec-duplicate.yaml). Passes when the cycle ends
+# operating with one finding of that text and spec.author run twice (the repeat added nothing).
+spec=IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl
+cycle spec-duplicate SDC_STUB_FINDINGS="$fx/finding-spec-duplicate.yaml"
+code=$?
+if (( code == 0 )) && [[ $(yq '[.findings[] | select(.says | test("cancelled invoice"))] | length' "$s/store-spec-duplicate/IDEA-1/work/findings.yaml") == 1 ]] &&
+   jq -se '[.[] | select(.event == "action_finished" and .action == "spec.author")] | length == 2' "$s/store-spec-duplicate/$spec" >/dev/null; then
+  echo "spec-duplicate: checks pass (the repeated finding not added; spec.author 2 runs)"
+else
+  echo "spec-duplicate: FAILED (cycle exit $code, or the repeated finding was added again)"
+fi
+# spec-own-default: runs/trial-3-haiku-2's stop. spec.author goes through llm-node.sh's apply path
+# (fixture adapter) and raises a new agent finding on every LLM call (fixtures/finding-spec-rounds.yaml).
+# Passes when the cycle ends operating, no writer_spent, spec.author run twice with one LLM call:
+# the amendment only records the default its tree follows, so it is not re-derived by the LLM.
+cycle spec-own-default SDC_STUB_FINDINGS="$fx/finding-spec-rounds.yaml" SDC_LLM_NODES=spec.author \
+  SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh"
+code=$?
+if (( code == 0 )) && jq -se '([.[] | select(.event == "writer_spent")] | length) == 0
+     and ([.[] | select(.event == "action_finished" and .action == "spec.author")] | length) == 2' "$s/store-spec-own-default/$spec" >/dev/null &&
+   [[ $(jq -s '[.[] | select(.action == "spec.author")] | length' "$s/store-spec-own-default/IDEA-1/work/.sdc/llm/calls.jsonl") == 1 ]]; then
+  echo "spec-own-default: checks pass (the writer's own default re-derived without an LLM call; spec.author 2 runs, 1 call)"
+else
+  echo "spec-own-default: FAILED (cycle exit $code, or writer_spent, or spec.author re-derived by the LLM)"
 fi
 
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the

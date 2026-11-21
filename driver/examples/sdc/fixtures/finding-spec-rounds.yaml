@@ -1,0 +1,32 @@
+node: spec.author
+rounds:
+  - - type: missing_decision
+      cites: [r1]
+      says: r1 does not say how an invoice number is formatted
+      options: [the year and a running number, a running number only]
+      default: the year and a running number
+      scope_changing: false
+  - - type: missing_decision
+      cites: [r1]
+      says: r1 does not say whether the running number restarts each year
+      options: [it restarts each year, it never restarts]
+      default: it restarts each year
+      scope_changing: false
+  - - type: missing_decision
+      cites: [r1]
+      says: r1 does not say whether a number is taken when the draft is created or when it is issued
+      options: [when it is issued, when the draft is created]
+      default: when it is issued
+      scope_changing: false
+  - - type: missing_decision
+      cites: [r1]
+      says: r1 does not say whether a number may have leading zeros
+      options: [no leading zeros, six digits with leading zeros]
+      default: no leading zeros
+      scope_changing: false
+  - - type: missing_decision
+      cites: [r1]
+      says: r1 does not say whether a cancelled invoice keeps its number
+      options: [it keeps its number, its number is freed]
+      default: it keeps its number
+      scope_changing: false

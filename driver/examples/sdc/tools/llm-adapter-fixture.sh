@@ -2,8 +2,8 @@
 # LLM adapter for tests, no LLM (contract: llm-adapter-metaharness.sh). It writes the node's stub
 # output into the call's out/, so llm-node.sh applies it exactly as it applies a real reply: the
 # apply step (for example questions.answer's refusal to take a changed scope-changing question)
-# runs, which the stub adapter skips. Only for nodes whose stub is `stub-file <fixture> <artifact>`;
-# use it with SDC_LLM_NODES naming those nodes. SDC_STUB_FIXTURES applies as for the stub.
+# runs, which the stub adapter skips. Only for nodes whose stub is `stub-file <fixture> <artifact>`
+# or `stub-tree <fixture dir> <tree>` (spec.author); use it with SDC_LLM_NODES naming those nodes. SDC_STUB_FIXTURES applies as for the stub.
 # SDC_FIXTURE_STUB (JSON {node: [fixture, artifact]}) gives a node such a stub when its binding's
 # stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json).
 #
@@ -43,9 +43,9 @@ cfg=${SDC_LLM_NODE:-'{}'}
 mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
 o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
 [[ -n $o ]] && mapfile -t a < <(jq -r '"stub-file", .[]' <<< "$o")
-[[ ${a[0]:-} == stub-file && -n ${a[2]:-} ]] ||
-  { echo "llm-adapter-fixture: node $node has no stub-file stub" >&2; exit 64; }
+[[ ${a[0]:-} == stub-file || ${a[0]:-} == stub-tree ]] && [[ -n ${a[2]:-} ]] ||
+  { echo "llm-adapter-fixture: node $node has no stub-file or stub-tree stub" >&2; exit 64; }
 mkdir -p "$cwd/out"
-(cd "$cwd" && "$here/sdc-tool.sh" stub-file "${a[1]}" "out/${a[2]}") || exit 1
+(cd "$cwd" && "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" "out/${a[2]}") || exit 1
 jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
   num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
