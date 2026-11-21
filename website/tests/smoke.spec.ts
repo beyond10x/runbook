@@ -101,6 +101,26 @@ async function checkLlm(page: Page): Promise<void> {
   const timeline = page.locator('.sdc-tl');
   const pending = page.getByText('Timeline pending');
   expect((await timeline.count()) > 0 || (await pending.count()) > 0).toBe(true);
+  await expect(page.getByText('Runs pending')).toHaveCount(0);
+  const lede = page.locator('#result');
+  await expect(lede).toContainText('about 12 and 5 times cheaper');
+  await expect(lede).toContainText('about 8 and 9 times faster');
+  await expect(lede).toContainText('smaller product');
+  await expect(lede).toContainText('contradicted');
+  await expect(page.locator('.sdc-compare .sdc-tl')).toHaveCount(3);
+  const medians = page.locator('#free-medians');
+  for (const s of ['0.470 [0.414, 0.478] (n=3)', '5.503 [', '2.549 [', '413,432 [', '3,260,861 [', '3,046,058 [', '164.4 [', '1,247 [', '1,489 [', '13 [13, 13] (n=3)']) {
+    await expect(medians).toContainText(s);
+  }
+  await expect(page.locator('#free-verdict tbody tr')).toHaveCount(4);
+  await expect(page.locator('#free-verdict tbody td strong')).toHaveText(['contradicted', 'contradicted', 'contradicted', 'contradicted']);
+  await expect(page.locator('#free-sizes')).toContainText('1,263.5');
+  await expect(page.locator('#free-sizes tbody tr')).toHaveCount(11);
+  await expect(page.locator('#free-conformance')).toContainText('spec scenarios proven passed: 6 of 8 (lower bound)');
+  await expect(page.locator('#free-conformance')).toContainText('spec scenarios proven passed: 16 of 17 (lower bound)');
+  await expect(page.locator('#free-records')).toContainText('5 in 3 of 3 runs');
+  await expect(page.locator('.sdc-confounds li')).toHaveCount(9);
+  await expect(page.locator('#quality')).toContainText('Quality evaluation: pending.');
 }
 
 test('every internal link resolves', async ({page, request, baseURL}) => {

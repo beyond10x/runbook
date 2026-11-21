@@ -53,6 +53,16 @@ The crates are `publish = false`; releases are source releases at bare-version t
   through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
 - The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in
   `sdc-run-metrics`; a conformance column, line and per-run figure in the progress ledger.
+- Site, Evaluation: the chart "Spec scenarios proven passed (lower bound)" per release and setting
+  (median, min to max, n; a run without an observation is "not observed", never 0), the
+  observer's line and the failed count with failures for a precondition the specification does not
+  model split out per run, and three cited sentences on what is checked, why it is a lower bound and
+  what it costs.
+- Site, "The LLM is not the runtime": the comparison of record `free-agent-0.1.0` drawn from the
+  committed record, run summaries, timelines, `sizes.json` and conformance summaries: the result in
+  the first paragraph, the timelines on one time axis and cost scale, medians, the hypothesis and
+  its verdict per pair, product sizes, conformance of both sides, what the SDC run records that the
+  free run does not, what was held equal and the confounds; quality evaluation pending.
 
 ## [0.1.3] - 2026-11-21
 

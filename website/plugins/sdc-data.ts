@@ -4,8 +4,10 @@
  * Inputs, all committed and all written by programs: `website/data/protocols/*.json`
  * (`sdc-protocol-site write`), `docs/progress.json` and `docs/img/progress.svg`
  * (`sdc-experiment progress`), `experiments/*.yaml`, `experiments/releases.yaml` and
- * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`) and
- * `driver/examples/sdc/tools/node-classes.json`. Nothing under `runs/` is read.
+ * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`), the committed run summaries
+ * `experiments/<id>/runs/*.json`, `experiments/<id>/conformance/*.json` and
+ * `experiments/<id>/sizes.json`, and `driver/examples/sdc/tools/node-classes.json`. Nothing
+ * under the repository's `runs/` is read.
  * `SDC_SITE_FIXTURES=<dir>` replaces the repository's progress ledger, experiments and timelines
  * with the files in that directory, for the fixture build the tests use.
  */
@@ -23,6 +25,9 @@ export interface SdcContent {
   releasesTable: any;
   nodeClasses: any;
   timelines: any[];
+  runSummaries: any[];
+  conformance: any[];
+  sizes: any[];
   fixtures: boolean;
 }
 
@@ -68,9 +73,67 @@ function experimentSummary(doc: any): any {
     pass_rule: doc.pass_rule ?? null,
     decision_rule: doc.decision_rule ?? null,
     hypothesis: doc.hypothesis ?? null,
+    expectation: doc.expectation ?? null,
+    variable: doc.variable ?? null,
+    baseline: Array.isArray(doc.baseline) ? doc.baseline : doc.baseline ? [doc.baseline] : [],
+    treatment: doc.treatment ?? null,
+    known_confounds: (doc.known_confounds ?? []).map((c: any) => ({key: c.key, note: c.note})),
+    input_sha256: (doc.inputs ?? []).map((i: any) => i.sha256 ?? null),
     primary: doc.primary ?? null,
     verdict: doc.result?.verdict ?? null,
     why: doc.result?.why ?? null,
+    comparisons: (doc.result?.comparisons ?? []).map((c: any) => ({
+      metric: c.metric,
+      baseline: c.baseline,
+      treatment: c.treatment,
+      direction: c.direction,
+      verdict: c.verdict,
+      why: c.why,
+      p_one_sided: c.p_one_sided ?? null,
+      baseline_values: c.baseline_values ? {median: c.baseline_values.median, min: c.baseline_values.min, max: c.baseline_values.max, n: c.baseline_values.n} : null,
+      treatment_values: c.treatment_values ? {median: c.treatment_values.median, min: c.treatment_values.min, max: c.treatment_values.max, n: c.treatment_values.n} : null,
+    })),
+    variant_primaries: (doc.result?.variants ?? []).map((v: any) => ({
+      id: v.id,
+      primaries: Object.fromEntries(Object.entries(v.primaries ?? {}).map(([k, s]: [string, any]) => [k, {median: s.median, min: s.min, max: s.max, n: s.n}])),
+    })),
+  };
+}
+
+/** The fields of a committed run summary the comparison shows (`sdc.run-metrics/1`, `sdc.free-agent-metrics/1`). */
+function runSummary(doc: any): any {
+  const m = doc.metrics ?? {};
+  const edges: any[] = Array.isArray(doc.edges) ? doc.edges : [];
+  const nodes: any[] = Array.isArray(doc.nodes) ? doc.nodes : [];
+  const sentBack = (from: string) => edges.filter((e) => e.from === from).reduce((a, e) => a + (e.count ?? 0), 0);
+  const review = nodes.filter((n) => typeof n.node === 'string' && n.node.endsWith('/change.review'));
+  return {
+    run: doc.run,
+    format: doc.format,
+    wall_s: m.wall_s ?? null,
+    api_requests: m.api_requests ?? null,
+    decider_calls: m.decider_calls ?? null,
+    rework_takes: m.rework_takes ?? null,
+    rework_cost_usd: m.rework_cost_usd ?? null,
+    reviews: Array.isArray(doc.nodes) ? review.reduce((a, n) => a + (n.real_takes ?? 0), 0) : null,
+    review_rejections: Array.isArray(doc.edges) ? sentBack('change.review:rejected') : null,
+    merge_rejections: Array.isArray(doc.edges) ? sentBack('merge.approve:rejected') : null,
+  };
+}
+
+/** A conformance summary (`sdc.conformance-summary/1`) without its per-table detail. */
+function conformanceSummary(doc: any): any {
+  return {
+    run: doc.run,
+    measured: doc.measured ?? false,
+    n: doc.n ?? null,
+    k: doc.k ?? null,
+    f: doc.f ?? null,
+    p: doc.p ?? null,
+    u: doc.u ?? null,
+    tables_counted: doc.tables_counted ?? null,
+    tables_written: doc.tables_written ?? null,
+    summary: doc.summary ?? null,
   };
 }
 
@@ -94,6 +157,9 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
       const expDir = path.join(ledgerRoot, 'experiments');
       const experiments: any[] = [];
       const timelines: any[] = [];
+      const runSummaries: any[] = [];
+      const conformance: any[] = [];
+      const sizes: any[] = [];
       let releasesTable: any = null;
       for (const name of await list(expDir)) {
         const file = path.join(expDir, name);
@@ -101,16 +167,30 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
           releasesTable = yaml.load(await fs.readFile(file, 'utf8'));
         } else if (name.endsWith('.yaml')) {
           experiments.push(experimentSummary(yaml.load(await fs.readFile(file, 'utf8'))));
-        } else if (await exists(path.join(file, 'timelines'))) {
+        } else {
           for (const t of await list(path.join(file, 'timelines'))) {
             if (!t.endsWith('.json')) continue;
             const doc = await readJson(path.join(file, 'timelines', t));
             if (doc?.format === 'sdc.run-timeline/1') timelines.push({experiment: name, file: `experiments/${name}/timelines/${t}`, doc});
           }
+          for (const r of await list(path.join(file, 'runs'))) {
+            if (!r.endsWith('.json')) continue;
+            const doc = await readJson(path.join(file, 'runs', r));
+            if (doc?.format === 'sdc.run-metrics/1' || doc?.format === 'sdc.free-agent-metrics/1') runSummaries.push({experiment: name, ...runSummary(doc)});
+          }
+          for (const c of await list(path.join(file, 'conformance'))) {
+            if (!c.endsWith('.json')) continue;
+            const doc = await readJson(path.join(file, 'conformance', c));
+            if (doc?.format === 'sdc.conformance-summary/1') conformance.push({experiment: name, ...conformanceSummary(doc)});
+          }
+          if (await exists(path.join(file, 'sizes.json'))) {
+            const doc = await readJson(path.join(file, 'sizes.json'));
+            if (doc?.format === 'sdc.product-sizes/1') for (const p of doc.products ?? []) sizes.push({experiment: name, ...p});
+          }
         }
       }
       const nodeClasses = await readJson(path.join(repo, 'driver', 'examples', 'sdc', 'tools', 'node-classes.json'));
-      return {index, protocols, progress, progressSvg, experiments, releasesTable, nodeClasses, timelines, fixtures: Boolean(fixtureDir)};
+      return {index, protocols, progress, progressSvg, experiments, releasesTable, nodeClasses, timelines, runSummaries, conformance, sizes, fixtures: Boolean(fixtureDir)};
     },
     async contentLoaded({content, actions}) {
       const {createData, addRoute, setGlobalData} = actions;
@@ -154,7 +234,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         path: route('/llm-is-not-the-runtime'),
         exact: true,
         component: '@site/src/routes/LlmIsNotTheRuntime.tsx',
-        modules: {timelines: await data('sdc-timelines.json', {timelines: content.timelines, experiments: content.experiments, fixtures: content.fixtures}), index: indexData},
+        modules: {timelines: await data('sdc-timelines.json', {timelines: content.timelines, experiments: content.experiments, runs: content.runSummaries, conformance: content.conformance, sizes: content.sizes, fixtures: content.fixtures}), index: indexData},
       });
     },
   };

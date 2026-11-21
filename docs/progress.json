@@ -3735,6 +3735,18 @@
       "sha256": "4d6d7452134f37d395bb84bac2f693e7bb2f796396643532477f1aa6c5a902c9"
     },
     {
+      "path": "experiments/free-agent-0.1.0/conformance/free-agent-0.1.0-sonnet-1.json",
+      "sha256": "40588b7f1452b90b4198b147d7c461df591c92f258b866eb5ce1c7c0bf63716f"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/conformance/free-agent-0.1.0-sonnet-2.json",
+      "sha256": "b9a81816d2045a5d51c8d1ac64f04b8c42cd4117623f47c1689b0c07596c50b1"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/conformance/free-agent-0.1.0-sonnet-3.json",
+      "sha256": "65471e5d5ed6fb9e9d2eb54258250073f7fc80f03e5c5953f0e2bd5295e35346"
+    },
+    {
       "path": "experiments/release-0.1.2.yaml",
       "sha256": "c2e7d4c9fa21149f9f8420106371cd8370440feee0d6771d952cd362ccd365ac"
     },
