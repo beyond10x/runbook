@@ -527,6 +527,17 @@ from is not touched, and no cycle outcome changes. The run is closed, not stoppe
 (`sdc.run-status/1`: state, outcome `withheld`, `delivered` false, note), no stop record. Under
 A0–A4 the reject stops the run as before and nothing is recorded in the release case.
 
+**The close in autopilot** (D140, 2026-11-21, `runs/trial-3-haiku-5`: the decider rejected the
+close of a terminable root, and the run stopped `rejected_without_rework_path`). Under A5 the
+close of the root is not a decision: `delivered` (`operating` before D150) requires the claims
+`roadmap.approved`, `epics.opened` and `children.passed` (`protocol/sdc.protocol.yaml`, `outcomes`), which the
+approvals upstream already settled, and binds no capability. `run-trial.sh` closes a terminable
+root through any outcome that requires no decision as `rule:autopilot` (`sdc-drive close
+--principal rule:autopilot`, recorded on the `terminated` event and as `closed_by` in
+`status.json`) and asks the decider nothing. Children were never asked: the driver closes a
+terminable child with one legitimate outcome in its round. Below A5 the decider still closes
+`delivered` (class close, `autonomy-levels.md` § 3.2).
+
 **The cycle ends delivered** (ruling D150, 2026-11-21, `docs/protocol-notes.md`, "The cycle ends
 delivered"). The epic's last child is `sdc.delivery` (build, acceptance run), with no approval;
 the root's success outcome is `delivered`, and `status.json` says `delivered: true` for it. No
@@ -535,7 +546,8 @@ action of the cycle publishes or observes. A standalone `sdc.release` is opened 
 (same content, same `spec` and `release` revisions), and opens the case with `sdc-drive init
 --source <tree>`, which writes `source.json` (`sdc.source/1`, the tree's absolute path) so that
 `delivery.read`'s `copy` binding finds the tree's `sdc.delivery` acceptance record. The release
-closes `passed` without a decider (no outcome there requires a decision), `withheld` as above.
+closes `passed` without a decider (no outcome there requires a decision; under A5 as
+`rule:autopilot`), `withheld` as above (the withheld close names no principal).
 Runs recorded before D150 keep their records; their root ended `operating`, which the UI and the
 KPI tools read as any outcome string.
 

@@ -354,13 +354,14 @@ print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"
 # the tree ended otherwise, e.g. a withheld standalone release and the decider's first reason). A
 # root case already closed (a standalone release withheld) is not closed again.
 end_note=""
-finish() {
+finish() { # <outcome> [principal that closed it]
   if jq -e .termination "$root/case.json" > /dev/null; then last=$(jq -c '{terminated: .termination}' "$root/case.json") code=0
-  else d "$root" close --at "$(now)" --outcome "$1"; fi
-  echo "closed $(jq -r .id "$root/case.json"): $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)} (exit $code)"
+  elif [[ -n ${2:-} ]]; then d "$root" close --at "$(now)" --outcome "$1" --principal "$2"; else d "$root" close --at "$(now)" --outcome "$1"; fi
+  echo "closed $(jq -r .id "$root/case.json"): $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2} (exit $code)"
   [[ $code == 0 ]] || exit 4
-  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" '{format: "sdc.run-status/1", at: $at, state: "closed",
-    outcome: $o, delivered: ($o == "delivered"), note: (if $note == "" then null else $note end)}' > "$out/status.json"
+  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" --arg by "${2:-}" '{format: "sdc.run-status/1", at: $at, state: "closed",
+    outcome: $o, delivered: ($o == "delivered"), note: (if $note == "" then null else $note end),
+    closed_by: (if $by == "" then null else $by end)}' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
   d "$root" replay
@@ -748,10 +749,13 @@ for round in $(seq 1 40); do
       [[ $dry == yes && $decider == person ]] && finish "$outcome"
       # The close is a decision (class close, docs/autonomy-levels.md § 3.2) for `delivered`, and
       # where the outcome requires a decision; an end the protocol reaches by its checks alone
-      # (not_delivered, refused) is closed without one.
-      if [[ $decider != person && $outcome != delivered ]] &&
+      # (not_delivered, refused) is closed without one. Under A5 `delivered` is no decision either
+      # (D140): its claims (roadmap.approved, epics.opened, children.passed) are what the approvals
+      # upstream already settled, the outcome binds no capability, so rule:autopilot closes it.
+      if [[ $decider != person ]] &&
          ! jq -e --arg o "$outcome" 'any(.outcomes[$o].requires | .. | objects; has("decision"))' "$root/ir.json" > /dev/null 2>&1; then
-        finish "$outcome"
+        if [[ $autonomy == A5 ]]; then finish "$outcome" rule:autopilot; fi
+        [[ $outcome != delivered ]] && finish "$outcome"
       fi
       if [[ $decider != person ]]; then
         decide "$(jq -cn --arg c "$root" --arg o "$outcome" --argjson pos "$(jq -c .position <<< "$last")" \
