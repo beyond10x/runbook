@@ -53,9 +53,9 @@
 # change.review: no LLM yet), SDC_LLM_MODEL_OTHER (every other node), else SDC_LLM_MODEL for all
 # nodes, else each binding's `llm.model` (claude-haiku-5-5); the decider SDC_LLM_MODEL_DECIDER,
 # else SDC_DECIDER_MODEL. run-settings.jsonl `models` records the effective model per class.
-# Reasoning effort per class, the same way: SDC_LLM_EFFORT_<CLASS> (WRITER, IMPLEMENT, REVIEW, DECIDER,
-# OTHER), else SDC_LLM_EFFORT, else the class default in tools/node-classes.json (high; the decider and
-# the requester xhigh), always passed to the adapter; low, medium, high, xhigh or max, anything else
+# Reasoning effort per class, the same way: SDC_LLM_EFFORT_<CLASS> (WRITER, IMPLEMENT, REVIEW, DECIDER, UNSTICK,
+# OTHER), else SDC_LLM_EFFORT, else the class default in tools/node-classes.json (high; the decider, the
+# requester and run.unstick xhigh), always passed to the adapter; low, medium, high, xhigh or max, anything else
 # exits 64. run-settings.jsonl `efforts` records it per class and for the requester (source `default`).
 #
 # Decider (SDC_DECIDER): who takes the decisions that wait on a person: the pending approvals, the
@@ -564,8 +564,8 @@ unstick() {
     "$unstick_bin" prompt --stop "$rec/stop.json" --moves "$rec/moves.json" --decision "$rec/decision.json" --record "$rec" \
       --attempt "$attempt" --invalid "$invalid" || return 1
     rm -f "$rec/cwd/out/unstick.json" "$rec/structured-output.json"
-    jq -n --argjson attempt "$attempt" --arg model "$unstick_model" --arg rec "$rec" --arg case "$ucase" --arg case_dir "$udir" '{
-      model: $model, prompt_file: ($rec + "/prompt.md"), cwd: ($rec + "/cwd"), record_dir: $rec, node: "run.unstick",
+    jq -n --argjson attempt "$attempt" --arg model "$unstick_model" --arg effort "$(jq -r .unstick.effort <<< "$efforts")" --arg rec "$rec" --arg case "$ucase" --arg case_dir "$udir" '{
+      model: $model, effort: $effort, prompt_file: ($rec + "/prompt.md"), cwd: ($rec + "/cwd"), record_dir: $rec, node: "run.unstick",
       attempt: $attempt, json_schema: ($rec + "/reply-schema.json"), case: $case, case_dir: $case_dir,
       operations: ["dir.list", "file.read", "file.write"],
       max_turns: ($ENV.SDC_UNSTICK_MAX_TURNS // "12" | tonumber),

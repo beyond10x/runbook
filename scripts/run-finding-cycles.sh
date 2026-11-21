@@ -1187,6 +1187,8 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
      jq -se 'length == 1 and (.[0] | .unstick == true and .unstuck == true and .move == "end:dropped" and .cause == "rework_spent"
        and .principal == "agent:unstick" and .defect_class == "decider_error" and (.diagnosis | length > 20) and .forced == false)' "$r/defects.jsonl" >/dev/null &&
      [[ -s $(ls -d "$r"/unstick/001-rework_spent)/cwd/in/stop.json ]] &&
+     jq -e '.effort == "xhigh"' "$r/unstick/001-rework_spent/request.json" >/dev/null &&
+     jq -se 'last.efforts.unstick == {effort: "xhigh", source: "default"}' "$r/run-settings.jsonl" >/dev/null &&
      jq -e '[.moves[].id] | index("end:dropped") and index("approve:merge.approve") and index("stop")' "$r/unstick/001-rework_spent/cwd/in/stop.json" >/dev/null &&
      "$kpis" "$r" --json | jq -e '.unstuck.value == 1 and .clean_run.value == false and .unstuck.diagnoses[0].move == "end:dropped"' >/dev/null; then
     echo "unstick-end: checks pass (rework_spent: run.unstick ended the story through dropped; closed not_delivered (unstuck 1))"
@@ -1730,7 +1732,7 @@ if (( e1 == 0 && e2 == 0 && e3 == 0 && e4 == 64 && e5 == 0 )) && hermetic &&
    eargv efforts-class spec.author high && eargv efforts-class idea.dissect medium &&
    grep -q "low, medium, high, xhigh, max" "$s/efforts-bad.txt" && [[ ! -e $s/runs/efforts-bad/run-settings.jsonl ]] &&
    jq -se 'last.efforts | [.writer, .implement, .review, .other] | all(.effort == "high" and .source == "default")' "$s/runs/efforts-default/run-settings.jsonl" >/dev/null &&
-   jq -se 'last.efforts | [.decider, .requester] | all(.effort == "xhigh" and .source == "default")' "$s/runs/efforts-default/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.efforts | [.decider, .requester, .unstick] | all(.effort == "xhigh" and .source == "default")' "$s/runs/efforts-default/run-settings.jsonl" >/dev/null &&
    jq -se 'last.efforts | .writer.effort == "high" and .implement.effort == "xhigh" and .review.effort == "medium"
      and .decider.effort == "max" and .other.effort == "medium" and .writer.source == "SDC_LLM_EFFORT_WRITER"
      and .requester.effort == "max" and .requester.source == "SDC_LLM_EFFORT_DECIDER"' "$s/runs/efforts-class/run-settings.jsonl" >/dev/null &&

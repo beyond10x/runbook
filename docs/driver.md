@@ -376,9 +376,9 @@ not reach it). Each call line names its `model` and `class`; `run-settings.jsonl
 `models` per class (`model`, `source`, and per node).
 
 **Reasoning effort per node** (2026-11-21). The same way as the model: `SDC_LLM_EFFORT_WRITER`,
-`_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_OTHER`, else `SDC_LLM_EFFORT` for every node and the decider
+`_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_UNSTICK`, `_OTHER`, else `SDC_LLM_EFFORT` for every node and the decider
 (per class wins), else the class default in `tools/node-classes.json` (`default_efforts`): `high`
-for writer, implement, review and other, `xhigh` for the decider and the requester (which takes
+for writer, implement, review and other, `xhigh` for the decider, `run.unstick` (class `unstick`) and the requester (which takes
 `SDC_LLM_EFFORT_REQUESTER`, then `_DECIDER`, first). A level is always passed, so a run is the same
 on any host and no adapter falls back to its own default (the `high` the `metaharness` adapter
 used, the `xhigh` the decider's `claude -p` took from this host's `~/.claude/settings.json`).
