@@ -131,7 +131,7 @@ async function checkEvaluation(page: Page): Promise<void> {
   await expect(page.locator('#cost-split')).toContainText('release 0.1.2');
   await expect(page.locator('#cost-split .sdc-split__row')).toHaveCount(3);
   await expect(page.locator('#cost-split tbody tr').filter({hasText: 'decider'})).toHaveCount(1);
-  const split = (await page.locator('#cost-split svg').getAttribute('aria-label')) ?? '';
+  const split = (await page.locator('#cost-split svg[role="img"]').getAttribute('aria-label')) ?? '';
   expect(split).toContain('Sonnet work, Opus decider, n 3: $4.66');
 
   const exp = page.locator('section[aria-labelledby="experiments"] tbody tr');

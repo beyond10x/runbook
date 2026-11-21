@@ -12,7 +12,7 @@ test('evaluation: three releases, a column only for a release with runs', async 
   await expect(page.locator('#runs-none')).toHaveText('No runs yet on: 0.1.1.');
   await expect(page.locator('#runs-0\\.1\\.1')).toHaveCount(0);
   await expect(page.locator('#metric-clean-passes .sdc-metric__k')).toHaveText(['0/3', '3/3', '3/3', '1/3', '3/3', '3/3']);
-  const cost = await page.locator('#metric-cost svg').getAttribute('aria-label');
+  const cost = await page.locator('#metric-cost svg[role="img"]').getAttribute('aria-label');
   expect(cost).not.toContain('0.1.1');
   expect(cost).toMatch(/0\.2\.0: All Haiku median \$[0-9.]+, min \$[0-9.]+, max \$[0-9.]+, n 3/);
   await expect(page.locator('#runs-0\\.2\\.0')).toBeAttached();
@@ -22,7 +22,7 @@ test('evaluation: three releases, a column only for a release with runs', async 
 
 test('evaluation: the columns are spread over the plot width', async ({page}) => {
   await page.goto('evaluation', {waitUntil: 'networkidle'});
-  const svg = page.locator('#metric-cost svg');
+  const svg = page.locator('#metric-cost svg[role="img"]');
   const width = Number((await svg.getAttribute('viewBox'))!.split(' ')[2]);
   const xs = (await page.locator('#metric-cost .sdc-metric__release').evaluateAll((els) => els.map((e) => Number(e.getAttribute('x')))));
   expect(xs[0]).toBeGreaterThan(width * 0.2);
