@@ -1603,7 +1603,7 @@ cycles:
     source: {lines: "1529-1558"}
 
   - id: decider-release-withheld
-    state: unlisted
+    state: expected
     when: "protocol/compiled/sdc-epic.ir.json has outcome not_released"
     protocol: sdc
     driver: trial

@@ -13,8 +13,8 @@ declarative format must be able to say.
 
 One entry per cycle, in the order of the script:
 
-- `id`, `state` (`expected`, `pending`, or `unlisted`: a cycle the script runs outside both arrays,
-  `decider-release-withheld`), `when` (the condition when the script adds the id conditionally),
+- `id`, `state` (`expected`, `pending`, or `unlisted`: a cycle the script runs outside both arrays;
+  none now), `when` (the condition when the script adds the id conditionally),
   `protocol` (root protocol id), `driver` (`full-cycle`, `trial`, `redrive`, `other`).
 - `stub`: fixture files and directories, the llm or decider adapter, scripted replies.
 - `switches`: every environment variable the cycle sets. `arguments`: run arguments such as

@@ -1559,6 +1559,7 @@ else
 fi
 targs=(--autopilot)
 if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1; then
+  expected+=(decider-release-withheld)
   trial decider-release-withheld SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
   code=$?
   r=$s/runs/decider-release-withheld
