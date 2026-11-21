@@ -153,6 +153,7 @@ function render() {
   } else $('#graph').innerHTML = '<p class="muted pad">no ir.json in this case</p>';
   patch($('#timeline'), renderTimeline(c, at, last));
   document.documentElement.classList.toggle('rp-open', S.panel);
+  if (PHONE.matches) { $('#panel').setAttribute('tabindex', '0'); $('#panel').setAttribute('role', 'region'); $('#panel').setAttribute('aria-label', 'Panel'); }
   document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
   if (!S.panel) return;
   const scope = S.scopeCase ? c.id : null;
@@ -224,6 +225,8 @@ function renderDecisions() {
   document.body.classList.toggle('drawer-open', S.drawer);
   if (S.drawer) {
     patch($('#drawer'), renderDrawer(S));
+    // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
+    if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
     const pl = $('#proclog');
     if (pl) pl.scrollTop = pl.scrollHeight;
   }
