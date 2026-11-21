@@ -1,0 +1,105 @@
+format: sdc.experiment/1
+id: implement-one-request
+kind: prospective
+status: planned
+created: 2026-11-21
+title: change.implement as one structured request per call against the session, mixed setting
+purpose: Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the mixed setting; the strong setting is the sibling record implement-one-request-strong on the same tree.
+hypothesis: With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the mixed setting.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: ea5f0e07fa33ac7204b109e44a41f609e7b1f13f
+target:
+  kind: node
+  name: story/change.implement
+variable: implement_mode
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-haiku-5-5
+  decider.kind: model
+  decider.model: claude-haiku-5-5
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  review.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+launch:
+  max_parallel: 3
+  stagger_s: 60
+  principal: agent:sdc-experiment
+procedure:
+- Not launched with this commit. tree_commit is the change's commit on impr/implement-one-request; launch only once that tree is merged or the launch builds it.
+- sdc-experiment run implement-one-request, in the background; then sdc-experiment report implement-one-request when every run has ended, and commit the record, its report and summaries, and INDEX.md.
+- The strong setting is implement-one-request-strong, the same tree and variants; both are launched together and reported side by side.
+variants:
+- id: session
+  settings:
+    implement_mode: session
+  runs: []
+- id: request
+  settings:
+    implement_mode: request
+  runs: []
+baseline: session
+treatment: request
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+  metric: node.story/change.implement.cost_usd
+  direction: decrease
+  min_effect: 0.25
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+- metric: run.clean
+  worse: decrease
+  max_worsening: 0
+- metric: run.cost_usd
+  worse: increase
+  max_worsening_ratio: 0
+- metric: node.story/change.implement.first_pass_yield
+  worse: decrease
+  max_worsening: 0.25
+- metric: 'edge.story: tests.run:failed -> change.implement.count'
+  worse: increase
+  max_worsening: 1
+- metric: 'edge.story: change.review:rejected -> change.implement.count'
+  worse: increase
+  max_worsening: 1
+decision_rule:
+  rule: complete-separation
+  text: 'held when session and request each have 3 ended runs that took change.implement, every request run''s change.implement cost lies below every session run''s (exact one-sided p = 1/20 = 0.05) and the medians differ by at least 0.25 USD; contradicted when the ranges separate the other way; inconclusive otherwise. Run cost (run.cost_usd) is reported beside it and must not rise (guard). Adopt request as the default only when held here and in implement-one-request-strong, and every guard holds in both: delivered and clean passes not fewer, first-pass yield of change.implement not lower by more than 0.25, tests.run failures and change.review rejections sent back to change.implement not more by more than one per run. Every end counts; no run is repaired, reopened or forced.'
+registered_guards:
+- 'The product check: the specification scenarios proven passed per run, once the conformance observation is on the tree; it is not on this tree, so until then the passing tests and the requirements covered in work/impl (docs/improving.md, Target).'
+registered_risks:
+- key: blind-first-build
+  note: 'Without reading and testing as it goes, the node''s first build may fail more often, and the reruns could eat the saving. Break-even from the baseline-0.1.0 mixed medians: change.implement 1.51 USD per run over 4 calls (9 first takes and 3 reruns in three runs), 0.38 USD per call; the analyst''s saving 0.53 USD per run puts a request call at about 0.25 USD. The saving is gone at 2.2 extra change.implement calls per run when the extra rerun comes from a failed tests.run (a program), or at 1.3 when it comes from a review rejection (one more review call, 0.15 USD). The baseline has 1.0 rerun per mixed run.'
+- key: whole-file-output
+  note: The reply carries the complete text of every file it writes; on a rework the session edited lines. Output was 0.82 USD of 1.51 per mixed run; a rework reply that rewrites large files raises it (inferred). The record measures it through the node cost; requests per call and continuations are in llm-calls.jsonl.
+- key: input-cap
+  note: At most 64,000 bytes of impl/ text are inlined per request (sdc-reply implement.rs INLINE_CAP), the rest listed by path and size; a later story whose tree passes the cap cannot change a listed file it was not shown, other than by rewriting it whole.
+cost_estimate: 'Session 3 x 2.55 = 7.7 USD (baseline-0.1.0 mixed median; maximum 3.88); request 3 x about 2.0 = 6.1 USD (2.55 less the estimated 0.53); about 14 USD, at most about 23 USD at the baseline maxima. Expected after the change: change.implement 1.51 to about 1.0 USD per run, run cost 2.55 to about 2.0 USD (inferred). About 1 hour at 3 runs at a time.'
+known_confounds:
+- key: adapter
+  note: in request mode change.implement runs on claude-cli (sdc-reply adapters, SDC_IMPLEMENT_ADAPTER unset, adapter metaharness), in session mode on metaharness; the harness prefix each pays differs (claude -p with --tools "" offers no tool definitions).
+- key: canon
+  note: every run uses the canon binary of the canon checkout at run time, which no record pins.
+facts:
+- 'experiments/baseline-0.1.0/inputs.md: change.implement is 1.71 USD per mixed run, 0.81 of it conversation growth; the median session takes 23 turns with 45 Reads per run.'
+- 'experiments/baseline-0.1.0/costs.md: mixed run 2.55 USD, implement class 1.51 USD; the free agent 0.47 USD in 13 to 14 requests.'
+- The scripted cycles implement-request-build, -tests-rework, -review-rework, -invalid-retry, -invalid-named and -path-escape pass on the tree (fixture adapter, no model).
+links:
+- 'experiments/implement-one-request-strong.yaml: the same comparison in the strong setting'
+- 'docs/driver.md: Implement as one request'
+adoption:
+  decision: pending
+  commit: null

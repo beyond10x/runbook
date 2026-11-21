@@ -3013,6 +3013,86 @@
       "why": "too few ended runs with the metric: low 0 and high 0, the rule needs 3 each"
     },
     {
+      "hypothesis": "With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the mixed setting.",
+      "id": "implement-one-request",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "adapter",
+          "note": "in request mode change.implement runs on claude-cli (sdc-reply adapters, SDC_IMPLEMENT_ADAPTER unset, adapter metaharness), in session mode on metaharness; the harness prefix each pays differs (claude -p with --tools \"\" offers no tool definitions)."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time, which no record pins."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "node.story/change.implement.cost_usd",
+        "min_effect": 0.25
+      },
+      "purpose": "Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the mixed setting; the strong setting is the sibling record implement-one-request-strong on the same tree.",
+      "tree": "ea5f0e0",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "session",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "request",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: session 0 and request 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": "With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the strong setting.",
+      "id": "implement-one-request-strong",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "adapter",
+          "note": "in request mode change.implement runs on claude-cli (sdc-reply adapters, SDC_IMPLEMENT_ADAPTER unset, adapter metaharness), in session mode on metaharness; the harness prefix each pays differs (claude -p with --tools \"\" offers no tool definitions)."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time, which no record pins."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "node.story/change.implement.cost_usd",
+        "min_effect": 0.25
+      },
+      "purpose": "Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the strong setting; the mixed setting is the sibling record implement-one-request on the same tree.",
+      "tree": "ea5f0e0",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "session",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "request",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: session 0 and request 0, the rule needs 3 each"
+    },
+    {
       "hypothesis": null,
       "id": "release-0.1.2",
       "kind": "prospective",
@@ -3344,6 +3424,14 @@
     {
       "path": "experiments/effort-implement-levels.yaml",
       "sha256": "e8c25a7980bd05b201f24e34b14dc200c04e79520ba4bd55a525efa3ba808a80"
+    },
+    {
+      "path": "experiments/implement-one-request-strong.yaml",
+      "sha256": "844a6b9ceff8be70c1d135c6aaef5d6be9ac79602ae278df82c95c4ee807ed53"
+    },
+    {
+      "path": "experiments/implement-one-request.yaml",
+      "sha256": "cfdfaeb973b38cac4a18b6ffa941889a5004877dacf0eff20bc42e21bed98e89"
     },
     {
       "path": "experiments/release-0.1.2.yaml",
