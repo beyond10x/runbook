@@ -3,6 +3,9 @@
 //
 //   node test/fixture-run.mjs <scenario> <target-run-dir> [speed]
 //
+// What it writes is canned: its run-settings.jsonl and llm-calls.jsonl lines name fixture-run.mjs as
+// the adapter, so the server lists the run as a stub run (server.mjs programOf).
+//
 // Copies the recorded store (default ../runs/trial-todo-1, else test/recorded/trial-todo-1-slim for the
 // scenarios person, stopped, human, decider and autopilot; SDC_UI_FIXTURE_SOURCE to change) into
 // <target-run-dir>/store, cuts each case's events.jsonl back to the scenario's point, then plays
@@ -168,7 +171,7 @@ if (sc.principal) {
 }
 if (scenario === 'autopilot') {
   const sec = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, 'Z');
-  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(Date.now() - 600000), leg: 'started', autonomy: 'A5', stand_in: true, decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'final', max_decider_calls: 20}, adapter: 'metaharness', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
+  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(Date.now() - 600000), leg: 'started', autonomy: 'A5', stand_in: true, decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'final', max_decider_calls: 20}, adapter: 'fixture-run.mjs', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
 }
 // cases that did not move during the scenario get a past mtime, so nothing reads as just written
 const past = new Date(Date.now() - 9 * 60000);
@@ -178,7 +181,7 @@ if (scenario === 'stopped') {
   const waitAt = Date.now() - 30 * 60000, stopAt = Date.now() - 11 * 60000;
   fs.utimesSync(path.join(caseDirs.get('IDEA-1.direction'), 'events.jsonl'), new Date(waitAt), new Date(waitAt));
   const sec = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, 'Z');
-  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(waitAt - 20 * 60000), leg: 'started', decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'stop', max_decider_calls: 20}, adapter: 'metaharness', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
+  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(waitAt - 20 * 60000), leg: 'started', decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'stop', max_decider_calls: 20}, adapter: 'fixture-run.mjs', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
   fs.writeFileSync(path.join(part, 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: sec(stopAt), by: 'operator', reason: 'stopped to look at the context before the decider takes it', verdict_at_stop: 'awaiting_person', case: 'IDEA-1.direction'}, null, 2) + '\n');
 }
 
@@ -268,7 +271,7 @@ async function playRecord(kind, name, {caseId, action, onTool} = {}) {
   fs.writeFileSync(path.join(to, 'response.json'), rel(fs.readFileSync(path.join(from, 'response.json'), 'utf8')));
   status('finished', {finished_at: iso(Date.now()), exit: 0});
   const rec =calls.find((c) => c.record?.endsWith(`/${kind}/${name}`));
-  if (rec) fs.appendFileSync(path.join(target, 'llm-calls.jsonl'), rel(JSON.stringify(rec)) + '\n');
+  if (rec) fs.appendFileSync(path.join(target, 'llm-calls.jsonl'), rel(JSON.stringify({...rec, adapter: 'fixture-run.mjs'})) + '\n');
 }
 const writes = (caseId, action) => async (e, record) => {
   if (!/^(Write|Edit)$/.test(e.name) || !e.input?.file_path) return;

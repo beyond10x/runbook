@@ -29,11 +29,35 @@ async function until(what, ok, ms = 60000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-// slot: 'loop' (ports 7510 on) or 'phone' (the phone contract, 60 ports higher, its own fixture dir),
-// so the two spec files can run at the same viewport at once
+// A server this loop started, once it answers (as a clock-mode server unless clock is false): its
+// address comes from its own first line (it takes a free port, so two loops on one machine never
+// share one, and a request never reaches another loop's server). If it exits or does not answer
+// within a minute, the error says which, with its stderr. srv: spawned with stdout and stderr piped.
+export async function serverUp(srv, viewport, {clock = true, ms = 60000} = {}) {
+  let out = '', err = '', exit = null;
+  srv.stdout.on('data', (d) => { out += d; });
+  srv.stderr.on('data', (d) => { err += d; });
+  srv.on('exit', (code, signal) => { exit = signal || `exit code ${code}`; });
+  srv.stderrTail = () => err.trim().split('\n').slice(-20).join('\n') || '(empty)';
+  const fail = (state) => { srv.kill(); return new Error(`ux server for ${viewport} is not up: ${state}\n--- its stderr ---\n${srv.stderrTail()}`); };
+  let base = null;
+  for (const end = Date.now() + ms; Date.now() < end; await wait(25)) {
+    if (exit) throw fail(`it ended (${exit}) before answering`);
+    base ||= /sdc-ui on (http:\/\/[^/\s]+)\//.exec(out)?.[1] ?? null;
+    if (!base) continue;
+    const health = await fetch(base + (clock ? '/api/clock' : '/api/sources')).then((r) => r.json(), () => null);
+    if (health && (!clock || health.clock === true)) return base;
+    if (health) throw fail(`${base} answers but not in clock mode (SDC_CLOCK_DIR not seen)`);
+  }
+  throw fail(base ? `${base} named, but no answer within ${ms / 1000} s` : `no listening line within ${ms / 1000} s; stdout: ${out.trim() || '(empty)'}`);
+}
+
+// slot: 'loop' or 'phone' (the phone contract, with a fixture dir of its own), so the two spec files
+// can run at the same viewport at once. A free port by default; SDC_UI_UX_PORT pins them (its value
+// plus the viewport's index, 60 more for the phone slot).
 export async function start(viewport, slot = 'loop') {
   const k = all.findIndex((v) => v.name === viewport);
-  const port = Number(process.env.SDC_UI_UX_PORT || 7510) + k + (slot === 'phone' ? 60 : 0);
+  const port = process.env.SDC_UI_UX_PORT ? Number(process.env.SDC_UI_UX_PORT) + k + (slot === 'phone' ? 60 : 0) : 0;
   const dir = path.join(OUT, 'fixtures', slot === 'phone' ? `phone-${viewport}` : viewport);
   fs.rmSync(dir, {recursive: true, force: true});
   fs.mkdirSync(dir, {recursive: true});
@@ -57,13 +81,15 @@ export async function start(viewport, slot = 'loop') {
     if (s.fixture === 'person' || s.fixture === 'changes') await new Promise((r) => spawn('node', ['test/fixture-run.mjs', s.fixture, path.join(dir, s.name)], {cwd: UI, stdio: 'ignore', env}).on('exit', r));
   }
   const person = scenarios.find((s) => s.write);
-  const srv = spawn('node', ['server.mjs', '--port', String(port), '--principal', 'ux-bot', '--write-only', path.join(dir, person.name, 'store'), ...stores], {cwd: UI, stdio: 'ignore', env});
+  const srv = spawn('node', ['server.mjs', '--port', String(port), '--principal', 'ux-bot', '--write-only', path.join(dir, person.name, 'store'), ...stores], {cwd: UI, stdio: ['ignore', 'pipe', 'pipe'], env});
   procs.push(srv);
-  const base = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 80; i++) { try { await fetch(base + '/api/sources'); break; } catch { await wait(100); } }
+  const base = await serverUp(srv, viewport);
 
   // the server has rescanned what the player reported last
-  const rescanned = () => until('the server to rescan', async () => (await (await fetch(base + '/api/clock')).json()).at === readGate(gate, 'at'));
+  const rescanned = () => until('the server to rescan', async () => {
+    if (srv.exitCode != null || srv.signalCode != null) throw new Error(`ux server for ${viewport} ended (${srv.signalCode || `exit code ${srv.exitCode}`}) during the run\n--- its stderr ---\n${srv.stderrTail()}`);
+    return (await (await fetch(base + '/api/clock')).json()).at === readGate(gate, 'at');
+  });
   let player = null, playFrom = 0;
   const play = async (s) => {
     if (!s.fixture || s.fixture === 'person' || s.fixture === 'changes') return null;

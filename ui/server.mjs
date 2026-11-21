@@ -106,7 +106,21 @@ function settingsOf(runDir) {
   const last = rows.at(-1);
   return last ? {...last, legs: rows.length, file: 'run-settings.jsonl'} : null;
 }
-const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s))});
+// Whether a model did the run's work (real) or a stub, fixture or dry adapter wrote canned content
+// (stub): the last run-settings.jsonl line names the adapter; a run without settings is real when one
+// llm-calls.jsonl line is a model call that is not dry. Stub runs are never listed beside real runs
+// without a label.
+const STUB_ADAPTER = /stub|fixture|dry|fake|canned/i;
+function programOf(runDir) {
+  const set = settingsOf(runDir);
+  if (set) return STUB_ADAPTER.test(String(set.adapter ?? '')) ? {kind: 'stub', why: `run-settings.jsonl: adapter ${set.adapter}`} : {kind: 'real', why: `run-settings.jsonl: adapter ${set.adapter ?? 'not named'}`};
+  const calls = (readText(path.join(runDir, 'llm-calls.jsonl')) || '').split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } });
+  const paid = calls.find((c) => c && typeof c.model === 'string' && c.model && c.dry !== true && !STUB_ADAPTER.test(String(c.adapter ?? '')));
+  return paid ? {kind: 'real', why: `llm-calls.jsonl: ${paid.model} via ${paid.adapter ?? 'an adapter'}`} : {kind: 'stub', why: 'no run-settings.jsonl, and no model call in llm-calls.jsonl'};
+}
+// when the run last wrote: its directory, its settings, calls and log, its store
+const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }));
+const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path)});
 
 // When each event was written. The events' own `at` is the instant the caller passed to the whole
 // `sdc-drive run` (every step of one run shares it), so the wall clock of a step comes from here:
@@ -660,7 +674,9 @@ tick();
 if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
 else setInterval(tick, 700);
 setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 15000);
+// --port 0 takes a free port; the line below names the one taken (the ux loop reads it)
+server.on('error', (e) => { console.error(`sdc-ui: cannot listen on ${host}:${port}: ${e.code || e.message}`); process.exit(1); });
 server.listen(port, host, () => {
-  console.log(`sdc-ui on http://${host}:${port}/`);
+  console.log(`sdc-ui on http://${host}:${server.address().port}/`);
   for (const s of sources) console.log(`  source ${s.index}: ${s.path}${fs.existsSync(s.path) ? '' : ' (waiting for it to appear)'}`);
 });
