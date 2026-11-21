@@ -26,7 +26,7 @@ actions:
   - action: plan.decompose
     executor:
       kind: program
-      argv: [tools/llm-node.sh, plan.decompose, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-decompose]
+      argv: [tools/llm-node.sh, plan.decompose, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/plan.decompose.md","inputs":"instructions/plan.decompose.inputs.md"}', --stub, stub-decompose]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:

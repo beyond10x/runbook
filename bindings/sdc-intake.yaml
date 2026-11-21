@@ -21,7 +21,7 @@ actions:
   - action: idea.dissect
     executor:
       kind: program
-      argv: [tools/llm-node.sh, idea.dissect, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, dissection.yaml, dissection.yaml]
+      argv: [tools/llm-node.sh, idea.dissect, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/idea.dissect.md"}', --stub, stub-file, dissection.yaml, dissection.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -40,7 +40,7 @@ actions:
   - action: questions.write
     executor:
       kind: program
-      argv: [tools/llm-node.sh, questions.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, questions-open.yaml, questions.yaml]
+      argv: [tools/llm-node.sh, questions.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.write.md"}', --stub, stub-file, questions-open.yaml, questions.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -48,7 +48,7 @@ actions:
   - action: questions.answer
     executor:
       kind: program
-      argv: [tools/llm-node.sh, questions.answer, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, questions-answered.yaml, questions.yaml]
+      argv: [tools/llm-node.sh, questions.answer, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.answer.md"}', --stub, stub-file, questions-answered.yaml, questions.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
   - action: questions.check
@@ -71,7 +71,7 @@ actions:
   - action: requirements.normalise
     executor:
       kind: program
-      argv: [tools/llm-node.sh, requirements.normalise, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-file, requirements.yaml, requirements.yaml]
+      argv: [tools/llm-node.sh, requirements.normalise, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/requirements.normalise.md"}', --stub, stub-file, requirements.yaml, requirements.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:

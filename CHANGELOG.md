@@ -9,6 +9,7 @@ bare-version tags (`docs/releasing.md`).
 
 ### Added
 
+- Loom mode of `llm-node.sh` takes the `llm` object's `instructions` as `--instructions <json>` (`bindings/*.yaml` names it for the 14 agent nodes), so the instruction files load under Loom as under the driver. `bugfix_prompt` and `questions_check` name the tools at `bindings/tools/`.
 - `cycles/suite.yaml` (`runbook.cycles/1`, `story:cycles-suite-as-data`): the finding cycles of
   `scripts/run-finding-cycles.sh` as data, what cannot be said declaratively listed per cycle as
   `unexpressed`, and `task check:cycles-suite` holding it equal to the script's cycle ids and states

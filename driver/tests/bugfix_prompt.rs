@@ -243,7 +243,7 @@ fn run_node(case: &str, node: &str, setup: impl Fn(&Path, &Path), env: &[(&str, 
         let _ = fs::remove_file(work.join("questions.yaml"));
     }
     let mut c = Command::new("bash");
-    c.arg(manifest().join("examples/sdc/tools/llm-node.sh")).arg(node).current_dir(&work);
+    c.arg(manifest().join("../bindings/tools/llm-node.sh")).arg(node).current_dir(&work);
     sdc_env_cleared(&mut c);
     let o = c
         .env("SDC_LLM_ADAPTER", "true")
@@ -322,7 +322,7 @@ fn run_decider(case: &str, kind: &str, request: serde_json::Value, env: &[(&str,
     req["record_dir"] = serde_json::json!(rec);
     fs::write(dir.join("request.json"), req.to_string()).unwrap();
     let mut c = Command::new("bash");
-    c.arg(manifest().join("examples/sdc/tools/decider.sh")).arg(kind).arg(dir.join("request.json")).current_dir(&dir);
+    c.arg(manifest().join("../bindings/tools/decider.sh")).arg(kind).arg(dir.join("request.json")).current_dir(&dir);
     sdc_env_cleared(&mut c);
     let o = c.env("SDC_DECIDER_ADAPTER", "true").env("SDC_REPLY", &reply).envs(env.iter().copied()).output().unwrap();
     fs::read_to_string(rec.join("prompt.md")).unwrap_or_else(|_| {
@@ -399,7 +399,7 @@ fn every_agent_binding_names_its_instruction_file_and_the_tools_hold_no_instruct
     }
     assert!(lines.len() > 100, "instructions/ holds too little text: {} long lines", lines.len());
     for tool in ["llm-node.sh", "decider.sh"] {
-        let sh = fs::read_to_string(manifest().join("examples/sdc/tools").join(tool)).unwrap();
+        let sh = fs::read_to_string(manifest().join("../bindings/tools").join(tool)).unwrap();
         for l in &lines {
             assert!(!sh.contains(l.as_str()), "{tool} still holds instruction text: {l}");
         }

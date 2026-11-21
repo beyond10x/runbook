@@ -34,6 +34,7 @@
 # standard input, and on a retry LOOM_RETRY_FEEDBACK naming a loom.retry-feedback/1 document. The
 # variables above come from those and from argv entries the binding states after the action:
 #   --model <m> --max-turns <n> --max-budget-usd <usd> --operations <op,op,...>  the `llm` object
+#   --instructions <json>  the `llm` object's instructions: {"task": "<file>", ...}
 #   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
 #   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
 #   --stub <argv>...  the `llm` object's stub; last, it takes the rest of the argv
@@ -61,18 +62,19 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   while (( $# )); do
     case $1 in
       --stub) shift; with_stub=yes; break ;;
-      --model|--max-turns|--max-budget-usd|--operations|--adapter|--principal|--stub-fixtures|--stub-counter)
+      --model|--max-turns|--max-budget-usd|--operations|--instructions|--adapter|--principal|--stub-fixtures|--stub-counter)
         (( $# >= 2 )) || { echo "llm-node: $1 takes a value" >&2; exit 64; }
         opt[$1]=$2; shift 2 ;;
       *) echo "llm-node: unknown argument $1" >&2; exit 64 ;;
     esac
   done
   SDC_LLM_NODE=$(jq -cn --arg model "${opt[--model]:-}" --arg mt "${opt[--max-turns]:-}" --arg usd "${opt[--max-budget-usd]:-}" \
-    --arg ops "${opt[--operations]:-}" --arg stub "$with_stub" '{}
+    --arg ops "${opt[--operations]:-}" --arg ins "${opt[--instructions]:-}" --arg stub "$with_stub" '{}
     + (if $model == "" then {} else {model: $model} end)
     + (if $mt == "" then {} else {max_turns: ($mt | tonumber)} end)
     + (if $usd == "" then {} else {max_budget_usd: ($usd | tonumber)} end)
     + (if $ops == "" then {} else {operations: ($ops | split(","))} end)
+    + (if $ins == "" then {} else {instructions: ($ins | fromjson)} end)
     + (if $stub == "" then {} else {stub: $ARGS.positional} end)' --args "$@") ||
     { echo "llm-node: $node could not run: --max-turns and --max-budget-usd take numbers" >&2; exit 64; }
   SDC_REPLY=$(sibling sdc-reply)

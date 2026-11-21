@@ -51,7 +51,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
 | `handoff_when` | pending | 17 |
-| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `tools/llm-node.sh` since step 2: `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
+| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `tools/llm-node.sh` since step 2: `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
 | `timeout_s` | `timeout_seconds` (see "Timeouts") | 25 |
@@ -157,7 +157,7 @@ Each tool has two modes. With `LOOM_CASE` unset it runs as before, for `sdc-driv
 input, the case id from `LOOM_CASE`, retry feedback from the `loom.retry-feedback/1` document that
 `LOOM_RETRY_FEEDBACK` names, the start directory at the workspace root, and everything the driver
 gave in a variable as an argv entry of the binding (`sdc-tool.sh <sub> ... --action <id>`;
-`llm-node.sh <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] --stub
+`llm-node.sh <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] [--instructions <json>] --stub
 <argv>`). The tools map these inputs onto the driver's variables and export them, so the programs
 they start (`sdc-findings`, `sdc-bugfix`, `sdc-reply`, the adapters) run unchanged. The driver
 crate's programs come from `PATH`, else from `driver/target/debug/` of this checkout, found from
@@ -188,7 +188,7 @@ under Loom"); a pending read takes the driver's default under Loom. Lines are of
 | Line | Reads | Under Loom | Status |
 |---|---|---|---|
 | 53-57, 477 | `SDC_ARGS` (`spec.author`'s `domain`) | standard input, one JSON object (empty input is `{}`) | done |
-| 70-77, 124, 802 | `SDC_LLM_NODE` (the binding's `llm` object) | `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--stub <argv>` | done, until the `agent` executor (`story:bound-agent-node`) |
+| 70-77, 124, 802 | `SDC_LLM_NODE` (the binding's `llm` object) | `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>` | done, until the `agent` executor (`story:bound-agent-node`) |
 | 78, 130, 151, 168, 556 | `SDC_REPLY` | `sdc-reply` on `PATH`, else relative to the tool | done |
 | 84-97, 121, 249-250, 709-715 | `SDC_FEEDBACK` (failing records and their logs) | `LOOM_RETRY_FEEDBACK`, written in the driver's form to `work/.sdc/loom-feedback/<digest>/`: each record's kind, result, subject and log tail | done; the records name no action and no exit, so `in/feedback.md` reads `(from ?, exit ?)` |
 | 99-101 | `SDC_NOT_CALLED` (the not-called file) | the reason on standard output, exit 0, as in the driver | pending: G1 (`exits.not_called`) |

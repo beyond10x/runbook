@@ -346,7 +346,8 @@ mod loom_mode {
         a
     }
 
-    const NODE: &str = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"stub":["stub-file","questions-open.yaml","questions.yaml"]}"#;
+    const WRITE_INSTRUCTIONS: &str = r#"{"task":"instructions/questions.write.md"}"#;
+    const NODE: &str = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"instructions":{"task":"instructions/questions.write.md"},"stub":["stub-file","questions-open.yaml","questions.yaml"]}"#;
 
     #[test]
     fn a_check_subcommand_runs_the_same_under_loom() {
@@ -394,9 +395,9 @@ mod loom_mode {
         let r = roots("stub");
         put(&r, "idea.yaml", &fs::read_to_string(fx().join("idea.yaml")).unwrap());
         let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
-        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"stub":["stub-file","dissection.yaml","dissection.yaml"]}"#;
+        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"instructions":{"task":"instructions/idea.dissect.md"},"stub":["stub-file","dissection.yaml","dissection.yaml"]}"#;
         let d = driver(&r.0, "llm-node.sh", &["idea.dissect"], &[("SDC_ACTION", "idea.dissect"), ("SDC_CASE", "IDEA-1.intake"), ("SDC_ARGS", "{}"), ("SDC_LLM_NODE", cfg)]);
-        let l = loom(&r.1, "llm-node.sh", &node_argv("idea.dissect", &stub, &[]), "IDEA-1.intake", "{}", None);
+        let l = loom(&r.1, "llm-node.sh", &node_argv("idea.dissect", &stub, &["--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]), "IDEA-1.intake", "{}", None);
         assert_eq!(d.code, Some(0), "{d:#?}");
         assert!(d.files.contains_key("dissection.yaml"), "{d:#?}");
         same("idea.dissect on the stub", &d, &l);
@@ -406,10 +407,10 @@ mod loom_mode {
         for f in ["idea.yaml", "requirements.yaml", "context.yaml"] {
             put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
         }
-        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":40,"max_budget_usd":2,"stub":["stub-tree","billing-spec","spec"]}"#;
+        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":40,"max_budget_usd":2,"instructions":{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"},"stub":["stub-tree","billing-spec","spec"]}"#;
         let args = r#"{"domain":"billing"}"#;
         let d = driver(&r.0, "llm-node.sh", &["spec.author"], &[("SDC_ACTION", "spec.author"), ("SDC_CASE", "IDEA-1.billing.spec"), ("SDC_ARGS", args), ("SDC_LLM_NODE", cfg), ("SDC_LLM_ADAPTER", "dry")]);
-        let argv = ["spec.author", "--model", "claude-haiku-5-5", "--max-turns", "40", "--max-budget-usd", "2", "--adapter", "dry", "--stub", "stub-tree", "billing-spec", "spec"];
+        let argv = ["spec.author", "--model", "claude-haiku-5-5", "--max-turns", "40", "--max-budget-usd", "2", "--instructions", r#"{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}"#, "--adapter", "dry", "--stub", "stub-tree", "billing-spec", "spec"];
         let l = loom(&r.1, "llm-node.sh", &argv, "IDEA-1.billing.spec", args, None);
         assert_eq!(d.code, Some(0), "{d:#?}");
         let prompt = &d.files[".sdc/llm/001-spec.author/prompt.md"];
@@ -430,7 +431,7 @@ mod loom_mode {
         let env = [("SDC_ACTION", "questions.write"), ("SDC_CASE", "IDEA-1.intake"), ("SDC_ARGS", "{}"), ("SDC_LLM_NODE", NODE), ("SDC_LLM_ADAPTER", "dry")];
         // No feedback: questions.yaml exists, so questions.write is not called.
         let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
-        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry"]), "IDEA-1.intake", "{}", None);
+        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", None);
         assert!(d.code == Some(0) && d.stdout.contains("questions.write not called"), "{d:#?}");
         same("questions.write, no feedback", &d, &l);
         // The check's record that sent it back, with its log: the driver's SDC_FEEDBACK, and Loom's
@@ -452,7 +453,7 @@ mod loom_mode {
         let mut env = env.to_vec();
         env.push(("SDC_FEEDBACK", &fb_path));
         let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
-        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry"]), "IDEA-1.intake", "{}", Some(&doc_path));
+        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
         assert_eq!(d.code, Some(0), "{d:#?}");
         let feedback = &d.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
         assert!(feedback.contains("## questions_shape = invalid (from ?, exit ?)") && feedback.contains("q1: lacks excerpt"), "{feedback}");
