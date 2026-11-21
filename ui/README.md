@@ -298,5 +298,7 @@ Decision D-007 labels stub runs. The played scenarios are fixture runs, so the m
 shows the label "stub run: canned content, not a model's work" in the header and in a row of its
 own above the Now band. reading_load rises by the label's 8 words in every played scenario, and two's
 layout shift falls a little because the band starts one row lower. These values were taken under
-D-007: the UI changed on purpose. On a phone the label row and the header mark stay in view and
-uncut (`test/stub-runs.spec.mjs` at 390x844).
+D-007: the UI changed on purpose. On a phone (390x844) the header mark and the label row are whole
+and in the first screen (`test/stub-runs.spec.mjs`); there reading_load rises by 8 as well, and in two
+the screen-only user scrolls once more (screen_only.looks 4 to 6, glance_cost.p95 1 to 3) because
+the second card moves below the first screen.

@@ -3,13 +3,16 @@
 // programs, then told apart by what they say about their program: two real (run-settings.jsonl adapter
 // metaharness; an older one with llm-calls.jsonl naming a model and no settings), two stub (adapter
 // llm-adapter-fixture.sh; dry llm-calls.jsonl lines only). Served by a server of its own over the
-// runs directory on port 7534 (SDC_UI_STUB_PORT). Screenshot: screenshots/<project>-stub-run.png.
+// runs directory on port 7534 (SDC_UI_STUB_PORT); the last test runs at the gating phone size 390x844.
+// Screenshots: screenshots/<project>-stub-run.png, screenshots/390x844-stub-run.png.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {phone} from '../ux/adapter.mjs';
+import {horizontalOverflow, smallTargets, smallText} from '../ux/core/phone.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -82,3 +85,39 @@ test('the run list: real runs first, newest first, stub runs in a group below, e
   await page.screenshot({path: path.join(ui, 'screenshots', `${info.project.name}-stub-run.png`)});
 });
 
+test('on a phone (390x844) the stub labels are in view and not cut, and the phone contract holds', async ({page}) => {
+  await page.setViewportSize({width: 390, height: 844});
+  await page.goto(`${base}/?source=${src('stub-new')}`);
+  const mark = page.locator('#runmark .rm-stub'), row = page.locator('#now .now-stub'), sel = page.locator('#source');
+  await expect(mark).toHaveText(NOTE);
+  await expect(row).toHaveText(NOTE);
+  // in the first screen, inside the screen's width, nothing cut by its own box or an ellipsis
+  for (const [what, el] of [['header label', mark], ['Now label', row]]) {
+    const f = await el.evaluate((e) => { const r = e.getBoundingClientRect(); return {left: r.left, right: r.right, top: r.top, bottom: r.bottom, sw: e.scrollWidth, cw: e.clientWidth, sh: e.scrollHeight, ch: e.clientHeight, px: parseFloat(getComputedStyle(e).fontSize)}; });
+    expect(f.left, what).toBeGreaterThanOrEqual(0);
+    expect(f.right, what).toBeLessThanOrEqual(390);
+    expect(f.top, what).toBeGreaterThanOrEqual(0);
+    expect(f.bottom, what).toBeLessThanOrEqual(844);
+    expect(f.sw, `${what}: cut sideways`).toBeLessThanOrEqual(f.cw + 1);
+    expect(f.sh, `${what}: cut below`).toBeLessThanOrEqual(f.ch + 1);
+    expect(f.px, `${what}: text size`).toBeGreaterThanOrEqual(phone.text.min);
+  }
+  // the store select shows the whole "name · stub", the stub group is in its list, and it is a 44 px target
+  const s = await sel.evaluate((e) => {
+    const cs = getComputedStyle(e), ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const r = e.getBoundingClientRect();
+    return {text: e.selectedOptions[0].textContent, need: ctx.measureText(e.selectedOptions[0].textContent).width, room: e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), w: r.width, h: r.height, right: r.right,
+      group: [...e.querySelectorAll('optgroup')].map((g) => g.label)};
+  });
+  expect(s.text).toBe('stub-new · stub');
+  expect(s.need, `"${s.text}" needs ${Math.ceil(s.need)} px, the select shows ${Math.floor(s.room)}`).toBeLessThanOrEqual(s.room);
+  expect(s.group).toEqual([HEAD]);
+  expect(Math.min(s.w, s.h)).toBeGreaterThanOrEqual(phone.target);
+  expect(s.right).toBeLessThanOrEqual(390);
+  // the phone layout contract on this page
+  expect(await horizontalOverflow(page)).toEqual({doc: 0, wide: []});
+  expect(await smallTargets(page, phone.targets, phone.target)).toEqual([]);
+  expect(await smallText(page, phone.text)).toEqual([]);
+  await page.screenshot({path: path.join(ui, 'screenshots', '390x844-stub-run.png')});
+});

@@ -1325,6 +1325,8 @@ tr.fail td b { color: #ff9a9e; }
   .kf-stop,
   .chip-r,
   .rm { font-size: 14px; }
+  .rm-stub { white-space: normal; }
+  .now-stub { font-size: 14px; margin-bottom: 0; white-space: normal; overflow: visible; }
 }
 @media (max-width: 900px) {
   .k-v { white-space: normal; }
