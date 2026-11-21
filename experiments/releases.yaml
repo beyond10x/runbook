@@ -300,6 +300,9 @@ entries:
   - commit: e1dd70a
     line: the conformance observation after close is off by default (SDC_CONFORMANCE=observe turns it on)
     effect: none
+  - commit: eb4c6e1
+    line: 'the blinded quality evaluation of the nine 0.1.0 products: medians strong 23, mixed 22, free agent 20 of 23'
+    effect: none
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
-  - The conformance figure is a lower bound judged against each run's own specification; the quality evaluation of the free agent's products is running and not in this release.
+  - The conformance figure is a lower bound judged against each run's own specification; the blinded quality evaluation has three products per side and makes no significance claim.

@@ -761,7 +761,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "59f4eef7feeda005a97f74c3d082783a34939fbab0ff8ba58e8a6a3712c950f1"
+      "sha256": "4ca85fffe5f5fc39efadaad000562b299b653fa71ddbedbf17b2869c327011f0"
     },
     {
       "path": "docs/check-output.txt",
@@ -785,7 +785,7 @@
     },
     {
       "path": "docs/releases/0.1.4.md",
-      "sha256": "df8361c09932a62dbaf1736eff09aa300a83abb72e8b95697bb834c5b5430e02"
+      "sha256": "fdc89da272c12cd35160d52a4650b18a67675ac2c7fd1fa7ca4be7800869fcf5"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

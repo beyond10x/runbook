@@ -10,8 +10,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
 ## [0.1.4] - 2026-11-21
 
 An observation, data and docs: the free-running agent comparison (its registered hypothesis
-contradicted), the conformance observation of a delivered product, and the cost target set from
-them. No rule of a protocol changed. The longer note is `docs/releases/0.1.4.md`.
+contradicted), the blinded quality evaluation of both sides' products, the conformance observation
+of a delivered product, and the cost target set from them. No rule of a protocol changed. The longer note is `docs/releases/0.1.4.md`.
 
 ### Added
 
@@ -78,7 +78,7 @@ them. No rule of a protocol changed. The longer note is `docs/releases/0.1.4.md`
   committed record, run summaries, timelines, `sizes.json` and conformance summaries: the result in
   the first paragraph, the timelines on one time axis and cost scale, medians, the hypothesis and
   its verdict per pair, product sizes, conformance of both sides, what the SDC run records that the
-  free run does not, what was held equal and the confounds; quality evaluation pending.
+  free run does not, what was held equal and the confounds; the quality result follows below.
 - Blinded quality evaluation of the nine 0.1.0 to-do products (`docs/quality-0.1.0.md`,
   `experiments/quality-0.1.0/`, harness `eval/quality/`): a 23-item rubric written from the idea
   text before any product was opened, scored in a real browser on blinded copies.
@@ -101,8 +101,8 @@ them. No rule of a protocol changed. The longer note is `docs/releases/0.1.4.md`
   model's reading, and only products with an HTTP JSON surface are observed (`docs/conformance.md`).
 - The conformance tests need the pinned ess installed (`sdc-conform ess-install`); CI does not run
   them.
-- A blind quality evaluation of the free agent's and the SDC's products is running and not in this
-  release.
+- The blinded quality evaluation covers one idea with three products per side; offline is emulated
+  and a browser test sees behaviour, not code quality (`docs/quality-0.1.0.md` § Limits).
 - No run has used the 0.1.2, 0.1.3 or 0.1.4 tree.
 
 ## [0.1.3] - 2026-11-21

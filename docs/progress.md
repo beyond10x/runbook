@@ -291,13 +291,14 @@ What changed:
 | `7c9e34b` | the 0.1.0 baseline analysed (losses, costs, inputs, models), the cost target, three records registered before their runs | no run metric affected |
 | `9195563` | the conformance observation of a delivered product (sdc-conform, ESS 0.97.0 pinned); the free-agent comparison, its hypothesis contradicted; the charts on the site | no run metric affected |
 | `e1dd70a` | the conformance observation after close is off by default (SDC_CONFORMANCE=observe turns it on) | no run metric affected |
+| `eb4c6e1` | the blinded quality evaluation of the nine 0.1.0 products: medians strong 23, mixed 22, free agent 20 of 23 | no run metric affected |
 
 Tested by: no experiment yet. No run used this tree, so there is no figure for it.
 
 Limits of this measurement:
 
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
-- The conformance figure is a lower bound judged against each run's own specification; the quality evaluation of the free agent's products is running and not in this release.
+- The conformance figure is a lower bound judged against each run's own specification; the blinded quality evaluation has three products per side and makes no significance claim.
 
 ## Experiments in no entry
 
