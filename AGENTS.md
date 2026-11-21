@@ -45,6 +45,8 @@
   (`aep plan artifact new|move|relate|body|validate|waves`). Never hand-edit an artifact file.
   Body scratch files go in `.engineering/drafts/` (git-ignored).
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
+  A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
+  same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the
