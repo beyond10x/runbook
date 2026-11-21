@@ -62,6 +62,7 @@
 #   rework-not-called, rework-pending-rejection, decider-later-obligation, replay-sibling,
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
+#   autopilot-close, autopilot-close-a3   runs/trial-3-haiku-5: the close in autopilot (D140)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -91,7 +92,7 @@ if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(dec
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
   expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
-expected+=(cite-dark-spot cite-fault-sent-back)
+expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -821,6 +822,38 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
 else
   echo "cite-fault-sent-back: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+# autopilot-close: runs/trial-3-haiku-5's stop (D140). Under autopilot the decider fixture
+# rejects `close` if asked. Passes when the run closes `operating` (exit 0, status.json
+# closed_by rule:autopilot), the root's terminated event names rule:autopilot, and no close
+# request exists in decider/ or decisions.jsonl (before: the decider was asked, rejected, and
+# the run stopped rejected_without_rework_path). autopilot-close-a3: the same reply at A3 is still
+# asked for the close and stops the run (exit 6), nothing closed.
+crej='{"decision": "reject", "answer": null, "reasons": ["fixture: the close is refused"], "cites": ["r1"], "best": null}'
+targs=(--autopilot)
+trial autopilot-close SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$crej" '{close: $j}')"
+code=$?
+r=$s/runs/autopilot-close
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   jq -e '.outcome == "operating" and .closed_by == "rule:autopilot"' "$r/status.json" >/dev/null &&
+   jq -se '[.[] | select(.event == "terminated")] | length == 1 and .[0].outcome == "operating" and .[0].principal == "rule:autopilot"' "$r/store/IDEA-1/events.jsonl" >/dev/null &&
+   [[ -z $(find "$r/decider" -mindepth 1 -maxdepth 1 -name '*-close' 2>/dev/null) ]] &&
+   ! jq -e 'select(.class == "close")' "$r/decisions.jsonl" >/dev/null 2>&1; then
+  echo "autopilot-close: checks pass (closed operating by rule:autopilot; the decider was not asked)"
+else
+  echo "autopilot-close: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
+targs=()
+trial autopilot-close-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$crej" '{close: $j}')"
+code=$?
+r=$s/runs/autopilot-close-a3
+if (( code == 6 )) && [[ ! -f $r/status.json ]] && [[ -n $(find "$r/decider" -mindepth 1 -maxdepth 1 -name '*-close' 2>/dev/null) ]] &&
+   jq -se 'any(.[]; .class == "close" and .decision == "reject" and .principal == "decider:haiku")' "$r/decisions.jsonl" >/dev/null &&
+   ! jq -e 'select(.event == "terminated")' "$r/store/IDEA-1/events.jsonl" >/dev/null 2>&1; then
+  echo "autopilot-close-a3: checks pass (A3: the decider is asked for the close, rejects, the run stops unclosed)"
+else
+  echo "autopilot-close-a3: FAILED (exit $code)"
+fi
+targs=(--autopilot)
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3
 # the decider's reject ends the run with rejected_without_rework_path (exit 6) and nothing is

@@ -251,7 +251,7 @@ Holders:
 | merge | story `change.merge`, `change.merge` | P | P+ | P | P | R∧D→P | R∧D* |
 | release | release `release.approve`, `release.approve` | P | P+ | P | P | P | D* |
 | operate: rollback | release `release.rollback`, `release.approve` (unbound today) | P | P+ | P | R | R | R: end |
-| operate: close | root close `operating` | P | P+ | P | P | D→P | D* |
+| operate: close | root close `operating` | P | P+ | P | P | D→P | R (D140: its claims are settled upstream; `rule:autopilot` closes) |
 | budget overrun | driver caps: `--max-llm-calls`, `SDC_MAX_DECIDER_CALLS`, USD | P | P | P | R, then P | R, then P | R: end |
 | limit hit | `--max-wall-seconds`, `--max-steps`, `timeout_s`, Substrate refusals | R, then P | R, then P | R, then P | R, then P | R, then P | R: end |
 | escalation | decider reply `escalate` or an invalid reply | — | — | P | P | P | D* |
