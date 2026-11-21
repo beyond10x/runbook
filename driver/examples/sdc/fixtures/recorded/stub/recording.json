@@ -392,7 +392,8 @@
         "in/impl/Taskfile.yml": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7",
         "in/impl/src/lib.rs": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b",
         "in/impl/tests/billing.rs": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714",
-        "in/review.md": "932c37fc659e0f5122256e3bfff4a8d34ad5e1657f233e5981cf0654f0e3a8e0",
+        "in/listing.json": "13ecf62afeb6bd2934e6020c613e2f7ca5c4abfeef1bbe893563e2d1830c601f",
+        "in/review.md": "a3260c1b1a1448abccffdc34b3868952d1eb4db4315d1584f30a469ef212883d",
         "in/scope.json": "31119e5c70f4a27865d1e9dc6c9f3940fc12c9855230c1ddf48ce359d5af5896",
         "in/uncovered.json": "fc945c2fc0ab1b16d0638cda4d04275975b2d05c4a330868f9601c5e53cf933a"
       },
@@ -402,7 +403,7 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/009/out",
-      "prompt": "4bee87099706d41c110a2935213e44c6a7699e47970a459f367be545db5e0a34",
+      "prompt": "5045958cdc8e0fd561305d18cb8be5e01f0cd02831b595453d777f7aa92c3209",
       "request": {
         "case": "IDEA-1.billing.invoices",
         "effort": "high",
@@ -744,7 +745,7 @@
           "source": "SDC_LLM_ADAPTER"
         }
       },
-      "at": "2026-11-21T17:58:19Z",
+      "at": "2026-11-21T19:00:47Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
       "decider": {
@@ -849,7 +850,7 @@
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "99390b9c6192",
+        "commit": "7734cfdc31bf",
         "dirty": true
       },
       "unstick": {
@@ -867,7 +868,7 @@
     "state": "closed"
   },
   "tree": {
-    "commit": "99390b9c6192",
+    "commit": "7734cfdc31bf",
     "dirty": true
   }
 }

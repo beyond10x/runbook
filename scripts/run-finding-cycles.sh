@@ -40,7 +40,8 @@
 #   review-reject-once change.review (fixture adapter) rejects once with a cited finding: the
 #                   implementer reworks with in/rejection.json, the second review approves
 #   review-minimal-input the reviews of review-reject-once had no tools and one document, whose size
-#                   is recorded; an untouched file is not in a review's input (story:review-minimal-facts)
+#                   is recorded; an untouched file is listed, not shown, and citable by path
+#                   (story:review-minimal-facts)
 #   review-invalid  a rejection whose finding cites no line of the change: refused, never recorded
 #   review-spent    every review rejects: `writer_spent` on change.implement, sent back by change.review
 #   review-real-path   run-trial.sh --autopilot on metaharness (fake model CLIs, fixtures/fake-model):
@@ -455,7 +456,7 @@ lg=$(jq -r '.[0].log // ""' <<< "$rv")
 r2=$(jq -rs '[.[] | select(.action == "change.review")] | .[1].record // empty' "$s/store-review-reject-once/IDEA-1/work/.sdc/llm/calls.jsonl" 2>/dev/null)
 if (( code == 0 )) && jq -e '[.[] | .result] == ["rejected", "approved"] and all(.producer == "llm-review")' <<< "$rv" >/dev/null &&
    jq -e '.format == "sdc.rejection/1" and .approval == "change.review" and (.principal | startswith("llm-review:"))
-     and .citations == [{"at": "impl/README.md:1", "violates": "r1", "kind": "violation", "in_diff": true}] and .count == 1' "$d/blobs/$lg" >/dev/null &&
+     and .citations == [{"at": "impl/README.md:1", "violates": "r1", "kind": "violation", "in_diff": true, "listed": false}] and .count == 1' "$d/blobs/$lg" >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] | length == 2' "$d/events.jsonl" >/dev/null &&
    jq -se '[.[] | select(.event == "action_started" and .action == "change.implement")] | last | .retry_of == ["code_review"]' "$d/events.jsonl" >/dev/null &&
    grep -q 'impl/README.md:1' "$d/work/impl/.rework" &&
@@ -469,17 +470,27 @@ fi
 # touch added to impl/ and mainline/ (a copy of that store), `sdc-reply review-inputs` leaves it out. Passes when both
 # review calls offered no operation, took 4 turns at most, recorded the document's size
 # (`input_bytes`, the bytes of in/review.md), pasted it into the prompt, and have no tests.txt,
-# gate.txt, commands.json or whole `impl/` in `in/`; and the untouched file is in neither the
+# gate.txt, commands.json or whole `impl/` in `in/`; and the untouched file's text is in neither the
 # document nor `in/impl/`, while the changed README (its diff and its text) is, and the
-# requirement ids of scope.json are all in the document.
+# requirement ids of scope.json are all in the document. The untouched files are in the document's
+# listing (path and size; `server.js` with its items `serve` and `GET /health`), a service worker the
+# tree lacks is not; `check-review` takes a finding at `impl/server.js` without a line (a listed
+# file, citation `listed: true`) and refuses `impl/server.js:1` and `impl/sw.js`.
 calls_log=$s/store-review-reject-once/IDEA-1/work/.sdc/llm/calls.jsonl
 rv_calls=$(jq -sc '[.[] | select(.action == "change.review")]' "$calls_log" 2>/dev/null)
 rm -rf "$s/minimal-input"; mkdir -p "$s/minimal-input"
 cp -a "$s/store-review-reject-once" "$s/minimal-input/store"; sc=$s/minimal-input/store/${story%/events.jsonl}
 echo "UNTOUCHED_MARKER" > "$sc/work/impl/UNTOUCHED.txt"; echo "UNTOUCHED_MARKER" > "$sc/work/mainline/UNTOUCHED.txt"
 echo "a line the review must see" >> "$sc/work/impl/README.md"
+printf 'function serve() {}\napp.get("/health", serve);\n' > "$sc/work/impl/server.js"; cp "$sc/work/impl/server.js" "$sc/work/mainline/server.js"
 mi=$("$sdc/driver/target/debug/sdc-reply" review-inputs --cwd "$s/minimal-input/call" --case-dir "$sc" --story invoices 2>&1)
 mci=$s/minimal-input/call/in
+cite() { jq -cn --arg at "$1" --arg v "$(jq -r '.requirements[0].id' "$mci/scope.json")" \
+  '{decision: "rejected", summary: "s", findings: [{kind: "violation", at: $at, violates: $v, says: "fixture: absent"}]}' > "$s/minimal-input/reply.json"
+  "$sdc/driver/target/debug/sdc-reply" check-review --cwd "$s/minimal-input/call" --case-dir "$sc" --reply "$s/minimal-input/reply.json" --principal p 2>&1; }
+cite_listed=$(cite impl/server.js); cite_listed_code=$?
+cite_line=$(cite impl/server.js:1); cite_line_code=$?
+cite_ghost=$(cite impl/sw.js); cite_ghost_code=$?
 first=$(jq -r '.[0].record' <<< "$rv_calls")
 if jq -e 'length == 2 and all(.allowed_operations == [] and .max_turns <= 4 and (.input_bytes | type == "number") and .input_bytes > 0)' <<< "$rv_calls" >/dev/null &&
    [[ -n $first && $(jq -r '.[0].input_bytes' <<< "$rv_calls") == $(stat -c %s "$first/cwd/in/review.md") ]] &&
@@ -488,11 +499,16 @@ if jq -e 'length == 2 and all(.allowed_operations == [] and .max_turns <= 4 and 
    [[ -f $first/cwd/in/impl/README.md ]] &&
    ! grep -rq UNTOUCHED_MARKER "$mci" && [[ ! -e $mci/impl/UNTOUCHED.txt ]] &&
    grep -q 'a line the review must see' "$mci/review.md" &&
-   jq -e '.changed_files == ["README.md"]' <<< "$mi" >/dev/null &&
+   jq -e '.changed_files == ["README.md"] and .listed_files >= 3' <<< "$mi" >/dev/null &&
+   grep -q '^## Product files not in the diff' "$mci/review.md" && grep -q '^- UNTOUCHED.txt (17 bytes)$' "$mci/review.md" &&
+   grep -q '^- server.js (.* bytes): serve, GET /health$' "$mci/review.md" && ! grep -q 'sw.js' "$mci/review.md" &&
+   [[ ! -e $mci/impl/server.js ]] && (( cite_listed_code == 1 && cite_line_code == 2 && cite_ghost_code == 2 )) &&
+   jq -e '.citations == [{"at": "impl/server.js", "violates": .citations[0].violates, "kind": "violation", "in_diff": false, "listed": true}]' <<< "$cite_listed" >/dev/null &&
+   grep -q 'not a line of the change tree' <<< "$cite_line" && grep -q 'neither a listed product file nor a changed file' <<< "$cite_ghost" &&
    [[ -z $(jq -r '.requirements[].id' "$mci/scope.json" | while read -r id; do grep -q "^- $id: " "$mci/review.md" || echo "$id"; done) ]]; then
-  echo "review-minimal-input: checks pass (no tools, one document of $(jq -r '.[0].input_bytes' <<< "$rv_calls") bytes in the prompt; an untouched file is not in the review's input)"
+  echo "review-minimal-input: checks pass (no tools, one document of $(jq -r '.[0].input_bytes' <<< "$rv_calls") bytes in the prompt; an untouched file is listed, not shown; a listed file is cited by path, an absent one refused)"
 else
-  echo "review-minimal-input: FAILED (calls: $(jq -c 'map({allowed_operations, max_turns, input_bytes})' <<< "$rv_calls" 2>/dev/null); inputs: $mi)"
+  echo "review-minimal-input: FAILED (calls: $(jq -c 'map({allowed_operations, max_turns, input_bytes})' <<< "$rv_calls" 2>/dev/null); inputs: $mi; listed cite $cite_listed_code, line cite $cite_line_code, ghost cite $cite_ghost_code)"
 fi
 # review-invalid: every reply rejects with a finding at a line the README does not have. Passes when
 # the reply was asked again twice with the check's reason (SDC_REVIEW_RETRIES), the one change.review

@@ -412,7 +412,7 @@ change.review)
   ops='[]'; mt=4; out=code_review
   review_doc=$cwd/in/review.md
   input_bytes=$(jq -r '.document_bytes' "$rec/review-inputs.json")
-  inputs+=("the review input below (the same text as in/review.md: the story's requirements and commands, the test summary, the diff and the full text of the files it touches)")
+  inputs+=("the review input below (the same text as in/review.md: the story's requirements and commands, the test summary, the diff, the full text of the files it touches and a listing of every other product file)")
   task="Review the change of story '$story' as a reviewer independent of its implementer: does the
 change deliver this story's requirements, acceptance lines and commands? The review input below is
 everything you are given, and everything you may judge. The requirements listed as covered by no story
@@ -424,8 +424,10 @@ Reply with the JSON object of the response schema:
 - findings: each one place and what it violates. kind: \`violation\` (violates: a requirement id, an
   acceptance cite or a command of this story) or \`outside\` (violates: an id of the requirements no
   story covers). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of a changed file as
-  numbered in the review input (a file the diff does not touch is not shown and cannot be cited); for
-  something missing, the line of a changed file where it belongs. says: one sentence
+  numbered in the review input; or impl/<path> alone, a file the review input lists as not in the
+  diff (cite it for what it holds or lacks, for something missing the file where it belongs). A file
+  neither listed nor changed does not exist in the tree: an absent service worker, route or module
+  is seen from the listing. says: one sentence
 - summary: one or two sentences
 A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
 the reply otherwise. Judge from the review input only; you cannot run anything." ;;

@@ -536,23 +536,31 @@ passed on the revision under review (the run's header line, scenario counts, uni
 the names of failing scenarios and tests, not the log; sdc.story revision 7 admits `change.review`
 only after `tests.pass`; without that log the node records nothing), the diff against `mainline/`
 (empty tree for the first story; a file the change creates keeps its header only) and the full text
-of only the files the diff touches, with line numbers. No other file of the tree, no other story,
-no gate log. A finding's `at` can therefore cite only a changed file: for something missing the
-reviewer cites the line of a changed file where it belongs. Beside the document, `in/` holds what
-the programs check with (`scope.json`, `uncovered.json`, `change.diff`, the touched files under
-`impl/`). `review-inputs` prints `document_bytes` and each call line of `llm-calls.jsonl` carries
+of only the files the diff touches, with line numbers, then a listing of every other product file
+(`## Product files not in the diff`: path, size in bytes and, for a source file, the names it
+declares at top level, so that an absent service worker or route is seen without reading a file).
+The items come from one rule per language (`top_level_items`: Rust, JavaScript and TypeScript, Python,
+Go, shell declarations at column 0, plus registered routes such as `GET /tasks` and `addEventListener`
+names); a page, a manifest or a document has path and size only. The listing's lines with sizes and
+items stop at 4096 bytes, the files after that are paths only; build output, `.sdc`, `.git` and
+`node_modules` are not listed. No file text beyond the touched files, no other story, no gate log.
+A finding's `at` is a line of a changed file (`impl/<path>:<line>`), or a file by path alone
+(`impl/<path>`) when the file is listed or changed; a line of a file that is not shown is refused.
+For something missing the reviewer cites a listed file by path, or the line of a changed file where it
+belongs. Beside the document, `in/` holds what the programs check with (`scope.json`,
+`uncovered.json`, `change.diff`, the touched files under `impl/`, `listing.json`). `review-inputs` prints `document_bytes` and each call line of `llm-calls.jsonl` carries
 it as `input_bytes`: the size is recorded per call. Before this the model got the whole tree and
 the whole diff, 108 to 119 KB per call in `baseline-0.1.0`, and read them with `Read` over up to
 12 turns; whether the smaller input keeps its decisions is the record `review-minimal-facts`
 (*not yet observed*). The reply is constrained by
 `sdc-reply schema --type review` (claude-cli `--json-schema`): `decision` approved or rejected,
-`findings` each `{kind, at: impl/<path>:<line>, violates, says}`, `summary`. `sdc-reply
-check-review` checks it: every `at` a line of the change tree, every `violates` in the story's set
+`findings` each `{kind, at: impl/<path>[:<line>], violates, says}`, `summary`. `sdc-reply
+check-review` checks it: every `at` a line of a changed file or a listed or changed file by path, every `violates` in the story's set
 (or, for `outside`, in the uncovered set), a rejection with at least one violation. An invalid
 reply is asked again with the reason (`SDC_REVIEW_RETRIES`, default 2); still invalid, or a failed
 call: exit 2, nothing recorded, so the case is stuck on that revision; never an approval. A valid
 rejection exits 1 with only its `sdc.rejection/1` on stdout (approval `change.review`, principal
-`llm-review:<model>`, reasons, citations with `in_diff`, count); that log reaches `change.implement`
+`llm-review:<model>`, reasons, citations with `in_diff` and `listed`, count); that log reaches `change.implement`
 through `retry_when: {code_review: [rejected]}` as `in/rejection.json`. The bound is
 `change.implement`'s `max_runs` 3 per arrival, shared with failed conformance runs: the third
 rejection ends `writer_spent` with `sent_back` naming `change.review`. Cycles `review-reject-once`,
