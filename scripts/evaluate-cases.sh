@@ -19,6 +19,10 @@ done
 while IFS= read -r expected; do
   run=$(dirname "$expected")
   case_file=$run/case.yaml; [[ -f $case_file ]] || case_file=$run/../case.yaml
+  # Git keeps no empty directory and Canon refuses a placeholder file in evidence/
+  # (docs/limitations/evidence-with-gitkeep): a run with no records of its own and none to take
+  # from its parent gets an empty evidence/, so a fresh clone evaluates every run.
+  [[ -d $run/evidence || -d $run/../evidence ]] || mkdir "$run/evidence"
   evidence=$run/evidence; [[ -d $evidence ]] || evidence=$run/../evidence
   protocol=$(yq -r '.protocol' "$case_file")
   args=(--ir "$sdc/protocol/compiled/${protocol//./-}.ir.json" --case "$case_file" --evidence "$evidence")
