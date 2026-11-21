@@ -260,7 +260,7 @@
       "protocol": "sdc.bugfix",
       "protocol_revision": 1,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },
@@ -294,6 +294,10 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "change.fix": [],
+    "story.update": []
+  },
   "outcomes": {
     "fixed": {
       "status": "legitimate"

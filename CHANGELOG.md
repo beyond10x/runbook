@@ -83,6 +83,9 @@ bare-version tags (`docs/releasing.md`).
 
 ### Changed
 
+- Runbook evaluates with Canon 0.10.0 (`story:canon-0-10-0-pin`): the 52 `cases/*/decision.json` are
+  regenerated (new `semantics.canon` and the new `missing_evidence` and `pending_decisions`
+  sections; no claim, action or outcome changed) and the docs that state the pin say 0.10.0.
 - `change.review` on the smallest fact set (`story:review-minimal-facts`), behind the run switch
   `SDC_REVIEW_MODE=session|facts` (default `session`, main's review; recorded as `review_mode` in
   `run-settings.jsonl`, a launch setting of `sdc-experiment`). With `facts`:

@@ -324,7 +324,7 @@
       "protocol": "sdc.direction",
       "protocol_revision": 7,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },

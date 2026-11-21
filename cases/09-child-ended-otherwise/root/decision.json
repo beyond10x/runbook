@@ -169,7 +169,7 @@
       "protocol": "sdc",
       "protocol_revision": 8,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },
@@ -224,6 +224,11 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "roadmap.read": [
+      "roadmap_approval"
+    ]
+  },
   "obligations": [
     {
       "id": "direction.required",
@@ -269,6 +274,18 @@
     "refused": {
       "status": "legitimate"
     }
+  },
+  "pending_decisions": {
+    "decisions": [
+      {
+        "case_revision": "c1",
+        "decision": "explicitly_abandoned",
+        "options": [
+          "taken"
+        ],
+        "outcome": "abandoned"
+      }
+    ]
   },
   "protocol": "sdc",
   "protocol_revision": 8
