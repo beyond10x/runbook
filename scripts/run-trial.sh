@@ -35,7 +35,8 @@
 # events/<case>.jsonl, and at the end decision.json and replay.json. With a decider also
 # decisions.jsonl (one line per decider decision) and decider/NNN-<id>/ (each LLM decider call).
 # run-settings.jsonl: one line per start or resume (sdc.run-settings/1: the decider's kind, model,
-# escalate mode and call cap, the adapter, the LLM call cap, the calls made before the leg).
+# escalate mode and call cap, the rework cap `rework_limit` {value, source}, the adapter, the LLM
+# call cap, the calls made before the leg).
 # fs/ is the file-change record of sdc-watch (scripts/watch-run.sh), running while this script
 # runs and started again on a resume; SDC_WATCH=0 skips it.
 #
@@ -134,6 +135,13 @@ decider=${SDC_DECIDER:-person}
 [[ $decider == haiku ]] && decider=model
 escalate_mode=${SDC_DECIDER_ESCALATE:-stop}
 max_decider=${SDC_MAX_DECIDER_CALLS:-20}
+# The rework cap (D184): how many rejections of one approval are reworked before rework_spent.
+# rule-ends.json `rework_limit` is the default; SDC_MAX_REJECTIONS overrides it when set. The
+# effective value goes into run-settings.jsonl (`rework_limit: {value, source}`), and rework()
+# here and the writer's rework prompt (tools/llm-node.sh, through SDC_RUN_SETTINGS) read it there.
+if [[ -n ${SDC_MAX_REJECTIONS:-} ]]; then rework_cap=$SDC_MAX_REJECTIONS rework_cap_source=SDC_MAX_REJECTIONS
+else rework_cap=$(jq -r .rework_limit "$ex/rule-ends.json") rework_cap_source=rule-ends.json; fi
+[[ $rework_cap =~ ^[0-9]+$ ]] || { echo "$rework_cap_source: the rework cap is a whole number of reworks (0 or more), not '$rework_cap'"; exit 64; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
@@ -223,7 +231,7 @@ esac
 stand_in=${SDC_STAND_IN:-}
 [[ $dry == yes && $decider == person ]] && stand_in=${stand_in:-scripts/run-trial.sh --dry}
 
-export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl
+export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl SDC_RUN_SETTINGS=$out/run-settings.jsonl
 if [[ $dry == yes ]]; then
   export SDC_LLM_ADAPTER=dry SDC_LLM_DRY_LOG=$out/dry-commands.txt SDC_PRINCIPAL=dry-run
 else
@@ -380,14 +388,14 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" --argjson adapters "$adapters" --argjson efforts "$efforts" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" \
+  --argjson rcap "$rework_cap" --arg rsrc "$rework_cap_source" --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" \
   '{format: "sdc.run-settings/1", at: $at, leg: $leg,
     autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc, keep_going: ($kg == "yes"),
     unstick: {on: ($uon == "yes"), adapter: $uad, model: $umodel},
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
-      max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
+      max_decider_calls: $dec}, rework_limit: {value: $rcap, source: $rsrc}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
@@ -859,10 +867,12 @@ checks_failing() {
 # the writer whose binding names the approval's kind in `retry_when` is then useful and gets it as
 # in/rejection.json, its checks run on the new revision and the approval is asked again. The count
 # is the case's rejected records of the approval (sdc-reply rejections). Returns 0 when the run
-# goes on; else sets end_cause and end_reason: rework_spent on the third rejection (the approval
-# and the three reasons), rejected_without_rework_path when the approval cannot record a
+# goes on; else sets end_cause and end_reason: rework_spent on the rejection after the last rework (rework_limit + 1, by default the third;
+# the approval and every reason), rejected_without_rework_path when the approval cannot record a
 # rejection or no writer is sent back by it (rework_gap says which).
-reworked="" rework_gap="" taker="" rejection_deferred="" rework_limit=$(jq -r .rework_limit "$ex/rule-ends.json")
+reworked="" rework_gap="" taker="" rejection_deferred=""
+# The rework cap this leg recorded (D184): the one value the rework prompt reads too.
+rework_limit=$(jq -rs 'last.rework_limit.value' "$out/run-settings.jsonl")
 # The third rejection rework() left unrecorded, recorded as the decider's when the run stops.
 record_deferred() {
   local cdir cap act
@@ -892,7 +902,7 @@ rework() { # <request> <decider reply>
   if (( n > rework_limit )) && [[ $keep_going == yes || $unstick_on == yes ]]; then
     rejection_deferred="$cdir $cap $act"
     end_cause=rework_spent
-    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
+    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj $n times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
     return 1
   fi
@@ -905,7 +915,7 @@ rework() { # <request> <decider reply>
   echo "  recorded the rejection of $act at $rev as decider:$decider (rejection $n; at most $rework_limit are reworked)"
   if (( n > rework_limit )); then
     end_cause=rework_spent
-    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
+    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj $n times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
     return 1
   fi

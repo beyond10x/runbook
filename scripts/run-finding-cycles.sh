@@ -84,6 +84,8 @@
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
 #   autopilot-close, autopilot-close-a3   runs/trial-3-haiku-5: the close in autopilot (D140)
 #   review-no-rework-prompt  after a merge.approve rejection the review gets no rejection as rework (D138)
+#   rework-cap      one rework cap (D184): rule-ends.json rework_limit, SDC_MAX_REJECTIONS over it,
+#                   recorded in run-settings.jsonl and read by the driver and the rework prompt
 #   keep-going-three, keep-going-off, keep-going-repeat  --keep-going (D142)
 #   reopen-refused-decision  --reopen puts a refused decision back
 #   unstick-end, unstick-rerun, unstick-invalid, unstick-limit, unstick-off  run.unstick (D147)
@@ -131,7 +133,7 @@ ctx_rework=no
 jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
-  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection review-no-rework-prompt
+  expected+=(decider-rework decider-rework-spent rework-cap rework-not-called rework-pending-rejection review-no-rework-prompt
     keep-going-three keep-going-off unstick-end run-metrics)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 keep-going-repeat reopen-refused-decision)
@@ -903,6 +905,36 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     echo "decider-rework-spent: checks pass (three rejections: rework_spent by rule:autopilot, the three reasons named)"
   else
     echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+  fi
+  # rework-cap (D184): one effective rework cap. rule-ends.json's rework_limit (2) is the default
+  # and SDC_MAX_REJECTIONS overrides it; run-settings.jsonl records the value and its source, and
+  # both the driver and the writer's rework prompt read it there. Before, the driver read
+  # rule-ends.json and the prompt said "of at most 2", whatever the setting. Runs: decider-rework-spent
+  # above (the default); merge.approve rejected every time under SDC_MAX_REJECTIONS=1, which must
+  # stop rework_spent at the second rejection after one rework; the same on the fixture adapter for
+  # change.implement under SDC_MAX_REJECTIONS=5, whose rework prompt must say "of at most 5"; and
+  # SDC_MAX_REJECTIONS=x, which is refused before anything starts (exit 64).
+  trial rework-cap SDC_MAX_REJECTIONS=1 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
+  code=$?
+  r=$s/runs/rework-cap
+  st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' | head -n 1)
+  trial rework-cap-prompt SDC_MAX_REJECTIONS=5 SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.implement \
+    SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
+  pr=$(jq -rs '[.[] | select(.action == "change.implement")] | last | .record // empty' "$s/runs/rework-cap-prompt/llm-calls.jsonl" 2>/dev/null)
+  trial rework-cap-bad SDC_MAX_REJECTIONS=x
+  bad=$?
+  if (( code == 6 )) && [[ -n $st ]] &&
+     jq -se 'last.rework_limit == {"value": 2, "source": "rule-ends.json"}' "$s/runs/decider-rework-spent/run-settings.jsonl" >/dev/null &&
+     jq -se 'all(.rework_limit == {"value": 1, "source": "SDC_MAX_REJECTIONS"})' "$r/run-settings.jsonl" >/dev/null &&
+     jq -e '.cause == "rework_spent" and (.reason | test("rejected .* 2 times: 1: .*2: ") and (test("3: ") | not))' "$r/run-stopped.json" >/dev/null &&
+     jq -se '[.[] | select(.event == "action_started" and .action == "change.implement" and .retry_of == ["merge_approval"])] | length == 1' "$st/events.jsonl" >/dev/null &&
+     grep -q 'rejection 2; at most 1 are reworked' "$s/rework-cap.txt" &&
+     [[ -n $pr ]] && grep -q '(rejection 1 of at most 5)' "$pr/prompt.md" &&
+     jq -se 'last.rework_limit == {"value": 5, "source": "SDC_MAX_REJECTIONS"}' "$s/runs/rework-cap-prompt/run-settings.jsonl" >/dev/null &&
+     (( bad == 64 )) && grep -q "SDC_MAX_REJECTIONS: the rework cap is a whole number" "$s/rework-cap-bad.txt"; then
+    echo "rework-cap: checks pass (default 2 from rule-ends.json, SDC_MAX_REJECTIONS=1 stops at the second rejection after one rework, the prompt says of at most 5 under 5, x refused; each recorded in run-settings)"
+  else
+    echo "rework-cap: FAILED (exit $code, bad $bad, prompt ${pr:-none}, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
   # rework-not-called: runs/trial-3-haiku-4's list story. change.implement on llm-node.sh's apply
   # path (fixture adapter); merge.approve rejected once, then approved. The rework (with the

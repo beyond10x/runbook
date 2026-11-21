@@ -463,9 +463,10 @@ written into each `run-settings.jsonl` line.
   is recorded with its reasons and citations; the action that writes the rejected artifact
   (`change.implement` for `merge.approve`; `context.default`, `vision.write` and `roadmap.write`
   for the direction approvals) runs again with the reasons in its inputs (`in/rejection.json`),
-  its checks run again on the new revision, and the approval is asked again. At most 2 rejections
-  per approval per case: the third stops the run by `rule:autopilot` with cause `rework_spent`,
-  naming the approval and the three reasons. A rejected `release.publish` (the capability
+  its checks run again on the new revision, and the approval is asked again. At most 2 rejections (the rework cap, D184:
+  `SDC_MAX_REJECTIONS` when set, else `rework_limit` of rule-ends.json; recorded in run-settings.jsonl) are reworked
+  per approval per case: the next one (by default the third) stops the run by `rule:autopilot` with cause `rework_spent`,
+  naming the approval and every reason. A rejected `release.publish` (the capability
   `release.approve`, no writer) ends the tree instead: the release is withheld, the epic ends
   `not_released`, the root `not_delivered`, and the run is closed, not stopped (`docs/driver.md`,
   "A refused release"). A reject that has neither a writer nor such an end stops with
