@@ -673,9 +673,9 @@
   ],
   "release": {
     "date": "2026-11-21",
-    "notes": "docs/releases/0.1.5.md",
-    "tag": "0.1.5",
-    "version": "0.1.5"
+    "notes": "docs/releases/0.2.0.md",
+    "tag": "0.2.0",
+    "version": "0.2.0"
   },
   "releases": [
     {
@@ -683,14 +683,15 @@
       "limits": [
         "Three runs per setting and tree; every claim above follows the record's rule.",
         "The story's `tests.run` still runs the interpreted suite, so it repeats a check the spec stage now passes; removing it is a follow-up.",
-        "The conformance observation after close is off by default (0.1.4); the `release-0.1.2` runs ran on tree 72a3eef, which has no observation, so they carry no conformance figure.",
-        "No run has used the 0.1.3, 0.1.4 or 0.1.5 tree.",
+        "The conformance observation after close is off by default (0.1.4). The `release-0.1.2` runs used tree 72a3eef, which has no observation, so they carry no conformance figure.",
+        "No run has used the 0.1.3, 0.1.4 or 0.2.0 tree.",
+        "The binaries, environment names and protocol ids still say `sdc`; one `runbook` command is a later stage.",
         "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
       ],
-      "notes": "docs/releases/0.1.5.md",
-      "notes_url": "https://github.com/beyond10x/runbook/blob/0.1.5/docs/releases/0.1.5.md",
-      "summary": "A patch release after 0.1.4, the same day: a fix of the spec gate and the results of the nine `release-0.1.2` runs. No protocol or binding changed; one tool's check got stricter. A source release at tag `0.1.5`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
-      "version": "0.1.5"
+      "notes": "docs/releases/0.2.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.2.0/docs/releases/0.2.0.md",
+      "summary": "The first release under the name Runbook, the same day as 0.1.4. The product is now called Runbook; the software delivery cycle (SDC) is its first runbook and keeps its name and every id. The repository and the site move to the new name. The release also carries a fix of the spec gate, the results of the nine `release-0.1.2` runs and a reworked documentation site. No protocol or binding changed; one tool's check got stricter. A source release at tag `0.2.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
+      "version": "0.2.0"
     },
     {
       "date": "2026-11-21",
@@ -775,7 +776,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "e8ec5e92bb8cb3706708e2d2b6f4fe3317d8019ae1fed1eb6b57b0a597b07f12"
+      "sha256": "a3fb30f3ff8182a381952ed94b359fc6b179575840dacd0e2bdd648325c95a63"
     },
     {
       "path": "docs/check-output.txt",
@@ -802,8 +803,8 @@
       "sha256": "fdc89da272c12cd35160d52a4650b18a67675ac2c7fd1fa7ca4be7800869fcf5"
     },
     {
-      "path": "docs/releases/0.1.5.md",
-      "sha256": "417e0eb20a94474358a2f45715bbfb69c667f93b382542204e571928a8175353"
+      "path": "docs/releases/0.2.0.md",
+      "sha256": "6c68baed412e1fd5926049ec90145118c525aa66e361b8fc0c0de05fcee1ffbd"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

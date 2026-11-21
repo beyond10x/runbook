@@ -3808,13 +3808,31 @@
           "effect": "none",
           "experiment": null,
           "line": "the release-0.1.2 runs: strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean; the review is a reading session"
+        },
+        {
+          "commit": "729d3c6",
+          "effect": "none",
+          "experiment": null,
+          "line": "the product is named Runbook; the software delivery cycle (SDC) is the first runbook and keeps its ids"
+        },
+        {
+          "commit": "50626c9",
+          "effect": "none",
+          "experiment": null,
+          "line": "the repository is beyond10x/runbook and the site base /runbook/"
+        },
+        {
+          "commit": "909a573",
+          "effect": "none",
+          "experiment": null,
+          "line": "the documentation site: the evaluation page rework, the landing pitch, a Context page and a four-entry navbar"
         }
       ],
       "date": "2026-11-21",
       "experiments": [],
-      "id": "0.1.5",
+      "id": "0.2.0",
       "kind": "release",
-      "label": "0.1.5",
+      "label": "0.2.0",
       "limits": [
         "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop."
       ],
@@ -3844,8 +3862,8 @@
         "small_n": true
       },
       "tree": null,
-      "tree_note": "not tagged yet; prepared on main after the batch-13 merges below, on top of 0.1.4 (7bbdee6)",
-      "version": "0.1.5"
+      "tree_note": "not tagged yet; prepared on merge/queue-14 after the batch-13 and batch-14 merges below, on top of 0.1.4 (7bbdee6)",
+      "version": "0.2.0"
     }
   ],
   "format": "sdc.progress/1",
@@ -4364,7 +4382,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "1f8f8a729df91c64080eed56b5d54ff9bf733c19d04896a889a7a50e0fd06790"
+      "sha256": "8b73192f0ee6450b1dd67a54dac64e83fa96e495bb7ecd1478fa7000d7437671"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",

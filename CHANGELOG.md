@@ -7,6 +7,13 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-21
+
+The product is named Runbook and the repository moves to `beyond10x/runbook`; the software delivery
+cycle (SDC) is the first runbook and keeps its ids. With it come a fix of the spec gate, the results of
+the release-0.1.2 runs and a reworked documentation site. No protocol or binding changed; one tool's
+check got stricter. The longer note is `docs/releases/0.2.0.md`.
+
 ### Changed
 
 - The product name people read is now Runbook (stage 1 of `story:project-rename`; the operator,
@@ -14,20 +21,30 @@ The crates are `publish = false`; releases are source releases at bare-version t
   documentation site (title, tagline, navbar brand and mark, footer, page titles and descriptions,
   the landing hero, "What it is", "What it is built on", "Run it", "The flow") and the run
   inspector (page title, header, `ui/README.md`). The software delivery cycle keeps the name SDC
-  and is the first runbook; its protocols, trials and measurements still say SDC.
+  and is the first runbook; its protocols, trials and measurements still say SDC. The landing lede
+  is three short lines (`d03494d`, `a70640f`).
 - Not renamed yet: crate, binary and file names (`sdc-drive` and the others), `SDC_*` environment
   names, `sdc.*` format and protocol ids (stage 2, with one `runbook` command and release binaries).
-  The evaluation page and its charts, release notes, trial notes and experiment records are unchanged.
+  Release notes, trial notes and experiment records keep the names they were written with.
 - The repository is `beyond10x/runbook` (was `beyond10x/sdc`) and the documentation site is at
   https://beyond10x.github.io/runbook/ (was `/sdc/`; stage 3 of `story:project-rename`). The old git
   and web addresses of the repository redirect; the old site address does not, so a link to
   `https://beyond10x.github.io/sdc/` no longer opens the site. Written addresses in the site, the
-  documentation, `AGENTS.md`, the Pages workflow and the protocol-site generator follow the new name.
-
-## [0.1.5] - 2026-11-21
-
-A fix of the spec gate and the results of the release-0.1.2 runs. No protocol or binding changed;
-one tool's check got stricter. The longer note is `docs/releases/0.1.5.md`.
+  documentation, `AGENTS.md`, the Pages workflow and the protocol-site generator follow the new name
+  (`0418062`).
+- The evaluation page opens with headline tiles (clean passes, median cost and wall time per
+  setting, the cost target with the factor still to go, the blinded quality medians, the
+  conformance lower bound) and large charts (clean passes, cost with the target and the free agent's
+  median, wall time, where the cost of a run goes). Then come stops by cause, the improvement
+  experiments and every run. A chart column exists only for a release with committed runs.
+  `sdc-data` reads `experiments/targets.yaml` as targets (`c6880da`, `b42f34d`).
+- The navbar has four entries (How it works, Protocols, Evaluation, Run it) and GitHub as an icon
+  link; the docs sidebar carries the How it works group; `tests/navigation.spec.ts` (`12cba63`).
+- The progress ledger's 0.1.2 entry names `release-0.1.2` as its experiment: 7 of 9 clean passes
+  on the 0.1.2 tree, and the site's charts get the 0.1.2 column (`cebbf42`).
+- `experiments/baseline-0.1.0/inputs.md`, `costs.md` and the record `review-minimal-facts`: the
+  review is a reading session with `Glob`, `Read` and `Grep`, not one request (`39d2db3`).
+- The three crates, their lock files and `ui/package.json` are at 0.2.0.
 
 ### Fixed
 
@@ -42,16 +59,12 @@ one tool's check got stricter. The longer note is `docs/releases/0.1.5.md`.
 
 ### Added
 
+- A slider of three claims below the landing hero (what it does, why it is simple, why it is solid),
+  with numbers from committed data, and `tests/pitch.spec.ts` (`93a96a6`, `d51609c`).
+- A Context page (`/docs/context`) on what a model call is given, with two graphics and line
+  citations, and `tests/context.spec.ts` (`d7514a3`, `957bcae`).
 - The nine runs of `release-0.1.2` on tree 72a3eef: report, run summaries, timelines and
   `notes.md` (strong 3 of 3 clean, mixed 2 of 3, Haiku 2 of 3) (`12e3069`, `74b6f1e`).
-
-### Changed
-
-- `experiments/baseline-0.1.0/inputs.md`, `costs.md` and the record `review-minimal-facts`: the
-  review is a reading session with `Glob`, `Read` and `Grep`, not one request (`39d2db3`).
-- The progress ledger's 0.1.2 entry names `release-0.1.2` as its experiment: 7 of 9 clean passes
-  on the 0.1.2 tree, and the site's charts get the 0.1.2 column.
-- The three crates, their lock files and `ui/package.json` are at 0.1.5.
 
 ## [0.1.4] - 2026-11-21
 

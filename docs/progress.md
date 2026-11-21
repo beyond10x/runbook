@@ -19,7 +19,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | `release-0.1.2` | 7 of 9 | not observed | haiku 2 of 3; mixed 2 of 3; strong 3 of 3 |
 | [0.1.3](#013) | release | 2026-11-21 | `99390b9` | no experiment yet | no run | - | - |
 | [0.1.4](#014) | release | 2026-11-21 | `7bbdee6` | no experiment yet | no run | - | - |
-| [0.1.5](#015) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - | - |
+| [0.2.0](#020) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -317,9 +317,9 @@ Limits of this measurement:
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
 - The conformance figure is a lower bound judged against each run's own specification; the blinded quality evaluation has three products per side and makes no significance claim.
 
-## 0.1.5
+## 0.2.0
 
-Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-13 merges below, on top of 0.1.4 (7bbdee6).
+Release, 2026-11-21. Tree: not tagged yet; prepared on merge/queue-14 after the batch-13 and batch-14 merges below, on top of 0.1.4 (7bbdee6).
 
 What changed:
 
@@ -327,6 +327,9 @@ What changed:
 |---|---|---|
 | `6391cbc` | the spec gate requires the synthesized suite to pass against ESS's interpreted target | not measured: no experiment has tested this change |
 | `ea7c7d0` | the release-0.1.2 runs: strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean; the review is a reading session | no run metric affected |
+| `729d3c6` | the product is named Runbook; the software delivery cycle (SDC) is the first runbook and keeps its ids | no run metric affected |
+| `50626c9` | the repository is beyond10x/runbook and the site base /runbook/ | no run metric affected |
+| `909a573` | the documentation site: the evaluation page rework, the landing pitch, a Context page and a four-entry navbar | no run metric affected |
 
 Tested by: no experiment yet. No run used this tree, so there is no figure for it.
 

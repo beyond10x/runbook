@@ -307,14 +307,14 @@ entries:
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
   - The conformance figure is a lower bound judged against each run's own specification; the blinded quality evaluation has three products per side and makes no significance claim.
-- id: 0.1.5
+- id: 0.2.0
   kind: release
-  version: 0.1.5
-  label: 0.1.5
-  short: spec gate, 0.1.2 results
+  version: 0.2.0
+  label: 0.2.0
+  short: Runbook, spec gate
   date: 2026-11-21
   tree: null
-  tree_note: not tagged yet; prepared on main after the batch-13 merges below, on top of 0.1.4 (7bbdee6)
+  tree_note: not tagged yet; prepared on merge/queue-14 after the batch-13 and batch-14 merges below, on top of 0.1.4 (7bbdee6)
   experiments: []
   changes:
   - commit: 6391cbc
@@ -322,6 +322,15 @@ entries:
     effect: unmeasured
   - commit: ea7c7d0
     line: 'the release-0.1.2 runs: strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean; the review is a reading session'
+    effect: none
+  - commit: 729d3c6
+    line: the product is named Runbook; the software delivery cycle (SDC) is the first runbook and keeps its ids
+    effect: none
+  - commit: 50626c9
+    line: the repository is beyond10x/runbook and the site base /runbook/
+    effect: none
+  - commit: 909a573
+    line: 'the documentation site: the evaluation page rework, the landing pitch, a Context page and a four-entry navbar'
     effect: none
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
