@@ -23,7 +23,7 @@
 #
 # haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
 # metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5),
-# reasoning effort SDC_LLM_EFFORT_DECIDER, else SDC_LLM_EFFORT (unset: the adapter's own default), at most
+# reasoning effort SDC_LLM_EFFORT_DECIDER, else SDC_LLM_EFFORT, else node-classes.json default_efforts (xhigh), at most
 # SDC_DECIDER_MAX_TURNS (8) turns and SDC_DECIDER_MAX_BUDGET_USD (0.25). The LLM reads in/ and
 # writes out/decision.json; a program validates it, and an invalid or missing reply is `escalate`.
 # Under the dry adapter the command is printed, nothing is called, and the `approve` rule decides
@@ -222,7 +222,7 @@ requester_call() {
     echo "When the file is written, reply with the single word: done."
   } > "$prompt"
   model=${SDC_LLM_MODEL_REQUESTER:-${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}}
-  effort=${SDC_LLM_EFFORT_REQUESTER:-${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-}}}
+  effort=${SDC_LLM_EFFORT_REQUESTER:-${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-$(jq -r .default_efforts.requester "$here/node-classes.json")}}}
   node=requester.$(r '.question.id // .action')
   jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg effort "$effort" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
     --arg case "$(jq -r '.id // ""' "$case_dir/case.json")" --arg case_dir "$case_dir" '{model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd,
@@ -477,7 +477,7 @@ prompt=$rec/prompt.md
 } > "$prompt"
 
 model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
-effort=${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-}}
+effort=${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-$(jq -r .default_efforts.decider "$here/node-classes.json")}}
 node=decide.$(r .action)
 jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg effort "$effort" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
   --arg case "$(jq -r '.id // ""' "$(r .case_dir)/case.json" 2>/dev/null)" --arg case_dir "$(r .case_dir)" '{

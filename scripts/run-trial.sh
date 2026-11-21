@@ -32,8 +32,9 @@
 # nodes, else each binding's `llm.model` (claude-haiku-5-5); the decider SDC_LLM_MODEL_DECIDER,
 # else SDC_DECIDER_MODEL. run-settings.jsonl `models` records the effective model per class.
 # Reasoning effort per class, the same way: SDC_LLM_EFFORT_<CLASS> (WRITER, IMPLEMENT, REVIEW, DECIDER,
-# OTHER), else SDC_LLM_EFFORT, else unset = the adapter's own default; low, medium, high, xhigh or max,
-# anything else exits 64. run-settings.jsonl `efforts` records it per class (unset: "default").
+# OTHER), else SDC_LLM_EFFORT, else the class default in tools/node-classes.json (high; the decider and
+# the requester xhigh), always passed to the adapter; low, medium, high, xhigh or max, anything else
+# exits 64. run-settings.jsonl `efforts` records it per class and for the requester (source `default`).
 #
 # Decider (SDC_DECIDER): who takes the decisions that wait on a person: the pending approvals, the
 # open scope-changing interview questions, and closing the root.
@@ -285,14 +286,22 @@ models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
   + {decider: (if $dclass != "" then {model: $dclass, source: "SDC_LLM_MODEL_DECIDER"}
       elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
       else {model: "claude-haiku-5-5", source: "default"} end)}')
-# The effective effort per node class: SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT, else "default"
-# (the adapter's own).
-efforts=$(for c in $(jq -r '.classes | keys[]' "$ex/tools/node-classes.json"); do
-  v=SDC_LLM_EFFORT_${c^^}
-  jq -cn --arg c "$c" --arg v "${!v:-}" --arg n "$v" --arg all "${SDC_LLM_EFFORT:-}" '{($c): (
-    if $v != "" then {effort: $v, source: $n} elif $all != "" then {effort: $all, source: "SDC_LLM_EFFORT"}
-    else {effort: "default", source: "default"} end)}'
-done | jq -cs add)
+# The effective effort per node class, and for the requester: the first set of SDC_LLM_EFFORT_<CLASS>
+# (the requester: _REQUESTER, then _DECIDER), SDC_LLM_EFFORT, else the class's `default_efforts` in
+# node-classes.json (source "default"): the level is always passed, never left to the adapter's host.
+eff() { # <default level> <variable>...
+  local v
+  for v in "${@:2}" SDC_LLM_EFFORT; do
+    [[ -z ${!v:-} ]] || { jq -cn --arg e "${!v}" --arg s "$v" '{effort: $e, source: $s}'; return; }
+  done
+  jq -cn --arg e "$1" '{effort: $e, source: "default"}'
+}
+efforts=$({
+  for c in $(jq -r '.classes | keys[]' "$ex/tools/node-classes.json"); do
+    jq -cn --arg c "$c" --argjson e "$(eff "$(jq -r --arg c "$c" '.default_efforts[$c]' "$ex/tools/node-classes.json")" "SDC_LLM_EFFORT_${c^^}")" '{($c): $e}'
+  done
+  jq -cn --argjson e "$(eff "$(jq -r '.default_efforts.requester' "$ex/tools/node-classes.json")" SDC_LLM_EFFORT_REQUESTER SDC_LLM_EFFORT_DECIDER)" '{requester: $e}'
+} | jq -cs add)
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
   --argjson models "$models" --argjson efforts "$efforts" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \

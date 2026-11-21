@@ -21,7 +21,7 @@
 #   SDC_LLM_MODEL_<CLASS> overrides both for the node's class (tools/node-classes.json): WRITER
 #                    (spec.author, plan.decompose), IMPLEMENT (change.implement), REVIEW, OTHER
 #   SDC_LLM_EFFORT, SDC_LLM_EFFORT_<CLASS>  the reasoning effort (low, medium, high, xhigh, max), the same way;
-#                    unset: the adapter's own default, recorded as "default" (request.json `effort`: null)
+#                    unset: the class's default_efforts in tools/node-classes.json, always passed (request.json `effort`)
 #   SDC_LLM_RECORD   where each call's record goes (default work/.sdc/llm); one NNN-<action>/ per call
 #   SDC_LLM_LOG      JSON lines, one per call (default $SDC_LLM_RECORD/calls.jsonl)
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
@@ -443,12 +443,12 @@ prompt=$rec/prompt.md
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
 # writer, implement, review, other), else SDC_LLM_MODEL, else the binding's llm.model. The reasoning
-# effort the same way (SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT); unset: the adapter's own default.
+# effort the same way (SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT, else node-classes.json default_efforts).
 class=$(jq -r --arg n "$node" '[.classes | to_entries[] | select(.value | index($n)) | .key] | first // "other"' "$here/node-classes.json")
 cvar=SDC_LLM_MODEL_${class^^}
 model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}}
 evar=SDC_LLM_EFFORT_${class^^}
-effort=${!evar:-${SDC_LLM_EFFORT:-}}
+effort=${!evar:-${SDC_LLM_EFFORT:-$(jq -r --arg c "$class" '.default_efforts[$c] // empty' "$here/node-classes.json")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
   --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" --arg effort "$effort" \
   --arg case "${SDC_CASE:-}" --arg case_dir "${SDC_CASE_DIR:-}" '{
