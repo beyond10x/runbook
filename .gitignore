@@ -13,3 +13,4 @@ ui/playwright-report/
 ui/ux/rounds/*/shots/
 eval/**/blobs/
 eval/**/cwd/
+!experiments/*/runs/

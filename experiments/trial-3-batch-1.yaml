@@ -1,0 +1,129 @@
+format: sdc.experiment/1
+id: trial-3-batch-1
+kind: retrospective
+status: complete
+created: 2026-11-21
+title: Trial 3 batch on acd6f12, five model settings
+purpose: Run the to-do idea from idea to close with no person on one tree in five model settings, to see which settings pass and where each one loops.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: acd6f12c4924e7a552d0ab518287d1c873618915
+trees:
+- trial/3b at acd6f12 (ea2f111 + fix/attempt5-intake 102ce99 + fix/attempt5-close 83d3cbf), worktree sdc-trial-3b, built before the batch started; the review step was a program stub on this tree
+- trial-3-mixed-5 started on 3663770 (acd6f12 without 83d3cbf); its binaries were rebuilt in place to acd6f12 during its round 1, so it ran on two trees
+fixed:
+  decider.kind: haiku
+  decider.escalate: final
+  decider.max_decider_calls: '20'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_wall_seconds: '5400'
+variants:
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: null
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+    max_llm_calls: '150'
+  runs:
+  - trial-3-haiku-6
+  - trial-3-haiku-7
+- id: mixed
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs:
+  - run: trial-3-mixed-5
+    tree: 3663770
+    note: max_llm_calls 90; rebuilt in place to acd6f12 in round 1
+  - trial-3-mixed-6
+- id: sonnet
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-haiku-5-5
+    max_llm_calls: '150'
+  runs:
+  - trial-3-sonnet-1
+- id: strong
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+    max_llm_calls: '150'
+  runs:
+  - trial-3-strong-1
+  - trial-3-strong-2
+- id: opus
+  settings:
+    models.writer.model: claude-opus-5-5
+    models.implement.model: claude-opus-5-5
+    models.review.model: claude-opus-5-5
+    models.other.model: claude-opus-5-5
+    decider.model: claude-haiku-5-5
+    max_llm_calls: '150'
+  runs:
+  - trial-3-opus-1
+runs_per_variant: 2
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: No hypothesis. One or two runs per setting establish no difference between settings; the record describes the runs.
+known_confounds:
+- key: max_llm_calls
+  note: trial-3-mixed-5 ran with 90, trial-3-mixed-6 with 150
+- key: canon
+  note: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins
+facts:
+- 'Pass by the trial-3 report''s rule (closed operating by itself, no stop record, no reopen, no forced step, replay matching, 0 s waiting): 5 of the 8 runs. strong 2 of 2, haiku 1 of 2, mixed 1 of 2, opus 1 of 1, sonnet 0 of 1.'
+- 'Cost and wall time of the passes (docs/trial-3.md): strong-1 2.93 USD, 473 s; strong-2 3.00 USD, 454 s; haiku-7 1.00 USD, 2709 s; mixed-6 1.86 USD, 2295 s; opus-1 5.09 USD, 1662 s.'
+- 'trial-3-haiku-6 closed not_delivered: the decider withheld the release because the SharedList view and the device-side offline page were not built and sync had no HTTP route (r1, r2, r4, r5 not met); right, as the release README says. Its merge approvals had let thin stories through (Haiku decider, 1 reject of 14).'
+- 'trial-3-mixed-5 closed not_delivered: the decider withheld the release because GET /api/items answers without a token while vision and roadmap make the list link the only way in; right about the code, and q7 itself conflicts with the vision.'
+- 'trial-3-sonnet-1 stopped decider_budget_spent in IDEA-1.todo.access: 14 of its 20 decider calls were the trace gap p-trace-r7 on one finding, whose constraint answer was not recorded, so the gap returned; spec.author ran 15 times (fix: fix/superseded-answers b4aa0d1, not merged).'
+- 'No review model made a call in any batch run (the review was a program stub on acd6f12), and no oracle check ran on any trial-3 product: the passes are Canon outcomes closed by the program rule, not products seen working.'
+- The decider principal reads decider:haiku whatever model decided (strong-1 decided with claude-opus-5-5).
+links:
+- 'docs/trial-3.md on branch docs/trial-3 (commit 243a22f; not on main when this record was written): sections 1, 2, 3, 5, 6 and 8'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 1
+    ended: 2
+    id: haiku
+    listed: 2
+    without_summary: []
+  - clean_passes: 1
+    ended: 2
+    id: mixed
+    listed: 2
+    without_summary: []
+  - clean_passes: 0
+    ended: 1
+    id: sonnet
+    listed: 1
+    without_summary: []
+  - clean_passes: 2
+    ended: 2
+    id: strong
+    listed: 2
+    without_summary: []
+  - clean_passes: 1
+    ended: 1
+    id: opus
+    listed: 1
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

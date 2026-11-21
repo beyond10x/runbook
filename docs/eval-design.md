@@ -40,6 +40,7 @@ Docs cited as `02` and `03` are `docs/canon-research/02-branching-and-universes.
 - **KPIs and the baseline suite** are in `docs/kpis.md`. The free part runs as one command,
   `eval/run.sh`, with the bindings, driver and protocols pinned. A baseline is written
   (`eval/baseline.json`).
+- **Workflow metrics and A/B experiments** per node, edge and decision class over recorded runs: `docs/workflow-metrics.md`.
 
 ## 1. The freedom ladder
 

@@ -1,0 +1,187 @@
+format: sdc.experiment/1
+id: work-haiku-vs-sonnet
+kind: retrospective
+status: complete
+created: 2026-11-21
+title: Work nodes on Haiku against Sonnet with a Haiku decider
+purpose: Whether Sonnet on the work nodes lowers change.implement's looping factor against Haiku, read from the trial-3 runs that exist.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: several
+trees:
+- the runs of trial-3-attempts and trial-3-batch-1; each run's tree is in those records
+links:
+- experiments/trial-3-attempts.yaml and experiments/trial-3-batch-1.yaml (the runs and their trees)
+hypothesis: With claude-sonnet-5-5 instead of claude-haiku-5-5 on the implement class (the writer and review classes changed with it), the looping factor of story/change.implement falls by at least 0.5.
+target:
+  kind: node
+  name: story/change.implement
+variable: models.implement.model
+fixed:
+  decider.model: claude-haiku-5-5
+  decider.escalate: final
+  autonomy: A5
+  adapter: metaharness
+known_confounds:
+- key: models.writer.model
+  note: changed together with the variable in every run (claude-haiku-5-5 against claude-sonnet-5-5)
+- key: models.review.model
+  note: null in the haiku runs (change.review and spec.review were program checks), claude-sonnet-5-5 in the sonnet runs (model reviews)
+- key: models.other.model
+  note: claude-haiku-5-5 in the trial-3-mixed runs, claude-sonnet-5-5 in trial-3-sonnet-1
+- key: max_llm_calls
+  note: 90 in most runs, 150 in trial-3-haiku-6, -7 and trial-3-sonnet-1
+- key: bindings
+  note: the runs read the bindings and tools of two worktrees (sdc-trial-3, sdc-trial-3b) that changed during the day; no run pins a revision of them
+variants:
+- id: haiku
+  settings:
+    models.implement.model: claude-haiku-5-5
+  runs:
+  - trial-3-haiku
+  - trial-3-haiku-2
+  - trial-3-haiku-3
+  - trial-3-haiku-4
+  - trial-3-haiku-5
+  - trial-3-haiku-6
+  - trial-3-haiku-7
+- id: sonnet
+  settings:
+    models.implement.model: claude-sonnet-5-5
+  runs:
+  - trial-3-sonnet-1
+  - trial-3-mixed
+  - trial-3-mixed-2
+  - trial-3-mixed-3
+  - trial-3-mixed-4
+  - trial-3-mixed-5
+  - trial-3-mixed-6
+baseline: haiku
+treatment: sonnet
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+  metric: node.story/change.implement.looping_factor
+  direction: decrease
+  min_effect: 0.5
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+- metric: run.cost_usd
+  worse: increase
+  max_worsening_ratio: 1.0
+decision_rule:
+  rule: complete-separation
+  text: held when each variant has at least 3 finished runs that took change.implement, every sonnet run's looping factor lies below every haiku run's and the medians differ by at least 0.5; contradicted when the ranges separate the other way or by less than 0.5; inconclusive otherwise. Guards decide adoption, not the verdict.
+result:
+  computed_by: sdc-experiment report
+  direction: decrease
+  guards:
+  - baseline:
+      max: 1.0
+      median: 0.0
+      min: 0.0
+      n: 7
+      values:
+        trial-3-haiku: 0.0
+        trial-3-haiku-2: 0.0
+        trial-3-haiku-3: 0.0
+        trial-3-haiku-4: 0.0
+        trial-3-haiku-5: 1.0
+        trial-3-haiku-6: 0.0
+        trial-3-haiku-7: 1.0
+    metric: run.delivered
+    state: holds
+    treatment:
+      max: 1.0
+      median: 0.0
+      min: 0.0
+      n: 7
+      values:
+        trial-3-mixed: 0.0
+        trial-3-mixed-2: 0.0
+        trial-3-mixed-3: 0.0
+        trial-3-mixed-4: 0.0
+        trial-3-mixed-5: 0.0
+        trial-3-mixed-6: 1.0
+        trial-3-sonnet-1: 0.0
+    worsening: 0.0
+  - baseline:
+      max: 1.033701
+      median: 0.559681
+      min: 0.026364
+      n: 7
+      values:
+        trial-3-haiku: 0.026364
+        trial-3-haiku-2: 0.21119
+        trial-3-haiku-3: 0.46857
+        trial-3-haiku-4: 0.669446
+        trial-3-haiku-5: 0.778985
+        trial-3-haiku-6: 0.559681
+        trial-3-haiku-7: 1.033701
+    metric: run.cost_usd
+    state: fails
+    treatment:
+      max: 1.882091
+      median: 1.487034
+      min: 0.026938
+      n: 7
+      values:
+        trial-3-mixed: 0.026938
+        trial-3-mixed-2: 0.886328
+        trial-3-mixed-3: 1.487034
+        trial-3-mixed-4: 0.042208
+        trial-3-mixed-5: 1.587871
+        trial-3-mixed-6: 1.858643
+        trial-3-sonnet-1: 1.882091
+    worsening: 0.927353
+  guards_ok: false
+  median_difference: -0.33299999999999996
+  metric: node.story/change.implement.looping_factor
+  min_effect: 0.5
+  p_one_sided: null
+  recommendation: drop
+  separation: overlap
+  variants:
+  - clean_passes: 1
+    ended: 7
+    id: haiku
+    listed: 7
+    primary:
+      max: 4.5
+      median: 2.0
+      min: 1.333
+      n: 5
+      values:
+        trial-3-haiku-3: 3.5
+        trial-3-haiku-4: 4.5
+        trial-3-haiku-5: 1.5
+        trial-3-haiku-6: 1.333
+        trial-3-haiku-7: 2.0
+    without_summary: []
+  - clean_passes: 1
+    ended: 7
+    id: sonnet
+    listed: 7
+    primary:
+      max: 2.5
+      median: 1.667
+      min: 1.0
+      n: 5
+      values:
+        trial-3-mixed-2: 1.5
+        trial-3-mixed-3: 2.0
+        trial-3-mixed-5: 2.5
+        trial-3-mixed-6: 1.667
+        trial-3-sonnet-1: 1.0
+    without_summary: []
+  verdict: inconclusive
+  why: 'the ranges overlap (median difference -0.333): no effect is claimed; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing'
+adoption:
+  decision: pending
+  commit: null
+  note: retrospective; nothing is adopted on this record.

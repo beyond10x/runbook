@@ -66,6 +66,8 @@
 #   rework-not-called, rework-pending-rejection, decider-later-obligation, replay-sibling,
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
+#   run-metrics     sdc-run-metrics on decider-rework's run: looping factor, the approval edge,
+#                   merge.approve's decisions, a clean close (docs/workflow-metrics.md)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -78,6 +80,8 @@ mkdir -p "$s/runs"
 # The requester cycles ground answers in goals entries through tools/decision-grounds.sh, which runs
 # goals/target/debug/sdc-goals; build it here so a fresh checkout does not exit 127 there.
 (cd "$sdc/goals" && cargo build --quiet) || { echo "cycles: building goals/ (sdc-goals) failed"; exit 1; }
+(cd "$sdc/driver" && cargo build --quiet --bin sdc-run-metrics) || { echo "cycles: building sdc-run-metrics failed"; exit 1; }
+metrics=$sdc/driver/target/debug/sdc-run-metrics
 kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 [[ -x $kpis ]] || kpis=$HOME/beyond10x/sdc/driver/target/debug/sdc-finding-kpis
 # The cycles and their expectations. A cycle with a check line is as expected when it prints
@@ -97,7 +101,7 @@ ctx_rework=no
 jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
-  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
+  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection run-metrics)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 expected+=(cite-dark-spot cite-fault-sent-back)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
@@ -738,6 +742,20 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     echo "decider-rework: checks pass (rejected once, change.implement ran again with the rejection, approved, closed)"
   else
     echo "decider-rework: FAILED (exit $code: $(jq -c '[.[] | .decision]' <<< "$a" 2>/dev/null))"
+  fi
+  # run-metrics: sdc-run-metrics on decider-rework's run (docs/workflow-metrics.md). The story
+  # case's change.implement was taken twice, the second time sent back by the rejected
+  # merge.approve: looping factor 2, one approval edge, merge.approve asked twice (one reject);
+  # the run closed clean.
+  m=$("$metrics" "$r" --json - 2>/dev/null)
+  if (( code == 0 )) && jq -e '([.cases[] | select(.case | endswith(".invoices")) | .nodes[] | select(.action == "change.implement")] | first
+       | .real_takes == 2 and .looping_factor == 2 and .first_pass_yield == 0 and .retries_by_cause == {"merge.approve:rejected": 1})
+     and ([.edges[] | select(.edge == "story: merge.approve:rejected -> change.implement")] | length == 1 and .[0].kind == "approval" and .[0].count == 1)
+     and (.decisions.by_action["approval/merge.approve"] | .asked == 2 and .rejected == 1 and .approved == 1)
+     and .metrics.end == "closed: operating" and .metrics.clean == true' <<< "$m" >/dev/null; then
+    echo "run-metrics: checks pass (change.implement LF 2 sent back by merge.approve:rejected, one approval edge, merge.approve asked 2 rejected 1, closed clean)"
+  else
+    echo "run-metrics: FAILED ($(jq -c '{end: .metrics.end, clean: .metrics.clean, edges: [.edges[] | {edge, count}]}' <<< "$m" 2>/dev/null | cut -c1-300))"
   fi
   trial decider-rework-spent SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
   code=$?

@@ -30,6 +30,7 @@ relations:
 - decides: story:story-branch
 - decides: story:takt-freeze-notice
 - decides: story:verifier-independence
+- decides: story:workflow-metrics
 revision: 1
 ---
 # Operator standing acceptance of drafted epics and stories
