@@ -13,6 +13,13 @@
 #   scripts/run-trial.sh <name> --reopen        resume a stopped run: the record is renamed
 #                                               run-stopped.<at>.json; without it a resume of a
 #                                               stopped run is refused (exit 8)
+#   scripts/run-trial.sh <name> ... --autopilot --keep-going
+#                                               trial and eval runs only (D142): where autopilot
+#                                               stops with a cause it can continue past, a line
+#                                               goes to defects.jsonl (sdc.run-defect/1) and a
+#                                               forced continuation is taken by rule:keep-going;
+#                                               at most 12 per run, each cause at a case and
+#                                               action once (see keep_going_force)
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -83,11 +90,12 @@ done
 set -- ${rest[@]+"${rest[@]}"}
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-dry=no stop_reason="" reopen=no autopilot=no pos=()
+dry=no stop_reason="" reopen=no autopilot=no keep_going=no pos=()
 while (($#)); do
   case $1 in
     --dry) dry=yes ;;
     --autopilot) autopilot=yes ;;
+    --keep-going) keep_going=yes ;;
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
     *) pos+=("$1") ;;
@@ -173,6 +181,7 @@ case $autonomy in
     fi ;;
   *) echo "SDC_AUTONOMY: A0 to A5, not $autonomy"; exit 64 ;;
 esac
+[[ $keep_going == no || $autonomy == A5 ]] || { echo "--keep-going is for autopilot runs (A5): add --autopilot"; exit 64; }
 # A script or a session standing in for the person (SDC_STAND_IN=<who>; --dry's scripted person)
 # makes the run an end-to-end test of the person path: labelled stand_in, its numbers no eval's.
 stand_in=${SDC_STAND_IN:-}
@@ -278,8 +287,8 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
-    autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc,
+  --arg stand "$stand_in" --arg kg "$keep_going" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+    autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc, keep_going: ($kg == "yes"),
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
@@ -303,23 +312,63 @@ save() {
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
 # driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent).
 end_reason="" end_cause="" end_action="" end_case="" wait_why=""
-autopilot_end() {
+verdict_end() { # <exit code>: end_cause, end_case, end_action and end_reason from the driver's $last
   local rc=$1 v
+  v=$(jq -r '.verdict // "error"' <<< "${last:-null}" 2>/dev/null || echo error)
+  end_cause=$v
+  end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "${last:-null}" 2>/dev/null)
+  end_action=$(jq -r '(.spent // .position.spent // [])[0].action // (.position.not_called // [])[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
+  case $v in
+    writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
+    writer_not_called) end_reason="$end_action in $end_case: writer_not_called ($(jq -r '(.position.not_called // [])[0].reason // ""' <<< "$last" | cut -c1-200)): nothing else is useful; it waits on a fix of the writer or a decision, then --reopen" ;;
+    stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen" ;;
+    *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
+    *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
+  esac
+}
+autopilot_end() {
+  local rc=$1
   [[ $autonomy == A5 && $rc != 0 && ! -f $stopped && -d $root ]] || return 0
-  if [[ -z $end_cause ]]; then
-    v=$(jq -r '.verdict // "error"' <<< "${last:-null}" 2>/dev/null || echo error)
-    end_cause=$v
-    end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "${last:-null}" 2>/dev/null)
-    end_action=$(jq -r '(.spent // .position.spent // [])[0].action // (.position.not_called // [])[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
-    case $v in
-      writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
-      writer_not_called) end_reason="$end_action in $end_case: writer_not_called ($(jq -r '(.position.not_called // [])[0].reason // ""' <<< "$last" | cut -c1-200)): nothing else is useful; it waits on a fix of the writer or a decision, then --reopen" ;;
-      stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen" ;;
-      *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
-      *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
-    esac
-  fi
+  [[ -n $end_cause ]] || verdict_end "$rc"
+  [[ $keep_going == yes ]] && defect "$end_cause" "$end_case" "$end_action" "$end_reason" null false stops
   write_stop rule:autopilot "autopilot: $end_reason" "$end_cause" || true
+}
+
+# Keep-going (D142, --keep-going, trial and eval runs only). defects.jsonl, one line per stop
+# autopilot met (sdc.run-defect/1: at, case, action, cause, reason, decision (the decider's reply
+# or the request that led to it), event_seq (the case's last event), llm_calls, forced, principal,
+# continuation). A forced continuation is recorded under rule:keep-going, never as a decider's or a
+# person's act.
+defects=$out/defects.jsonl
+max_forced=12
+forced_count() { jq -s '[.[] | select(.forced)] | length' "$defects" 2>/dev/null || echo 0; }
+defect() { # <cause> <case> <action> <reason> <decision JSON> <forced true|false> <continuation>
+  local cdir seq
+  cdir=$(find "$store" -type d -name "${2:-IDEA-1}" 2>/dev/null | head -n 1)
+  seq=$(tail -n 1 "${cdir:-$root}/events.jsonl" 2>/dev/null | jq '.seq // null' 2>/dev/null || echo null)
+  jq -cn --arg at "$(now)" --arg c "$2" --arg a "$3" --arg cause "$1" --arg why "$4" --argjson d "${5:-null}" \
+    --argjson seq "${seq:-null}" --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --argjson f "$6" --arg cont "$7" \
+    '{format: "sdc.run-defect/1", at: $at, case: $c, action: $a, cause: $cause, reason: $why, decision: $d,
+      event_seq: $seq, llm_calls: $calls, forced: $f, principal: (if $f then "rule:keep-going" else null end),
+      continuation: $cont}' >> "$defects"
+}
+# keep_going_force <cause> <case> <action> <reason> <decision JSON> <continuation>: 0 when the
+# forced continuation may be taken (its defect line is written); 1 when the run stops: no
+# --keep-going, the same cause at the same case and action was forced before, or 12 were taken
+# (end_cause keep_going_spent).
+keep_going_force() {
+  [[ $keep_going == yes ]] || return 1
+  if jq -e --arg c "$1" --arg k "$2" --arg a "$3" 'select(.forced and .cause == $c and .case == $k and .action == $a)' "$defects" > /dev/null 2>&1; then
+    end_reason="$4; forced once before at this case and action, so the run stops"
+    return 1
+  fi
+  if (( $(forced_count) >= max_forced )); then
+    end_reason="keep_going_spent: $max_forced forced continuations taken; this stop: $1: $4"
+    end_cause=keep_going_spent
+    return 1
+  fi
+  defect "$1" "$2" "$3" "$4" "${5:-null}" true "$6"
+  echo "  keep-going: $1 at $3 in $2: $6 (rule:keep-going, forced $(forced_count) of $max_forced)"
 }
 trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
 
@@ -333,11 +382,15 @@ print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"
 end_note=""
 finish() { # <outcome> [principal that closed it]
   if [[ -n ${2:-} ]]; then d "$root" close --at "$(now)" --outcome "$1" --principal "$2"; else d "$root" close --at "$(now)" --outcome "$1"; fi
-  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2} (exit $code)"
+  # A keep-going run says how many continuations were forced: it is evidence for defects, never a
+  # clean end-to-end pass.
+  local forced=""
+  [[ $keep_going == yes || -s $defects ]] && forced=$(forced_count)
+  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2}${forced:+ (forced $forced)} (exit $code)"
   [[ $code == 0 ]] || exit 4
-  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" --arg by "${2:-}" '{format: "sdc.run-status/1", at: $at, state: "closed",
+  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" --arg by "${2:-}" --arg forced "$forced" '{format: "sdc.run-status/1", at: $at, state: "closed",
     outcome: $o, delivered: ($o == "operating"), note: (if $note == "" then null else $note end),
-    closed_by: (if $by == "" then null else $by end)}' > "$out/status.json"
+    closed_by: (if $by == "" then null else $by end)} + (if $forced == "" then {} else {forced: ($forced | tonumber)} end)' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
   d "$root" replay
@@ -348,10 +401,12 @@ finish() { # <outcome> [principal that closed it]
 
 waiting() {
   if [[ $autonomy == A5 ]]; then
-    end_cause=decision_not_takeable
     end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "$last")
     end_action=$(jq -r '.next[0].action // ""' <<< "$last")
-    end_reason="$end_action in $end_case: decision_not_takeable: ${wait_why:-the decider of this run cannot take it}; it waits on a fix of that decision path, then --reopen"
+    if [[ $end_cause != keep_going_spent ]]; then
+      end_cause=decision_not_takeable
+      end_reason="$end_action in $end_case: decision_not_takeable: ${wait_why:-the decider of this run cannot take it}; it waits on a fix of that decision path, then --reopen"
+    fi
     echo "$end_reason"
     exit 7
   fi
@@ -374,7 +429,7 @@ decide() {
   local req=$1 key rec n reply before attempt=1 why="" kind fallback=""
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
   kind=$(jq -r .type <<< "$req")
-  dec="" ans=""
+  dec="" ans="" taker="decider:$decider"
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
      jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
        and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
@@ -476,6 +531,16 @@ decide() {
         end_reason="$end_action in $end_case: decider:$decider rejected $(jq -r '.subject // "it"' <<< "$req") $(jq -r '.revision // ""' <<< "$req") ($(jq -r '.reasons | join(" ")' <<< "$reply")); rejected_without_rework_path: ${rework_gap:-the protocol has no action that reworks a rejected revision with the reasons}; it waits on that protocol path"
         [[ $autonomy == A5 ]] || end_reason+=", or on a person's edit of work/$(jq -r '.path // ""' <<< "$req") and a resume"
       fi
+      # Keep-going: the approval or close is taken by rule:keep-going; a question or a finding
+      # takes its default (none: nothing to take without inventing it, the run stops).
+      local dflt=""
+      [[ $kind == question || $kind == finding ]] && dflt=$(jq -r ".${kind}.default // \"\"" <<< "$req")
+      if [[ $end_cause != keep_going_spent ]] && [[ $kind != question && $kind != finding || -n $dflt ]] &&
+         keep_going_force "$end_cause" "$end_case" "$end_action$( [[ $kind == question || $kind == finding ]] && jq -r '" " + (.question.id // .finding.id)' <<< "$req")" \
+           "$end_reason" "$reply" "$( [[ -n $dflt ]] && echo "the default taken: $dflt" || echo "approved")"; then
+        end_cause="" end_reason="" rework_gap="" rework_file="" dec=approve ans=$dflt taker=rule:keep-going
+        return 0
+      fi
       echo "$end_reason"
       exit 6 ;;
     *) dec="" ;;
@@ -507,7 +572,7 @@ checks_failing() {
 # goes on; else sets end_cause and end_reason: rework_spent on the third rejection (the approval
 # and the three reasons), rejected_without_rework_path when the approval cannot record a
 # rejection or no writer is sent back by it (rework_gap says which).
-reworked="" rework_gap=""
+reworked="" rework_gap="" taker=""
 rework() { # <request> <decider reply>
   local req=$1 reply=$2 cdir act cap subj rev file prior n kind writers rec
   cdir=$(jq -r .case_dir <<< "$req") act=$(jq -r .action <<< "$req") cap=$(jq -r .capability <<< "$req")
@@ -522,6 +587,14 @@ rework() { # <request> <decider reply>
       principal: $p, at: $at, reasons: $r.reasons, citations: ($r.citations // [($r.cites // [])[] | {cite: .}]),
       decision_record: $r.record, count: $n}' > "$file"
   rework_file=$file
+  # Keep-going: the third rejection is not recorded in the case (a recorded rejection settles the
+  # approval, and rule:keep-going could no longer take it); it is in defects.jsonl.
+  if (( n > 2 )) && [[ $keep_going == yes ]]; then
+    end_cause=rework_spent
+    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
+      '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
+    return 1
+  fi
   d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act" --result rejected --reasons "$file"
   if [[ $code != 0 ]]; then
     rework_gap="\`$act\` cannot record a rejected result ($(tail -n 1 <<< "$last" | sed 's/^sdc-drive: //'))"
@@ -593,7 +666,7 @@ answer_questions() {
     st=changed
     [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
     ANS=$ans yq -i "(.questions[] | select(.id == \"$(jq -r .id <<< "$q")\")) |= (.answer = strenv(ANS)
-      | .status = \"$st\" | .answered_by = \"decider:$decider\")" "$qf"
+      | .status = \"$st\" | .answered_by = \"$taker\")" "$qf"
   done
   [[ $found == yes ]] || return 2
 }
@@ -613,6 +686,17 @@ decide_findings() {
     fid=$(jq -r .id <<< "$f")
     if jq -e '.refused_decision' <<< "$f" > /dev/null; then
       wait_why="$fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f"))"
+      # Keep-going: the finding's default, taken by rule:keep-going and applied by amend.upstream
+      # through the same check; a default that check refused already (rule:keep-going's own) stops.
+      local dflt
+      dflt=$(jq -r '.default // ""' <<< "$f")
+      if [[ -n $dflt && $(jq -r .refused_decision.decided_by <<< "$f") != rule:keep-going ]] &&
+         keep_going_force decision_not_takeable "${cdir##*/}" "$act $fid" \
+           "$act in ${cdir##*/}: decision_not_takeable: $wait_why" "$(jq -c .refused_decision <<< "$f")" "the default taken: $dflt"; then
+        ANS=$dflt yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"rule:keep-going\"
+          | del(.refused_decision))" "$ff"
+        continue
+      fi
       if [[ $autonomy == A5 ]]; then echo "  $wait_why"; else echo "  $wait_why: a person decides"; fi
       return 1
     fi
@@ -620,7 +704,7 @@ decide_findings() {
       '{type: "finding", case_dir: $c, action: $a, capability: null, subject: "findings",
         path: "findings.yaml", revision: $rev, question: null, finding: $f, outcome: null, position: $pos}')"
     [[ -n $dec ]] || return 1
-    ANS=$ans yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"decider:$decider\")" "$ff"
+    ANS=$ans yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"$taker\")" "$ff"
   done
   [[ $found == yes ]] || return 2
 }
@@ -629,7 +713,7 @@ decide_findings() {
 # taken; exits on a refusal; returns 1 when one waits on a person.
 declare -A taken
 decide_all() {
-  local cdir pos n act cap subj path rev key rc
+  local cdir pos n act cap subj path rev key rc by
   cdir=$(jq -r .case_dir <<< "$last")
   pos=$(jq -c .position <<< "$last")
   while IFS= read -r n; do
@@ -657,7 +741,7 @@ decide_all() {
     # scope.answer is not an approval of a revision: each open scope-changing question gets its
     # own answer from the decider, then scope.answer is taken under the decider's principal. With
     # none open (a person's edits wait for attribution) it is decided as an approval.
-    rc=2
+    rc=2 by="decider:$decider"
     [[ $act == scope.answer ]] && { rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?; }
     (( rc == 1 )) && return 1
     if (( rc == 2 )); then
@@ -667,14 +751,15 @@ decide_all() {
       # A reworked rejection: the writer runs in the next round, the approval is asked again after it.
       [[ $reworked == yes ]] && { reworked=""; return 0; }
       [[ -n $dec ]] || return 1
+      by=$taker
     fi
     taken[$key]=1
     if jq -e '.command | test("--action ")' <<< "$n" > /dev/null; then
-      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act"
+      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "$by" --action "$act"
     else
-      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider"
+      d "$cdir" approve --at "$(now)" --capability "$cap" --principal "$by"
     fi
-    echo "  approve $act as decider:$decider: exit $code"
+    echo "  approve $act as $by: exit $code"
     [[ $code == 0 ]] || { jq -r '.message // .' <<< "$last" 2>/dev/null || echo "$last"; exit 4; }
   done < <(jq -c '.next[]' <<< "$last")
 }
@@ -709,7 +794,7 @@ for round in $(seq 1 40); do
           --arg rev "$(jq -r '.revision' "$root/case.json")" \
           '{type: "close", case_dir: $c, action: "close", capability: null, subject: null, path: null,
             revision: $rev, question: null, outcome: $o, position: $pos}')"
-        [[ -n $dec ]] && finish "$outcome"
+        [[ -n $dec ]] && finish "$outcome" "${taker/#decider:*/}"
       fi
       echo "the idea is operating: close the root case through \`$outcome\` (your decision):"
       echo "  $drive --canon $canon --case-dir $root close --at \"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\" --outcome $outcome"
@@ -732,6 +817,19 @@ for round in $(seq 1 40); do
       [[ $code == 0 ]] || exit 1 ;;
     *)
       jq -r '.message // .' <<< "$last" 2>/dev/null || echo "$last"
+      # Keep-going: a spent or not-called writer gets one more allowance of its max_runs
+      # (`sdc-drive allow`); its failing check records are fed back as on any retry.
+      if [[ $verdict == writer_spent || $verdict == writer_not_called ]] && [[ $keep_going == yes ]]; then
+        verdict_end 4
+        wdir=$(jq -r '.case_dir // ""' <<< "$last")
+        if [[ -n $end_action && -n $wdir ]] &&
+           keep_going_force "$end_cause" "$end_case" "$end_action" "$end_reason" "$(jq -c '(.spent // .not_called // [])[0] // null' <<< "$last")" \
+             "one more allowance of $end_action's max_runs"; then
+          d "$wdir" allow --at "$(now)" --action "$end_action" --principal rule:keep-going
+          if [[ $code == 0 ]]; then end_cause="" end_reason="" end_case="" end_action=""; continue; fi
+          end_reason="$end_action in $end_case: the allowance was refused: $(tail -n 1 <<< "$last")"
+        fi
+      fi
       exit 4 ;;
   esac
 done

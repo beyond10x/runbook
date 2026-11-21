@@ -488,6 +488,30 @@ root through any outcome that requires no decision as `rule:autopilot` (`sdc-dri
 terminable child with one legitimate outcome in its round. Below A5 the decider still closes
 `operating` (class close, `autonomy-levels.md` § 3.2).
 
+**Keep-going** (D142, 2026-11-21, trial and eval runs only: `scripts/run-trial.sh <run>
+--autopilot --keep-going`; refused without `--autopilot`). Where autopilot stops with a cause,
+keep-going first writes a line to `<run>/defects.jsonl` (`sdc.run-defect/1`: at, case, action,
+cause, the full reason, the decision or reply that led to it, the case's last event seq, LLM
+calls so far, `forced`, `principal`, `continuation`), then takes a forced continuation under the
+principal `rule:keep-going`, never a decider's or a person's:
+
+| Stop cause | Continuation |
+|---|---|
+| `rejected_without_rework_path` (an approval or close; reached also by an invalid reply under final, `rejected_on_checks`) | `rule:keep-going` approves (closes); a question or a finding takes its default; none: stops |
+| `rework_spent` | `rule:keep-going` approves |
+| `decision_not_takeable`, a refused decider decision on a finding | the finding's default, `decided_by: rule:keep-going`, applied by `amend.upstream` through the same check; refused again: stops |
+| `decision_not_takeable`, a handoff with nothing for the decider | stops |
+| `writer_spent`, `writer_not_called` | `sdc-drive allow --action <writer> --principal rule:keep-going` (event `allowance_granted`): one more `max_runs`, the failing check records fed back as on any retry; spent again: stops |
+| `decider_budget_spent`, `llm_budget_spent`, `step_budget_spent`, `wall_time_spent`, `stuck`, an approval the driver refuses, "pending again", a tool that crashes | stops |
+
+At most 12 forced continuations per run, then the cause `keep_going_spent`; the same cause at the
+same case and action is forced once, and a second time stops. Every stop also gets a line
+(`forced: false`, `continuation: stops`). `status.json` carries `forced: N` and the closed line
+ends `(forced N)`; `sdc-finding-kpis` (`forced`) and `sdc-run-compare` ("forced continuations",
+"defects") print the count and the defects. An invalid decider reply after its retries does not
+stop under final (`approved_on_checks`, `rejected_on_checks`, or the default), so it needs no
+continuation of its own. Without `--keep-going` nothing changes.
+
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
 "<principal>", "reason": "…", "verdict_at_stop": "<last round's verdict>", "case": "<its case id

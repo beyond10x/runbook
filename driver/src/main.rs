@@ -139,6 +139,18 @@ enum Cmd {
         #[arg(long)]
         principal: Option<String>,
     },
+    /// One more allowance of `max_runs` for the writer `--action` (keep-going, D142): records
+    /// `allowance_granted` {action, principal}; the writer's runs count from it, and a
+    /// `not_called` run before it no longer keeps the writer back (`useful`). Refused for an
+    /// action that is not a bound writer of the case.
+    Allow {
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        principal: String,
+    },
     /// Re-run `canon evaluate` on every case of the tree as last evaluated and compare the state
     /// and decision digests with the ones the log recorded.
     Replay,
@@ -682,17 +694,26 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
         if !is_useful {
             continue;
         }
+        // keep-going's one more allowance (`allow`, D142): the writer's runs count from it.
+        let granted = evs
+            .iter()
+            .rposition(|e| e["event"] == "allowance_granted" && e["action"] == a.as_str());
+        let since_a = granted.map_or(since, |g| g.max(since));
         // A writer whose run ended without doing anything (`not_called`, see the step) as the
         // case's last step, at this snapshot, would see the same inputs and end the same way
-        // again: not useful. After any other step (a check that failed since) it is.
+        // again: not useful. After any other step (a check that failed since), or an allowance
+        // granted since, it is.
         if let Some(e) = finished.last().filter(|e| {
-            ran(e) && e["not_called"].is_string() && e["case"] == snapshot.as_str()
+            ran(e)
+                && e["not_called"].is_string()
+                && e["case"] == snapshot.as_str()
+                && granted.is_none_or(|g| e["seq"].as_u64() > evs[g]["seq"].as_u64())
         }) {
             not_called.push(json!({"action": a, "run_seq": e["seq"], "reason": e["not_called"]}));
             continue;
         }
         if writer {
-            let runs = evs[since..]
+            let runs = evs[since_a..]
                 .iter()
                 .filter(|e| {
                     e["event"] == "action_finished"
@@ -703,7 +724,7 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
                 .count() as u64;
             let max = b["max_runs"].as_u64().unwrap_or(8);
             if runs >= max {
-                spent.push(spent_entry(dir, a, runs, max, since, &evs));
+                spent.push(spent_entry(dir, a, runs, max, since_a, &evs));
                 continue;
             }
         }
@@ -1802,6 +1823,15 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
         }
         Cmd::Close { at, outcome, principal } => Ok((close(canon, dir, at, outcome, principal.as_deref())?, 0)),
+        Cmd::Allow { at, action, principal } => {
+            let ir = read_json(&dir.join("ir.json"))?;
+            let bindings = read_json(&dir.join("bindings.json"))?;
+            if bindings[action.as_str()].is_null() || ir["actions"][action.as_str()]["effect"] != "write" {
+                return Err(format!("`{action}` is no bound writer of this case"));
+            }
+            event(dir, at, "allowance_granted", json!({"action": action, "principal": principal}))?;
+            Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
+        }
         Cmd::Replay => {
             let mut report = Vec::new();
             let mut ok = true;

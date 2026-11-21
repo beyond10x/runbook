@@ -407,6 +407,18 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
 
     metrics.push(("setting".into(), text(settings.as_ref().and_then(|s| s.last()).map_or(NOT_RECORDED.to_string(), setting_summary))));
 
+    // Keep-going (D142, defects.jsonl): continuations forced by rule:keep-going, and the defects.
+    let defects = jsonl_opt(&dir.join("defects.jsonl"))?;
+    let forced = defects.iter().flatten().filter(|d| d["forced"] == json!(true)).count();
+    metrics.push(("forced continuations".into(), defects.as_ref().map_or(Cell::Missing, |_| int(forced))));
+    metrics.push(("defects".into(), text(defects.as_ref().map_or(NOT_RECORDED.to_string(), |d| {
+        if d.is_empty() {
+            return "none".to_string();
+        }
+        d.iter().map(|x| format!("{} at {} in {} ({})", js(&x["cause"]), js(&x["action"]), js(&x["case"]),
+            if x["forced"] == json!(true) { "forced" } else { "stops" })).collect::<Vec<_>>().join("; ")
+    }))));
+
     let recorded = calls.is_some();
     Ok(Run {
         label: label.to_string(),

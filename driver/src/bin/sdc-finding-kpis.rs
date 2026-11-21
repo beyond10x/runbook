@@ -229,6 +229,14 @@ fn main() -> ExitCode {
     // L7 time waiting on a person: every stop after which the run did not go on by itself.
     k.push(("L7_waiting_on_person_seconds", waiting(run)));
 
+    // Keep-going (D142): the continuations rule:keep-going forced, and every defect line
+    // (defects.jsonl). A run with one forced is evidence for defects, not a clean pass.
+    let defects = jsonl(&run.join("defects.jsonl"));
+    let forced = defects.iter().filter(|d| d["forced"] == json!(true)).count();
+    k.push(("forced", json!({"value": forced, "defects": defects.iter().map(|d| json!({
+        "cause": d["cause"], "case": d["case"], "action": d["action"], "forced": d["forced"],
+        "continuation": d["continuation"], "event_seq": d["event_seq"]})).collect::<Vec<_>>()})));
+
     // L3 defaults accepted without change.
     let res: Vec<&Value> = fd
         .iter()

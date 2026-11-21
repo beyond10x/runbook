@@ -853,6 +853,65 @@ if (( code == 6 )) && [[ ! -f $r/status.json ]] && [[ -n $(find "$r/decider" -mi
 else
   echo "autopilot-close-a3: FAILED (exit $code)"
 fi
+# Keep-going (D142, --autopilot --keep-going). keep-going-three: one run meets three different
+# stops: requirements.normalise writes a citation fault three times (fixtures/keep-going: the
+# n-th call's requirements.yaml.<n>, then the good one) -> writer_spent; the decider's option 2 on
+# the spec finding f1 is refused by the check (SDC_STUB_REFUSE_DECISION simulates the fault) ->
+# decision_not_takeable; merge.approve rejected three times -> rework_spent. Passes when each is
+# forced once by rule:keep-going (one more allowance, f1's default, the approval), the run closes
+# operating with `(forced 3)`, status.json forced 3, three forced lines in defects.jsonl naming the
+# three causes, and f1 decided by rule:keep-going. keep-going-repeat: fixtures/offline-decision,
+# whose default the check refuses: forced once, refused again by the same check -> stops
+# decision_not_takeable (exit 7), one forced line and one `stops` line. keep-going-off: as
+# keep-going-three without the flag: stops at the first (writer_spent, exit 4), no defects.jsonl.
+opt2="the customer and the billing clerk"
+mrej='{"decision": "reject", "answer": null, "reasons": ["fixture: the server binds only to 127.0.0.1"], "cites": ["r1"], "best": null}'
+kgreplies=$(jq -cn --arg o "$opt2" --argjson j "$mrej" '{f1: {decision: "approve", answer: $o, best: null, cites: ["r2"],
+  reasons: ["fixture: the clerk gets the email too"]}, "merge.approve": $j}')
+kgenv=(SDC_STUB_FIXTURES="$fx/keep-going" SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_STUB_REFUSE_DECISION="$opt2"
+  SDC_DECIDER_REPLIES="$kgreplies")
+if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
+  expected+=(keep-going-three keep-going-off)
+  targs=(--autopilot --keep-going)
+  trial keep-going-three "${kgenv[@]}"
+  code=$?
+  r=$s/runs/keep-going-three
+  if (( code == 0 )) && jq -e '.outcome == "operating" and .forced == 3' "$r/status.json" >/dev/null &&
+     grep -q '^closed IDEA-1: "operating" by rule:autopilot (forced 3)' "$s/keep-going-three.txt" &&
+     jq -se 'length == 3 and all(.[]; .forced == true and .principal == "rule:keep-going" and .format == "sdc.run-defect/1"
+       and (.reason | length > 0) and (.event_seq | type == "number") and (.llm_calls | type == "number"))
+       and ([.[] | .cause] == ["writer_spent", "decision_not_takeable", "rework_spent"])' "$r/defects.jsonl" >/dev/null &&
+     yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "f1") | .status == "resolved"
+       and .decided_by == "rule:keep-going" and .decision == "the customer only"' >/dev/null &&
+     "$kpis" "$r" --json | jq -e '.forced.value == 3' >/dev/null; then
+    echo "keep-going-three: checks pass (writer_spent, decision_not_takeable, rework_spent forced by rule:keep-going; closed (forced 3))"
+  else
+    echo "keep-going-three: FAILED (exit $code, defects $(jq -sc 'map([.cause, .forced])' "$r/defects.jsonl" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+  fi
+  targs=(--autopilot)
+  trial keep-going-off "${kgenv[@]}"
+  code=$?
+  r=$s/runs/keep-going-off
+  if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requirements.normalise in IDEA-1.intake"))' "$r/run-stopped.json" >/dev/null &&
+     [[ ! -e $r/defects.jsonl && ! -f $r/status.json ]]; then
+    echo "keep-going-off: checks pass (without --keep-going the first stop ends the run: writer_spent, no defects.jsonl)"
+  else
+    echo "keep-going-off: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+  fi
+fi
+expected+=(keep-going-repeat)
+targs=(--autopilot --keep-going)
+trial keep-going-repeat SDC_STUB_FIXTURES="$fx/offline-decision"
+code=$?
+r=$s/runs/keep-going-repeat
+if (( code == 7 )) && jq -e '.cause == "decision_not_takeable" and .by == "rule:autopilot"' "$r/run-stopped.json" >/dev/null &&
+   jq -se 'length == 2 and .[0].forced == true and .[0].cause == "decision_not_takeable" and .[1].forced == false
+     and .[1].cause == "decision_not_takeable" and .[1].continuation == "stops"' "$r/defects.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e 'any(.findings[]; .refused_decision.decided_by == "rule:keep-going")' >/dev/null; then
+  echo "keep-going-repeat: checks pass (the default forced once, refused again by the same check: stops decision_not_takeable)"
+else
+  echo "keep-going-repeat: FAILED (exit $code, defects $(jq -sc 'map([.cause, .forced])' "$r/defects.jsonl" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
 targs=(--autopilot)
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3

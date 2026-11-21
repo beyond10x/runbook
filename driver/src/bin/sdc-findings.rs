@@ -53,11 +53,13 @@ fn is_open(s: &str) -> bool {
     s == "open" || s == "needs_person"
 }
 
-/// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it.
+/// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it, or keep-going's
+/// forced default (`rule:keep-going`, D142): taken in a decider's place and checked as its are.
 fn is_decider(principal: &str) -> bool {
-    principal
-        .strip_prefix("decider:")
-        .is_some_and(|k| !k.is_empty())
+    principal == "rule:keep-going"
+        || principal
+            .strip_prefix("decider:")
+            .is_some_and(|k| !k.is_empty())
 }
 
 /// A person's principal (`person:<id>`): written only where a person acted.
@@ -1300,16 +1302,24 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         // A decider's decision goes through the same checks as the agent's amendments: only a
         // person's decision stands unchecked.
         let checked = decided_by == "agent" || is_decider(&decided_by);
-        if let Some(why) = verify(
-            &before,
-            &snap.2,
-            &hits_before,
-            &w,
-            &f,
-            &decision,
-            &new_q,
-            checked,
-        )? {
+        // Stub cycles only: SDC_STUB_REFUSE_DECISION names a decision text the check refuses when
+        // a decider or rule:keep-going took it (a checker fault simulated, fixed by unsetting it).
+        let refused = match std::env::var("SDC_STUB_REFUSE_DECISION") {
+            Ok(d) if is_decider(&decided_by) && d == decision => Some(format!(
+                "fixture: SDC_STUB_REFUSE_DECISION refuses {decided_by}'s decision"
+            )),
+            _ => verify(
+                &before,
+                &snap.2,
+                &hits_before,
+                &w,
+                &f,
+                &decision,
+                &new_q,
+                checked,
+            )?,
+        };
+        if let Some(why) = refused {
             (w.req, w.qs, w.ctx) = snap;
             let attempts = f.get("attempts").and_then(Value::as_u64).unwrap_or(0) + 1;
             let e = &mut w.findings_mut()[i];
