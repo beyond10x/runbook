@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! sdc-conform observe <run dir> [--tables <n>] [--table <table.json>] [--pin <ess-pin.json>] [--tools <dir>]
-//! sdc-conform check-table --ir <ir.json> --table <table.json>
+//! sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
 //! sdc-conform ess-path [--pin <ess-pin.json>]
 //! sdc-conform ess-install [--archive <ess-….tar.gz>] [--pin <ess-pin.json>]
 //! ```
@@ -17,8 +17,8 @@
 //! table whose run shows its own fault (a capture that never appears, a request naming a value the
 //! scenario does not carry, 401 or 403 from the product) is refused and asked again once with that
 //! evidence. It writes `<run>/oracle.json` (`sdc.oracle/1`, one check `conformance`: k passed, f
-//! failed, u not measurable of n scenarios over the counted tables, and how many scenarios ended the
-//! same under all of them; `held` only when k = n > 0), `<run>/conformance-detail.json` (every
+//! failed, d disputed, u not measurable of n scenarios over the counted tables, and how many scenarios
+//! ended the same under all of them; `held` only when k = n > 0), `<run>/conformance-detail.json` (every
 //! table run's ess `--format json` output) and its working files under `<run>/conformance/`. An
 //! empty suite, a missing delivered tree, no counted table (missing, refused, product not built or
 //! not started) and a missing or mismatched ess are each `unknown` with a named cause and no counts,
@@ -48,7 +48,7 @@ mod conformance;
 use conformance::{check_table, declared_missing, needs_unreachable, not_reachable, read_json, resolve_ess, s, sha256_bytes, sha256_file, table_schema, Ess};
 
 const USAGE: &str = "usage: sdc-conform observe <run dir> [--tables <n>] [--table <table.json>] [--pin <ess-pin.json>] [--tools <dir>]
-       sdc-conform check-table --ir <ir.json> --table <table.json>
+       sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
        sdc-conform ess-path [--pin <ess-pin.json>]
        sdc-conform ess-install [--archive <file>] [--pin <ess-pin.json>]";
 const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
@@ -56,9 +56,9 @@ const DEFAULT_TABLES: usize = 3;
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const LIMITS: [&str; 4] = [
     "The product runs on this host without confinement (Substrate is not used yet); it is started from a copy of the delivered tree and bound to 127.0.0.1 only as far as it honours the port it is given.",
-    "Events are built by the adapter from the HTTP response body by the table's templates, so event checks test the table as much as the product (events_checked_from: response_body); a payload field filled from the input or a literal tests nothing of the product.",
-    "The route tables are written by a model after the run. A scenario passes when one counted table passed it: a table fault turns a pass into a failure or an error, not a failure into a pass, as far as the checker's rules reach (docs/conformance.md names what they do not reach).",
-    "Tables can disagree on which HTTP status is which outcome; the union over tables can pass two scenarios no single table passes together.",
+    "Events are built by the adapter from the HTTP response body by the table's templates, so event checks test the table as much as the product (events_checked_from: response_body); a literal is refused, and a check of a field filled from the input is recorded unverified (`unverified_checks`).",
+    "The route tables are written by a model after the run. A scenario passes only if every counted table that reached it passed it, fails only if every one failed it, and is disputed when they disagree; the figure is an instrument reading, not a ledger metric (docs/conformance.md).",
+    "Several statuses may mean one outcome, so a table decides which of the product's answers count as an outcome; the check refuses only a status mapped to two outcomes without a body discriminator.",
 ];
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -138,7 +138,7 @@ struct Obs {
     rec: J,
 }
 
-/// The figure of a conformance record: `k passed, f failed, u not measurable of n; t tables agree
+/// The figure of a conformance record: `k passed, f failed, d disputed, u not measurable of n; t tables agree
 /// on a of n` (`; 1 table` for one), with `, unknown: <cause>` for a measured unknown;
 /// `not measured (<cause>), n scenarios` when no table was counted.
 fn figure(c: &J) -> String {
@@ -150,7 +150,8 @@ fn figure(c: &J) -> String {
             None => format!("not measured ({cause})"),
         };
     };
-    let mut text = format!("{k} passed, {f} failed, {u} not measurable of {n}");
+    let d = c["d"].as_u64().unwrap_or(0);
+    let mut text = format!("{k} passed, {f} failed, {d} disputed, {u} not measurable of {n}");
     match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
         (Some(1), _) => text.push_str("; 1 table"),
         (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),
@@ -181,7 +182,7 @@ impl Obs {
         self.rec["limits"] = json!(LIMITS);
         let name = self.run.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
         let r = &self.rec;
-        let check = json!({"id": "conformance", "result": result, "k": r["k"], "f": r["f"], "u": r["u"], "n": r["n"],
+        let check = json!({"id": "conformance", "result": result, "k": r["k"], "f": r["f"], "d": r["d"], "u": r["u"], "n": r["n"],
             "agreement": r["agreement"], "tables_counted": r["tables_counted"], "cause": cause});
         let doc = json!({"format": "sdc.oracle/1", "run": name, "checks": [check], "conformance": self.rec});
         let p = self.run.join("oracle.json");
@@ -228,6 +229,10 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
 - `start.argv`: the argv that starts the built product, run in the tree. argv[0] is a path relative to the\n\
   tree (e.g. target/release/<bin>) or one of cargo, go, node, npm, deno, java, dotnet. Use the placeholders\n\
   {port} (required), {host} (127.0.0.1), {data_dir} (an empty directory), {data_file} (a file in it).\n\
+  `start.from`: [{file, line}], the README or manifest (Cargo.toml, package.json, go.mod, pyproject.toml,\n\
+  Procfile, Taskfile.yml, Makefile, deno.json, justfile) of the tree and the 1-based lines that state this\n\
+  start command for normal use; together the cited lines must contain the program's file name and every\n\
+  literal argument. Never use an argument or a header the README describes as a test, demo or mock mode.\n\
   `start.ready`: a request the product answers once it is up, e.g. {\"method\": \"GET\", \"path\": \"/\"}.\n\
 - `captures` (optional): values the product prints when it starts, e.g. a link, a token or a board code\n\
   minted at start: {name, stream (stdout or stderr), regex (exactly one group), timeout_s (1-120)}.\n\
@@ -247,14 +252,17 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
   response lacks). An outcome that is external (`condition.kind` external) needs a `forced` entry: the\n\
   request on the command's own method and route that makes the product take it (e.g. a body member\n\
   or a query parameter that simulates a lost connection).\n\
-  Two outcomes may share a status only with a `when_body` {path, equals} on each.\n\
+  `status` may be a list when several statuses mean one outcome (e.g. [409, 404] where the product\n\
+  answers a missing entity 404 and the specification calls that case wrong-state). Two outcomes may\n\
+  share a status only with a `when_body` {path, equals} on each. Payload and error fields are never\n\
+  literals: fill each from the response, a lookup, a capture or the input. A field filled from the\n\
+  input is recorded unverified, because the check then compares the input with itself; prefer the\n\
+  response where the product echoes the value.\n\
 - `views`: one entry per view: `request`, `rows` (the dotted path to the list of rows in the response\n\
   body, \"\" for the whole body), `fields` mapping each view field to its path in a row. Two views\n\
   cannot read the same request.\n\
-- Describe the product as it is. Where it answers a case with a status the specification does not\n\
-  declare (for example 404 for an unknown id where the specification says wrong-state), do not map\n\
-  that status to an outcome to make a check pass: map the outcome to the status the product gives for\n\
-  the case the outcome describes. Where a command, outcome or view has no route, give an entry with\n\
+- Describe the product as it is: map each outcome to the statuses the product gives for the case the\n\
+  outcome describes. Where a command, outcome or view has no route, give an entry with\n\
   only its name and `none` {kind, why} instead of inventing a route. kind\n\
   `not_reachable_over_the_interface`: the product does it, but no HTTP client can drive or read it\n\
   (it lives only in the browser, or only an operator at the console can trigger it); its scenarios\n\
@@ -291,6 +299,8 @@ struct Node {
     effort: String,
     cwd: PathBuf,
     schema: PathBuf,
+    /// The delivered tree, whose README or manifest the start command is checked against.
+    tree: PathBuf,
 }
 
 fn node_setup(out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (&'static str, String)> {
@@ -319,7 +329,7 @@ fn node_setup(out: &Path, tree: &Path, spec: &Path, ir: &Path) -> Result<Node, (
     prep().map_err(|e| ("table_missing", e))?;
     let rec = json!({"source": "conformance.table", "adapter": adapter_name, "model": model, "model_source": model_source,
         "effort": effort, "effort_source": effort_source});
-    Ok(Node { adapter, rec, model, effort, cwd, schema })
+    Ok(Node { adapter, rec, model, effort, cwd, schema, tree: tree.to_path_buf() })
 }
 
 /// One slot's table from the node: at most `tries` fresh sessions, each reply checked by the
@@ -351,7 +361,7 @@ fn obtain(node: &Node, dir: &Path, slot: usize, attempts: &mut u32, cost: &mut f
             None => vec![format!("no reply (adapter exit {code:?}: {tail})")],
             Some(Err(e)) => vec![format!("the reply is not JSON: {e}")],
             Some(Ok(t)) => {
-                let p = check_table(&t, ir_doc);
+                let p = check_table(&t, ir_doc, &node.tree);
                 if p.is_empty() {
                     return Ok(t);
                 }
@@ -439,6 +449,8 @@ struct TableRun {
     failed_checks: Vec<J>,
     notes: Vec<J>,
     detail: J,
+    /// Checks of fields the table fills from the request's own input: `{scenario, about, fields}`.
+    unverified: Vec<J>,
 }
 
 /// What the adapter log shows as the table's own fault: a capture that never appeared, a request
@@ -476,9 +488,47 @@ fn table_evidence(events: &[J], n: usize) -> (Vec<String>, &'static str) {
     (out, kind)
 }
 
+/// The checks of a table run that compare a field the table fills from the request's own input:
+/// a payload check (`payload of <event>`) or an error check (`error <error>`) whose compared fields
+/// include one the table builds from `{input.…}`. `{scenario, about, fields}` for each check ess
+/// reported.
+fn unverified_checks(table: &J, suite: &J, det: &J) -> Vec<J> {
+    let mut out = vec![];
+    for sc in det["scenarios"].as_array().into_iter().flatten() {
+        let id = s(&sc["scenario"]);
+        let reported = |about: &str| sc["checks"].as_array().into_iter().flatten().any(|c| c["about"] == about);
+        let (mut command, mut outcome) = (String::new(), String::new());
+        for st in suite["scenarios"][id]["steps"].as_array().into_iter().flatten() {
+            match s(&st["step"]) {
+                "execute_command" | "execute_command_without_input" => {
+                    command = s(&st["command"]).to_string();
+                    outcome.clear();
+                }
+                "expect_outcome" => outcome = s(&st["outcome"]["outcome"]).to_string(),
+                step @ ("expect_event" | "expect_event_values" | "expect_error") => {
+                    let (about, event, compared) = if step == "expect_error" {
+                        (format!("error {}", s(&st["error"])), None, &st["fields"])
+                    } else {
+                        let values = &st["payload"];
+                        let compared = if values.as_object().is_some_and(|m| !m.is_empty()) { values } else { &st["shape"] };
+                        (format!("payload of {}", s(&st["event"])), Some(s(&st["event"])), compared)
+                    };
+                    let filled = conformance::input_filled(table, &command, &outcome, event);
+                    let fields: Vec<&String> = compared.as_object().into_iter().flatten().map(|(k, _)| k).filter(|k| filled.contains(*k)).collect();
+                    if !fields.is_empty() && reported(&about) {
+                        out.push(json!({"scenario": id, "about": about, "fields": fields}));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<(String, Built)>) -> TableRun {
     let mut t = TableRun { rec: json!({"run": number}), statuses: Default::default(), cause: None, evidence: vec![], kind: "table_error",
-        failed_checks: vec![], notes: vec![], detail: J::Null };
+        failed_checks: vec![], notes: vec![], detail: J::Null, unverified: vec![] };
     let fail = |mut t: TableRun, cause: &'static str, why: String| {
         t.rec["cause"] = json!(cause);
         t.rec["why"] = json!(why);
@@ -491,7 +541,7 @@ fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<
     let table_path = dir.join("table.json");
     let _ = fs::write(&table_path, serde_json::to_string_pretty(table).unwrap_or_default() + "\n");
     t.rec["sha256"] = json!(sha256_bytes(table.to_string().as_bytes()));
-    let problems = check_table(table, &cx.ir_doc);
+    let problems = check_table(table, &cx.ir_doc, &cx.tree);
     if !problems.is_empty() {
         t.rec["refused"] = json!(problems);
         return fail(t, "table_refused", problems.join("; "));
@@ -548,8 +598,15 @@ fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<
     let contradicts = |id: &str| det["scenarios"].as_array().into_iter().flatten()
         .filter(|sc| sc["scenario"] == id)
         .any(|sc| sc["checks"].as_array().into_iter().flatten().any(|c| c["status"] == "failed"));
+    let unverified = unverified_checks(table, &cx.suite_doc, &det);
+    // A scenario whose every check compares the input with itself observed nothing of the product.
+    let all_unverified = |id: &str| det["scenarios"].as_array().into_iter().flatten().find(|sc| sc["scenario"] == id).is_some_and(|sc| {
+        let checks = sc["checks"].as_array().map(Vec::as_slice).unwrap_or_default();
+        !checks.is_empty() && checks.iter().all(|c| unverified.iter().any(|u| u["scenario"] == id && u["about"] == c["about"]))
+    });
     for (id, st) in &ran {
         let mine = match st.as_str() {
+            "passed" if all_unverified(id) => "not_measurable",
             "passed" => "passed",
             "error" => "error",
             _ if !contradicts(id) && needs_unreachable(&cx.suite_doc["scenarios"][id.as_str()], &nr) => "not_measurable",
@@ -576,9 +633,11 @@ fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<
     t.rec["n"] = json!(n);
     t.rec["conformance_status"] = rep["conformance_status"].clone();
     t.rec["counts"] = rep["counts"].clone();
+    t.rec["unverified"] = json!(unverified.len());
+    t.unverified = unverified;
     t.detail = det;
     let events: Vec<J> = fs::read_to_string(&log).unwrap_or_default().lines().filter_map(|l| serde_json::from_str::<J>(l).ok()).collect();
-    t.notes = events.iter().filter(|e| e["event"] != "start").cloned().collect();
+    t.notes = events.iter().filter(|e| e["event"] != "start" && e["event"] != "request").cloned().collect();
     let not_started: Vec<&J> = events.iter().filter(|e| e["event"] == "start" && e["ok"] == false).collect();
     if let Some(first) = not_started.first() {
         let why = format!("{} of {n} scenarios: {}", not_started.len(), s(&first["why"]));
@@ -722,7 +781,7 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         }
         rec["cost_usd"] = json!((cost * 1e6).round() / 1e6);
         if let Some(r) = &last {
-            for key in ["sha256", "k", "f", "u", "e", "n", "conformance_status", "declared_missing", "build"] {
+            for key in ["sha256", "k", "f", "u", "e", "n", "unverified", "conformance_status", "declared_missing", "build"] {
                 rec[key] = r.rec[key].clone();
             }
         }
@@ -761,19 +820,26 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         return o.finish("unknown", Some(&cause), why);
     }
 
-    // The figure over the counted tables: a scenario passes when one counted table passed it,
-    // fails when none passed it and one failed it, and is not measurable otherwise.
+    // The figure over the counted tables. A table reaches a scenario when it passed or failed it.
+    // The scenario passes when every table that reached it passed it, fails when every one failed
+    // it, is disputed when they disagree, and is not measurable when none reached it.
     let ids: Vec<String> = cx.suite_doc["scenarios"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
     let mut scenarios = vec![];
-    let (mut k, mut f, mut u, mut agree) = (0usize, 0usize, 0usize, 0usize);
+    let (mut k, mut f, mut d, mut u, mut agree) = (0usize, 0usize, 0usize, 0usize, 0usize);
     for id in &ids {
         let under: Vec<J> = (1..=slots).map(|slot| counted.iter().find(|(s, _)| *s == slot)
             .map_or(J::Null, |(_, r)| json!(r.statuses.get(id).cloned().unwrap_or_else(|| "error".into())))).collect();
         let got: Vec<&str> = under.iter().filter_map(J::as_str).collect();
-        let status = if got.contains(&"passed") { "passed" } else if got.contains(&"failed") { "failed" } else { "not_measurable" };
+        let status = match (got.contains(&"passed"), got.contains(&"failed")) {
+            (true, true) => "disputed",
+            (true, false) => "passed",
+            (false, true) => "failed",
+            (false, false) => "not_measurable",
+        };
         match status {
             "passed" => k += 1,
             "failed" => f += 1,
+            "disputed" => d += 1,
             _ => u += 1,
         }
         if got.windows(2).all(|w| w[0] == w[1]) {
@@ -783,9 +849,15 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
     }
     let mut failed_checks = vec![];
     let mut notes = vec![];
+    let mut unverified = vec![];
     for (slot, r) in &counted {
+        for c in &r.unverified {
+            let mut c = c.clone();
+            c["table"] = json!(slot);
+            unverified.push(c);
+        }
         for c in &r.failed_checks {
-            let failed = scenarios.iter().any(|x| x["id"] == c["scenario"] && x["status"] == "failed");
+            let failed = scenarios.iter().any(|x| x["id"] == c["scenario"] && (x["status"] == "failed" || x["status"] == "disputed"));
             if failed {
                 let mut c = c.clone();
                 c["table"] = json!(slot);
@@ -800,19 +872,24 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
     }
     o.rec["k"] = json!(k);
     o.rec["f"] = json!(f);
+    o.rec["d"] = json!(d);
     o.rec["u"] = json!(u);
     o.rec["agreement"] = json!(agree);
     o.rec["tables_counted"] = json!(counted.len());
     o.rec["scenarios"] = J::Array(scenarios);
     o.rec["failed_checks"] = J::Array(failed_checks);
     o.rec["adapter_notes"] = J::Array(notes);
+    o.rec["unverified_checks"] = J::Array(unverified);
     if k == n {
         return o.finish("held", None, None);
     }
     if f > 0 {
         return o.finish("contradicted", None, None);
     }
-    o.finish("unknown", Some("not_measurable"), Some(format!("{u} of {n} scenarios passed and failed under no counted table: they need what the product's interface cannot reach, or ended error")))
+    if d > 0 {
+        return o.finish("unknown", Some("disputed"), Some(format!("{d} of {n} scenarios passed under one counted table and failed under another")));
+    }
+    o.finish("unknown", Some("not_measurable"), Some(format!("{u} of {n} scenarios passed and failed under no counted table: they need what the product's interface cannot reach, or ended error under every counted table")))
 }
 
 fn ess_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, String> {
@@ -885,13 +962,13 @@ fn main() -> ExitCode {
             }
         }
         Some("check-table") => {
-            let (Some(ir), Some(t)) = (arg(&args, "--ir"), arg(&args, "--table")) else {
+            let (Some(ir), Some(t), Some(tree)) = (arg(&args, "--ir"), arg(&args, "--table"), arg(&args, "--tree")) else {
                 eprintln!("{USAGE}");
                 return ExitCode::from(64);
             };
             match (read_json(Path::new(&ir)), read_json(Path::new(&t))) {
                 (Ok(ir), Ok(t)) => {
-                    let p = check_table(&t, &ir);
+                    let p = check_table(&t, &ir, Path::new(&tree));
                     println!("{}", json!({"accepted": p.is_empty(), "problems": p, "declared_missing": declared_missing(&t)}));
                     if p.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) }
                 }

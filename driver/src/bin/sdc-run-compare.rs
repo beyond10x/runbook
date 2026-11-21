@@ -427,7 +427,7 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
     };
     metrics.push(("oracle check".into(), text(oracle.as_ref().map_or("none".to_string(), oracle_summary))));
     // The conformance observation after close (docs/conformance.md):
-    // `k passed, f failed, u not measurable of n`.
+    // `k passed, f failed, d disputed, u not measurable of n`.
     let conformance = oracle.as_ref().map(|o| &o["conformance"]).filter(|c| c["result"].is_string());
     metrics.push(("conformance".into(), text(conformance.map_or("not observed".to_string(), conformance_cell))));
     let replay = json_opt(&dir.join("replay.json"))?;
@@ -530,7 +530,8 @@ fn conformance_cell(c: &J) -> String {
             None => format!("not measured ({cause})"),
         };
     };
-    let mut text = format!("{k} passed, {f} failed, {u} not measurable of {n}");
+    let d = c["d"].as_u64().unwrap_or(0);
+    let mut text = format!("{k} passed, {f} failed, {d} disputed, {u} not measurable of {n}");
     match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
         (Some(1), _) => text.push_str("; 1 table"),
         (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),

@@ -256,23 +256,23 @@ fn the_conformance_figure_is_its_own_row() {
     assert!(cp.success());
     let run = d.join("autopilot-closed");
     fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1", "run": "autopilot-closed",
-        "checks": [{"id": "conformance", "result": "contradicted", "k": 13, "f": 3, "u": 1, "n": 17, "agreement": 15, "tables_counted": 3, "cause": null}],
-        "conformance": {"result": "contradicted", "k": 13, "f": 3, "u": 1, "n": 17, "agreement": 15, "tables_counted": 3, "cause": null}}).to_string()).unwrap();
+        "checks": [{"id": "conformance", "result": "contradicted", "k": 13, "f": 3, "d": 0, "u": 1, "n": 17, "agreement": 15, "tables_counted": 3, "cause": null}],
+        "conformance": {"result": "contradicted", "k": 13, "f": 3, "d": 0, "u": 1, "n": 17, "agreement": 15, "tables_counted": 3, "cause": null}}).to_string()).unwrap();
     let (code, err, md, js) = compare(&run, &fixture("autopilot-stopped"), "conformance");
     assert_eq!(code, 0, "{err}");
-    let row = "13 passed, 3 failed, 1 not measurable of 17; 3 tables agree on 15 of 17 (contradicted)";
+    let row = "13 passed, 3 failed, 0 disputed, 1 not measurable of 17; 3 tables agree on 15 of 17 (contradicted)";
     assert_eq!(text(&js, 0, "conformance"), row);
     assert_eq!(text(&js, 1, "conformance"), "not observed");
     assert_eq!(text(&js, 0, "oracle check"), "contradicted (held 0, contradicted 1, unknown 0)");
     assert!(md.contains(&format!("\n| conformance | {row} | not observed | differs |\n")), "{md}");
     fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1",
-        "checks": [{"id": "conformance", "result": "unknown", "k": 6, "f": 0, "u": 1, "n": 7, "agreement": 7, "tables_counted": 1, "cause": "not_measurable"}],
-        "conformance": {"result": "unknown", "k": 6, "f": 0, "u": 1, "n": 7, "agreement": 7, "tables_counted": 1, "cause": "not_measurable"}}).to_string()).unwrap();
+        "checks": [{"id": "conformance", "result": "unknown", "k": 6, "f": 0, "d": 0, "u": 1, "n": 7, "agreement": 7, "tables_counted": 1, "cause": "not_measurable"}],
+        "conformance": {"result": "unknown", "k": 6, "f": 0, "d": 0, "u": 1, "n": 7, "agreement": 7, "tables_counted": 1, "cause": "not_measurable"}}).to_string()).unwrap();
     let (_, _, _, js) = compare(&run, &fixture("autopilot-stopped"), "conformance-u");
-    assert_eq!(text(&js, 0, "conformance"), "6 passed, 0 failed, 1 not measurable of 7; 1 table, unknown: not_measurable");
+    assert_eq!(text(&js, 0, "conformance"), "6 passed, 0 failed, 0 disputed, 1 not measurable of 7; 1 table, unknown: not_measurable");
     fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1",
-        "checks": [{"id": "conformance", "result": "unknown", "k": null, "f": null, "u": null, "n": 32, "agreement": null, "tables_counted": 0, "cause": "table_missing"}],
-        "conformance": {"result": "unknown", "k": null, "f": null, "u": null, "n": 32, "agreement": null, "tables_counted": 0, "cause": "table_missing"}}).to_string()).unwrap();
+        "checks": [{"id": "conformance", "result": "unknown", "k": null, "f": null, "d": null, "u": null, "n": 32, "agreement": null, "tables_counted": 0, "cause": "table_missing"}],
+        "conformance": {"result": "unknown", "k": null, "f": null, "d": null, "u": null, "n": 32, "agreement": null, "tables_counted": 0, "cause": "table_missing"}}).to_string()).unwrap();
     let (_, _, _, js) = compare(&run, &fixture("autopilot-stopped"), "conformance-none");
     assert_eq!(text(&js, 0, "conformance"), "not measured (table_missing), 32 scenarios");
 }

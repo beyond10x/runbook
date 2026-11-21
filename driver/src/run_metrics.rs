@@ -1064,7 +1064,7 @@ pub fn load(dir: &Path) -> Res<J> {
     let mut run = run;
     let conf_fields = json!({
         "conformance": conformance.as_ref().map_or_else(|| "not observed".to_string(), conformance_figure),
-        "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_u": conf("u"), "conformance_n": conf("n"),
+        "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_d": conf("d"), "conformance_u": conf("u"), "conformance_n": conf("n"),
         "conformance_agreement": conf("agreement"), "conformance_tables": conf("tables_counted"),
         "conformance_result": conf("result"), "conformance_cause": conf("cause"), "conformance_measured": measured,
     });
@@ -1169,7 +1169,7 @@ fn opt(v: &J) -> String {
 }
 
 /// The figure of one conformance record (`oracle.json` `conformance`, the same rule as
-/// `sdc-conform`): `k passed, f failed, u not measurable of n; t tables agree on a of n`
+/// `sdc-conform`): `k passed, f failed, d disputed, u not measurable of n; t tables agree on a of n`
 /// (`; 1 table` for one), with `, unknown: <cause>` for a measured unknown;
 /// `not measured (<cause>), n scenarios` when no table was counted.
 pub fn conformance_figure(c: &J) -> String {
@@ -1181,7 +1181,8 @@ pub fn conformance_figure(c: &J) -> String {
             None => format!("not measured ({cause})"),
         };
     };
-    let mut text = format!("{k} passed, {f} failed, {u} not measurable of {n}");
+    let d = c["d"].as_u64().unwrap_or(0);
+    let mut text = format!("{k} passed, {f} failed, {d} disputed, {u} not measurable of {n}");
     match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
         (Some(1), _) => text.push_str("; 1 table"),
         (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),
@@ -1193,7 +1194,7 @@ pub fn conformance_figure(c: &J) -> String {
     text
 }
 
-/// `k passed, f failed, u not measurable of n (held|contradicted)`, an unknown's figure, or
+/// `k passed, f failed, d disputed, u not measurable of n (held|contradicted)`, an unknown's figure, or
 /// `not observed`.
 pub fn conformance_text(m: &J) -> String {
     let summary = m["conformance"].as_str().unwrap_or("not observed");

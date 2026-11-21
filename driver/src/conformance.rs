@@ -393,13 +393,185 @@ fn check_captures(t: &J, ir: &J, p: &mut Vec<String>) {
     }
 }
 
-/// The table checked against the compiled specification (`ess compile` IR). Empty when the table
-/// is accepted; otherwise every reason it is refused.
-pub fn check_table(t: &J, ir: &J) -> Vec<String> {
+/// The HTTP statuses an outcome entry maps: `status` is one status or a non-empty list of them
+/// (several statuses may mean one outcome).
+pub fn statuses(o: &J) -> Option<Vec<i64>> {
+    let ok = |x: &J| x.as_i64().filter(|x| (100..600).contains(x));
+    match &o["status"] {
+        J::Array(a) if !a.is_empty() => a.iter().map(ok).collect(),
+        x => ok(x).map(|x| vec![x]),
+    }
+}
+
+const LITERAL_WHY: &str = "an event payload or error field is filled from what the product answers (response, lookup, capture) or from the input, never written into the table, or the check compares the table with itself";
+
+/// Whether a template reads anything: a value with no placeholder is a literal.
+fn has_placeholder(v: &J) -> bool {
+    match v {
+        J::String(x) => path_placeholders(x).iter().any(|ph| placeholder(ph).is_some()),
+        J::Array(a) => a.iter().any(has_placeholder),
+        J::Object(m) => m.values().any(has_placeholder),
+        _ => false,
+    }
+}
+
+/// Whether a template reads the request's own input anywhere.
+fn reads_input(v: &J) -> bool {
+    match v {
+        J::String(x) => path_placeholders(x).iter().any(|ph| matches!(placeholder(ph), Some(("input", _)))),
+        J::Array(a) => a.iter().any(reads_input),
+        J::Object(m) => m.values().any(reads_input),
+        _ => false,
+    }
+}
+
+/// The fields of what an outcome entry builds that the table fills from the request's own input:
+/// of the event `event`, or of the error when `event` is None. A check comparing such a field
+/// compares the suite's input with itself.
+pub fn input_filled(table: &J, command: &str, outcome: &str, event: Option<&str>) -> BTreeSet<String> {
+    let Some(o) = table["commands"].as_array().into_iter().flatten()
+        .filter(|c| s(&c["command"]) == command)
+        .flat_map(|c| c["outcomes"].as_array().into_iter().flatten())
+        .find(|o| s(&o["outcome"]) == outcome) else { return BTreeSet::new() };
+    let fields = match event {
+        Some(e) => o["events"].as_array().into_iter().flatten().find(|x| s(&x["event"]) == e).map(|x| &x["payload"]),
+        None => Some(&o["error"]["fields"]),
+    };
+    fields.and_then(J::as_object).into_iter().flatten().filter(|(_, v)| reads_input(v)).map(|(k, _)| k.clone()).collect()
+}
+
+/// Files a start command may be cited from: a README or a manifest of the delivered tree.
+pub const START_SOURCES: [&str; 9] = ["Cargo.toml", "package.json", "go.mod", "pyproject.toml", "Procfile", "Taskfile.yml", "Makefile", "deno.json", "justfile"];
+
+/// Words that mark a README line as describing a test, demo or mock mode.
+const TEST_WORDS: [&str; 11] = ["test mode", "test-mode", "testing mode", "for tests", "for testing", "test only", "test-only", "only in tests", "demo", "mock", "fake"];
+
+fn word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '-' || c == '_'
+}
+
+/// Whether `needle` occurs in `hay` not as part of a longer word (letters, digits, - and _).
+fn contains_word(hay: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let (first, last) = (needle.chars().next().unwrap_or(' '), needle.chars().last().unwrap_or(' '));
+    hay.match_indices(needle).any(|(i, _)| {
+        let before = hay[..i].chars().last();
+        let after = hay[i + needle.len()..].chars().next();
+        (!word_char(first) || !before.is_some_and(word_char)) && (!word_char(last) || !after.is_some_and(word_char))
+    })
+}
+
+/// The literal pieces of a template, between its placeholders.
+fn literal_pieces(x: &str) -> Vec<String> {
+    let mut rest = x.to_string();
+    for ph in path_placeholders(x) {
+        rest = rest.replacen(&ph, "\u{0}", 1);
+    }
+    rest.split('\u{0}').map(str::trim).filter(|x| !x.is_empty()).map(String::from).collect()
+}
+
+/// Ruling: the start command is one the delivered tree's README or manifest states for normal use.
+/// `start.from` cites the file and line; the cited lines together hold the program's file name and
+/// every literal argument, and none of them describes a test, demo or mock mode.
+fn check_start_from(t: &J, tree: &Path, p: &mut Vec<String>) {
+    let Some(from) = t["start"]["from"].as_array().filter(|a| !a.is_empty()) else {
+        p.push("start.from: missing (the README or manifest file and line of the delivered tree that states this start command for normal use)".into());
+        return;
+    };
+    let mut text = String::new();
+    for (i, c) in from.iter().enumerate() {
+        let (file, line) = (s(&c["file"]), c["line"].as_u64().unwrap_or(0));
+        let name = Path::new(file).file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file.starts_with('/') || Path::new(file).components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            p.push(format!("start.from[{i}]: {file:?} is no relative path inside the delivered tree"));
+            continue;
+        }
+        if !name.to_ascii_lowercase().starts_with("readme") && !START_SOURCES.contains(&name) {
+            p.push(format!("start.from[{i}]: {file} is not a README or a manifest ({})", START_SOURCES.join(", ")));
+            continue;
+        }
+        let Some(l) = fs::read_to_string(tree.join(file)).ok().and_then(|x| x.lines().nth((line as usize).wrapping_sub(1)).map(String::from)) else {
+            p.push(format!("start.from[{i}]: {file} has no line {line}"));
+            continue;
+        };
+        if TEST_WORDS.iter().any(|w| l.to_lowercase().contains(w)) {
+            p.push(format!("start.from[{i}]: {file} line {line} describes a test, demo or mock mode: {l:?}"));
+        }
+        text.push_str(&l);
+        text.push('\n');
+    }
+    if text.is_empty() {
+        return;
+    }
+    let argv: Vec<&str> = t["start"]["argv"].as_array().into_iter().flatten().map(s).collect();
+    let Some(prog) = argv.first() else { return };
+    let base = Path::new(prog).file_name().and_then(|n| n.to_str()).unwrap_or(prog);
+    for want in std::iter::once(base.to_string()).chain(argv.iter().skip(1).flat_map(|a| literal_pieces(a))) {
+        if !contains_word(&text, &want) {
+            p.push(format!("start.from: the cited lines do not contain {want} (they must state the program and every literal argument of start.argv)"));
+        }
+    }
+}
+
+/// Ruling: a start argument or a request header that a README of the delivered tree describes as
+/// a test, demo or mock mode is refused. Forced requests are exempt: forcing an external outcome is
+/// what they are for.
+fn check_test_mode(t: &J, tree: &Path, p: &mut Vec<String>) {
+    let mut readmes: Vec<(String, Vec<String>)> = fs::read_dir(tree).into_iter().flatten().flatten()
+        .filter_map(|e| e.file_name().to_str().map(String::from))
+        .filter(|n| n.to_ascii_lowercase().starts_with("readme"))
+        .filter_map(|n| fs::read_to_string(tree.join(&n)).ok().map(|x| (n, x.lines().map(String::from).collect())))
+        .collect();
+    readmes.sort();
+    let marked = |token: &str| -> Option<String> {
+        if token.chars().count() < 2 {
+            return None;
+        }
+        let token = token.to_lowercase();
+        readmes.iter().find_map(|(name, lines)| lines.iter().enumerate().find_map(|(i, l)| {
+            let l = l.to_lowercase();
+            (TEST_WORDS.iter().any(|w| l.contains(w)) && contains_word(&l, &token)).then(|| format!("{name} line {}", i + 1))
+        }))
+    };
+    for a in t["start"]["argv"].as_array().into_iter().flatten().skip(1) {
+        for piece in literal_pieces(s(a)) {
+            if let Some(at) = marked(&piece) {
+                p.push(format!("start.argv: {piece} is what {at} describes as a test, demo or mock mode"));
+            }
+        }
+    }
+    let mut requests: Vec<(String, &J)> = vec![("start.ready".into(), &t["start"]["ready"])];
+    for c in t["commands"].as_array().into_iter().flatten() {
+        requests.push((format!("{} request", s(&c["command"])), &c["request"]));
+        for o in c["outcomes"].as_array().into_iter().flatten() {
+            requests.push((format!("{}/{} lookup", s(&c["command"]), s(&o["outcome"])), &o["lookup"]));
+        }
+    }
+    for v in t["views"].as_array().into_iter().flatten() {
+        requests.push((format!("{} request", s(&v["view"])), &v["request"]));
+    }
+    for (what, r) in requests {
+        for (name, value) in r["headers"].as_object().into_iter().flatten() {
+            for token in std::iter::once(name.clone()).chain(literal_pieces(s(value))) {
+                if let Some(at) = marked(&token) {
+                    p.push(format!("{what}: header {name}: {token} is what {at} describes as a test, demo or mock mode"));
+                }
+            }
+        }
+    }
+}
+
+/// The table checked against the compiled specification (`ess compile` IR) and the delivered tree.
+/// Empty when the table is accepted; otherwise every reason it is refused.
+pub fn check_table(t: &J, ir: &J, tree: &Path) -> Vec<String> {
     let mut p = vec![];
     if t["format"] != TABLE_FORMAT {
         p.push(format!("format is {}, not {TABLE_FORMAT}", t["format"]));
     }
+    check_start_from(t, tree, &mut p);
+    check_test_mode(t, tree, &mut p);
     if !t["build"].is_null() {
         check_argv("build", &t["build"]["argv"], false, &mut p);
     }
@@ -457,8 +629,8 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
             if check_none(&ow, o, &mut p) {
                 continue;
             }
-            let Some(status) = o["status"].as_i64().filter(|x| (100..600).contains(x)) else {
-                p.push(format!("{ow}: status is not an HTTP status"));
+            let Some(statuses) = statuses(o) else {
+                p.push(format!("{ow}: status is not an HTTP status or a non-empty list of HTTP statuses"));
                 continue;
             };
             let lookup = o["lookup"].is_object();
@@ -478,7 +650,9 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
                 }
             }
             for r in requests {
-                keys.entry((s(&r["method"]).to_string(), s(&r["path"]).to_string(), status)).or_default().push((on.clone(), disc));
+                for status in &statuses {
+                    keys.entry((s(&r["method"]).to_string(), s(&r["path"]).to_string(), *status)).or_default().push((on.clone(), disc));
+                }
             }
             let declared: BTreeSet<String> = so["emits"].as_array().into_iter().flatten().map(|e| s(e).to_string()).collect();
             let mut built = BTreeSet::new();
@@ -495,6 +669,9 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
                     p.push(format!("{ow} events[{k}] {en}: payload fields {got:?}, the specification declares {want:?}"));
                 }
                 check_reads(&format!("{ow} events[{k}]"), &e["payload"], &inputs, lookup, &mut p);
+                for (field, v) in e["payload"].as_object().into_iter().flatten().filter(|(_, v)| !has_placeholder(v)) {
+                    p.push(format!("{ow} events[{k}] {en}: payload field {field} is the literal {v}; {LITERAL_WHY}"));
+                }
             }
             if built != declared {
                 p.push(format!("{ow}: builds events {built:?}, the outcome emits {declared:?}"));
@@ -510,6 +687,9 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
                         p.push(format!("{ow}: error fields {got:?}, {en} declares {want:?}"));
                     }
                     check_reads(&format!("{ow} error"), &o["error"]["fields"], &inputs, lookup, &mut p);
+                    for (field, v) in o["error"]["fields"].as_object().into_iter().flatten().filter(|(_, v)| !has_placeholder(v)) {
+                        p.push(format!("{ow}: error field {field} is the literal {v}; {LITERAL_WHY}"));
+                    }
                 }
                 (Some(en), false) => p.push(format!("{ow}: the outcome declares error {en}, the entry gives none")),
                 (None, true) => p.push(format!("{ow}: gives an error the outcome does not declare")),
@@ -583,7 +763,8 @@ pub fn table_schema() -> J {
     let bindings = json!({"type": "array", "items": {"type": "object", "required": ["input", "capture"],
         "properties": {"input": {"type": "string"}, "capture": {"type": "string"}}}});
     let outcome = json!({"type": "object", "required": ["outcome"], "properties": {
-        "outcome": {"type": "string"}, "none": none, "status": {"type": "integer"},
+        "outcome": {"type": "string"}, "none": none,
+        "status": {"anyOf": [{"type": "integer"}, {"type": "array", "items": {"type": "integer"}, "minItems": 1}]},
         "when_body": {"type": "object", "required": ["path", "equals"], "properties": {"path": {"type": "string"}, "equals": {}}},
         "lookup": request,
         "events": {"type": "array", "items": {"type": "object", "required": ["event", "payload"],
@@ -598,8 +779,10 @@ pub fn table_schema() -> J {
             "bindings": bindings,
             "build": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["argv"],
                 "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}}}]},
-            "start": {"type": "object", "required": ["argv", "ready"],
-                "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "ready": request}},
+            "start": {"type": "object", "required": ["argv", "ready", "from"],
+                "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "ready": request,
+                    "from": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["file", "line"],
+                        "properties": {"file": {"type": "string"}, "line": {"type": "integer", "minimum": 1}}}}}},
             "commands": {"type": "array", "items": {"type": "object", "required": ["command"], "properties": {
                 "command": {"type": "string"}, "none": none, "request": request,
                 "forced": {"type": "array", "items": {"type": "object", "required": ["outcome", "request"],

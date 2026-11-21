@@ -137,7 +137,7 @@ fn main() {
                 let down = body["board"] == "down";
                 match chores.get_mut(*id) {
                     _ if down => respond(&mut st, 503, &json!({"error": "board unreachable"})),
-                    None if mode == "deviate" => respond(&mut st, 404, &json!({"error": "no such chore"})),
+                    None if mode == "deviate" => respond(&mut st, 404, &json!({"error": "no such chore", "state": "Open"})),
                     None => respond(&mut st, 409, &json!({"error": "no such chore", "state": "Open"})),
                     Some(c) if c.done => respond(&mut st, 409, &json!({"error": "already done", "state": "Done"})),
                     Some(c) => {

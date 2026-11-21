@@ -467,8 +467,8 @@ fn oracle(run: &Path, result: &str, counts: Option<(u64, u64, u64, u64, u64)>, n
         None => (Value::Null, Value::Null, Value::Null, Value::Null, json!(0)),
     };
     write_json(&run.join("oracle.json"), &json!({"format": "sdc.oracle/1", "run": "run-a",
-        "checks": [{"id": "conformance", "result": result, "k": k, "f": f, "u": u, "n": n, "agreement": agreement, "tables_counted": tables, "cause": cause}],
-        "conformance": {"result": result, "k": k, "f": f, "u": u, "n": n, "agreement": agreement, "tables_counted": tables, "cause": cause,
+        "checks": [{"id": "conformance", "result": result, "k": k, "f": f, "d": if counts.is_some() { json!(0) } else { Value::Null }, "u": u, "n": n, "agreement": agreement, "tables_counted": tables, "cause": cause}],
+        "conformance": {"result": result, "k": k, "f": f, "d": if counts.is_some() { json!(0) } else { Value::Null }, "u": u, "n": n, "agreement": agreement, "tables_counted": tables, "cause": cause,
             "measured": counts.is_some()}}));
 }
 
@@ -483,17 +483,17 @@ fn the_conformance_figure_of_an_observed_run_is_a_run_metric() {
     oracle(&run, "contradicted", Some((13, 3, 1, 15, 3)), Some(17), None);
     let (_, doc, _) = metrics(&run);
     let m = &doc["metrics"];
-    assert_eq!(m["conformance"], "13 passed, 3 failed, 1 not measurable of 17; 3 tables agree on 15 of 17");
+    assert_eq!(m["conformance"], "13 passed, 3 failed, 0 disputed, 1 not measurable of 17; 3 tables agree on 15 of 17");
     assert_eq!([&m["conformance_k"], &m["conformance_f"], &m["conformance_u"], &m["conformance_n"]], [&json!(13), &json!(3), &json!(1), &json!(17)]);
     assert_eq!([&m["conformance_agreement"], &m["conformance_tables"]], [&json!(15), &json!(3)]);
     assert_eq!(m["conformance_result"], "contradicted");
     assert_eq!(m["conformance_measured"], true);
     let o = Command::new(env!("CARGO_BIN_EXE_sdc-run-metrics")).arg(&run).output().unwrap();
     let text = String::from_utf8_lossy(&o.stdout);
-    assert!(text.contains("\n  conformance: 13 passed, 3 failed, 1 not measurable of 17; 3 tables agree on 15 of 17 (contradicted)\n"), "{text}");
+    assert!(text.contains("\n  conformance: 13 passed, 3 failed, 0 disputed, 1 not measurable of 17; 3 tables agree on 15 of 17 (contradicted)\n"), "{text}");
     oracle(&run, "unknown", Some((6, 0, 1, 7, 1)), Some(7), Some("not_measurable"));
     let (_, doc, _) = metrics(&run);
-    assert_eq!(doc["metrics"]["conformance"], "6 passed, 0 failed, 1 not measurable of 7; 1 table, unknown: not_measurable");
+    assert_eq!(doc["metrics"]["conformance"], "6 passed, 0 failed, 0 disputed, 1 not measurable of 7; 1 table, unknown: not_measurable");
     assert_eq!(doc["metrics"]["conformance_measured"], true);
     oracle(&run, "unknown", None, Some(32), Some("table_missing"));
     let (_, doc, _) = metrics(&run);

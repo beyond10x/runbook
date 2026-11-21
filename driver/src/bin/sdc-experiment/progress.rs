@@ -226,10 +226,11 @@ struct Conformance {
     result: String,
     k: u64,
     f: u64,
+    d: u64,
     u: u64,
     n: u64,
     cause: Option<String>,
-    /// The suite was run and counted (held, contradicted, or unknown only for not measurable).
+    /// The suite was run and counted (held, contradicted, or unknown for disputed or not measurable scenarios).
     measured: bool,
     /// Scenarios with the same result under every counted table, when recorded.
     agreement: Option<u64>,
@@ -240,6 +241,7 @@ struct Conformance {
 struct ConfTotals {
     k: u64,
     f: u64,
+    d: u64,
     u: u64,
     n: u64,
     /// Agreement summed over the measured runs that record it, and their n.
@@ -247,7 +249,7 @@ struct ConfTotals {
     agree_of: u64,
     held: usize,
     contradicted: usize,
-    not_measurable_only: usize,
+    unknown: usize,
     no_figure: usize,
     causes: BTreeMap<String, usize>,
     not_observed: usize,
@@ -256,12 +258,12 @@ struct ConfTotals {
 
 impl ConfTotals {
     fn measured(&self) -> usize {
-        self.held + self.contradicted + self.not_measurable_only
+        self.held + self.contradicted + self.unknown
     }
 }
 
 fn conf_totals<'a>(cells: impl Iterator<Item = &'a Cell>) -> ConfTotals {
-    let mut t = ConfTotals { k: 0, f: 0, u: 0, n: 0, agree: 0, agree_of: 0, held: 0, contradicted: 0, not_measurable_only: 0, no_figure: 0, causes: BTreeMap::new(), not_observed: 0, ended: 0 };
+    let mut t = ConfTotals { k: 0, f: 0, d: 0, u: 0, n: 0, agree: 0, agree_of: 0, held: 0, contradicted: 0, unknown: 0, no_figure: 0, causes: BTreeMap::new(), not_observed: 0, ended: 0 };
     for r in cells.flat_map(|c| c.runs.iter()) {
         t.ended += 1;
         match &r.conformance {
@@ -269,6 +271,7 @@ fn conf_totals<'a>(cells: impl Iterator<Item = &'a Cell>) -> ConfTotals {
             Some(c) if c.measured => {
                 t.k += c.k;
                 t.f += c.f;
+                t.d += c.d;
                 t.u += c.u;
                 t.n += c.n;
                 if let Some(a) = c.agreement {
@@ -278,7 +281,7 @@ fn conf_totals<'a>(cells: impl Iterator<Item = &'a Cell>) -> ConfTotals {
                 match c.result.as_str() {
                     "held" => t.held += 1,
                     "contradicted" => t.contradicted += 1,
-                    _ => t.not_measurable_only += 1,
+                    _ => t.unknown += 1,
                 }
             }
             Some(c) => {
@@ -294,12 +297,12 @@ fn plural(n: usize, one: &str) -> String {
     if n == 1 { format!("{n} {one}") } else { format!("{n} {one}s") }
 }
 
-/// The summary column: `k passed, f failed, u not measurable of n (measured of ended runs)`.
+/// The summary column: `k passed, f failed, d disputed, u not measurable of n (measured of ended runs)`.
 fn conf_cell_md(t: &ConfTotals) -> String {
     match (t.measured(), t.no_figure) {
         (0, 0) => "not observed".into(),
         (0, x) => format!("no figure ({x} of {})", plural(t.ended, "run")),
-        (m, _) => format!("{} passed, {} failed, {} not measurable of {} ({m} of {})", t.k, t.f, t.u, t.n, plural(t.ended, "run")),
+        (m, _) => format!("{} passed, {} failed, {} disputed, {} not measurable of {} ({m} of {})", t.k, t.f, t.d, t.u, t.n, plural(t.ended, "run")),
     }
 }
 
@@ -311,8 +314,8 @@ fn conf_line_md(t: &ConfTotals) -> String {
         return format!("{head}: not observed on any of the {} ended runs.", t.ended);
     }
     let mut s = if measured > 0 {
-        format!("{head}: **{} passed, {} failed, {} not measurable of {} scenarios** over {} (held {}, contradicted {}, not measurable only {})",
-            t.k, t.f, t.u, t.n, plural(measured, "run"), t.held, t.contradicted, t.not_measurable_only)
+        format!("{head}: **{} passed, {} failed, {} disputed, {} not measurable of {} scenarios** over {} (held {}, contradicted {}, unknown {})",
+            t.k, t.f, t.d, t.u, t.n, plural(measured, "run"), t.held, t.contradicted, t.unknown)
     } else {
         format!("{head}: no measured run")
     };
@@ -331,9 +334,9 @@ fn conf_line_md(t: &ConfTotals) -> String {
 }
 
 fn conf_totals_j(t: &ConfTotals) -> J {
-    json!({"k": t.k, "f": t.f, "u": t.u, "n": t.n,
+    json!({"k": t.k, "f": t.f, "d": t.d, "u": t.u, "n": t.n,
         "agreement": (t.agree_of > 0).then_some(t.agree), "agreement_of": t.agree_of, "held": t.held, "contradicted": t.contradicted,
-        "not_measurable_only": t.not_measurable_only, "no_figure": t.no_figure, "not_observed": t.not_observed})
+        "unknown": t.unknown, "no_figure": t.no_figure, "not_observed": t.not_observed})
 }
 
 /// The runs of one variant of one record that fall in one setting.
@@ -428,6 +431,7 @@ fn run_fig(r: &Run) -> RunFig {
             result: result.to_string(),
             k: m["conformance_k"].as_u64().unwrap_or(0),
             f: m["conformance_f"].as_u64().unwrap_or(0),
+            d: m["conformance_d"].as_u64().unwrap_or(0),
             u: m["conformance_u"].as_u64().unwrap_or(0),
             n: m["conformance_n"].as_u64().unwrap_or(0),
             cause: m["conformance_cause"].as_str().map(String::from),
@@ -449,6 +453,8 @@ struct Built {
     /// Every input file and its sha256, relative to the repository.
     sources: Vec<(String, String)>,
     problems: Vec<String>,
+    /// Whether the conformance column, line and figures are shown (`--with-conformance`).
+    conformance: bool,
 }
 
 fn sha_file(path: &Path) -> String {
@@ -464,7 +470,7 @@ pub(super) fn repo_of(exp: &Path) -> PathBuf {
 }
 
 /// The ledger's figures, or None when the experiments directory has no release table.
-fn build(exp: &Path) -> Result<Option<Built>, String> {
+fn build(exp: &Path, conformance: bool) -> Result<Option<Built>, String> {
     let path = exp.join(RELEASES);
     if !path.is_file() {
         return Ok(None);
@@ -549,7 +555,7 @@ fn build(exp: &Path) -> Result<Option<Built>, String> {
         figs.push(fig);
     }
     let others = records.into_values().map(|(_, f, _)| f).collect();
-    Ok(Some(Built { ledger, figs, others, sources, problems }))
+    Ok(Some(Built { ledger, figs, others, sources, problems, conformance }))
 }
 
 // ---- docs/progress.md --------------------------------------------------------------------------
@@ -671,7 +677,11 @@ fn render_md(b: &Built) -> String {
     md.push_str("![Clean passes of ended runs per release and model setting, with the median cost and wall time of a clean pass](img/progress.svg)\n\n");
     let _ = writeln!(md, "Every figure counts runs of one input, `{}` (sha256 `{}`), started with no person (autonomy A5). A **clean pass** is a run that closed, delivered, and needed no reopen, forced step or unstick (`pass_rule: clean-delivery`, `docs/workflow-metrics.md` § 7). Counts come before rates, and a rate is given only from {SMALL_N} ended runs. Cost is `run.cost_usd` (model calls and decider calls), wall time `run.wall_s`; both are given over the clean passes as median [min, max] (n). Every figure names the experiment record it comes from. Pre-release trees are the trial trees before the first release; they are no release.\n",
         l.input_name, &l.input_sha[..l.input_sha.len().min(12)]);
-    md.push_str("## Summary\n\n| entry | kind | date | tree | tested by | clean passes of ended runs | conformance, scenarios (observed runs) | by setting |\n|---|---|---|---|---|---|---|---|\n");
+    if b.conformance {
+        md.push_str("## Summary\n\n| entry | kind | date | tree | tested by | clean passes of ended runs | conformance, scenarios (observed runs) | by setting |\n|---|---|---|---|---|---|---|---|\n");
+    } else {
+        md.push_str("## Summary\n\n| entry | kind | date | tree | tested by | clean passes of ended runs | by setting |\n|---|---|---|---|---|---|---|\n");
+    }
     for (e, f) in l.entries.iter().zip(&b.figs) {
         let c = counts(f.cells.iter());
         let tested = if f.exps.is_empty() { "no experiment yet".to_string() } else { f.exps.iter().map(|x| format!("`{}`", x.id)).collect::<Vec<_>>().join(", ") };
@@ -683,8 +693,8 @@ fn render_md(b: &Built) -> String {
         }
         let by_s = by.iter().map(|(i, k)| format!("{} {}", l.settings[*i].id, of_md(k))).collect::<Vec<_>>().join("; ");
         let tree = match e.tree.as_deref() { None => "not tagged yet".to_string(), Some("several") => "several".to_string(), Some(t) => format!("`{}`", &t[..t.len().min(7)]) };
-        let conf = if f.exps.is_empty() { "-".into() } else { conf_cell_md(&conf_totals(f.cells.iter())) };
-        let _ = writeln!(md, "| [{}](#{}) | {} | {} | {tree} | {tested} | {} | {conf} | {} |", e.label, anchor(e), e.kind, e.date,
+        let conf = if !b.conformance { String::new() } else if f.exps.is_empty() { " - |".into() } else { format!(" {} |", conf_cell_md(&conf_totals(f.cells.iter()))) };
+        let _ = writeln!(md, "| [{}](#{}) | {} | {} | {tree} | {tested} | {} |{conf} {} |", e.label, anchor(e), e.kind, e.date,
             if f.exps.is_empty() { "no run".into() } else { of_md(&c) }, if by_s.is_empty() { "-".into() } else { by_s });
     }
     md.push_str("\nSettings (a run is in a setting when its record's settings have every value of `match`):\n\n| setting | label | note | match |\n|---|---|---|---|\n");
@@ -716,13 +726,15 @@ fn render_md(b: &Built) -> String {
             let c = counts(f.cells.iter());
             let ids = f.exps.iter().map(|x| format!("`{}`", x.id)).collect::<Vec<_>>().join(", ");
             let _ = writeln!(md, "\nClean passes of ended runs, all settings: **{}** ({ids}); rate: {}.\n", of_md(&c), rate_md(&c));
-            let _ = writeln!(md, "{}\n", conf_line_md(&conf_totals(f.cells.iter())));
+            if b.conformance {
+                let _ = writeln!(md, "{}\n", conf_line_md(&conf_totals(f.cells.iter())));
+            }
             md.push_str("| setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |\n|---|---|---|---|---|---|---|---|\n");
             for x in &f.cells {
                 let rs: Vec<&RunFig> = x.runs.iter().collect();
                 let k = counts(std::iter::once(x));
                 let names = x.runs.iter().map(|r| {
-                    let conf = r.conformance.as_ref().map(|c| format!("conformance {}", cell_md(&c.summary)));
+                    let conf = r.conformance.as_ref().filter(|_| b.conformance).map(|c| format!("conformance {}", cell_md(&c.summary)));
                     match (r.clean, conf) {
                         (true, None) => format!("**{}**", r.name),
                         (true, Some(c)) => format!("**{}** ({c})", r.name),
@@ -802,13 +814,20 @@ fn render_json(b: &Built) -> String {
             v["variant"] = json!(x.variant);
             v["clean_pass_cost_usd"] = stat_j(&clean_stat(&rs, |r| r.cost));
             v["clean_pass_wall_s"] = stat_j(&clean_stat(&rs, |r| r.wall));
-            v["runs"] = json!(x.runs.iter().map(|r| json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end,
-                "conformance": r.conformance.as_ref().map(|c| json!({"summary": c.summary, "result": c.result, "k": c.k, "f": c.f, "u": c.u, "n": c.n, "cause": c.cause, "measured": c.measured, "agreement": c.agreement}))})).collect::<Vec<_>>());
+            v["runs"] = json!(x.runs.iter().map(|r| {
+                let mut o = json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end});
+                if b.conformance {
+                    o["conformance"] = json!(r.conformance.as_ref().map(|c| json!({"summary": c.summary, "result": c.result, "k": c.k, "f": c.f, "d": c.d, "u": c.u, "n": c.n, "cause": c.cause, "measured": c.measured, "agreement": c.agreement})));
+                }
+                o
+            }).collect::<Vec<_>>());
             v["not_ended_runs"] = json!(x.open);
             v
         }).collect();
         let mut totals = counts_j(&counts(f.cells.iter()));
-        totals["conformance"] = conf_totals_j(&conf_totals(f.cells.iter()));
+        if b.conformance {
+            totals["conformance"] = conf_totals_j(&conf_totals(f.cells.iter()));
+        }
         json!({
             "id": e.id, "kind": e.kind, "version": e.version, "label": e.label, "date": e.date, "tree": e.tree, "tree_note": e.tree_note,
             "changes": e.changes.iter().map(|c| json!({"commit": c.commit, "line": c.line, "effect": c.effect, "experiment": c.experiment})).collect::<Vec<_>>(),
@@ -924,8 +943,8 @@ pub(super) struct Rendered {
     pub problems: Vec<String>,
 }
 
-pub(super) fn render(exp: &Path) -> Result<Option<Rendered>, String> {
-    Ok(build(exp)?.map(|b| Rendered { md: render_md(&b), json: render_json(&b), svg: chart::render(&chart_model(&b)), problems: b.problems.clone() }))
+pub(super) fn render(exp: &Path, conformance: bool) -> Result<Option<Rendered>, String> {
+    Ok(build(exp, conformance)?.map(|b| Rendered { md: render_md(&b), json: render_json(&b), svg: chart::render(&chart_model(&b)), problems: b.problems.clone() }))
 }
 
 /// The three files, relative to the repository of `exp`.
@@ -943,8 +962,8 @@ fn pick<'a>(r: &'a Rendered, which: &str) -> &'a str {
 }
 
 /// Writes the three files when the table is valid. Returns what it did, one line each.
-pub(super) fn write(exp: &Path) -> Result<Vec<String>, String> {
-    let Some(r) = render(exp)? else { return Ok(vec![]) };
+pub(super) fn write(exp: &Path, conformance: bool) -> Result<Vec<String>, String> {
+    let Some(r) = render(exp, conformance)? else { return Ok(vec![]) };
     if !r.problems.is_empty() {
         return Err(r.problems.join("\n"));
     }
@@ -962,9 +981,10 @@ pub(super) fn write(exp: &Path) -> Result<Vec<String>, String> {
     Ok(log)
 }
 
-/// The table's problems and every output that is missing or not what the records give.
+/// The table's problems and every output that is missing or not what the records give without
+/// `--with-conformance`.
 pub(super) fn check(exp: &Path) -> Result<Vec<String>, String> {
-    let Some(r) = render(exp)? else { return Ok(vec![]) };
+    let Some(r) = render(exp, false)? else { return Ok(vec![]) };
     let mut p = r.problems.clone();
     for (path, which) in outputs(exp) {
         match fs::read_to_string(&path) {
@@ -1022,7 +1042,7 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
     #[test]
     fn figures_count_clean_passes_of_ended_runs_per_setting() {
         let exp = fixture("figures");
-        let b = build(&exp).unwrap().unwrap();
+        let b = build(&exp, false).unwrap().unwrap();
         assert!(b.problems.is_empty(), "{:?}", b.problems);
         let f = &b.figs[0];
         assert_eq!(f.cells.len(), 2);
@@ -1055,7 +1075,7 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
         fs::write(exp.join("e2.yaml"), record("e2", "another idea", &["h1"], &[])).unwrap();
         fs::write(exp.join(RELEASES), table("[e1]").replace("tree: null\n  tree_note: not tagged\n  experiments: []", "tree: null\n  tree_note: not tagged\n  experiments: [e2]")
             .replace("match: {models.writer.model: s, decider.model: h}", "match: {models.writer.model: x}")).unwrap();
-        let b = build(&exp).unwrap().unwrap();
+        let b = build(&exp, false).unwrap().unwrap();
         let p = b.problems.join("\n");
         assert!(p.contains("variant b: its settings match no setting"), "{p}");
         assert!(p.contains("run h1 is counted in entry \"t1\" as well"), "{p}");
@@ -1100,7 +1120,7 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
         let t = table("[]");
         let head = &t[..t.find("entries:\n").unwrap() + "entries:\n".len()];
         fs::write(exp.join(RELEASES), format!("{head}{entries}")).unwrap();
-        let b = build(&exp).unwrap().unwrap();
+        let b = build(&exp, false).unwrap().unwrap();
         assert!(b.problems.is_empty(), "{:?}", b.problems);
         if let Some(d) = std::env::var_os("SDC_PROGRESS_RENDER_DIR") {
             fs::write(Path::new(&d).join(format!("releases-{releases}.svg")), chart::render(&chart_model(&b))).unwrap();
@@ -1130,13 +1150,13 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
         let with = |r: &str, w: &str, clean: bool, result: &str, counts: Option<(u64, u64, u64, u64)>, cause: Option<&str>| {
             let mut v: J = serde_json::from_str(&summary(r, w, clean, 1.0, 100.0)).unwrap();
             let text = match (counts, cause) {
-                (Some((k, f, u, a)), None) => format!("{k} passed, {f} failed, {u} not measurable of 17; 3 tables agree on {a} of 17"),
-                (Some((k, f, u, a)), Some(c)) => format!("{k} passed, {f} failed, {u} not measurable of 17; 3 tables agree on {a} of 17, unknown: {c}"),
+                (Some((k, f, u, a)), None) => format!("{k} passed, {f} failed, 0 disputed, {u} not measurable of 17; 3 tables agree on {a} of 17"),
+                (Some((k, f, u, a)), Some(c)) => format!("{k} passed, {f} failed, 0 disputed, {u} not measurable of 17; 3 tables agree on {a} of 17, unknown: {c}"),
                 (None, c) => format!("not measured ({}), 17 scenarios", c.unwrap_or("")),
             };
             v["metrics"]["conformance"] = json!(text);
             let (k, f, u, a) = counts.map_or((J::Null, J::Null, J::Null, J::Null), |(k, f, u, a)| (json!(k), json!(f), json!(u), json!(a)));
-            for (key, x) in [("k", k), ("f", f), ("u", u), ("agreement", a), ("n", json!(17)), ("tables", json!(if counts.is_some() { 3 } else { 0 }))] {
+            for (key, x) in [("k", k), ("f", f), ("d", if counts.is_some() { json!(0) } else { J::Null }), ("u", u), ("agreement", a), ("n", json!(17)), ("tables", json!(if counts.is_some() { 3 } else { 0 }))] {
                 v["metrics"][format!("conformance_{key}")] = x;
             }
             v["metrics"]["conformance_result"] = json!(result);
@@ -1148,23 +1168,27 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
         with("h2", "h", false, "unknown", Some((15, 0, 2, 16)), Some("not_measurable"));
         with("h3", "h", true, "held", Some((17, 0, 0, 17)), None);
         with("s1", "s", true, "unknown", None, Some("table_refused"));
-        let b = build(&exp).unwrap().unwrap();
+        let b = build(&exp, true).unwrap().unwrap();
         assert!(b.problems.is_empty(), "{:?}", b.problems);
         let md = render_md(&b);
-        assert!(md.contains("Conformance of the delivered products (`sdc-conform observe`): **45 passed, 3 failed, 3 not measurable of 51 scenarios** over 3 runs (held 1, contradicted 1, not measurable only 1); the tables agree on 48 of 51; no figure 1 (table_refused)."), "{md}");
-        assert!(md.contains("**h1** (conformance 13 passed, 3 failed, 1 not measurable of 17; 3 tables agree on 15 of 17)"), "{md}");
-        assert!(md.contains("h2 (closed: not_delivered; conformance 15 passed, 0 failed, 2 not measurable of 17; 3 tables agree on 16 of 17, unknown: not_measurable)"), "{md}");
+        assert!(md.contains("Conformance of the delivered products (`sdc-conform observe`): **45 passed, 3 failed, 0 disputed, 3 not measurable of 51 scenarios** over 3 runs (held 1, contradicted 1, unknown 1); the tables agree on 48 of 51; no figure 1 (table_refused)."), "{md}");
+        assert!(md.contains("**h1** (conformance 13 passed, 3 failed, 0 disputed, 1 not measurable of 17; 3 tables agree on 15 of 17)"), "{md}");
+        assert!(md.contains("h2 (closed: not_delivered; conformance 15 passed, 0 failed, 0 disputed, 2 not measurable of 17; 3 tables agree on 16 of 17, unknown: not_measurable)"), "{md}");
         assert!(md.contains("**s1** (conformance not measured (table_refused), 17 scenarios)"), "{md}");
-        assert!(md.contains("| [t1](#t1) | pre-release | 2026-11-21 | `acd6f12` | `e1` | 3 of 4 | 45 passed, 3 failed, 3 not measurable of 51 (3 of 4 runs) |"), "{md}");
+        assert!(md.contains("| [t1](#t1) | pre-release | 2026-11-21 | `acd6f12` | `e1` | 3 of 4 | 45 passed, 3 failed, 0 disputed, 3 not measurable of 51 (3 of 4 runs) |"), "{md}");
         let j: J = serde_json::from_str(&render_json(&b)).unwrap();
-        assert_eq!(j["entries"][0]["totals"]["conformance"], json!({"k": 45, "f": 3, "u": 3, "n": 51, "agreement": 48, "agreement_of": 51,
-            "held": 1, "contradicted": 1, "not_measurable_only": 1, "no_figure": 1, "not_observed": 0}));
+        assert_eq!(j["entries"][0]["totals"]["conformance"], json!({"k": 45, "f": 3, "d": 0, "u": 3, "n": 51, "agreement": 48, "agreement_of": 51,
+            "held": 1, "contradicted": 1, "unknown": 1, "no_figure": 1, "not_observed": 0}));
+        let plain = build(&exp, false).unwrap().unwrap();
+        let md = render_md(&plain);
+        assert!(!md.to_lowercase().contains("conformance"), "{md}");
+        assert!(!render_json(&plain).contains("conformance"));
     }
 
     #[test]
     fn the_chart_is_the_same_bytes_for_the_same_inputs() {
-        let a = render(&fixture("svg-a")).unwrap().unwrap();
-        let b = render(&fixture("svg-b")).unwrap().unwrap();
+        let a = render(&fixture("svg-a"), false).unwrap().unwrap();
+        let b = render(&fixture("svg-b"), false).unwrap().unwrap();
         assert_eq!(a.svg, b.svg);
         assert_eq!(a.json.replace("svg-a", ""), b.json.replace("svg-b", ""));
         assert!(!has_abs_path(&a.svg));

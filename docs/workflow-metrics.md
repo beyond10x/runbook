@@ -121,10 +121,10 @@ From `decisions.jsonl` (`scripts/run-trial.sh:379-483`). The class is the line's
 - **`driver_s`**: Σ `rounds.jsonl` `seconds`. `wall_s`: the first to the last observed event.
 - **`waiting_on_person_s`**: the reading of `sdc-run-compare` (`docs/run-compare.md` "Time
   waiting on a person"). A last stop recorded by a `rule:` waits on nobody.
-- **`conformance`**: from `oracle.json` `conformance`: `k passed, f failed, u not measurable of n;
-  t tables agree on a of n` (with `, unknown: <cause>` for a measured unknown, or
+- **`conformance`**: from `oracle.json` `conformance`: `k passed, f failed, d disputed, u not measurable
+  of n; t tables agree on a of n` (with `, unknown: <cause>` for a measured unknown, or
   `not measured (<cause>), n scenarios` when no table was counted), `not observed` without it;
-  `conformance_k`, `conformance_f`, `conformance_u` (null when not measured), `conformance_n`,
+  `conformance_k`, `conformance_f`, `conformance_d`, `conformance_u` (null when not measured), `conformance_n`,
   `conformance_agreement`, `conformance_tables`, `conformance_result` (`held`, `contradicted`,
   `unknown`), `conformance_cause`, `conformance_measured` (`docs/conformance.md`). Not in the
   compared run fields.

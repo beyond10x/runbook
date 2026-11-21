@@ -89,7 +89,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.026364,
               "end": "stopped: awaiting_authority in IDEA-1.direction",
               "run": "trial-3-haiku",
@@ -97,7 +96,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.21119,
               "end": "stopped: writer_spent in IDEA-1.list.spec",
               "run": "trial-3-haiku-2",
@@ -105,7 +103,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.46857,
               "end": "stopped: rejected_without_rework_path in IDEA-1.app.release",
               "run": "trial-3-haiku-3",
@@ -113,7 +110,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.669446,
               "end": "stopped: writer_spent in IDEA-1.todo.list",
               "run": "trial-3-haiku-4",
@@ -121,7 +117,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.778985,
               "end": "closed: operating",
               "run": "trial-3-haiku-5",
@@ -144,7 +139,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.026938,
               "end": "stopped: awaiting_authority in IDEA-1.direction",
               "run": "trial-3-mixed",
@@ -152,7 +146,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.886328,
               "end": "stopped: awaiting_authority in IDEA-1.list.items",
               "run": "trial-3-mixed-2",
@@ -160,7 +153,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 1.487034,
               "end": "closed: not_delivered",
               "run": "trial-3-mixed-3",
@@ -168,7 +160,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.042208,
               "end": "stopped: decision_not_takeable in IDEA-1.intake",
               "run": "trial-3-mixed-4",
@@ -182,19 +173,6 @@
       ],
       "totals": {
         "clean_passes": 0,
-        "conformance": {
-          "agreement": null,
-          "agreement_of": 0,
-          "contradicted": 0,
-          "f": 0,
-          "held": 0,
-          "k": 0,
-          "n": 0,
-          "no_figure": 0,
-          "not_measurable_only": 0,
-          "not_observed": 9,
-          "u": 0
-        },
         "ended": 9,
         "not_ended": 0,
         "rate": 0.0,
@@ -312,7 +290,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.559681,
               "end": "closed: not_delivered",
               "run": "trial-3-haiku-6",
@@ -320,7 +297,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 1.033701,
               "end": "closed: operating",
               "run": "trial-3-haiku-7",
@@ -353,7 +329,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 1.587871,
               "end": "closed: not_delivered",
               "run": "trial-3-mixed-5",
@@ -361,7 +336,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 1.858643,
               "end": "closed: operating",
               "run": "trial-3-mixed-6",
@@ -394,7 +368,6 @@
           "runs": [
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 2.925945,
               "end": "closed: operating",
               "run": "trial-3-strong-1",
@@ -402,7 +375,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 2.996362,
               "end": "closed: operating",
               "run": "trial-3-strong-2",
@@ -425,7 +397,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 1.882091,
               "end": "stopped: decider_budget_spent in IDEA-1.todo.access",
               "run": "trial-3-sonnet-1",
@@ -458,7 +429,6 @@
           "runs": [
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 5.088,
               "end": "closed: operating",
               "run": "trial-3-opus-1",
@@ -472,19 +442,6 @@
       ],
       "totals": {
         "clean_passes": 5,
-        "conformance": {
-          "agreement": null,
-          "agreement_of": 0,
-          "contradicted": 0,
-          "f": 0,
-          "held": 0,
-          "k": 0,
-          "n": 0,
-          "no_figure": 0,
-          "not_measurable_only": 0,
-          "not_observed": 8,
-          "u": 0
-        },
         "ended": 8,
         "not_ended": 0,
         "rate": 0.625,
@@ -597,7 +554,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.346306,
               "end": "stopped: writer_spent in IDEA-1.list.access",
               "run": "trial-3-haiku-8",
@@ -620,7 +576,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.709498,
               "end": "stopped: review_invalid in IDEA-1.todo.access",
               "run": "trial-3-mixed-7",
@@ -643,7 +598,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 1.828023,
               "end": "stopped: review_invalid in IDEA-1.todo.access",
               "run": "trial-3-strong-3",
@@ -651,7 +605,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 1.697361,
               "end": "stopped: review_invalid in IDEA-1.todo.list",
               "run": "trial-3-strong-4",
@@ -665,19 +618,6 @@
       ],
       "totals": {
         "clean_passes": 0,
-        "conformance": {
-          "agreement": null,
-          "agreement_of": 0,
-          "contradicted": 0,
-          "f": 0,
-          "held": 0,
-          "k": 0,
-          "n": 0,
-          "no_figure": 0,
-          "not_measurable_only": 0,
-          "not_observed": 4,
-          "u": 0
-        },
         "ended": 4,
         "not_ended": 0,
         "rate": 0.0,
@@ -759,7 +699,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.87758,
               "end": "stopped: writer_spent in IDEA-1.list.tasks",
               "run": "trial-3-haiku-9",
@@ -782,7 +721,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 1.271916,
               "end": "stopped: rework_spent in IDEA-1.todo.access",
               "run": "trial-3-mixed-8",
@@ -815,7 +753,6 @@
           "runs": [
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 5.33771,
               "end": "closed: operating",
               "run": "trial-3-strong-5",
@@ -823,7 +760,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 4.05488,
               "end": "closed: operating",
               "run": "trial-3-strong-6",
@@ -837,19 +773,6 @@
       ],
       "totals": {
         "clean_passes": 2,
-        "conformance": {
-          "agreement": null,
-          "agreement_of": 0,
-          "contradicted": 0,
-          "f": 0,
-          "held": 0,
-          "k": 0,
-          "n": 0,
-          "no_figure": 0,
-          "not_measurable_only": 0,
-          "not_observed": 4,
-          "u": 0
-        },
         "ended": 4,
         "not_ended": 0,
         "rate": 0.5,
@@ -1018,7 +941,6 @@
           "runs": [
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 2.153426,
               "end": "stopped: writer_spent in IDEA-1.list.shared",
               "run": "trial-0.1.0-haiku-1",
@@ -1026,7 +948,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.205089,
               "end": "stopped: decision_not_takeable in IDEA-1.list.add",
               "run": "trial-0.1.0-haiku-2",
@@ -1034,7 +955,6 @@
             },
             {
               "clean_pass": false,
-              "conformance": null,
               "cost_usd": 0.282868,
               "end": "stopped: writer_spent in IDEA-1.todo.spec",
               "run": "trial-0.1.0-haiku-3",
@@ -1067,7 +987,6 @@
           "runs": [
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 2.496802,
               "end": "closed: operating",
               "run": "trial-0.1.0-mixed-1",
@@ -1075,7 +994,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 3.883006,
               "end": "closed: operating",
               "run": "trial-0.1.0-mixed-2",
@@ -1083,7 +1001,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 2.548789,
               "end": "closed: operating",
               "run": "trial-0.1.0-mixed-3",
@@ -1116,7 +1033,6 @@
           "runs": [
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 5.431995,
               "end": "closed: operating",
               "run": "trial-0.1.0-strong-1",
@@ -1124,7 +1040,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 6.193657,
               "end": "closed: operating",
               "run": "trial-0.1.0-strong-2",
@@ -1132,7 +1047,6 @@
             },
             {
               "clean_pass": true,
-              "conformance": null,
               "cost_usd": 5.502947,
               "end": "closed: operating",
               "run": "trial-0.1.0-strong-3",
@@ -1146,19 +1060,6 @@
       ],
       "totals": {
         "clean_passes": 6,
-        "conformance": {
-          "agreement": null,
-          "agreement_of": 0,
-          "contradicted": 0,
-          "f": 0,
-          "held": 0,
-          "k": 0,
-          "n": 0,
-          "no_figure": 0,
-          "not_measurable_only": 0,
-          "not_observed": 9,
-          "u": 0
-        },
         "ended": 9,
         "not_ended": 0,
         "rate": 0.666667,
@@ -1242,19 +1143,6 @@
       "settings": [],
       "totals": {
         "clean_passes": 0,
-        "conformance": {
-          "agreement": null,
-          "agreement_of": 0,
-          "contradicted": 0,
-          "f": 0,
-          "held": 0,
-          "k": 0,
-          "n": 0,
-          "no_figure": 0,
-          "not_measurable_only": 0,
-          "not_observed": 0,
-          "u": 0
-        },
         "ended": 0,
         "not_ended": 0,
         "rate": null,

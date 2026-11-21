@@ -3,7 +3,8 @@
   "build": null,
   "start": {
     "argv": ["bin/stub-product", "{port}", "{data_dir}", "ok"],
-    "ready": {"method": "GET", "path": "/health"}
+    "ready": {"method": "GET", "path": "/health"},
+    "from": [{"file": "README.md", "line": 2}]
   },
   "commands": [
     {

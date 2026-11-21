@@ -261,7 +261,13 @@ impl Adapter {
                 return Err(why);
             }
         };
-        self.send_filled(r, filled, self.request_timeout)
+        let path = filled.0.clone();
+        let reply = self.send_filled(r, filled, self.request_timeout);
+        let mut v = json!({"event": "request", "method": s(&r["method"]), "path": path,
+            "status": reply.as_ref().ok().map(|x| x.status), "error": reply.as_ref().err()});
+        v[about.0] = json!(about.1);
+        self.note(v);
+        reply
     }
 
     /// The scenario's input with every bound field replaced by its captured value; each replaced
@@ -318,7 +324,7 @@ impl Adapter {
         let body = reply.json();
         ctx.insert("response", body.clone());
         let matched = c["outcomes"].as_array().into_iter().flatten().find(|o| {
-            o["status"].as_u64() == Some(reply.status as u64)
+            conformance::statuses(o).is_some_and(|st| st.contains(&i64::from(reply.status)))
                 && (!o["when_body"].is_object() || at(&body, s(&o["when_body"]["path"])) == Some(&o["when_body"]["equals"]))
         }).cloned();
         let mut result = json!({"outcome": null, "error": null, "consistency": self.writes.to_string(), "direct_events": []});

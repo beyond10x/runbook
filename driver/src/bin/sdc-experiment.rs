@@ -8,7 +8,7 @@
 //! sdc-experiment check --all [--experiments <dir>]
 //! sdc-experiment report <record.yaml | id> [--runs-dir <dir>] [--print]
 //! sdc-experiment index [--experiments <dir>]
-//! sdc-experiment progress [--experiments <dir>]
+//! sdc-experiment progress [--experiments <dir>] [--with-conformance]
 //! sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>]
 //!                    [--stagger <seconds>] [--print]
 //! sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
@@ -61,7 +61,7 @@ const USAGE: &str = "usage: sdc-experiment compare (--group <label>=<run dir>[,.
        sdc-experiment check <record.yaml | id> [--runs-dir <dir>] | --all [--experiments <dir>]
        sdc-experiment report <record.yaml | id> [--runs-dir <dir>] [--print]
        sdc-experiment index [--experiments <dir>]
-       sdc-experiment progress [--experiments <dir>]
+       sdc-experiment progress [--experiments <dir>] [--with-conformance]
        sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--print]
        sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
        sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]";
@@ -1391,7 +1391,7 @@ fn report(args: &[String]) -> Result<ExitCode, Usage> {
     match written {
         Ok(()) => {
             println!("wrote {}, {} and {}", path.display(), report_path.display(), exp.join("INDEX.md").display());
-            match progress::write(&exp) {
+            match progress::write(&exp, false) {
                 Ok(log) => log.iter().for_each(|l| println!("{l}")),
                 Err(m) => println!("progress ledger not written: {m}"),
             }
@@ -1427,9 +1427,11 @@ fn index(args: &[String]) -> Result<ExitCode, Usage> {
 
 fn progress_cmd(args: &[String]) -> Result<ExitCode, Usage> {
     let mut exp = PathBuf::from("experiments");
+    let mut conformance = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
+            "--with-conformance" => conformance = true,
             "--experiments" => exp = PathBuf::from(it.next().ok_or_else(|| Usage("--experiments needs a directory".into()))?),
             x => return Err(Usage(format!("unknown argument {x}"))),
         }
@@ -1438,7 +1440,7 @@ fn progress_cmd(args: &[String]) -> Result<ExitCode, Usage> {
         eprintln!("sdc-experiment: no {}", exp.join(progress::RELEASES).display());
         return Ok(ExitCode::from(2));
     }
-    match progress::write(&exp) {
+    match progress::write(&exp, conformance) {
         Ok(log) => {
             log.iter().for_each(|l| println!("{l}"));
             println!("progress ledger: ok");

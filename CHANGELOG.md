@@ -14,9 +14,15 @@ The crates are `publish = false`; releases are source releases at bare-version t
   run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
   `sdc-conform-adapter`, with route tables written after the run by the node `conformance.table`
   (read-only, response schema, program check, two retries) and writes `runs/<run>/oracle.json`:
-  `conformance: k passed, f failed, u not measurable of n; t tables agree on a of n`. The suite
-  runs once per table (`--tables`, default 3); a scenario passes when one counted table passed it
-  and fails when none passed and one failed it. A table whose run shows its own fault (a capture
+  `conformance: k passed, f failed, d disputed, u not measurable of n; t tables agree on a of n`.
+  The suite runs once per table (`--tables`, default 3); a scenario passes only when every counted
+  table that reached it passed it, fails only when every one failed it, and is disputed when they
+  disagree (cause `disputed` when nothing failed). Several statuses may mean one outcome
+  (`status: [409, 404]`). The check refuses a literal in an event payload or error field, and a
+  check of a field filled from the input is recorded unverified (`unverified_checks`). The start
+  command cites the README or manifest line that states it (`start.from`), and an argument or
+  header a README describes as a test, demo or mock mode is refused. The figure is an instrument
+  study, not a ledger metric. A table whose run shows its own fault (a capture
   that never appears, a request naming a value the scenario leaves out, 401 or 403) is refused and
   asked again once with that evidence. `held` only when k = n > 0 (u > 0 is never held); a run
   without a counted table is `unknown` with a named cause and prints no counts
@@ -29,8 +35,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
 - `driver/ess-pin.json`: ess 0.97.0 pinned by archive and binary sha256 per platform, resolved
   through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
 - The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in
-  `sdc-run-metrics`, and a conformance column, line and per-run figure in the progress ledger
-  (`docs/progress.md`, `docs/progress.json`).
+  `sdc-run-metrics`; a conformance column, line and per-run figure in the progress ledger only with
+  `sdc-experiment progress --with-conformance` (the committed `docs/progress.*` carry none).
 
 ## [0.1.1] - 2026-11-21
 
