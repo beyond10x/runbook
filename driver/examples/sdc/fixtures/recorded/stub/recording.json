@@ -17,6 +17,7 @@
       "prompt": "717fe598a52d1b6ee9abd08d1b5982e017563d105136e28f38176c48d431af17",
       "request": {
         "case": "IDEA-1.intake",
+        "effort": "high",
         "max_budget_usd": 0.5,
         "max_turns": 15,
         "model": "claude-haiku-5-5",
@@ -60,6 +61,7 @@
       "prompt": "2d1cb3af6eeb1e8321803e2834d26f8b1c5c8a661a4b55cc36bebd37fddd8e1b",
       "request": {
         "case": "IDEA-1.intake",
+        "effort": "high",
         "max_budget_usd": 0.5,
         "max_turns": 15,
         "model": "claude-haiku-5-5",
@@ -104,6 +106,7 @@
       "prompt": "17bd46e9910599fd7fbb53625d8d702bdff556b8944173ca4f09d4eaf2fd6b76",
       "request": {
         "case": "IDEA-1.intake",
+        "effort": "high",
         "max_budget_usd": 0.5,
         "max_turns": 15,
         "model": "claude-haiku-5-5",
@@ -148,6 +151,7 @@
       "prompt": "cf206c250b35f593d14a5239978ba90203234f782e107c3473cda81dd681da29",
       "request": {
         "case": "IDEA-1.intake",
+        "effort": "high",
         "max_budget_usd": 0.5,
         "max_turns": 15,
         "model": "claude-haiku-5-5",
@@ -191,6 +195,7 @@
       "prompt": "c4fd85f33264c144356a907c67a0792e9bf74217ff007511f21b7c9f59171c21",
       "request": {
         "case": "IDEA-1.direction",
+        "effort": "high",
         "max_budget_usd": 0.5,
         "max_turns": 15,
         "model": "claude-haiku-5-5",
@@ -242,6 +247,7 @@
       "prompt": "1668deb49f6891f830b93c1601f1e25288166a22b30de4796fca7880f48c8a8d",
       "request": {
         "case": "IDEA-1.billing.spec",
+        "effort": "high",
         "max_budget_usd": 2,
         "max_turns": 40,
         "model": "claude-haiku-5-5",
@@ -274,7 +280,7 @@
       "id": "llm/007-plan.decompose",
       "inputs": {
         "in/commands.txt": "56a304396af97a4d25b6c6dbf3385631694cd8f264dcd1448e849d69897d4ac2",
-        "in/feedback.md": "585728d75114bb5e598318344e37eca28068cbbef16854b1d39d2ceea4a326c1",
+        "in/feedback.md": "0cd675dc14caf6729e1c39d445b9333d86ae0216fdce04244e5388fe748ae0f4",
         "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0",
         "in/spec/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
         "in/spec/README.md": "555fbcae2149dca63c8b222b25deb2a499de0092d8a9f91f14eaf06c6f7e6c80",
@@ -294,6 +300,7 @@
       "prompt": "018fe4075f52e08a31a50c34eb53cc01b4248a8585f62d84ff3190e6165bb1e0",
       "request": {
         "case": "IDEA-1.billing.plan",
+        "effort": "high",
         "max_budget_usd": 0.5,
         "max_turns": 15,
         "model": "claude-haiku-5-5",
@@ -346,6 +353,7 @@
       "prompt": "859c6e1a4fc85c480e54d1bc179b3dabbdff97f4b02f41ed3a2ee8065a9f40e0",
       "request": {
         "case": "IDEA-1.billing.invoices",
+        "effort": "high",
         "max_budget_usd": 2,
         "max_turns": 40,
         "model": "claude-haiku-5-5",
@@ -388,7 +396,7 @@
         "in/impl/src/lib.rs": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b",
         "in/impl/tests/billing.rs": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714",
         "in/scope.json": "31119e5c70f4a27865d1e9dc6c9f3940fc12c9855230c1ddf48ce359d5af5896",
-        "in/tests.txt": "83a41e8839b6e9aee41183a09be3bcb3d238a32bca834c4d36b7564e9768ceca",
+        "in/tests.txt": "949e420ba437dbd02ffc9dd543311c37ed9353cee85b8464f42c6d1a7f6d2913",
         "in/uncovered.json": "fc945c2fc0ab1b16d0638cda4d04275975b2d05c4a330868f9601c5e53cf933a"
       },
       "kind": "work",
@@ -400,6 +408,7 @@
       "prompt": "237a0f7025feab970e9adf1118f71de0c85bc459281249bf8a8ba163f8d08589",
       "request": {
         "case": "IDEA-1.billing.invoices",
+        "effort": "high",
         "max_budget_usd": 1,
         "max_turns": 30,
         "model": "claude-haiku-5-5",
@@ -444,9 +453,10 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/010/out",
-      "prompt": "8bf207fccbd75a563fb6a0e72c296564f8d136d09bbb44bb5a971e42e9726124",
+      "prompt": "38d76c850563c630ecd2f5f518672e12de284482a2f8b9fcbf992a78464b97e8",
       "request": {
         "case": "IDEA-1.direction",
+        "effort": "xhigh",
         "max_budget_usd": 0.25,
         "max_turns": 8,
         "model": "claude-haiku-5-5",
@@ -499,9 +509,10 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/011/out",
-      "prompt": "9749d40957b373c11ec9570a5ee3ac6cccfd5505e149a41b39a56a481dcba0d8",
+      "prompt": "0ef93574f5060b4216eea96a86d1106b1e48a0ba69352dd5617ea5ac5cb11ec9",
       "request": {
         "case": "IDEA-1.direction",
+        "effort": "xhigh",
         "max_budget_usd": 0.25,
         "max_turns": 8,
         "model": "claude-haiku-5-5",
@@ -557,9 +568,10 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/012/out",
-      "prompt": "7edb3d1a4ef054c70a52e18440febd17b39faa6024c05fd3a031be736d8ea3e6",
+      "prompt": "6438738aa77535999812300a1b92b0659706f13a7b7687448573ffc31d17d0c2",
       "request": {
         "case": "IDEA-1.direction",
+        "effort": "xhigh",
         "max_budget_usd": 0.25,
         "max_turns": 8,
         "model": "claude-haiku-5-5",
@@ -608,6 +620,7 @@
         "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/impl/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
+        "in/impl/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/impl/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
         "in/impl/README.md": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab",
         "in/impl/Taskfile.yml": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7",
@@ -623,9 +636,10 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/013/out",
-      "prompt": "2616dce254f8351645225f8803e369a4f66a0579042ce127afd5334935d59687",
+      "prompt": "d21dbf4660f8b11fcb956422f68a467984c5a3450b0c9fff896a4c60d24ff78d",
       "request": {
         "case": "IDEA-1.billing.invoices",
+        "effort": "xhigh",
         "max_budget_usd": 0.25,
         "max_turns": 8,
         "model": "claude-haiku-5-5",
@@ -671,6 +685,7 @@
         "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
         "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2",
         "in/release/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
+        "in/release/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/release/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
         "in/release/PROVENANCE": "823c713f87d5c2892802e1eaedb23330deb037445bf9c4df11284e4ac85afa4d",
         "in/release/README.md": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab",
@@ -686,9 +701,10 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/014/out",
-      "prompt": "0715bd24b7714d439f93bac8f0a652f01c76f26108e6cd815399c377491279b2",
+      "prompt": "c9e1f59489b35cb1687d622b021afeda5e708dd9c1bb6de8a41a338e92df7dac",
       "request": {
         "case": "IDEA-1.billing.release",
+        "effort": "xhigh",
         "max_budget_usd": 0.25,
         "max_turns": 8,
         "model": "claude-haiku-5-5",
@@ -716,62 +732,6 @@
       "structured": null,
       "try": 1,
       "virtual_ms": 0
-    },
-    {
-      "arrival": 1,
-      "attempt": 1,
-      "case": "IDEA-1",
-      "id": "decider/006-close",
-      "inputs": {
-        "in/aep/epic/billing.md": "0dd064fa8339578220a7f72c5e86ca30ff690f2f9a0c6d4e5b243189bd04d669",
-        "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
-        "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
-        "in/checks.json": "5572eaa3bbc1c3dd8945eaa4e8308150faf448ad2c02764dbce0a7eb611528bc",
-        "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
-        "in/decision.json": "a525301e8617971ed7293aabe4446b0928df74b7da08ac557ba1a6ac5500fb3f",
-        "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
-        "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
-        "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2",
-        "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0"
-      },
-      "kind": "decider",
-      "matched_event": true,
-      "name": "close",
-      "node": "decide.close",
-      "ordinal": 1,
-      "ordinal_run": 1,
-      "out": "calls/015/out",
-      "prompt": "a47fc32fef5a3eaf68d4459fb715aebd3e3f784676ae04b69ac6b80ae95067b2",
-      "request": {
-        "case": "IDEA-1",
-        "max_budget_usd": 0.25,
-        "max_turns": 8,
-        "model": "claude-haiku-5-5",
-        "node": "decide.close",
-        "operations": [
-          "dir.list",
-          "file.read",
-          "file.write"
-        ]
-      },
-      "response": {
-        "adapter": "fixture",
-        "cost_usd": 0,
-        "duration_ms": 0,
-        "exit": 0,
-        "model": "claude-haiku-5-5",
-        "num_turns": 0,
-        "schema_constrained": false,
-        "schema_note": "not constrained: a scripted reply, no model",
-        "usage": null
-      },
-      "revisions": {
-        "idea": "tdd34e27c4406f5fe",
-        "roadmap": "ta20bf9965fee8991"
-      },
-      "structured": null,
-      "try": 1,
-      "virtual_ms": 0
     }
   ],
   "format": "sdc.recording/1",
@@ -780,7 +740,18 @@
   "settings": [
     {
       "adapter": "llm-adapter-fixture.sh",
-      "at": "2026-11-21T11:18:52Z",
+      "adapters": {
+        "review": {
+          "adapter": "<path>",
+          "json_schema": true,
+          "nodes": [
+            "spec.review",
+            "change.review"
+          ],
+          "source": "SDC_LLM_ADAPTER"
+        }
+      },
+      "at": "2026-11-21T13:42:03Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
       "decider": {
@@ -789,7 +760,38 @@
         "max_decider_calls": 20,
         "model": "claude-haiku-5-5"
       },
+      "efforts": {
+        "decider": {
+          "effort": "xhigh",
+          "source": "default"
+        },
+        "implement": {
+          "effort": "high",
+          "source": "default"
+        },
+        "other": {
+          "effort": "high",
+          "source": "default"
+        },
+        "requester": {
+          "effort": "xhigh",
+          "source": "default"
+        },
+        "review": {
+          "effort": "high",
+          "source": "default"
+        },
+        "unstick": {
+          "effort": "xhigh",
+          "source": "default"
+        },
+        "writer": {
+          "effort": "high",
+          "source": "default"
+        }
+      },
       "format": "sdc.run-settings/1",
+      "keep_going": false,
       "leg": "started",
       "llm_calls_before": 0,
       "llm_nodes": "idea.dissect questions.write questions.answer requirements.normalise context.default spec.author plan.decompose change.implement change.review",
@@ -803,13 +805,16 @@
         "implement": {
           "model": "claude-haiku-5-5",
           "nodes": {
-            "change.implement": "claude-haiku-5-5"
+            "change.fix": "claude-haiku-5-5",
+            "change.implement": "claude-haiku-5-5",
+            "test.reproduce": "claude-haiku-5-5"
           },
           "source": "binding"
         },
         "other": {
           "model": "claude-haiku-5-5",
           "nodes": {
+            "bug.dissect": "claude-haiku-5-5",
             "context.default": "claude-haiku-5-5",
             "idea.dissect": "claude-haiku-5-5",
             "questions.answer": "claude-haiku-5-5",
@@ -828,6 +833,10 @@
           },
           "source": "binding"
         },
+        "unstick": {
+          "model": "claude-opus-5-5",
+          "source": "default"
+        },
         "writer": {
           "model": "claude-haiku-5-5",
           "nodes": {
@@ -843,20 +852,25 @@
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "332d3aa24908",
+        "commit": "26b8b85ee7b7",
         "dirty": false
+      },
+      "unstick": {
+        "adapter": "<path>",
+        "model": "claude-opus-5-5",
+        "on": true
       }
     }
   ],
   "status": {
     "cause": null,
-    "closed_by": null,
+    "closed_by": "rule:autopilot",
     "delivered": true,
     "outcome": "operating",
     "state": "closed"
   },
   "tree": {
-    "commit": "332d3aa24908",
+    "commit": "26b8b85ee7b7",
     "dirty": false
   }
 }

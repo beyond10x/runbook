@@ -798,6 +798,11 @@ structured outputs, event logs with `<run>`/`<path>`, no prompt, transcript or a
 a node's inputs: `scripts/run-trial.sh` with the fixture adapters (the cycle's comment names the
 environment), then `sdc-replay pack runs/<run> driver/examples/sdc/fixtures/recorded/stub`.
 
+A changed effort is a changed request and diverges: a recording made before effort-per-class (SDC
+0.1.0, `f747085`) diverges at its first call on 0.1.1 and later (`request.effort null -> "high"`).
+Recordings are re-packed after a change to the request shape; `fixtures/recorded/stub` was
+re-packed on the 0.1.1 tree (14 calls: the close is taken by `rule:autopilot`, not the decider).
+
 ## Action-to-tool bindings
 
 One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direction`,
