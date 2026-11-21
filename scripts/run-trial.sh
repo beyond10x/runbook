@@ -137,7 +137,8 @@ while (($#)); do
 done
 name=${pos[0]:?usage: run-trial.sh [--dry] <name> [idea text] | <name> --stop "<reason>" | <name> --reopen}
 idea_text=${pos[1]:-}
-canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
+source "$sdc/scripts/evaluate-cases.sh"
+canon_resolve || exit 1
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
 reply_bin=${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}
 ex=$sdc/driver/examples/sdc

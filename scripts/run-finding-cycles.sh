@@ -124,6 +124,8 @@
 #   scripts/run-finding-cycles.sh <scratch dir>
 set -uo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
+source "$sdc/scripts/evaluate-cases.sh"
+canon_resolve || exit 1
 s=${1:?scratch dir}
 fx=$sdc/driver/examples/sdc/fixtures
 mkdir -p "$s/runs"
@@ -1102,7 +1104,7 @@ cycle replay-sibling SDC_LLM_NODES=plan.decompose SDC_LLM_ADAPTER="$fixture" \
   SDC_FIXTURE_STUB='{"plan.decompose":["plan-two-stories.json","stories.json"]}' SDC_STUB_FINDINGS="$fx/finding-story-second.yaml"
 code=$?
 root=$s/store-replay-sibling/IDEA-1
-"$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$root" replay > "$s/replay-sibling.json" 2>&1
+"$sdc/driver/target/debug/sdc-drive" --canon "$canon" --case-dir "$root" replay > "$s/replay-sibling.json" 2>&1
 rc=$?
 if (( code == 3 && rc == 0 )) &&
    jq -se '[.[] | select(.event == "child_closed") | .child_case] | index("IDEA-1.billing.emails")' "$root/children/IDEA-1.billing/events.jsonl" >/dev/null &&
@@ -1123,7 +1125,7 @@ if [[ -f $sc/bindings.json ]]; then
     "$sc/bindings.json" > "$sc/bindings.json.new" && mv "$sc/bindings.json.new" "$sc/bindings.json"
   yq -i '(.findings[] | select(.status == "needs_person")).status = "dismissed"' "$w/IDEA-1/work/findings.yaml"
   rm -f "$w/IDEA-1/work/impl/Cargo.toml"
-  wo=$("$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$w/IDEA-1" \
+  wo=$("$sdc/driver/target/debug/sdc-drive" --canon "$canon" --case-dir "$w/IDEA-1" \
     run --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" 2> "$s/writer-not-called.err")
   wc_=$?
 fi
@@ -1544,7 +1546,7 @@ r=$s/runs/decider-release-a3
 rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
 cp_=$s/decide-refused; rm -rf "$cp_"; [[ -n $rs ]] && cp -r "$rs" "$cp_"
 printf '{"format": "sdc.rejection/1", "reasons": ["fixture"]}\n' > "$s/decide-refused.json"
-refusal=$("$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$cp_" decide \
+refusal=$("$sdc/driver/target/debug/sdc-drive" --canon "$canon" --case-dir "$cp_" decide \
   --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --decision explicitly_withheld --outcome withheld --principal rule:autopilot \
   --after-denial release.approve --reasons "$s/decide-refused.json" 2>&1)
 rcode=$?

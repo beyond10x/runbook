@@ -7,13 +7,23 @@
 set -euo pipefail
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-canon=${CANON_DIR:-$HOME/beyond10x/canon}
+source "$sdc/scripts/evaluate-cases.sh"
 out=$sdc/protocol/compiled
 probes=$sdc/protocol/probes
 mkdir -p "$out" "$probes"
 fail=0
 
-run() { (cd "$canon" && cargo run --locked -q -p canon-cli -- "$@"); }
+# protocol/simulate/CANON_REV is the pinned commit of driver/canon-pin.json (a prefix of it).
+simulate_dir=$sdc/protocol/simulate
+simulate_rev=$(tr -d '[:space:]' < "$simulate_dir/CANON_REV")
+pin_commit=$(jq -r .commit "$sdc/driver/canon-pin.json")
+if [[ -z $simulate_rev || $pin_commit != "$simulate_rev"* ]]; then
+  echo "protocol/simulate/CANON_REV ($simulate_rev) is not the commit pinned in driver/canon-pin.json ($pin_commit)"
+  exit 1
+fi
+canon_resolve install || exit 1
+
+run() { "$canon" "$@"; }
 
 for f in "$sdc"/protocol/*.protocol.yaml; do
   name=$(basename "$f" .protocol.yaml)
@@ -56,14 +66,12 @@ for name in sdc-plan sdc-epic sdc-story sdc-release; do
   probe "$name" "$ess_gate"
 done
 
-# Simulate: `canon simulate` on every protocol with the pinned Canon commit (protocol/simulate/CANON_REV,
-# built outside the repository, never on PATH), compared byte for byte with protocol/simulate/<name>.txt.
-# A different finding set fails with a diff. `--repin` (or SDC_SIMULATE_REPIN=1) rewrites the pinned
-# reports for a deliberate change; SDC_SIMULATE=off skips the step (no network).
-simulate_dir=$sdc/protocol/simulate
-simulate_rev=$(tr -d '[:space:]' < "$simulate_dir/CANON_REV")
-simulate_root=${SDC_SIMULATE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/$simulate_rev}
-simulate_bin=$simulate_root/bin/canon
+# Simulate: `canon simulate` on every protocol with the pinned Canon (driver/canon-pin.json; the
+# binary resolved above, built outside the repository), compared byte for byte with
+# protocol/simulate/<name>.txt. A different finding set fails with a diff. `--repin` (or
+# SDC_SIMULATE_REPIN=1) rewrites the pinned reports for a deliberate change; SDC_SIMULATE=off skips
+# the step.
+simulate_bin=$canon
 
 simulate_count() { sed -n 's/^simulated: .*, \([0-9]*\) findings\{0,1\}\( (.*)\)\{0,1\}$/\1/p' "$1"; }
 simulate_field() { sed -n "s/^simulated: .*[ ,:] *\([0-9][0-9]*\) $2.*/\1/p" "$1" | head -1; }
@@ -73,12 +81,6 @@ simulate_step() {
   if [[ ${SDC_SIMULATE:-on} == off ]]; then
     echo "simulate: skipped (SDC_SIMULATE=off)"
     return 0
-  fi
-  if [[ ! -x $simulate_bin ]]; then
-    echo "simulate: installing canon $simulate_rev into $simulate_root"
-    cargo install --locked --root "$simulate_root" \
-      --git https://github.com/beyond10x/canon --rev "$simulate_rev" canon-cli \
-      || { echo "simulate: install of canon $simulate_rev failed"; return 1; }
   fi
   local repin=0 bad=0 report
   [[ ${1:-} == --repin || ${SDC_SIMULATE_REPIN:-} == 1 ]] && repin=1

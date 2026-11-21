@@ -275,7 +275,9 @@ terminable, waiting and findings. The step uses the Canon commit in `protocol/si
 SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
 protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
 `${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on
-`PATH`, not the binary of `CANON_DIR`); every other check keeps the binary of `CANON_DIR`.
+`PATH`). Every script resolves the same pinned binary (`canon_resolve` in `scripts/evaluate-cases.sh`):
+`CANON`, else that cache; it refuses unless `canon --version` equals `driver/canon-pin.json`, and
+`runbook doctor` compares the version with the pin too.
 
 - Re-pin after a deliberate protocol change: `scripts/check-protocols.sh --repin` (or
   `SDC_SIMULATE_REPIN=1`), review `git diff protocol/simulate/`, commit the reports with the

@@ -304,8 +304,8 @@ release archive's sha256 (as in the release's `SHA256SUMS`) and the unpacked bin
 `ESS_BIN` when set, else `$SDC_ESS_CACHE`, `$XDG_CACHE_HOME/sdc/ess` or `$HOME/.cache/sdc/ess`,
 then `<version>/<target>/ess`; it is refused unless its sha256 and `--version` match the pin.
 `sdc-conform ess-install [--archive <file>]` downloads (or takes) the archive, checks its sha256,
-unpacks the binary and checks it. Canon, by comparison, has no version pin: the scripts use the
-sibling checkout (`scripts/check-protocols.sh`, `CANON_DIR`; `scripts/run-trial.sh`, `CANON`).
+unpacks the binary and checks it. Canon is pinned by version and commit in `driver/canon-pin.json`:
+the scripts take `CANON` or the cached pinned install and refuse a different `canon --version`.
 
 ## Limits
 

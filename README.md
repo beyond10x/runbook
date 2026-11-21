@@ -73,7 +73,7 @@ The skills and what each needs: [plugin/README.md](plugin/README.md).
 
 ## Try it
 
-Needs a Canon checkout with a built `canon` binary (`CANON_DIR`, default `$HOME/beyond10x/canon`),
+Needs a `canon` binary of the pinned version (`driver/canon-pin.json`): the scripts take `CANON` when set, else the cached install of the pinned commit, and refuse any other `canon --version`,
 Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`.
 
 The dry run uses a stub idea and stub executors that write the artifacts, prints every LLM command

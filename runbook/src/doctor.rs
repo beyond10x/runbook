@@ -3,7 +3,7 @@
 //! The table below is the list of prerequisites, each with the place in the code that makes the
 //! program necessary. A login or an API key is only checked for existence; its value is never read.
 
-use crate::assets::{is_executable, Assets, Lookup, Source};
+use crate::assets::{is_executable, Assets, Lookup};
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ enum Kind {
     Assets,
     /// A program on `PATH`; `bin` is the file to look for, `args` print its version.
     Program(&'static str, &'static [&'static str]),
-    /// `CANON` when set, else `canon` on `PATH`.
+    /// `CANON` when set, else the cached pinned install, else `canon` on `PATH`; its version must equal the pin.
     Canon,
     /// The Go yq, major version 4: its `--version` prints `v4.x` (the Python yq prints `3.x`).
     Yq,
@@ -74,7 +74,7 @@ const fn program(bin: &'static str) -> Kind {
 #[rustfmt::skip]
 const SPECS: &[Spec] = &[
     Spec { name: "assets", kind: Kind::Assets, needs: RUN_UI, by: "every runbook: protocol/, scripts/, driver/examples/sdc/, bindings/tools/, ui/", hint: "set RUNBOOK_HOME, install them at <prefix>/share/runbook, or run inside a checkout" },
-    Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: sdc-drive compiles and evaluates the protocols (driver/src/main.rs:29,409,863)", hint: "build the sibling checkout ../canon (cargo build), put canon on PATH, or set CANON=<binary> or CANON_DIR=<checkout>" },
+    Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: sdc-drive compiles and evaluates the protocols (driver/src/main.rs:29,409,863)", hint: "set CANON=<a canon binary of the pinned version, driver/canon-pin.json>, or run scripts/check-protocols.sh once to install the pinned Canon into the cache" },
     Spec { name: "bash", kind: program("bash"), needs: RUN, by: "every runbook: the bindings' tools are bash scripts (bindings/tools)", hint: SHELL_TOOLS },
     Spec { name: "jq", kind: program("jq"), needs: RUN_UI, by: "every runbook and the ui (sdc-tool.sh:23, llm-node.sh:36, decider.sh:39)", hint: SHELL_TOOLS },
     Spec { name: "yq", kind: Kind::Yq, needs: RUN_UI, by: "every runbook and the ui, the Go yq v4 (sdc-tool.sh:23, llm-node.sh:36, decider.sh:39, ui/decisions.mjs:52)", hint: "install the Go yq v4 (its --version prints v4.x), not the Python yq" },
@@ -178,9 +178,9 @@ fn probe(spec: &Spec, l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, assets
             None => missing(""),
         },
         Kind::Login => login(var),
-        Kind::Canon => match canon(l, var, assets) {
-            Some(p) => with_version(p, &["--version"]),
-            None => missing(""),
+        Kind::Canon => match canon(l, var) {
+            Some(p) => canon_against_pin(p, &CANON_PIN),
+            None => missing(&format!("pinned Canon {}", CANON_PIN.version)),
         },
         Kind::Yq => match l.which("yq") {
             None => missing(""),
@@ -201,23 +201,43 @@ fn probe(spec: &Spec, l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, assets
     }
 }
 
-/// The canon binary, first match wins: `CANON` (a path, or a name on `PATH`), the Canon checkout
-/// `CANON_DIR`, `canon` on `PATH`, then the sibling checkout `../canon` of the asset root that
-/// `AGENTS.md` names (`scripts/run-trial.sh` runs `target/debug/canon` of it). A checkout counts
-/// with a built `target/release/canon` or `target/debug/canon`.
-fn canon(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, assets: Option<&Assets>) -> Option<PathBuf> {
+/// The Canon release Runbook pins (`driver/canon-pin.json`, compiled in so it always matches the
+/// scripts of the same checkout).
+struct CanonPin {
+    version: String,
+    commit: String,
+}
+
+static CANON_PIN: std::sync::LazyLock<CanonPin> = std::sync::LazyLock::new(|| {
+    let v: Value = serde_json::from_str(include_str!("../../driver/canon-pin.json")).expect("driver/canon-pin.json is JSON");
+    let field = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+    CanonPin { version: field("version"), commit: field("commit") }
+});
+
+/// The canon binary, as the scripts find it (`canon_resolve` in `scripts/evaluate-cases.sh`):
+/// `CANON` (a path, or a name on `PATH`), else the cached install of the pinned commit under
+/// `SDC_SIMULATE_ROOT` or `$XDG_CACHE_HOME/sdc/canon-simulate/<commit[..8]>`, else `canon` on
+/// `PATH` (what `sdc-drive --canon` defaults to). No Canon checkout is looked at.
+fn canon(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let set = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(c) = set("CANON") {
         return if c.components().count() > 1 { is_executable(&c).then_some(c) } else { l.which(&c.to_string_lossy()) };
     }
-    let built = |dir: PathBuf| ["release", "debug"].iter().map(|p| dir.join("target").join(p).join("canon")).find(|p| is_executable(p));
-    if let Some(dir) = set("CANON_DIR") {
-        return built(dir);
+    let root = set("SDC_SIMULATE_ROOT").or_else(|| {
+        let cache = set("XDG_CACHE_HOME").or_else(|| set("HOME").map(|h| h.join(".cache")))?;
+        Some(cache.join("sdc/canon-simulate").join(CANON_PIN.commit.get(..8)?))
+    });
+    root.map(|r| r.join("bin/canon")).filter(|p| is_executable(p)).or_else(|| l.which("canon"))
+}
+
+/// The found binary's `--version` against the pin: it passes only when the versions are equal.
+fn canon_against_pin(p: PathBuf, pin: &CanonPin) -> (bool, String, Option<PathBuf>) {
+    let got = version_output(&p, &["--version"]).map(|o| extract_version(&o)).filter(|v| !v.is_empty());
+    match got {
+        Some(v) if v == pin.version => (true, format!("{v} (the pin)"), Some(p)),
+        Some(v) => (false, format!("{v}, pin is {}", pin.version), Some(p)),
+        None => (false, format!("--version did not answer, pin is {}", pin.version), Some(p)),
     }
-    l.which("canon").or_else(|| {
-        let a = assets.filter(|a| a.source != Source::Installed)?;
-        built(a.root.parent()?.join("canon"))
-    })
 }
 
 fn with_version(p: PathBuf, args: &[&str]) -> (bool, String, Option<PathBuf>) {
@@ -320,6 +340,7 @@ pub fn json(r: &Report) -> Value {
             "found": c.found,
             "required": c.required,
             "version": if c.found { Value::String(c.detail.clone()) } else { Value::Null },
+            "detail": c.detail,
             "path": c.path,
             "needed_by": c.by,
             "install": if c.found { Value::Null } else { Value::String(c.hint.into()) },
