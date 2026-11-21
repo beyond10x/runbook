@@ -1053,3 +1053,16 @@ tr.fail td b { color: #ff9a9e; }
   #center { border-bottom: 1px solid var(--line); }
   #right, html:not(.rp-open) #right { display: none; }
 }
+/* C2 the right panel is a full-width sheet, opened from Details in the status bar, never a column */
+@media (max-width: 900px) {
+  #railbtn { grid-area: rail; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; padding: 0 12px; font: 600 14px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
+  html.rp-open #right { display: flex; position: fixed; inset: 0; z-index: 30; width: auto; border: 0; }
+  html.rp-open body { overflow: hidden; }
+  html.rp-open #tabs { flex-wrap: wrap; gap: 4px; margin: 8px; padding: 4px; overflow: visible; }
+  html.rp-open #tabs button { flex: 1 1 26%; min-height: 44px; padding: 0 6px; }
+  html.rp-open #rpclose { order: -1; flex: 0 0 100%; justify-content: flex-end; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--text); font: 600 14px var(--sans); }
+  html.rp-open #rpclose::before { content: 'Close'; }
+  #panel { padding: 12px 14px 32px; }
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .cols2 { grid-template-columns: 1fr; }
+}

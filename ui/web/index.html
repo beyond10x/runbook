@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <link rel="preload" href="fonts/inter-variable-latin.woff2" as="font" type="font/woff2" crossorigin>
-<script>try { if (localStorage.getItem('sdc-ui.panel') === 'open' || /[?&](tab|node)=/.test(location.search)) document.documentElement.classList.add('rp-open'); } catch {}</script>
+<script>try { if ((localStorage.getItem('sdc-ui.panel') === 'open' && !matchMedia('(max-width: 900px)').matches) || /[?&](tab|node)=/.test(location.search)) document.documentElement.classList.add('rp-open'); } catch {}</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,7 +19,7 @@
     <button id="decbtn" class="decbtn" title="pending person decisions"><span>Decisions</span><b id="deccount">0</b></button>
     <span id="live" class="live connecting"><i></i><span>Connecting</span></span>
   </div>
-  <div id="nowbar" role="group" aria-label="Run state and current step"></div>
+  <div id="nowbar" role="group" aria-label="Run state and current step"></div><button id="railbtn" aria-controls="right" title="the panel: Explain, Autonomy, Security, Metrics, Changes, Events, Run log">Details</button>
 
 </header>
 <section id="kpis" aria-label="Run KPIs"></section>

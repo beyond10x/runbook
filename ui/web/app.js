@@ -11,13 +11,15 @@ import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 
 const q0 = new URLSearchParams(location.search);
+// a phone (decision D-005): the panel is a sheet, so it does not open by itself on load
+const PHONE = matchMedia('(max-width: 900px)');
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
   inbox: {items: [], write: false, principal: null}, drawer: q0.get('drawer') === '1', form: {}, editing: null, busy: null, results: {}, proc: null, dirty: false, toast: null,
   liveData: null, offset: 0, diff: null,
   // the right panel: a rail of tab names until a tab is opened; remembered across loads
-  panel: q0.get('tab') || q0.get('node') ? true : localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
+  panel: q0.get('tab') || q0.get('node') ? true : !PHONE.matches && localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
 const LS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 function setPanel(open, tab) {
   if (tab) S.tab = tab;
@@ -341,6 +343,7 @@ document.addEventListener('click', async (ev) => {
   }
   if (t.closest('#decbtn') || t.closest('[data-open-drawer]')) { S.drawer = !S.drawer || !!t.closest('[data-open-drawer]'); return render(); }
   if (t.closest('#rpclose')) { setPanel(false); return render(); }
+  if (t.closest('#railbtn')) { setPanel(true); return render(); }
   const chip = t.closest('[data-feed]');
   if (chip) { S.feedCls = S.feedCls === chip.dataset.feed ? '' : chip.dataset.feed; LS('sdc-ui.feed', S.feedCls); return render(); }
   const kpi = t.closest('[data-kpi]');
@@ -429,7 +432,7 @@ document.addEventListener('keydown', (ev) => {
   if (!c) return;
   if (ev.key === 'ArrowLeft') { setIdx(idxOf(c) - 1); ev.preventDefault(); }
   if (ev.key === 'ArrowRight') { setIdx(idxOf(c) + 1); ev.preventDefault(); }
-  if (ev.key === 'Escape') { S.node = null; render(); }
+  if (ev.key === 'Escape') { S.node = null; if (PHONE.matches && S.panel) setPanel(false); render(); }
 });
 // drag the graph to pan; a click without movement still selects a node
 let pan = null;
