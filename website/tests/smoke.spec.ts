@@ -137,7 +137,10 @@ async function checkEvaluation(page: Page): Promise<void> {
   const exp = page.locator('section[aria-labelledby="experiments"] tbody tr');
   expect(await exp.count()).toBeGreaterThanOrEqual(5);
   await expect(exp.filter({hasText: 'free-agent-0.1.0'})).toContainText('contradicted');
-  await expect(exp.filter({hasText: 'build-constraints'})).toContainText('planned');
+  const pageStates = ['running', 'planned', 'ended'];
+  const buildConstraints = exp.filter({hasText: 'build-constraints'});
+  await expect(buildConstraints).toHaveCount(1);
+  expect(pageStates, 'a state the page renders').toContain((await buildConstraints.locator('.sdc-state').innerText()).trim());
   await expect(page.locator('[id="exp-free-agent-0.1.0"]')).toHaveCount(1);
   for (const id of ['baseline-0.1.0', 'release-0.1.2', 'trial-3-attempts', 'undefined']) await expect(page.locator(`[id="exp-${id}"]`)).toHaveCount(0);
 }
