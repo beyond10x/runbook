@@ -14,7 +14,7 @@
 //!
 //! Artifacts (driver/examples/sdc/sdc-bugfix.bindings.json): bug.yaml (report), bug-dissection.json
 //! (dissection), repro/ (repro: repro.json `{file, test}` and the test file), impl/ (change), aep/
-//! (story). mainline/ is the unchanged code the red is observed against. Every cargo run is made in a
+//! (story). mainline/ (or bug.yaml `base`) is the unchanged code the red is observed against. Every cargo run is made in a
 //! copy of impl/ under .sdc/bugfix/ (nothing is written into an artifact) through `slot` when it is
 //! on PATH. A program that is missing exits 127 (sdc-drive records nothing), never a check result.
 use std::fs;
@@ -157,10 +157,6 @@ impl Repro {
     fn base(&self) -> &str {
         self.file.rsplit('/').next().unwrap()
     }
-    /// The libtest name of the test in its binary, and the cargo target section it runs under.
-    fn section(&self) -> String {
-        self.file.clone()
-    }
 }
 
 /// repro/repro.json against its schema, its test file present and holding the named #[test], and
@@ -190,7 +186,7 @@ fn read_repro() -> Result<Repro, String> {
     if Regex::new(r"#\[(ignore|should_panic)").unwrap().is_match(&src) {
         return Err(format!("repro/{} uses #[ignore] or #[should_panic]", r.base()));
     }
-    if Path::new("mainline").join(&r.file).exists() {
+    if base().join(&r.file).exists() {
         return Err(format!("{} exists in the unchanged code: the reproducing test is a new file", r.file));
     }
     Ok(r)
@@ -198,16 +194,17 @@ fn read_repro() -> Result<Repro, String> {
 
 fn repro_install() -> R<u8> {
     reset_dir(Path::new("impl"))?;
-    copy_tree(Path::new("mainline"), Path::new("impl"))?;
+    let b = base();
+    copy_tree(&b, Path::new("impl"))?;
     match read_repro() {
         Ok(r) => {
             let to = Path::new("impl").join(&r.file);
             fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
             fs::copy(Path::new("repro").join(r.base()), &to).map_err(|e| e.to_string())?;
-            println!("repro-install: impl/ is mainline/ plus {}", r.file);
+            println!("repro-install: impl/ is {}/ plus {}", b.display(), r.file);
         }
         // repro.run reports it, so the writer gets the reason back.
-        Err(e) => println!("repro-install: impl/ is mainline/ ({e})"),
+        Err(e) => println!("repro-install: impl/ is {}/ ({e})", b.display()),
     }
     Ok(0)
 }
@@ -235,7 +232,7 @@ fn repro_run() -> R<u8> {
         println!("repro: not red: {e}");
         return Ok(1);
     }
-    let diff = tree_diff(Path::new("mainline"), Path::new("impl"), &r.file)?;
+    let diff = tree_diff(&base(), Path::new("impl"), &r.file)?;
     if !diff.is_empty() {
         println!("repro: not red: the code is changed, not only the test added: {}", diff.join(", "));
         return Ok(1);
@@ -246,8 +243,16 @@ fn repro_run() -> R<u8> {
         println!("repro: not red: the code tree with the test does not compile: {e}");
         return Ok(1);
     }
-    let own: Vec<&Entry> = run.entries.iter().filter(|e| e.is(&r)).collect();
-    let others: Vec<&Entry> = run.entries.iter().filter(|e| !e.is(&r) && e.status != "ok").collect();
+    let own_run = own_run(&r)?;
+    let own: Vec<&Entry> = own_run.entries.iter().filter(|e| e.is(&r)).collect();
+    // In the full run the reproducing test, failing, is the one entry that may fail.
+    let mut skipped = false;
+    let others: Vec<&Entry> = run
+        .entries
+        .iter()
+        .filter(|e| e.status != "ok")
+        .filter(|e| !(e.is(&r) && e.status == "FAILED" && !std::mem::replace(&mut skipped, true)))
+        .collect();
     let verdict = match own.as_slice() {
         [] => Some(format!("test {} in {} did not run", r.test, r.file)),
         [e] if e.status == "ok" => Some(format!("test {} passes on the unchanged code: it does not reproduce the bug", r.test)),
@@ -292,7 +297,8 @@ fn tests_run() -> R<u8> {
         println!("tests: FAILED the code tree does not compile: {e}");
         return Ok(1);
     }
-    let own = run.entries.iter().filter(|e| e.is(&r)).collect::<Vec<_>>();
+    let own_run = own_run(&r)?;
+    let own = own_run.entries.iter().filter(|e| e.is(&r)).collect::<Vec<_>>();
     let bad: Vec<String> = run.entries.iter().filter(|e| e.status != "ok").map(|e| format!("{} {}", e.name, e.status)).collect();
     if own.len() != 1 || own[0].status != "ok" {
         println!("tests: FAILED test {} ({}) does not pass: {}", r.test, r.file,
@@ -340,8 +346,10 @@ struct Entry {
 }
 
 impl Entry {
+    /// By name only: which target an entry of the full run belongs to cannot be told (see
+    /// `own_run`); the reproducing test's own run holds only its target.
     fn is(&self, r: &Repro) -> bool {
-        self.name == r.test && self.section.contains(&r.section())
+        self.name == r.test
     }
 }
 
@@ -361,8 +369,8 @@ impl Run {
     }
 }
 
-/// Parse `cargo test` output with stdout and stderr in one stream: `Running <target>` and
-/// `Doc-tests <crate>` open a section, `test <name> ... <status>` is one entry.
+/// Parse `cargo test` output: `Running <target>` and `Doc-tests <crate>` open a section (for the
+/// log only: the order of the two streams is not kept through `slot`), `test <name> ... <status>` is one entry.
 fn parse(out: &str, exit: i32) -> Run {
     let test = Regex::new(r"^test (.+?) \.\.\. (ok|FAILED|ignored)\b").unwrap();
     let mut section = String::new();
@@ -391,6 +399,17 @@ fn suite() -> R<Run> {
     Ok(parse(&out, code))
 }
 
+/// The reproducing test alone, in the copy `suite` made: `cargo test --test <name> -- --exact
+/// <test>`, so its entry belongs to its file by construction. The full run cannot tell: through
+/// `slot`, stdout and stderr reach the log as two streams, and a `Running <target>` line may land
+/// after the tests it opened (`runs/bugfix-tally-sonnet`: the green test read as "did not run").
+fn own_run(r: &Repro) -> R<Run> {
+    let tree = fs::canonicalize(".sdc/bugfix/tree").map_err(|e| e.to_string())?;
+    let stem = r.base().trim_end_matches(".rs").to_string();
+    let (code, out) = cargo(&tree, &["test", "--offline", "--test", &stem, "--", "--exact", &r.test])?;
+    Ok(parse(&out, code))
+}
+
 // --- the planning store ----------------------------------------------------------------------------
 
 fn aep(args: &[&str]) -> R<(i32, String)> {
@@ -408,6 +427,16 @@ fn aep(args: &[&str]) -> R<(i32, String)> {
 fn report() -> R<serde_yaml::Value> {
     let t = fs::read_to_string("bug.yaml").map_err(|_| "no bug.yaml".to_string())?;
     serde_yaml::from_str(&t).map_err(|e| format!("bug.yaml: {e}"))
+}
+
+/// The unchanged code the red is observed against: `bug.yaml` `base` (a parent that opens this case
+/// as a child names a copy of its code at the opening), else `mainline`.
+fn base() -> PathBuf {
+    report()
+        .ok()
+        .and_then(|r| r.get("base").and_then(|b| b.as_str()).map(PathBuf::from))
+        .filter(|p| p.is_relative() && !p.to_string_lossy().contains(".."))
+        .unwrap_or_else(|| PathBuf::from("mainline"))
 }
 
 fn story_id(rep: &serde_yaml::Value) -> String {
@@ -571,7 +600,7 @@ fn on_path(p: &str) -> bool {
 }
 
 /// `cargo <args>` in `dir`, through `slot` when it is on PATH, the target directory beside the
-/// copy; stdout and stderr in one stream, in the order they were written.
+/// copy; stdout and stderr into one log file.
 fn cargo(dir: &Path, args: &[&str]) -> R<(i32, String)> {
     if !on_path("cargo") {
         return Err("cargo is not on PATH".into());

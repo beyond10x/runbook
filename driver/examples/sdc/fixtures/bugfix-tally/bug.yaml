@@ -1,0 +1,6 @@
+title: The total keeps a removed count
+text: >-
+  After t.add("a", 2), t.add("b", 3) and t.remove("a"), tally::Tally::total() returns 5. Expected
+  3: the total is the sum of the counts that are still there, so remove must take its count out of
+  the total.
+story: story:tally-remove-total

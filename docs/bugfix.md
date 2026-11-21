@@ -22,7 +22,7 @@ Each step is admissible only after the one before it (the preconditions in the p
 | 5 | `tests.run` | `sdc-bugfix tests-run` (see below) | `test_run` passed / failed |
 | 6 | `story.update` | `sdc-bugfix story-update`: the story named by `bug.yaml` `story` moved to `implemented` through `aep`, actor and executor `agent:story.update`; created first if no parent handed it in | `story_record` |
 | 7 | `gate.run` | `sdc-bugfix gate-run`: `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` | `gate_run` passed / failed |
-| 8 | close | `scripts/run-trial.sh` closes the terminable root through its outcome (no decision: no outcome requires one) | `terminated` |
+| 8 | close | `scripts/run-trial.sh` closes the terminable root through its outcome; no outcome requires a decision, so under `--autopilot` the close is `rule:autopilot`'s (`closed BUG-1: "fixed" by rule:autopilot`, `closed_by` in `status.json`) | `terminated` with `principal` |
 
 Outcomes: `fixed` (all of the above), `not_reproduced` (no valid dissection, or no red), `not_fixed`
 (red, but the fix fails the suite or the gate). The two failure outcomes end a case only once nothing
@@ -41,17 +41,26 @@ copying `impl/` to `mainline/`.
 ## The programs (red and green)
 
 Every cargo run happens in a copy of `impl/` under `.sdc/bugfix/`, so nothing is written into an
-artifact. stdout and stderr go into one stream, so each `test <name> ... <status>` line is matched to
-the `Running <target>` line above it. The run goes through `slot` when slot is on PATH.
+artifact. The run goes through `slot` when slot is on PATH. Two runs per check:
 
-- `repro-run` is red only when all of these hold: `repro/repro.json` fits its schema;
-  the test file holds `#[test] fn <test>` and no `#[ignore]` or `#[should_panic]`; the file is new
-  to `mainline/`; `impl/<file>` is byte for byte `repro/<file>`; `impl/` equals `mainline/` except
-  that file; and in `cargo test --no-fail-fast` the named test in that target FAILED while every
-  other test is ok. A compile error, a passing test, or another failing test makes it not_red, and
+- the whole suite, `cargo test --no-fail-fast`, for the counts;
+- the reproducing test alone, `cargo test --test <name> -- --exact <test>`, for its status.
+
+Its status is taken from its own run because, through `slot`, stdout and stderr reach the log as
+two streams. A `Running <target>` line can land after the tests it opened, so the full run cannot
+tell which target a test line belongs to. In `runs/bugfix-tally-sonnet` and
+`runs/bugfix-kvparse-haiku` (before the fix), the reproducing test's line landed under
+`Doc-tests` and was read as "did not run".
+
+- `repro-run` is red only when all of these hold: `repro/repro.json` fits its schema; the test file
+  holds `#[test] fn <test>` and no `#[ignore]` or `#[should_panic]`; the file is new to the base
+  (`bug.yaml` `base`, default `mainline/`); `impl/<file>` is byte for byte `repro/<file>`; `impl/`
+  equals the base except that file; the test's own run reports it FAILED; and in the full run
+  nothing else fails. A compile error, a passing test, or another failing test makes it not_red, and
   the log line names the reason.
 - `tests-run` refuses a fix that changed or removed the test file (the byte comparison). It passes
-  only when the named test is reported ok, nothing failed and nothing is ignored.
+  only when the test's own run reports it ok and the full run has nothing failed and nothing
+  ignored.
 
 What the record shows, by program:
 
@@ -87,6 +96,17 @@ the last partial page. `bug.yaml` holds the report. `stub-dissection.json`, `stu
 | `edited-test` | the first fix weakens the test: `tests: FAILED refused: ... the reproducing test was changed`, sent back | `fixed` |
 | `never-red` | every test passes on the seed: three runs of `test.reproduce` | `not_reproduced` |
 
+`scripts/run-finding-cycles.sh` runs the four in autopilot (`bugfix-full`, `bugfix-not-red`,
+`bugfix-edited-test`, `bugfix-never-red`). It checks the outcome, `closed_by: rule:autopilot`,
+replay, and the records: the green `test_run` names the red `repro_run`'s repro revision at
+another change revision.
+
+More seeds, each with one planted bug of another kind:
+
+- `bugfix-percent/`: an inclusive bound written exclusive (`is_valid(100)` is false);
+- `bugfix-kvparse/`: a wrong error path (a line without `=` is taken as success);
+- `bugfix-tally/`: a state bug across calls (`remove` leaves its count in the total).
+
 `cases/12-bugfix-red-first/` holds Canon evaluations. Two matter most: `green-without-red` (a fix
 and a green suite with no red record) leaves `change.fix`, `tests.run` and `story.update` blocked;
 `test-edited` makes `change.fix` the writer again and `not_fixed` legitimate.
@@ -108,23 +128,101 @@ Command: `scripts/run-trial.sh bugfix-1 --bugfix driver/examples/sdc/fixtures/bu
 - The fix is one line: `total / per_page` became `total.div_ceil(per_page)`. All four gate checks
   passed, and the story went `active -> implemented` by `agent:story.update`.
 
-## As a child case
+Why there are two `dissection.check` records and two `repro.run` records although no writer ran
+twice: the first of each is about an artifact that did not exist yet. The fixed policy takes
+observations before writes (`driver/src/main.rs`, `useful()`). At the opening, `dissection.check` is
+admissible (`dissection.checked` is unknown), so it ran first, against `none`: `e0004`, `invalid`,
+"no bug-dissection.json". Then `bug.dissect` wrote the document, and `e0013` checked the new
+revision: `valid`. Likewise, once the dissection was valid, `repro.run` ran before `test.reproduce`,
+against repro `none`: `e0017`, `not_red`, "no repro/repro.json". That check makes no cargo run. After
+the test was written, `e0026` was red. A record about `none` sends no writer back (`retry_when`
+skips it: `driver/src/main.rs`, `retry_records`), so no LLM call is spent on it. Removing these
+records would take an evidence kind per writer (a "written" record, 4 times the states each) or a
+precondition on the presence of an artifact, which Canon has no form for.
+
+## Seed runs (2026-11-21, real, autopilot)
+
+Each seed ran once on `claude-sonnet-5-5` and once on `claude-haiku-5-5`, under
+`SDC_MAX_LLM_CALLS=15`. The runs are in `runs/bugfix-<seed>-<model>`. Seconds are summed over the
+rounds. "Writer runs" counts dissect / reproduce / fix. Only `tally-sonnet-2` ran after the close by
+rule was merged, so only it names `rule:autopilot`.
+
+| Run | Outcome | Calls | USD | s | `not_red` retries | Writer runs | Failed checks |
+|---|---|---|---|---|---|---|---|
+| percent-sonnet | fixed | 3 | 0.126 | 51 | 0 | 1 / 1 / 1 | none |
+| percent-haiku | fixed | 5 | 0.023 | 183 | 0 | 1 / 1 / 3 | gate `fmt` once |
+| kvparse-sonnet | fixed | 3 | 0.163 | 74 | 0 | 1 / 1 / 1 | none |
+| kvparse-haiku | fixed | 4 | 0.012 | 97 | 1 | 1 / 2 / 1 | `repro.run` not_red once (parser) |
+| tally-sonnet | not_fixed | 5 | 0.269 | 111 | 0 | 1 / 1 / 3 | `tests.run` failed (parser) |
+| tally-haiku | fixed | 3 | 0.009 | 43 | 0 | 1 / 1 / 1 | none |
+| pager-haiku | fixed | 4 | 0.013 | 83 | 0 | 1 / 1 / 2 | gate `clippy` once |
+| tally-sonnet-2 | fixed by rule:autopilot | 3 | 0.127 | 140 | 0 | 1 / 1 / 1 | none |
+
+Each model wrote a red test at once for every seed. The one `not_red` (kvparse-haiku) and the one
+stop (tally-sonnet) were the same defect in `sdc-bugfix`: it read the test's status from the full
+run, where through `slot` the test line landed under the wrong `Running` header (see the programs
+above). That is fixed: the test now has its own run. `tally-sonnet-2` is the same seed and model
+after the fix. The two gate failures were real: Haiku's fix was not formatted, or had a clippy
+finding. The gate record sent `change.fix` back, and the next fix passed.
+
+## As a child case (design, 2026-11-21)
+
+The operator: "Break it down, make it composable." The fix loop of
+`story:release-rejection-plans-fix-stories` (a rejected release plans fix work) and a failed
+acceptance or a rejected merge in `sdc.story` are where a parent would open `sdc.bugfix` for one
+defect it has written down.
 
 Nothing in the bindings or tools assumes the case is the root. Every path is relative to the case's
-`work/`. No tool reads the case id. The story step works whether the story exists or not. To open it
-as a child with Canon's child cases, a parent (an epic, or `sdc.story` for a bug found in review)
-needs:
+`work/`. No tool reads the case id. `story.update` creates the story only when no parent handed it
+in. The unchanged code the red is observed against is `bug.yaml` `base` (default `mainline/`). A
+parent whose change is still open names a copy of its code at the opening, because `repro-install`
+resets `impl/` to the base plus the test.
 
-- an action with `case_open` and the binding `child: {protocol: ".../sdc-bugfix.protocol.yaml",
-  bindings: ".../sdc-bugfix.bindings.json", name: "<bug>"}` (`docs/driver.md`, "Child cases");
-- in the shared `work/`: `bug.yaml` (with `story: story:<name>`), `impl/` and `mainline/`, and
-  optionally `aep/` with the story. Today the parent writes `bug.yaml` before the opening. Two bugs
-  at once need a per-child `work/` (`epic:concurrent-child-cases`);
-- a `children` claim that lists the outcome `fixed`.
+What a parent needs:
 
-It reads back: the `case_outcome` record (`fixed`, `not_reproduced` or `not_fixed`), `impl/` at the
-fixed revision (the parent's `change` moves with it), and the story at `implemented`.
+- an action with `case_open: {protocol: sdc.bugfix, subject: <artifact>}` and the binding
+  `child: {name, protocol: .../sdc-bugfix.protocol.yaml, bindings: .../sdc-bugfix.bindings.json}`
+  (`docs/driver.md`, "Child cases"). The child's `work/` is a link to the parent's, so the parent
+  writes `bug.yaml` (report, `story`, `base`) and the base copy before it opens the child;
+- a `children` claim that lists `fixed`, and an `case_outcome` evidence kind.
 
-Not in this revision, for the state count: the report is not an upstream of the dissection (a revised
-report does not invalidate it), and `repro` is not an upstream with invalidation of the fix records.
-Each would cost 4 to 16 times (`docs/protocol-notes.md:354-356`).
+What it reads back: the `case_outcome` record (`fixed`, `not_reproduced` or `not_fixed`), `impl/` at
+the fixed revision (the parent's `change` moves, so its records about the old revision drop out by
+revision binding and its checks run again), and the story at `implemented`.
+
+Probe, run with stubs: `protocol/draft/bugfix-parent.protocol.yaml` (144 states, 0 findings) with
+`driver/examples/sdc/draft/bugfix-parent.bindings.json`. Run it with `sdc-drive init`, then
+`sdc-bugfix seed --from driver/examples/sdc/fixtures/bugfix-pager` in its `work/`, then
+`sdc-drive run`. The parent opened `PARENT-1.bug`, the driver drove the child depth first to `fixed`
+and closed it, and the parent's record `case_outcome` (`result: fixed`, `child_case: PARENT-1.bug`)
+made it terminable with `passed`. `close` and `replay` returned 0 for both cases.
+
+What Canon 0.9.0 allows today:
+
+- One bug-fix child per parent, read by `{children: {in: [fixed]}}`. The form reads every child of
+  the case alike, of every revision (`../canon/crates/canon/src/model/predicate.rs:52-59`). So a child
+  that ends `not_fixed` makes the claim false for good, and a second attempt cannot make it true:
+  there is no retry loop.
+- The cost is 8 × 9 = 72 per listed outcome (`docs/protocol-notes.md:354-366`; the probe has 2 × 72).
+  `sdc.story` (49,152 states) cannot take a `children` claim at all within the 65,536 bound.
+  `sdc.epic` (36,864) already lists `passed` for its story and release children. A bug-fix child
+  fits there only if its success outcome is named `passed` (a second listed outcome costs 16 × 17),
+  and every failed fix then sinks `children.passed` for the epic.
+
+What needs the unreleased form `{children: {in: [fixed], subject: <s>, revision: current}}` (Canon
+`story:child-outcome-subject`, after `story:child-outcome-revision`; `docs/orchestration.md:236-247`):
+
+- the loop: after a `not_fixed` child, or a new rejection, the parent's subject (the report, or
+  the rejection record) moves to a new revision. Only the children opened at the current revision
+  count, so the old failure no longer counts and a new child is opened. Then it is bounded by the
+  parent's own run cap;
+- several bug-fix children beside story and release children, without one child's outcome reaching
+  into another family's claim (`subject`);
+- `sdc.story` as a parent at all. That still also needs a slice-wise state bound
+  (`story:canon-slice-bound-uptake`), or the defect loop placed in the epic.
+
+`sdc.story` and `sdc.epic` are unchanged in this revision. Also not in this revision, for the state
+count: the report is not an upstream of the dissection (a revised report does not invalidate it),
+and `repro` is not an upstream with invalidation of the fix records. Each would cost 4 to 16 times
+(`docs/protocol-notes.md:354-356`).
+
