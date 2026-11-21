@@ -43,6 +43,20 @@ The crates are `publish = false`; releases are source releases at bare-version t
   not decider calls, and reports `decider_s`. New `sdc-reply rule-approval`; cycles
   `rule-approvals*`; experiment record `experiments/decider-program-approvals.yaml`.
 
+### Changed
+
+- `change.review` gets the smallest fact set, not the whole tree (`story:review-minimal-facts`):
+  `sdc-reply review-inputs` assembles one document, `in/review.md`, with the story's requirements
+  and commands, the test summary (counts and failing names, not the log), the build constraints
+  when the tree has them, the diff, the full text of only the files the diff touches and a listing
+  of every other product file (path, size, top-level item names; capped at 4 KB, then paths only); the
+  review is one request with no tools (`operations` empty, `max_turns` 4, `--tools ""`), and the
+  document's size is recorded per call as `input_bytes` in `llm-calls.jsonl`. Verdict rules and the
+  response schema are unchanged except that a finding's `at` may cite a listed file by path
+  without a line (a line of an untouched file stays refused). The record
+  `review-minimal-facts` decides by recorded replay whether the decisions hold (`docs/driver.md`,
+  "The code review").
+
 ## [0.2.0] - 2026-11-21
 
 The product is named Runbook and the repository moves to `beyond10x/runbook`; the software delivery

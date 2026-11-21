@@ -40,9 +40,12 @@
 //! `{<class>: {adapter, source, json_schema, nodes}}`; exit 64 (stderr names the class and
 //! the adapter) when a class's adapter cannot take a schema.
 //!
-//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/` (the
-//! story, its acceptance lines, the requirements it delivers and those no story covers, the
-//! covered commands, the change tree, its diff against the mainline, the gate and test logs);
+//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/`: the one
+//! document `review.md` the model reads (the requirements the story delivers and those no story
+//! covers, its acceptance lines, the covered commands, the test summary of the conformance run, the
+//! diff against the mainline, the full text of only the files the diff touches, the build
+//! constraints when the tree has them) and, for the checks, `scope.json`, `uncovered.json`,
+//! `change.diff` and the touched files under `impl/`; it prints `document_bytes`;
 //! `schema --type review` prints the reply schema; `check-review` checks the reply: exit 0
 //! approved, 1 rejected (stdout: the sdc.rejection/1 that sends the implementer back), 2 invalid
 //! (stderr: why; nothing is recorded).
@@ -666,19 +669,6 @@ fn review_scope(reqs: &[Value], traces: &Value, commands: &Value, cov: &[String]
     (mine, uncovered)
 }
 
-fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for e in fs::read_dir(from)?.flatten() {
-        let name = e.file_name();
-        if name == "target" || name == ".sdc" || name == ".derived-from" {
-            continue;
-        }
-        let (s, d) = (e.path(), to.join(&name));
-        if s.is_dir() { copy_tree(&s, &d)? } else { fs::copy(&s, &d).map(|_| ())? }
-    }
-    Ok(())
-}
-
 /// The log of the last record of `kind` about `revision` in the case (its step's log blob).
 fn record_log(case_dir: &Path, kind: &str, revision: &str) -> Option<String> {
     let events: Vec<Value> = fs::read_to_string(case_dir.join("events.jsonl")).unwrap_or_default().lines()
@@ -693,17 +683,280 @@ fn record_log(case_dir: &Path, kind: &str, revision: &str) -> Option<String> {
     })
 }
 
-/// Write the review's inputs into `<cwd>/in/` and return what was written. The story, its
-/// acceptance lines (the summary line and the lines of an `## Acceptance` section), the
-/// requirements it delivers and those no story covers, the covered commands' IR entries, the
-/// change tree, its diff against the mainline (empty for the first story), the gate and test logs.
+/// The files a unified diff touches (its `+++ impl/<path>` lines), in order, once each.
+fn changed_files(diff: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)) {
+        if !out.iter().any(|o| o == p) {
+            out.push(p.to_string());
+        }
+    }
+    out
+}
+
+/// The diff, but a file the change creates (`@@ -0,0 +1,N @@`) keeps only its header and one line:
+/// its full text follows in the document, so its lines would be there twice.
+fn compact_diff(diff: &str) -> String {
+    fn flush(section: &mut Vec<&str>, out: &mut String) {
+        let created = section.iter().any(|l| l.starts_with("@@ -0,0 +1"));
+        // The `diff -ruN ...` command line and the files' timestamps are not facts about the change.
+        for l in section.iter().take_while(|l| !(created && l.starts_with("@@"))).filter(|l| !l.starts_with("diff ")) {
+            out.push_str(if l.starts_with("--- ") || l.starts_with("+++ ") { l.split('\t').next().unwrap_or(l) } else { l });
+            out.push('\n');
+        }
+        if created {
+            out.push_str("(new file: every line is added; its full text is below)\n");
+        }
+        section.clear();
+    }
+    let mut out = String::new();
+    let mut section: Vec<&str> = Vec::new();
+    for l in diff.lines() {
+        if l.starts_with("diff ") {
+            flush(&mut section, &mut out);
+        }
+        section.push(l);
+    }
+    flush(&mut section, &mut out);
+    out
+}
+
+/// A file's text with its line numbers, the numbers a finding's `at` cites.
+fn number_lines(text: &str) -> String {
+    let w = text.lines().count().to_string().len().max(3);
+    text.lines().enumerate().map(|(i, l)| format!("{:>w$}  {l}\n", i + 1)).collect()
+}
+
+/// One product file the diff does not touch: its path under `impl/`, its size, and the names of the
+/// items it declares at top level when a rule of its language finds them.
+struct Listed {
+    path: String,
+    bytes: usize,
+    items: Option<Vec<String>>,
+}
+
+/// What the listing is allowed to cost: item-bearing lines up to this many bytes, then paths only.
+const LISTING_CAP: usize = 4096;
+/// Items named per file; the rest are counted.
+const LISTING_ITEMS: usize = 24;
+/// A source file larger than this is listed by path and size only.
+const LISTING_READ_MAX: usize = 512 * 1024;
+
+/// The names a source file declares at top level (column 0), by a simple rule per language, plus the
+/// routes and event listeners it registers (`GET /tasks`, `/ping`, `on fetch`), in file order, once
+/// each. None when no rule applies to the file's extension (a page, a manifest, a document).
+fn top_level_items(path: &str, text: &str) -> Option<Vec<String>> {
+    let ext = path.rsplit_once('.')?.1.to_ascii_lowercase();
+    let decl = match ext.as_str() {
+        "rs" => r"^(?:pub(?:\([a-z: ]+\))?\s+)?(?:(?:async|unsafe|const)\s+)*(?:fn|struct|enum|trait|mod|type|static|const)\s+([A-Za-z_]\w*)",
+        "js" | "mjs" | "cjs" | "jsx" | "ts" | "tsx" | "mts" | "cts" =>
+            r"^(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)",
+        "py" => r"^(?:async\s+)?(?:def|class)\s+([A-Za-z_]\w*)",
+        "go" => r"^(?:func\s+(?:\([^)]*\)\s*)?|type\s+|var\s+|const\s+)([A-Za-z_]\w*)",
+        "sh" | "bash" => r"^(?:function\s+([A-Za-z_][\w-]*)|([A-Za-z_][\w-]*)\s*\(\))",
+        _ => return None,
+    };
+    let decl = regex::Regex::new(decl).ok()?;
+    let method = regex::Regex::new(r#"\.(get|post|put|patch|delete|head|options)\(\s*["'`](/[^"'`]*)["'`]"#).ok()?;
+    let route = regex::Regex::new(r#"(?:\.route|HandleFunc|Handle)\(\s*["'`](/[^"'`]*)["'`]"#).ok()?;
+    let listener = regex::Regex::new(r#"addEventListener\(\s*["'](\w+)["']"#).ok()?;
+    let mut items: Vec<String> = Vec::new();
+    let mut add = |s: String| {
+        if !items.contains(&s) {
+            items.push(s)
+        }
+    };
+    for l in text.lines() {
+        if let Some(c) = decl.captures(l) {
+            if let Some(n) = c.iter().skip(1).flatten().next() {
+                add(n.as_str().to_string());
+            }
+        }
+        for c in method.captures_iter(l) {
+            add(format!("{} {}", c[1].to_ascii_uppercase(), &c[2]));
+        }
+        for c in route.captures_iter(l) {
+            add(c[1].to_string());
+        }
+        for c in listener.captures_iter(l) {
+            add(format!("on {}", &c[1]));
+        }
+    }
+    Some(items)
+}
+
+/// The product files the diff does not touch under `dir`, sorted by path: not build output, not the
+/// gate's state, not version control or installed packages.
+fn product_files(dir: &Path, changed: &[String]) -> Vec<Listed> {
+    let mut out = Vec::new();
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let Ok(rd) = fs::read_dir(dir.join(&rel)) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if ["target", ".sdc", ".git", ".derived-from", "node_modules"].contains(&name.as_str()) {
+                continue;
+            }
+            let Ok(t) = e.file_type() else { continue };
+            let r = rel.join(&name);
+            if t.is_dir() {
+                stack.push(r);
+            } else if t.is_file() {
+                let p = r.to_string_lossy().into_owned();
+                if changed.contains(&p) {
+                    continue;
+                }
+                let bytes = e.metadata().map(|m| m.len() as usize).unwrap_or(0);
+                let items = if bytes <= LISTING_READ_MAX { fs::read(e.path()).ok().and_then(|b| top_level_items(&p, &String::from_utf8_lossy(&b))) } else { None };
+                out.push(Listed { path: p, bytes, items });
+            }
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
+/// The listing as the document's section: one line per file, path and size and, for a source file,
+/// its items. The lines with sizes and items stop at `cap` bytes; the files after that are paths only.
+fn listing_section(files: &[Listed], cap: usize) -> String {
+    let mut d = String::from("\n## Product files not in the diff (path, size, and for source files the top-level items it declares; a file neither listed here nor in the diff does not exist in the tree; `at` may cite a listed file by path alone)\n");
+    if files.is_empty() {
+        d += "none\n";
+    }
+    let (mut used, mut paths_only) = (0, false);
+    for f in files {
+        let mut line = format!("- {} ({} bytes)", f.path, f.bytes);
+        if let Some(items) = f.items.as_ref().filter(|i| !i.is_empty()) {
+            let more = items.len().saturating_sub(LISTING_ITEMS);
+            line += &format!(": {}{}", items.iter().take(LISTING_ITEMS).cloned().collect::<Vec<_>>().join(", "), if more > 0 { format!(", +{more} more") } else { String::new() });
+        }
+        line += "\n";
+        if !paths_only && used + line.len() > cap {
+            paths_only = true;
+            d += &format!("(the listing is capped at {cap} bytes: the files below are paths only)\n");
+        }
+        if paths_only {
+            d += &format!("- {}\n", f.path);
+        } else {
+            used += line.len();
+            d += &line;
+        }
+    }
+    d
+}
+
+/// The counts and the failing names of a conformance and test log, not the log: the run's header
+/// line, the scenario counts, the unit tests' totals, and every scenario or test that failed.
+fn test_summary(log: &str) -> String {
+    let scenarios = regex::Regex::new(r"^\d+ scenarios?: ").unwrap();
+    let unit = regex::Regex::new(r"^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored").unwrap();
+    let scenario_bad = regex::Regex::new(r"^(?:failed|error)\s+(\S+)").unwrap();
+    let test_bad = regex::Regex::new(r"^test (\S+) \.\.\. (?:FAILED|failed)").unwrap();
+    let (mut head, mut counts) = (None, None);
+    let mut totals: Option<[u64; 3]> = None;
+    let mut failing: Vec<String> = Vec::new();
+    for l in log.lines() {
+        let t = l.trim();
+        if head.is_none() && t.contains(" against ") && (t.ends_with("— passed") || t.ends_with("— failed")) {
+            head = Some(t.to_string());
+        } else if counts.is_none() && scenarios.is_match(t) {
+            counts = Some(t.to_string());
+        } else if let Some(c) = unit.captures(t) {
+            let n = |i: usize| c[i].parse::<u64>().unwrap_or(0);
+            let s = totals.get_or_insert([0; 3]);
+            (s[0], s[1], s[2]) = (s[0] + n(1), s[1] + n(2), s[2] + n(3));
+        } else if let Some(c) = scenario_bad.captures(t).or_else(|| test_bad.captures(t)) {
+            if !failing.contains(&c[1].to_string()) {
+                failing.push(c[1].to_string());
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(h) = head {
+        out += &format!("conformance: {h}\n");
+    }
+    if let Some(c) = counts {
+        out += &format!("scenarios: {c}\n");
+    }
+    if let Some([p, f, i]) = totals {
+        out += &format!("unit tests: {p} passed, {f} failed, {i} ignored\n");
+    }
+    if out.is_empty() {
+        out += "no counts found in the run's log\n";
+    }
+    out += &format!("failing: {}\n", if failing.is_empty() { "none".to_string() } else { failing.join(", ") });
+    out
+}
+
+/// What the review is given, as facts: nothing of the tree beyond `files`, the files the diff touches.
+struct ReviewFacts<'a> {
+    story: &'a str,
+    /// `mainline` when the diff is against the mainline tree, else `empty` (the first story).
+    base: &'a str,
+    /// `{cite, text}`: the summary line and the lines of the `## Acceptance` section.
+    acceptance: &'a [Value],
+    /// `{id, text, cites}`: the requirements the story delivers.
+    requirements: &'a [Value],
+    /// The requirements no story of the plan covers.
+    uncovered: &'a [Value],
+    /// The compiled specification's entries of the commands the story covers.
+    commands: &'a Map<String, Value>,
+    /// The text of the tree's build constraints, when it has them.
+    constraints: Option<&'a str>,
+    /// `test_summary` of the conformance run on the revision under review.
+    tests: &'a str,
+    diff: &'a str,
+    /// The touched files: path under `impl/` and the text, None for a file the change deletes.
+    files: &'a [(String, Option<String>)],
+    /// Every other product file of the tree, by path, size and top-level items.
+    listing: &'a [Listed],
+}
+
+/// The one document the review reads: the story's requirements and commands, the test summary, the
+/// diff and the full text of every file the diff touches.
+fn review_document(f: &ReviewFacts) -> String {
+    let line = |v: &Value, k: &str| format!("- {}: {}\n", v[k].as_str().unwrap_or(""), v["text"].as_str().unwrap_or("").trim());
+    let mut d = format!("# Review input: story `{}`\n\nThis is everything you are given. Judge the change from it alone.\n", f.story);
+    d += "\n## Requirements this story delivers (a violation names the id)\n";
+    d += &f.requirements.iter().map(|r| line(r, "id")).collect::<String>();
+    d += "\n## Acceptance lines (a violation names the cite)\n";
+    d += &f.acceptance.iter().map(|a| line(a, "cite")).collect::<String>();
+    d += "\n## Commands it must serve (a violation names the command; the compiled specification)\n";
+    for (name, v) in f.commands {
+        d += &format!("- {name}: {v}\n");
+    }
+    d += "\n## Requirements no story of the plan covers (kind `outside`; never a reason to reject)\n";
+    d += &if f.uncovered.is_empty() { "none\n".to_string() } else { f.uncovered.iter().map(|r| line(r, "id")).collect() };
+    if let Some(c) = f.constraints {
+        d += &format!("\n## Build constraints\n{}\n", c.trim_end());
+    }
+    d += &format!("\n## Test summary (the conformance run that passed on this revision)\n{}", f.tests);
+    d += &format!("\n## Change against the {} tree (unified diff)\n~~~diff\n{}~~~\n", f.base, compact_diff(f.diff));
+    d += "\n## Changed files, full text (the line numbers are the ones `at` cites; a file the diff does not touch is only listed at the end)\n";
+    for (path, text) in f.files {
+        match text {
+            Some(t) => d += &format!("\n### impl/{path} ({} lines)\n~~~\n{}~~~\n", t.lines().count(), number_lines(t)),
+            None => d += &format!("\n### impl/{path}\nDeleted by this change.\n"),
+        }
+    }
+    d + &listing_section(f.listing, LISTING_CAP)
+}
+
+/// Write the review's inputs into `<cwd>/in/` and return what was written. `review.md` is the
+/// document the model reads (`review_document`): the requirements the story delivers and the
+/// commands it covers, its acceptance lines, the test summary, the diff against the mainline (empty
+/// tree for the first story) and the full text of only the files the diff touches, plus the
+/// build constraints when the tree has them, and a listing of every other product file (path, size,
+/// top-level items; `listing_section`) so that what the tree lacks can be seen. Beside it, for the
+/// programs only: `scope.json` and `uncovered.json` (what a finding may name), `change.diff` and the
+/// touched files under `impl/` (the lines `at` may cite), `listing.json` (the files `at` may cite by
+/// path alone). No other file's text, no other story, no log.
 fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
     let work = case_dir.join("work");
     let in_dir = cwd.join("in");
     let rel = format!("aep/story/{story}.md");
     let text = fs::read_to_string(work.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
-    fs::create_dir_all(in_dir.join("aep/story")).map_err(|e| e.to_string())?;
-    fs::write(in_dir.join(&rel), &text).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&in_dir).map_err(|e| e.to_string())?;
     let (sl, summary) = story_summary(&text).ok_or(format!("{rel} has no summary"))?;
     let cov = covers(&summary);
     let mut acceptance = vec![json!({"cite": format!("{rel}:{sl}"), "text": summary})];
@@ -727,8 +980,6 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
     w("scope.json", &json!({"story": story, "covers": cov, "acceptance": acceptance, "requirements": mine,
         "traced_by": if traces.is_null() { "spec_domains (no spec/traces.json)" } else { "spec/traces.json" }}))?;
     w("uncovered.json", &json!({"about": "requirements no story of the plan covers: outside this story", "requirements": uncovered}))?;
-    w("commands.json", &Value::Object(commands))?;
-    copy_tree(&work.join("impl"), &in_dir.join("impl")).map_err(|e| format!("impl: {e}"))?;
     let base = work.join("mainline");
     let empty = cwd.join("base-empty");
     let base = if base.is_dir() { base } else { fs::create_dir_all(&empty).map_err(|e| e.to_string())?; empty };
@@ -740,6 +991,22 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
         l + "\n"
     }).collect();
     fs::write(in_dir.join("change.diff"), &diff).map_err(|e| e.to_string())?;
+    let changed = changed_files(&diff);
+    let mut files: Vec<(String, Option<String>)> = Vec::new();
+    for p in &changed {
+        let src = work.join("impl").join(p);
+        if p.contains("..") || !src.is_file() {
+            files.push((p.clone(), None));
+            continue;
+        }
+        let dst = in_dir.join("impl").join(p);
+        fs::create_dir_all(dst.parent().unwrap_or(&in_dir)).map_err(|e| e.to_string())?;
+        fs::copy(&src, &dst).map_err(|e| format!("impl/{p}: {e}"))?;
+        files.push((p.clone(), Some(String::from_utf8_lossy(&fs::read(&src).map_err(|e| e.to_string())?).into_owned())));
+    }
+    let listing = product_files(&work.join("impl"), &changed);
+    w("listing.json", &json!({"about": "product files the diff does not touch: what `at` may cite by path alone",
+        "files": listing.iter().map(|f| json!({"path": f.path, "bytes": f.bytes, "items": f.items})).collect::<Vec<_>>()}))?;
     let case = read_json(&case_dir.join("case.json"));
     let rev = |a: &str| case["artifacts"][a]["revision"].as_str().unwrap_or("none").to_string();
     // sdc.story (revision 7) admits change.review only once the conformance run passed at the
@@ -747,13 +1014,16 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
     let tests = record_log(case_dir, "conformance_run", &rev("change")).ok_or(format!(
         "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", rev("change")))?;
     let gate = record_log(case_dir, "ess_gate", &rev("spec"));
-    fs::write(in_dir.join("tests.txt"), &tests).map_err(|e| e.to_string())?;
-    fs::write(in_dir.join("gate.txt"), gate.clone().unwrap_or("no gate run recorded on this specification revision\n".into()))
-        .map_err(|e| e.to_string())?;
-    let changed: Vec<&str> = diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)).collect();
+    let tests = test_summary(&tests);
+    let constraints = fs::read_to_string(work.join("build-constraints.yaml")).ok();
+    let doc = review_document(&ReviewFacts { story, base: if base.ends_with("mainline") { "mainline" } else { "empty" },
+        acceptance: &acceptance, requirements: &mine, uncovered: &uncovered, commands: &commands,
+        constraints: constraints.as_deref(), tests: &tests, diff: &diff, files: &files, listing: &listing });
+    fs::write(in_dir.join("review.md"), &doc).map_err(|e| e.to_string())?;
     Ok(json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
         "uncovered": uncovered.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), "changed_files": changed,
-        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
+        "listed_files": listing.len(), "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" },
+        "build_constraints": constraints.is_some(), "document": "in/review.md", "document_bytes": doc.len()}))
 }
 
 /// What a review finding may name as violated (`violation`: the story's requirements, acceptance
@@ -778,7 +1048,7 @@ fn review_schema(in_dir: &Path) -> Value {
         ("summary", json!({"type": "string"})),
         ("findings", json!({"type": "array", "items": reply_schema(vec![
             ("kind", json!({"type": "string", "enum": ["violation", "outside"]})),
-            ("at", json!({"type": "string", "pattern": "^impl/[^:]+:[0-9]+(-[0-9]+)?$"})),
+            ("at", json!({"type": "string", "pattern": "^impl/[^:]+(:[0-9]+(-[0-9]+)?)?$"})),
             ("violates", json!({"type": "string", "enum": all})),
             ("says", json!({"type": "string", "minLength": 1})),
         ])})),
@@ -792,8 +1062,9 @@ fn review_schema(in_dir: &Path) -> Value {
 fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> Result<(bool, Value), Vec<String>> {
     let c = ctx(cwd, case_dir);
     let (inside, outside) = review_targets(&c.in_dir);
-    let changed: BTreeSet<String> = fs::read_to_string(c.in_dir.join("change.diff")).unwrap_or_default().lines()
-        .filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l).to_string()).collect();
+    let changed: BTreeSet<String> = changed_files(&fs::read_to_string(c.in_dir.join("change.diff")).unwrap_or_default()).into_iter().collect();
+    let listed: BTreeSet<String> = read_json(&c.in_dir.join("listing.json"))["files"].as_array().into_iter().flatten()
+        .filter_map(|f| f["path"].as_str().map(String::from)).collect();
     let mut why = Vec::new();
     let decision = reply["decision"].as_str().unwrap_or("");
     if decision != "approved" && decision != "rejected" {
@@ -806,8 +1077,14 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
         let n = i + 1;
         let (kind, at, v, says) = (f["kind"].as_str().unwrap_or(""), f["at"].as_str().unwrap_or(""),
             f["violates"].as_str().unwrap_or(""), f["says"].as_str().unwrap_or("").trim());
-        let r = resolve(&c, at);
-        if !at.starts_with("impl/") || r["ok"] != true {
+        // A file by path alone: a product file the listing names, or a changed file.
+        let by_path = at.strip_prefix("impl/").filter(|p| !p.contains(':'));
+        let r = if by_path.is_some() { json!({"ok": true}) } else { resolve(&c, at) };
+        if let Some(p) = by_path {
+            if p.contains("..") || !(listed.contains(p) || changed.contains(p)) {
+                why.push(format!("finding {n}: {at:?} is neither a listed product file nor a changed file (cite a listed file by path, or <path>:<line> of a changed file)"));
+            }
+        } else if !at.starts_with("impl/") || r["ok"] != true {
             why.push(format!("finding {n}: {at:?} is not a line of the change tree ({})", r["why"].as_str().unwrap_or("not under impl/")));
         }
         match kind {
@@ -821,10 +1098,11 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
         if says.is_empty() {
             why.push(format!("finding {n}: says nothing"));
         }
-        let file = at.strip_prefix("impl/").and_then(|p| p.rsplit_once(':')).map(|(p, _)| p).unwrap_or("");
+        let rest = at.strip_prefix("impl/").unwrap_or("");
+        let file = rest.rsplit_once(':').map_or(rest, |(p, _)| p);
         let line = format!("{at}: {says} ({} {v})", if kind == "outside" { "outside this story:" } else { "violates" });
         if kind == "outside" { notes.push(line) } else { reasons.push(line) }
-        citations.push(json!({"at": at, "violates": v, "kind": kind, "in_diff": changed.contains(file)}));
+        citations.push(json!({"at": at, "violates": v, "kind": kind, "in_diff": changed.contains(file), "listed": listed.contains(file)}));
     }
     if decision == "rejected" && reasons.is_empty() {
         why.push("a rejection names no violation finding: reject only for a requirement, acceptance line or command of this story".into());
@@ -1068,6 +1346,7 @@ mod tests {
         fs::write(cwd.join("in/scope.json"), json!({"covers": ["todo.task.AddTask"], "requirements": [{"id": "r1"}],
             "acceptance": [{"cite": "aep/story/tasks.md:4"}]}).to_string()).unwrap();
         fs::write(cwd.join("in/uncovered.json"), json!({"requirements": [{"id": "r3"}]}).to_string()).unwrap();
+        fs::write(cwd.join("in/listing.json"), json!({"files": [{"path": "src/server.rs", "bytes": 60}, {"path": "public/index.html", "bytes": 28}]}).to_string()).unwrap();
         fs::write(case.join("case.json"), json!({"id": "IDEA-1.app.tasks", "artifacts": {"change": {"revision": "t1"}}}).to_string()).unwrap();
         (cwd, case)
     }
@@ -1303,5 +1582,231 @@ mod tests {
             }
         }
         assert!(seen >= 5, "the data covers context, roadmap and release: {seen} guards");
+    }
+
+    // ---- review-inputs ---------------------------------------------------------------------------
+
+    /// A case of two stories (tasks covers todo.task.AddTask, sync covers todo.sync.SyncChanges) and
+    /// three requirements (r1 tasks, r2 sync, r3 nobody). The change under review edits
+    /// `src/lib.rs` and adds `src/new.rs`; `src/untouched.rs` and `README.md` are not in the diff.
+    fn review_case(name: &str, tests_log: &str) -> (PathBuf, PathBuf) {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-scratch/review-inputs").join(name);
+        let _ = fs::remove_dir_all(&root);
+        let (cwd, case) = (root.join("call"), root.join("case"));
+        let w = case.join("work");
+        for d in ["aep/story", "impl/src", "impl/public", "mainline/src", "mainline/public", ".sdc/gate", "../evidence", "../blobs"] {
+            fs::create_dir_all(w.join(d)).unwrap();
+        }
+        let put = |p: PathBuf, t: &str| fs::write(p, t).unwrap();
+        put(w.join("aep/story/tasks.md"), "---\nid: story:tasks\nsummary: Tasks. covers todo.task.AddTask\n---\n# T\n\n## Acceptance\n\nAdding a task shows it in the list.\n");
+        put(w.join("aep/story/sync.md"), "---\nid: story:sync\nsummary: Sync. covers todo.sync.SyncChanges\n---\n# S\n");
+        put(w.join("requirements.yaml"), "requirements:\n  - {id: r1, text: R1 TASKS TEXT, spec_domains: [todo.task]}\n  - {id: r2, text: R2 SYNC TEXT, spec_domains: [todo.sync]}\n  - {id: r3, text: R3 NOBODY TEXT, spec_domains: [todo.access]}\n");
+        put(w.join(".sdc/gate/ir.json"), &json!({"commands": {"todo.task.AddTask": {"name": "AddTask", "outcomes": ["added"]},
+            "todo.sync.SyncChanges": {"name": "SyncChanges", "outcomes": ["SYNC_ONLY_OUTCOME"]}}}).to_string());
+        put(w.join("mainline/src/lib.rs"), "pub fn add() {}\n");
+        put(w.join("impl/src/lib.rs"), "pub fn add() {}\npub fn remove() {}\n");
+        put(w.join("impl/src/new.rs"), "pub fn brand_new() {}\n");
+        for d in ["mainline", "impl"] {
+            put(w.join(d).join("src/untouched.rs"), "pub fn untouched_fn() {\n    let UNTOUCHED_BODY = 1;\n}\n");
+            put(w.join(d).join("README.md"), "UNTOUCHED_README\n");
+            put(w.join(d).join("src/server.rs"), "use std::io;\npub struct Server;\npub fn serve() {\n    router.get(\"/api/tasks\");\n}\nfn private_helper() {}\n");
+            put(w.join(d).join("public/index.html"), "<html>UNTOUCHED_HTML</html>\n");
+        }
+        put(case.join("case.json"), &json!({"id": "IDEA-1.app.tasks", "artifacts": {"change": {"revision": "t1"}, "spec": {"revision": "s1"}}}).to_string());
+        put(case.join("evidence/e1.json"), &json!({"kind": "conformance_run", "subject_revision": "t1"}).to_string());
+        put(case.join("blobs/tests.log"), tests_log);
+        put(case.join("events.jsonl"), &(json!({"event": "action_finished", "evidence": ["e1"], "log": "tests.log"}).to_string() + "\n"));
+        (cwd, case)
+    }
+
+    const PASSING_LOG: &str = "billing v3 against reference 0.96.0 — passed\n  passed todo.task.AddTask/outcome/added\n  passed todo.task.AddTask/outcome/refused\n\
+        2 scenarios: 2 passed, 0 failed, 0 error, 0 unsupported\n\nrunning 2 tests\ntest tests::add ... ok\ntest tests::remove ... ok\n\n\
+        test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n";
+
+    #[test]
+    fn the_review_input_holds_the_touched_files_and_no_other() {
+        let (cwd, case) = review_case("touched", PASSING_LOG);
+        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert_eq!(v["changed_files"], json!(["src/lib.rs", "src/new.rs"]));
+        assert!(doc.contains("### impl/src/lib.rs") && doc.contains("pub fn remove()"), "{doc}");
+        assert!(doc.contains("### impl/src/new.rs") && doc.contains("brand_new"), "{doc}");
+        // A file outside the diff is in neither the document nor in/.
+        assert!(!doc.contains("UNTOUCHED_BODY") && !doc.contains("UNTOUCHED_README") && !doc.contains("UNTOUCHED_HTML"), "{doc}");
+        assert!(!cwd.join("in/impl/src/untouched.rs").exists() && !cwd.join("in/impl/README.md").exists());
+        assert!(cwd.join("in/impl/src/lib.rs").is_file() && cwd.join("in/impl/src/new.rs").is_file());
+        // Line numbers, and a new file's lines once (not again in the diff).
+        assert!(doc.contains("  2  pub fn remove() {}"), "{doc}");
+        assert_eq!(doc.matches("brand_new").count(), 1, "{doc}");
+        assert!(doc.contains("+pub fn remove() {}"), "the diff of the edited file stays: {doc}");
+        assert_eq!(v["document_bytes"], doc.len());
+    }
+
+    #[test]
+    fn the_review_input_holds_the_stories_requirements_and_commands_only() {
+        let (cwd, case) = review_case("scope", PASSING_LOG);
+        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert_eq!(v["requirements"], json!(["r1"]));
+        assert_eq!(v["uncovered"], json!(["r3"]));
+        // The story's requirement and acceptance line; the uncovered one, apart; the other story's, absent.
+        assert!(doc.contains("- r1: R1 TASKS TEXT") && doc.contains("Adding a task shows it in the list."), "{doc}");
+        assert!(doc.contains("- r3: R3 NOBODY TEXT"), "{doc}");
+        assert!(!doc.contains("R2 SYNC TEXT") && !doc.contains("SYNC_ONLY_OUTCOME") && !doc.contains("todo.sync"), "{doc}");
+        assert!(doc.contains("- todo.task.AddTask: {") && doc.contains("\"outcomes\""), "{doc}");
+        // Every id the schema lets a finding name is in the document.
+        let (inside, outside) = review_targets(&cwd.join("in"));
+        for id in inside.iter().filter(|i| !i.contains(':')).chain(outside.iter()) {
+            assert!(doc.contains(id.as_str()), "{id} missing from {doc}");
+        }
+        assert!(inside.contains(&"aep/story/tasks.md:9".to_string()) && doc.contains("aep/story/tasks.md:9"), "{doc}");
+    }
+
+    #[test]
+    fn the_review_input_holds_the_test_summary_not_the_log() {
+        let (cwd, case) = review_case("tests", PASSING_LOG);
+        review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert!(doc.contains("2 scenarios: 2 passed, 0 failed, 0 error, 0 unsupported"), "{doc}");
+        assert!(doc.contains("unit tests: 2 passed, 0 failed, 0 ignored") && doc.contains("failing: none"), "{doc}");
+        assert!(!doc.contains("passed todo.task.AddTask/outcome/added") && !doc.contains("test tests::add"), "{doc}");
+        assert!(!cwd.join("in/tests.txt").exists() && !cwd.join("in/gate.txt").exists());
+        let failing = PASSING_LOG.replace("  passed todo.task.AddTask/outcome/refused", "  failed todo.task.AddTask/outcome/refused")
+            .replace("test tests::remove ... ok", "test tests::remove ... FAILED");
+        let (cwd, case) = review_case("tests-failing", &failing);
+        review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert!(doc.contains("failing: todo.task.AddTask/outcome/refused, tests::remove"), "{doc}");
+    }
+
+    #[test]
+    fn the_build_constraints_are_in_the_document_when_the_tree_has_them() {
+        let (cwd, case) = review_case("no-constraints", PASSING_LOG);
+        assert_eq!(review_inputs(&cwd, &case, "tasks").unwrap()["build_constraints"], false);
+        assert!(!fs::read_to_string(cwd.join("in/review.md")).unwrap().contains("Build constraints"));
+        let (cwd, case) = review_case("constraints", PASSING_LOG);
+        fs::write(case.join("work/build-constraints.yaml"), "language: rust\n").unwrap();
+        assert_eq!(review_inputs(&cwd, &case, "tasks").unwrap()["build_constraints"], true);
+        assert!(fs::read_to_string(cwd.join("in/review.md")).unwrap().contains("## Build constraints\nlanguage: rust"));
+    }
+
+    #[test]
+    fn an_absent_file_is_detectable_from_the_listing() {
+        let (cwd, case) = review_case("listing", PASSING_LOG);
+        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        let (_, listing) = doc.split_once("## Product files not in the diff").unwrap_or_else(|| panic!("no listing: {doc}"));
+        let listing = listing.split("\n## ").next().unwrap();
+        // The untouched files, with their size and for source files their items; the web page by path and size.
+        assert!(listing.contains("- src/server.rs (") && listing.contains(" bytes): Server, serve, GET /api/tasks, private_helper"), "{listing}");
+        assert!(listing.contains("- src/untouched.rs (") && listing.contains("untouched_fn"), "{listing}");
+        assert!(listing.contains("- public/index.html (28 bytes)\n") && listing.contains("- README.md (17 bytes)\n"), "{listing}");
+        // A touched file is shown in full below, not listed; a file the tree lacks is not there: no service worker.
+        assert!(!listing.contains("src/lib.rs") && !listing.contains("src/new.rs"), "{listing}");
+        assert!(!listing.contains("sw.js") && !listing.contains("service"), "{listing}");
+        // Bodies are not in it.
+        assert!(!doc.contains("UNTOUCHED_BODY") && !doc.contains("UNTOUCHED_HTML"), "{doc}");
+        let l = read_json(&cwd.join("in/listing.json"));
+        let paths: Vec<&str> = l["files"].as_array().unwrap().iter().filter_map(|f| f["path"].as_str()).collect();
+        assert_eq!(paths, vec!["README.md", "public/index.html", "src/server.rs", "src/untouched.rs"]);
+        assert_eq!(v["listed_files"], 4);
+        assert_eq!(v["document_bytes"], doc.len());
+    }
+
+    #[test]
+    fn the_listing_skips_build_output_and_what_the_diff_excludes() {
+        let (cwd, case) = review_case("listing-skips", PASSING_LOG);
+        for p in ["target/debug/x", ".sdc/gate/y", ".git/HEAD", "node_modules/z/index.js"] {
+            let f = case.join("work/impl").join(p);
+            fs::create_dir_all(f.parent().unwrap()).unwrap();
+            fs::write(f, "x").unwrap();
+        }
+        review_inputs(&cwd, &case, "tasks").unwrap();
+        let l = fs::read_to_string(cwd.join("in/listing.json")).unwrap();
+        assert!(!l.contains("target/") && !l.contains(".sdc") && !l.contains(".git/") && !l.contains("node_modules"), "{l}");
+    }
+
+    #[test]
+    fn top_level_items_are_found_by_a_rule_per_language() {
+        let items = |p: &str, t: &str| top_level_items(p, t).map(|v| v.join(", "));
+        assert_eq!(items("a.rs", "use x;\npub struct S;\npub(crate) async fn go() {}\n    fn nested() {}\nenum E {}\nimpl S {}\nmod m;\n"),
+            Some("S, go, E, m".into()));
+        assert_eq!(items("a.js", "export function f() {}\nexport default class K {}\nconst x = 1;\n  function inner() {}\napp.post('/tasks', h);\nself.addEventListener('fetch', e => {});\n"),
+            Some("f, K, x, POST /tasks, on fetch".into()));
+        assert_eq!(items("a.ts", "export const t: number = 1;\nexport interface I {}\nexport type T = 1;\n"), Some("t, I, T".into()));
+        assert_eq!(items("a.py", "import os\n@app.route('/x')\ndef view():\n    def inner(): pass\nclass C:\n    pass\nasync def go(): pass\n"),
+            Some("/x, view, C, go".into()));
+        assert_eq!(items("a.go", "package main\nfunc Main() {}\nfunc (s *S) Do() {}\ntype S struct{}\nmux.HandleFunc(\"/ping\", h)\n"),
+            Some("Main, Do, S, /ping".into()));
+        assert_eq!(items("run.sh", "#!/bin/sh\nrun() {\n  :\n}\nfunction stop { :; }\n"), Some("run, stop".into()));
+        // No rule for a page, a manifest or a document: path and size only. A source file without items has an empty list.
+        for p in ["index.html", "package.json", "README.md", "style.css", "logo.png"] {
+            assert_eq!(items(p, "anything"), None, "{p}");
+        }
+        assert_eq!(items("empty.rs", "// nothing\n"), Some(String::new()));
+    }
+
+    #[test]
+    fn the_listing_is_capped_and_beyond_the_cap_it_is_paths_only() {
+        let f = |p: &str, items: Option<&[&str]>| Listed { path: p.into(), bytes: 100, items: items.map(|i| i.iter().map(|s| s.to_string()).collect()) };
+        let files = vec![f("a.rs", Some(&["alpha_item_name", "beta_item_name"])), f("b.rs", Some(&["gamma_item_name"])), f("c.html", None), f("d.rs", Some(&["delta_item_name"]))];
+        let all = listing_section(&files, 4096);
+        assert!(all.contains("- a.rs (100 bytes): alpha_item_name, beta_item_name\n") && all.contains("- d.rs (100 bytes): delta_item_name\n"), "{all}");
+        assert!(all.contains("- c.html (100 bytes)\n"), "{all}");
+        let capped = listing_section(&files, 80);
+        assert!(capped.contains("- a.rs (100 bytes): alpha_item_name, beta_item_name\n"), "{capped}");
+        assert!(!capped.contains("delta_item_name") && !capped.contains("gamma_item_name"), "{capped}");
+        assert!(capped.contains("- b.rs\n") && capped.contains("- c.html\n") && capped.contains("- d.rs\n"), "{capped}");
+        assert!(capped.contains("paths only"), "{capped}");
+        assert!(listing_section(&[], 4096).contains("none"));
+    }
+
+    #[test]
+    fn a_listed_untouched_file_is_cited_by_path_without_a_line() {
+        let (cwd, case) = call("listed");
+        let check = |at: &str| check_review(&cwd, &case, &json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", at, "r1")]}), "p");
+        let (ok, v) = check("impl/src/server.rs").unwrap();
+        assert!(!ok);
+        assert_eq!(v["reasons"], json!(["impl/src/server.rs: it does not (violates r1)"]));
+        assert_eq!(v["citations"][0]["in_diff"], false);
+        assert_eq!(v["citations"][0]["listed"], true);
+        // A touched file may be cited by path too; a line of an untouched file, or a path nobody listed, is refused.
+        let (_, v) = check("impl/README.md").unwrap();
+        assert_eq!((&v["citations"][0]["in_diff"], &v["citations"][0]["listed"]), (&json!(true), &json!(false)));
+        assert!(check("impl/src/server.rs:3").unwrap_err().join("; ").contains("not a line of the change tree"));
+        assert!(check("impl/sw.js").unwrap_err().join("; ").contains("neither a listed product file nor a changed file"));
+        assert!(check("impl/").unwrap_err().join("; ").contains("neither a listed product file nor a changed file"));
+        assert!(check("impl/../in/scope.json").unwrap_err().join("; ").contains("neither"));
+        // The reply schema allows the path alone.
+        let p = review_schema(&cwd.join("in"))["properties"]["findings"]["items"]["properties"]["at"]["pattern"].as_str().unwrap().to_string();
+        let re = regex::Regex::new(&p).unwrap();
+        assert!(re.is_match("impl/src/server.rs") && re.is_match("impl/src/server.rs:3") && re.is_match("impl/src/server.rs:3-5"));
+        assert!(!re.is_match("src/server.rs") && !re.is_match("impl/a:b"));
+    }
+
+    #[test]
+    fn changed_files_are_the_diffs_plus_files_once_each() {
+        let diff = "diff -ruN a/x b/x\n--- mainline/src/a.rs\t1\n+++ impl/src/a.rs\t2\n@@ -1 +1 @@\n-x\n+y\ndiff -ruN a/y b/y\n--- mainline/b.md\t1\n+++ impl/b.md\t2\n";
+        assert_eq!(changed_files(diff), vec!["src/a.rs", "b.md"]);
+        assert!(changed_files("").is_empty());
+    }
+
+    #[test]
+    fn a_created_file_keeps_its_header_and_not_its_lines_in_the_diff() {
+        let diff = "diff -ruN m/a i/a\n--- mainline/a.rs\t1\n+++ impl/a.rs\t2\n@@ -1 +1,2 @@\n x\n+kept\ndiff -ruN m/n i/n\n--- mainline/n.rs\t1\n+++ impl/n.rs\t2\n@@ -0,0 +1,2 @@\n+gone1\n+gone2\n";
+        let c = compact_diff(diff);
+        assert!(c.contains("+kept") && c.contains("+++ impl/n.rs") && c.contains("(new file"), "{c}");
+        assert!(!c.contains("gone1") && !c.contains("gone2"), "{c}");
+    }
+
+    #[test]
+    fn the_test_summary_has_counts_and_failing_names_only() {
+        let log = "Requires an empty namespace.\ntodo v1 against interpreted 0.96.0 — failed\n  passed a/outcome/x\n  failed todo.task.AddTask/outcome/added\n  error todo.sync.Send/outcome/e\n\
+            3 scenarios: 1 passed, 1 failed, 1 error, 0 unsupported\nrunning 2 tests\ntest tests::ok ... ok\ntest tests::bad ... FAILED\n\
+            test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured\n";
+        let s = test_summary(log);
+        assert_eq!(s, "conformance: todo v1 against interpreted 0.96.0 — failed\nscenarios: 3 scenarios: 1 passed, 1 failed, 1 error, 0 unsupported\n\
+            unit tests: 1 passed, 1 failed, 0 ignored\nfailing: todo.task.AddTask/outcome/added, todo.sync.Send/outcome/e, tests::bad\n");
+        assert!(test_summary("nothing\n").starts_with("no counts found"));
     }
 }

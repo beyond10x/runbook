@@ -511,8 +511,10 @@ this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer n
 **The code review** (2026-11-21, `story:review-node-is-a-model`). `change.review` is an LLM call
 of class REVIEW (`SDC_LLM_MODEL_REVIEW`) by `llm-node.sh change.review`, producer `llm-review`,
 which the story bindings list as independent (`different_principal`): the implementer is
-`llm-node`. A fresh session with no implementer context and read-only operations; the model
-replies only through the response schema, never by writing a file. Its adapter is the review
+`llm-node`. A fresh session with no implementer context and no tools: one request whose prompt
+carries the review input (`story:review-minimal-facts`; `operations` is empty, `max_turns` 4, the
+claude-cli adapter passes `--tools ""` and no allow list); the model replies only through the
+response schema, never by writing a file. Its adapter is the review
 class's own (`sdc-reply adapters`): `SDC_REVIEW_ADAPTER`, else `claude-cli` when `SDC_LLM_ADAPTER`
 is `metaharness` (which has no response-schema option), else `SDC_LLM_ADAPTER`. `run-trial.sh`
 checks at start that every class in `schema_reply` (`tools/node-classes.json`) is on an adapter
@@ -523,27 +525,46 @@ cause `review_invalid`, naming case and call, not `stuck` (2026-11-21: `runs/tri
 runs once per case snapshot; `run-trial.sh --reopen` marks a reopen in every case (`sdc-drive
 reopen`, event `reopened`), and a run before it that recorded nothing (an invalid review, a writer
 that was not called) no longer holds the snapshot, so it runs once more on the unchanged state;
-invalid again, the stop names the new call. A run that recorded evidence still holds it. Its inputs are
-built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary and an
-`## Acceptance` section), the requirements it delivers (`spec/traces.json`: a covered command, or a
-view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`
-(requirements no story covers: findings of kind `outside`, never a reason to reject), the covered
-commands' IR entries, the change tree, its diff against `mainline/` (empty for the first story),
-the gate log, and the log of the conformance run that passed on the revision under review (sdc.story
-revision 7 admits `change.review` only after `tests.pass`; without that log the node records
-nothing). The reply is constrained by
+invalid again, the stop names the new call. A run that recorded evidence still holds it. Its input is
+one document, `in/review.md`, built by `sdc-reply review-inputs` and pasted into the prompt: the
+story's acceptance lines (the summary and an `## Acceptance` section), the requirements it delivers
+(`spec/traces.json`: a covered command, or a view or actor of a covered command's domain; without a
+trace, `spec_domains`; id and text), the requirements no story covers (findings of kind `outside`,
+never a reason to reject), the covered commands' IR entries, the build constraints
+(`build-constraints.yaml`) when the tree has them, the test summary of the conformance run that
+passed on the revision under review (the run's header line, scenario counts, unit-test totals and
+the names of failing scenarios and tests, not the log; sdc.story revision 7 admits `change.review`
+only after `tests.pass`; without that log the node records nothing), the diff against `mainline/`
+(empty tree for the first story; a file the change creates keeps its header only) and the full text
+of only the files the diff touches, with line numbers, then a listing of every other product file
+(`## Product files not in the diff`: path, size in bytes and, for a source file, the names it
+declares at top level, so that an absent service worker or route is seen without reading a file).
+The items come from one rule per language (`top_level_items`: Rust, JavaScript and TypeScript, Python,
+Go, shell declarations at column 0, plus registered routes such as `GET /tasks` and `addEventListener`
+names); a page, a manifest or a document has path and size only. The listing's lines with sizes and
+items stop at 4096 bytes, the files after that are paths only; build output, `.sdc`, `.git` and
+`node_modules` are not listed. No file text beyond the touched files, no other story, no gate log.
+A finding's `at` is a line of a changed file (`impl/<path>:<line>`), or a file by path alone
+(`impl/<path>`) when the file is listed or changed; a line of a file that is not shown is refused.
+For something missing the reviewer cites a listed file by path, or the line of a changed file where it
+belongs. Beside the document, `in/` holds what the programs check with (`scope.json`,
+`uncovered.json`, `change.diff`, the touched files under `impl/`, `listing.json`). `review-inputs` prints `document_bytes` and each call line of `llm-calls.jsonl` carries
+it as `input_bytes`: the size is recorded per call. Before this the model got the whole tree and
+the whole diff, 108 to 119 KB per call in `baseline-0.1.0`, and read them with `Read` over up to
+12 turns; whether the smaller input keeps its decisions is the record `review-minimal-facts`
+(*not yet observed*). The reply is constrained by
 `sdc-reply schema --type review` (claude-cli `--json-schema`): `decision` approved or rejected,
-`findings` each `{kind, at: impl/<path>:<line>, violates, says}`, `summary`. `sdc-reply
-check-review` checks it: every `at` a line of the change tree, every `violates` in the story's set
+`findings` each `{kind, at: impl/<path>[:<line>], violates, says}`, `summary`. `sdc-reply
+check-review` checks it: every `at` a line of a changed file or a listed or changed file by path, every `violates` in the story's set
 (or, for `outside`, in the uncovered set), a rejection with at least one violation. An invalid
 reply is asked again with the reason (`SDC_REVIEW_RETRIES`, default 2); still invalid, or a failed
 call: exit 2, nothing recorded, so the case is stuck on that revision; never an approval. A valid
 rejection exits 1 with only its `sdc.rejection/1` on stdout (approval `change.review`, principal
-`llm-review:<model>`, reasons, citations with `in_diff`, count); that log reaches `change.implement`
+`llm-review:<model>`, reasons, citations with `in_diff` and `listed`, count); that log reaches `change.implement`
 through `retry_when: {code_review: [rejected]}` as `in/rejection.json`. The bound is
 `change.implement`'s `max_runs` 3 per arrival, shared with failed conformance runs: the third
 rejection ends `writer_spent` with `sent_back` naming `change.review`. Cycles `review-reject-once`,
-`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`).
+`review-minimal-input`, `review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`).
 
 **A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
 writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,

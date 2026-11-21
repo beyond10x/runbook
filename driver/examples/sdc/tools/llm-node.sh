@@ -258,6 +258,7 @@ input() {
 seed() { [[ -e $work/$1 ]] && mkdir -p "$cwd/out/$(dirname "$1")" && cp -r "$work/$1" "$cwd/out/$1"; true; }
 
 ops='["dir.list","file.edit","file.read","file.write","search"]'
+mt=30
 case $node in
 idea.dissect)
   input idea.yaml; out=dissection.yaml
@@ -425,27 +426,31 @@ change.review)
   "$reply_bin" review-inputs --cwd "$cwd" --case-dir "$case_dir" --story "$story" > "$rec/review-inputs.json" 2> "$rec/review-check.err" ||
     { echo "llm-node: change.review has no inputs: $(cat "$rec/review-check.err")"; exit 2; }
   "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" --type review > "$rec/reply-schema.json"
-  ops='["dir.list","file.read","search"]'; out=code_review
-  inputs+=("in/aep/story/$story.md (the story)" "in/scope.json (the commands it covers, its acceptance lines, the requirements it delivers)"
-    "in/commands.json (those commands in the compiled specification)" "in/impl/ (the change tree)"
-    "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
-    "in/tests.txt (the conformance run that passed on this revision)"
-    "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
+  # One request, no tools (story:review-minimal-facts): the program assembled in/review.md, the
+  # only thing the model reads, and the prompt carries its text; the other files of in/ are for
+  # the programs that check the reply.
+  ops='[]'; mt=4; out=code_review
+  review_doc=$cwd/in/review.md
+  input_bytes=$(jq -r '.document_bytes' "$rec/review-inputs.json")
+  inputs+=("the review input below (the same text as in/review.md: the story's requirements and commands, the test summary, the diff, the full text of the files it touches and a listing of every other product file)")
   task="Review the change of story '$story' as a reviewer independent of its implementer: does the
-change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?
-in/uncovered.json lists requirements no story of the plan covers: they are outside this story, so do
-not reject for them; name one you see missing as a finding of kind \`outside\`.
+change deliver this story's requirements, acceptance lines and commands? The review input below is
+everything you are given, and everything you may judge. The requirements listed as covered by no story
+of the plan are outside this story, so do not reject for them; name one you see missing as a finding
+of kind \`outside\`.
 Reply with the JSON object of the response schema:
 - decision: approved, or rejected when the change fails a requirement, acceptance line or command of
   this story
 - findings: each one place and what it violates. kind: \`violation\` (violates: a requirement id, an
-  acceptance \`cite\` or a command of in/scope.json) or \`outside\` (violates: an id of
-  in/uncovered.json). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of in/impl/; for
-  something missing, the line where it belongs (the route table, the README line that claims it).
-  says: one sentence
+  acceptance cite or a command of this story) or \`outside\` (violates: an id of the requirements no
+  story covers). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of a changed file as
+  numbered in the review input; or impl/<path> alone, a file the review input lists as not in the
+  diff (cite it for what it holds or lacks, for something missing the file where it belongs). A file
+  neither listed nor changed does not exist in the tree: an absent service worker, route or module
+  is seen from the listing. says: one sentence
 - summary: one or two sentences
 A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
-the reply otherwise. Judge from the inputs only; you cannot run anything." ;;
+the reply otherwise. Judge from the review input only; you cannot run anything." ;;
 # sdc.bugfix (docs/bugfix.md): the dissection is a data document under a schema (sdc-bugfix schema
 # dissection), checked by dissection.check; the test and the fix are code.
 bug.dissect)
@@ -562,9 +567,15 @@ prompt=$rec/prompt.md
 # Request mode: sdc-reply implement-run writes prompt.md (the whole input); in/ only carries
 # feedback.md and rejection.json to it.
 [[ $implement_mode == request ]] || {
-  echo "You are one step (\`$node\`) of a governed software delivery cycle. Work only in the current"
-  echo "directory. Read the inputs under in/; write only under out/. You have no shell: no command"
-  echo "runs. Programs check what you write afterwards; your words decide nothing."
+  if [[ $node == change.review ]]; then
+    echo "You are one step (\`$node\`) of a governed software delivery cycle. You have no tools and no"
+    echo "files to open: the review input is below. A program checks your reply afterwards; your words"
+    echo "decide nothing."
+  else
+    echo "You are one step (\`$node\`) of a governed software delivery cycle. Work only in the current"
+    echo "directory. Read the inputs under in/; write only under out/. You have no shell: no command"
+    echo "runs. Programs check what you write afterwards; your words decide nothing."
+  fi
   echo
   echo "Inputs:"
   printf -- '- %s\n' "${inputs[@]}"
@@ -573,6 +584,10 @@ prompt=$rec/prompt.md
   echo "$task"
   echo
   if [[ $node == change.review ]]; then
+    echo "Review input:"
+    echo
+    cat "$review_doc"
+    echo
     echo "Reply with the JSON object only."
   elif [[ -n $rejection ]]; then
     echo "When the files are written, reply with one line per rejection reason (as above), then the word: done."
@@ -590,11 +605,11 @@ model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg
 evar=SDC_LLM_EFFORT_${class^^}
 effort=${!evar:-${SDC_LLM_EFFORT:-$(jq -r --arg c "$class" '.default_efforts[$c] // empty' "$here/node-classes.json")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
-  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" --arg effort "$effort" \
+  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" --argjson mt "$mt" --arg effort "$effort" \
   --arg case "${SDC_CASE:-}" --arg case_dir "${SDC_CASE_DIR:-}" '{
     model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
     case: $case, case_dir: $case_dir,
-    operations: ($cfg.operations // $ops), max_turns: ($cfg.max_turns // 30),
+    operations: ($cfg.operations // $ops), max_turns: ($cfg.max_turns // $mt),
     max_budget_usd: ($cfg.max_budget_usd // 1)}' > "$rec/request.json"
 # A data-document node passes its schema (an adapter that has a response-schema option uses it).
 [[ -n ${node_schema:-} ]] && jq --arg s "$node_schema" '. + {json_schema: $s}' "$rec/request.json" > "$rec/request.json.tmp" &&
@@ -608,13 +623,13 @@ jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$r
 log_call() {
   jq -c -n --arg node "$node" --arg case "${SDC_CASE:-}" --arg started "$started" --arg rec "$rec" \
     --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" --arg class "$class" \
-    --arg feedback "$feedback" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
+    --arg feedback "$feedback" --argjson ib "${input_bytes:-null}" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
     {action: $node, case: $case, started: $started, attempt: $attempt, retry: ($feedback == "yes"),
      adapter: $res[0].adapter, model: $req[0].model, effort: ($req[0].effort // "default"), class: $class, allowed_operations: $req[0].operations,
      max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
      exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
      cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,
-     offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false),
+     offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false), input_bytes: $ib,
      record: $rec}
     + if $res[0].implement_mode then {implement_mode: $res[0].implement_mode, requests: $res[0].requests,
         continuations: $res[0].continuations, reply_retries: $res[0].reply_retries, cause: $res[0].cause} else {} end' \

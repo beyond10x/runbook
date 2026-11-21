@@ -29,9 +29,11 @@ tools=$(jq -r '[.operations[] | {"file.read": "Read", "file.write": "Write", "fi
   "dir.list": "Glob", "search": "Grep", "shell": "Bash"}[.] // empty] | join(",")' <<< "$req")
 argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
   --max-turns "$(r .max_turns)" --max-budget-usd "$(r .max_budget_usd)"
-  --allowedTools "$tools" --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
+  --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
   --tools "$tools" --setting-sources "" --strict-mcp-config --disable-slash-commands
   --permission-mode acceptEdits --output-format stream-json --verbose --no-session-persistence)
+# No operations (change.review: one request, no tools): `--tools ""` offers none and no allow list is passed.
+[[ -n $tools ]] && argv+=(--allowedTools "$tools")
 [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
 # change.implement in request mode (request `implement_mode` request, docs/driver.md "Implement as
 # one request"): no tool at all (`--tools ""`), the prompt on stdin (its inlined files can pass the
