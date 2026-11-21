@@ -51,7 +51,20 @@ export AEP_ACTOR=$aep_actor
 
 case $1 in
 # --- stub LLM executors: fixed drafts -------------------------------------------------------
-stub-file) f=$fx/$2; [[ -n ${SDC_STUB_FIXTURES:-} && -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2; cp "$f" "$3" ;;
+stub-file)
+  # SDC_STUB_FIXTURES may hold the file, and <name>.<n> for the n-th call (from 0), counted as
+  # stub-tree's calls are.
+  f=$fx/$2
+  if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
+    [[ -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
+    if compgen -G "$SDC_STUB_FIXTURES/$2.[0-9]*" > /dev/null; then
+      c=${SDC_STUB_COUNTER:-.sdc}/stub-file.$2
+      mkdir -p "${c%/*}"
+      n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
+      [[ -f $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
+    fi
+  fi
+  cp "$f" "$3" ;;
 stub-tree)
   # SDC_STUB_FIXTURES may hold the tree too: <name>.<n> on the n-th call (from 0), else <name>.
   # The count is kept in SDC_STUB_COUNTER (default .sdc; the fixture adapter names work/.sdc).
@@ -342,11 +355,12 @@ story-tests)
   "$here/tools/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
 amend) findings amend "${2:?stage}" ;;
 # amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
-# none yet, or one that names no principal (`decided_by: person:<id>` or `decider:<kind>`).
+# none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or
+# keep-going's `rule:keep-going`, run.unstick's `agent:unstick`).
 findings-wait)
   [[ -f findings.yaml ]] &&
   yq -e '[.findings[]? | select(.status == "needs_person" and ((.decision // "") == ""
-    or ((.decided_by // "") | test("^(person|decider):.") | not)))] | length > 0' findings.yaml >/dev/null 2>&1 ;;
+    or ((.decided_by // "") | test("^((person|decider):.|rule:keep-going$|agent:unstick$)") | not)))] | length > 0' findings.yaml >/dev/null 2>&1 ;;
 
 # --- sdc.intake scope.answer (a manual action under the capability scope.answer) ---------------
 scope-answer)

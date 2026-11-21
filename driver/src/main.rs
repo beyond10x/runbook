@@ -112,8 +112,10 @@ enum Cmd {
     /// revision) for an outcome that requires that decision alone. Canon admits such a decision
     /// from any principal in any state, so the driver admits it only directly after the case's
     /// last step denied `--after-denial` (`approve --deny`): a refused release is withheld
-    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied). The reasons file
-    /// is the decision's log blob. Refused before anything is written otherwise.
+    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied); or directly
+    /// after it recorded a `rejected` result of an action that requires that capability (a story
+    /// dropped after its merge was rejected, `change.merge`). The reasons file is the decision's
+    /// log blob. Refused before anything is written otherwise.
     Decide {
         #[arg(long)]
         at: String,
@@ -138,6 +140,18 @@ enum Cmd {
         outcome: String,
         #[arg(long)]
         principal: Option<String>,
+    },
+    /// One more allowance of `max_runs` for the writer `--action` (keep-going, D142): records
+    /// `allowance_granted` {action, principal}; the writer's runs count from it, and a
+    /// `not_called` run before it no longer keeps the writer back (`useful`). Refused for an
+    /// action that is not a bound writer of the case.
+    Allow {
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        principal: String,
     },
     /// Re-run `canon evaluate` on every case of the tree as last evaluated and compare the state
     /// and decision digests with the ones the log recorded.
@@ -692,21 +706,30 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
         if !is_useful {
             continue;
         }
+        // keep-going's one more allowance (`allow`, D142): the writer's runs count from it.
+        let granted = evs
+            .iter()
+            .rposition(|e| e["event"] == "allowance_granted" && e["action"] == a.as_str());
+        let since_a = granted.map_or(since, |g| g.max(since));
         // A writer whose run ended without doing anything (`not_called`, see the step) as the
         // case's last step, at this snapshot, would see the same inputs and end the same way
-        // again: not useful. After any other step (a check that failed since) it is.
+        // again: not useful. After any other step (a check that failed since), or an allowance
+        // granted since, it is.
         if let Some(e) = finished.last().filter(|e| {
-            ran(e) && e["not_called"].is_string() && e["case"] == snapshot.as_str()
+            ran(e)
+                && e["not_called"].is_string()
+                && e["case"] == snapshot.as_str()
+                && granted.is_none_or(|g| e["seq"].as_u64() > evs[g]["seq"].as_u64())
         }) {
             not_called.push(json!({"action": a, "run_seq": e["seq"], "reason": e["not_called"]}));
             continue;
         }
         if writer {
-            // The counted runs since the last arrival, each with the kinds that sent it back
+            // The counted runs since the last arrival (or allowance), each with the kinds that sent it back
             // (`retry_of` of its `action_started`; none when it was due for another reason).
             let mut runs_by: Vec<Vec<Value>> = Vec::new();
             let mut started: Vec<Value> = Vec::new();
-            for e in evs[since..].iter().filter(|e| e["action"] == a.as_str()) {
+            for e in evs[since_a..].iter().filter(|e| e["action"] == a.as_str()) {
                 if e["event"] == "action_started" {
                     started = e["retry_of"].as_array().cloned().unwrap_or_default();
                 } else if e["event"] == "action_finished" && !program_error(&e["exit"]) && !e["not_called"].is_string() {
@@ -727,7 +750,7 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
             };
             let out = out.or_else(|| (total >= backstop).then(|| (format!("all kinds (backstop {backstop})"), total)));
             if let Some((kind, n)) = out {
-                spent.push(spent_entry(dir, a, &kind, n, max, total, since, &evs));
+                spent.push(spent_entry(dir, a, &kind, n, max, total, since_a, &evs));
                 continue;
             }
         }
@@ -1053,15 +1076,24 @@ fn next_steps(canon: &str, dir: &Path, pos: &Value, bindings: &Value, ir: &Value
     Ok(next)
 }
 
-/// LLM calls started so far in the whole case tree (`action_started` of a binding with `llm`).
+/// LLM calls started so far in the whole case tree (`action_started` of a binding with `llm`),
+/// less the runs that ended `not_called` (llm-node.sh exited before any model call): the count
+/// of llm-calls.jsonl, which is what `--max-llm-calls` caps. The decider's calls are not driver
+/// actions and are counted apart (decisions.jsonl, decider/).
 fn llm_calls(dir: &Path) -> usize {
     all_cases(&tree_root(dir))
         .iter()
         .map(|c| {
-            events(c)
+            let evs = events(c);
+            let started = evs
                 .iter()
                 .filter(|e| e["event"] == "action_started" && e["llm"] == true)
-                .count()
+                .count();
+            let not_called = evs
+                .iter()
+                .filter(|e| e["event"] == "action_finished" && e["not_called"].is_string())
+                .count();
+            started.saturating_sub(not_called)
         })
         .sum()
 }
@@ -1795,14 +1827,20 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                 return Err(format!("`{decision}` is already recorded in this case"));
             }
             let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated");
+            let requires = |a: &Value| {
+                ir["actions"][a.as_str().unwrap_or("")]["requires"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|c| c["capability"] == after_denial.as_str()))
+            };
             let denied = last.as_ref().is_some_and(|e| {
-                e["event"] == "authority_recorded"
+                (e["event"] == "authority_recorded"
                     && e["capability"] == after_denial.as_str()
-                    && e["decision"] == "denied"
+                    && e["decision"] == "denied")
+                    || (e["event"] == "action_finished" && e["result"] == "rejected" && requires(&e["action"]))
             });
             if !denied {
                 return Err(format!(
-                    "`{decision}` is taken only directly after `{after_denial}` was denied in this case; its last step is {}",
+                    "`{decision}` is taken only directly after `{after_denial}` was denied, or an action requiring it recorded `rejected`, in this case; its last step is {}",
                     last.map(|e| match e["action"].as_str() {
                         Some(a) => format!("{} {a}", e["event"].as_str().unwrap_or("?")),
                         None => e["event"].as_str().unwrap_or("?").to_string(),
@@ -1826,6 +1864,15 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
         }
         Cmd::Close { at, outcome, principal } => Ok((close(canon, dir, at, outcome, principal.as_deref())?, 0)),
+        Cmd::Allow { at, action, principal } => {
+            let ir = read_json(&dir.join("ir.json"))?;
+            let bindings = read_json(&dir.join("bindings.json"))?;
+            if bindings[action.as_str()].is_null() || ir["actions"][action.as_str()]["effect"] != "write" {
+                return Err(format!("`{action}` is no bound writer of this case"));
+            }
+            event(dir, at, "allowance_granted", json!({"action": action, "principal": principal}))?;
+            Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
+        }
         Cmd::Replay => {
             let mut report = Vec::new();
             let mut ok = true;

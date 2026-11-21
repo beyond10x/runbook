@@ -227,7 +227,33 @@ fn main() -> ExitCode {
     }
 
     // L7 time waiting on a person: every stop after which the run did not go on by itself.
-    k.push(("L7_waiting_on_person_seconds", waiting(run)));
+    // A stop record followed by a reopened leg is time stopped for a fix, its own figure.
+    let (l7, fixes) = waiting(run);
+    k.push(("L7_waiting_on_person_seconds", l7));
+
+    // Keep-going (D142): the continuations rule:keep-going forced, and every defect line
+    // (defects.jsonl). A run with one forced is evidence for defects, not a clean pass.
+    let defects = jsonl(&run.join("defects.jsonl"));
+    let forced = defects.iter().filter(|d| d["forced"] == json!(true)).count();
+    k.push(("forced", json!({"value": forced, "defects": defects.iter().map(|d| json!({
+        "cause": d["cause"], "case": d["case"], "action": d["action"], "forced": d["forced"],
+        "continuation": d["continuation"], "event_seq": d["event_seq"]})).collect::<Vec<_>>()})));
+    // Reopens: each stop record a later leg reopened (run-stopped.<at>.json), and the seconds
+    // from each record to the next leg. A run with one is not a clean run either.
+    let reopens = reopened_stops(run);
+    k.push(("stopped_for_fix", json!({"reopens": reopens.len(),
+        "seconds": fixes.iter().filter_map(|f| f["seconds"].as_i64()).sum::<i64>(),
+        "stops": reopens.iter().map(|s| json!({"at": s["at"], "by": s["by"], "cause": s["cause"], "case": s["case"]})).collect::<Vec<_>>(),
+        "gaps": fixes})));
+    // Unstick (D147): the moves of run.unstick other than stop, each with its diagnosis. A run
+    // it moved on closed unattended, not clean: each diagnosis is a defect to fix.
+    let unstick: Vec<&J> = defects.iter().filter(|d| d["unstick"] == json!(true)).collect();
+    let unstuck = unstick.iter().filter(|d| d["unstuck"] == json!(true)).count();
+    k.push(("unstuck", json!({"value": unstuck, "diagnoses": unstick.iter().map(|d| json!({
+        "cause": d["cause"], "case": d["case"], "action": d["action"], "move": d["move"], "unstuck": d["unstuck"],
+        "defect_class": d["defect_class"], "diagnosis": d["diagnosis"]})).collect::<Vec<_>>()})));
+    k.push(("clean_run", json!({"value": forced == 0 && unstuck == 0 && reopens.is_empty(), "forced": forced,
+        "unstuck": unstuck, "reopens": reopens.len()})));
 
     // L3 defaults accepted without change.
     let res: Vec<&Value> = fd
@@ -344,11 +370,19 @@ fn epoch(t: &str) -> Option<i64> {
 /// run-settings.jsonl every round ending awaiting_person or awaiting_authority counts. At A3 and
 /// up (a decider holds the decisions: the last leg's `decider.kind` is not `person`) a value above
 /// 0 is a failure.
-fn waiting(run: &Path) -> J {
+/// A gap that a stop record lies in (a run stopped, then reopened: `run-stopped.<at>.json`) is
+/// the time the run was stopped for a fix, not a wait on a person: it goes to `fixes` (the
+/// second value), with the seconds from the record to the next leg.
+fn waiting(run: &Path) -> (J, Vec<J>) {
     let rounds = jsonl(&run.join("rounds.jsonl"));
     if rounds.is_empty() {
-        return json!({"value": null, "why": "no rounds.jsonl (scripted runs use a fixed --at)"});
+        return (json!({"value": null, "why": "no rounds.jsonl (scripted runs use a fixed --at)"}), vec![]);
     }
+    let reopened: Vec<i64> = reopened_stops(run)
+        .iter()
+        .filter_map(|s| s["at"].as_str().and_then(epoch))
+        .collect();
+    let mut fixes = vec![];
     let settings = jsonl(&run.join("run-settings.jsonl"));
     let legs: Vec<i64> = settings
         .iter()
@@ -376,6 +410,12 @@ fn waiting(run: &Path) -> J {
                     legs.iter().any(|&l| l >= ended && l <= start)
                 };
                 if !new_leg {
+                    continue;
+                }
+                // Stopped by a record (a rule's or a person's) and reopened: stopped for a fix.
+                if let Some(&at) = reopened.iter().find(|&&at| at >= ended - 5 && at <= start) {
+                    fixes.push(json!({"verdict": verdict, "case_dir": r["case_dir"], "ended": r["ended"],
+                        "seconds": (start - at).max(0)}));
                     continue;
                 }
                 (start, "resumed")
@@ -424,7 +464,24 @@ fn waiting(run: &Path) -> J {
                 json!("a decider holds the decisions (A3 and up): no stop may wait on a person");
         }
     }
-    out
+    (out, fixes)
+}
+
+/// The stop records of a run that was reopened after them (`run-stopped.<at>.json`), by name.
+fn reopened_stops(run: &Path) -> Vec<J> {
+    let mut names: Vec<String> = fs::read_dir(run)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("run-stopped.") && n.ends_with(".json") && n != "run-stopped.json")
+        .collect();
+    names.sort();
+    names
+        .iter()
+        .filter_map(|n| fs::read_to_string(run.join(n)).ok())
+        .filter_map(|t| serde_json::from_str(&t).ok())
+        .collect()
 }
 
 /// A whole number prints as an integer, like the seconds it came from.

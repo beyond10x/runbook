@@ -57,6 +57,10 @@
   `SDC_PRINCIPAL=<principal> scripts/run-trial.sh <run> --stop "<reason and the fix it waits on>"`.
   No run is left waiting when no person or agent is working on it. Demo and fixture runs are never
   listed beside real runs without a label (the operator, 2026-11-21).
+- Trial runs use `--autopilot --keep-going` to collect every defect of a run (`defects.jsonl`)
+  before the fixes are made in one batch. A forced run (`forced N` in `status.json` and the
+  closed line) is evidence for defects and never counts as an end-to-end pass; the pass is a
+  later run without the flag (the operator, 2026-11-21).
 
 ## Commits
 

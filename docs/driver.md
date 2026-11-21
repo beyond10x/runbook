@@ -586,6 +586,69 @@ root through any outcome that requires no decision as `rule:autopilot` (`sdc-dri
 terminable child with one legitimate outcome in its round. Below A5 the decider still closes
 `operating` (class close, `autonomy-levels.md` § 3.2).
 
+**Keep-going** (D142, 2026-11-21, trial and eval runs only: `scripts/run-trial.sh <run>
+--autopilot --keep-going`; refused without `--autopilot`). Where autopilot stops with a cause,
+keep-going first writes a line to `<run>/defects.jsonl` (`sdc.run-defect/1`: at, case, action,
+cause, the full reason, the decision or reply that led to it, the case's last event seq, LLM
+calls so far, `forced`, `principal`, `continuation`), then takes a forced continuation under the
+principal `rule:keep-going`, never a decider's or a person's:
+
+| Stop cause | Continuation |
+|---|---|
+| `rejected_without_rework_path` (an approval or close; reached also by an invalid reply under final, `rejected_on_checks`) | `rule:keep-going` approves (closes); a question or a finding takes its default; none: stops |
+| `rework_spent` | `rule:keep-going` approves |
+| `decision_not_takeable`, a refused decider decision on a finding | the finding's default, `decided_by: rule:keep-going`, applied by `amend.upstream` through the same check; refused again: stops |
+| `decision_not_takeable`, a handoff with nothing for the decider | stops |
+| `writer_spent`, `writer_not_called` | `sdc-drive allow --action <writer> --principal rule:keep-going` (event `allowance_granted`): one more `max_runs`, the failing check records fed back as on any retry; spent again: stops |
+| `decider_budget_spent`, `llm_budget_spent`, `step_budget_spent`, `wall_time_spent`, `stuck`, an approval the driver refuses, "pending again", a tool that crashes | stops |
+
+At most 12 forced continuations per run, then the cause `keep_going_spent`; the same cause at the
+same case and action is forced once, and a second time stops. Every stop also gets a line
+(`forced: false`, `continuation: stops`). `status.json` carries `forced: N` and the closed line
+ends `(forced N)`; `sdc-finding-kpis` (`forced`) and `sdc-run-compare` ("forced continuations",
+"defects") print the count and the defects. An invalid decider reply after its retries does not
+stop under final (`approved_on_checks`, `rejected_on_checks`, or the default), so it needs no
+continuation of its own. Without `--keep-going` nothing changes.
+
+**Unstick** (D147, 2026-11-21, every `--autopilot` run; `SDC_UNSTICK=off` turns it off, and it is
+off where its adapter calls no model, `stub` or `dry`). Before autopilot stops for any cause but a
+cap (`decider_budget_spent`, `llm_budget_spent`, `step_budget_spent`, `wall_time_spent`) or a
+tool that crashed, the node `run.unstick` (class `unstick` in `tools/node-classes.json`, model
+`SDC_LLM_MODEL_UNSTICK`, default `claude-opus-5-5`; adapter `SDC_UNSTICK_ADAPTER`, else the
+decider's) is asked first. A program, `sdc-unstick moves`, lists the legal moves of the stopped
+state; the model picks one id and never invents state:
+
+| Move | Offered when | Carried out (principal `agent:unstick`) |
+|---|---|---|
+| `rerun:<W>` | W is the spent or not-called writer of the stop or of the position | `sdc-drive allow --action W`: one more `max_runs`, the failing check records fed back as on any retry |
+| `reask:<D>` | a question or finding request; an approval or close with no recorded rejection | the decider asked D again with the diagnosis as `note` in its `in/decision.json` (a refused finding decision is cleared first) |
+| `default:<F>` | finding or question F has a default | the default taken, `decided_by`/`answered_by: agent:unstick` |
+| `approve:<A>` | an approval or close with no recorded rejection | approved (closed) as `agent:unstick` |
+| `end:<O>` | an approval whose case has an outcome O that requires one decision alone (`dropped`, `withheld`, `abandoned`) | the refusal recorded (`approve --deny` when the capability was never decided, else the decider's rejection recorded), `sdc-drive decide --after-denial <capability>` directly after it, the case closed O; its parents end through what their evaluation then offers (a dropped story: the root `not_delivered`) |
+| `stop` | always | the run stops as it would have |
+
+The node's input (`<run>/unstick/NNN-<cause>/cwd/in/stop.json`): the cause and reason, the stopped
+case and action, the decider request that led to it, the claims, the blocked actions with their
+unmet preconditions, the open obligations, the case's last 20 events, the last failing action's
+log, and the moves. The reply (`out/unstick.json`, schema `reply-schema.json`, passed to an
+adapter that constrains replies): `move` (an id), `diagnosis` (two or three sentences: which
+route, check or input is missing or wrong), `defect_class` (`missing_route`, `cap_too_low`,
+`writer_error`, `decider_error`, `contradiction_in_inputs`, `tool_defect`, `other`), `reasons`.
+`sdc-unstick validate` checks it; an invalid reply is asked again with the check's reason, at
+most 2 retries, then no move is taken: the keep-going table under `--keep-going`, else the stop.
+Each use is one line in `defects.jsonl` (`unstick: true`, `unstuck`, `move`, `diagnosis`,
+`defect_class`, `reasons`, `attempts`, `record`; `principal: agent:unstick` for a move taken). At
+most 6 moves per run, and the same cause at the same case and action once; then the run stops
+with the cause `unstick_spent` (keep-going takes no continuation after it). A third rejection is
+not recorded in the case while run.unstick or keep-going may still take the approval; a run that
+stops records it before the stop, as without them. `status.json` carries `unstuck: N`, the
+closed line ends `(unstuck N)` (beside `forced N`), `run-settings.jsonl` `unstick: {on, adapter,
+model}`; `sdc-finding-kpis` (`unstuck`, with each diagnosis) and `sdc-run-compare` ("unstuck",
+"defects") print them. A run with `unstuck` above 0 closed unattended, not clean: each diagnosis is
+a defect to fix. `sdc-drive decide --after-denial <capability>` admits the decision also directly
+after a recorded `rejected` result of an action that requires the capability: once `merge.approve`
+has recorded a rejection, `change.merge` is granted and can no longer be denied.
+
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
 "<principal>", "reason": "…", "verdict_at_stop": "<last round's verdict>", "case": "<its case id

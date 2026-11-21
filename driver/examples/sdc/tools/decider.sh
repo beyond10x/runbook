@@ -385,7 +385,8 @@ prior='[]'
 jq --argjson item "$item" --argjson touches "$touches" --argjson cit "$citable" --argjson prior "$prior" '{type, case: (.case_dir | split("/") | last), action, capability,
   subject, artifact_path: .path, revision, question, item: $item, idea_excerpt: ($item.span // null),
   finding: (.finding // null), touches: $touches, outcome, citable_artifacts: $cit.artifacts,
-  prior_rejections: $prior}' <<< "$req" > "$cwd/in/decision.json"
+  prior_rejections: $prior} + (if .note then {note: .note} else {} end)
+  + (if .refusal then {refusal: .refusal} else {} end)' <<< "$req" > "$cwd/in/decision.json"
 # The reply schema (sdc-reply schema): decision, answer and cites as enums of what is admissible.
 schema_args=(--type "$type")
 [[ $final == yes ]] && schema_args+=(--final)
@@ -427,6 +428,25 @@ if [[ $(jq length <<< "$prior") -gt 0 ]]; then
 This approval was rejected before, at an earlier revision, and the writer has reworked it since
 (\`prior_rejections\` in in/decision.json: each rejection's revision and reasons). Check whether the
 current revision addresses each of those reasons; a reason still not addressed is a reason to reject."
+fi
+# A finding decision the program check refused, asked again (run-trial.sh decide_findings, R3).
+if [[ $(r '.refusal != null') == true ]]; then
+  what="$what
+Your earlier decision on this finding was refused by the program check (\`refusal\` in
+in/decision.json: the decision and why): $(r '.refusal.why // ""')
+Decide again with an answer the check accepts, or escalate when no answer can."
+fi
+# A scope-changing answer already written but given by no one with the right to (R2).
+if [[ $type == question && $(r '.question.status // "open"') != open ]]; then
+  what="$what
+This question already has an answer (\`question.answer\`), written by the interview agent, which may
+not answer a scope-changing question: decide it as if it were open."
+fi
+# Asked again by run.unstick (scripts/run-trial.sh): its diagnosis of why the run stopped here.
+if [[ $(r '.note // ""') != "" ]]; then
+  what="$what
+You are asked again: the run stopped at this decision, and a reviewer of the stop wrote (\`note\`
+in in/decision.json): $(r .note)"
 fi
 
 prompt=$rec/prompt.md
