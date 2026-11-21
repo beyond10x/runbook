@@ -1,6 +1,8 @@
 import type {ReactNode} from 'react';
+import useBrokenLinks from '@docusaurus/useBrokenLinks';
 import {Lanes, dur, usd, type Timeline} from './RunTimeline';
 import {stat, median, type Stat} from './evaluation';
+import QualitySection, {qualityFor, qualitySentence, type Quality} from './Quality';
 
 /**
  * The comparison of the SDC with one free-running agent, from the committed experiment record
@@ -135,7 +137,9 @@ function sizeMedian(m: Model, sides: Side[], key: keyof SizeRow): number | null 
 }
 
 /** The result in one paragraph, every figure computed from the record, the run summaries and the sizes. */
-export function ResultLede({m}: {m: Model}): ReactNode {
+export function ResultLede({m, quality}: {m: Model; quality?: Quality[]}): ReactNode {
+  const q = qualityFor(quality, m.free.runs);
+  const qs = q ? qualitySentence(q, m.free.runs) : null;
   const idea = m.record.inputs?.[0]?.name ?? 'the idea';
   const cheaper = m.base.map((b) => about(factor(b.cost, m.free.cost))).join(' and ');
   const faster = m.base.map((b) => about(factor(b.wall, m.free.wall))).join(' and ');
@@ -155,6 +159,7 @@ export function ResultLede({m}: {m: Model}): ReactNode {
       ) : null}
       . The registered hypothesis, that the free agent costs more, is <strong>{m.record.verdict ?? 'not computed'}</strong> (
       <a href="#free">the comparison below</a>).
+      {qs ? <> {qs.replace(/\.$/, '')} (<a href="#quality">quality</a>).</> : null}
     </p>
   );
 }
@@ -368,7 +373,9 @@ function Held({m}: {m: Model}): ReactNode {
   );
 }
 
-export default function FreeAgentComparison({m}: {m: Model}): ReactNode {
+export default function FreeAgentComparison({m, quality}: {m: Model; quality?: Quality[]}): ReactNode {
+  useBrokenLinks().collectAnchor('quality');
+  const q = qualityFor(quality, m.free.runs);
   const sdc = m.base.flatMap((s) => s.runs).map((r) => m.timelines.get(r)).filter((t): t is Tl => Boolean(t));
   const free = m.free.runs.map((r) => m.timelines.get(r)).find((t): t is Tl => Boolean(t)) ?? null;
   const shown = free ? [...sdc, free] : sdc;
@@ -414,7 +421,8 @@ export default function FreeAgentComparison({m}: {m: Model}): ReactNode {
       <Records m={m} />
       <h3 id="free-held-h">What was held equal, and the confounds</h3>
       <Held m={m} />
-      <p id="quality"><strong>Quality evaluation: pending.</strong> A blind evaluation of the {m.sides.flatMap((s) => s.runs).length} products is running; a later release fills this line.</p>
+      <h3 id="quality">Quality of the products, blinded</h3>
+      {q ? <QualitySection q={q} freeRuns={m.free.runs} /> : <p><strong>Quality evaluation: pending.</strong> A blind evaluation of the {m.sides.flatMap((s) => s.runs).length} products is running; a later release fills this line.</p>}
     </>
   );
 }
