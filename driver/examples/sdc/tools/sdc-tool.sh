@@ -29,6 +29,11 @@ findings() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-findings not found ($b)" >&2; exit 127; }
   "$b" --rules "$here/tools/consistency-rules.json" "$@"
 }
+bugfix() {
+  local b=${SDC_BUGFIX:-$here/../../target/debug/sdc-bugfix}
+  [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
+  "$b" "$@"
+}
 case $1 in
   ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
   conform-run|story-tests|story-tests-run|impl-gate) need ess slot ;;
@@ -52,7 +57,7 @@ stub-tree)
   # The count is kept in SDC_STUB_COUNTER (default .sdc; the fixture adapter names work/.sdc).
   f=$fx/$2
   if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
-    c=${SDC_STUB_COUNTER:-.sdc}/stub-tree.$2
+    c=${SDC_STUB_COUNTER:-.sdc}/stub-tree.${2//\//_}
     n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
     [[ -d $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
     [[ -d $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
@@ -332,5 +337,8 @@ scope-answer)
     | (select((.answered_by // "") == "" or .answered_by == "non-interactive") | .answered_by = strenv(P)) // .)' \
     questions.yaml ;;
 consistency) findings consistency ;;
+# --- sdc.bugfix (docs/bugfix.md): its checks are the driver crate's sdc-bugfix binary -----------
+bugfix) shift; bugfix "$@" ;;
+stub-repro) "$here/tools/sdc-tool.sh" stub-tree "$2" repro && bugfix repro-install ;;
 *) echo "unknown tool $1" >&2; exit 64 ;;
 esac

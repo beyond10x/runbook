@@ -13,6 +13,11 @@
 #   scripts/run-trial.sh <name> --reopen        resume a stopped run: the record is renamed
 #                                               run-stopped.<at>.json; without it a resume of a
 #                                               stopped run is refused (exit 8)
+#   scripts/run-trial.sh <name> --bugfix <seed dir> ["<bug report>"]  one bug fix instead of an
+#                                               idea (docs/bugfix.md): root BUG-1 on sdc.bugfix, work/
+#                                               seeded by `sdc-bugfix seed` from the crate (<seed dir>
+#                                               or <seed dir>/crate) and the report (the text, else
+#                                               <seed dir>/bug.yaml); with --dry the stubs write
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -90,6 +95,7 @@ while (($#)); do
     --autopilot) autopilot=yes ;;
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
+    --bugfix) bugfix=${2:-}; [[ -d $bugfix ]] || { echo "--bugfix needs a seed directory, not '$bugfix'"; exit 64; }; bugfix=$(cd "$bugfix" && pwd); shift ;;
     *) pos+=("$1") ;;
   esac
   shift
@@ -103,6 +109,7 @@ ex=$sdc/driver/examples/sdc
 out=${SDC_RUNS_DIR:-$sdc/runs}/$name
 store=$out/store
 root=$store/IDEA-1
+[[ -n ${bugfix:-} || -d $store/BUG-1 ]] && root=$store/BUG-1
 log=$out/run.log
 max_llm=${SDC_MAX_LLM_CALLS:-30}
 max_wall=${SDC_MAX_WALL_SECONDS:-5400}
@@ -229,7 +236,22 @@ expected() {
   echo "expected LLM calls on the happy path: $fixed (intake 4, direction 3, spec 1, plan 1) + $per_story per story (plan.decompose writes 1 to 3) = $((fixed + per_story)) to $((fixed + 3 * per_story)); retries raise it, capped at $max_llm over the tree"
 }
 
-if [[ ! -d $root ]]; then
+if [[ -n ${bugfix:-} && ! -d $root ]]; then
+  # One bug fix (docs/bugfix.md): the seed program stands in for a parent handing in the report,
+  # the code tree and the story.
+  rm -rf "$out"
+  mkdir -p "$out/events"
+  watch_start
+  : > "$log"
+  d "$root" init --protocol "$sdc/protocol/sdc-bugfix.protocol.yaml" --id BUG-1 --bindings "$ex/sdc-bugfix.bindings.json"
+  [[ $code == 0 ]] || { echo "init failed: $last"; exit 1; }
+  seed=(--from "$bugfix")
+  [[ -n $idea_text ]] && seed+=(--text "$idea_text" --story "story:bug-$name")
+  (cd "$root/work" && "${SDC_BUGFIX:-$sdc/driver/target/debug/sdc-bugfix}" seed "${seed[@]}") >> "$log" 2>&1 ||
+    { echo "seed failed: $(tail -n 3 "$log")"; exit 1; }
+  echo "# the bug report: $(cat "$root/work/bug.yaml")" >> "$log"
+  leg=started
+elif [[ ! -d $root ]]; then
   rm -rf "$out"
   mkdir -p "$out/events"
   watch_start
@@ -286,7 +308,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
-  echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
+  echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
 else
   echo "resuming $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
 fi
@@ -334,10 +356,10 @@ print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"
 end_note=""
 finish() {
   d "$root" close --at "$(now)" --outcome "$1"
-  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)} (exit $code)"
+  echo "closed ${root##*/}: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)} (exit $code)"
   [[ $code == 0 ]] || exit 4
   jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" '{format: "sdc.run-status/1", at: $at, state: "closed",
-    outcome: $o, delivered: ($o == "operating"), note: (if $note == "" then null else $note end)}' > "$out/status.json"
+    outcome: $o, delivered: ($o == "operating" or $o == "fixed"), note: (if $note == "" then null else $note end)}' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
   d "$root" replay

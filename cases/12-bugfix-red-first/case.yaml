@@ -1,0 +1,15 @@
+format: canon-case/1
+id: BUG-12
+protocol: sdc.bugfix
+revision: c2
+artifacts:
+  report:
+    revision: b1
+  dissection:
+    revision: d1
+  repro:
+    revision: r1
+  change:
+    revision: c2
+  story:
+    revision: s2
