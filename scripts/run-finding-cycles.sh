@@ -100,9 +100,9 @@ yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/n
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
-expected+=(decider-question-reject rework-fresh-allowance spec-review-rework)
+expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error)
 pending=(scope-unattributed-reject finding-refused-reask rework-spent-dropped rework-spent-abandoned
-  review-invalid-named writer-own-error implement-percause)
+  review-invalid-named implement-percause)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -1088,7 +1088,7 @@ if jq -e '."change.review".llm' "$sdc/driver/examples/sdc/sdc-story.bindings.jso
 else
   echo "review-invalid-named: FAILED (change.review is not a model call here: needs impl/review-node)"
 fi
-# writer-own-error (R9, pending): questions.answer (fixture adapter, apply step) changes the
+# writer-own-error (R9): questions.answer (fixture adapter, apply step) changes the
 # scope-changing question q2, which the apply step refuses (exit 1, nothing applied). Route: the
 # failed run's own log reaches the next run as in/feedback.md. Passes when the second
 # questions.answer call has in/feedback.md naming the refusal.

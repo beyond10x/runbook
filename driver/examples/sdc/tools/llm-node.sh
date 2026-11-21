@@ -398,16 +398,30 @@ raised and waits for its decision: follow its \`default\`; never raise it again.
 fi
 
 feedback=""
-if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e 'any(.[]; .result != "rejected")' "$SDC_FEEDBACK" > /dev/null; then
+if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection" 'any(.[]; .result != "rejected" or (.log // "") != $rej)' "$SDC_FEEDBACK" > /dev/null; then
   {
     echo "# Checks that failed on the current revision of your output"
-    jq -r '.[] | select(.result != "rejected") | "\(.kind) = \(.result) (from \(.action // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
+    jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej) | "\(.kind) = \(.result) (from \(.action // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
       echo; echo "## ${line%%: *}"; log=${line#*: }
       [[ -f $log ]] && { echo '```'; tail -n 60 "$log"; echo '```'; }
     done
   } > "$cwd/in/feedback.md"
   inputs+=("in/feedback.md (why the previous attempt was sent back: fix exactly that)")
   feedback=yes
+fi
+# This writer's own last run failed (an exit other than 0, a program error or an API break-off):
+# nothing of it was applied and no check ran, so its log is the only feedback. It reaches this run
+# in in/feedback.md; without it the writer ran again blind until writer_spent (docs/reject-routes.md R9).
+if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
+  own=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished" and .action == $n)] | last // empty
+    | select(.exit | IN("0", "75", "126", "127") | not) | "\(.exit) \(.log // "")"' "$cd_/events.jsonl" 2>/dev/null)
+  if [[ -n $own && -f $cd_/blobs/${own#* } ]]; then
+    { [[ -s $cwd/in/feedback.md ]] && echo
+      echo "# Your previous run of $node failed (exit ${own%% *}): nothing of it was applied"
+      echo; echo '```'; tail -n 60 "$cd_/blobs/${own#* }"; echo '```'; } >> "$cwd/in/feedback.md"
+    [[ $feedback == yes ]] || inputs+=("in/feedback.md (why your previous run was not applied: fix exactly that)")
+    feedback=yes
+  fi
 fi
 if [[ -n $rejection ]]; then
   cp "$rejection" "$cwd/in/rejection.json"
@@ -520,6 +534,8 @@ if [[ $adapter == dry ]]; then
   [[ $code == 0 ]] && post "" >> "$rec/apply.log" 2>&1
 elif [[ $acode == 0 ]]; then
   apply > "$rec/apply.log" 2>&1; code=$?
+  # Why it was not applied goes into the step's log, which the next run reads (R9 above).
+  [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
   [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1
 elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]]; then
   # The model's API refused or broke off (a 429, an overload): the node could not run, which
@@ -530,6 +546,7 @@ elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]]; 
   code=75
 else
   code=$acode
+  echo "llm-node: $node: the model call exited $acode: $(jq -r '.terminal_reason // .error // "no reason given" | tostring' "$rec/response.json" 2>/dev/null | head -c 300)"
 fi
 
 # One line per call, for the run log and the viewer.
