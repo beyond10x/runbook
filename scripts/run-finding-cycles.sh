@@ -137,7 +137,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   decider-finding-refused run-stop run-stop-decider autopilot decider-input trace-reraised decider-budget-reason autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models efforts
-  review-real-path review-invalid-stop review-adapter-refused reopen-review-invalid
+  review-real-path review-real-path-facts review-invalid-stop review-adapter-refused reopen-review-invalid
   rule-approvals rule-approvals-check-failed rule-approvals-revision-changed rule-approvals-off rule-approvals-a3)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
@@ -160,7 +160,7 @@ expected+=(implement-request-build implement-request-tests-rework implement-requ
   implement-request-invalid-named implement-request-path-escape)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
-  replay-recording-clean rule-approvals-default)
+  replay-recording-clean rule-approvals-default review-mode-default)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -465,7 +465,7 @@ lg=$(jq -r '.[0].log // ""' <<< "$rv")
 r2=$(jq -rs '[.[] | select(.action == "change.review")] | .[1].record // empty' "$s/store-review-reject-once/IDEA-1/work/.sdc/llm/calls.jsonl" 2>/dev/null)
 if (( code == 0 )) && jq -e '[.[] | .result] == ["rejected", "approved"] and all(.producer == "llm-review")' <<< "$rv" >/dev/null &&
    jq -e '.format == "sdc.rejection/1" and .approval == "change.review" and (.principal | startswith("llm-review:"))
-     and .citations == [{"at": "impl/README.md:1", "violates": "r1", "kind": "violation", "in_diff": true, "listed": false}] and .count == 1' "$d/blobs/$lg" >/dev/null &&
+     and .citations == [{"at": "impl/README.md:1", "violates": "r1", "kind": "violation", "in_diff": true}] and .count == 1' "$d/blobs/$lg" >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] | length == 2' "$d/events.jsonl" >/dev/null &&
    jq -se '[.[] | select(.event == "action_started" and .action == "change.implement")] | last | .retry_of == ["code_review"]' "$d/events.jsonl" >/dev/null &&
    grep -q 'impl/README.md:1' "$d/work/impl/.rework" &&
@@ -474,7 +474,8 @@ if (( code == 0 )) && jq -e '[.[] | .result] == ["rejected", "approved"] and all
 else
   echo "review-reject-once: FAILED (cycle exit $code: $(jq -c 'map({result, producer})' <<< "$rv" 2>/dev/null); second review: ${r2:-no record}, in/rejection.json $([[ -n $r2 && -e $r2/cwd/in/rejection.json ]] && echo present || echo absent), Rework. lines $(grep -c '^Rework\.' "$r2/prompt.md" 2>/dev/null || echo 0))"
 fi
-# review-minimal-input (story:review-minimal-facts): the reviews of review-reject-once got one
+# review-minimal-input (story:review-minimal-facts, SDC_REVIEW_MODE=facts): review-reject-once again
+# with the switch on (review-facts-once, the same replies); its reviews got one
 # document, no tools and no whole tree; and on that story's tree, with a file the change does not
 # touch added to impl/ and mainline/ (a copy of that store), `sdc-reply review-inputs` leaves it out. Passes when both
 # review calls offered no operation, took 4 turns at most, recorded the document's size
@@ -485,14 +486,15 @@ fi
 # listing (path and size; `server.js` with its items `serve` and `GET /health`), a service worker the
 # tree lacks is not; `check-review` takes a finding at `impl/server.js` without a line (a listed
 # file, citation `listed: true`) and refuses `impl/server.js:1` and `impl/sw.js`.
-calls_log=$s/store-review-reject-once/IDEA-1/work/.sdc/llm/calls.jsonl
+cycle review-facts-once "${review_env[@]}" SDC_REVIEW_MODE=facts SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{rounds: [$j, $a]}')"
+calls_log=$s/store-review-facts-once/IDEA-1/work/.sdc/llm/calls.jsonl
 rv_calls=$(jq -sc '[.[] | select(.action == "change.review")]' "$calls_log" 2>/dev/null)
 rm -rf "$s/minimal-input"; mkdir -p "$s/minimal-input"
-cp -a "$s/store-review-reject-once" "$s/minimal-input/store"; sc=$s/minimal-input/store/${story%/events.jsonl}
+cp -a "$s/store-review-facts-once" "$s/minimal-input/store"; sc=$s/minimal-input/store/${story%/events.jsonl}
 echo "UNTOUCHED_MARKER" > "$sc/work/impl/UNTOUCHED.txt"; echo "UNTOUCHED_MARKER" > "$sc/work/mainline/UNTOUCHED.txt"
 echo "a line the review must see" >> "$sc/work/impl/README.md"
 printf 'function serve() {}\napp.get("/health", serve);\n' > "$sc/work/impl/server.js"; cp "$sc/work/impl/server.js" "$sc/work/mainline/server.js"
-mi=$("$sdc/driver/target/debug/sdc-reply" review-inputs --cwd "$s/minimal-input/call" --case-dir "$sc" --story invoices 2>&1)
+mi=$(SDC_REVIEW_MODE=facts "$sdc/driver/target/debug/sdc-reply" review-inputs --cwd "$s/minimal-input/call" --case-dir "$sc" --story invoices 2>&1)
 mci=$s/minimal-input/call/in
 cite() { jq -cn --arg at "$1" --arg v "$(jq -r '.requirements[0].id' "$mci/scope.json")" \
   '{decision: "rejected", summary: "s", findings: [{kind: "violation", at: $at, violates: $v, says: "fixture: absent"}]}' > "$s/minimal-input/reply.json"
@@ -1992,9 +1994,8 @@ targs=(--autopilot)
 fm=$fx/fake-model
 real_env=(SDC_LLM_ADAPTER=metaharness SDC_LLM_NODES=change.review METAHARNESS="$fm/metaharness" CLAUDE="$fm/claude")
 # review-real-path: passes when the run closes, run-settings records the review adapter claude-cli
-# (the default on a metaharness run), the review call went to claude with --json-schema and no tools
-# (`--tools ""`, no allow list), its prompt carrying the review input, its reply was schema-constrained,
-# and the story's code_review is approved by llm-review.
+# (the default on a metaharness run), the review call went to claude with --json-schema and only
+# read tools, its reply was schema-constrained, and the story's code_review is approved by llm-review.
 rm -f "$s/review-real-path.model.jsonl"
 trial review-real-path "${real_env[@]}" FAKE_MODEL_LOG="$s/review-real-path.model.jsonl"
 code=$?
@@ -2004,13 +2005,33 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
    jq -se 'last.adapters.review | .adapter == "claude-cli" and .json_schema == true and (.source | startswith("default: claude-cli"))' "$r/run-settings.jsonl" >/dev/null &&
    jq -se '[.[] | select(.action == "change.review")] | length >= 1 and all(.adapter == "claude-cli")' "$r/llm-calls.jsonl" >/dev/null &&
    jq -se 'map(select(.cli == "claude")) | length >= 1 and all(.argv | index("--json-schema") != null
-     and (.[index("--tools") + 1] == "") and (index("--allowedTools") == null)
-     and (.[index("-p") + 1] | contains("# Review input: story") and contains("### impl/")))' "$s/review-real-path.model.jsonl" >/dev/null &&
+     and (.[index("--allowedTools") + 1] | split(",") | sort == ["Glob", "Grep", "Read"]))' "$s/review-real-path.model.jsonl" >/dev/null &&
    jq -e '.schema_constrained == true' "$(ls -d "$r"/llm/*-change.review | tail -n 1)/response.json" >/dev/null &&
    jq -se '[.[] | select(.kind == "code_review")] | length >= 1 and all(.result == "approved" and .producer == "llm-review")' "$st"/evidence/*.json >/dev/null; then
-  echo "review-real-path: checks pass (metaharness run: the review on claude-cli with a response schema, no tools and the review input in its prompt, approved, the run closed)"
+  echo "review-real-path: checks pass (metaharness run: the review on claude-cli with a response schema and read-only tools, approved, the run closed)"
 else
   echo "review-real-path: FAILED (exit $code, or the review was not on claude-cli under a schema: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
+fi
+# review-real-path-facts (SDC_REVIEW_MODE=facts): passes when the run closes, run-settings records the review adapter claude-cli
+# (the default on a metaharness run), the review call went to claude with --json-schema and no tools
+# (`--tools ""`, no allow list), its prompt carrying the review input, its reply was schema-constrained,
+# and the story's code_review is approved by llm-review.
+rm -f "$s/review-real-path-facts.model.jsonl"
+trial review-real-path-facts "${real_env[@]}" SDC_REVIEW_MODE=facts FAKE_MODEL_LOG="$s/review-real-path-facts.model.jsonl"
+code=$?
+r=$s/runs/review-real-path-facts
+st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' 2>/dev/null | head -n 1)
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   jq -se 'last.adapters.review | .adapter == "claude-cli" and .json_schema == true and (.source | startswith("default: claude-cli"))' "$r/run-settings.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.action == "change.review")] | length >= 1 and all(.adapter == "claude-cli")' "$r/llm-calls.jsonl" >/dev/null &&
+   jq -se 'map(select(.cli == "claude")) | length >= 1 and all(.argv | index("--json-schema") != null
+     and (.[index("--tools") + 1] == "") and (index("--allowedTools") == null)
+     and (.[index("-p") + 1] | contains("# Review input: story") and contains("### impl/")))' "$s/review-real-path-facts.model.jsonl" >/dev/null &&
+   jq -e '.schema_constrained == true' "$(ls -d "$r"/llm/*-change.review | tail -n 1)/response.json" >/dev/null &&
+   jq -se '[.[] | select(.kind == "code_review")] | length >= 1 and all(.result == "approved" and .producer == "llm-review")' "$st"/evidence/*.json >/dev/null; then
+  echo "review-real-path-facts: checks pass (metaharness run: the review on claude-cli with a response schema, no tools and the review input in its prompt, approved, the run closed)"
+else
+  echo "review-real-path-facts: FAILED (exit $code, or the review was not on claude-cli under a schema: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
 fi
 # review-invalid-stop: the fake model's reply cites a line the README does not have, on every
 # attempt. Passes when the run stops by rule:autopilot with cause review_invalid, the reason names
@@ -2218,17 +2239,21 @@ else
 fi
 # --- run switches at their defaults (docs/improving.md, "Run switches"): a change in what a run
 # does merges behind a switch that is off until its experiment holds. The committed recording is a
-# stub run of main's tree before these changes; re-driven with every switch at its default, each
-# call is recorded (same node, case, inputs and request fields), none diverged, reused or live, no
-# prompt digest changed and every case took the same actions (sdc-replay compare). Each
-# <switch>-default cycle reads this one run and adds what its own change would leave behind.
-redrive switches-default
+# stub run of main's tree before these changes; re-driven with every switch at its default, every
+# call has the source's key (node, case, arrival, try), none diverged or live, no prompt digest
+# changed and every case took the same actions (sdc-replay compare). Each call's inputs and request
+# fields are the recording's, except in/tests.txt: the run's own test log, which carries the ess
+# version on PATH and test timings, so under --on-divergence nearest a call that differs only there
+# is reused from the same key. Each <switch>-default cycle reads this one run and adds what its own
+# change would leave behind.
+redrive switches-default --on-divergence nearest
 sw_code=$?
 sw=$s/runs/switches-default
-sw_main() { # the default run is main's run: same calls, prompts and actions as the recording
+sw_main() { # the default run is main's run: same calls, inputs, prompts and actions as the recording
   (( sw_code == 0 )) && "$replay_bin" compare "$sw" > "$s/switches-default.compare.json" &&
-    jq -e --argjson n "$n_calls" '.replay.calls.recorded == $n and .replay.calls.diverged == 0 and .replay.calls.reused == 0
-      and .replay.calls.live == 0 and .replay.calls.prompt_changed == 0 and .state == "closed" and .outcome == "operating"' "$sw/status.json" >/dev/null
+    jq -e --argjson n "$n_calls" '.replay.calls.recorded + .replay.calls.reused == $n and .replay.calls.diverged == 0
+      and .replay.calls.live == 0 and .replay.calls.prompt_changed == 0 and .state == "closed" and .outcome == "operating"' "$sw/status.json" >/dev/null &&
+    jq -se 'all(.[]; .mode == "recorded" or (.mode == "reused" and .source != null and (.difference - ["in/tests.txt changed"]) == []))' "$sw/replay/calls.jsonl" >/dev/null
 }
 sw_calls() { jq -c '.replay.calls' "$sw/status.json" 2>/dev/null; }
 # rule-approvals-default: SDC_RULE_APPROVALS unset is off: no rule request, no rule line; the
@@ -2241,6 +2266,23 @@ if sw_main && [[ ! -d $sw/rule-approvals ]] && jq -se 'all(.rule_approvals == "o
   echo "rule-approvals-default: checks pass (SDC_RULE_APPROVALS unset: off; $n_calls calls as main's recording, no prompt changed, the decider asked for context, roadmap and release)"
 else
   echo "rule-approvals-default: FAILED (run exit $sw_code; calls $(sw_calls); rule requests: $(ls "$sw/rule-approvals" 2>/dev/null | wc -l))"
+fi
+# review-mode-default: SDC_REVIEW_MODE unset is session: every review is a session with Glob, Read
+# and Grep over the whole change tree and the logs, as on main; no review document, no input_bytes.
+sw_reviews=$(ls -d "$sw"/llm/*-change.review 2>/dev/null)
+session_inputs() { # every review call's in/ is main's: the logs and commands, no document, no listing
+  local d
+  [[ -n $sw_reviews ]] || return 1
+  for d in $sw_reviews; do
+    [[ -f $d/cwd/in/tests.txt && -f $d/cwd/in/gate.txt && -f $d/cwd/in/commands.json && ! -e $d/cwd/in/review.md && ! -e $d/cwd/in/listing.json ]] || return 1
+  done
+}
+if sw_main && jq -se 'last.review_mode == "session"' "$sw/run-settings.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.action == "change.review")] | length >= 1 and all(.allowed_operations == ["dir.list", "file.read", "search"]
+     and .max_turns == 30 and (has("input_bytes") | not))' "$sw/llm-calls.jsonl" >/dev/null && session_inputs; then
+  echo "review-mode-default: checks pass (SDC_REVIEW_MODE unset: session; $(wc -w <<< "$sw_reviews") reviews read the tree with Glob, Read and Grep, as main's recording)"
+else
+  echo "review-mode-default: FAILED (run exit $sw_code; calls $(sw_calls); review calls: $(jq -sc '[.[] | select(.action == "change.review") | {allowed_operations, max_turns, input_bytes}]' "$sw/llm-calls.jsonl" 2>/dev/null | cut -c1-200))"
 fi
 # replay-reject-stop: merge.approve's recorded approve replaced by a reject: the rejection is
 # recorded and change.implement is sent back with it, a call the source never made

@@ -75,6 +75,13 @@ implement_mode=${SDC_IMPLEMENT_MODE:-session}
 [[ $implement_mode == @(session|request) ]] ||
   { echo "llm-node: $node could not run: SDC_IMPLEMENT_MODE=$implement_mode is neither session nor request" >&2; exit 126; }
 [[ $node == change.implement ]] || implement_mode=session
+# change.review on one document of facts with no tools (SDC_REVIEW_MODE=facts,
+# story:review-minimal-facts; docs/driver.md "The code review"). session, the default, is the
+# session with read tools over the whole change tree.
+review_mode=${SDC_REVIEW_MODE:-session}
+[[ $review_mode == @(session|facts) ]] ||
+  { echo "llm-node: $node could not run: SDC_REVIEW_MODE=$review_mode is neither session nor facts" >&2; exit 126; }
+[[ $node == change.review ]] || review_mode=session
 if [[ $implement_mode == request ]]; then
   reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
@@ -426,14 +433,15 @@ change.review)
   "$reply_bin" review-inputs --cwd "$cwd" --case-dir "$case_dir" --story "$story" > "$rec/review-inputs.json" 2> "$rec/review-check.err" ||
     { echo "llm-node: change.review has no inputs: $(cat "$rec/review-check.err")"; exit 2; }
   "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" --type review > "$rec/reply-schema.json"
-  # One request, no tools (story:review-minimal-facts): the program assembled in/review.md, the
-  # only thing the model reads, and the prompt carries its text; the other files of in/ are for
-  # the programs that check the reply.
-  ops='[]'; mt=4; out=code_review
-  review_doc=$cwd/in/review.md
-  input_bytes=$(jq -r '.document_bytes' "$rec/review-inputs.json")
-  inputs+=("the review input below (the same text as in/review.md: the story's requirements and commands, the test summary, the diff, the full text of the files it touches and a listing of every other product file)")
-  task="Review the change of story '$story' as a reviewer independent of its implementer: does the
+  if [[ $review_mode == facts ]]; then
+    # One request, no tools (story:review-minimal-facts): the program assembled in/review.md, the
+    # only thing the model reads, and the prompt carries its text; the other files of in/ are for
+    # the programs that check the reply.
+    ops='[]'; mt=4; out=code_review
+    review_doc=$cwd/in/review.md
+    input_bytes=$(jq -r '.document_bytes' "$rec/review-inputs.json")
+    inputs+=("the review input below (the same text as in/review.md: the story's requirements and commands, the test summary, the diff, the full text of the files it touches and a listing of every other product file)")
+    task="Review the change of story '$story' as a reviewer independent of its implementer: does the
 change deliver this story's requirements, acceptance lines and commands? The review input below is
 everything you are given, and everything you may judge. The requirements listed as covered by no story
 of the plan are outside this story, so do not reject for them; name one you see missing as a finding
@@ -450,7 +458,31 @@ Reply with the JSON object of the response schema:
   is seen from the listing. says: one sentence
 - summary: one or two sentences
 A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
-the reply otherwise. Judge from the review input only; you cannot run anything." ;;
+the reply otherwise. Judge from the review input only; you cannot run anything."
+  else
+    # SDC_REVIEW_MODE=session (the default): a session with read tools over the whole change tree.
+    ops='["dir.list","file.read","search"]'; out=code_review
+    inputs+=("in/aep/story/$story.md (the story)" "in/scope.json (the commands it covers, its acceptance lines, the requirements it delivers)"
+      "in/commands.json (those commands in the compiled specification)" "in/impl/ (the change tree)"
+      "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
+      "in/tests.txt (the conformance run that passed on this revision)"
+      "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
+    task="Review the change of story '$story' as a reviewer independent of its implementer: does the
+change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?
+in/uncovered.json lists requirements no story of the plan covers: they are outside this story, so do
+not reject for them; name one you see missing as a finding of kind \`outside\`.
+Reply with the JSON object of the response schema:
+- decision: approved, or rejected when the change fails a requirement, acceptance line or command of
+  this story
+- findings: each one place and what it violates. kind: \`violation\` (violates: a requirement id, an
+  acceptance \`cite\` or a command of in/scope.json) or \`outside\` (violates: an id of
+  in/uncovered.json). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of in/impl/; for
+  something missing, the line where it belongs (the route table, the README line that claims it).
+  says: one sentence
+- summary: one or two sentences
+A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
+the reply otherwise. Judge from the inputs only; you cannot run anything."
+  fi ;;
 # sdc.bugfix (docs/bugfix.md): the dissection is a data document under a schema (sdc-bugfix schema
 # dissection), checked by dissection.check; the test and the fix are code.
 bug.dissect)
@@ -567,7 +599,7 @@ prompt=$rec/prompt.md
 # Request mode: sdc-reply implement-run writes prompt.md (the whole input); in/ only carries
 # feedback.md and rejection.json to it.
 [[ $implement_mode == request ]] || {
-  if [[ $node == change.review ]]; then
+  if [[ $node == change.review && $review_mode == facts ]]; then
     echo "You are one step (\`$node\`) of a governed software delivery cycle. You have no tools and no"
     echo "files to open: the review input is below. A program checks your reply afterwards; your words"
     echo "decide nothing."
@@ -584,10 +616,12 @@ prompt=$rec/prompt.md
   echo "$task"
   echo
   if [[ $node == change.review ]]; then
-    echo "Review input:"
-    echo
-    cat "$review_doc"
-    echo
+    if [[ $review_mode == facts ]]; then
+      echo "Review input:"
+      echo
+      cat "$review_doc"
+      echo
+    fi
     echo "Reply with the JSON object only."
   elif [[ -n $rejection ]]; then
     echo "When the files are written, reply with one line per rejection reason (as above), then the word: done."
@@ -618,6 +652,9 @@ jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$r
 # the mode (claude-cli passes the prompt on stdin; the fixture adapter answers with a reply).
 [[ $implement_mode == request ]] && jq '. + {implement_mode: "request", operations: [], max_turns: 3, max_output_tokens: 32000}' \
   "$rec/request.json" > "$rec/request.json.tmp" && mv "$rec/request.json.tmp" "$rec/request.json"
+# Facts review: no operation and at most 4 turns, whatever the binding gives the session review.
+[[ $review_mode == facts ]] && jq --argjson mt "$mt" '. + {operations: [], max_turns: $mt}' \
+  "$rec/request.json" > "$rec/request.json.tmp" && mv "$rec/request.json.tmp" "$rec/request.json"
 
 # One line per call, for the run log and the viewer.
 log_call() {
@@ -629,8 +666,9 @@ log_call() {
      max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
      exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
      cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,
-     offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false), input_bytes: $ib,
+     offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false),
      record: $rec}
+    + (if $ib == null then {} else {input_bytes: $ib} end)
     + if $res[0].implement_mode then {implement_mode: $res[0].implement_mode, requests: $res[0].requests,
         continuations: $res[0].continuations, reply_retries: $res[0].reply_retries, cause: $res[0].cause} else {} end' \
     >> "${SDC_LLM_LOG:-$rec_root/calls.jsonl}"

@@ -840,7 +840,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "edb5a858d188c63c803c2793401bd2fbfb53a633524c3e5d920ca948929f3b98"
+      "sha256": "6c1f7dd8d1dee6bd2284025b9f425d781683c0f81f06212e35ed739031493334"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",

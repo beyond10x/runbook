@@ -40,12 +40,16 @@
 //! `{<class>: {adapter, source, json_schema, nodes}}`; exit 64 (stderr names the class and
 //! the adapter) when a class's adapter cannot take a schema.
 //!
-//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/`: the one
-//! document `review.md` the model reads (the requirements the story delivers and those no story
-//! covers, its acceptance lines, the covered commands, the test summary of the conformance run, the
-//! diff against the mainline, the full text of only the files the diff touches, the build
-//! constraints when the tree has them) and, for the checks, `scope.json`, `uncovered.json`,
-//! `change.diff` and the touched files under `impl/`; it prints `document_bytes`;
+//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/`. With
+//! SDC_REVIEW_MODE unset or `session` (the default) they are the story, its acceptance lines, the
+//! requirements it delivers and those no story covers, the covered commands, the whole change tree,
+//! its diff against the mainline and the gate and test logs. With `facts` (story:review-minimal-facts)
+//! they are the one document `review.md` the model reads (the requirements the story delivers and
+//! those no story covers, its acceptance lines, the covered commands, the test summary of the
+//! conformance run, the diff against the mainline, the full text of only the files the diff touches,
+//! the build constraints when the tree has them, a listing of the other product files) and, for the
+//! checks, `scope.json`, `uncovered.json`, `change.diff`, `listing.json` and the touched files under
+//! `impl/`; it prints `document_bytes`;
 //! `schema --type review` prints the reply schema; `check-review` checks the reply: exit 0
 //! approved, 1 rejected (stdout: the sdc.rejection/1 that sends the implementer back), 2 invalid
 //! (stderr: why; nothing is recorded).
@@ -942,6 +946,94 @@ fn review_document(f: &ReviewFacts) -> String {
     d + &listing_section(f.listing, LISTING_CAP)
 }
 
+/// SDC_REVIEW_MODE: `session` (unset or empty, the default: main's review, a session with read
+/// tools over the whole change tree) or `facts` (story:review-minimal-facts: one request on one
+/// document of facts). True for facts.
+fn review_mode(v: Option<&str>) -> Result<bool, String> {
+    match v.unwrap_or("") {
+        "" | "session" => Ok(false),
+        "facts" => Ok(true),
+        m => Err(format!("SDC_REVIEW_MODE={m}: neither session nor facts")),
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for e in fs::read_dir(from)?.flatten() {
+        let name = e.file_name();
+        if name == "target" || name == ".sdc" || name == ".derived-from" {
+            continue;
+        }
+        let (s, d) = (e.path(), to.join(&name));
+        if s.is_dir() { copy_tree(&s, &d)? } else { fs::copy(&s, &d).map(|_| ())? }
+    }
+    Ok(())
+}
+
+/// The session review's inputs (SDC_REVIEW_MODE=session, the default), as before
+/// story:review-minimal-facts: written into `<cwd>/in/` and returned. The story, its
+/// acceptance lines (the summary line and the lines of an `## Acceptance` section), the
+/// requirements it delivers and those no story covers, the covered commands' IR entries, the
+/// change tree, its diff against the mainline (empty for the first story), the gate and test logs.
+fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
+    let work = case_dir.join("work");
+    let in_dir = cwd.join("in");
+    let rel = format!("aep/story/{story}.md");
+    let text = fs::read_to_string(work.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
+    fs::create_dir_all(in_dir.join("aep/story")).map_err(|e| e.to_string())?;
+    fs::write(in_dir.join(&rel), &text).map_err(|e| e.to_string())?;
+    let (sl, summary) = story_summary(&text).ok_or(format!("{rel} has no summary"))?;
+    let cov = covers(&summary);
+    let mut acceptance = vec![json!({"cite": format!("{rel}:{sl}"), "text": summary})];
+    let mut in_acc = false;
+    for (i, l) in text.lines().enumerate() {
+        if l.starts_with("## ") { in_acc = l.trim() == "## Acceptance"; continue }
+        if in_acc && !l.trim().is_empty() { acceptance.push(json!({"cite": format!("{rel}:{}", i + 1), "text": l.trim()})) }
+    }
+    let mut all_cov = Vec::new();
+    for f in walk(&work.join("aep/story")) {
+        if let Some((_, s)) = fs::read_to_string(work.join("aep/story").join(&f)).ok().as_deref().and_then(story_summary) {
+            all_cov.push(covers(&s));
+        }
+    }
+    let reqs = read_data(&work.join("requirements.yaml")).map(|v| v["requirements"].as_array().cloned().unwrap_or_default()).unwrap_or_default();
+    let traces = read_json(&work.join("spec/traces.json"))["traces"].clone();
+    let ir = read_json(&work.join(".sdc/gate/ir.json"));
+    let (mine, uncovered) = review_scope(&reqs, &traces, &ir["commands"], &cov, &all_cov);
+    let commands: Map<String, Value> = cov.iter().map(|c| (c.clone(), ir["commands"][c].clone())).collect();
+    let w = |name: &str, v: &Value| fs::write(in_dir.join(name), serde_json::to_string_pretty(v).unwrap_or_default()).map_err(|e| e.to_string());
+    w("scope.json", &json!({"story": story, "covers": cov, "acceptance": acceptance, "requirements": mine,
+        "traced_by": if traces.is_null() { "spec_domains (no spec/traces.json)" } else { "spec/traces.json" }}))?;
+    w("uncovered.json", &json!({"about": "requirements no story of the plan covers: outside this story", "requirements": uncovered}))?;
+    w("commands.json", &Value::Object(commands))?;
+    copy_tree(&work.join("impl"), &in_dir.join("impl")).map_err(|e| format!("impl: {e}"))?;
+    let base = work.join("mainline");
+    let empty = cwd.join("base-empty");
+    let base = if base.is_dir() { base } else { fs::create_dir_all(&empty).map_err(|e| e.to_string())?; empty };
+    let out = std::process::Command::new("diff").args(["-ruN", "-x", "target", "-x", ".sdc", "-x", ".derived-from"]).arg(&base).arg(work.join("impl"))
+        .output().map_err(|e| format!("diff: {e}"))?;
+    let (b, a) = (format!("{}/", base.display()), format!("{}/", work.join("impl").display()));
+    let diff: String = String::from_utf8_lossy(&out.stdout).lines().map(|l| {
+        let l = if l.starts_with("diff ") || l.starts_with("--- ") || l.starts_with("+++ ") { l.replace(&b, "mainline/").replace(&a, "impl/") } else { l.to_string() };
+        l + "\n"
+    }).collect();
+    fs::write(in_dir.join("change.diff"), &diff).map_err(|e| e.to_string())?;
+    let case = read_json(&case_dir.join("case.json"));
+    let rev = |a: &str| case["artifacts"][a]["revision"].as_str().unwrap_or("none").to_string();
+    // sdc.story (revision 7) admits change.review only once the conformance run passed at the
+    // revision under review, so its log is always there; without it the review has no input.
+    let tests = record_log(case_dir, "conformance_run", &rev("change")).ok_or(format!(
+        "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", rev("change")))?;
+    let gate = record_log(case_dir, "ess_gate", &rev("spec"));
+    fs::write(in_dir.join("tests.txt"), &tests).map_err(|e| e.to_string())?;
+    fs::write(in_dir.join("gate.txt"), gate.clone().unwrap_or("no gate run recorded on this specification revision\n".into()))
+        .map_err(|e| e.to_string())?;
+    let changed: Vec<&str> = diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)).collect();
+    Ok(json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
+        "uncovered": uncovered.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), "changed_files": changed,
+        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
+}
+
 /// Write the review's inputs into `<cwd>/in/` and return what was written. `review.md` is the
 /// document the model reads (`review_document`): the requirements the story delivers and the
 /// commands it covers, its acceptance lines, the test summary, the diff against the mainline (empty
@@ -1038,17 +1130,19 @@ fn review_targets(in_dir: &Path) -> (Vec<String>, Vec<String>) {
 }
 
 /// The reply schema of change.review: a decision, a summary, and findings, each a place in the
-/// change tree (`impl/<path>:<line>[-<line>]`) and what it violates.
+/// change tree (`impl/<path>:<line>[-<line>]`) and what it violates. A facts review (its inputs
+/// have `listing.json`) may also cite a listed or changed file by path alone.
 fn review_schema(in_dir: &Path) -> Value {
     let (inside, outside) = review_targets(in_dir);
     let mut all = inside;
     all.extend(outside);
+    let at = if in_dir.join("listing.json").is_file() { "^impl/[^:]+(:[0-9]+(-[0-9]+)?)?$" } else { "^impl/[^:]+:[0-9]+(-[0-9]+)?$" };
     reply_schema(vec![
         ("decision", json!({"type": "string", "enum": ["approved", "rejected"]})),
         ("summary", json!({"type": "string"})),
         ("findings", json!({"type": "array", "items": reply_schema(vec![
             ("kind", json!({"type": "string", "enum": ["violation", "outside"]})),
-            ("at", json!({"type": "string", "pattern": "^impl/[^:]+(:[0-9]+(-[0-9]+)?)?$"})),
+            ("at", json!({"type": "string", "pattern": at})),
             ("violates", json!({"type": "string", "enum": all})),
             ("says", json!({"type": "string", "minLength": 1})),
         ])})),
@@ -1063,6 +1157,8 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
     let c = ctx(cwd, case_dir);
     let (inside, outside) = review_targets(&c.in_dir);
     let changed: BTreeSet<String> = changed_files(&fs::read_to_string(c.in_dir.join("change.diff")).unwrap_or_default()).into_iter().collect();
+    // A facts review (SDC_REVIEW_MODE=facts) has listing.json: a listed file may be cited by path.
+    let facts = c.in_dir.join("listing.json").is_file();
     let listed: BTreeSet<String> = read_json(&c.in_dir.join("listing.json"))["files"].as_array().into_iter().flatten()
         .filter_map(|f| f["path"].as_str().map(String::from)).collect();
     let mut why = Vec::new();
@@ -1078,7 +1174,7 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
         let (kind, at, v, says) = (f["kind"].as_str().unwrap_or(""), f["at"].as_str().unwrap_or(""),
             f["violates"].as_str().unwrap_or(""), f["says"].as_str().unwrap_or("").trim());
         // A file by path alone: a product file the listing names, or a changed file.
-        let by_path = at.strip_prefix("impl/").filter(|p| !p.contains(':'));
+        let by_path = at.strip_prefix("impl/").filter(|p| facts && !p.contains(':'));
         let r = if by_path.is_some() { json!({"ok": true}) } else { resolve(&c, at) };
         if let Some(p) = by_path {
             if p.contains("..") || !(listed.contains(p) || changed.contains(p)) {
@@ -1102,7 +1198,11 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
         let file = rest.rsplit_once(':').map_or(rest, |(p, _)| p);
         let line = format!("{at}: {says} ({} {v})", if kind == "outside" { "outside this story:" } else { "violates" });
         if kind == "outside" { notes.push(line) } else { reasons.push(line) }
-        citations.push(json!({"at": at, "violates": v, "kind": kind, "in_diff": changed.contains(file), "listed": listed.contains(file)}));
+        let mut citation = json!({"at": at, "violates": v, "kind": kind, "in_diff": changed.contains(file)});
+        if facts {
+            citation["listed"] = json!(listed.contains(file));
+        }
+        citations.push(citation);
     }
     if decision == "rejected" && reasons.is_empty() {
         why.push("a rejection names no violation finding: reject only for a requirement, acceptance line or command of this story".into());
@@ -1159,7 +1259,8 @@ fn main() -> ExitCode {
             println!("{}", later(&ir, &action));
             ExitCode::SUCCESS
         }
-        Cmd::ReviewInputs { cwd, case_dir, story } => match review_inputs(&cwd, &case_dir, &story) {
+        Cmd::ReviewInputs { cwd, case_dir, story } => match review_mode(std::env::var("SDC_REVIEW_MODE").ok().as_deref())
+            .and_then(|facts| if facts { review_inputs(&cwd, &case_dir, &story) } else { review_inputs_session(&cwd, &case_dir, &story) }) {
             Ok(v) => {
                 println!("{v}");
                 ExitCode::SUCCESS
@@ -1808,5 +1909,52 @@ mod tests {
         assert_eq!(s, "conformance: todo v1 against interpreted 0.96.0 — failed\nscenarios: 3 scenarios: 1 passed, 1 failed, 1 error, 0 unsupported\n\
             unit tests: 1 passed, 1 failed, 0 ignored\nfailing: todo.task.AddTask/outcome/added, todo.sync.Send/outcome/e, tests::bad\n");
         assert!(test_summary("nothing\n").starts_with("no counts found"));
+    }
+
+    // ---- SDC_REVIEW_MODE: session (the default, main's review) or facts --------------------------
+
+    #[test]
+    fn the_review_mode_is_session_unless_set_to_facts() {
+        assert_eq!(review_mode(None), Ok(false));
+        assert_eq!(review_mode(Some("")), Ok(false));
+        assert_eq!(review_mode(Some("session")), Ok(false));
+        assert_eq!(review_mode(Some("facts")), Ok(true));
+        assert_eq!(review_mode(Some("both")), Err("SDC_REVIEW_MODE=both: neither session nor facts".to_string()));
+    }
+
+    /// The default review inputs are main's (before story:review-minimal-facts): the story, scope,
+    /// uncovered requirements, the covered commands, the whole change tree, the diff and the test and
+    /// gate logs as they are; no review document and no listing.
+    #[test]
+    fn the_session_review_inputs_are_the_whole_tree_and_the_logs() {
+        let (cwd, case) = review_case("session", PASSING_LOG);
+        let v = review_inputs_session(&cwd, &case, "tasks").unwrap();
+        let mut keys: Vec<&String> = v.as_object().unwrap().keys().collect();
+        keys.sort();
+        assert_eq!(keys, ["base", "changed_files", "covers", "gate", "requirements", "story", "uncovered"]);
+        assert_eq!(v["changed_files"], json!(["src/lib.rs", "src/new.rs"]));
+        assert_eq!((&v["requirements"], &v["uncovered"], &v["gate"], &v["base"]), (&json!(["r1"]), &json!(["r3"]), &json!(false), &json!("mainline")));
+        let mut files = walk(&cwd.join("in"));
+        files.sort();
+        assert_eq!(files, ["aep/story/tasks.md", "change.diff", "commands.json", "gate.txt", "impl/README.md", "impl/public/index.html",
+            "impl/src/lib.rs", "impl/src/new.rs", "impl/src/server.rs", "impl/src/untouched.rs", "scope.json", "tests.txt", "uncovered.json"]);
+        assert_eq!(fs::read_to_string(cwd.join("in/tests.txt")).unwrap(), PASSING_LOG);
+        assert_eq!(fs::read_to_string(cwd.join("in/gate.txt")).unwrap(), "no gate run recorded on this specification revision\n");
+        assert!(read_json(&cwd.join("in/commands.json"))["todo.task.AddTask"].is_object());
+    }
+
+    /// A session review (no in/listing.json) cites lines only, as on main, and its citations carry no
+    /// `listed`; its schema's `at` needs a line.
+    #[test]
+    fn a_session_review_cites_lines_only() {
+        let (cwd, case) = call("session");
+        fs::remove_file(cwd.join("in/listing.json")).unwrap();
+        let reply = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md:2", "r1")]});
+        let (ok, v) = check_review(&cwd, &case, &reply, "p").unwrap();
+        assert!(!ok);
+        assert_eq!(v["citations"], json!([{"at": "impl/README.md:2", "violates": "r1", "kind": "violation", "in_diff": true}]));
+        let by_path = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md", "r1")]});
+        assert!(check_review(&cwd, &case, &by_path, "p").unwrap_err().join("; ").contains("is not a line of the change tree"));
+        assert_eq!(review_schema(&cwd.join("in"))["properties"]["findings"]["items"]["properties"]["at"]["pattern"], "^impl/[^:]+:[0-9]+(-[0-9]+)?$");
     }
 }

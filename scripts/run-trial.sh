@@ -288,6 +288,11 @@ if [[ $implement_mode == request ]]; then
   SDC_IMPLEMENT_ADAPTER=$(jq -r '.implement.adapter' <<< "$adapters")
   export SDC_IMPLEMENT_ADAPTER
 fi
+# change.review on one document of facts, no tools (SDC_REVIEW_MODE=facts, story:review-minimal-facts;
+# docs/improving.md, "Run switches"): off by default, session is main's review. The mode goes into
+# run-settings.jsonl (`review_mode`).
+review_mode=${SDC_REVIEW_MODE:-session}
+[[ $review_mode == session || $review_mode == facts ]] || { echo "SDC_REVIEW_MODE: session or facts, not '$review_mode'"; exit 64; }
 
 # The file-change recorder (scripts/watch-run.sh, docs/fs-changes.md) runs while this script
 # does: started before the first driver call, stopped on every exit. SDC_WATCH=0 skips it; any
@@ -445,7 +450,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
   --argjson rcap "$rework_cap" --arg rsrc "$rework_cap_source" --arg ra "$rule_approvals" --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" --arg nodes "${SDC_LLM_NODES:-}" \
-  --arg imode "$implement_mode" \
+  --arg imode "$implement_mode" --arg rmode "$review_mode" \
   --arg commit "$(git -C "$sdc" rev-parse --short=12 HEAD 2>/dev/null || true)" \
   --arg dirty "$(git -C "$sdc" status --porcelain --untracked-files=no 2>/dev/null | head -c 1 || true)" \
   --argjson replay "$( [[ -n ${SDC_REPLAY:-} ]] && "$replay_bin" settings --out "$out" || echo null)" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
@@ -457,7 +462,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, rework_limit: {value: $rcap, source: $rsrc}, rule_approvals: $ra, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, implement_mode: $imode, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, implement_mode: $imode, review_mode: $rmode, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
 [[ -z ${SDC_REPLAY:-} ]] || jq -r .first_line "$SDC_REPLAY"
