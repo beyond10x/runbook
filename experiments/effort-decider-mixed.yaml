@@ -1,0 +1,94 @@
+format: sdc.experiment/1
+id: effort-decider-mixed
+kind: prospective
+status: planned
+created: 2026-11-21
+title: Decider effort medium against xhigh on the Haiku decider of the mixed setting, everything else fixed
+purpose: Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass.
+hypothesis: With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: 72a3eefb20e0edff50dc8ad12fcf561f8e0790e3
+target:
+  kind: run
+  name: run.wall_s
+variable: efforts.decider.effort
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-haiku-5-5
+  decider.kind: model
+  decider.model: claude-haiku-5-5
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  review.adapter: claude-cli
+  efforts.writer.effort: high
+  efforts.implement.effort: high
+  efforts.review.effort: high
+  efforts.other.effort: high
+  adapter: metaharness
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  autonomy: A5
+launch:
+  max_parallel: 3
+  stagger_s: 30
+  principal: agent:sdc-experiment
+variants:
+- id: xhigh
+  settings:
+    efforts.decider.effort: xhigh
+  runs: []
+- id: medium
+  settings:
+    efforts.decider.effort: medium
+  runs: []
+baseline: xhigh
+treatment: medium
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+  metric: run.wall_s
+  direction: decrease
+  min_effect: 300
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+- metric: run.cost_usd
+  worse: increase
+  max_worsening_ratio: 0.25
+- metric: run.decider_calls
+  worse: increase
+  max_worsening_ratio: 0.5
+- metric: run.rework_takes
+  worse: increase
+  max_worsening_ratio: 0.5
+decision_rule:
+  rule: complete-separation
+  text: held when xhigh and medium each have 3 ended runs, every medium run's run.wall_s lies below every xhigh run's (exact one-sided p = 1/20 = 0.05) and the medians differ by at least 300 s; contradicted when the ranges separate the other way or by less than 300 s; inconclusive otherwise, then effort-decider-mixed-2 with the same settings. Adopt medium as the decider's default effort for a Haiku decider only when held and every guard holds; a refuted or inconclusive result is published as such.
+adoption:
+  decision: pending
+  commit: null
+cost_estimate: '6 runs at the mixed median of baseline-0.1.0, 2.55 USD: 15.3 USD; at its maximum 3.88 USD: 23.3 USD. The decider is 6 to 7 percent of a mixed run''s cost (0.17 to 0.25 USD), so the treatment should not change cost by more than that. About 1 hour at 3 runs at a time.'
+known_confounds:
+- key: unstick
+  note: run.unstick is on with an Opus model in both variants (scripts/run-trial.sh:377-385; not a launch setting); it is the same in both arms, and a run it touched is not clean.
+- key: canon
+  note: the canon binary of the canon checkout at run time, not pinned; the same for both arms when they run in one launch.
+- key: quality
+  note: no oracle judges the decider's decisions; a lower effort that approves what xhigh would reject (trial-0.1.0-mixed-2's merge rejection of IDEA-1.list.items caught an offline requirement the review had passed) is seen only through run.rework_takes, run.delivered and the decision counts in the report, not as a fault rate.
+facts:
+- 'Loss addressed, from sdc-run-metrics and decisions.jsonl of baseline-0.1.0 (runs not in git): decider seconds per mixed run 717, 952, 693 (48, 45, 46 percent of wall 1480, 2091, 1489 s); per strong run (Opus decider, same default effort xhigh) 262, 254, 227 s over 13 decisions each.'
+- 'trial-0.1.0-mixed-1: the Haiku decider''s merge.approve and release.publish calls took 97, 132, 173 and 96 s with 19,684 to 35,402 thinking tokens each; trial-0.1.0-strong-1''s Opus decider took 11 to 29 s per decision with 29 to 640 thinking tokens.'
+- 'Upper bound of the effect: the whole decider time, median 717 s; if a medium Haiku decider took the Opus decider''s about 20 s per decision, mixed wall would fall by about 450 s (inferred).'
+- The default efforts are high for every node class and xhigh for the decider, requester and unstick (scripts/run-trial.sh:57-59, run-settings.jsonl of baseline-0.1.0 efforts.*.source default).
+links:
+- 'experiments/baseline-0.1.0.yaml: mixed variant, the decider seconds above'
+- 'experiments/release-0.1.2.yaml: its mixed variant has the xhigh arm''s settings on the same tree'
+- 'experiments/effort-implement-levels.yaml: the effort sweep of the implement class (story:effort-levels-per-class)'

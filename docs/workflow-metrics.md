@@ -235,7 +235,11 @@ Commands (`sdc-experiment.rs`):
 - `progress [--experiments <dir>]`: the progress ledger, `docs/progress.md`, `docs/progress.json`
   and `docs/img/progress.svg`, from the release table `experiments/releases.yaml` and the records
   it names (`sdc-experiment/progress.rs`, the image `sdc-experiment/chart.rs`). `report` writes it
-  too; `check --all` fails on a stale one. The loop around it: `docs/improving.md`.
+  too; `check --all` fails on a stale one. Each run in `docs/progress.json` carries `metrics`:
+  the run figures of its summary, `merge_rejections`, `review_rejections` (null for a stub
+  review) and the takes of `spec.author`, `plan.decompose`, `change.implement` and
+  `change.review`; a value the summary lacks is null, never 0 (`run_metrics_j`). The loop around
+  it: `docs/improving.md`.
 - `status <id>`: each run with its unit state, cost, wall seconds and end. `stop <id> --reason
   <text> [--run <name>]`: `run-trial.sh <run> --stop <reason>` for each open run, then the unit is
   stopped; without `--run` the record becomes `abandoned` with `stopped` (at, by, reason).

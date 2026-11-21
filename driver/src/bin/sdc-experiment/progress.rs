@@ -217,6 +217,8 @@ struct RunFig {
     cost: Option<f64>,
     wall: Option<f64>,
     end: String,
+    /// The run's figures for the Evaluation charts (`run_metrics_j`).
+    metrics: J,
     /// The conformance observation (docs/conformance.md), when the summary carries one.
     conformance: Option<Conformance>,
 }
@@ -438,7 +440,53 @@ fn run_fig(r: &Run) -> RunFig {
             measured: m["conformance_measured"].as_bool().unwrap_or(m["conformance_k"].is_u64()),
             agreement: m["conformance_agreement"].as_u64(),
         }),
+        metrics: run_metrics_j(&r.doc),
     }
+}
+
+/// The run figures the Evaluation charts read, from one `sdc.run-metrics/1` summary. A value the
+/// summary does not hold is null, never 0.
+const RUN_KEYS: [&str; 16] = [
+    "llm_calls", "decider_calls", "cost_usd", "wall_s", "rework_takes", "looping_factor", "first_pass_yield",
+    "waiting_on_person_s", "stop_cause", "end_kind", "outcome", "closed", "delivered", "forced", "unstuck", "reopens",
+];
+/// The nodes whose takes are charted one by one.
+const CHART_NODES: [&str; 4] = ["spec.author", "plan.decompose", "change.implement", "change.review"];
+
+fn round_j(v: &J) -> J {
+    match v {
+        J::Number(n) if !(n.is_i64() || n.is_u64()) => n.as_f64().map_or(J::Null, |x| json!(r6(x))),
+        other => other.clone(),
+    }
+}
+
+fn run_metrics_j(doc: &J) -> J {
+    let m = &doc["metrics"];
+    let mut out = serde_json::Map::new();
+    for k in RUN_KEYS {
+        out.insert(k.to_string(), m.get(k).map_or(J::Null, round_j));
+    }
+    let merge = doc["decisions"]["by_action"].get("approval/merge.approve").map_or(J::Null, |d| d.get("rejected").cloned().unwrap_or(J::Null));
+    out.insert("merge_rejections".into(), merge);
+    let nodes: Vec<&J> = doc["nodes"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let review = nodes.iter().find(|n| n["action"] == "change.review" && n["llm_calls"].as_u64().unwrap_or(0) > 0).map_or(J::Null, |n| n.get("sent_back").cloned().unwrap_or(J::Null));
+    out.insert("review_rejections".into(), review);
+    let mut per = serde_json::Map::new();
+    for a in CHART_NODES {
+        let of: Vec<&&J> = nodes.iter().filter(|n| n["action"] == a).collect();
+        let v = if of.is_empty() {
+            J::Null
+        } else {
+            let sum = |k: &str| of.iter().map(|n| n[k].as_u64().unwrap_or(0)).sum::<u64>();
+            let (inst, real, rework) = (sum("instances"), sum("real_takes"), sum("rework_takes"));
+            let fpy = of.iter().map(|n| n["first_pass_yield"].as_f64().unwrap_or(0.0) * n["instances"].as_u64().unwrap_or(0) as f64).sum::<f64>();
+            let ratio = |x: f64| if inst > 0 { json!(r6(x / inst as f64)) } else { J::Null };
+            json!({"instances": inst, "real_takes": real, "rework_takes": rework, "looping_factor": ratio(real as f64), "first_pass_yield": ratio(fpy)})
+        };
+        per.insert(a.to_string(), v);
+    }
+    out.insert("nodes".into(), J::Object(per));
+    J::Object(out)
 }
 
 struct EntryFig {
@@ -815,7 +863,7 @@ fn render_json(b: &Built) -> String {
             v["clean_pass_cost_usd"] = stat_j(&clean_stat(&rs, |r| r.cost));
             v["clean_pass_wall_s"] = stat_j(&clean_stat(&rs, |r| r.wall));
             v["runs"] = json!(x.runs.iter().map(|r| {
-                let mut o = json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end});
+                let mut o = json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end, "metrics": r.metrics});
                 if b.conformance {
                     o["conformance"] = json!(r.conformance.as_ref().map(|c| json!({"summary": c.summary, "result": c.result, "k": c.k, "f": c.f, "d": c.d, "u": c.u, "n": c.n, "cause": c.cause, "measured": c.measured, "agreement": c.agreement})));
                 }
@@ -1183,6 +1231,46 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
         let md = render_md(&plain);
         assert!(!md.to_lowercase().contains("conformance"), "{md}");
         assert!(!render_json(&plain).contains("conformance"));
+    }
+
+    #[test]
+    fn each_run_carries_the_metrics_of_its_summary_and_null_where_the_summary_has_none() {
+        let full = json!({"format": "sdc.run-metrics/1", "run": "r", "edges": [], "stages": [],
+            "metrics": {"llm_calls": 12, "decider_calls": 11, "cost_usd": 2.9259451, "wall_s": 473, "rework_takes": 18,
+                "looping_factor": 1.0, "first_pass_yield": 1.0, "waiting_on_person_s": 0, "stop_cause": null,
+                "end_kind": "closed", "outcome": "operating", "closed": true, "delivered": true, "forced": 0, "unstuck": 0, "reopens": 0},
+            "decisions": {"by_action": {"approval/merge.approve": {"rejected": 2}}},
+            "nodes": [
+                {"action": "change.implement", "instances": 2, "real_takes": 3, "rework_takes": 1, "first_pass_yield": 0.5},
+                {"action": "change.implement", "instances": 1, "real_takes": 2, "rework_takes": 1, "first_pass_yield": 0.0},
+                {"action": "change.review", "instances": 3, "real_takes": 5, "rework_takes": 2, "first_pass_yield": 0.333, "llm_calls": 5, "sent_back": 2},
+                {"action": "spec.author", "instances": 1, "real_takes": 1, "rework_takes": 0, "first_pass_yield": 1.0}]});
+        let m = run_metrics_j(&full);
+        assert_eq!(m["llm_calls"], 12);
+        assert_eq!(m["cost_usd"], 2.925945);
+        assert_eq!(m["stop_cause"], J::Null);
+        assert_eq!(m["merge_rejections"], 2);
+        assert_eq!(m["review_rejections"], 2);
+        let ci = &m["nodes"]["change.implement"];
+        assert_eq!((ci["instances"].clone(), ci["real_takes"].clone(), ci["rework_takes"].clone()), (json!(3), json!(5), json!(2)));
+        assert_eq!(ci["looping_factor"], 1.666667);
+        assert_eq!(ci["first_pass_yield"], 0.333333);
+        assert_eq!(m["nodes"]["plan.decompose"], J::Null);
+        let keys: Vec<&String> = m["nodes"].as_object().unwrap().keys().collect();
+        assert_eq!(keys, ["change.implement", "change.review", "plan.decompose", "spec.author"]);
+
+        let stub = json!({"metrics": {"cost_usd": 1.0}, "nodes": [{"action": "change.review", "instances": 1, "real_takes": 1, "llm_calls": 0, "sent_back": 0}]});
+        let s = run_metrics_j(&stub);
+        assert_eq!(s["review_rejections"], J::Null);
+        assert_eq!(s["merge_rejections"], J::Null);
+        assert_eq!(s["llm_calls"], J::Null);
+        assert_eq!(s["decider_calls"], J::Null);
+
+        let exp = fixture("metrics");
+        let j: J = serde_json::from_str(&render(&exp, false).unwrap().unwrap().json).unwrap();
+        let run = &j["entries"][0]["settings"][0]["runs"][0];
+        assert_eq!(run["metrics"]["cost_usd"], 1.0);
+        assert_eq!(run["metrics"]["llm_calls"], J::Null);
     }
 
     #[test]

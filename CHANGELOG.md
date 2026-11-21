@@ -43,6 +43,40 @@ The crates are `publish = false`; releases are source releases at bare-version t
   `sdc-run-metrics`; a conformance column, line and per-run figure in the progress ledger only with
   `sdc-experiment progress --with-conformance` (the committed `docs/progress.*` carry none).
 
+## [0.1.3] - 2026-11-21
+
+The documentation site and its generator. No protocol, binding or case changed. The longer note is
+`docs/releases/0.1.3.md`.
+
+### Added
+
+- The documentation site, `website/` (Docusaurus with the beyond10x docs-system theme), published
+  at https://beyond10x.github.io/sdc/ by `.github/workflows/pages.yml` and
+  `.github/workflows/b10x-docs-site.yml`: what the SDC is, the main flow and a browser with one
+  page per protocol, what it is built on, the evaluation per release and model setting, and one
+  run step by step ("The LLM is not the runtime") (`3e93276`, `3c2930b`, `b7497fa`).
+- `sdc-protocol-site`: writes the site's protocol data, `website/data/protocols/`, from the
+  protocol YAML, the bindings and the committed check outputs; `check` fails on stale data and runs
+  in `scripts/check-bindings.sh`; `site-manifest` writes the site's `.well-known/b10x-site.json`
+  (`19209b8`, `3ba6bd6`).
+- Each run in `docs/progress.json` carries its metrics (cost, wall time, model and decider calls,
+  rework takes, review and merge rejections, looping factor and first-pass yield per node, stop
+  cause; null where the run summary has none) (`c45bc91`).
+- `task docs`, `docs:generate`, `docs:build`, `docs:test`: the site's data check, build and smoke
+  test (every page at 1440 and 390 px in both themes, axe, internal links).
+- Two experiment records registered before their runs, on the 0.1.2 tree: `release-0.1.2` (the
+  baseline of 0.1.2 against `baseline-0.1.0`) and `effort-decider-mixed` (the mixed setting's Haiku
+  decider at effort medium against xhigh) (`f619fd4`). Both are planned; no run has been made.
+
+### Changed
+
+- The three crates, their lock files and `ui/package.json` are at 0.1.3.
+
+### Known limits
+
+- No run has used the 0.1.2 or the 0.1.3 tree; the two registered records are planned, not run.
+- A check of the delivered product against its specification is in work and not in this release.
+
 ## [0.1.2] - 2026-11-21
 
 Corrections and tools after 0.1.1: recorded replay, the timeline of a run, one rework cap, the

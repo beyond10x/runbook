@@ -1,0 +1,16 @@
+format: sdc.experiment/1
+id: fixture-free-agent
+kind: prospective
+status: complete
+created: 2026-11-21
+title: Fixture record for the site tests
+purpose: Exercise the comparison with a free-running agent in the fixture build.
+inputs:
+- name: todo-app
+  kind: idea
+  text: fixture
+variants: []
+hypothesis: Fixture hypothesis, not a measurement.
+result:
+  verdict: inconclusive
+  why: fixture data
