@@ -515,10 +515,22 @@ outcome, principal, case revision) with the rejection (the decider's reasons and
 log blob, and refuses before writing unless the outcome requires that decision alone and the
 case's last step was that denial. The release is closed `withheld`; the driver's round closes the
 epic `not_released`, and the root, terminable `not_delivered`, is closed without a decider: the
-decider closes only `operating` (class close) and outcomes that require a decision. The run is
-closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)`,
-and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note), no stop record. Under
-A0–A4 the reject stops the run as before and nothing is recorded in the release case.
+decider closes only outcomes that require a decision, and `operating` below A5. The run is
+closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)
+by rule:autopilot`, and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note,
+`closed_by`), no stop record. Under A0–A4 the reject stops the run as before and nothing is
+recorded in the release case.
+
+**The close in autopilot** (D140, 2026-11-21, `runs/trial-3-haiku-5`: the decider rejected the
+close of a terminable root, and the run stopped `rejected_without_rework_path`). Under A5 the
+close of the root is not a decision: `operating` requires the claims `roadmap.approved`,
+`epics.opened` and `children.passed` (`protocol/sdc.protocol.yaml`, `outcomes`), which the
+approvals upstream already settled, and binds no capability. `run-trial.sh` closes a terminable
+root through any outcome that requires no decision as `rule:autopilot` (`sdc-drive close
+--principal rule:autopilot`, recorded on the `terminated` event and as `closed_by` in
+`status.json`) and asks the decider nothing. Children were never asked: the driver closes a
+terminable child with one legitimate outcome in its round. Below A5 the decider still closes
+`operating` (class close, `autonomy-levels.md` § 3.2).
 
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
