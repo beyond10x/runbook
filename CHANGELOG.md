@@ -114,6 +114,8 @@ bare-version tags (`docs/releasing.md`).
   (both variants set `implement_coverage: on`) is registered and not launched; cycle
   `implement-coverage-default` re-drives main's stub recording with the switch unset.
 - The approval record of 0.2.1 and the ledger tree of 0.2.1 (99f5617) (`db85df0`).
+- CI: a change of only planning or prose files passes `Documentation validation` without building or testing, and deploys nothing; a docs-site change skips the `sdc-protocol-site` unit tests (`story:ci-planning-only-skip`).
+- Docs tests: the Playwright step ends within 120 s (59 s for 108 tests with four workers, was over 120 s for 126), 60 s per test, ten slowest tests printed (`story:docs-test-budget`).
 
 ### Fixed
 

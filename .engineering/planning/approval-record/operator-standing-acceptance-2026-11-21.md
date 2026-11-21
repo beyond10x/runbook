@@ -31,6 +31,9 @@ relations:
 - decides: story:takt-freeze-notice
 - decides: story:verifier-independence
 - decides: story:workflow-metrics
+- decides: story:ci-planning-only-skip
+- decides: story:docs-test-budget
+- decides: story:finding-cycles-budget
 revision: 1
 ---
 # Operator standing acceptance of drafted epics and stories

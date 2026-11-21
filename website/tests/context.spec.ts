@@ -60,7 +60,7 @@ for (const mode of MODES) {
       );
       expect(wide, 'graphics wider than the viewport').toBe(0);
 
-      const axe = await new AxeBuilder({page: page as never}).analyze();
+      const axe = await new AxeBuilder({page: page as never}).options({resultTypes: ['violations']}).analyze();
       const bad = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
       expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`), 'serious or critical axe violations').toEqual([]);
       expect(errors, 'console errors').toEqual([]);
