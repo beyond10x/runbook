@@ -44,6 +44,7 @@ header { display: flex; align-items: center; gap: 24px; height: 56px; padding: 0
 .hctl { display: flex; align-items: center; gap: 16px; min-width: 0; }
 /* a narrow desktop window (the operator tile, 805 px): the live pill's time and a stub run's header mark give way, the store select is as wide as its choice; nothing else moves */
 .hctl > .live { min-width: 0; }
+.hctl > .live:not(:has(.lt)) { flex-shrink: 0; }
 .live > i, .live > span:not(.lt) { flex-shrink: 0; }
 #runmark > .rm { flex-shrink: 0; }
 #runmark:has(.rm-stub) { flex-shrink: 1; min-width: 0; }
@@ -763,6 +764,14 @@ pre.proc { margin: 10px 0 0; max-height: 180px; overflow: auto; background: #070
   #tabs button { flex: 1 1 auto; padding: 6px 3px; font-size: 10.5px; letter-spacing: -.01em; }
   #now { grid-template-columns: 84px minmax(0, 1fr) 270px; }
 }
+/* a narrow desktop window: the Now band's cards get the room to show the action, its executor and model whole (D-008) */
+@media (max-width: 1000px) {
+  #now { grid-template-columns: 76px minmax(0, 1fr) 200px; gap: 10px; }
+  :where(html:not(.phone)) .nc-act { max-width: 100%; }
+  :where(html:not(.phone)) .nc-time { min-width: 0; max-width: 80px; }
+  :where(html:not(.phone)) .nc-since { white-space: normal; text-align: right; }
+  :where(html:not(.phone)) .nc-2.nc-hold { flex-wrap: wrap; row-gap: 3px; }
+}
 
 /* ---- round 3: KPI strip, "What changed" feed, change classes, the right panel as a rail ---- */
 .c-planning { --c-rgb: 45, 212, 191; }
@@ -944,6 +953,9 @@ button.fd-s:focus-visible, .fd-list:focus-visible, #tree:focus-visible { outline
 .now-s.m-stopped { white-space: normal; align-items: flex-start; line-height: 1.35; font-size: 12px; }
 .now-s.m-stopped i { margin-top: 4px; border-radius: 2px; background: var(--text-2); }
 @media (max-width: 1400px) { #now.m-stopped { grid-template-columns: 140px minmax(0, 1fr) 270px; } }
+@media (max-width: 1000px) { #now.m-waiting, #now.m-stuck, #now.m-closed, #now.m-stalled, #now.m-stopped { grid-template-columns: 140px minmax(0, 1fr) 184px; } }
+/* a long name in the run's state (a revision id, a rule's reason) breaks inside its column instead of running under the cards */
+.now-s { overflow-wrap: anywhere; }
 .nc.idle.k-stopped { background: linear-gradient(180deg, rgba(180, 188, 203, .06), transparent 70%), var(--surface); border-color: var(--line-3); }
 .nc-was { cursor: pointer; }
 .nc-was .nc-why { color: var(--text-2); }
