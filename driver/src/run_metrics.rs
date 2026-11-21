@@ -1039,7 +1039,7 @@ pub fn load(dir: &Path) -> Res<J> {
     // The conformance observation after close (docs/conformance.md): `oracle.json` `conformance`.
     let conformance = json_opt(&dir.join("oracle.json"))?.map(|o| o["conformance"].clone()).filter(|c| c["result"].is_string());
     let conf = |k: &str| conformance.as_ref().map_or(J::Null, |c| c[k].clone());
-    let measured = conformance.as_ref().map(|c| c["measured"].as_bool().unwrap_or(c["result"].as_str() != Some("unknown")));
+    let measured = conformance.as_ref().map(|c| c["measured"].as_bool().unwrap_or(c["k"].is_u64()));
 
     let run = json!({
         "end": end, "end_kind": end_kind, "closed": end_kind == "closed", "outcome": closed_outcome, "delivered": delivered,
@@ -1065,6 +1065,7 @@ pub fn load(dir: &Path) -> Res<J> {
     let conf_fields = json!({
         "conformance": conformance.as_ref().map_or_else(|| "not observed".to_string(), conformance_figure),
         "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_u": conf("u"), "conformance_n": conf("n"),
+        "conformance_agreement": conf("agreement"), "conformance_tables": conf("tables_counted"),
         "conformance_result": conf("result"), "conformance_cause": conf("cause"), "conformance_measured": measured,
     });
     for (key, v) in conf_fields.as_object().into_iter().flatten() {
@@ -1167,19 +1168,29 @@ fn opt(v: &J) -> String {
     if v.is_null() { "-".into() } else { js(v) }
 }
 
-/// The figure of one conformance record (`oracle.json` `conformance` or a check of it):
-/// `k passed, f failed, u not measurable of n`, with `, unknown: <cause>` for an unknown, or
-/// `<result>: <cause>` when the suite was never counted.
+/// The figure of one conformance record (`oracle.json` `conformance`, the same rule as
+/// `sdc-conform`): `k passed, f failed, u not measurable of n; t tables agree on a of n`
+/// (`; 1 table` for one), with `, unknown: <cause>` for a measured unknown;
+/// `not measured (<cause>), n scenarios` when no table was counted.
 pub fn conformance_figure(c: &J) -> String {
-    let num = |x: &str| c[x].as_u64().unwrap_or(0);
-    let result = c["result"].as_str().unwrap_or("unknown");
-    let cause = c["cause"].as_str();
-    match (c["n"].as_u64(), cause) {
-        (Some(n), Some(cause)) if result == "unknown" => format!("{} passed, {} failed, {} not measurable of {n}, unknown: {cause}", num("k"), num("f"), num("u")),
-        (Some(n), _) => format!("{} passed, {} failed, {} not measurable of {n}", num("k"), num("f"), num("u")),
-        (None, Some(cause)) => format!("{result}: {cause}"),
-        (None, None) => result.to_string(),
+    let cause = c["cause"].as_str().unwrap_or("no cause");
+    let n = c["n"].as_u64();
+    let (Some(k), Some(f), Some(u), Some(n)) = (c["k"].as_u64(), c["f"].as_u64(), c["u"].as_u64(), n) else {
+        return match n {
+            Some(n) => format!("not measured ({cause}), {n} scenarios"),
+            None => format!("not measured ({cause})"),
+        };
+    };
+    let mut text = format!("{k} passed, {f} failed, {u} not measurable of {n}");
+    match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
+        (Some(1), _) => text.push_str("; 1 table"),
+        (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),
+        _ => {}
     }
+    if c["result"] == "unknown" {
+        text.push_str(&format!(", unknown: {cause}"));
+    }
+    text
 }
 
 /// `k passed, f failed, u not measurable of n (held|contradicted)`, an unknown's figure, or

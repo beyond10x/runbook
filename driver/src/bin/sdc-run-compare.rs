@@ -517,19 +517,30 @@ fn fix_gap(r: &Round, n: &Round, reopened: &[i64]) -> Option<i64> {
 
 /// `held`, `contradicted` or `unknown` per check (docs/eval-design.md, oracle file): the checks
 /// are an array of `{id, result}`, a map id -> result, or the file holds one `result`.
-/// `k passed, f failed, u not measurable of n (held|contradicted)`, with `, unknown: <cause>` for
-/// an unknown, or `<result>: <cause>` when the suite was never counted.
+/// The figure of `sdc-conform` (`docs/conformance.md`): `k passed, f failed, u not measurable of
+/// n; t tables agree on a of n (held|contradicted)` (`; 1 table` for one), with
+/// `, unknown: <cause>` for a measured unknown; `not measured (<cause>), n scenarios` when no
+/// table was counted.
 fn conformance_cell(c: &J) -> String {
-    let num = |x: &str| c[x].as_u64().unwrap_or(0);
-    let result = c["result"].as_str().unwrap_or("unknown");
-    let cause = c["cause"].as_str().unwrap_or("");
-    match c["n"].as_u64() {
-        Some(n) => {
-            let counts = format!("{} passed, {} failed, {} not measurable of {n}", num("k"), num("f"), num("u"));
-            if result == "unknown" { format!("{counts}, unknown: {cause}") } else { format!("{counts} ({result})") }
-        }
-        None => format!("{result}: {cause}"),
+    let cause = c["cause"].as_str().unwrap_or("no cause");
+    let n = c["n"].as_u64();
+    let (Some(k), Some(f), Some(u), Some(n)) = (c["k"].as_u64(), c["f"].as_u64(), c["u"].as_u64(), n) else {
+        return match n {
+            Some(n) => format!("not measured ({cause}), {n} scenarios"),
+            None => format!("not measured ({cause})"),
+        };
+    };
+    let mut text = format!("{k} passed, {f} failed, {u} not measurable of {n}");
+    match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
+        (Some(1), _) => text.push_str("; 1 table"),
+        (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),
+        _ => {}
     }
+    match c["result"].as_str() {
+        Some(r @ ("held" | "contradicted")) => text.push_str(&format!(" ({r})")),
+        _ => text.push_str(&format!(", unknown: {cause}")),
+    }
+    text
 }
 
 fn oracle_summary(o: &J) -> String {

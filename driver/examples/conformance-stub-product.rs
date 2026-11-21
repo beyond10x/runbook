@@ -4,15 +4,16 @@
 //! serves the `chores` fixture specification (driver/tests/fixtures/conformance/spec) on 127.0.0.1
 //! over HTTP: `POST /chores {"title"}` 201, `POST /chores/<id>/finish [{"board":"down"}]` 200, 503
 //! or 409 `{"error","state"}`, `GET /boards/<code>` 200 `{"code"}`, `GET /chores/open`,
-//! `GET /health`. `deviate` answers an unknown chore 404 instead of 409 (one scenario of the suite
+//! `GET /chores/done`, `GET /health` (a query string is ignored). `deviate` answers an unknown chore 404 instead of 409 (one scenario of the suite
 //! fails); `nostart` exits at once; `failbuild` exits 1 (a build step that fails). `token` mints a
 //! token at start and prints `board token: <token>` on stdout; every route but `/health` then needs
 //! the header `x-token: <token>` (else 401) and `/boards/<code>` knows only the token (else 404).
 //! `token-silent` does the same without printing the token.
 //!
-//! Table node: with `SDC_STUB_TABLE_NODE=<table.json>[,<table.json>...]`, called as an LLM adapter
-//! with one argument (the request file), it copies the table for the request's `attempt` (the last
-//! one for later attempts) to `<record_dir>/structured-output.json` and prints a response record.
+//! Table node: with `SDC_STUB_TABLE_NODE=<slot>[;<slot>...]`, each slot `<table.json>[,<table.json>...]`,
+//! called as an LLM adapter with one argument (the request file), it copies the table for the
+//! request's `slot` and `attempt` (the last slot and the last table for later ones) to
+//! `<record_dir>/structured-output.json` and prints a response record. `-` writes no table.
 
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
@@ -22,7 +23,9 @@ use serde_json::{json, Value as J};
 
 fn table_node(req_path: &str, tables: &str) {
     let req: J = serde_json::from_str(&std::fs::read_to_string(req_path).unwrap()).unwrap();
-    let files: Vec<&str> = tables.split(',').collect();
+    let slots: Vec<&str> = tables.split(';').collect();
+    let slot = req["slot"].as_u64().unwrap_or(1) as usize;
+    let files: Vec<&str> = slots[(slot.max(1) - 1).min(slots.len() - 1)].split(',').collect();
     let attempt = req["attempt"].as_u64().unwrap_or(1) as usize;
     let file = files[(attempt.max(1) - 1).min(files.len() - 1)];
     let rec = std::path::PathBuf::from(req["record_dir"].as_str().unwrap());
@@ -99,7 +102,7 @@ fn main() {
         let body: J = serde_json::from_slice(&buf[head_end + 4..]).unwrap_or(J::Null);
         let mut first = head.lines().next().unwrap_or("").split_whitespace();
         let (method, path) = (first.next().unwrap_or(""), first.next().unwrap_or(""));
-        let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+        let parts: Vec<&str> = path.split('?').next().unwrap_or("").trim_matches('/').split('/').collect();
         let header = head.lines().find_map(|l| l.to_ascii_lowercase().strip_prefix("x-token:").map(|v| v.trim().to_string()));
         if let Some(t) = &token {
             if parts != ["health"] && header.as_deref() != Some(t.to_ascii_lowercase().as_str()) {
@@ -124,6 +127,10 @@ fn main() {
             },
             ("GET", ["chores", "open"]) => {
                 let rows: Vec<J> = chores.iter().filter(|(_, c)| !c.done).map(|(k, c)| json!({"chore_id": k, "title": c.title})).collect();
+                respond(&mut st, 200, &J::Array(rows));
+            }
+            ("GET", ["chores", "done"]) => {
+                let rows: Vec<J> = chores.iter().filter(|(_, c)| c.done).map(|(k, c)| json!({"chore_id": k, "title": c.title})).collect();
                 respond(&mut st, 200, &J::Array(rows));
             }
             ("POST", ["chores", id, "finish"]) => {

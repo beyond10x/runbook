@@ -231,6 +231,8 @@ struct Conformance {
     cause: Option<String>,
     /// The suite was run and counted (held, contradicted, or unknown only for not measurable).
     measured: bool,
+    /// Scenarios with the same result under every counted table, when recorded.
+    agreement: Option<u64>,
 }
 
 /// The conformance figures of a group of ended runs: k, f, u and n summed over the measured runs,
@@ -240,6 +242,9 @@ struct ConfTotals {
     f: u64,
     u: u64,
     n: u64,
+    /// Agreement summed over the measured runs that record it, and their n.
+    agree: u64,
+    agree_of: u64,
     held: usize,
     contradicted: usize,
     not_measurable_only: usize,
@@ -256,7 +261,7 @@ impl ConfTotals {
 }
 
 fn conf_totals<'a>(cells: impl Iterator<Item = &'a Cell>) -> ConfTotals {
-    let mut t = ConfTotals { k: 0, f: 0, u: 0, n: 0, held: 0, contradicted: 0, not_measurable_only: 0, no_figure: 0, causes: BTreeMap::new(), not_observed: 0, ended: 0 };
+    let mut t = ConfTotals { k: 0, f: 0, u: 0, n: 0, agree: 0, agree_of: 0, held: 0, contradicted: 0, not_measurable_only: 0, no_figure: 0, causes: BTreeMap::new(), not_observed: 0, ended: 0 };
     for r in cells.flat_map(|c| c.runs.iter()) {
         t.ended += 1;
         match &r.conformance {
@@ -266,6 +271,10 @@ fn conf_totals<'a>(cells: impl Iterator<Item = &'a Cell>) -> ConfTotals {
                 t.f += c.f;
                 t.u += c.u;
                 t.n += c.n;
+                if let Some(a) = c.agreement {
+                    t.agree += a;
+                    t.agree_of += c.n;
+                }
                 match c.result.as_str() {
                     "held" => t.held += 1,
                     "contradicted" => t.contradicted += 1,
@@ -307,6 +316,9 @@ fn conf_line_md(t: &ConfTotals) -> String {
     } else {
         format!("{head}: no measured run")
     };
+    if t.agree_of > 0 {
+        let _ = write!(s, "; the tables agree on {} of {}", t.agree, t.agree_of);
+    }
     if t.no_figure > 0 {
         let causes = t.causes.iter().map(|(c, n)| if *n == 1 { c.clone() } else { format!("{c} {n}") }).collect::<Vec<_>>().join(", ");
         let _ = write!(s, "; no figure {} ({causes})", t.no_figure);
@@ -319,7 +331,8 @@ fn conf_line_md(t: &ConfTotals) -> String {
 }
 
 fn conf_totals_j(t: &ConfTotals) -> J {
-    json!({"k": t.k, "f": t.f, "u": t.u, "n": t.n, "held": t.held, "contradicted": t.contradicted,
+    json!({"k": t.k, "f": t.f, "u": t.u, "n": t.n,
+        "agreement": (t.agree_of > 0).then_some(t.agree), "agreement_of": t.agree_of, "held": t.held, "contradicted": t.contradicted,
         "not_measurable_only": t.not_measurable_only, "no_figure": t.no_figure, "not_observed": t.not_observed})
 }
 
@@ -418,7 +431,8 @@ fn run_fig(r: &Run) -> RunFig {
             u: m["conformance_u"].as_u64().unwrap_or(0),
             n: m["conformance_n"].as_u64().unwrap_or(0),
             cause: m["conformance_cause"].as_str().map(String::from),
-            measured: m["conformance_measured"].as_bool().unwrap_or(result != "unknown"),
+            measured: m["conformance_measured"].as_bool().unwrap_or(m["conformance_k"].is_u64()),
+            agreement: m["conformance_agreement"].as_u64(),
         }),
     }
 }
@@ -789,7 +803,7 @@ fn render_json(b: &Built) -> String {
             v["clean_pass_cost_usd"] = stat_j(&clean_stat(&rs, |r| r.cost));
             v["clean_pass_wall_s"] = stat_j(&clean_stat(&rs, |r| r.wall));
             v["runs"] = json!(x.runs.iter().map(|r| json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end,
-                "conformance": r.conformance.as_ref().map(|c| json!({"summary": c.summary, "result": c.result, "k": c.k, "f": c.f, "u": c.u, "n": c.n, "cause": c.cause, "measured": c.measured}))})).collect::<Vec<_>>());
+                "conformance": r.conformance.as_ref().map(|c| json!({"summary": c.summary, "result": c.result, "k": c.k, "f": c.f, "u": c.u, "n": c.n, "cause": c.cause, "measured": c.measured, "agreement": c.agreement}))})).collect::<Vec<_>>());
             v["not_ended_runs"] = json!(x.open);
             v
         }).collect();
@@ -1112,36 +1126,39 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
     #[test]
     fn the_conformance_figure_of_observed_runs_is_summed_per_entry_and_shown_per_run() {
         let exp = fixture("conformance");
-        let with = |r: &str, w: &str, clean: bool, result: &str, (k, f, u, n): (u64, u64, u64, u64), cause: Option<&str>| {
+        // `counts` (k, f, u, agreement); None for a run never measured.
+        let with = |r: &str, w: &str, clean: bool, result: &str, counts: Option<(u64, u64, u64, u64)>, cause: Option<&str>| {
             let mut v: J = serde_json::from_str(&summary(r, w, clean, 1.0, 100.0)).unwrap();
-            let measured = cause.is_none() || cause == Some("not_measurable");
-            let mut text = format!("{k} passed, {f} failed, {u} not measurable of {n}");
-            if let Some(c) = cause {
-                text = if measured { format!("{text}, unknown: {c}") } else { format!("unknown: {c}") };
-            }
+            let text = match (counts, cause) {
+                (Some((k, f, u, a)), None) => format!("{k} passed, {f} failed, {u} not measurable of 17; 3 tables agree on {a} of 17"),
+                (Some((k, f, u, a)), Some(c)) => format!("{k} passed, {f} failed, {u} not measurable of 17; 3 tables agree on {a} of 17, unknown: {c}"),
+                (None, c) => format!("not measured ({}), 17 scenarios", c.unwrap_or("")),
+            };
             v["metrics"]["conformance"] = json!(text);
-            for (key, x) in [("k", k), ("f", f), ("u", u), ("n", n)] {
-                v["metrics"][format!("conformance_{key}")] = json!(x);
+            let (k, f, u, a) = counts.map_or((J::Null, J::Null, J::Null, J::Null), |(k, f, u, a)| (json!(k), json!(f), json!(u), json!(a)));
+            for (key, x) in [("k", k), ("f", f), ("u", u), ("agreement", a), ("n", json!(17)), ("tables", json!(if counts.is_some() { 3 } else { 0 }))] {
+                v["metrics"][format!("conformance_{key}")] = x;
             }
             v["metrics"]["conformance_result"] = json!(result);
             v["metrics"]["conformance_cause"] = json!(cause);
-            v["metrics"]["conformance_measured"] = json!(measured);
+            v["metrics"]["conformance_measured"] = json!(counts.is_some());
             fs::write(exp.join(format!("e1/runs/{r}.json")), v.to_string()).unwrap();
         };
-        with("h1", "h", true, "contradicted", (13, 3, 1, 17), None);
-        with("h2", "h", false, "unknown", (15, 0, 2, 17), Some("not_measurable"));
-        with("h3", "h", true, "held", (17, 0, 0, 17), None);
-        with("s1", "s", true, "unknown", (0, 0, 0, 17), Some("table_refused"));
+        with("h1", "h", true, "contradicted", Some((13, 3, 1, 15)), None);
+        with("h2", "h", false, "unknown", Some((15, 0, 2, 16)), Some("not_measurable"));
+        with("h3", "h", true, "held", Some((17, 0, 0, 17)), None);
+        with("s1", "s", true, "unknown", None, Some("table_refused"));
         let b = build(&exp).unwrap().unwrap();
         assert!(b.problems.is_empty(), "{:?}", b.problems);
         let md = render_md(&b);
-        assert!(md.contains("Conformance of the delivered products (`sdc-conform observe`): **45 passed, 3 failed, 3 not measurable of 51 scenarios** over 3 runs (held 1, contradicted 1, not measurable only 1); no figure 1 (table_refused)."), "{md}");
-        assert!(md.contains("**h1** (conformance 13 passed, 3 failed, 1 not measurable of 17)"), "{md}");
-        assert!(md.contains("h2 (closed: not_delivered; conformance 15 passed, 0 failed, 2 not measurable of 17, unknown: not_measurable)"), "{md}");
+        assert!(md.contains("Conformance of the delivered products (`sdc-conform observe`): **45 passed, 3 failed, 3 not measurable of 51 scenarios** over 3 runs (held 1, contradicted 1, not measurable only 1); the tables agree on 48 of 51; no figure 1 (table_refused)."), "{md}");
+        assert!(md.contains("**h1** (conformance 13 passed, 3 failed, 1 not measurable of 17; 3 tables agree on 15 of 17)"), "{md}");
+        assert!(md.contains("h2 (closed: not_delivered; conformance 15 passed, 0 failed, 2 not measurable of 17; 3 tables agree on 16 of 17, unknown: not_measurable)"), "{md}");
+        assert!(md.contains("**s1** (conformance not measured (table_refused), 17 scenarios)"), "{md}");
         assert!(md.contains("| [t1](#t1) | pre-release | 2026-11-21 | `acd6f12` | `e1` | 3 of 4 | 45 passed, 3 failed, 3 not measurable of 51 (3 of 4 runs) |"), "{md}");
         let j: J = serde_json::from_str(&render_json(&b)).unwrap();
-        assert_eq!(j["entries"][0]["totals"]["conformance"], json!({"k": 45, "f": 3, "u": 3, "n": 51, "held": 1, "contradicted": 1,
-            "not_measurable_only": 1, "no_figure": 1, "not_observed": 0}));
+        assert_eq!(j["entries"][0]["totals"]["conformance"], json!({"k": 45, "f": 3, "u": 3, "n": 51, "agreement": 48, "agreement_of": 51,
+            "held": 1, "contradicted": 1, "not_measurable_only": 1, "no_figure": 1, "not_observed": 0}));
     }
 
     #[test]

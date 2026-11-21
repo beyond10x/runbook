@@ -326,6 +326,16 @@ pub fn needs_unreachable(scenario: &J, nr: &(BTreeSet<String>, BTreeSet<(String,
     })
 }
 
+/// Whether a forced request goes to the command's own route: the same method and the same path
+/// segments, where only a segment holding a placeholder in the command's path may differ; the
+/// query string is not part of the route. Another route could answer the forced outcome's status
+/// whatever the product does on the command's route.
+fn same_route(command: &J, forced: &J) -> bool {
+    let route = |r: &J| -> Vec<String> { s(&r["path"]).split('?').next().unwrap_or("").trim_matches('/').split('/').map(String::from).collect() };
+    let (a, b) = (route(command), route(forced));
+    s(&command["method"]) == s(&forced["method"]) && a.len() == b.len() && a.iter().zip(&b).all(|(x, y)| x.contains('{') || x == y)
+}
+
 fn check_captures(t: &J, ir: &J, p: &mut Vec<String>) {
     let mut declared = BTreeSet::new();
     for (i, c) in t["captures"].as_array().into_iter().flatten().enumerate() {
@@ -431,6 +441,10 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
                 p.push(format!("{what} forced[{j}]: {fo} is not an external outcome of the command"));
             }
             check_request(&format!("{what} forced[{j}] request"), &f["request"], &inputs, &BTreeSet::new(), &mut p);
+            if !same_route(&c["request"], &f["request"]) {
+                p.push(format!("{what} forced[{j}]: a forced request keeps the method and route of the command's request ({} {}); only a placeholder segment, the query, the body and the headers may differ",
+                    s(&c["request"]["method"]), s(&c["request"]["path"])));
+            }
         }
         for (j, o) in c["outcomes"].as_array().into_iter().flatten().enumerate() {
             let on = s(&o["outcome"]).to_string();
@@ -516,6 +530,7 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
         p.push(format!("command {missing} is not covered"));
     }
     let mut vseen = BTreeSet::new();
+    let mut vreq: BTreeMap<(String, String), String> = BTreeMap::new();
     for (i, v) in t["views"].as_array().into_iter().flatten().enumerate() {
         let name = s(&v["view"]).to_string();
         let what = format!("views[{i}] {name}");
@@ -532,6 +547,14 @@ pub fn check_table(t: &J, ir: &J) -> Vec<String> {
         }
         let params: BTreeSet<String> = spec["params"].as_array().into_iter().flatten().map(|f| s(&f["name"]).to_string()).collect();
         check_request(&format!("{what} request"), &v["request"], &BTreeSet::new(), &params, &mut p);
+        // Two views read from one request get the same rows: at most one of them can be the view
+        // the specification declares, and the other could pass a check its real view would fail.
+        let key = (s(&v["request"]["method"]).to_string(), s(&v["request"]["path"]).to_string());
+        if let Some(other) = vreq.get(&key) {
+            p.push(format!("views {other} and {name} read the same request ({} {})", key.0, key.1));
+        } else {
+            vreq.insert(key, name.clone());
+        }
         if !v["rows"].is_string() {
             p.push(format!("{what}: rows is not a path to the list of rows in the response (\"\" for the whole body)"));
         }

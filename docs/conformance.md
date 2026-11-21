@@ -8,11 +8,12 @@ before it existed (`story:conformance-observe-after-close`). Gating is
 `story:conformance-against-implementation`, a later, separately measured step.
 
 ```console
-$ driver/target/debug/sdc-conform observe runs/<run> [--table <table.json>]
-conformance: 13 passed, 4 failed, 0 not measurable of 17
+$ driver/target/debug/sdc-conform observe runs/<run> [--tables 3] [--table <table.json>]
+conformance: 13 passed, 4 failed, 0 not measurable of 17; 3 tables agree on 16 of 17
 ```
 
-`scripts/run-trial.sh` calls it after every close (off with `SDC_CONFORMANCE=off`).
+A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
+scenarios`. `scripts/run-trial.sh` calls it after every close (off with `SDC_CONFORMANCE=off`).
 
 ## What it does
 
@@ -20,15 +21,74 @@ conformance: 13 passed, 4 failed, 0 not measurable of 17
 2. `ess compile` and `ess verify conform synthesize --suite-format 5` on the root case's
    `work/spec/` into `runs/<run>/conformance/` (`ir.json`, `suite.json`): n is the suite's
    scenario count.
-3. Gets a route table (`sdc.conformance-table/1`) from the node `conformance.table`, or from
-   `--table`, and checks it against the compiled specification (`sdc-conform check-table`).
-4. Copies the delivered tree (`work/published/`, else `work/release/`) to
-   `runs/<run>/conformance/product/` and runs the table's `build.argv` there (offline; the caller's
-   `SDC_*`, `ANTHROPIC_*`, `CLAUDE*`, `ESS_*`, `GH_*` and `GITHUB_*` variables removed).
-5. Runs `ess verify conform run --suite … --target process --report-format 2 --strict --format json`
-   with `sdc-conform-adapter` as the adapter.
-6. Writes `runs/<run>/oracle.json` and `runs/<run>/conformance-detail.json` (ess's `--format json`
-   output, `ess-conformance-run/2`).
+3. Fills N table slots (`--tables N`, else `SDC_CONFORMANCE_TABLES`, default 3; one slot with
+   `--table <file>`). Each slot gets a route table (`sdc.conformance-table/1`) from a fresh session
+   of the node `conformance.table`, checked against the compiled specification
+   (`sdc-conform check-table`).
+4. Per distinct `build` of the tables, copies the delivered tree (`work/published/`, else
+   `work/release/`) to `runs/<run>/conformance/product/` (`product-2/`, …) and runs `build.argv`
+   there (offline; the caller's `SDC_*`, `ANTHROPIC_*`, `CLAUDE*`, `ESS_*`, `GH_*` and `GITHUB_*`
+   variables removed).
+5. Per table, runs `ess verify conform run --suite … --target process --report-format 2 --strict
+   --format json` with `sdc-conform-adapter` as the adapter (`conformance/table-<i>/run-<r>/`). A
+   run that shows a fault of the table itself is refused and the slot asked again once (below).
+6. Combines the counted tables into one figure and writes `runs/<run>/oracle.json` and
+   `runs/<run>/conformance-detail.json` (`sdc.conformance-detail/1`: every table run's
+   `--format json` output, `ess-conformance-run/2`).
+
+## Several tables, one figure
+
+One table is one model's reading of the product, and readings differ: on `trial-0.1.0-mixed-2`
+one table signed in and got 7 passed, 2 failed, 7 not measurable, another did not and got 1, 8, 7.
+A figure that moves by six scenarios with the instrument cannot show an improvement of the
+workflow. So the suite runs once per table, and the figure is taken over the counted tables:
+
+- **passed**: the scenarios that passed under at least one counted table;
+- **failed**: the scenarios that passed under none and failed under at least one, so under every
+  counted table that reached them (a table reaches a scenario when it ends passed or failed, not
+  not measurable or error);
+- **not measurable**: the rest;
+- **table agreement**: the scenarios with the same result under every counted table, of n.
+
+`held` only when every scenario passed (k = n > 0); `contradicted` when f > 0; `unknown` with
+cause `not_measurable` when f = 0 and u > 0. With no counted table the run is `unknown` with the
+slots' most frequent cause, and k, f and u are null.
+
+A table counts when the check accepted it, its run produced a report, the product started in every
+scenario, ess ran every scenario, and the run showed no fault of the table itself. Such faults,
+found in the adapter's log, are:
+
+- a capture that did not appear (cause `capture_missing`);
+- a request naming a value the scenario does not carry, such as an optional input left out
+  (`request_unfillable`, cause `table_error`);
+- the product answering 401 or 403 to a command or view: the table sends no sign-in, token or key
+  the product accepts (cause `table_error`).
+
+The run is then refused with that evidence and the node asked once more, in the same slot, with the
+evidence as feedback (`retried_after_run`, `evidence`, both runs under `runs`). A retried table
+that shows a fault again, or that the check refuses, leaves the slot uncounted.
+
+**Why "at least one".** The checker holds every table to the specification and to the product's
+own routes, so a fault of a table can make a scenario the product would pass fail or end in error:
+a wrong path or status gets no declared outcome, a wrong template builds a wrong event, a missing
+sign-in gets 401. It cannot, within those rules, make a scenario pass that the product fails: every
+outcome is read from the status the product answered on the command's own route, every event and
+error field from the product's response, every view row from the product's rows. A pass under one
+table is therefore evidence about the product; a failure under another may be evidence about that
+table.
+
+**Where the argument stops.** It holds only as far as the checker's rules reach. These table
+faults can turn a real failure into a pass:
+
+| way | state |
+|---|---|
+| A forced request on another route, which answers the forced outcome's status whatever the product does on the command's route | closed: a forced request keeps the command's method and route; only a placeholder segment, the query, the body and the headers may differ |
+| Two views on one request: both get the same rows, and a check of the wrong view can pass on rows of the other | closed: the check refuses it |
+| A status mapped to an outcome the product means otherwise (404 "not found" read as `wrong-state`). The prompt forbids it; the checker cannot see what a status means | open |
+| The union over tables of contradicting mappings: one table reads 409 as `wrong-state` and passes "refuses when done", another reads 404 as `wrong-state` and passes "unknown id"; no single reading passes both, the figure counts both | open |
+| A view mapped to a route that returns more rows than the view holds (all items for "done items"): a "row present" check passes on rows the real view would not hold | open |
+| An event payload or error field filled from the input or a literal instead of the response: the check compares the scenario with itself | open (`events_checked_from: response_body`) |
+| `start.argv` starting something in the tree other than the product (a mock, a demo mode), or a header that switches the product into a test mode | open |
 
 ## The route table and the node that writes it
 
@@ -44,9 +104,9 @@ default in `tools/node-classes.json`; both and their sources are recorded in `or
 (2.00), `SDC_CONFORMANCE_NODE_TIMEOUT` (1800 s).
 
 The reply is constrained by a response schema and then checked by the program; a refused reply is
-asked again with the check's reasons at most twice, then the observation is `unknown`
-(`table_refused`). Records: `runs/<run>/conformance/table-node/NNN/` (prompt, request, response,
-`refused.json`).
+asked again with the check's reasons at most twice, then the slot is uncounted (`table_refused`).
+Records: `runs/<run>/conformance/table-<i>/node/NNN/` (prompt, request with `slot` and `attempt`,
+response, `refused.json`); attempts are numbered across the slot, the retry after a run included.
 
 A table names:
 
@@ -73,9 +133,9 @@ The check refuses a table that does not cover every command, outcome and view of
 specification; that maps one (command, method, path, status) to two outcomes unless each carries a
 `when_body`; whose event payloads or error fields differ from the declared ones; whose placeholders
 read nothing; whose argv reaches outside the delivered tree; with an external outcome that has
-neither a `forced` request nor a `none`; with a `none` without a kind; or with
-a capture that is malformed, bound to no input field of the specification, or declared and never
-used.
+neither a `forced` request nor a `none`; with a forced request on another method or route than the
+command's; with two views on one request; with a `none` without a kind; or with a capture that is
+malformed, bound to no input field of the specification, or declared and never used.
 
 ## The adapter
 
@@ -91,25 +151,29 @@ capture is read from them within its `timeout_s` of the start, and one that does
 per answer. A status the table does not map is answered as no declared outcome. A product that does
 not start is answered `unavailable` (the scenario ends `error`), never `unsupported`. Events are
 built by the adapter from the response body (`events_checked_from: response_body`): the product
-publishes none an HTTP client can observe. Starts, unmapped statuses and unfillable templates go to
-`runs/<run>/conformance/adapter-log.jsonl` and `oracle.json` `conformance.adapter_notes`.
+publishes none an HTTP client can observe. Starts, captures, unmapped statuses, unreadable views,
+unfillable requests (`request_unfillable`) and unfillable templates go to the table run's
+`adapter-log.jsonl` and, for the counted tables, `oracle.json` `conformance.adapter_notes`.
 
 ## oracle.json
 
-`sdc.oracle/1`: `checks` holds one entry `{id: conformance, result, k, f, u, n, cause}` (the shape
-`sdc-run-compare`'s oracle check reads), `conformance` the record: `result`, `k`, `f`, `u`, `n`,
-`measured`, `summary` (`k passed, f failed, u not measurable of n`), `cause`, `why`,
-`conformance_status`, `counts`, `scenarios` (id, status, ess_status), `failed_checks` (scenario,
-about, code, expected, observed), `declared_missing`, `adapter_notes`, `ess` (version, sha256,
-source), `suite` (sha256), `table` (source, model, effort, attempts, cost, refusals), `product`
-(tree, PROVENANCE), `build`, `limits`. No absolute path.
+`sdc.oracle/1`: `checks` holds one entry `{id: conformance, result, k, f, u, n, agreement,
+tables_counted, cause}` (the shape `sdc-run-compare`'s oracle check reads), `conformance` the
+record: `result`, `k`, `f`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `measured`,
+`summary`, `cause`, `why`, `table_cost_usd` (all slots), `tables` (per slot: source, model,
+effort, attempts, `cost_usd`, `retried_after_run`, `evidence`, `counted`, `cause`, `why`, the
+final run's `k`, `f`, `u`, `e` (errors), `n`, `conformance_status`, `declared_missing`, `build`,
+and `runs`, one record per table run), `scenarios` (id, status over the counted tables, `under`:
+the status per slot, null for an uncounted slot), `failed_checks` (scenario, about, code,
+expected, observed, table) of the failed scenarios, `adapter_notes` (with table), `ess` (version,
+sha256, source), `suite` (sha256), `product` (tree, PROVENANCE), `limits`. k, f, u and agreement
+are null when no table was counted. No absolute path.
 
-Each scenario is `passed`, `error`, `not_measurable` (it did not pass, none of its checks failed,
-and it executes, expects, forces or reads something the table declares `none` of kind
-`not_reachable_over_the_interface`), or else `failed` (ess `failed`, `unsupported` or `skipped`). `held` only when ess's report says
-`conformance_status: passed` and k = n > 0, so u > 0 is never `held`; `contradicted` when f > 0;
-`unknown` with cause `not_measurable` when f = 0 and u > 0 (a measured figure: `measured` true);
-otherwise `unknown` with a cause, never a pass:
+Under one table a scenario is `passed`, `error`, `not_measurable` (it did not pass, none of its
+checks failed, and it executes, expects, forces or reads something the table declares `none` of
+kind `not_reachable_over_the_interface`), or else `failed` (ess `failed`, `unsupported` or
+`skipped`). The run's figure combines the counted tables as above; a run without one is `unknown`
+with a cause, never a pass:
 
 | cause | when |
 |---|---|
@@ -118,26 +182,34 @@ otherwise `unknown` with a cause, never a pass:
 | `suite_empty` | the spec synthesizes no scenario (ess would say `passed` with 0 scenarios and `inconclusive` under `--strict`) |
 | `no_delivered_tree` | the root case has neither `work/published/` nor `work/release/` |
 | `table_missing` | no reply from the node, a model-less adapter (`stub`, `dry`), or an unreadable `--table` |
-| `table_refused` | the check refused the table (after two retries of the node) |
+| `table_refused` | the check refused the table (after two retries of the node, or on the retry after a run) |
+| `table_error` | the table's run showed its own fault (an unfillable request, 401 or 403), also after the retry |
+| `capture_missing` | a capture did not appear on its stream within its timeout, also after the retry |
 | `product_build_failed` | `build.argv` exited non-zero or timed out (`SDC_CONFORMANCE_BUILD_TIMEOUT`, 900 s) |
 | `product_not_started` | the product did not answer `start.ready` in a scenario |
-| `capture_missing` | a capture did not appear on its stream within its timeout in a scenario |
-| `not_measurable` | no scenario failed, and u > 0 needed what the interface cannot reach |
 | `adapter_refused` | ess wrote no report (exit 2: the adapter could not start or the handshake failed) |
-| `scenario_error` | a scenario ended `error` (ess `inconclusive`) |
 | `suite_mismatch` | ess ran another number of scenarios than the suite holds |
+
+These are slot causes; the run takes the most frequent one when no slot is counted. With a counted
+table the only cause is `not_measurable`: no scenario failed and u > 0 passed and failed under no
+counted table.
 
 ## Where the figure shows
 
-- `sdc-run-metrics`: `metrics.conformance` (`k passed, f failed, u not measurable of n`, with
-  `, unknown: <cause>` for an unknown, or `not observed`), `conformance_k`, `_f`, `_u`, `_n`,
-  `_result`, `_cause`, `_measured`; the text form's line `conformance: …` (with `(held)` or
-  `(contradicted)`).
+One text form everywhere: `k passed, f failed, u not measurable of n; t tables agree on a of n`
+(`; 1 table` for one), with `, unknown: <cause>` for a measured unknown; `not measured (<cause>),
+n scenarios` (or `not measured (<cause>)` when the suite was never counted) for a run with no
+counted table; `not observed` without `oracle.json`.
+
+- `sdc-run-metrics`: `metrics.conformance` (that text), `conformance_k`, `_f`, `_u`, `_n`,
+  `_agreement`, `_tables`, `_result`, `_cause`, `_measured`; the text form's line
+  `conformance: …` (with `(held)` or `(contradicted)`).
 - `sdc-run-compare`: the row `conformance`, from the same numbers.
 - The progress ledger (`sdc-experiment progress`, `docs/progress.md`): per entry k, f, u and n
-  summed over the measured runs (held, contradicted, not measurable only), the observed runs with
-  no figure by cause, per run its figure, and a summary column; from the run summaries
-  `sdc-experiment report` writes, so only runs reported after observation carry it.
+  summed over the measured runs (held, contradicted, not measurable only), the agreement summed
+  over them (`the tables agree on a of n`), the observed runs with no figure by cause, per run its
+  figure, and a summary column; from the run summaries `sdc-experiment report` writes, so only
+  runs reported after observation carry it.
 
 ## The ess pin
 
@@ -157,8 +229,10 @@ sibling checkout (`scripts/check-protocols.sh`, `CANON_DIR`; `scripts/run-trial.
   Substrate (`docs/layers.md`) and is not in this step. The build runs model-written code too
   (`build.rs`, macros), with the operator's environment minus the variables listed above.
 - Events are built from the response body, so event checks test the table as much as the product.
-- The table is a model's reading of the product; a wrong table can fail scenarios the product
-  would pass, or pass scenarios it would fail. Its records are kept for review.
+- Each table is a model's reading of the product. Several tables and "at least one" remove the
+  faults that fail a scenario the product passes; the open rows of the table under "Where the
+  argument stops" can still pass one it fails. The records are kept for review.
+- N tables cost N node sessions and N suite runs (plus one per retry).
 - Only products with an HTTP JSON surface; a command-line product needs another adapter.
 - A capture reads only what the product prints. A value it mints and keeps to itself cannot be
   bound; the node declares what needs it `none`, and the kind decides whether its scenarios fail
@@ -166,7 +240,8 @@ sibling checkout (`scripts/check-protocols.sh`, `CANON_DIR`; `scripts/run-trial.
 
 ## First figures (2026-11-21, on copies of the runs in a scratch directory)
 
-The six closed runs of the 0.1.0 baseline, table node Sonnet at effort high:
+The six closed runs of the 0.1.0 baseline, one table each (before several tables and the retry
+after a run), table node Sonnet at effort high:
 
 | run | k / f / u of n | result | what fails | node |
 |---|---|---|---|---|

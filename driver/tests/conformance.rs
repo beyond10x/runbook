@@ -75,6 +75,7 @@ fn observe(run: &Path, tables: &str, extra: &[(&str, &str)]) -> (Output, J) {
         .env("SDC_CONFORMANCE_ADAPTER", stub())
         .env("SDC_STUB_TABLE_NODE", tables)
         .env("SDC_CONFORMANCE_TARGET_TIMEOUT", "10")
+        .env("SDC_CONFORMANCE_TABLES", "1")
         .env_remove("SDC_LLM_MODEL_CONFORMANCE")
         .env_remove("SDC_LLM_EFFORT_CONFORMANCE")
         .env_remove("SDC_LLM_EFFORT_OTHER")
@@ -100,18 +101,18 @@ fn every_scenario_passes_and_the_check_holds() {
     assert!(o.status.success(), "{}", says(&o));
     let c = &d["conformance"];
     assert_eq!(d["format"], "sdc.oracle/1");
-    assert_eq!(d["checks"][0], json!({"id": "conformance", "result": "held", "k": 7, "f": 0, "u": 0, "n": 7, "cause": null}), "{c:#}");
-    assert_eq!(c["summary"], "7 passed, 0 failed, 0 not measurable of 7");
-    assert_eq!(c["conformance_status"], "passed");
+    assert_eq!(d["checks"][0], json!({"id": "conformance", "result": "held", "k": 7, "f": 0, "u": 0, "n": 7, "agreement": 7, "tables_counted": 1, "cause": null}), "{c:#}");
+    assert_eq!(c["summary"], "7 passed, 0 failed, 0 not measurable of 7; 1 table");
+    assert_eq!(c["tables"][0]["conformance_status"], "passed");
     assert_eq!(c["events_checked_from"], "response_body");
-    assert_eq!(c["table"]["source"], "conformance.table");
-    assert_eq!(c["table"]["model"], "claude-sonnet-5-5");
-    assert_eq!(c["table"]["model_source"], "default");
-    assert!(["low", "medium", "high", "xhigh", "max"].contains(&c["table"]["effort"].as_str().unwrap()), "{c:#}");
-    assert_eq!(c["table"]["attempts"], 1);
+    assert_eq!(c["tables"][0]["source"], "conformance.table");
+    assert_eq!(c["tables"][0]["model"], "claude-sonnet-5-5");
+    assert_eq!(c["tables"][0]["model_source"], "default");
+    assert!(["low", "medium", "high", "xhigh", "max"].contains(&c["tables"][0]["effort"].as_str().unwrap()), "{c:#}");
+    assert_eq!(c["tables"][0]["attempts"], 1);
     assert_eq!(c["product"]["tree"], "store/IDEA-1/work/published");
     assert!(run.join("conformance-detail.json").is_file());
-    assert!(String::from_utf8_lossy(&o.stdout).contains("conformance: 7 passed, 0 failed, 0 not measurable of 7"), "{}", says(&o));
+    assert!(String::from_utf8_lossy(&o.stdout).contains("conformance: 7 passed, 0 failed, 0 not measurable of 7; 1 table"), "{}", says(&o));
     let text = fs::read_to_string(run.join("oracle.json")).unwrap();
     assert!(!text.contains(run.to_str().unwrap()), "oracle.json holds an absolute path");
 }
@@ -126,10 +127,10 @@ fn one_deviation_is_contradicted_with_its_expected_and_observed() {
     let c = &d["conformance"];
     assert_eq!(c["result"], "contradicted", "{c:#}");
     assert_eq!((c["k"].as_u64(), c["f"].as_u64(), c["u"].as_u64(), c["n"].as_u64()), (Some(6), Some(1), Some(0), Some(7)));
-    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7");
-    assert_eq!(c["table"]["model"], "claude-opus-5-5");
-    assert_eq!(c["table"]["effort"], "medium");
-    assert_eq!(c["table"]["effort_source"], "SDC_LLM_EFFORT_CONFORMANCE");
+    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7; 1 table");
+    assert_eq!(c["tables"][0]["model"], "claude-opus-5-5");
+    assert_eq!(c["tables"][0]["effort"], "medium");
+    assert_eq!(c["tables"][0]["effort_source"], "SDC_LLM_EFFORT_CONFORMANCE");
     let failed: Vec<&J> = c["scenarios"].as_array().unwrap().iter().filter(|x| x["status"] != "passed").collect();
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0]["id"], "chores.list.FinishChore/outcome/wrong-state");
@@ -148,7 +149,7 @@ fn an_empty_suite_is_unknown_never_a_pass() {
     assert_eq!(d["checks"][0]["result"], "unknown");
     assert_eq!(d["conformance"]["cause"], "suite_empty");
     assert_eq!(d["conformance"]["n"], 0);
-    assert_eq!(d["conformance"]["summary"], "0 passed, 0 failed, 0 not measurable of 0, unknown: suite_empty");
+    assert_eq!(d["conformance"]["summary"], "not measured (suite_empty), 0 scenarios");
 }
 
 #[test]
@@ -161,7 +162,7 @@ fn a_product_that_does_not_start_is_unknown() {
     let c = &d["conformance"];
     assert_eq!(c["result"], "unknown", "{c:#}");
     assert_eq!(c["cause"], "product_not_started");
-    assert_eq!(c["k"], 0);
+    assert!(c["k"].is_null() && c["f"].is_null() && c["u"].is_null(), "{c:#}");
     assert!(s(&c["why"]).contains("exited before it answered"), "{c:#}");
 }
 
@@ -181,11 +182,11 @@ fn a_refused_table_is_asked_again_twice_then_unknown() {
     let c = &d["conformance"];
     assert_eq!(c["result"], "unknown");
     assert_eq!(c["cause"], "table_refused");
-    assert_eq!(c["table"]["attempts"], 3);
+    assert_eq!(c["tables"][0]["attempts"], 3);
     assert!(s(&c["why"]).contains("view chores.list.OpenChores is not covered"), "{c:#}");
-    let second = fs::read_to_string(run.join("conformance/table-node/002/prompt.md")).unwrap();
+    let second = fs::read_to_string(run.join("conformance/table-1/node/002/prompt.md")).unwrap();
     assert!(second.contains("view chores.list.OpenChores is not covered"), "{second}");
-    assert!(!run.join("conformance/table-node/004").exists());
+    assert!(!run.join("conformance/table-1/node/004").exists());
 }
 
 #[test]
@@ -199,8 +200,8 @@ fn a_table_fixed_on_the_retry_is_used() {
     let (o, d) = observe(&run, &tables, &[]);
     assert!(o.status.success(), "{}", says(&o));
     assert_eq!(d["conformance"]["result"], "held", "{:#}", d["conformance"]);
-    assert_eq!(d["conformance"]["table"]["attempts"], 2);
-    let second = fs::read_to_string(run.join("conformance/table-node/002/prompt.md")).unwrap();
+    assert_eq!(d["conformance"]["tables"][0]["attempts"], 2);
+    let second = fs::read_to_string(run.join("conformance/table-1/node/002/prompt.md")).unwrap();
     assert!(second.contains("without a when_body discriminator"), "{second}");
 }
 
@@ -224,9 +225,18 @@ fn a_missing_table_and_a_model_less_adapter_are_unknown() {
     let (o, d) = observe(&run, "-", &[]);
     assert!(o.status.success(), "{}", says(&o));
     assert_eq!(d["conformance"]["cause"], "table_missing", "{:#}", d["conformance"]);
-    let (_, d) = observe(&run, "-", &[("SDC_CONFORMANCE_ADAPTER", "stub")]);
-    assert_eq!(d["conformance"]["cause"], "table_missing");
-    assert!(s(&d["conformance"]["why"]).contains("has no model"));
+    let (o, d) = observe(&run, "-", &[("SDC_CONFORMANCE_ADAPTER", "stub")]);
+    let c = &d["conformance"];
+    assert_eq!(c["cause"], "table_missing");
+    assert!(s(&c["why"]).contains("has no model"));
+    // A run never measured prints no counts, and its counts are null, not 0.
+    assert_eq!(c["summary"], "not measured (table_missing), 7 scenarios", "{c:#}");
+    assert!(String::from_utf8_lossy(&o.stdout).contains("conformance: not measured (table_missing), 7 scenarios"), "{}", says(&o));
+    assert_eq!(d["checks"][0], json!({"id": "conformance", "result": "unknown", "k": null, "f": null, "u": null, "n": 7,
+        "agreement": null, "tables_counted": 0, "cause": "table_missing"}));
+    assert_eq!(c["measured"], false);
+    let (_, d) = observe(&run, "-", &[("ESS_BIN", "/nonexistent/ess")]);
+    assert_eq!(d["conformance"]["summary"], "not measured (ess_missing)");
 }
 
 #[test]
@@ -251,15 +261,19 @@ fn a_run_without_a_delivered_tree_is_unknown() {
     assert_eq!(d["conformance"]["cause"], "no_delivered_tree", "{:#}", d["conformance"]);
 }
 
-fn ir(dir: &Path) -> PathBuf {
-    let p = dir.join("ir.json");
-    let o = Command::new(ess()).args(["compile", "--path"]).arg(fixtures().join("spec")).arg("--out").arg(&p).output().unwrap();
+fn ir_of(dir: &Path, spec: &str) -> PathBuf {
+    let p = dir.join(format!("ir-{spec}.json"));
+    let o = Command::new(ess()).args(["compile", "--path"]).arg(fixtures().join(spec)).arg("--out").arg(&p).output().unwrap();
     assert!(o.status.success());
     p
 }
 
 fn check(dir: &Path, t: &J) -> (bool, J) {
-    let ir = ir(dir);
+    check_of(dir, "spec", t)
+}
+
+fn check_of(dir: &Path, spec: &str, t: &J) -> (bool, J) {
+    let ir = ir_of(dir, spec);
     let tp = write_table(dir, "check.json", t);
     let o = Command::new(BIN).args(["check-table", "--ir"]).arg(&ir).args(["--table", &tp]).output().unwrap();
     let v: J = serde_json::from_slice(&o.stdout).unwrap_or(J::Null);
@@ -334,13 +348,13 @@ fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value()
     let (o, d) = observe(&run, &t, &[]);
     assert!(o.status.success(), "{}", says(&o));
     assert_eq!(d["conformance"]["result"], "held", "{:#}", d["conformance"]);
-    assert_eq!(d["conformance"]["summary"], "7 passed, 0 failed, 0 not measurable of 7");
+    assert_eq!(d["conformance"]["summary"], "7 passed, 0 failed, 0 not measurable of 7; 1 table");
     let run = run_dir("capture-unbound", "spec");
     let t = write_table(run.parent().unwrap(), "t.json", &token_table("token", false));
     let (_, d) = observe(&run, &t, &[]);
     let c = &d["conformance"];
     assert_eq!(c["result"], "contradicted", "{c:#}");
-    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7");
+    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7; 1 table");
     assert!(c["scenarios"].as_array().unwrap().iter().any(|x| x["id"] == "chores.list.OpenBoard/outcome/opened" && x["status"] == "failed"), "{c:#}");
 }
 
@@ -355,7 +369,9 @@ fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
     assert_eq!(c["result"], "unknown", "{c:#}");
     assert_eq!(c["cause"], "capture_missing");
     assert!(s(&c["why"]).contains("token"), "{c:#}");
-    assert_eq!(c["conformance_status"], "inconclusive");
+    assert_eq!(c["tables"][0]["conformance_status"], "inconclusive");
+    assert_eq!(c["tables"][0]["retried_after_run"], true, "{c:#}");
+    assert_eq!(c["tables"][0]["counted"], false);
 }
 
 #[test]
@@ -370,7 +386,7 @@ fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
     let (o, d) = observe(&run, &tp, &[]);
     assert!(o.status.success(), "{}", says(&o));
     let c = &d["conformance"];
-    assert_eq!(c["summary"], "6 passed, 0 failed, 1 not measurable of 7, unknown: not_measurable", "{c:#}");
+    assert_eq!(c["summary"], "6 passed, 0 failed, 1 not measurable of 7; 1 table, unknown: not_measurable", "{c:#}");
     assert_eq!(c["result"], "unknown");
     assert_eq!(d["checks"][0]["u"], 1);
     assert!(c["scenarios"].as_array().unwrap().iter().any(|x| x["id"] == "chores.list.FinishChore/outcome/unreachable" && x["status"] == "not_measurable"), "{c:#}");
@@ -378,7 +394,7 @@ fn what_the_interface_cannot_reach_is_not_measurable_and_never_held() {
     let run = run_dir("not-implemented", "spec");
     let tp = write_table(run.parent().unwrap(), "t.json", &t);
     let (_, d) = observe(&run, &tp, &[]);
-    assert_eq!(d["conformance"]["summary"], "6 passed, 1 failed, 0 not measurable of 7", "{:#}", d["conformance"]);
+    assert_eq!(d["conformance"]["summary"], "6 passed, 1 failed, 0 not measurable of 7; 1 table", "{:#}", d["conformance"]);
     assert_eq!(d["conformance"]["result"], "contradicted");
 }
 
@@ -419,4 +435,112 @@ fn the_check_refuses_a_none_without_kind_and_a_capture_never_used() {
     t["bindings"] = json!([{"input": "code", "capture": "other"}]);
     assert!(check(&dir, &t).1["problems"].to_string().contains("no declared capture other"));
     assert!(check(&dir, &token_table("token", true)).0, "{}", check(&dir, &token_table("token", true)).1);
+}
+
+/// The fixture table for `spec-optional`: the second view reads the done chores.
+fn optional_table() -> J {
+    let mut t = table();
+    t["views"].as_array_mut().unwrap().push(json!({"view": "chores.list.DoneChores", "request": {"method": "GET", "path": "/chores/done"},
+        "rows": "", "fields": {"chore_id": "chore_id", "title": "title"}}));
+    t
+}
+
+#[test]
+fn the_check_refuses_a_forced_request_on_another_route_and_two_views_on_one_request() {
+    let dir = tmp("check-routes");
+    let mut t = table();
+    t["commands"][1]["forced"][0]["request"]["path"] = json!("/board-down");
+    let (ok, v) = check(&dir, &t);
+    assert!(!ok && v["problems"].to_string().contains("forced[0]: a forced request keeps the method and route of the command's request"), "{v}");
+    let mut t = table();
+    t["commands"][1]["forced"][0]["request"]["path"] = json!("/chores/00000000-0000-4000-8000-000000000000/finish?board=down");
+    assert!(check(&dir, &t).0, "{}", check(&dir, &t).1);
+    assert!(check_of(&dir, "spec-optional", &optional_table()).0, "{}", check_of(&dir, "spec-optional", &optional_table()).1);
+    let mut t = optional_table();
+    t["views"][1]["request"]["path"] = json!("/chores/open");
+    let (ok, v) = check_of(&dir, "spec-optional", &t);
+    assert!(!ok && v["problems"].to_string().contains("views chores.list.OpenChores and chores.list.DoneChores read the same request"), "{v}");
+}
+
+fn figure(t: &J) -> (u64, u64, u64) {
+    (t["k"].as_u64().unwrap(), t["f"].as_u64().unwrap(), t["u"].as_u64().unwrap())
+}
+
+fn scenario<'a>(c: &'a J, id: &str) -> &'a J {
+    c["scenarios"].as_array().unwrap().iter().find(|x| x["id"] == id).unwrap_or_else(|| panic!("no scenario {id}: {c:#}"))
+}
+
+#[test]
+fn three_tables_are_run_and_a_scenario_passes_when_one_counted_table_passes_it() {
+    ess();
+    let run = run_dir("three-tables", "spec");
+    let dir = run.parent().unwrap().to_path_buf();
+    let a = write_table(&dir, "a.json", &with_mode("deviate"));
+    let mut b = with_mode("deviate");
+    b["commands"][1]["forced"] = json!([]);
+    b["commands"][1]["outcomes"][1] = json!({"outcome": "unreachable",
+        "none": {"kind": "not_reachable_over_the_interface", "why": "the board lives only in the browser"}});
+    let b = write_table(&dir, "b.json", &b);
+    let (o, d) = observe(&run, &format!("{a};{b}"), &[("SDC_CONFORMANCE_TABLES", "3")]);
+    assert!(o.status.success(), "{}", says(&o));
+    let c = &d["conformance"];
+    assert_eq!(d["checks"][0], json!({"id": "conformance", "result": "contradicted", "k": 6, "f": 1, "u": 0, "n": 7,
+        "agreement": 6, "tables_counted": 3, "cause": null}), "{c:#}");
+    assert_eq!(c["summary"], "6 passed, 1 failed, 0 not measurable of 7; 3 tables agree on 6 of 7");
+    let tables = c["tables"].as_array().unwrap();
+    assert_eq!(tables.iter().map(figure).collect::<Vec<_>>(), vec![(6, 1, 0), (5, 1, 1), (5, 1, 1)], "{c:#}");
+    assert!(tables.iter().all(|t| t["counted"] == true && t["cost_usd"].is_number() && t["n"] == 7), "{c:#}");
+    assert_eq!(tables.iter().map(|t| t["slot"].clone()).collect::<Vec<_>>(), vec![json!(1), json!(2), json!(3)]);
+    let un = scenario(c, "chores.list.FinishChore/outcome/unreachable");
+    assert_eq!((&un["status"], &un["under"]), (&json!("passed"), &json!(["passed", "not_measurable", "not_measurable"])));
+    let ws = scenario(c, "chores.list.FinishChore/outcome/wrong-state");
+    assert_eq!((&ws["status"], &ws["under"]), (&json!("failed"), &json!(["failed", "failed", "failed"])));
+    assert!(run.join("conformance/table-3/node/001/prompt.md").is_file());
+    assert!(String::from_utf8_lossy(&o.stdout).contains("conformance: 6 passed, 1 failed, 0 not measurable of 7; 3 tables agree on 6 of 7"), "{}", says(&o));
+    let (_, d) = observe(&run, &b, &[("SDC_CONFORMANCE_TABLES", "3")]);
+    assert_eq!(d["conformance"]["summary"], "5 passed, 1 failed, 1 not measurable of 7; 3 tables agree on 7 of 7","{:#}", d["conformance"]);
+    assert_eq!(d["conformance"]["result"], "contradicted");
+}
+
+#[test]
+fn a_table_that_never_signs_in_is_refused_after_its_run_and_asked_again_once() {
+    ess();
+    let run = run_dir("unsigned", "spec");
+    let dir = run.parent().unwrap().to_path_buf();
+    let plain = write_table(&dir, "plain.json", &with_mode("token"));
+    let good = write_table(&dir, "good.json", &token_table("token", true));
+    let (o, d) = observe(&run, &format!("{plain},{good}"), &[]);
+    assert!(o.status.success(), "{}", says(&o));
+    let c = &d["conformance"];
+    assert_eq!(c["result"], "held", "{c:#}");
+    let t = &c["tables"][0];
+    assert_eq!((&t["retried_after_run"], &t["attempts"], &t["counted"]), (&json!(true), &json!(2), &json!(true)), "{t:#}");
+    assert!(t["evidence"].to_string().contains("401"), "{t:#}");
+    assert_eq!(t["runs"].as_array().unwrap().len(), 2);
+    let second = fs::read_to_string(run.join("conformance/table-1/node/002/prompt.md")).unwrap();
+    assert!(second.contains("401") && second.contains("after its run"), "{second}");
+    let (_, d) = observe(&run, &plain, &[]);
+    let c = &d["conformance"];
+    assert_eq!((&c["result"], &c["cause"]), (&json!("unknown"), &json!("table_error")), "{c:#}");
+    assert!(c["k"].is_null());
+    assert_eq!(c["summary"], "not measured (table_error), 7 scenarios");
+    assert_eq!((&c["tables"][0]["counted"], &c["tables"][0]["retried_after_run"]), (&json!(false), &json!(true)));
+}
+
+#[test]
+fn a_request_naming_an_input_the_scenario_leaves_out_is_the_tables_fault() {
+    ess();
+    let run = run_dir("optional", "spec-optional");
+    let dir = run.parent().unwrap().to_path_buf();
+    let mut bad = optional_table();
+    bad["commands"][0]["request"]["path"] = json!("/chores?note={input.note}");
+    let tables = format!("{},{}", write_table(&dir, "bad.json", &bad), write_table(&dir, "good.json", &optional_table()));
+    let (o, d) = observe(&run, &tables, &[]);
+    assert!(o.status.success(), "{}", says(&o));
+    let c = &d["conformance"];
+    assert_eq!(c["result"], "held", "{c:#}");
+    let t = &c["tables"][0];
+    assert_eq!(t["retried_after_run"], true, "{t:#}");
+    assert!(t["evidence"].to_string().contains("{input.note}"), "{t:#}");
+    assert_eq!(t["runs"][0]["e"].as_u64().map(|e| e > 0), Some(true), "{t:#}");
 }

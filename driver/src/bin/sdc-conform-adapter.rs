@@ -80,6 +80,9 @@ enum Answer {
     Unavailable(String),
 }
 
+/// A filled request: path, body, headers.
+type Filled = (String, Option<J>, Vec<(String, String)>);
+
 enum Fail {
     Start(String),
     Capture(String, String),
@@ -221,7 +224,13 @@ impl Adapter {
 
     /// One request of the table, filled from `ctx` and the scenario's captures.
     fn send_with(&self, r: &J, ctx: &Ctx, timeout: Duration) -> Result<Reply, String> {
-        let port = self.product.as_ref().map(|p| p.port).ok_or("no product is running")?;
+        let filled = self.fill_request(r, ctx)?;
+        self.send_filled(r, filled, timeout)
+    }
+
+    /// Path, body and headers of a table request, filled; an error names the placeholder that
+    /// has no value (the table's fault when the scenario does not carry it).
+    fn fill_request(&self, r: &J, ctx: &Ctx) -> Result<Filled, String> {
         let mut ctx = ctx.clone();
         ctx.insert("capture", self.captured.clone());
         let path = fill_path(s(&r["path"]), &ctx)?;
@@ -233,7 +242,26 @@ impl Adapter {
         for (k, v) in r["headers"].as_object().into_iter().flatten() {
             headers.push((k.clone(), fill_text(s(v), &ctx)?));
         }
+        Ok((path, body, headers))
+    }
+
+    fn send_filled(&self, r: &J, (path, body, headers): Filled, timeout: Duration) -> Result<Reply, String> {
+        let port = self.product.as_ref().map(|p| p.port).ok_or("no product is running")?;
         http(port, s(&r["method"]), &path, body.as_ref(), &headers, timeout)
+    }
+
+    /// A command's or view's request sent; one that cannot be filled is logged `request_unfillable`.
+    fn send_logged(&mut self, about: (&str, &str), r: &J, ctx: &Ctx) -> Result<Reply, String> {
+        let filled = match self.fill_request(r, ctx) {
+            Ok(f) => f,
+            Err(why) => {
+                let mut v = json!({"event": "request_unfillable", "why": why});
+                v[about.0] = json!(about.1);
+                self.note(v);
+                return Err(why);
+            }
+        };
+        self.send_filled(r, filled, self.request_timeout)
     }
 
     /// The scenario's input with every bound field replaced by its captured value; each replaced
@@ -282,7 +310,7 @@ impl Adapter {
         let mut ctx: Ctx = BTreeMap::new();
         let input = self.bind(&req["input"]);
         ctx.insert("input", input);
-        let reply = match self.send(&request, &ctx) {
+        let reply = match self.send_logged(("command", &name), &request, &ctx) {
             Ok(r) => r,
             Err(e) => return Answer::Unavailable(format!("{name}: {} {}: {e}", s(&request["method"]), s(&request["path"]))),
         };
@@ -339,7 +367,7 @@ impl Adapter {
         let mut ctx: Ctx = BTreeMap::new();
         let params = self.bind(&req.get("params").cloned().unwrap_or(json!({})));
         ctx.insert("params", params);
-        let reply = match self.send(&v["request"], &ctx) {
+        let reply = match self.send_logged(("view", &name), &v["request"], &ctx) {
             Ok(r) => r,
             Err(e) => return Answer::Unavailable(format!("{name}: {e}")),
         };

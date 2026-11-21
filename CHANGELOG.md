@@ -12,10 +12,15 @@ The crates are `publish = false`; releases are source releases at bare-version t
 - Conformance observation after close (`docs/conformance.md`, `story:conformance-observe-after-close`):
   `sdc-conform observe runs/<run>` holds the delivered product to the conformance suite of the
   run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
-  `sdc-conform-adapter`, with a route table written after the run by the node `conformance.table`
+  `sdc-conform-adapter`, with route tables written after the run by the node `conformance.table`
   (read-only, response schema, program check, two retries) and writes `runs/<run>/oracle.json`:
-  `conformance: k passed, f failed, u not measurable of n`, `held` only when ess says `passed` and
-  k = n > 0 (u > 0 is never held), every other end `unknown` with a named cause. A scenario is not
+  `conformance: k passed, f failed, u not measurable of n; t tables agree on a of n`. The suite
+  runs once per table (`--tables`, default 3); a scenario passes when one counted table passed it
+  and fails when none passed and one failed it. A table whose run shows its own fault (a capture
+  that never appears, a request naming a value the scenario leaves out, 401 or 403) is refused and
+  asked again once with that evidence. `held` only when k = n > 0 (u > 0 is never held); a run
+  without a counted table is `unknown` with a named cause and prints no counts
+  (`not measured (<cause>), n scenarios`). A scenario is not
   measurable when it needs what the table declares `none` of kind
   `not_reachable_over_the_interface`; `not_implemented` fails. The table can capture values the
   product prints at start (`captures`), send them in paths, headers and bodies, and bind them to a

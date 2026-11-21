@@ -183,6 +183,8 @@
       "totals": {
         "clean_passes": 0,
         "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
           "contradicted": 0,
           "f": 0,
           "held": 0,
@@ -471,6 +473,8 @@
       "totals": {
         "clean_passes": 5,
         "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
           "contradicted": 0,
           "f": 0,
           "held": 0,
@@ -662,6 +666,8 @@
       "totals": {
         "clean_passes": 0,
         "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
           "contradicted": 0,
           "f": 0,
           "held": 0,
@@ -832,6 +838,8 @@
       "totals": {
         "clean_passes": 2,
         "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
           "contradicted": 0,
           "f": 0,
           "held": 0,
@@ -1139,6 +1147,8 @@
       "totals": {
         "clean_passes": 6,
         "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
           "contradicted": 0,
           "f": 0,
           "held": 0,
@@ -1233,6 +1243,8 @@
       "totals": {
         "clean_passes": 0,
         "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
           "contradicted": 0,
           "f": 0,
           "held": 0,
