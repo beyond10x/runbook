@@ -7,7 +7,8 @@
 #   decider.sh <kind> <request.json>
 #
 # kind: approve (rule: approve every approval, accept every question's default, close),
-#       reject (rule: refuse every decision), haiku (one bounded LLM call per decision).
+#       reject (rule: refuse every decision), haiku (one bounded LLM call per decision),
+#       requester (the requester agent, decider:requester: below, "The requester agent").
 # request: {type: approval|question|finding|close, case_dir, action, capability, subject, path,
 #           revision, question (the question object, for type question), finding (the finding
 #           object of findings.yaml, for type finding), outcome (for type close),
@@ -112,8 +113,8 @@ case $kind in
   approve) rule approve "rule decider: approve every pending approval, accept every question's default, close at the legitimate outcome"; exit 0 ;;
   reject) rule reject "rule decider: refuse every decision"; exit 0 ;;
   validate) validate; exit 0 ;; # re-check a recorded reply (record_dir) without a call
-  haiku) need_reply ;;
-  *) echo "decider: unknown kind $kind (approve, reject, haiku, validate)" >&2; exit 64 ;;
+  haiku|requester) need_reply ;;
+  *) echo "decider: unknown kind $kind (approve, reject, haiku, requester, validate)" >&2; exit 64 ;;
 esac
 
 adapter=${SDC_DECIDER_ADAPTER:-${SDC_LLM_ADAPTER:-metaharness}}
@@ -138,6 +139,150 @@ call_status() { # $1 state, $2 exit (absent while running)
 call_status running
 # The call's exit: the script's, else the adapter's.
 trap 'c=$?; (( c == 0 )) && c=${acode:-0}; [[ $c == 0 ]] && call_status finished 0 || call_status failed "$c"' EXIT
+
+# The requester agent (docs/requester.md § 3, story:requester-decider): principal
+# decider:requester, for the requester-side classes. Its in/ holds exactly request.json (the
+# contract's request: from sdc-decision-request for a question, built here for an approval or a
+# close), the subject file, the files the request's grounds cite, idea.yaml, dissection.yaml,
+# goals.yaml and decisions.json (its own earlier decisions of this run); nothing else. It writes
+# out/reply.json {option, answer, reasons, grounds, strength, no_ground_in_goals}; the grounds go
+# through tools/decision-grounds.sh. No ground: an escalate (D→P waits on the requester person;
+# under final run-trial.sh takes the request's default, marked no_ground_in_goals).
+requester_call() {
+  local level qid request subj sp f g reply_f prop chk verdict letter ans dec_ best opts no_ground model node
+  level=$(r '.autonomy // "A3"')
+  case $type in
+    question)
+      qid=$(r .question.id)
+      request=$("$reply_bin_dir/sdc-decision-request" "$case_dir" "$qid" --level "$level" --holder decider \
+        --eligible "decider:requester,${SDC_REQUESTER_PERSON:-person:requester}" --opened-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" | jq -c .request) ||
+        { jq -cn --arg q "$qid" '{decision: "escalate", answer: null, best: null, reasons: ["no decision request for \($q) (sdc-decision-request refused it)"],
+            cites: [], kind: "requester", valid: false, invalid_reason: "no decision request"}'; return 0; } ;;
+    *)
+      sp=$(r '.path // ""')
+      request=$(jq -c --arg lvl "$level" --arg sp "$sp" --arg cid "$(jq -r .id "$case_dir/case.json")" '{
+        request_id: "DR-\($cid)-\(.action)-\(.revision // "none")", state: "Open", case_id: $cid,
+        question_key: "\($cid)|\(.action)", unblocks: {kind: .type, action: .action},
+        subject_artifact: (.subject // "case"), subject_revision: .revision,
+        subject_path: (if $sp == "" then null else "work/\($sp)" end),
+        question: (if .type == "close" then "Close the idea through the outcome \(.outcome)?"
+          else "Approve \(.action): the \(.subject) at revision \(.revision)?" end),
+        options: [{letter: "A", does: (if .type == "close" then "close through \(.outcome)" else "approve" end)},
+                  {letter: "B", does: (if .type == "close" then "do not close" else "reject: the writer reworks it" end)}],
+        autonomy_level: $lvl, decision_class: .class, holder: "decider", eligible: ["decider:requester"],
+        addressed_to: "decider:requester", grounds: [], decision_reasons: []}' <<< "$req") ;;
+  esac
+  printf '%s\n' "$request" > "$cwd/in/request.json"
+  inputs=("in/request.json (the decision request: question, options, the default and its grounds)")
+  rinput() { # <path under work/>: one input file, copied as it is
+    [[ -n $1 && -f $work/$1 && ! -e $cwd/in/$1 ]] || return 0
+    mkdir -p "$cwd/in/$(dirname "$1")"; cp "$work/$1" "$cwd/in/$1"; inputs+=("in/$1")
+  }
+  sp=$(jq -r '.subject_path // "" | ltrimstr("work/")' <<< "$request")
+  rinput "$sp"
+  while IFS= read -r f; do rinput "$f"; done < <(jq -r '.grounds[]?.citation | select(.form == "path_line") | .value.path | ltrimstr("work/")' <<< "$request")
+  rinput idea.yaml; rinput dissection.yaml; rinput goals.yaml
+  jq -s '[.[] | select(.principal == "decider:requester" and .valid != false)
+    | {case, action, question, revision, decision, answer, reasons, grounds}]' "$(r '.decisions_log // "/dev/null"')" > "$cwd/in/decisions.json" 2>/dev/null ||
+    echo '[]' > "$cwd/in/decisions.json"
+  inputs+=("in/decisions.json (your earlier decisions in this run)")
+
+  prompt=$rec/prompt.md
+  {
+    echo "You answer for the requester: the person or organisation that asked for this software."
+    echo "Its goals, principles, constraints and preferences are in in/goals.yaml; its idea in in/idea.yaml."
+    echo "Work only in the current directory. Read the inputs under in/; write only out/reply.json."
+    echo
+    echo "Inputs:"
+    printf -- '- %s\n' "${inputs[@]}"
+    echo
+    echo "Choose the option (or, for a question, a short answer of your own) that the entries of"
+    echo "in/goals.yaml support. Never choose an option that crosses a constraint. Cite every entry you rely"
+    echo "on. When no entry covers the decision, or two entries of equal priority conflict, say so with"
+    echo "no_ground_in_goals: true; do not guess."
+    echo
+    echo "Write out/reply.json, exactly these keys:"
+    echo '{"option": "<letter of the chosen option, or null with a free answer>",'
+    echo ' "answer": "<for a question: a free answer when no option fits; otherwise null>",'
+    echo ' "reasons": ["<one sentence each>"],'
+    echo ' "grounds": [{"source": "goals", "citation": {"form": "artifact_revision", "value": {"artifact": "goals",'
+    echo '     "revision": "<the goals revision>", "entry": "<entry id>"}}, "supports": "<letter, absent for a free answer>",'
+    echo '     "how": "<one sentence: how the entry supports it>"}],'
+    echo ' "strength": "strong | moderate | weak",'
+    echo ' "no_ground_in_goals": true | false}'
+    echo "The goals revision is $(jq -r '.artifacts.goals.revision // "none"' "$case_dir/case.json"); idea and prior grounds"
+    echo "(source idea, prior_decision) cite lines as {\"form\": \"path_line\", \"value\": {\"path\": \"work/<file>\", \"line\": <n>}}."
+    if [[ $(r '.retry.attempt // 1') -gt 1 ]]; then
+      echo
+      echo "This is attempt $(r .retry.attempt). Your previous reply was refused by the program check:"
+      echo "  $(r .retry.invalid_reason)"
+    fi
+    echo
+    echo "When the file is written, reply with the single word: done."
+  } > "$prompt"
+  model=${SDC_LLM_MODEL_REQUESTER:-${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}}
+  node=requester.$(r '.question.id // .action')
+  jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
+    --arg case "$(jq -r '.id // ""' "$case_dir/case.json")" --arg case_dir "$case_dir" '{model: $model, prompt_file: $prompt, cwd: $cwd,
+    record_dir: $rec, node: $node, attempt: $attempt, case: $case, case_dir: $case_dir, operations: ["dir.list", "file.read", "file.write"],
+    max_turns: ($ENV.SDC_DECIDER_MAX_TURNS // "8" | tonumber), max_budget_usd: ($ENV.SDC_DECIDER_MAX_BUDGET_USD // "0.25" | tonumber)}' > "$rec/request.json"
+  "$adapter_bin" "$rec/request.json" > "$rec/response.json"
+  acode=$?
+  jq -e 'type == "object"' "$rec/response.json" > /dev/null 2>&1 || echo '{}' > "$rec/response.json"
+  meta=$(jq -c --arg rec "$rec" --argjson acode "$acode" '{kind: "requester", model, adapter, usage, cost_usd, duration_ms, exit: $acode,
+    record: $rec}' "$rec/response.json" 2>/dev/null || echo '{"kind": "requester"}')
+  if [[ $adapter == dry ]]; then
+    rule approve "dry run: no LLM was called; the approve rule decided" true | jq -c --argjson m "$meta" '. + $m + {dry: true}'
+    return 0
+  fi
+  invalid() { jq -cn --arg why "$1" --argjson m "$meta" '{decision: "escalate", answer: null, best: null,
+    reasons: ["invalid requester reply: " + $why], cites: [], valid: false, invalid_reason: $why} + $m'; }
+  reply_f=$cwd/out/reply.json
+  [[ -s $reply_f ]] && jq -e 'type == "object"' "$reply_f" > /dev/null 2>&1 || { invalid "out/reply.json is missing or not a JSON object"; return 0; }
+  no_ground=$(jq -r '.no_ground_in_goals == true' "$reply_f")
+  opts=$(jq -c '[.options[].letter]' <<< "$request")
+  if [[ $no_ground == true ]]; then
+    # No ground in the goals: escalate; under final the default (a question) or best is taken.
+    best=null; [[ $type != question ]] && best='"approve"'
+    jq -cn --argjson m "$meta" --argjson best "$best" --slurpfile o "$reply_f" '{decision: "escalate", answer: null, best: $best,
+      reasons: (["no ground in the goals"] + ($o[0].reasons // [])), cites: [], grounds: [], strength: ($o[0].strength // "weak"),
+      no_ground_in_goals: true, valid: true} + $m'
+    return 0
+  fi
+  prop=$rec/proposal.json
+  jq -n --argjson req "$request" --slurpfile o "$reply_f" '{request: $req, proposal: ({strength: $o[0].strength, default_on_silence: false,
+    grounds: ($o[0].grounds // []), proposed_by: "llm"} + (if $o[0].option != null then {recommended_option: $o[0].option}
+    else {recommended_answer: $o[0].answer} end))}' > "$prop" || { invalid "out/reply.json does not have the reply's keys"; return 0; }
+  local at_args=(); [[ -n $(jq -r '.opened_at // empty' <<< "$request") ]] || at_args=(--at "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+  chk=$("$here/../../../../tools/decision-grounds.sh" "$prop" --case "$case_dir" "${at_args[@]}" 2>&1)
+  printf '%s\n' "$chk" > "$rec/grounds-check.json"
+  verdict=$(jq -r '.recommend.check_verdict // "refused"' <<< "$chk" 2>/dev/null || echo refused)
+  [[ $verdict == verified ]] || { invalid "the grounding check refused it: $(jq -r '.recommend.check_report // empty' <<< "$chk" 2>/dev/null || tail -n 1 <<< "$chk")"; return 0; }
+  letter=$(jq -r '.option // empty' "$reply_f")
+  if [[ $type == question ]]; then
+    dec_=approve
+    if [[ -n $letter ]]; then
+      ans=$(jq -r --arg l "$letter" '.options[] | select(.letter == $l) | .consequence.answer // .does' <<< "$request")
+    else ans=$(jq -r .answer "$reply_f"); fi
+  else
+    ans=""; dec_=approve; [[ $letter == B ]] && dec_=reject
+  fi
+  jq -cn --arg d "$dec_" --arg a "$ans" --arg t "$type" --argjson m "$meta" --argjson c "$chk" --slurpfile o "$reply_f" '{decision: $d,
+    answer: (if $t == "question" then $a else null end), best: null, reasons: $o[0].reasons, cites: [],
+    grounds: $c.recommend.grounds, citations: [$c.recommend.grounds[] | {cite: ("\(.citation.value.artifact // .citation.value.path)"
+      + (if .citation.value.entry then "#\(.citation.value.entry)" else "" end)), form: .citation.form, value: .citation.value}],
+    strength: $o[0].strength, no_ground_in_goals: false, option: $o[0].option, grounds_check: $c.recommend.check_report, valid: true} + $m'
+}
+if [[ $kind == requester ]]; then
+  reply_bin_dir=$(dirname "$reply_bin")
+  adapter=${SDC_DECIDER_ADAPTER:-${SDC_LLM_ADAPTER:-metaharness}}
+  case $adapter in
+    metaharness|claude-cli|dry) adapter_bin=$here/llm-adapter-$adapter.sh ;;
+    *) adapter_bin=$adapter ;;
+  esac
+  requester_call
+  exit 0
+fi
 
 # Inputs: the idea, the intake's results, the direction's artifacts and the subject under review.
 inputs=()

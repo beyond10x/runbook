@@ -75,7 +75,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   story-late-person decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-release-a3 principals models)
+  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -682,6 +682,53 @@ if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.j
   else
     echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
   fi
+fi
+# requester-decider (story:requester-decider, docs/requester.md § 3): the trial-2 fixture
+# (fixtures/trial-2) with the trial-2 goals, SDC_REQUESTER_DECIDER=haiku and the recorded requester
+# replies (fixtures/trial-2/requester-replies.json). At A3 the scope-changing questions q1 and q3
+# are decided by decider:requester, whose record's in/ holds exactly request.json, the subject
+# (questions.yaml), the files the request's grounds cite (dissection.yaml), idea.yaml,
+# dissection.yaml, goals.yaml and decisions.json, and whose grounds the grounding check verified;
+# the merge goes to the delivering decider (decider:haiku). requester-no-ground: at A5, q3's reply
+# says no_ground_in_goals: its default is taken, marked so, as a suppressed escalation.
+t2=$fx/trial-2
+req_trial() { # <name> [env ...]
+  local name=$1; shift
+  rm -rf "$s/runs/$name"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" \
+    SDC_REQUESTER_DECIDER=haiku SDC_STUB_FIXTURES="$t2" "$@" \
+    "$sdc/scripts/run-trial.sh" "$name" "$(yq -r .text "$t2/idea.yaml")" --goals "$sdc/decision/examples/goals/trial-2.yaml" "${targs[@]}" > "$s/$name.txt" 2>&1
+  local code=$?
+  echo "$name: exit $code ($(tail -n 1 "$s/$name.txt" | cut -c1-160))"
+  return $code
+}
+targs=()
+req_trial requester-decider SDC_AUTONOMY=A3 SDC_REQUESTER_REPLIES="$t2/requester-replies.json"
+code=$?
+r=$s/runs/requester-decider
+q1rec=$(ls -d "$r"/decider/*-q1 2>/dev/null | head -n 1)
+if (( code == 0 )) &&
+   jq -se '[.[] | select(.question == "q1" or .question == "q3") | select(.decision == "approve") | .principal + " " + .side]
+     == ["decider:requester requester", "decider:requester requester"]' "$r/decisions.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.id == "q1" or .id == "q3") | .answered_by] == ["decider:requester", "decider:requester"]' >/dev/null &&
+   [[ -n $q1rec && "$(cd "$q1rec/cwd/in" && find . -type f | sort | tr '\n' ' ')" == "./decisions.json ./dissection.yaml ./goals.yaml ./idea.yaml ./questions.yaml ./request.json " ]] &&
+   jq -e '.recommend.check_verdict == "verified"' "$q1rec/grounds-check.json" "$(ls -d "$r"/decider/*-q3 | head -n 1)/grounds-check.json" >/dev/null &&
+   jq -se '[.[] | select(.action == "merge.approve" or .action == "change.merge") | .principal + " " + .side] | length > 0 and all(. == "decider:haiku delivering")' "$r/decisions.jsonl" >/dev/null; then
+  echo "requester-decider: checks pass (q1, q3 by decider:requester on verified goals grounds, its in/ exactly the request, subject, cited files, idea, dissection, goals, decisions; merge by decider:haiku)"
+else
+  echo "requester-decider: FAILED (exit $code: $(jq -sc '[.[] | {action, question, principal, side}]' "$r/decisions.jsonl" 2>/dev/null | cut -c1-300))"
+fi
+targs=(--autopilot)
+req_trial requester-no-ground SDC_REQUESTER_REPLIES="$(jq -c '.q3 = {option: null, answer: null, reasons: ["fixture: no entry covers sign-in"], grounds: [], strength: "weak", no_ground_in_goals: true}' "$t2/requester-replies.json")"
+code=$?
+r=$s/runs/requester-no-ground
+if (( code == 0 )) &&
+   jq -se '[.[] | select(.question == "q3" and .principal == "decider:requester")] | last
+     | .no_ground_in_goals == true and .suppressed == true and .answer == "Sign in with a one-time code sent by email"' "$r/decisions.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q3") | .answer == .default and .answered_by == "decider:requester"' >/dev/null; then
+  echo "requester-no-ground: checks pass (A5: no ground for q3, its default taken, marked no_ground_in_goals)"
+else
+  echo "requester-no-ground: FAILED (exit $code: $(jq -sc '[.[] | select(.question == "q3") | {decision, no_ground_in_goals, suppressed, answer}]' "$r/decisions.jsonl" 2>/dev/null))"
 fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted
