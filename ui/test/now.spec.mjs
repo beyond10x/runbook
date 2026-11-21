@@ -179,7 +179,10 @@ test('waiting on a person, nothing running', async ({page}, info) => {
   await expect(card.locator('.nc-hold')).toContainText(/You \([a-z][a-z0-9:_-]*\)/);
   await expect(page.locator('#now .now-drv')).toHaveCount(0);
   await expect(card).toContainText('owner.approve');
-  await expect(card.locator('.tk')).toHaveText(/^4:\d\d$/);
+  // no driver attached (the person fixture writes no lock): the clock stands at the last event
+  await expect(page.locator('#now .now-sub')).toHaveText(/^no driver attached, last activity [\d: APM]+$/);
+  await expect(card.locator('.tk')).toHaveText('0:00');
+  await expect(card).toContainText(/since [\d: APM]+/);
   await page.waitForTimeout(500);
   await shot(page, info, 'person');
   expect(errors).toEqual([]);
@@ -208,8 +211,9 @@ test('driver.json names a pid that is gone: the started steps say so', async ({p
   await expect(page.locator('#now .now-drv.off')).toHaveText('Driver gone');
   await expect(page.locator('#now .nc.gone .nc-verb').first()).toHaveText('Driver gone');
   await expect(page.locator('#now .nc.gone').first()).toContainText('which is not running');
-  // dated by the driver (three minutes ago), not by when the server first saw the file
-  await expect(page.locator('#now .nc.gone .tk').first()).toHaveText(/^3:\d\d$/);
+  // no driver attached: every clock stands at the last event
+  await expect(page.locator('#now .now-sub')).toContainText(/a started step has no live driver, last activity [\d: APM]+/);
+  await expect(page.locator('#now .nc.gone .tk').first()).toHaveText('0:00');
   await page.waitForTimeout(400);
   await shot(page, info, 'driver-gone');
   expect(errors).toEqual([]);

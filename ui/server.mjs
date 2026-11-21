@@ -544,7 +544,10 @@ const clients = new Set();
 // Every path leaves the server relative to the repository (sdc/), its workspace (../) or ~, never
 // as an absolute home path: what the page shows and what a screenshot or a saved page keeps.
 const HOME = process.env.HOME || '/nonexistent';
-const shownPaths = (s) => s.split(sdc + '/').join('').split(sdc).join('.').split(path.dirname(sdc) + '/').join('../')
+// a worktree whose runs/ links to another checkout's runs/ has that checkout as a second root
+const roots = (() => { try { const r = path.dirname(fs.realpathSync(path.join(sdc, 'runs'))); return r !== sdc ? [sdc, r] : [sdc]; } catch { return [sdc]; } })();
+const rootRel = (s, r) => s.split(r + '/').join('').split(r).join('.').split(path.dirname(r) + '/').join('../');
+const shownPaths = (s) => roots.reduce(rootRel, s)
   .split(HOME + '/').join('~/').split(HOME).join('~').replace(/\/home\/[^/\s"'<>\\]+/g, '~');
 function push(name, data) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;

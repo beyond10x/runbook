@@ -26,7 +26,7 @@ test.afterAll(() => srv?.kill());
 test('no committed file under ui/ names an absolute home path', () => {
   const ls = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '.'], {cwd: ui, encoding: 'utf8'});
   expect(ls.status, ls.stderr).toBe(0);
-  const files = ls.stdout.split('\0').filter((f) => f && !/\.(png|jpe?g|gif|webp|ico|woff2?)$/i.test(f) && fs.existsSync(path.join(ui, f)));
+  const files = ls.stdout.split('\0').filter((f) => f && !/\.(png|jpe?g|gif|webp|ico|woff2?)$/i.test(f) && fs.existsSync(path.join(ui, f)) && fs.statSync(path.join(ui, f)).isFile());
   expect(files.some((f) => /^ux\/rounds\/R-\d\d\/round\.json$/.test(f)), 'the generated round files are among the checked files').toBe(true);
   const bad = files.flatMap((f) => hits(fs.readFileSync(path.join(ui, f), 'utf8')).map((h) => `${f}:${h}`));
   expect(bad, 'absolute home paths in files git would commit').toEqual([]);

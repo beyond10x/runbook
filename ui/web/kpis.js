@@ -75,8 +75,9 @@ export function computeKpis(cases, run, history, ns, now = Date.now()) {
     }
   }
   const stopT = ns?.stopped ? Date.parse(ns.stopped.at) : null;
-  const closed = ns?.mode === 'closed' || ns?.mode === 'stuck' || stopT != null;
-  const end = stopT != null ? stopT : closed ? last : now;
+  const idleT = ns?.idle?.t ?? null;
+  const closed = ns?.mode === 'closed' || ns?.mode === 'stuck' || stopT != null || idleT != null;
+  const end = stopT != null ? stopT : idleT != null ? idleT : closed ? last : now;
   const wall = first != null ? Math.max(0, end - first) : null;
   const stops = personStops(cases, run, end, ns);
   const waitMs = unionMs(stops.map((s) => [s.start, s.end]));
