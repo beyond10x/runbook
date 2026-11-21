@@ -33,6 +33,25 @@ statement has become false.
 
 Steps 1 and 2 need no decision. Steps 3 and 4 are the operator's: no session tags, publishes or
 opens a release on its own judgement, and a request to prepare a release is not the word to release.
+The operator's standing rule below is that word for one kind of release.
+
+## Standing rule: a release after every improvement (the operator, 2026-11-21)
+
+The operator, 2026-11-21: "Now steadily improve the workflow. Document your gains, document it
+accurately, and prepare for putting this onto a nice image on the public documentation. Cut
+releases after every improvement."
+
+- A release is cut after every improvement that is merged into `main` with green gates and has its
+  ledger entry: its line in `experiments/releases.yaml`, and `docs/progress.md`,
+  `docs/progress.json` and `docs/img/progress.svg` regenerated, with `sdc-experiment check --all`
+  passing (`docs/improving.md`).
+- The session that merged the improvement then takes steps 1 to 4 without a further word from the
+  operator: the preparation commit, the gates, the tag and the GitHub Release. Step 5 records the
+  standing rule's approval record instead of a new word.
+- Not covered: a release without a merged improvement and a ledger entry, a release whose gates
+  are not green, and a major version; those still wait for the operator's word.
+- The version follows `docs/improving.md` § Versioning: patch for fixes and tools, minor for a
+  protocol or behaviour change.
 
 ## Steps 3 and 4
 

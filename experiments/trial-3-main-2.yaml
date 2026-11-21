@@ -55,7 +55,7 @@ variants:
     decider.model: claude-haiku-5-5
   runs:
   - run: trial-3-haiku-9
-    note: still running when the record was written
+    note: ended 2026-11-21T12:31:35Z, stopped writer_spent at change.implement in IDEA-1.list.tasks (3 runs); not reopened
 runs_per_variant: 2
 pass_rule: clean-delivery
 decision_rule:
@@ -88,10 +88,9 @@ result:
     listed: 1
     without_summary: []
   - clean_passes: 0
-    ended: 0
+    ended: 1
     id: haiku
     listed: 1
-    without_summary:
-    - trial-3-haiku-9
+    without_summary: []
   verdict: descriptive
   why: 'no hypothesis: the record describes its runs and decides nothing'

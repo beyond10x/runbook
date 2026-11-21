@@ -42,7 +42,7 @@ Known confounds:
 | trial-3-strong-5 | strong | closed: operating | yes | 5.338 | 967 | 1.417 | 7 change.review calls |
 | trial-3-strong-6 | strong | closed: operating | yes | 4.055 | 677 | 1.333 | 5 change.review calls |
 | trial-3-mixed-8 | mixed | stopped: rework_spent in IDEA-1.todo.access | no | 1.272 | 1030 | 1.3 |  |
-| trial-3-haiku-9 | haiku | no summary: not ended | - | - | - | - | still running when the record was written |
+| trial-3-haiku-9 | haiku | stopped: writer_spent in IDEA-1.list.tasks | no | 0.878 | 3446 | 1.417 | ended 2026-11-21T12:31:35Z, stopped writer_spent at change.implement in IDEA-1.list.tasks (3 runs); not reopened |
 
 ## Per variant
 
@@ -51,22 +51,22 @@ Median [min, max] (n) over the ended runs.
 | | strong | mixed | haiku |
 |---|---|---|---|
 | runs listed | 2 | 1 | 1 |
-| ended | 2 | 1 | 0 |
+| ended | 2 | 1 | 1 |
 | clean passes | 2 | 0 | 0 |
-| `run.cost_usd` | 4.6963 [4.0549, 5.3377] (2) | 1.2719 [1.2719, 1.2719] (1) | - |
-| `run.llm_calls` | 22.5 [21, 24] (2) | 16 [16, 16] (1) | - |
-| `run.decider_calls` | 11 [11, 11] (2) | 10 [10, 10] (1) | - |
-| `run.wall_s` | 822 [677, 967] (2) | 1030 [1030, 1030] (1) | - |
-| `run.driver_s` | 651 [514, 788] (2) | 394 [394, 394] (1) | - |
-| `run.real_takes` | 98.5 [97, 100] (2) | 80 [80, 80] (1) | - |
-| `run.rework_takes` | 29.5 [28, 31] (2) | 30 [30, 30] (1) | - |
-| `run.looping_factor` | 1.375 [1.333, 1.417] (2) | 1.3 [1.3, 1.3] (1) | - |
-| `run.first_pass_yield` | 0.667 [0.667, 0.667] (2) | 0.9 [0.9, 0.9] (1) | - |
-| `run.rework_cost_usd` | 0.9953 [0.4839, 1.5066] (2) | 0.635 [0.635, 0.635] (1) | - |
-| `run.furthest_stage_index` | 7 [7, 7] (2) | 6 [6, 6] (1) | - |
-| `run.findings_raised` | 2.5 [2, 3] (2) | 4 [4, 4] (1) | - |
-| `run.waiting_on_person_s` | 0 [0, 0] (2) | 0 [0, 0] (1) | - |
-| `run.clean` | 1 [1, 1] (2) | 0 [0, 0] (1) | - |
+| `run.cost_usd` | 4.6963 [4.0549, 5.3377] (2) | 1.2719 [1.2719, 1.2719] (1) | 0.8776 [0.8776, 0.8776] (1) |
+| `run.llm_calls` | 22.5 [21, 24] (2) | 16 [16, 16] (1) | 22 [22, 22] (1) |
+| `run.decider_calls` | 11 [11, 11] (2) | 10 [10, 10] (1) | 17 [17, 17] (1) |
+| `run.wall_s` | 822 [677, 967] (2) | 1030 [1030, 1030] (1) | 3446 [3446, 3446] (1) |
+| `run.driver_s` | 651 [514, 788] (2) | 394 [394, 394] (1) | 2198 [2198, 2198] (1) |
+| `run.real_takes` | 98.5 [97, 100] (2) | 80 [80, 80] (1) | 117 [117, 117] (1) |
+| `run.rework_takes` | 29.5 [28, 31] (2) | 30 [30, 30] (1) | 52 [52, 52] (1) |
+| `run.looping_factor` | 1.375 [1.333, 1.417] (2) | 1.3 [1.3, 1.3] (1) | 1.417 [1.417, 1.417] (1) |
+| `run.first_pass_yield` | 0.667 [0.667, 0.667] (2) | 0.9 [0.9, 0.9] (1) | 0.75 [0.75, 0.75] (1) |
+| `run.rework_cost_usd` | 0.9953 [0.4839, 1.5066] (2) | 0.635 [0.635, 0.635] (1) | 0.2949 [0.2949, 0.2949] (1) |
+| `run.furthest_stage_index` | 7 [7, 7] (2) | 6 [6, 6] (1) | 6 [6, 6] (1) |
+| `run.findings_raised` | 2.5 [2, 3] (2) | 4 [4, 4] (1) | 25 [25, 25] (1) |
+| `run.waiting_on_person_s` | 0 [0, 0] (2) | 0 [0, 0] (1) | 0 [0, 0] (1) |
+| `run.clean` | 1 [1, 1] (2) | 0 [0, 0] (1) | 0 [0, 0] (1) |
 
 ## Loops
 
@@ -85,8 +85,11 @@ Per variant, over the ended runs: of the writer and approval nodes taken again a
   - `story: merge.approve:rejected -> change.implement` (approval): count 2 in 1 runs, loop cost 0.465 USD, loop driver 105 s
   - `story: finding@story -> intake` (finding): count 2 in 1 runs, loop cost 0.162 USD, loop driver 65 s
   - `direction: finding@context -> intake` (finding): count 2 in 1 runs, loop cost 0 USD, loop driver 0 s
-- haiku (n 0):
-  - no node taken again, no edge
+- haiku (n 1):
+  - `story/change.implement` (llm-writer): looping factor median 2.667 (max 2.667, n 1), rework takes 5, rework cost 0.235 USD
+  - `story: finding@story -> intake` (finding): count 20 in 1 runs, loop cost 0.198 USD, loop driver 371 s
+  - `story: merge.approve:rejected -> change.implement` (approval): count 1 in 1 runs, loop cost 0.105 USD, loop driver 218 s
+  - `story: change.review:rejected -> change.implement` (check): count 2 in 1 runs, loop cost 0.049 USD, loop driver 159 s
 
 ## Verdict
 
