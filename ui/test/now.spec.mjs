@@ -1,6 +1,7 @@
 // The "now" band against runs that are happening: test/fixture-run.mjs plays four scenarios out of
 // a recorded run into SDC_UI_FIXTURE_DIR (default test/fixtures/runs/<project>), and this file starts
-// its own server over them on port 7496 (wide) / 7497 (laptop), SDC_UI_NOW_PORT to move.
+// its own server over them on port 7496 (wide) / 7497 (laptop), SDC_UI_NOW_PORT to move. The agent
+// test plays on a shared clock (test/shared-clock.mjs) with a second server on 7498 / 7499.
 // Screenshots: screenshots/<project>-now-*.png.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
@@ -8,18 +9,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun} from './need-run.mjs';
+import {sharedClock} from './shared-clock.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const procs = [];
-let base, dir;
+let base, dir, port;
 
 test.beforeAll(async ({}, info) => {
   needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'now.spec.mjs (fixture source)', test);
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'now.spec.mjs', test);
   const k = info.project.name === 'wide' ? 0 : 1;
-  const port = Number(process.env.SDC_UI_NOW_PORT || 7496) + k;
+  port = Number(process.env.SDC_UI_NOW_PORT || 7496) + k;
   dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
   base = `http://127.0.0.1:${port}`;
   fs.mkdirSync(dir, {recursive: true});
@@ -35,17 +37,30 @@ test.beforeAll(async ({}, info) => {
 });
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
 
-const play = (scenario, speed = '1.5') => { const p = spawn('node', ['test/fixture-run.mjs', scenario, path.join(dir, scenario), speed], {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
+const play = (scenario, speed = '1.5', env = process.env) => { const p = spawn('node', ['test/fixture-run.mjs', scenario, path.join(dir, scenario), speed], {cwd: ui, stdio: 'ignore', env}); procs.push(p); return p; };
 const shot = (page, info, name) => page.screenshot({path: path.join(shots, `${info.project.name}-now-${name}.png`)});
 const errorsOf = (page) => { const e = []; page.on('pageerror', (x) => e.push(String(x))); return e; };
 
 test('one agent in flight: action, model, live progress, elapsed time, files', async ({page}, info) => {
   test.setTimeout(120000);
   const errors = errorsOf(page);
-  const fx = play('agent');
-  await page.goto(base + '/?source=0');
+  // the shared clock moves only when this test steps it: every state below is reached by stepping
+  // until it shows, never by waiting a duration, so the machine's load cannot make it late. The
+  // clock starts two minutes back, so the times the player writes are past ones for the tests after.
+  const clock = sharedClock(path.join(dir, 'agent-clock'), Date.now() - 120000);
+  const clockBase = `http://127.0.0.1:${port + 2}`;
+  procs.push(spawn('node', ['server.mjs', '--port', String(port + 2), path.join(dir, 'agent', 'store')], {cwd: ui, stdio: 'ignore', env: clock.env}));
+  await clock.serve(clockBase);
+  const fx = await clock.play(() => play('agent', '1.5', clock.env));
+  await clock.prepare(page);
+  await page.goto(clockBase + '/?source=0');
+  await clock.sync(page);
   const card = page.locator('#now .nc.run.k-llm');
-  await expect(card).toBeVisible({timeout: 20000});
+  await clock.stepUntil(page, 'the agent card', () => card.isVisible());
+  await expect(card).toBeVisible();
+  // the action has started; its call record follows a moment of play later
+  const liveOf = async () => (await fetch(clockBase + '/api/live?source=0')).json();
+  await clock.stepUntil(page, 'the call record', async () => (await liveOf()).records.length > 0);
   await expect(card.locator('.nc-act')).toHaveText('change.implement');
   await expect(card.locator('.nc-case')).toHaveText('IDEA-1.todolist.storage');
   await expect(card.locator('.nc-2')).toContainText('claude-haiku-5-5');
@@ -61,35 +76,38 @@ test('one agent in flight: action, model, live progress, elapsed time, files', a
   const obs = fs.readFileSync(path.join(storage, 'observed.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const started = obs.filter((o) => o.event === 'action_started').at(-1);
   expect(started).toMatchObject({format: 'sdc.observed/1', action: 'change.implement'});
-  const tree = await (await fetch(base + '/api/tree?source=0')).json();
+  const tree = await (await fetch(clockBase + '/api/tree?source=0')).json();
   const sc = tree.cases.find((c) => c.id === 'IDEA-1.todolist.storage');
   const sseq = sc.events[started.index].seq;
   expect(sc.times[sseq]).toBe(Date.parse(started.observed_at));
   expect(sc.timeSource[sseq]).toBe('driver');
   await expect(card).toHaveAttribute('title', /the driver’s observed_at/);
   // the call joins its case by request.json.case and says it runs by status.json
-  const live0 = await (await fetch(base + '/api/live?source=0')).json();
+  const live0 = await liveOf();
   expect(live0.records[0]).toMatchObject({case: 'IDEA-1.todolist.storage', caseFrom: 'request.json', status: {state: 'running', alive: true}});
   expect(Object.values(live0.drivers)[0]).toMatchObject({file: true, alive: true, observed: true});
-  // the timer ticks in place: the same node, a later value, no re-render needed
+  // the timer ticks in place: the same node, a later value once the clock has moved, no re-render needed
   const tk = card.locator('.nc-time .tk');
   const el = await tk.elementHandle();
   const t1 = await tk.textContent();
-  await page.waitForTimeout(2200);
-  expect(await tk.textContent()).not.toBe(t1);
+  await clock.step(page);
+  await clock.step(page);
+  await expect(tk).not.toHaveText(t1);
   expect(await el.evaluate((n) => n.isConnected)).toBe(true);
   // the graph and the phase strip point at the same action
   await expect(page.locator('#graph .node.live[data-id="action:change.implement"]')).toBeVisible();
   await expect(page.locator('#phases .phase.ph-live')).toHaveCount(1);
   await expect(page.locator('#phases .phase.ph-live')).toHaveAttribute('data-phase', 'implement');
   // tool calls stream in, then file changes with the call that made them
-  await expect.poll(async () => Number(await card.locator('.np-n b').nth(1).textContent()), {timeout: 60000}).toBeGreaterThanOrEqual(13);
-  await expect(card.locator('.nc-files .fr').first()).toBeVisible({timeout: 30000});
+  await clock.stepUntil(page, '13 tool calls', async () => Number((await card.locator('.np-n b').allTextContents())[1] || 0) >= 13);
+  await clock.stepUntil(page, 'a file change', () => card.locator('.nc-files .fr').first().isVisible());
   await expect(card.locator('.nc-files .fr').first()).toContainText(/Write|Edit/);
   await page.waitForTimeout(400);
   await shot(page, info, 'agent');
-  await expect(card.locator('.fr', {hasText: 'lib.rs'}).first()).toBeVisible({timeout: 30000});
-  await page.waitForTimeout(2000);
+  await clock.stepUntil(page, 'the lib.rs change', () => card.locator('.fr', {hasText: 'lib.rs'}).first().isVisible());
+  // the agent's second pass over lib.rs, 1400 ms of play later at speed 1.5
+  await clock.step(page);
+  await clock.step(page);
   await shot(page, info, 'agent-files');
   // the diff of one change, highlighted
   await card.locator('.fr', {hasText: 'lib.rs'}).first().click();
@@ -101,9 +119,10 @@ test('one agent in flight: action, model, live progress, elapsed time, files', a
   await shot(page, info, 'diff');
   await page.keyboard.press('Escape');
   // the call ends: the step lands in "just finished" and the next one starts
-  await new Promise((r) => (fx.exitCode != null ? r() : fx.on('exit', r)));
+  await clock.stepUntil(page, 'the player to end', () => fx.exitCode != null);
+  await clock.sync(page);
   await expect(page.locator('#now .trail .tr').first()).toBeVisible();
-  await expect(page.locator('#now .trail')).toContainText('change.implement', {timeout: 15000});
+  await expect(page.locator('#now .trail')).toContainText('change.implement');
   await page.waitForTimeout(800);
   await shot(page, info, 'agent-after');
   expect(errors).toEqual([]);

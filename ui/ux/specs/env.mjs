@@ -84,6 +84,10 @@ export async function start(viewport) {
     // before the page loads: its clock is the shared one, and nothing in it moves by itself
     prepare: async (page) => {
       await page.clock.setFixedTime(now());
+      // UX_SHOWN_PID: the page shows this pid for every process, to measure a pid width the
+      // machine did not happen to hand out (the run's own pids have six or seven digits)
+      const pid = process.env.UX_SHOWN_PID;
+      if (pid) await page.route(/\/api\/live\b/, async (r) => { const res = await r.fetch(); await r.fulfill({response: res, body: (await res.text()).replace(/"pid":\d+/g, `"pid":${Number(pid)}`)}); });
       await page.addInitScript((css) => { document.addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st); }); }, STILL);
     },
     // the page has fetched and painted what the server has now
