@@ -99,3 +99,93 @@ pending until R9 and R7 were built.
 - Whether a third rejection carries the same reasons as the first two (that would make the stop the
   right end) or different ones. The trial runs did not reach a third rejection.
 
+## The check (D148)
+
+`sdc-check-routes` (`driver/src/bin/sdc-check-routes.rs`) turns this audit into a program. It reads:
+
+- the compiled IR of every protocol (`protocol/compiled/*.ir.json`);
+- every bindings file (`results`, `retry_when`, `max_runs`, `manual`, `llm`, `argv`);
+- `decision-classes.json`;
+- the declared rule ends, `driver/examples/sdc/rule-ends.json`.
+
+It prints one line for each state where nothing points to a next step. `scripts/check-bindings.sh`
+runs it with `--doc docs/reject-routes.md`, and fails unless its findings equal the block under
+"Check output" line by line. A fix therefore removes its line from the block, and a new dead end
+adds one, in the same commit.
+
+`rule-ends.json` holds the autopilot rules that lived only in code. `run-trial.sh` reads two of
+them: the rework limit (`rework_limit`, which was the literal 2) and the ends for a refusal (`approvals.*.reject`, which was
+the `refusal_end` array). The check reads all of them. The `driver` entries state facts of the
+driver and of `llm-node.sh`: which effects are capped, whether the cap holds per kind (R7),
+whether a rejection is an arrival (R6), and whether the writer's own failure and a rejection log that is not a document
+are fed back (R9). A route built in code is declared there as well. The other routes stay `null`
+until they are built: R2 (`approvals."sdc.intake/scope.answer"`), R3 (`findings.refused_by_check`),
+R4 and R5 (`approvals.*.after_limit`), and the root close (`close."close:operating"`, which
+`fix/attempt5-close` sets).
+
+| Finding | When |
+|---|---|
+| `negative-result` | a check result that no claim accepts, which no `retry_when` names and no rule end covers, after which no outcome and no write action becomes possible |
+| `stale-retry` | a `retry_when` kind that no bound action of the protocol produces |
+| `not-handed` | a `retry_when` result whose producer's log does not reach the writer |
+| `own-failure` | an LLM writer whose failed run is not fed back |
+| `shared-cap` | different retry kinds, or reworks, that share one `max_runs` |
+| `inert-cap` | a `max_runs` on a node the driver does not cap (`change.review` on `impl/review-node`) |
+| `unrecorded-exit` | an LLM observation with an exit its `results` do not map: no record, so the case is stuck (`change.review` exit 2 on `impl/review-node`) |
+| `rework-limit` | an approval with no end after its last rework |
+| `no-reject-route` | a decision class whose reject has no route |
+
+After `impl/review-node` merges, the check will report `inert-cap` and `unrecorded-exit` for
+`change.review`. The proposed fix is to drop `max_runs` from that binding (one line) and to map exit
+2 to a stop with a named cause (pending cycle `review-invalid-named`).
+
+## Check output
+
+This block is the check's output on this branch. `fix/attempt5-close` removes the first line.
+
+```text
+negative-result sdc.epic spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+negative-result sdc.plan spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+negative-result sdc.release acceptance.run release_conformance=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+negative-result sdc.release release.observe health_observation=unhealthy: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+negative-result sdc.release spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+negative-result sdc.story spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+no-reject-route sdc/close:operating (close): the decider is asked and its reject has no route
+rework-limit sdc.direction/context.approve (context): rejection 3 ends in the stop rework_spent, no end by rule
+rework-limit sdc.story/merge.approve (merge): rejection 3 ends in the stop rework_spent, no end by rule
+rework-limit sdc.direction/roadmap.approve (roadmap): rejection 3 ends in the stop rework_spent, no end by rule
+no-reject-route sdc.intake/scope.answer (scope_changing_answer): a reject is not recordable and no rule end covers it
+rework-limit sdc.direction/vision.approve (vision): rejection 3 ends in the stop rework_spent, no end by rule
+no-reject-route amend.upstream (finding): a decision the program check refuses ends in the stop decision_not_takeable
+
+```
+
+## Found by the check beyond Tables 1 and 2
+
+The four `negative-result` lines about `ess_gate=failed` and the two about the release are not
+reject points and not caps, so Tables 1 and 2 do not list them. They are dead ends all the same:
+nothing is admissible after them and no outcome is legitimate. No coordinator ruling yet and no
+cycle; the routes below are only proposals.
+
+| # | State | Proposed route |
+|---|---|---|
+| R10 | `spec.gate` fails after the spec stage, in the epic, plan, story or release (`protocol/sdc-epic.protocol.yaml:125`, `sdc-plan.protocol.yaml:147`, `sdc-story.protocol.yaml:150`, `sdc-release.protocol.yaml:121`). The gate already passed on the same specification revision, so this needs a changed toolchain. *Inferred*: rare | an end by rule (story `dropped`, epic `abandoned`). The plan has no outcome for it, so a protocol change would be needed there |
+| R11 | `acceptance.run` fails (`sdc-release.protocol.yaml:138`) | the release ends `withheld` by rule, the same end as a refused `release.publish` (row 11) |
+| R12 | `release.observe` reports `unhealthy` (`:162`). `release.rollback` (`:174`) is not bound | bind `release.rollback`; the outcome `rolled_back` already exists |
+
+## Visible to Canon's `simulate`?
+
+This is a list for a later decision; no protocol was changed for it. All state costs are
+*inferred*: they count the extra claim values per case and were not computed.
+
+| Route | As a protocol fact | Visible to `simulate` | Cost in states |
+|---|---|---|---|
+| R2 | a `rejected` result of a `scope_answer` evidence kind on `scope.answer` | yes: a rejected state with no admissible action | ×3 for the intake (one more claim with 3 values) |
+| R3 | the amendment check as evidence (`amendment_check` refused) with a refusal count | yes, if the count is a claim | ×4 (count 0-3) |
+| R4 | a rejection count per approval as a claim (`merge.rejections` 0-3) | yes: after 3, no admissible action and no outcome | ×4 for the story |
+| R5 | the same for `context.approve`, `vision.approve` and `roadmap.approve` | yes | ×4 per approval, ×64 for the direction |
+| R7 | a run count per writer and kind as a claim | yes | ×(cap+1) per kind: `spec.author` ≈ 5^6 ≈ 15 600, too costly |
+| R9 | none: it lives inside the writer | no | — |
+| R10-R12 | already protocol facts | yes, with no change | 0 |
+| root close (`fix/attempt5-close`) | a capability on the close | yes | ×2 |
+| `change.review` exit 2 | a `code_review` result `invalid` with no route | yes | ×1 (one more result value) |

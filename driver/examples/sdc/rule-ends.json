@@ -1,0 +1,26 @@
+{
+  "format": "sdc.rule-ends/1",
+  "driver": {
+    "capped_effects": ["write"],
+    "cap_per_kind": true,
+    "backstop": 8,
+    "rejection_is_arrival": true,
+    "own_failure_fed_back": true,
+    "rejection_logs_fed_back": true
+  },
+  "rework_limit": 2,
+  "questions": {
+    "reject": "refused by the decider's check, asked again, then the default"
+  },
+  "findings": {
+    "reject": "refused by the decider's check, asked again, then the default",
+    "refused_by_check": null
+  },
+  "close": {},
+  "approvals": {
+    "sdc.release/release.publish": {
+      "reject": {"decision": "explicitly_withheld", "outcome": "withheld"}
+    }
+  },
+  "checks": []
+}
