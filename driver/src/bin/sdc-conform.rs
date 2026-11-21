@@ -232,7 +232,11 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
   `start.from`: [{file, line}], the README or manifest (Cargo.toml, package.json, go.mod, pyproject.toml,\n\
   Procfile, Taskfile.yml, Makefile, deno.json, justfile) of the tree and the 1-based lines that state this\n\
   start command for normal use; together the cited lines must contain the program's file name and every\n\
-  literal argument. Never use an argument or a header the README describes as a test, demo or mock mode.\n\
+  argument that holds no placeholder, except a value at the place of an operator value of a cited usage\n\
+  line (`<partner-id>`: any value; `<a|b>`: one of them). Start the binary the build made, never `cargo run` or `go run`:\n\
+  where the README says `cargo run --release -- <port> <file>`, start [\"target/release/<bin>\", \"{port}\",\n\
+  \"{data_file}\"] and cite that README line and the Cargo.toml line naming the package or binary.\n\
+  Never use an argument or a header the README describes as a test, demo or mock mode.\n\
   `start.ready`: a request the product answers once it is up, e.g. {\"method\": \"GET\", \"path\": \"/\"}.\n\
 - `captures` (optional): values the product prints when it starts, e.g. a link, a token or a board code\n\
   minted at start: {name, stream (stdout or stderr), regex (exactly one group), timeout_s (1-120)}.\n\
@@ -254,8 +258,8 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
   or a query parameter that simulates a lost connection).\n\
   `status` may be a list when several statuses mean one outcome (e.g. [409, 404] where the product\n\
   answers a missing entity 404 and the specification calls that case wrong-state). Two outcomes may\n\
-  share a status only with a `when_body` {path, equals} on each. Payload and error fields are never\n\
-  literals: fill each from the response, a lookup, a capture or the input. A field filled from the\n\
+  share a status only with a `when_body` {path, equals} on each. The `error` name is the declared error,\n\
+  written as is; payload fields and error `fields` are never literals: fill each from the response, a lookup, a capture or the input. A field filled from the\n\
   input is recorded unverified, because the check then compares the input with itself; prefer the\n\
   response where the product echoes the value.\n\
 - `views`: one entry per view: `request`, `rows` (the dotted path to the list of rows in the response\n\

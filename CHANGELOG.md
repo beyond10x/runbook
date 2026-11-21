@@ -20,8 +20,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
   disagree (cause `disputed` when nothing failed). Several statuses may mean one outcome
   (`status: [409, 404]`). The check refuses a literal in an event payload or error field, and a
   check of a field filled from the input is recorded unverified (`unverified_checks`). The start
-  command cites the README or manifest line that states it (`start.from`), and an argument or
-  header a README describes as a test, demo or mock mode is refused. The figure is an instrument
+  command cites the README or manifest line that states it (`start.from`; `cargo run` and `go run`
+  refused), and an argument or header a README describes as a test, demo or mock mode is refused. The figure is an instrument
   study, not a ledger metric. A table whose run shows its own fault (a capture
   that never appears, a request naming a value the scenario leaves out, 401 or 403) is refused and
   asked again once with that evidence. `held` only when k = n > 0 (u > 0 is never held); a run

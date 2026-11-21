@@ -472,9 +472,33 @@ fn literal_pieces(x: &str) -> Vec<String> {
     rest.split('\u{0}').map(str::trim).filter(|x| !x.is_empty()).map(String::from).collect()
 }
 
+/// The arguments of a usage line after the program `base` (or after its last `--`): for each, whether
+/// it names a value the operator chooses (`<partner-id>`, `[secret]`), and the alternatives it lists
+/// (`<ok|deviate>`; empty for a free value). Empty when the line names neither the program nor `--`.
+fn usage_slots(line: &str, base: &str) -> Vec<Option<Vec<String>>> {
+    let mut tokens: Vec<String> = vec![];
+    let mut open = false;
+    for w in line.split_whitespace().map(|w| w.trim_matches('`')) {
+        if open {
+            if let Some(last) = tokens.last_mut() {
+                last.push(' ');
+                last.push_str(w);
+            }
+        } else {
+            tokens.push(w.to_string());
+        }
+        open = (open || w.starts_with('<') || w.starts_with('[')) && !(w.ends_with('>') || w.ends_with(']'));
+    }
+    let start = tokens.iter().rposition(|w| w == "--" || Path::new(w).file_name().and_then(|n| n.to_str()) == Some(base));
+    start.map(|i| tokens[i + 1..].iter().map(|w| {
+        let inner = w.strip_prefix('<').and_then(|x| x.strip_suffix('>')).or_else(|| w.strip_prefix('[').and_then(|x| x.strip_suffix(']')))?;
+        Some(if inner.contains('|') { inner.split('|').map(String::from).collect() } else { vec![] })
+    }).collect()).unwrap_or_default()
+}
+
 /// Ruling: the start command is one the delivered tree's README or manifest states for normal use.
 /// `start.from` cites the file and line; the cited lines together hold the program's file name and
-/// every literal argument, and none of them describes a test, demo or mock mode.
+/// every argument without a placeholder, and none of them describes a test, demo or mock mode.
 fn check_start_from(t: &J, tree: &Path, p: &mut Vec<String>) {
     let Some(from) = t["start"]["from"].as_array().filter(|a| !a.is_empty()) else {
         p.push("start.from: missing (the README or manifest file and line of the delivered tree that states this start command for normal use)".into());
@@ -508,9 +532,17 @@ fn check_start_from(t: &J, tree: &Path, p: &mut Vec<String>) {
     let argv: Vec<&str> = t["start"]["argv"].as_array().into_iter().flatten().map(s).collect();
     let Some(prog) = argv.first() else { return };
     let base = Path::new(prog).file_name().and_then(|n| n.to_str()).unwrap_or(prog);
-    for want in std::iter::once(base.to_string()).chain(argv.iter().skip(1).flat_map(|a| literal_pieces(a))) {
+    if matches!(argv.as_slice(), ["cargo" | "go", "run", ..]) {
+        p.push(format!("start.argv: {} run compiles at every start; start the binary the build made (e.g. target/release/<bin>) with the same arguments, and cite the manifest line naming it", argv[0]));
+    }
+    // An argument holding a placeholder stands for a value the README gives (a port, a data file),
+    // and so does a literal at the position of an operator value (`<partner-id>`) in a cited usage.
+    let slots: Vec<Vec<Option<Vec<String>>>> = text.lines().map(|l| usage_slots(l, base)).collect();
+    let operator_value = |i: usize, a: &str| slots.iter().any(|u| matches!(u.get(i), Some(Some(alts)) if alts.is_empty() || alts.iter().any(|x| x == a)));
+    let literal = argv.iter().enumerate().skip(1).filter(|(i, a)| path_placeholders(a).is_empty() && !operator_value(i - 1, a)).map(|(_, a)| a.to_string());
+    for want in std::iter::once(base.to_string()).chain(literal) {
         if !contains_word(&text, &want) {
-            p.push(format!("start.from: the cited lines do not contain {want} (they must state the program and every literal argument of start.argv)"));
+            p.push(format!("start.from: the cited lines do not contain {want} (they must state the program and every argument of start.argv that holds no placeholder)"));
         }
     }
 }
