@@ -7,6 +7,19 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Changed
+
+- The product name people read is now Runbook (stage 1 of `story:project-rename`; the operator,
+  2026-11-21: "Yes, runbook. Agentic runbook."). Renamed in `README.md`, `AGENTS.md`, the
+  documentation site (title, tagline, navbar brand and mark, footer, page titles and descriptions,
+  the landing hero, "What it is", "What it is built on", "Run it", "The flow") and the run
+  inspector (page title, header, `ui/README.md`). The software delivery cycle keeps the name SDC
+  and is the first runbook; its protocols, trials and measurements still say SDC.
+- Not renamed yet: crate, binary and file names (`sdc-drive` and the others), `SDC_*` environment
+  names, `sdc.*` format and protocol ids (stage 2, with one `runbook` command and release binaries),
+  and the repository `beyond10x/sdc`, the site base `/sdc/` and their URLs (stage 3, last). The
+  evaluation page and its charts, release notes, trial notes and experiment records are unchanged.
+
 ## [0.1.4] - 2026-11-21
 
 An observation, data and docs: the free-running agent comparison (its registered hypothesis

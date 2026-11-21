@@ -1,5 +1,5 @@
 /**
- * The layers and components the SDC is built on, with what each supplies today. The layering is
+ * The layers and components Runbook is built on, with what each supplies today. The layering is
  * `docs/layers.md` § 3; every statement cites this repository at tag 0.1.1 or the component's
  * public README. Written by hand: these are claims about other repositories, not generated data.
  */
@@ -60,7 +60,7 @@ export const KERNEL = 'canon';
 export const COMPONENTS: Component[] = [
   {
     id: 'sdc',
-    name: 'SDC',
+    name: 'Runbook',
     repo: 'https://github.com/beyond10x/sdc',
     is: 'An application on Loom. It holds the protocols, the action-to-tool data and the exit-code tables; it must not hold a runtime of its own.',
     isCite: sdc('docs/layers.md', '51'),
@@ -96,7 +96,7 @@ export const COMPONENTS: Component[] = [
     isCite: readme('loom', '3-5'),
     use: 'not-yet',
     supplies: [
-      {text: 'Not used yet. The SDC is meant to run as an application on Loom.', cite: sdc('docs/layers.md', '51')},
+      {text: 'Not used yet. Runbook is meant to run as an application on Loom.', cite: sdc('docs/layers.md', '51')},
     ],
     temporary: [
       {text: 'Child cases (case_open to case_outcome) and the roadmap.read copy are built in the driver as a temporary copy of what Loom must provide, marked TEMPORARY in driver/src/main.rs.', cite: sdc('docs/driver.md', '42-45')},
@@ -111,7 +111,7 @@ export const COMPONENTS: Component[] = [
     isCite: readme('substrate', '3-4'),
     use: 'not-yet',
     supplies: [
-      {text: 'Not used yet: the SDC bypasses it completely. Confinement and process start are meant to reach the SDC through Loom.', cite: sdc('docs/layers.md', '33-34')},
+      {text: 'Not used yet: Runbook bypasses it completely. Confinement and process start are meant to reach Runbook through Loom.', cite: sdc('docs/layers.md', '33-34')},
     ],
   },
   {
@@ -125,7 +125,7 @@ export const COMPONENTS: Component[] = [
     supplies: [
       {text: 'The specification format of every epic, and the spec gate: validate, compile, conformance synthesis with no refusal and no open-question marker.', cite: sdc('docs/phases.md', '34-35')},
       {text: 'Conformance runs as the verification evidence of a story and a release (tests.run, acceptance.run).', cite: sdc('docs/driver.md', '715')},
-      {text: 'The specification of the SDC\'s own decision contract (domain sdc.decision).', cite: sdc('AGENTS.md', '25')},
+      {text: 'The specification of Runbook\'s own decision contract (domain sdc.decision).', cite: sdc('AGENTS.md', '25')},
     ],
   },
   {

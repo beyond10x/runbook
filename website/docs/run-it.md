@@ -1,6 +1,6 @@
 ---
 title: Run it
-description: The scripted checks and a dry run of the SDC with stub executors.
+description: The scripted checks and a dry run of Runbook with stub executors.
 ---
 
 # Run it

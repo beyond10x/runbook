@@ -1,9 +1,14 @@
-# SDC
+# Runbook
 
-A prototype of a software delivery cycle that runs on [Canon](https://github.com/beyond10x/canon)
-protocols. An idea goes through eight stages (idea, intake, direction, epic, spec, plan, story,
+Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides
+the next step from recorded facts; a model carries out single steps. Runbook is a prototype that
+runs on [Canon](https://github.com/beyond10x/canon) protocols.
+
+The first runbook is the software delivery cycle (SDC): it takes an idea to a built, tested
+product. An idea goes through eight stages (idea, intake, direction, epic, spec, plan, story,
 release), each a Canon `protocol/1` case with child cases. The stage is derived from facts (files
-in the case's repository and recorded check results), never from a stored phase.
+in the case's repository and recorded check results), never from a stored phase. Other runbooks
+are planned, not built: incident handling, investigations and ticket triage.
 
 `sdc-drive` runs one case tree: it reads Canon's decision for the case, runs the tool bound to one
 admissible action, records the result as Canon evidence and evaluates again. An LLM is only ever
@@ -11,7 +16,7 @@ the executor of one action; its output is an artifact revision, never evidence a
 state. Decisions that belong to a person stop the run and print the command that takes them.
 
 The [documentation site](https://beyond10x.github.io/sdc/) shows the flow, every protocol drawn
-from its YAML, what the SDC is built on, the evaluation per release and one run step by step.
+from its YAML, what Runbook is built on, the evaluation per release and one run step by step.
 
 ## State
 
@@ -32,7 +37,7 @@ A prototype; no interface is stable. The latest release is 0.1.4 (2026-11-21), a
 
 ## Layout
 
-- `protocol/`: the eight protocols of the cycle and `sdc-bugfix`; `cases/`: fixture cases with expected decisions.
+- `protocol/`: the eight protocols of the SDC and `sdc-bugfix`; `cases/`: fixture cases with expected decisions.
 - `driver/`: the Rust crate `sdc-drive` and its tool bindings (`driver/examples/sdc/`).
 - `watch/`: file changes of a run; `ui/`: a live web view of a run; `goals/`: `sdc-goals`, checks of
   `sdc.goals/1` documents (`docs/requester.md`).
@@ -75,7 +80,7 @@ scripts/run-trial.sh --dry trial-dry
 ```
 
 Start with `docs/phases.md`, `docs/driver.md` and `docs/orchestration.md`; `docs/layers.md` places
-the SDC on Canon and Loom.
+Runbook on Canon and Loom.
 
 ## Licence
 

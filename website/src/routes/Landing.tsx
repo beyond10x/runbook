@@ -16,20 +16,23 @@ export default function Landing({index, progressSvg}: Props): ReactNode {
   const release = index.releases[0];
   const stages = index.protocols.filter((p) => p.id !== 'sdc.bugfix').length;
   return (
-    <Layout title="SDC: a software delivery cycle on Canon protocols" description="A prototype software delivery cycle that runs on Canon protocols: the stage is derived from facts, and a model is only one action's executor." wrapperClassName="b10x-product-page">
+    <Layout title="Runbook: agentic runbooks" description="Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next step from recorded facts; a model carries out single steps." wrapperClassName="b10x-product-page">
       <main id="b10x-product-main">
         <div className="b10x-product">
         <ProductHero
-          eyebrow="Prototype · software delivery cycle on Canon"
-          promise={['From an idea to a delivered app,', 'one admissible action at a time.']}
+          eyebrow="Prototype · agentic runbooks on Canon"
+          promise={['A fixed, checked way to handle a case,', 'one admissible action at a time.']}
           lede={
             <>
-              The SDC is a prototype of a software delivery cycle that runs on Canon protocols: an idea goes through{' '}
+              Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next
+              step from recorded facts; a model carries out single steps. The first runbook is the software delivery cycle
+              (SDC): it takes an idea to a built, tested product through{' '}
               {stages} protocols (idea, intake, direction, epic, spec, plan, story, release), each a <code>protocol/1</code>{' '}
               case with child cases. Where a case stands is derived from facts, the files in its repository and the recorded
               check results, never from a stored phase. A driver runs the tool bound to one admissible action at a time, and a
               language model is only ever one action's executor: its output is an artifact revision, never evidence and
-              never the next state.
+              never the next state. Other runbooks are planned, not built: incident handling, investigations and ticket
+              triage.
             </>
           }
           actions={[

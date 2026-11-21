@@ -1,6 +1,6 @@
 ---
 title: What it is built on
-description: The beyond10x layers and components the SDC uses, and what each supplies today.
+description: The beyond10x layers and components Runbook uses, and what each supplies today.
 toc_max_heading_level: 2
 ---
 
@@ -8,12 +8,12 @@ import {LayerDiagram, ComponentSections} from '@site/src/components/Layers';
 
 # What it is built on
 
-The SDC is an application. It owns data: the protocols, the bindings that name a tool for each
+Runbook is an application. It owns data: the protocols, the bindings that name a tool for each
 action, and the tables that turn a tool's result into evidence. The semantics come from Canon, and
 the runtime is meant to come from Loom, with confinement and process start from Substrate below it
 ([`docs/layers.md:47-52`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/layers.md#L47-L52)).
 Today the driver still holds a temporary copy of the runtime parts. A capability missing in one of
-the layers is requested from that repository, not patched in the SDC
+the layers is requested from that repository, not patched in Runbook
 ([`AGENTS.md:41-44`](https://github.com/beyond10x/sdc/blob/0.1.1/AGENTS.md#L41-L44)).
 
 <LayerDiagram />
