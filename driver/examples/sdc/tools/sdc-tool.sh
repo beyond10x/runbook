@@ -288,7 +288,7 @@ release-build)
     > release/PROVENANCE ;;
 publish) rm -rf published && mkdir -p published && cp -r release/. published/ ;;
 observe) cmp -s published/PROVENANCE release/PROVENANCE ;;
-review-spec) test -f spec/system.yaml ;;
+review-spec) test -f spec/system.yaml && [[ ! -e spec/.review-reject ]] ;; # .review-reject: a fixture tree the stub reviewer rejects (docs/reject-routes.md R8)
 review-change) test -s impl/README.md ;; # change.review's stub; the review itself: tools/llm-node.sh change.review
 
 # --- the late-finding loop (docs/trial-2.md, "The late-finding loop") ------------------------

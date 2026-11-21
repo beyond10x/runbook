@@ -349,7 +349,7 @@ fn decider_schema(c: &Ctx, kind: &str, fin: bool, options: &[String], rule: bool
     let set = citable_set(c);
     let mut cites: Vec<Value> = set["ids"].as_array().cloned().unwrap_or_default();
     cites.extend(set["addresses"].as_array().cloned().unwrap_or_default());
-    let decisions: Vec<&str> = if kind == "finding" { vec!["approve", "escalate"] } else { vec!["approve", "reject", "escalate"] };
+    let decisions: Vec<&str> = if kind == "finding" || kind == "question" { vec!["approve", "escalate"] } else { vec!["approve", "reject", "escalate"] };
     let answer = match kind {
         "finding" if rule => json!({"anyOf": [{"type": "string", "enum": options}, {"type": "null"}]}),
         "question" | "finding" => json!({"type": ["string", "null"]}),

@@ -560,18 +560,22 @@ fn program_error(exit: &Value) -> bool {
 /// The index in `evs` of the last arrival: a `revised` event that no agent action of this case
 /// produced (the case opening, a person's edit in `work/`, a person's `approve --action`, or a
 /// write that reached this case from another case of the tree). A revision committed after an
-/// observation is an outside edit the observation's step found, not the observation's. 0 when
-/// there is none.
+/// observation is an outside edit the observation's step found, not the observation's. A
+/// rejection recorded by a principal (`approve --result rejected`) is an arrival too: the rework
+/// it asks for gets its own allowance, bounded by the rework count of run-trial.sh
+/// (runs/trial-3-haiku-4: change.implement spent by check retries before the merge rework,
+/// docs/reject-routes.md R6). 0 when there is none.
 fn last_arrival(evs: &[Value], ir: &Value) -> usize {
     evs.iter()
         .enumerate()
         .filter(|(i, e)| {
-            e["event"] == "revised"
-                && !(*i > 0
-                    && evs[i - 1]["event"] == "action_finished"
-                    && evs[i - 1]["principal"].is_null()
-                    && ir["actions"][evs[i - 1]["action"].as_str().unwrap_or("")]["effect"]
-                        == "write")
+            (e["event"] == "action_finished" && e["result"] == "rejected" && !e["principal"].is_null())
+                || (e["event"] == "revised"
+                    && !(*i > 0
+                        && evs[i - 1]["event"] == "action_finished"
+                        && evs[i - 1]["principal"].is_null()
+                        && ir["actions"][evs[i - 1]["action"].as_str().unwrap_or("")]["effect"]
+                            == "write"))
         })
         .map(|(i, _)| i)
         .next_back()
@@ -622,8 +626,8 @@ fn sent_back_text(s: &Value) -> String {
 ///   it may produce has no applicable record at its subject's revision; with no kind, until it
 ///   ran once at this snapshot);
 /// - a writer has `max_runs` (default 8) per arrival: its runs since the last arrival
-///   (`last_arrival`) count, so a person's decision or an outside revision gives the writers a
-///   fresh allowance. A writer that would be useful but has none left is returned as spent.
+///   (`last_arrival`) count, so a person's decision, an outside revision or a recorded rejection
+///   gives the writers a fresh allowance. A writer that would be useful but has none left is returned as spent.
 ///
 /// A run that ended in a program error (exit 126/127) never counts, nor one that ended
 /// `not_called` (the tool did nothing: `llm-node.sh`'s "not called" exits, runs/trial-3-haiku-4).

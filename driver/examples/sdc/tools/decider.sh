@@ -86,6 +86,7 @@ validate() {
       | if (keys - known) != [] then "unknown keys \(keys - known)"
         elif ($d | IN("approve", "reject", "escalate") | not) then "decision is not approve, reject or escalate"
         elif $type == "finding" and $d == "reject" then "a finding is decided with approve and an answer, or escalate"
+        elif $type == "question" and $d == "reject" then "a question is decided with approve and an answer, or escalate"
         elif ($r | type) != "array" or ($r | length) == 0 or any($r[]; type != "string" or . == "") then "reasons is not a non-empty list of sentences"
         elif ($c | type) != "array" or any($c[]; type != "string") then "cites is not a list of ids"
         elif any($res[]; .ok | not) then "cites what does not resolve: " + ([$res[] | select(.ok | not) | "\(.cite) (\(.why))"] | join("; "))
@@ -433,7 +434,7 @@ prompt=$rec/prompt.md
   echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
   echo
   echo "Write out/decision.json, exactly these keys:"
-  if [[ $type == finding ]]; then
+  if [[ $type == finding || $type == question ]]; then
     echo '{"decision": "approve" | "escalate",'
     echo ' "answer": <when approve: the answer string>,'
   else
