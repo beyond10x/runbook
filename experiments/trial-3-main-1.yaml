@@ -13,6 +13,7 @@ inputs:
 tree_commit: 8db4b9338f1d8d32c85b9cb2e014dac56980fac0
 trees:
 - trial/main-1 at main 8db4b93, worktree sdc-trial-main-1; driver, watch and goals built there before the runs
+- the reopen legs of trial-3-strong-3, trial-3-strong-4 and trial-3-mixed-7 ran on trial/main-2 at 1001970 (see trial-3-main-2)
 fixed:
   decider.kind: haiku
   decider.escalate: final
@@ -32,8 +33,10 @@ variants:
     decider.model: claude-opus-5-5
     adapters.review.adapter: claude-cli
   runs:
-  - trial-3-strong-3
-  - trial-3-strong-4
+  - run: trial-3-strong-3
+    note: reopened once on trial/main-2 1001970 (trial-3-main-2) and stopped again at once, review_invalid, no new call
+  - run: trial-3-strong-4
+    note: reopened once on trial/main-2 1001970 (trial-3-main-2) and stopped again at once, review_invalid, no new call
 - id: mixed
   settings:
     models.writer.model: claude-sonnet-5-5
@@ -43,7 +46,8 @@ variants:
     decider.model: claude-haiku-5-5
     adapters.review.adapter: claude-cli
   runs:
-  - trial-3-mixed-7
+  - run: trial-3-mixed-7
+    note: reopened once on trial/main-2 1001970 (trial-3-main-2) and stopped again at once, review_invalid, no new call
 - id: haiku
   settings:
     models.writer.model: claude-haiku-5-5
@@ -62,6 +66,7 @@ known_confounds:
 - key: adapters.review.adapter
   note: recorded as claude-cli in the runs with a review model; trial-3-haiku-8 has no review model and records no review adapter
 facts:
+- 'strong-3, strong-4 and mixed-7 were reopened once on trial/main-2 (1001970, with fix/review-reply) and stopped again at once with review_invalid and no new call: change.review was admissible but not useful, so it was not called with the new adapter. A reopened run is no end-to-end pass.'
 - 'strong-3, strong-4 and mixed-7 stopped at their first change.review call: the review call (Sonnet, read-only operations) exited 0 and the check refused it, "invalid review reply: no readable reply" at out/review.json after 3 attempts; the review model could not write out/review.json. No story of these runs was merged.'
 - The fix was in work on branch fix/review-reply; trial-3-main-2 is its rerun.
 - trial-3-haiku-8 (all Haiku, no review model) stopped writer_spent in IDEA-1.list.access.

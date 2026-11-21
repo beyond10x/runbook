@@ -8,6 +8,7 @@ Written by `sdc-experiment report trial-3-main-1` from `experiments/trial-3-main
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
 - Tree: `8db4b9338f1d8d32c85b9cb2e014dac56980fac0`
   - trial/main-1 at main 8db4b93, worktree sdc-trial-main-1; driver, watch and goals built there before the runs
+  - the reopen legs of trial-3-strong-3, trial-3-strong-4 and trial-3-mixed-7 ran on trial/main-2 at 1001970 (see trial-3-main-2)
 - Runs per variant: 2; pass rule: clean-delivery (closed, delivered, no reopen, forced step or unstick).
 - Decision rule (descriptive): No hypothesis. The record describes the runs; one or two runs per setting establish no difference between settings.
 
@@ -38,9 +39,9 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
-| trial-3-strong-3 | strong | stopped: review_invalid in IDEA-1.todo.access | no | 1.828 | 1668 | 1.1 |  |
-| trial-3-strong-4 | strong | stopped: review_invalid in IDEA-1.todo.list | no | 1.697 | 1668 | 1 |  |
-| trial-3-mixed-7 | mixed | stopped: review_invalid in IDEA-1.todo.access | no | 0.709 | 1670 | 1.3 |  |
+| trial-3-strong-3 | strong | stopped: review_invalid in IDEA-1.todo.access | no | 1.828 | 1668 | 1.1 | reopened once on trial/main-2 1001970 (trial-3-main-2) and stopped again at once, review_invalid, no new call |
+| trial-3-strong-4 | strong | stopped: review_invalid in IDEA-1.todo.list | no | 1.697 | 1668 | 1 | reopened once on trial/main-2 1001970 (trial-3-main-2) and stopped again at once, review_invalid, no new call |
+| trial-3-mixed-7 | mixed | stopped: review_invalid in IDEA-1.todo.access | no | 0.709 | 1670 | 1.3 | reopened once on trial/main-2 1001970 (trial-3-main-2) and stopped again at once, review_invalid, no new call |
 | trial-3-haiku-8 | haiku | stopped: writer_spent in IDEA-1.list.access | no | 0.346 | 1790 | 1.6 |  |
 
 ## Per variant
@@ -94,6 +95,7 @@ descriptive: no hypothesis: the record describes its runs and decides nothing.
 
 ## Facts
 
+- strong-3, strong-4 and mixed-7 were reopened once on trial/main-2 (1001970, with fix/review-reply) and stopped again at once with review_invalid and no new call: change.review was admissible but not useful, so it was not called with the new adapter. A reopened run is no end-to-end pass.
 - strong-3, strong-4 and mixed-7 stopped at their first change.review call: the review call (Sonnet, read-only operations) exited 0 and the check refused it, "invalid review reply: no readable reply" at out/review.json after 3 attempts; the review model could not write out/review.json. No story of these runs was merged.
 - The fix was in work on branch fix/review-reply; trial-3-main-2 is its rerun.
 - trial-3-haiku-8 (all Haiku, no review model) stopped writer_spent in IDEA-1.list.access.
