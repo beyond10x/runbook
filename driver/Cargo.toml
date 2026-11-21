@@ -28,6 +28,10 @@ path = "src/bin/sdc-run-compare.rs"
 name = "sdc-reply"
 path = "src/bin/sdc-reply.rs"
 
+[[bin]]
+name = "sdc-replay"
+path = "src/bin/sdc-replay.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

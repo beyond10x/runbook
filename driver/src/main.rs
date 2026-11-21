@@ -553,6 +553,27 @@ fn program_error(exit: &Value) -> bool {
     exit == "126" || exit == "127" || exit == "75"
 }
 
+/// A case's bindings with the run's changed conditions (`SDC_CONDITIONS`, an `sdc.conditions/1`
+/// file of `sdc-replay prepare`): per action `max_runs`, `timeout_s`, and `wrap`, an argv put
+/// before the binding's (docs/driver.md, "Recorded replay").
+fn bindings_of(dir: &Path) -> R<Value> {
+    let mut b = read_json(&dir.join("bindings.json"))?;
+    let Ok(p) = std::env::var("SDC_CONDITIONS") else { return Ok(b) };
+    let c = read_json(Path::new(&p))?;
+    for (a, o) in c["actions"].as_object().into_iter().flatten() {
+        let Some(binding) = b.get_mut(a).and_then(|x| x.as_object_mut()) else { continue };
+        for k in ["max_runs", "timeout_s"] {
+            if let Some(v) = o.get(k) {
+                binding.insert(k.into(), v.clone());
+            }
+        }
+        if let (Some(w), Some(argv)) = (o["wrap"].as_array(), binding.get("argv").and_then(|x| x.as_array()).cloned()) {
+            binding.insert("argv".into(), Value::Array(w.iter().cloned().chain(argv).collect()));
+        }
+    }
+    Ok(b)
+}
+
 /// The index in `evs` of the last arrival: a `revised` event that no agent action of this case
 /// produced (the case opening, a person's edit in `work/`, a person's `approve --action`, or a
 /// write that reached this case from another case of the tree). A revision committed after an
@@ -628,7 +649,7 @@ fn sent_back_text(s: &Value) -> String {
 type Useful = (Vec<String>, Vec<String>, Vec<Value>, Vec<Value>);
 fn useful(dir: &Path, d: &Value) -> R<Useful> {
     let ir = read_json(&dir.join("ir.json"))?;
-    let bindings = read_json(&dir.join("bindings.json"))?;
+    let bindings = bindings_of(dir)?;
     let case_bytes = fs::read(dir.join("case.json")).map_err(|e| e.to_string())?;
     let snapshot = sha(&case_bytes);
     let records = evidence_records(dir)?;
@@ -1104,7 +1125,7 @@ fn step(
     let pos = position(dir, &decision)?;
     let admissible: Vec<String> = serde_json::from_value(pos["admissible"].clone()).unwrap();
     let useful: Vec<String> = serde_json::from_value(pos["useful"].clone()).unwrap();
-    let bindings = read_json(&dir.join("bindings.json"))?;
+    let bindings = bindings_of(dir)?;
     let ir = read_json(&dir.join("ir.json"))?;
     let chosen = match action {
         Some(a) if !admissible.iter().any(|x| x == a) => {
@@ -1401,6 +1422,12 @@ fn step(
             env.push(("SDC_FEEDBACK", p.to_string_lossy().into_owned()));
         }
         let timeout = b["timeout_s"].as_u64().unwrap_or(1800);
+        // A re-driven model call that ran into its timeout on the virtual clock (sdc-replay) says so
+        // in this file: the run is recorded as killed at its timeout.
+        let virtual_timeout = fs::canonicalize(dir).unwrap_or(dir.to_path_buf()).join(".virtual-timeout");
+        let _ = fs::remove_file(&virtual_timeout);
+        env.push(("SDC_VIRTUAL_TIMEOUT", virtual_timeout.to_string_lossy().into_owned()));
+        env.push(("SDC_TIMEOUT_S", timeout.to_string()));
         event(
             dir,
             at,
@@ -1414,7 +1441,14 @@ fn step(
         } else {
             let (code, out) = run_tool(dir, &argv, &env, timeout)?;
             log = out;
-            code
+            match fs::read_to_string(&virtual_timeout) {
+                Ok(why) => {
+                    let _ = fs::remove_file(&virtual_timeout);
+                    log.extend(format!("\nsdc-drive: killed after {timeout} s (virtual clock: {})\n", why.trim()).into_bytes());
+                    "timeout".to_string()
+                }
+                Err(_) => code,
+            }
         };
         if let Ok(why) = fs::read_to_string(&not_called_file) {
             let _ = fs::remove_file(&not_called_file);
