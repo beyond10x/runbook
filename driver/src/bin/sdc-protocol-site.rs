@@ -888,7 +888,7 @@ fn render(inp: &Inputs) -> BTreeMap<String, String> {
             "children": doc["children"].as_array().into_iter().flatten().map(|c| c["protocol"].clone()).collect::<Vec<_>>(),
             "parents": doc["parents"].as_array().into_iter().flatten().map(|c| c["protocol"].clone()).collect::<Vec<_>>(),
             "states": doc["check"]["states"], "simulate_findings": doc["simulate"]["findings"],
-            "action_order": doc["actions"].as_array().into_iter().flatten().map(|a| json!({"name": a["name"], "step": a["step"]})).collect::<Vec<_>>(),
+            "action_order": doc["actions"].as_array().into_iter().flatten().map(|a| json!({"name": a["name"], "step": a["step"], "executor": a["executor"]["kind"], "opens": a["opens"]["protocol"]})).collect::<Vec<_>>(),
         }));
         out.insert(format!("{}.json", p.stem), pretty(&doc));
     }

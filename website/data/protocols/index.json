@@ -55,19 +55,27 @@
     {
       "action_order": [
         {
+          "executor": "child-case",
           "name": "intake.open",
+          "opens": "sdc.intake",
           "step": 0
         },
         {
+          "executor": "copy",
           "name": "roadmap.read",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "child-case",
           "name": "direction.open",
+          "opens": "sdc.direction",
           "step": 1
         },
         {
+          "executor": "child-case",
           "name": "epics.open",
+          "opens": "sdc.epic",
           "step": 2
         }
       ],
@@ -96,35 +104,51 @@
     {
       "action_order": [
         {
+          "executor": "model",
           "name": "bug.dissect",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "dissection.check",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "repro.run",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "model",
           "name": "test.reproduce",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "model",
           "name": "change.fix",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "tests.run",
+          "opens": null,
           "step": 3
         },
         {
+          "executor": "program",
           "name": "story.update",
+          "opens": null,
           "step": 4
         },
         {
+          "executor": "program",
           "name": "gate.run",
+          "opens": null,
           "step": 5
         }
       ],
@@ -148,43 +172,63 @@
     {
       "action_order": [
         {
+          "executor": "program",
           "name": "amend.upstream",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "person",
           "name": "context.change",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "context.check",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "model",
           "name": "context.default",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "roadmap.validate",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "person",
           "name": "context.approve",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "person",
           "name": "vision.approve",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "model",
           "name": "vision.write",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "person",
           "name": "roadmap.approve",
+          "opens": null,
           "step": 3
         },
         {
+          "executor": "model",
           "name": "roadmap.write",
+          "opens": null,
           "step": 3
         }
       ],
@@ -208,27 +252,39 @@
     {
       "action_order": [
         {
+          "executor": "copy",
           "name": "roadmap.read",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "spec.gate",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "child-case",
           "name": "spec.open",
+          "opens": "sdc.spec",
           "step": 1
         },
         {
+          "executor": "child-case",
           "name": "plan.open",
+          "opens": "sdc.plan",
           "step": 2
         },
         {
+          "executor": "child-case",
           "name": "stories.open",
+          "opens": "sdc.story",
           "step": 3
         },
         {
+          "executor": "child-case",
           "name": "release.open",
+          "opens": "sdc.release",
           "step": 4
         }
       ],
@@ -260,43 +316,63 @@
     {
       "action_order": [
         {
+          "executor": "program",
           "name": "dissection.check",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "idea.check",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "questions.check",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "requirements.check",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "amend.upstream",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "model",
           "name": "idea.dissect",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "model",
           "name": "questions.answer",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "model",
           "name": "questions.write",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "model",
           "name": "requirements.normalise",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "person",
           "name": "scope.answer",
+          "opens": null,
           "step": 1
         }
       ],
@@ -321,35 +397,51 @@
     {
       "action_order": [
         {
+          "executor": "program",
           "name": "amend.upstream",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "copy",
           "name": "roadmap.read",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "spec.gate",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "program",
           "name": "plan.cover",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "model",
           "name": "plan.decompose",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "plan.scope",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "plan.status",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "plan.validate",
+          "opens": null,
           "step": 2
         }
       ],
@@ -373,27 +465,39 @@
     {
       "action_order": [
         {
+          "executor": "program",
           "name": "spec.gate",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "release.build",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "program",
           "name": "acceptance.run",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "release.publish",
+          "opens": null,
           "step": 3
         },
         {
+          "executor": "program",
           "name": "release.observe",
+          "opens": null,
           "step": 4
         },
         {
+          "executor": "person",
           "name": "release.rollback",
+          "opens": null,
           "step": 4
         }
       ],
@@ -419,47 +523,69 @@
     {
       "action_order": [
         {
+          "executor": "program",
           "name": "amend.upstream",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "copy",
           "name": "roadmap.read",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "model",
           "name": "spec.author",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "person",
           "name": "spec.reconstruct",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "person",
           "name": "spec.reuse",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "program",
           "name": "spec.scan",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "spec.validate",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "program",
           "name": "spec.compile",
+          "opens": null,
           "step": 3
         },
         {
+          "executor": "program",
           "name": "spec.trace",
+          "opens": null,
           "step": 3
         },
         {
+          "executor": "program",
           "name": "spec.synthesize",
+          "opens": null,
           "step": 4
         },
         {
+          "executor": "program",
           "name": "spec.review",
+          "opens": null,
           "step": 5
         }
       ],
@@ -484,31 +610,45 @@
     {
       "action_order": [
         {
+          "executor": "program",
           "name": "amend.upstream",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "program",
           "name": "spec.gate",
+          "opens": null,
           "step": 0
         },
         {
+          "executor": "model",
           "name": "change.implement",
+          "opens": null,
           "step": 1
         },
         {
+          "executor": "program",
           "name": "tests.run",
+          "opens": null,
           "step": 2
         },
         {
+          "executor": "model",
           "name": "change.review",
+          "opens": null,
           "step": 3
         },
         {
+          "executor": "person",
           "name": "merge.approve",
+          "opens": null,
           "step": 4
         },
         {
+          "executor": "program",
           "name": "change.merge",
+          "opens": null,
           "step": 5
         }
       ],
