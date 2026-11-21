@@ -1,6 +1,6 @@
 {
   "actions": {
-    "plan.open": {
+    "delivery.open": {
       "reasons": [
         {
           "claim": "children.passed",
@@ -9,7 +9,7 @@
       ],
       "status": "blocked"
     },
-    "release.open": {
+    "plan.open": {
       "reasons": [
         {
           "claim": "children.passed",
@@ -54,6 +54,9 @@
     "children.passed": {
       "value": "false"
     },
+    "delivery.opened": {
+      "value": "unknown"
+    },
     "gate.checked": {
       "value": "unknown"
     },
@@ -61,9 +64,6 @@
       "value": "unknown"
     },
     "plan.opened": {
-      "value": "unknown"
-    },
-    "release.opened": {
       "value": "unknown"
     },
     "roadmap.approved": {
@@ -81,7 +81,7 @@
   },
   "explanation": {
     "actions": {
-      "plan.open": {
+      "delivery.open": {
         "because": [
           {
             "claim": "children.passed",
@@ -90,7 +90,7 @@
         ],
         "status": "blocked"
       },
-      "release.open": {
+      "plan.open": {
         "because": [
           {
             "claim": "children.passed",
@@ -139,6 +139,16 @@
         ],
         "value": "false"
       },
+      "delivery.opened": {
+        "because": [
+          {
+            "kind": "delivery_opened",
+            "status": "absent",
+            "subject": "epic"
+          }
+        ],
+        "value": "unknown"
+      },
       "gate.checked": {
         "because": [
           {
@@ -163,16 +173,6 @@
         "because": [
           {
             "kind": "plan_opened",
-            "status": "absent",
-            "subject": "epic"
-          }
-        ],
-        "value": "unknown"
-      },
-      "release.opened": {
-        "because": [
-          {
-            "kind": "release_opened",
             "status": "absent",
             "subject": "epic"
           }
@@ -232,27 +232,27 @@
         "s1"
       ],
       "protocol": "sdc.epic",
-      "protocol_revision": 5,
+      "protocol_revision": 6,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
       }
     },
     "obligations": {
+      "delivery.required": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "open"
+      },
       "gate.required": {
         "because": [
           {
             "claim": "gate.passed",
             "value": "unknown"
-          }
-        ],
-        "status": "open"
-      },
-      "release.required": {
-        "because": [
-          {
-            "claim": "children.passed",
-            "value": "false"
           }
         ],
         "status": "open"
@@ -268,10 +268,10 @@
         ],
         "status": "blocked"
       },
-      "not_released": {
+      "not_accepted": {
         "because": [
           {
-            "claim": "release.opened",
+            "claim": "delivery.opened",
             "value": "unknown"
           }
         ],
@@ -291,11 +291,11 @@
   "format": "canon-decision/1",
   "obligations": [
     {
-      "id": "gate.required",
+      "id": "delivery.required",
       "status": "open"
     },
     {
-      "id": "release.required",
+      "id": "gate.required",
       "status": "open"
     },
     {
@@ -313,17 +313,17 @@
       ],
       "status": "blocked"
     },
-    "not_delivered": {
-      "status": "legitimate"
-    },
-    "not_released": {
+    "not_accepted": {
       "reasons": [
         {
-          "claim": "release.opened",
+          "claim": "delivery.opened",
           "value": "unknown"
         }
       ],
       "status": "blocked"
+    },
+    "not_delivered": {
+      "status": "legitimate"
     },
     "passed": {
       "reasons": [
@@ -336,5 +336,5 @@
     }
   },
   "protocol": "sdc.epic",
-  "protocol_revision": 5
+  "protocol_revision": 6
 }

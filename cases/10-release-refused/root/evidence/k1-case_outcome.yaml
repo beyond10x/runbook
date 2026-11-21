@@ -1,9 +1,0 @@
-format: canon-evidence/1
-id: k1
-kind: case_outcome
-result: passed
-subject: idea
-subject_revision: i1
-producer: sdc-drive
-child_case: IDEA-10.intake
-observed_at: 2026-11-20T10:02:00Z

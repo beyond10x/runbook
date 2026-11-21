@@ -122,7 +122,6 @@ drive_rounds() {
           context.approve|vision.approve|roadmap.approve)
             d "$stopped" approve --at "$(at)" --capability owner.approve --principal "$principal" --action "$a" ;;
           merge.approve) d "$stopped" approve --at "$(at)" --capability change.merge --principal "$principal" --action "$a" ;;
-          release.publish) d "$stopped" approve --at "$(at)" --capability release.approve --principal "$principal" ;;
           *) verdict="no-approval-rule:$a"; return ;;
         esac ;;
       *) return ;;
@@ -183,8 +182,8 @@ summarise() {
     distinct_actions: [.[] | select(.event == "action_finished") | .action] | unique | length}')
   local expect ok
   case $v in
-    baseline) expect="root operating, no false done"
-      ok=$(jq -e '.[] | select(.case == "IDEA-1") | .outcome == "operating"' <<< "[$(IFS=,; echo "${cases[*]}")]" >/dev/null && [[ $false_done == 0 ]] && echo true || echo false) ;;
+    baseline) expect="root delivered, no false done"
+      ok=$(jq -e '.[] | select(.case == "IDEA-1") | .outcome == "delivered"' <<< "[$(IFS=,; echo "${cases[*]}")]" >/dev/null && [[ $false_done == 0 ]] && echo true || echo false) ;;
     spec-*) expect="no sdc.spec case passed, run ends stuck, no false done"
       [[ $spec_passed == 0 && $verdict == stuck && $false_done == 0 ]] && ok=true || ok=false ;;
     story-*) expect="no sdc.story case passes on an implementation the oracle rejects"

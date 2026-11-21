@@ -188,7 +188,7 @@
         "a1"
       ],
       "protocol": "sdc",
-      "protocol_revision": 8,
+      "protocol_revision": 9,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -237,20 +237,7 @@
         ],
         "status": "blocked"
       },
-      "not_delivered": {
-        "because": [
-          {
-            "claim": "children.passed",
-            "value": "unknown"
-          },
-          {
-            "claim": "direction.opened",
-            "value": "unknown"
-          }
-        ],
-        "status": "blocked"
-      },
-      "operating": {
+      "delivered": {
         "because": [
           {
             "claim": "children.passed",
@@ -262,6 +249,19 @@
           },
           {
             "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_delivered": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "direction.opened",
             "value": "unknown"
           }
         ],
@@ -303,20 +303,7 @@
       ],
       "status": "blocked"
     },
-    "not_delivered": {
-      "reasons": [
-        {
-          "claim": "children.passed",
-          "value": "unknown"
-        },
-        {
-          "claim": "direction.opened",
-          "value": "unknown"
-        }
-      ],
-      "status": "blocked"
-    },
-    "operating": {
+    "delivered": {
       "reasons": [
         {
           "claim": "children.passed",
@@ -333,6 +320,19 @@
       ],
       "status": "blocked"
     },
+    "not_delivered": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "direction.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "refused": {
       "reasons": [
         {
@@ -344,5 +344,5 @@
     }
   },
   "protocol": "sdc",
-  "protocol_revision": 8
+  "protocol_revision": 9
 }

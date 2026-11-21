@@ -1,0 +1,140 @@
+format: protocol/1
+
+protocol:
+  id: sdc.delivery
+  revision: 1
+  description: >-
+    Prove that an epic whose stories are merged is delivered and tested, the last stage of the
+    development cycle: build the merged changes into a release revision with provenance, then run
+    the ESS conformance suite of the current specification revision against it. The ESS gate must
+    pass on the current specification revision. A revised specification invalidates the
+    conformance runs observed against the earlier revision. Delivery is derived from the checks,
+    with no approval: the case ends passed (delivered) once the gate passes and the release is
+    built and accepted, and not_accepted, without a person, once the acceptance run failed on the
+    current release revision (no action of this case reworks the merged changes; the stories did).
+    Publishing, observing and rolling back are sdc.release, which nothing in the cycle opens.
+
+artifacts:
+  spec:
+    description: the ESS specification; its revision is its spec digest, as in the parent case
+  release:
+    description: the versioned, deployable unit built from the merged changes
+
+evidence_kinds:
+  ess_gate:
+    description: >-
+      the ESS gate over a specification revision, the four checks run as one program; passed or
+      failed
+  build_provenance:
+    description: the record of how a release revision was built from the merged changes
+  release_conformance:
+    description: >-
+      `ess verify conform run --target <release> --strict` of the specification's suite against a
+      release revision; its result is passed, failed or inconclusive
+
+claims:
+  gate.passed:
+    description: the ESS gate passes on the current specification revision
+    true_when:
+      evidence:
+        kind: ess_gate
+        result: passed
+        subject: spec
+  gate.checked:
+    description: an ESS gate run is recorded about the current specification revision, whatever its result
+    true_when:
+      evidence:
+        kind: ess_gate
+        subject: spec
+  release.built:
+    description: the current release revision carries build provenance
+    true_when:
+      evidence:
+        kind: build_provenance
+        subject: release
+  release.accepted:
+    description: the conformance suite of the current specification passes on the current release
+    true_when:
+      evidence:
+        kind: release_conformance
+        result: passed
+        subject: release
+  release.acceptance_run:
+    description: >-
+      a conformance run is recorded about the current release revision, against the current specification revision, whatever its result
+    true_when:
+      evidence:
+        kind: release_conformance
+        subject: release
+
+obligations:
+  gate.required:
+    description: the ESS gate passes on the current specification revision
+    discharged_when:
+      claim: gate.passed
+  provenance.required:
+    description: the release carries build provenance
+    discharged_when:
+      claim: release.built
+  acceptance.required:
+    description: the conformance suite passes on the release
+    discharged_when:
+      claim: release.accepted
+
+actions:
+  spec.gate:
+    description: >-
+      run the ESS gate over the current specification revision; only while no gate run is recorded
+      about it: a second record with another result would leave gate.passed unknown for good
+    effect: read
+    precondition:
+      claim: gate.checked
+      is: unknown
+    may_produce:
+      - evidence: ess_gate
+  release.build:
+    description: build a release revision from the merged changes
+    effect: write
+    precondition:
+      claim: gate.passed
+    may_produce:
+      - evidence: build_provenance
+  acceptance.run:
+    description: >-
+      run the specification's conformance suite against the release; only while no run is recorded
+      about the current release revision against the current specification revision
+    effect: read
+    precondition:
+      all:
+        - claim: release.built
+        - claim: release.acceptance_run
+          is: unknown
+    may_produce:
+      - evidence: release_conformance
+
+outcomes:
+  passed:
+    description: >-
+      delivered: the ESS gate passes, and the current release is built and accepted by the
+      conformance suite of the current specification revision
+    requires:
+      all:
+        - claim: gate.passed
+        - claim: release.built
+        - claim: release.accepted
+  not_accepted:
+    description: >-
+      the conformance suite failed (or was inconclusive) on the current release revision. Nothing
+      in this case changes the merged changes, so a rebuild gives the same release and the same
+      result; the case ends here, the epic ends not_accepted and the root not_delivered
+    requires:
+      claim: release.accepted
+      is: "false"
+
+invalidation:
+  spec.revised:
+    description: a conformance run observed against an earlier specification revision no longer applies
+    upstream: spec
+    invalidates:
+      - release.accepted
+      - release.acceptance_run

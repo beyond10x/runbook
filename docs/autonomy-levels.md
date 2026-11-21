@@ -249,9 +249,9 @@ Holders:
 | story activation | none: the decompose stub moves stories to active (`driver.md` gap 11) | P | P+ | D→P | D→P | D→P | D* |
 | code review | story `change.review` → `code_review`, `different_principal`; tests always R | P | P+ | D→P | D→P | D→P | D* |
 | merge | story `change.merge`, `change.merge` | P | P+ | P | P | R∧D→P | R∧D* |
-| release | release `release.approve`, `release.approve` | P | P+ | P | P | P | D* |
-| operate: rollback | release `release.rollback`, `release.approve` (unbound today) | P | P+ | P | R | R | R: end |
-| operate: close | root close `operating` | P | P+ | P | P | D→P | D* |
+| release (standalone, D150) | release `release.approve`, `release.approve` | P | P+ | P | P | P | D* |
+| rollback (standalone release) | release `release.rollback`, `release.approve` (unbound today) | P | P+ | P | R | R | R: end |
+| close | root close `delivered` (`operating` before D150) | P | P+ | P | P | D→P | D* |
 | budget overrun | driver caps: `--max-llm-calls`, `SDC_MAX_DECIDER_CALLS`, USD | P | P | P | R, then P | R, then P | R: end |
 | limit hit | `--max-wall-seconds`, `--max-steps`, `timeout_s`, Substrate refusals | R, then P | R, then P | R, then P | R, then P | R, then P | R: end |
 | escalation | decider reply `escalate` or an invalid reply | — | — | P | P | P | D* |
@@ -407,7 +407,7 @@ classes:
   merge:                 {type: approval, actions: ["sdc.story/change.merge"], capability: change.merge}
   release:               {type: approval, actions: ["sdc.release/release.approve"], capability: release.approve}
   rollback:              {type: approval, actions: ["sdc.release/release.rollback"], capability: release.rollback}
-  close:                 {type: close, actions: ["sdc/close:operating"]}
+  close:                 {type: close, actions: ["sdc/close:delivered"]}
   budget_overrun:        {type: control}
   limit_hit:             {type: control}
   escalation:            {type: control}

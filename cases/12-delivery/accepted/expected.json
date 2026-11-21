@@ -1,0 +1,23 @@
+{
+  "actions": {
+    "acceptance.run": "blocked",
+    "release.build": "admissible",
+    "spec.gate": "blocked"
+  },
+  "claims": {
+    "gate.checked": "true",
+    "gate.passed": "true",
+    "release.acceptance_run": "true",
+    "release.accepted": "true",
+    "release.built": "true"
+  },
+  "obligations": {
+    "acceptance.required": "discharged",
+    "gate.required": "discharged",
+    "provenance.required": "discharged"
+  },
+  "outcomes": {
+    "not_accepted": "blocked",
+    "passed": "legitimate"
+  }
+}

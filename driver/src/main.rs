@@ -37,6 +37,8 @@ enum Cmd {
     /// Open a case: compile the protocol, write the snapshot, empty evidence and authority.
     /// `--bindings` is the action-to-tool JSON; `--artifact name=revision` overrides an artifact's
     /// initial revision; `--independent producer=dim,dim` once per producer listed as independent.
+    /// `--source <tree>`: another case tree whose records `copy` bindings may also copy (a
+    /// standalone sdc.release copies the acceptance record of a delivered tree); kept in source.json.
     Init {
         #[arg(long)]
         protocol: PathBuf,
@@ -48,6 +50,8 @@ enum Cmd {
         artifacts: Vec<String>,
         #[arg(long = "independent")]
         independent: Vec<String>,
+        #[arg(long)]
+        source: Option<PathBuf>,
     },
     /// Evaluate the case and print where it is.
     Eval {
@@ -472,10 +476,16 @@ fn all_cases(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// TEMPORARY (Loom, boundary.md row 28): the record a `copy` binding copies, the latest record of
-/// its kind at the current subject revision of a case in the same tree under the named protocol.
+/// its kind at the current subject revision of a case in the same tree under the named protocol,
+/// or in the tree the root's `source.json` names (`init --source`).
 fn copy_source(dir: &Path, b: &Value) -> R<Option<Value>> {
     let mut found = None;
-    for c in all_cases(&tree_root(dir)) {
+    let root = tree_root(dir);
+    let mut cases = all_cases(&root);
+    if let Ok(s) = read_json(&root.join("source.json")) {
+        cases.extend(s["tree"].as_str().map(|t| all_cases(Path::new(t))).unwrap_or_default());
+    }
+    for c in cases {
         let case = read_json(&c.join("case.json"))?;
         if case["protocol"] != b["copy"]["from"] {
             continue;
@@ -1576,6 +1586,7 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             bindings,
             artifacts,
             independent,
+            source,
         } => {
             let mut revs = Map::new();
             for a in artifacts {
@@ -1591,10 +1602,12 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                     .ok_or(format!("--independent {i}: expected producer=dim,dim"))?;
                 ind.insert(p.into(), json!(dims.split(',').collect::<Vec<_>>()));
             }
-            Ok((
-                init_case(canon, dir, protocol, id, bindings, &revs, &ind, false)?,
-                0,
-            ))
+            let opened = init_case(canon, dir, protocol, id, bindings, &revs, &ind, false)?;
+            if let Some(s) = source {
+                let tree = fs::canonicalize(s).map_err(|e| format!("--source {}: {e}", s.display()))?;
+                write_json(&dir.join("source.json"), &json!({"format": "sdc.source/1", "tree": tree}))?;
+            }
+            Ok((opened, 0))
         }
         Cmd::Eval { at } => Ok((position(dir, &evaluate(canon, dir, at)?)?, 0)),
         Cmd::Tools { at } => {

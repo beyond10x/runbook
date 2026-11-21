@@ -65,17 +65,17 @@
       "list-stories"
     ]
   },
-  "release.open": {
-    "produces": "release_opened",
+  "delivery.open": {
+    "produces": "delivery_opened",
     "subject": "epic",
     "producer": "sdc-drive",
     "results": {
       "0": null
     },
     "child": {
-      "name": "release",
-      "protocol": "{dir}/../../../protocol/sdc-release.protocol.yaml",
-      "bindings": "{dir}/sdc-release.bindings.json"
+      "name": "delivery",
+      "protocol": "{dir}/../../../protocol/sdc-delivery.protocol.yaml",
+      "bindings": "{dir}/sdc-delivery.bindings.json"
     }
   }
 }

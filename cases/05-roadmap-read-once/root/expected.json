@@ -20,8 +20,8 @@
   },
   "outcomes": {
     "abandoned": "blocked",
+    "delivered": "blocked",
     "not_delivered": "blocked",
-    "operating": "blocked",
     "refused": "blocked"
   }
 }

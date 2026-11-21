@@ -513,12 +513,25 @@ it, `approve --capability release.approve --deny` by the decider, then `sdc-driv
 release.approve --reasons <rejection>`, which appends the `canon-decisions/1` entry (decision,
 outcome, principal, case revision) with the rejection (the decider's reasons and citations) as its
 log blob, and refuses before writing unless the outcome requires that decision alone and the
-case's last step was that denial. The release is closed `withheld`; the driver's round closes the
-epic `not_released`, and the root, terminable `not_delivered`, is closed without a decider: the
-decider closes only `operating` (class close) and outcomes that require a decision. The run is
-closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)`,
-and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note), no stop record. Under
+case's last step was that denial. The release is closed `withheld`. Since D150 (2026-11-21) this
+happens only in a standalone release (`scripts/run-trial.sh <name> --release <delivered run>`,
+whose root case is the release, `IDEA-1.release` at `store/IDEA-1`): the delivered tree it runs
+from is not touched, and no cycle outcome changes. The run is closed, not stopped: exit 0,
+`closed IDEA-1.release: "withheld" (release withheld: <first reason>)`, and `status.json`
+(`sdc.run-status/1`: state, outcome `withheld`, `delivered` false, note), no stop record. Under
 A0–A4 the reject stops the run as before and nothing is recorded in the release case.
+
+**The cycle ends delivered** (ruling D150, 2026-11-21, `docs/protocol-notes.md`, "The cycle ends
+delivered"). The epic's last child is `sdc.delivery` (build, acceptance run), with no approval;
+the root's success outcome is `delivered`, and `status.json` says `delivered: true` for it. No
+action of the cycle publishes or observes. A standalone `sdc.release` is opened by `run-trial.sh
+--release <run>`: it checks that the run's root closed `delivered`, copies the tree's `work/`
+(same content, same `spec` and `release` revisions), and opens the case with `sdc-drive init
+--source <tree>`, which writes `source.json` (`sdc.source/1`, the tree's absolute path) so that
+`delivery.read`'s `copy` binding finds the tree's `sdc.delivery` acceptance record. The release
+closes `passed` without a decider (no outcome there requires a decision), `withheld` as above.
+Runs recorded before D150 keep their records; their root ended `operating`, which the UI and the
+KPI tools read as any outcome string.
 
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
@@ -547,7 +560,8 @@ the case and the fix it waits on; the interval before a `rule:` stop is not coun
 ## Action-to-tool bindings
 
 One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direction`,
-`sdc-epic`, `sdc-spec`, `sdc-plan`, `sdc-story`, `sdc-release` (`.bindings.json`). Every action
+`sdc-epic`, `sdc-spec`, `sdc-plan`, `sdc-story`, `sdc-delivery`, `sdc-release` (`.bindings.json`;
+`sdc-release` for the standalone release only). Every action
 name, produced kind and placed artifact is checked against the compiled protocol by
 `scripts/check-bindings.sh`. Unbound on purpose: `context.change` (a person's edit),
 `spec.reuse`, `spec.reconstruct`, `release.rollback`. Tools are subcommands of
@@ -566,8 +580,8 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | direction | `context.check` | yq check | `valid`/`invalid` |
 | direction | `roadmap.validate` | `aep plan artifact validate --strict --store aep` | `valid`/`invalid` |
 | direction | `context.approve`, `vision.approve`, `roadmap.approve` | `manual`: `approve --action`, producer = principal | `approved` |
-| epic, plan, story, release | `spec.gate` | `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:`, `ess verify conform synthesize` with 0 refusals | `passed`/`failed` |
-| epic | `spec.open`, `plan.open`, `stories.open`, `release.open` | driver: open child(ren); `stories` from `args_from: list-stories` (stories that deliver the epic) | `*_opened`, `case_outcome` |
+| epic, plan, story, delivery, release | `spec.gate` | `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:`, `ess verify conform synthesize` with 0 refusals | `passed`/`failed` |
+| epic | `spec.open`, `plan.open`, `stories.open`, `delivery.open` | driver: open child(ren); `stories` from `args_from: list-stories` (stories that deliver the epic) | `*_opened`, `case_outcome` |
 | spec | `spec.author` | `llm-node.sh`, `domain` from `args_from: spec-domain` (stub: copies `fixtures/billing-spec`, ESS `examples/billing`) | `spec_source=authored` |
 | spec | `spec.validate`, `spec.compile`, `spec.synthesize` | the `ess` commands above, one each | `valid`, `compiled`, `clean` |
 | spec | `spec.scan`, `spec.trace` | `grep -rn UNMAPPED:`; every `system.yaml` domain cited by a requirement | `none`, `traced` |
@@ -577,10 +591,12 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | plan | `plan.validate`, `plan.scope`, `plan.status` | `aep plan artifact validate --strict`; `waves --kind story` with 0 unassessed; `list` all active | `valid`, `scoped`, `active` |
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
 | story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`) | `implementation_change` |
-| story, release | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (release): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
+| story, delivery | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (delivery): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
 | story | `merge.approve` | manual (`argv: ["true"]`), taken by `approve --capability change.merge --action merge.approve`, `--result rejected --reasons <file>` for a rejection | `merge_approval` approved or rejected |
 | story | `change.merge` | copy `impl/` to `mainline/` (once `merge.approved`) | `merge_record` |
-| release | `release.build`, `release.publish`, `release.observe` | copy `mainline/` to `release/` with a spec digest; copy to `published/`; compare | `build_provenance`, `release_record`, `healthy` |
+| delivery | `release.build` | copy `mainline/` to `release/` with a spec digest | `build_provenance` |
+| release (standalone) | `delivery.read` | driver: `copy` from the sdc.delivery case of the tree named by `init --source` | the `release_conformance` record |
+| release (standalone) | `release.publish`, `release.observe` | copy `release/` to `published/`; compare | `release_record`, `healthy` |
 
 ### Interim story gate (2026-11-21)
 

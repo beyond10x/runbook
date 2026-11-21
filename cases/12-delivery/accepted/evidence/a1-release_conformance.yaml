@@ -1,0 +1,10 @@
+format: canon-evidence/1
+id: a1
+kind: release_conformance
+result: passed
+subject: release
+subject_revision: t1
+producer: ess
+observed_at: 2026-11-20T10:02:00Z
+upstream_revisions:
+  spec: s1

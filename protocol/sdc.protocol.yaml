@@ -1,9 +1,9 @@
 format: protocol/1
 protocol:
   id: sdc
-  revision: 8
+  revision: 9
   description: >-
-    Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision; when a child case ended other than passed it ends refused (the intake, before the direction case opened) or not_delivered (any later child), without a person. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.
+    Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, delivery: the merged changes built and accepted against the specification). Every child reports passed when it succeeds. The case ends delivered once every epic of the approved roadmap ended passed (delivered and tested), or abandoned on an explicit decision; when a child case ended other than passed it ends refused (the intake, before the direction case opened) or not_delivered (any later child), without a person. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again. Publishing and operating are not part of the cycle: sdc.release runs alone from a delivered tree.
 artifacts:
   idea:
     description: the idea as the person gave it, from three words to a short paragraph
@@ -140,7 +140,7 @@ actions:
       required: [epics]
       additionalProperties: false
 outcomes:
-  operating:
+  delivered:
     description: >-
       the current roadmap is approved, its epic cases were opened, and every child case ended passed
     requires:
@@ -167,9 +167,9 @@ outcomes:
   not_delivered:
     description: >-
       a child case opened after the direction case ended other than passed: an epic was not
-      delivered (a specification abandoned, a story dropped) or not released (the release withheld
-      or rolled back), or abandoned. The children form keeps that outcome, so the case ends here,
-      not operating
+      delivered (a specification abandoned, a story dropped), not accepted (the acceptance run
+      failed on the build of the merged changes), or abandoned. The children form keeps that
+      outcome, so the case ends here, not delivered
     requires:
       all:
         - claim: children.passed

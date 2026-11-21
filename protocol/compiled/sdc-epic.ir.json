@@ -1,5 +1,53 @@
 {
   "actions": {
+    "delivery.open": {
+      "case_open": {
+        "protocol": "sdc.delivery",
+        "subject": "epic"
+      },
+      "description": "open the sdc.delivery case once every story case ended passed (every story merged)",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "delivery_opened"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "delivery.opened",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "stories.opened",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
     "plan.open": {
       "case_open": {
         "protocol": "sdc.plan",
@@ -41,54 +89,6 @@
           {
             "claim": {
               "id": "spec.opened",
-              "is": "true"
-            }
-          }
-        ]
-      },
-      "requires": []
-    },
-    "release.open": {
-      "case_open": {
-        "protocol": "sdc.release",
-        "subject": "epic"
-      },
-      "description": "open the sdc.release case once every story case ended passed",
-      "effect": "write",
-      "may_produce": [
-        {
-          "evidence": "release_opened"
-        }
-      ],
-      "precondition": {
-        "all": [
-          {
-            "claim": {
-              "id": "children.passed",
-              "is": "true"
-            }
-          },
-          {
-            "claim": {
-              "id": "gate.passed",
-              "is": "true"
-            }
-          },
-          {
-            "claim": {
-              "id": "release.opened",
-              "is": "unknown"
-            }
-          },
-          {
-            "claim": {
-              "id": "roadmap.approved",
-              "is": "true"
-            }
-          },
-          {
-            "claim": {
-              "id": "stories.opened",
               "is": "true"
             }
           }
@@ -256,6 +256,16 @@
         }
       }
     },
+    "delivery.opened": {
+      "description": "the delivery case was opened for the current epic revision",
+      "true_when": {
+        "evidence": {
+          "kind": "delivery_opened",
+          "result": null,
+          "subject": "epic"
+        }
+      }
+    },
     "gate.checked": {
       "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
       "true_when": {
@@ -281,16 +291,6 @@
       "true_when": {
         "evidence": {
           "kind": "plan_opened",
-          "result": null,
-          "subject": "epic"
-        }
-      }
-    },
-    "release.opened": {
-      "description": "the release case was opened for the current epic revision",
-      "true_when": {
-        "evidence": {
-          "kind": "release_opened",
           "result": null,
           "subject": "epic"
         }
@@ -341,14 +341,14 @@
     "case_outcome": {
       "description": "the outcome of one child case, one record per child: passed or another outcome of the child's protocol, open while the child runs"
     },
+    "delivery_opened": {
+      "description": "the record that the delivery case was opened for an epic revision"
+    },
     "ess_gate": {
       "description": "the ESS gate over a specification revision: `ess specify validate --strict-requires`, `ess specify compile`, `ess verify conform synthesize` with 0 refusals and no `UNMAPPED:` marker, run as one program; passed only when all four pass, failed otherwise"
     },
     "plan_opened": {
       "description": "the record that the planning case was opened for an epic revision"
-    },
-    "release_opened": {
-      "description": "the record that the release case was opened for an epic revision"
     },
     "roadmap_approval": {
       "description": "a person's approval of a roadmap revision; its result is approved"
@@ -362,17 +362,8 @@
   },
   "format": "canon-ir/1",
   "obligations": {
-    "gate.required": {
-      "description": "the ESS gate passes on the current specification revision",
-      "discharged_when": {
-        "claim": {
-          "id": "gate.passed",
-          "is": "true"
-        }
-      }
-    },
-    "release.required": {
-      "description": "the release case was opened and every child ended passed",
+    "delivery.required": {
+      "description": "the delivery case was opened and every child ended passed",
       "discharged_when": {
         "all": [
           {
@@ -383,11 +374,20 @@
           },
           {
             "claim": {
-              "id": "release.opened",
+              "id": "delivery.opened",
               "is": "true"
             }
           }
         ]
+      }
+    },
+    "gate.required": {
+      "description": "the ESS gate passes on the current specification revision",
+      "discharged_when": {
+        "claim": {
+          "id": "gate.passed",
+          "is": "true"
+        }
       }
     },
     "roadmap.required": {
@@ -407,8 +407,8 @@
         "decision": "explicitly_abandoned"
       }
     },
-    "not_delivered": {
-      "description": "a child case opened before the release ended other than passed (the specification abandoned, a story dropped); the children form keeps that outcome for every later revision, so the case ends here, and the root case ends not_delivered with it",
+    "not_accepted": {
+      "description": "the delivery case ended other than passed: the acceptance run of the specification's suite failed on the release built from the merged changes. The delivery case is opened only once every earlier child passed, so the delivery stage is the child that failed; the case ends here, and the root case ends not_delivered with it",
       "requires": {
         "all": [
           {
@@ -419,51 +419,51 @@
           },
           {
             "claim": {
-              "id": "release.opened",
+              "id": "delivery.opened",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "not_delivered": {
+      "description": "a child case opened before the delivery stage ended other than passed (the specification abandoned, a story dropped); the children form keeps that outcome for every later revision, so the case ends here, and the root case ends not_delivered with it",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "delivery.opened",
               "is": "unknown"
             }
           }
         ]
       }
     },
-    "not_released": {
-      "description": "the release case ended other than passed (withheld, for instance after its publication was refused, or rolled back). The release case is opened only once every earlier child passed, so the release is the child that failed; the case ends here, and the root case ends not_delivered with it",
+    "passed": {
+      "description": "delivered and tested: the delivery case was opened, every child ended passed (every story merged, the release built and accepted), and the ESS gate passes on the current specification revision",
       "requires": {
         "all": [
           {
             "claim": {
               "id": "children.passed",
-              "is": "false"
+              "is": "true"
             }
           },
           {
             "claim": {
-              "id": "release.opened",
-              "is": "true"
-            }
-          }
-        ]
-      }
-    },
-    "passed": {
-      "description": "the release case was opened, every child ended passed, and the ESS gate passes on the current specification revision",
-      "requires": {
-        "all": [
-          {
-            "claim": {
-              "id": "children.passed",
+              "id": "delivery.opened",
               "is": "true"
             }
           },
           {
             "claim": {
               "id": "gate.passed",
-              "is": "true"
-            }
-          },
-          {
-            "claim": {
-              "id": "release.opened",
               "is": "true"
             }
           },
@@ -478,8 +478,8 @@
     }
   },
   "protocol": {
-    "description": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision; when a child case ended other than passed it ends not_delivered (a child before the release) or not_released (the release), without a person.",
+    "description": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.delivery (build the merged changes and run the acceptance suite against the build). No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed (delivered and tested) once the delivery case ended passed and the gate still passes, or abandoned on an explicit decision; when a child case ended other than passed it ends not_delivered (a child before the delivery stage) or not_accepted (the delivery stage: the acceptance run failed), without a person. Publishing and operating are not part of the cycle: sdc.release runs alone from a delivered tree and nothing here opens it.",
     "id": "sdc.epic",
-    "revision": 5
+    "revision": 6
   }
 }

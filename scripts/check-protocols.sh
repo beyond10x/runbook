@@ -52,7 +52,7 @@ probe() {
 }
 
 probe sdc-spec "$spec_gate"
-for name in sdc-plan sdc-epic sdc-story sdc-release; do
+for name in sdc-plan sdc-epic sdc-story sdc-delivery sdc-release; do
   probe "$name" "$ess_gate"
 done
 exit $fail

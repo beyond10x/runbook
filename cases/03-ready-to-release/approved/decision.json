@@ -1,16 +1,13 @@
 {
   "actions": {
-    "acceptance.run": {
+    "delivery.read": {
       "reasons": [
         {
-          "claim": "release.acceptance_run",
+          "claim": "release.acceptance_copied",
           "value": "true"
         }
       ],
       "status": "blocked"
-    },
-    "release.build": {
-      "status": "admissible"
     },
     "release.observe": {
       "reasons": [
@@ -51,13 +48,10 @@
     "gate.passed": {
       "value": "true"
     },
-    "release.acceptance_run": {
+    "release.acceptance_copied": {
       "value": "true"
     },
     "release.accepted": {
-      "value": "true"
-    },
-    "release.built": {
       "value": "true"
     },
     "release.healthy": {
@@ -75,10 +69,10 @@
   },
   "explanation": {
     "actions": {
-      "acceptance.run": {
+      "delivery.read": {
         "because": [
           {
-            "claim": "release.acceptance_run",
+            "claim": "release.acceptance_copied",
             "value": "true"
           }
         ],
@@ -122,7 +116,7 @@
         ],
         "value": "true"
       },
-      "release.acceptance_run": {
+      "release.acceptance_copied": {
         "because": [
           {
             "evidence": "a1",
@@ -195,11 +189,10 @@
       },
       "evidence": [
         "a1",
-        "b1",
         "g2"
       ],
       "protocol": "sdc.release",
-      "protocol_revision": 4,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -263,10 +256,6 @@
     {
       "id": "health.required",
       "status": "open"
-    },
-    {
-      "id": "provenance.required",
-      "status": "discharged"
     }
   ],
   "outcomes": {
@@ -303,5 +292,5 @@
     }
   },
   "protocol": "sdc.release",
-  "protocol_revision": 4
+  "protocol_revision": 5
 }

@@ -1,0 +1,9 @@
+format: canon-evidence/1
+id: k3
+kind: case_outcome
+result: passed
+subject: roadmap
+subject_revision: r1
+producer: sdc-drive
+child_case: IDEA-12.app
+observed_at: 2026-11-20T10:06:00Z

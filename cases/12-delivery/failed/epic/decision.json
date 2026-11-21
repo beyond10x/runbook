@@ -1,0 +1,363 @@
+{
+  "actions": {
+    "delivery.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        },
+        {
+          "claim": "delivery.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "plan.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        },
+        {
+          "claim": "plan.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.read": {
+      "reasons": [
+        {
+          "claim": "roadmap.copied",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.gate": {
+      "reasons": [
+        {
+          "claim": "gate.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.open": {
+      "reasons": [
+        {
+          "claim": "spec.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "stories.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        },
+        {
+          "claim": "stories.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "IDEA-12.app",
+  "claims": {
+    "children.passed": {
+      "value": "false"
+    },
+    "delivery.opened": {
+      "value": "true"
+    },
+    "gate.checked": {
+      "value": "true"
+    },
+    "gate.passed": {
+      "value": "true"
+    },
+    "plan.opened": {
+      "value": "true"
+    },
+    "roadmap.approved": {
+      "value": "true"
+    },
+    "roadmap.copied": {
+      "value": "true"
+    },
+    "spec.opened": {
+      "value": "true"
+    },
+    "stories.opened": {
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "delivery.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          },
+          {
+            "claim": "delivery.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "plan.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          },
+          {
+            "claim": "plan.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "roadmap.read": {
+        "because": [
+          {
+            "claim": "roadmap.copied",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.gate": {
+        "because": [
+          {
+            "claim": "gate.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.open": {
+        "because": [
+          {
+            "claim": "spec.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "stories.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          },
+          {
+            "claim": "stories.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "children.passed": {
+        "because": [
+          {
+            "children": [
+              "passed"
+            ],
+            "value": "false"
+          }
+        ],
+        "value": "false"
+      },
+      "delivery.opened": {
+        "because": [
+          {
+            "evidence": "o4",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "gate.checked": {
+        "because": [
+          {
+            "evidence": "g1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "plan.opened": {
+        "because": [
+          {
+            "evidence": "o2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "roadmap.copied": {
+        "because": [
+          {
+            "evidence": "a1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.opened": {
+        "because": [
+          {
+            "evidence": "o1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "stories.opened": {
+        "because": [
+          {
+            "evidence": "o3",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "epic": {
+            "revision": "e1"
+          },
+          "roadmap": {
+            "revision": "r1"
+          },
+          "spec": {
+            "revision": "s1"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "IDEA-12.app",
+        "protocol": "sdc.epic",
+        "revision": "c1"
+      },
+      "evidence": [
+        "a1",
+        "g1",
+        "k1",
+        "k2",
+        "k3",
+        "k4",
+        "o1",
+        "o2",
+        "o3",
+        "o4"
+      ],
+      "protocol": "sdc.epic",
+      "protocol_revision": 6,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "delivery.required": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "abandoned": {
+        "because": [
+          {
+            "decision": "explicitly_abandoned",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_delivered": {
+        "because": [
+          {
+            "claim": "delivery.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "passed": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "delivery.required",
+      "status": "open"
+    },
+    {
+      "id": "gate.required",
+      "status": "discharged"
+    },
+    {
+      "id": "roadmap.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "abandoned": {
+      "reasons": [
+        {
+          "decision": "explicitly_abandoned",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "not_accepted": {
+      "status": "legitimate"
+    },
+    "not_delivered": {
+      "reasons": [
+        {
+          "claim": "delivery.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "passed": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.epic",
+  "protocol_revision": 6
+}

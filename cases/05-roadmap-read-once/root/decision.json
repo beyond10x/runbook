@@ -172,7 +172,7 @@
         "a1"
       ],
       "protocol": "sdc",
-      "protocol_revision": 8,
+      "protocol_revision": 9,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -212,6 +212,19 @@
         ],
         "status": "blocked"
       },
+      "delivered": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "epics.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
       "not_delivered": {
         "because": [
           {
@@ -220,19 +233,6 @@
           },
           {
             "claim": "direction.opened",
-            "value": "unknown"
-          }
-        ],
-        "status": "blocked"
-      },
-      "operating": {
-        "because": [
-          {
-            "claim": "children.passed",
-            "value": "unknown"
-          },
-          {
-            "claim": "epics.opened",
             "value": "unknown"
           }
         ],
@@ -274,6 +274,19 @@
       ],
       "status": "blocked"
     },
+    "delivered": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "epics.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "not_delivered": {
       "reasons": [
         {
@@ -282,19 +295,6 @@
         },
         {
           "claim": "direction.opened",
-          "value": "unknown"
-        }
-      ],
-      "status": "blocked"
-    },
-    "operating": {
-      "reasons": [
-        {
-          "claim": "children.passed",
-          "value": "unknown"
-        },
-        {
-          "claim": "epics.opened",
           "value": "unknown"
         }
       ],
@@ -311,5 +311,5 @@
     }
   },
   "protocol": "sdc",
-  "protocol_revision": 8
+  "protocol_revision": 9
 }

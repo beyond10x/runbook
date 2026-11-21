@@ -89,7 +89,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   review-reject-once review-invalid review-spent decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models)
+  decider-escalate-nobest release-standalone decider-release-a3 requester-decider requester-no-ground principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -98,7 +98,7 @@ jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/exam
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
   expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
-expected+=(decider-later-obligation replay-sibling writer-not-called)
+expected+=(decider-later-obligation replay-sibling writer-not-called decider-release-withheld)
 expected+=(cite-dark-spot cite-fault-sent-back)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
@@ -136,7 +136,7 @@ cycle finding-program SDC_STUB_FIXTURES="$fx/storage-conflict"
 # scope-changed: runs/trial-2-train's stop (docs/trial-2.md, "Run notes"). questions.answer goes
 # through llm-node.sh's apply step (fixture adapter, no LLM); at the scope.answer stop the person
 # changes q2's answer in questions.yaml, then takes scope.answer once. Passes when the cycle ends
-# operating, q2 keeps the person's answer (`answered_by: person:stand-in`, the scripted person) and the requirements were written
+# delivered, q2 keeps the person's answer (`answered_by: person:stand-in`, the scripted person) and the requirements were written
 # after scope.answer.
 answer="the billing clerk or the customer, before it is paid"
 cycle scope-changed SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
@@ -160,7 +160,7 @@ fi
 # on PATH at the new interview revision (the check runs once per revision, so only after the
 # edit), the person resumes before taking scope.answer, requirements.normalise raises an agent
 # finding and a scope-changing one, and the person picks option 3 of the latter (not the default).
-# Passes when the cycle ends operating, the check without yq exited 127 and recorded nothing, a
+# Passes when the cycle ends delivered, the check without yq exited 127 and recorded nothing, a
 # questions.check after it recorded (a 127 run leaves the check admissible), questions.write ran once,
 # and the interview keeps q2 and the decision (option 3), both person:stand-in.
 decision="the customer asks, the billing clerk cancels"
@@ -216,7 +216,7 @@ fi
 # runs/ here), where a draft may only move to proposed. plan.decompose goes through llm-node.sh's
 # apply step (fixture adapter, fixtures/plan-stories.json); the stub roadmap and the apply step
 # move the epic and the story to active in the case's own aep store. Passes when the cycle ends
-# operating and plan.decompose ran once.
+# delivered and plan.decompose ran once.
 p=$s/in-project; rm -rf "$p"; mkdir -p "$p/.engineering" "$p/runs"
 cp "$sdc/.engineering/project.yaml" "$p/.engineering/"
 env RUNS="$p/runs" SDC_LLM_NODES=plan.decompose \
@@ -237,7 +237,7 @@ fi
 # scope-changing finding and an agent one on its first run, another agent one on its second
 # applied run (fixtures/finding-story-rounds.yaml, `rounds`); the person decides the first with
 # option 2. Its decision is an arrival: change.implement gets a fresh max_runs 3. Passes when the
-# cycle ends operating with change.implement run 4 times in the story case.
+# cycle ends delivered with change.implement run 4 times in the story case.
 story=IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl
 cycle story-decision SDC_STUB_FINDINGS="$fx/finding-story-rounds.yaml" FINDING_DECISION=option:2
 code=$?
@@ -263,7 +263,7 @@ fi
 # scope-changing finding: its allowance is spent while the finding waits for a person. The run
 # stops awaiting_person with amend.upstream's handoff (handoff_when: a finding waits), not
 # writer_spent; the person's decision gives change.implement a fresh allowance. Passes when the
-# cycle ends operating with one person stop and no writer_spent.
+# cycle ends delivered with one person stop and no writer_spent.
 cycle story-late-person SDC_STUB_FINDINGS="$fx/finding-story-late-person.yaml" FINDING_DECISION=option:2
 code=$?
 if (( code == 0 )) && jq -se '([.[] | select(.event == "awaiting_person")] | length) == 1
@@ -274,7 +274,7 @@ else
 fi
 # spec-duplicate: runs/trial-3-haiku-2 (f10-f13 = f6-f9, f15 = f14). spec.author raises a finding,
 # then raises it again with no key (fixtures/finding-spec-duplicate.yaml). Passes when the cycle ends
-# operating with one finding of that text and spec.author run twice (the repeat added nothing).
+# delivered with one finding of that text and spec.author run twice (the repeat added nothing).
 spec=IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl
 cycle spec-duplicate SDC_STUB_FINDINGS="$fx/finding-spec-duplicate.yaml"
 code=$?
@@ -286,7 +286,7 @@ else
 fi
 # spec-own-default: runs/trial-3-haiku-2's stop. spec.author goes through llm-node.sh's apply path
 # (fixture adapter) and raises a new agent finding on every LLM call (fixtures/finding-spec-rounds.yaml).
-# Passes when the cycle ends operating, no writer_spent, spec.author run twice with one LLM call:
+# Passes when the cycle ends delivered, no writer_spent, spec.author run twice with one LLM call:
 # the amendment only records the default its tree follows, so it is not re-derived by the LLM.
 cycle spec-own-default SDC_STUB_FINDINGS="$fx/finding-spec-rounds.yaml" SDC_LLM_NODES=spec.author \
   SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh"
@@ -304,7 +304,7 @@ tracelog() { local d=$s/store-$1/${spec%/events.jsonl}
   jq -r 'select(.event == "action_finished" and .action == "spec.trace") | .log' "$d/events.jsonl" | while read -r b; do cat "$d/blobs/$b"; done; }
 # trace-gap: fixtures/trace-gap. The first spec traces r3 to billing.audit (an actor, no command):
 # the trace finding p-trace-r3, the writer sent back (the agent's decision names the gap), the
-# second spec traces r3 to two views. Passes when the cycle ends operating with that finding.
+# second spec traces r3 to two views. Passes when the cycle ends delivered with that finding.
 cycle trace-gap SDC_STUB_FIXTURES="$fx/trace-gap"
 code=$?
 if (( code == 0 )) && yq -o=json "$s/store-trace-gap/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
@@ -317,7 +317,7 @@ else
 fi
 # trace-gap-drop: the writer never specifies r3 (fixtures/trace-gap-drop): after it was sent back
 # once the gap is a scope decision, not a default; the scripted person drops r3. Passes when the
-# cycle ends operating with p-trace-r3 decided by the person and r3 `behaviour: dropped`.
+# cycle ends delivered with p-trace-r3 decided by the person and r3 `behaviour: dropped`.
 cycle trace-gap-drop SDC_STUB_FIXTURES="$fx/trace-gap-drop" FINDING_DECISION=option:3
 code=$?
 if (( code == 0 )) && yq -o=json "$s/store-trace-gap-drop/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
@@ -329,7 +329,7 @@ else
   echo "trace-gap-drop: FAILED (cycle exit $code, or the gap was waved through, or r3 not dropped)"
 fi
 # trace-constraint: r3 is a retention constraint with its reason (fixtures/trace-constraint): it
-# passes the trace untraced and is counted. Passes when the cycle ends operating with no trace finding.
+# passes the trace untraced and is counted. Passes when the cycle ends delivered with no trace finding.
 cycle trace-constraint SDC_STUB_FIXTURES="$fx/trace-constraint"
 code=$?
 if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work/findings.yaml" 2>/dev/null &&
@@ -351,7 +351,7 @@ review_env=(SDC_LLM_NODES=change.review SDC_LLM_ADAPTER="$sdc/driver/examples/sd
 rej='{"decision": "rejected", "summary": "fixture: the README does not say how to run it", "findings": [{"kind": "violation", "at": "impl/README.md:1", "violates": "r1", "says": "fixture: the README names no command to run the service"}]}'
 app='{"decision": "approved", "summary": "fixture: the rework addresses the finding", "findings": []}'
 # review-reject-once: rejected once with a finding citing impl/README.md:1 and r1, then approved.
-# Passes when the cycle ends operating with two code_review records by llm-review, rejected then
+# Passes when the cycle ends delivered with two code_review records by llm-review, rejected then
 # approved, the rejection's log an sdc.rejection/1 citing that line and r1, and change.implement
 # run twice, the second time sent back by the review with the rejection (the stub's impl/.rework).
 cycle review-reject-once "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{rounds: [$j, $a]}')"
@@ -796,12 +796,35 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     echo "rework-pending-rejection: FAILED (exit ${pc:-none}: $(tail -n 1 <<< "${out:-}" | cut -c1-200))"
   fi
 fi
-# decider-later-obligation: runs/trial-3-mixed-3's refused release. The autopilot cycle's decider
-# records (no new run): release.publish's in/checks.json does not list health.required as open (it
+# release-standalone (ruling D150): the cycle ends delivered and opens no release; sdc.release runs
+# alone from the delivered autopilot tree (run-trial.sh --release). Passes when it closes passed
+# (exit 0, replay matches) with the delivery case's acceptance record copied unchanged by
+# delivery.read (same id and producer), release.approve granted by decider:haiku and the root of the
+# autopilot run still closed delivered.
+targs=(--autopilot --release "$s/runs/autopilot")
+trial release-standalone
+code=$?
+r=$s/runs/release-standalone
+rc=$r/store/IDEA-1
+dv=$(find "$s/runs/autopilot/store" -type d -name '*.delivery' | head -n 1)
+acc=$(jq -r 'select(.kind == "release_conformance") | .id' "$dv"/evidence/*.json 2>/dev/null | tail -n 1)
+if (( code == 0 )) && [[ -n $acc ]] && jq -e '.protocol == "sdc.release" and .termination == "passed"' "$rc/case.json" >/dev/null &&
+   cmp -s <(jq -S . "$dv/evidence/$acc.json") <(jq -S . "$rc/evidence/$acc.json") &&
+   jq -e '. == [{"capability": "release.approve", "decision": "granted"}]' "$rc/authority.json" >/dev/null &&
+   jq -e '.termination == "delivered"' "$s/runs/autopilot/store/IDEA-1/case.json" >/dev/null &&
+   jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
+  echo "release-standalone: checks pass (sdc.release alone from the delivered tree: acceptance record copied unchanged, publish approved, closed passed, replay matches)"
+else
+  echo "release-standalone: FAILED (exit $code, case $(jq -c '{protocol, termination}' "$rc/case.json" 2>/dev/null), authority $(jq -c . "$rc/authority.json" 2>/dev/null))"
+fi
+targs=(--autopilot)
+# decider-later-obligation: runs/trial-3-mixed-3's refused release. The decider records of
+# release-standalone and the autopilot cycle (no new run): release.publish's in/checks.json does
+# not list health.required as open (it
 # needs release.healthy, a health_observation of release.observe, admissible only after the
 # publish) but under met_after_this_action, and the prompt says it is no condition; vision.approve's
 # moves roadmap.required (roadmap.approve comes after it).
-rp=$(ls -d "$s"/runs/autopilot/decider/*-release.publish 2>/dev/null | tail -n 1)
+rp=$(ls -d "$s"/runs/release-standalone/decider/*-release.publish 2>/dev/null | tail -n 1)
 va=$(ls -d "$s"/runs/autopilot/decider/*-vision.approve 2>/dev/null | tail -n 1)
 if [[ -n $rp && -n $va ]] &&
    jq -e '(.open_obligations | index("health.required") | not) and .met_after_this_action.action == "release.publish"
@@ -894,22 +917,23 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
 else
   echo "cite-fault-sent-back: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
-# A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
-# capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3
-# the decider's reject ends the run with rejected_without_rework_path (exit 6) and nothing is
+# A refused release (docs/driver.md, "A refused release"), on the standalone sdc.release run from
+# the delivered autopilot tree (D150: the cycle opens no release). release.publish's approval is
+# the capability release.approve, with no `rejected` result and no writer. decider-release-a3: at
+# A3 the decider's reject ends the run with rejected_without_rework_path (exit 6) and nothing is
 # recorded in the release case: the withheld decision is autopilot's only. A copy of that release
 # case, awaiting the approval, refuses `sdc-drive decide` (the decision outside the refused
-# state). Where the epic protocol has not_released: decider-release-withheld: under autopilot the
-# decider rejects release.publish; release.approve is denied by the decider, explicitly_withheld
-# recorded by rule:autopilot with the rejection as its log blob, the release closes withheld, the
-# epic not_released, the root not_delivered; exit 0, the closed line names the reason,
-# status.json says not delivered, no stop record, no person principal, L7 0, replay matches.
+# state). decider-release-withheld: under autopilot the decider rejects release.publish;
+# release.approve is denied by the decider, explicitly_withheld recorded by rule:autopilot with the
+# rejection as its log blob, the release closes withheld; exit 0, the closed line names the reason,
+# status.json says closed withheld and not delivered, no stop record, no person principal, L7 0,
+# replay matches; the delivered tree it ran from is untouched (still closed delivered).
 rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the release notes name no version"], "cites": ["r1"], "best": null}'
-targs=()
+targs=(--release "$s/runs/autopilot")
 trial decider-release-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
 code=$?
 r=$s/runs/decider-release-a3
-rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
+rs=$r/store/IDEA-1; [[ -f $rs/case.json ]] || rs=""
 cp_=$s/decide-refused; rm -rf "$cp_"; [[ -n $rs ]] && cp -r "$rs" "$cp_"
 printf '{"format": "sdc.rejection/1", "reasons": ["fixture"]}\n' > "$s/decide-refused.json"
 refusal=$("$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$cp_" decide \
@@ -925,31 +949,28 @@ if (( code == 6 )) && [[ -n $rs && ! -f $r/run-stopped.json && ! -f $r/status.js
 else
   echo "decider-release-a3: FAILED (exit $code, decide exit $rcode: $(tail -n 1 <<< "$refusal"))"
 fi
-targs=(--autopilot)
-if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1; then
-  trial decider-release-withheld SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
-  code=$?
-  r=$s/runs/decider-release-withheld
-  rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
-  ep=$(dirname "$(dirname "$rs")")
-  blob=$(jq -r 'select(.event == "decision_recorded") | .log' "$rs/events.jsonl" 2>/dev/null)
-  people=$( { jq -r '.principal' "$r/decisions.jsonl"
-              find "$r/store" -name events.jsonl -exec jq -r 'select(.event == "authority_recorded" or .event == "decision_recorded" or (.event == "action_finished" and .principal != null)) | .principal' {} +
-            } | grep -Evc "$nonperson")
-  if (( code == 0 && people == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
-     grep -q '^closed IDEA-1: "not_delivered" (release withheld: fixture: the release notes name no version)' "$s/decider-release-withheld.txt" &&
-     jq -e '.state == "closed" and .outcome == "not_delivered" and .delivered == false' "$r/status.json" >/dev/null &&
-     jq -e '. == [{"capability": "release.approve", "decision": "denied"}]' "$rs/authority.json" >/dev/null &&
-     jq -e 'length == 1 and .[0].decision == "explicitly_withheld" and .[0].outcome == "withheld" and .[0].principal == "rule:autopilot"' "$rs/decisions.json" >/dev/null &&
-     jq -e '.format == "sdc.rejection/1" and .approval == "release.publish" and .reasons == ["fixture: the release notes name no version"]' "$rs/blobs/$blob" >/dev/null &&
-     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["withheld"]' "$rs/events.jsonl" >/dev/null &&
-     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["not_released"]' "$ep/events.jsonl" >/dev/null &&
-     "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0' >/dev/null &&
-     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
-    echo "decider-release-withheld: checks pass (release withheld by rule:autopilot after the decider's refusal, epic not_released, root not_delivered; exit 0, no person, L7 0, replay matches)"
-  else
-    echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
-  fi
+targs=(--autopilot --release "$s/runs/autopilot")
+trial decider-release-withheld SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
+code=$?
+r=$s/runs/decider-release-withheld
+rs=$r/store/IDEA-1
+blob=$(jq -r 'select(.event == "decision_recorded") | .log' "$rs/events.jsonl" 2>/dev/null)
+people=$( { jq -r '.principal' "$r/decisions.jsonl"
+            find "$r/store" -name events.jsonl -exec jq -r 'select(.event == "authority_recorded" or .event == "decision_recorded" or (.event == "action_finished" and .principal != null)) | .principal' {} +
+          } | grep -Evc "$nonperson")
+if (( code == 0 && people == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   grep -q '^closed IDEA-1.release: "withheld" (release withheld: fixture: the release notes name no version)' "$s/decider-release-withheld.txt" &&
+   jq -e '.state == "closed" and .outcome == "withheld" and .delivered == false' "$r/status.json" >/dev/null &&
+   jq -e '. == [{"capability": "release.approve", "decision": "denied"}]' "$rs/authority.json" >/dev/null &&
+   jq -e 'length == 1 and .[0].decision == "explicitly_withheld" and .[0].outcome == "withheld" and .[0].principal == "rule:autopilot"' "$rs/decisions.json" >/dev/null &&
+   jq -e '.format == "sdc.rejection/1" and .approval == "release.publish" and .reasons == ["fixture: the release notes name no version"]' "$rs/blobs/$blob" >/dev/null &&
+   jq -se '[.[] | select(.event == "terminated") | .outcome] == ["withheld"]' "$rs/events.jsonl" >/dev/null &&
+   jq -e '.termination == "delivered"' "$s/runs/autopilot/store/IDEA-1/case.json" >/dev/null &&
+   "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0' >/dev/null &&
+   jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
+  echo "decider-release-withheld: checks pass (standalone release withheld by rule:autopilot after the decider's refusal; exit 0, no person, L7 0, replay matches; the delivered tree untouched)"
+else
+  echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
 fi
 # requester-decider (story:requester-decider, docs/requester.md § 3): the trial-2 fixture
 # (fixtures/trial-2) with the trial-2 goals, SDC_REQUESTER_DECIDER=haiku and the recorded requester

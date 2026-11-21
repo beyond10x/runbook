@@ -2,8 +2,10 @@
 
 ## What it is
 
-- A family of eight Canon `protocol/1` documents under `protocol/`, one case per stage, composed
-  with child cases: idea, intake, direction, epic, spec, plan, story, release (`docs/protocol-notes.md:3-16`).
+- A family of nine Canon `protocol/1` documents under `protocol/`, one case per stage, composed
+  with child cases. The cycle is idea, intake, direction, epic, spec, plan, story, delivery and ends
+  `delivered` (built and accepted); `sdc.release` (publish, observe) runs alone from a delivered
+  tree and nothing in the cycle opens it (`docs/protocol-notes.md:3-20`).
 - The stage is derived from facts (files in the repository, recorded run results), never from a
   stored phase; a passing ESS gate marks the spec complete (`docs/phases.md:3-6`, `:34-35`).
 - `sdc-drive` (`driver/`) runs one case tree on Canon: it reads `canon-decision/1`, runs the tool
@@ -15,7 +17,7 @@
 
 ## Directory map
 
-- `protocol/` the eight protocols, `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
+- `protocol/` the nine protocols, `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
 - `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`); bindings in `driver/examples/sdc/`.
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).

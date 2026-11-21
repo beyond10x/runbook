@@ -1,7 +1,0 @@
-format: canon-evidence/1
-id: b1
-kind: build_provenance
-subject: release
-subject_revision: 1.0.0
-producer: sdc-drive
-observed_at: 2026-11-20T10:05:00Z

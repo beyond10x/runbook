@@ -1,0 +1,9 @@
+format: canon-case/1
+id: IDEA-12.app.delivery
+protocol: sdc.delivery
+revision: c2
+artifacts:
+  spec:
+    revision: s1
+  release:
+    revision: t1

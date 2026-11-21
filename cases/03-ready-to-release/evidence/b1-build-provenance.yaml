@@ -1,7 +1,0 @@
-format: canon-evidence/1
-id: b1
-kind: build_provenance
-subject: release
-subject_revision: 1.0.0
-producer: build-system
-observed_at: 2026-11-20T12:00:00Z

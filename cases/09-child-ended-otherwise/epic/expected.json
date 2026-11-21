@@ -1,7 +1,7 @@
 {
   "actions": {
+    "delivery.open": "blocked",
     "plan.open": "blocked",
-    "release.open": "blocked",
     "roadmap.read": "blocked",
     "spec.gate": "admissible",
     "spec.open": "blocked",
@@ -9,24 +9,24 @@
   },
   "claims": {
     "children.passed": "false",
+    "delivery.opened": "unknown",
     "gate.checked": "unknown",
     "gate.passed": "unknown",
     "plan.opened": "unknown",
-    "release.opened": "unknown",
     "roadmap.approved": "true",
     "roadmap.copied": "true",
     "spec.opened": "true",
     "stories.opened": "unknown"
   },
   "obligations": {
+    "delivery.required": "open",
     "gate.required": "open",
-    "release.required": "open",
     "roadmap.required": "discharged"
   },
   "outcomes": {
     "abandoned": "blocked",
+    "not_accepted": "blocked",
     "not_delivered": "legitimate",
-    "not_released": "blocked",
     "passed": "blocked"
   }
 }

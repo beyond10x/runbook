@@ -1,7 +1,6 @@
 {
   "actions": {
-    "acceptance.run": "blocked",
-    "release.build": "admissible",
+    "delivery.read": "blocked",
     "release.observe": "blocked",
     "release.publish": "blocked",
     "release.rollback": "blocked",
@@ -10,9 +9,8 @@
   "claims": {
     "gate.checked": "true",
     "gate.passed": "true",
-    "release.acceptance_run": "true",
+    "release.acceptance_copied": "true",
     "release.accepted": "true",
-    "release.built": "true",
     "release.healthy": "unknown",
     "release.observed": "unknown",
     "release.published": "unknown",
@@ -21,8 +19,7 @@
   "obligations": {
     "acceptance.required": "discharged",
     "gate.required": "discharged",
-    "health.required": "open",
-    "provenance.required": "discharged"
+    "health.required": "open"
   },
   "outcomes": {
     "passed": "blocked",

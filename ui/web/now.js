@@ -201,7 +201,7 @@ export function recentSteps(cases, run, n = 4) {
 export function phaseOf(c, action) {
   const ir = c.ir || {};
   const proto = c.case?.protocol || ir.protocol?.id;
-  const mine = PHASES.filter((p) => p.p === proto);
+  const mine = PHASES.filter((p) => p.p === proto || p.alt === proto);
   if (!mine.length) return null;
   const kinds = new Set((ir.actions?.[action]?.may_produce || []).map((m) => m.evidence));
   const direct = new Set(Object.entries(ir.claims || {}).filter(([, d]) => predicateRefs(d.true_when).evidence.some((x) => kinds.has(x.kind))).map(([id]) => id));

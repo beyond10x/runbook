@@ -1,19 +1,23 @@
 # SDC protocol notes
 
-The SDC is a family of eight Canon `protocol/1` documents under `protocol/`, one case per stage,
-composed with child cases. Sources: `docs/phases.md` (phase model), `docs/intake.md` (intake
-stages and evidence names), Canon 0.9.0 at commit 8f1f452.
+The SDC is a family of nine Canon `protocol/1` documents under `protocol/`, one case per stage,
+composed with child cases. Eight make the development cycle, which ends when the work is delivered
+and tested (ruling D150, 2026-11-21); the ninth, `sdc.release`, publishes and watches a delivered
+release, runs alone from a delivered tree and is opened by nothing in the cycle. Sources:
+`docs/phases.md` (phase model), `docs/intake.md` (intake stages and evidence names), Canon 0.9.0
+at commit 8f1f452.
 
 | Protocol | File | Opens | Success outcome |
 |---|---|---|---|
-| `sdc` (root, per idea) | `sdc.protocol.yaml` | `sdc.intake`, `sdc.direction`, one `sdc.epic` per roadmap epic | `operating` |
+| `sdc` (root, per idea) | `sdc.protocol.yaml` | `sdc.intake`, `sdc.direction`, one `sdc.epic` per roadmap epic | `delivered` |
 | `sdc.intake` | `sdc-intake.protocol.yaml` | none | `passed` |
 | `sdc.direction` | `sdc-direction.protocol.yaml` | none | `passed` |
-| `sdc.epic` | `sdc-epic.protocol.yaml` | `sdc.spec`, `sdc.plan`, one `sdc.story` per AEP story, `sdc.release` | `passed` |
+| `sdc.epic` | `sdc-epic.protocol.yaml` | `sdc.spec`, `sdc.plan`, one `sdc.story` per AEP story, `sdc.delivery` | `passed` |
 | `sdc.spec` | `sdc-spec.protocol.yaml` | none | `passed` |
 | `sdc.plan` | `sdc-plan.protocol.yaml` | none | `passed` |
-| `sdc.story` | `sdc-story.protocol.yaml` | none | `passed` (delivered) |
-| `sdc.release` | `sdc-release.protocol.yaml` | none | `passed` (operating) |
+| `sdc.story` | `sdc-story.protocol.yaml` | none | `passed` (merged) |
+| `sdc.delivery` | `sdc-delivery.protocol.yaml` | none | `passed` (delivered: built and accepted) |
+| `sdc.release` (standalone) | `sdc-release.protocol.yaml` | none; opened by nothing in the cycle | `passed` (published, observed healthy) |
 
 No case stores a phase. Where a case stands is what its evidence makes true; `canon evaluate`
 lists the open obligations (what is missing) and the admissible actions (what is next) at every
@@ -30,7 +34,7 @@ it, so its revision changes no state count of `canon check` and sets no record a
 Commands (from `../canon`; `cargo` is the slot shim):
 
 ```console
-scripts/check-protocols.sh   # validate, compile and check all eight, then the ESS gate probes
+scripts/check-protocols.sh   # validate, compile and check all nine, then the ESS gate probes
 scripts/evaluate-cases.sh    # canon evaluate every case run, compare with expected.json
 ```
 
@@ -50,7 +54,7 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `01-idea-only/intake` | sdc.intake | idea valid; next `idea.dissect`; dissection, interview, requirements open |
 | `02-spec-revised-tests-stale/spec` | sdc.spec | spec revised s1 to s2, reused source, gate passes at s2: `passed` legitimate; s1 records `revision_mismatch`, the author's own review `not_independent` |
 | `02-spec-revised-tests-stale/story` | sdc.story | conformance run and implementation record against s1 `invalidated`: `tests.pass` and `change.built` unknown, merge blocked, `change.implement` admissible |
-| `03-ready-to-release` | sdc.release | gate, provenance and release conformance true: `release.publish` approval-required |
+| `03-ready-to-release` | sdc.release (standalone) | gate true, the delivery case's acceptance record copied (`delivery.read` blocked): `release.publish` approval-required |
 | `03-ready-to-release/approved` | sdc.release | same with `release.approve` granted: `release.publish` admissible |
 | `04-roadmap-awaiting-approval/direction` | sdc.direction | vision revised after the roadmap approval: approval `invalidated`, `roadmap.approve` approval-required |
 | `04-roadmap-awaiting-approval/epic` | sdc.epic | no roadmap approval: every epic action blocked except `roadmap.read` |
@@ -64,16 +68,58 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
 | `08-intake-idea-refused` | sdc.intake | idea record invalid: no action revises the idea, outcome `refused` legitimate |
 | `09-child-ended-otherwise/{root,epic}` | sdc, sdc.epic | intake ended `refused`: root `refused` legitimate; spec ended `abandoned`: epic `not_delivered` legitimate |
-| `10-release-refused/{release,release/withheld,epic,root}` | sdc.release, sdc.epic, sdc | publication refused: `withheld` legitimate with its decision; epic `not_released`; root `not_delivered` |
+| `10-release-refused/{release,release/withheld}` | sdc.release (standalone) | publication refused: nothing legitimate; with `explicitly_withheld`, `withheld` legitimate. No parent: nothing in the cycle opens a release |
 | `11-review-after-tests/{untested,passed,failed}` | sdc.story | `change.review` needs `tests.pass` at the current change revision: blocked before the run, admissible after a pass, blocked after a fail with `change.implement` admissible |
 | `11-review-after-tests/{rejected,revised,retested}` | sdc.story | after a rejecting review: `change.implement`; at c2 `tests.run`, review blocked; tests passed at c2: `change.review` admissible again |
+| `12-delivery/{built,accepted,failed}` | sdc.delivery | built: `acceptance.run` admissible; accepted: `passed` legitimate, no approval; failed: `not_accepted` legitimate, no action left |
+| `12-delivery/accepted/root` | sdc | every child passed: `delivered` legitimate |
+| `12-delivery/failed/{epic,root}` | sdc.epic, sdc | delivery `not_accepted`: epic `not_accepted`; the epic `not_accepted`: root `not_delivered` |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
 author's own review does not block `spec.review`, the independent one does),
 `02-spec-revised-tests-stale/story` (`tests.run_recorded` unknown: the run against s1 is
-invalidated), `03-ready-to-release` (`spec.gate`, `acceptance.run` blocked),
+invalidated), `03-ready-to-release` (`spec.gate`, `delivery.read` blocked),
 `04-roadmap-awaiting-approval/direction` (`context.check`, `roadmap.validate` blocked).
+
+## The cycle ends delivered (ruling D150, 2026-11-21)
+
+The development cycle ends when the work is delivered and tested: every story merged into the
+local `mainline/`, the product built and the acceptance run passed against the specification.
+Publish, observe, health, rollback and operate are not part of it (the operator: "release and
+operate makes no sense in an eval, because operate is sort of an endless thing, and it's basically
+a protocol on its own").
+
+- **Where the delivery steps live.** In `sdc.delivery`, the epic's last child, opened by
+  `delivery.open` once every story passed: `spec.gate`, `release.build` (build provenance),
+  `acceptance.run` (the specification's suite against the build). 128 states. The same steps
+  inlined into sdc.epic give 589,824 states, past the bound (artifact `release`,
+  `build_provenance` 2, `release_conformance` with upstream `spec` 16), so they are a protocol of
+  their own.
+- **No approval.** Delivery is derived from the checks: `passed` requires `gate.passed`,
+  `release.built` and `release.accepted`, nothing else. A "deliver" decision would only repeat what
+  the checks say. At A3 and below the root close stays the decider's decision (class close,
+  `sdc/close:delivered`); under A5 `rule:autopilot` closes the terminable root and nothing asks at
+  the end.
+- **A failed acceptance run ends the stage.** `not_accepted` requires `release.accepted` `false`,
+  without a person. No action of the delivery case changes the merged changes: a rebuild of the
+  same `mainline/` gives the same release revision, and `acceptance.run` is guarded to once per
+  release and specification revision. The stories that would rework it are closed, and a closed
+  child cannot be reopened to good effect (limitation 4). So the epic ends `not_accepted` and the
+  root `not_delivered`, at once. A stated limit: the fix loop (plan fix stories from the failure,
+  build again) is `story:release-rejection-plans-fix-stories`, which waits on Canon's
+  `revision: current` children form.
+- **sdc.release stands alone.** `release.publish` under `release.approve`, `release.observe` with
+  `health.required`, `release.rollback`, `withheld` on `explicitly_withheld`: 12,288 states (24,576
+  before the split). Nothing in the cycle opens it. Its input is a delivered tree: the tree's
+  `work/` (same content, so the same `spec` and `release` revisions) and the acceptance record of
+  its sdc.delivery case, copied unchanged by `delivery.read` (the `roadmap.read` pattern,
+  limitation 5). The driver finds that record through `init --source <delivered tree>`
+  (`source.json`); `scripts/run-trial.sh <name> --release <delivered run>` opens such a case. Its
+  own `spec.gate` keeps the ESS gate property provable for it. A later `sdc.operate` that would
+  open a release and wake an operational agent is `story:sdc-operate-protocol`, not built.
+- Old runs keep their records: a run that ended `operating` (sdc revision 8) still reads in the UI
+  and the KPI tools, which take the outcome as a string.
 
 ## An observation runs once per revision
 
@@ -91,8 +137,8 @@ reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
   admissible again (`cases/05-roadmap-read-once/*/revised`).
 - Where an invalidation rule sets a check's result aside, the guard claim is invalidated with it
   (`protocol/sdc-plan.protocol.yaml:252-256`, `protocol/sdc-intake.protocol.yaml`
-  `dissection.revised`, `questions.revised`; sdc-direction `requirements.revised`; sdc-release and
-  sdc-story `spec.revised`), so an upstream revision makes the check admissible again too.
+  `dissection.revised`, `questions.revised`; sdc-direction `requirements.revised`; sdc-delivery,
+  sdc-release and sdc-story `spec.revised`), so an upstream revision makes the check admissible again too.
 - A review demanding independence is guarded by a claim with the same `independent_on`
   (`spec.reviewed`, `change.review_recorded`): the author's own review neither counts nor blocks.
 - `release.observe` reads `health_observation` (max_age 30m): an expired observation is not of
@@ -105,8 +151,8 @@ reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
   `spec.validate`, `spec.compile`, `spec.scan`, `spec.synthesize`, `spec.trace`, `spec.review`;
   sdc.plan `roadmap.read`, `spec.gate`, `plan.validate`, `plan.cover`, `plan.scope`,
   `plan.status`; sdc.intake `idea.check`, `dissection.check`, `questions.check`,
-  `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.release
-  `spec.gate`, `acceptance.run`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
+  `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.delivery
+  `spec.gate`, `acceptance.run`; sdc.release `spec.gate`, `delivery.read`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
   `change.review`.
 - Order between two observations is the protocol's, not the driver's: the driver takes
   admissible observations in identifier order, so `change.review` ran before `tests.run`.
@@ -153,9 +199,10 @@ approval record and no `rejected` result: the same treatment (`release_approval`
 would leave authority resting on a manual record alone, which is not allowed. A refused release
 therefore records nothing in the case; the tools stop such a run with a named cause
 (`rejected_without_rework_path`), and the case's way out stays `withheld` on
-`explicitly_withheld` (the release case has no writer that answers a rejection: `release.build`
-rebuilds the same merged changes; the rework happens in the stories). Canon's state-space bound
-per slice (unreleased) is what lifts this limit.
+`explicitly_withheld` (the release case has no writer that answers a rejection; the rework happens
+in the stories). Canon's state-space bound per slice (unreleased) is what lifts this limit. The 98,304
+were measured on sdc.release revision 4 (24,576 states); since D150 the standalone revision 5 has
+12,288 (*inferred*: the same treatment would give 49,152, under the bound; not built).
 
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
@@ -168,9 +215,10 @@ it `true` again. sdc and sdc.epic therefore end on that claim, with an outcome t
 stage failed, legitimate without a person (a predicate, no decision). The stage is read from the
 opening records, since a later stage opens only once every earlier child passed:
 
-- sdc.epic `not_delivered`: `children.passed` `false` and `release.opened` unknown (a child
-  before the release failed); `not_released`: `children.passed` `false` and `release.opened`
-  (the release failed) (`protocol/sdc-epic.protocol.yaml:209-230`).
+- sdc.epic `not_delivered`: `children.passed` `false` and `delivery.opened` unknown (a child
+  before the delivery stage failed); `not_accepted`: `children.passed` `false` and
+  `delivery.opened` (the delivery stage failed: the acceptance run failed)
+  (`protocol/sdc-epic.protocol.yaml`, outcomes).
 - sdc `refused`: `children.passed` `false` and `direction.opened` unknown (the intake failed);
   `not_delivered`: `children.passed` `false` and `direction.opened` (an epic failed)
   (`protocol/sdc.protocol.yaml:155-177`). `direction.opened` is bound to the idea revision: an
@@ -184,36 +232,39 @@ The outcomes read existing claims, so the state counts do not move (sdc 4608, ep
 | sdc | sdc.intake | `passed` | `direction.open` |
 | sdc | sdc.intake | `refused` (idea failed its check) | ends `refused`; the next idea revision is a new root case |
 | sdc | sdc.direction | `passed` | `epics.open` once the roadmap is approved |
-| sdc | sdc.epic | `passed` | `operating` once every epic passed |
-| sdc | sdc.epic | `not_delivered`, `not_released`, `abandoned` | ends `not_delivered` |
+| sdc | sdc.epic | `passed` | `delivered` once every epic passed |
+| sdc | sdc.epic | `not_delivered`, `not_accepted`, `abandoned` | ends `not_delivered` |
 | sdc.epic | sdc.spec | `passed` | `plan.open` |
 | sdc.epic | sdc.spec | `abandoned` | ends `not_delivered` |
 | sdc.epic | sdc.plan | `passed` | `stories.open` |
-| sdc.epic | sdc.story | `passed` | `release.open` once every story passed |
+| sdc.epic | sdc.story | `passed` | `delivery.open` once every story passed |
 | sdc.epic | sdc.story | `dropped` | ends `not_delivered` |
-| sdc.epic | sdc.release | `passed` | `passed` |
-| sdc.epic | sdc.release | `withheld` (publication refused), `rolled_back` | ends `not_released` |
+| sdc.epic | sdc.delivery | `passed` | `passed` (delivered and tested) |
+| sdc.epic | sdc.delivery | `not_accepted` (the acceptance run failed) | ends `not_accepted` |
 
-sdc.direction and sdc.plan have no outcome but `passed` (a plan is given up through the epic's
+sdc.release has no parent: nothing in the cycle opens it, and its `withheld` and `rolled_back`
+change no cycle outcome. sdc.direction and sdc.plan have no outcome but `passed` (a plan is given up through the epic's
 `abandoned`). Either parent can also end `abandoned` on its explicit decision at any point.
 
 **A refused release.** sdc.release ends `withheld` on the decision `explicitly_withheld`
-(`protocol/sdc-release.protocol.yaml:200-203`). Canon cannot tie that decision to a state: an
+(`protocol/sdc-release.protocol.yaml`, outcomes). Canon cannot tie that decision to a state: an
 outcome requires either a predicate or a decision, not both (Canon reference, `OutcomeRequirement`),
 and a `canon-decisions/1` entry is legitimate at any case revision it names. It needs no
 capability either: the entry carries a `principal`, nothing else, and no action is involved. So
 "only after the publication was refused" is the tools' rule: take `explicitly_withheld` when
 `release.approve` was denied or the decider judged the release not publishable, with the
 decider's reasons as the decision's log. A refusal record that the protocol could read would be a
-new evidence kind; sdc.release cannot take one under the bound (98,304 states, see "An approval is
-decided once per revision").
+new evidence kind (see "An approval is decided once per revision" for the bound measured before
+D150).
 
 Cases: `09-child-ended-otherwise/root` (intake `refused`: root `refused`),
-`09-child-ended-otherwise/epic` (spec `abandoned`: epic `not_delivered`), and the refused-release
-chain `10-release-refused`: `release` (`release.approve` denied: `release.publish` blocked,
-nothing legitimate), `release/withheld` (with `explicitly_withheld`: `withheld` legitimate),
-`epic` (every earlier child passed, release `withheld`: `not_released` legitimate), `root` (intake
-and direction passed, the epic `not_released`: `not_delivered` legitimate).
+`09-child-ended-otherwise/epic` (spec `abandoned`: epic `not_delivered`), the failed delivery chain
+`12-delivery/failed`: the delivery case (acceptance failed: `not_accepted` legitimate), `epic`
+(every earlier child passed, delivery `not_accepted`: `not_accepted` legitimate), `root` (intake
+and direction passed, the epic `not_accepted`: `not_delivered` legitimate), and the standalone
+refused release `10-release-refused`: `release` (`release.approve` denied: `release.publish`
+blocked, nothing legitimate), `release/withheld` (with `explicitly_withheld`: `withheld`
+legitimate).
 
 ## What `canon simulate` still reports and why
 
@@ -235,7 +286,7 @@ for this section; c is fixed by the approval rule above.
   admissible again, but the refused child's `case_outcome` keeps `children.passed`
   (`protocol/sdc.protocol.yaml:61-65`, `in: [passed]`) `false` for good, also after the new
   intake case ends `passed` (limitation 4; probed with `canon evaluate` on a root case at i2
-  holding both child outcomes), so a reopened intake cannot lead to `operating`.
+  holding both child outcomes), so a reopened intake cannot lead to `delivered`.
 - **A failed check another action revises (a1).** Left by a new revision, which the walk does not
   make; the writer is admissible in each such state. A rejected approval is the same.
 - **A failed check only another case revises (a2 on `roadmap`, `spec`, 6 findings).** The child
@@ -251,7 +302,7 @@ for this section; c is fixed by the approval rule above.
   - sdc.story, `change.merge` denied (1): `merge.approve` stays approval-required; the case ends
     `dropped` on `explicitly_dropped`, and sdc.epic ends `not_delivered` (section above).
   - sdc.release, `release.approve` denied (1): the case ends `withheld` on
-    `explicitly_withheld`, and sdc.epic ends `not_released`.
+    `explicitly_withheld`; since D150 that ends the standalone release only, no cycle case.
 - **sdc `{intake_opened, roadmap_approval}` stuck (e, false).** Not a protocol defect, no
   protocol change; the walk is Canon's to fix. `intake.open` produces two records, its
   `intake_opened` and, through `case_open`, the child's `case_outcome`; its precondition
@@ -279,9 +330,9 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.direction | `context_defaults` | `context.check` | schema check |
 | sdc.direction | `context_approval`, `vision_approval`, `roadmap_approval` (approved, rejected) | `context.approve`, `vision.approve`, `roadmap.approve`, each `requires: owner.approve` | person |
 | sdc.direction | `roadmap_validation` | `roadmap.validate` | `aep plan artifact validate` |
-| sdc.epic | `spec_opened`, `plan_opened`, `stories_opened`, `release_opened` | `spec.open`, `plan.open`, `stories.open`, `release.open` | runtime |
+| sdc.epic | `spec_opened`, `plan_opened`, `stories_opened`, `delivery_opened` | `spec.open`, `plan.open`, `stories.open`, `delivery.open` | runtime |
 | sdc.epic | `case_outcome` | the four opening actions | runtime, from the child case |
-| sdc.epic, sdc.plan, sdc.story, sdc.release | `ess_gate` | `spec.gate` | the four ESS gate commands as one program |
+| sdc.epic, sdc.plan, sdc.story, sdc.delivery, sdc.release | `ess_gate` | `spec.gate` | the four ESS gate commands as one program |
 | sdc.spec | `spec_source` (authored, reused, reconstructed) | `spec.author`, `spec.reuse`, `spec.reconstruct` | runtime, recording which action wrote the revision |
 | sdc.spec | `spec_validation` | `spec.validate` | `ess specify validate --strict-requires` |
 | sdc.spec | `spec_compile` | `spec.compile` | `ess specify compile` |
@@ -298,8 +349,9 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.story | `code_review` | `change.review` | person or another agent, `independent_on: [different_principal]` |
 | sdc.story | `merge_approval` (approved, rejected) | `merge.approve`, `requires: change.merge` | person |
 | sdc.story | `merge_record` | `change.merge`, on `merge.approved` | version control |
-| sdc.release | `build_provenance` | `release.build` | build system |
-| sdc.release | `release_conformance` | `acceptance.run` | `ess verify conform run --target <release> --strict` |
+| sdc.delivery | `build_provenance` | `release.build` | build system |
+| sdc.delivery | `release_conformance` | `acceptance.run` | `ess verify conform run --target <release> --strict` |
+| sdc.release | `release_conformance` | `delivery.read` (copy) | runtime, copied from the delivered tree's sdc.delivery |
 | sdc.release | `release_record` | `release.publish`, `requires: release.approve` | deploy |
 | sdc.release | `health_observation` (max_age 30m) | `release.observe` | monitoring |
 | sdc.release | `rollback_result` | `release.rollback`, `requires: release.approve` | deploy |
@@ -307,7 +359,7 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 Invalidation: idea → dissection check; dissection → interview check; interview → requirements
 check (sdc.intake); requirements → context check; vision → roadmap approval (sdc.direction);
 spec → plan validation and coverage (sdc.plan); spec → implementation record and conformance run
-(sdc.story); spec → release conformance (sdc.release).
+(sdc.story); spec → release conformance (sdc.delivery; the copied record in sdc.release).
 
 ## Reconciliation with docs/intake.md
 
@@ -336,13 +388,13 @@ spec → plan validation and coverage (sdc.plan); spec → implementation record
 on a claim (`independent_of`, documents.md), not that an outcome implies a claim. So
 `scripts/check-protocols.sh` proves it with `canon check` itself: for each protocol whose success
 outcome leads to implement, test or release (sdc.spec, sdc.plan, sdc.epic, sdc.story,
-sdc.release) it writes `protocol/probes/<name>.gate-probe.yaml`, the protocol plus one outcome
+sdc.delivery, sdc.release) it writes `protocol/probes/<name>.gate-probe.yaml`, the protocol plus one outcome
 `probe.passed_without_gate` that requires the success outcome's own requirement and the gate
 evidence, read directly from the evidence match (four matches in sdc.spec, `ess_gate` elsewhere),
 being `false` or `unknown`. The script passes only when `canon check` reports that outcome as
 `unreachable-outcome` and nothing else. The full output is `docs/check-output.txt`.
 
-The root `sdc` has no specification of its own (one per epic), so its `operating` outcome rests on
+The root `sdc` has no specification of its own (one per epic), so its `delivered` outcome rests on
 its epic cases' `case_outcome` records; that the gate holds there is the sdc.epic result above,
 not something Canon checks across cases (inferred: Canon checks one protocol at a time).
 
@@ -360,10 +412,10 @@ are in `docs/limitations/`.
      (`story-with-four-gate-kinds.protocol.yaml`): `... sdc.story revision 3 has 786432 states`;
    - intake with its own abandon decision (`intake-with-abandon.protocol.yaml`):
      `... sdc.intake revision 2 has 131072 states`.
-   Consequences: eight protocols; the gate is one composite kind outside sdc.spec; abandon lives
+   Consequences: eight protocols for the cycle (nine with the standalone release); the gate is one composite kind outside sdc.spec; abandon lives
    at the root for intake and plan; sdc.spec and sdc.plan sit exactly at 65536
    (states per protocol in `docs/check-output.txt`: sdc 4608, intake 49152, direction 49152,
-   epic 36864, spec 65536, plan 65536, story 49152, release 24576); every child
+   epic 36864, spec 65536, plan 65536, story 49152, delivery 128, release 12288); every child
    reports `passed`, so a parent's `children` form lists one outcome (two would cost 16 times 17).
 2. **Invalidation reaches every match of a claim built on an invalidated claim.** A derived claim
    `change.verified = tests.pass AND change.reviewed` gave `code_review` upstream variants too:

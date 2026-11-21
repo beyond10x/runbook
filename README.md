@@ -2,7 +2,9 @@
 
 A prototype of a software delivery cycle that runs on [Canon](https://github.com/beyond10x/canon)
 protocols. An idea goes through eight stages (idea, intake, direction, epic, spec, plan, story,
-release), each a Canon `protocol/1` case with child cases. The stage is derived from facts (files
+delivery), each a Canon `protocol/1` case with child cases, and ends delivered: merged, built and
+accepted against its specification. Publishing a delivered release is a separate protocol
+(`sdc.release`) that runs on its own. The stage is derived from facts (files
 in the case's repository and recorded check results), never from a stored phase.
 
 `sdc-drive` runs one case tree: it reads Canon's decision for the case, runs the tool bound to one
@@ -22,7 +24,7 @@ A prototype. Nothing is released and no interface is stable.
 
 ## Layout
 
-- `protocol/`: the eight protocols; `cases/`: fixture cases with expected decisions.
+- `protocol/`: the nine protocols; `cases/`: fixture cases with expected decisions.
 - `driver/`: the Rust crate `sdc-drive` and its tool bindings (`driver/examples/sdc/`).
 - `watch/`: file changes of a run; `ui/`: a live web view of a run; `goals/`: `sdc-goals`, checks of
   `sdc.goals/1` documents (`docs/requester.md`).

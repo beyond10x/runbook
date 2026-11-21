@@ -24,8 +24,9 @@ export const PHASES = [
   {id: 'review', label: 'Review', p: 'sdc.story', claims: ['change.reviewed'], doc: '10'},
   {id: 'test', label: 'Test (ESS conformance)', short: 'Test', p: 'sdc.story', claims: ['tests.pass'], doc: '10'},
   {id: 'merge', label: 'Merge', p: 'sdc.story', claims: ['change.merged'], doc: '10'},
-  {id: 'release', label: 'Release', p: 'sdc.release', claims: ['release.built', 'release.accepted', 'release.published'], doc: '10'},
-  {id: 'operate', label: 'Operate', p: 'sdc.release', claims: ['release.healthy'], doc: '10', root: 'operating'},
+  // The cycle ends delivered (D150): build and acceptance in sdc.delivery; a run recorded before it
+  // (root `operating`) shows its sdc.release case here instead.
+  {id: 'deliver', label: 'Deliver (build, acceptance)', short: 'Deliver', p: 'sdc.delivery', alt: 'sdc.release', claims: ['release.built', 'release.accepted'], doc: '11', root: 'delivered'},
 ];
 const TICKET = ['fetch', 'research', 'breakdown'];
 
@@ -34,7 +35,7 @@ export function phaseStates(cases) {
   for (const c of cases) (byP[c.case?.protocol || c.ir?.protocol?.id] ||= []).push(c);
   const openSeen = new Set();
   return PHASES.map((ph) => {
-    const cs = byP[ph.p] || [];
+    const cs = byP[ph.p] || byP[ph.alt] || [];
     if (!cs.length) return {...ph, status: 'none', detail: `no ${ph.p} case yet`, cases: []};
     let truths = 0, total = 0, invalidated = 0;
     const lines = [];
@@ -74,7 +75,7 @@ const STAGES = [
   ['Direction', ['context', 'vision', 'roadmap']],
   ['Specify & plan', ['epics', 'spec', 'gate', 'specdone', 'plan', 'stories']],
   ['Build', ['implement', 'review', 'test', 'merge']],
-  ['Ship', ['release', 'operate']],
+  ['Deliver', ['deliver']],
 ];
 export function renderPhases(cases, active = new Map()) {
   const st = phaseStates(cases);

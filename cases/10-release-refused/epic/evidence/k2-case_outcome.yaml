@@ -1,9 +1,0 @@
-format: canon-evidence/1
-id: k2
-kind: case_outcome
-result: passed
-subject: epic
-subject_revision: e1
-producer: sdc-drive
-child_case: IDEA-10.app.plan
-observed_at: 2026-11-20T10:05:00Z

@@ -2,14 +2,16 @@ format: protocol/1
 
 protocol:
   id: sdc.release
-  revision: 4
+  revision: 5
   description: >-
-    Release and operate the result of a specification whose stories are delivered: build a release
-    with provenance, run the ESS conformance suite of the current specification revision against
-    it, publish it on a person's approval, and observe it running. The ESS gate must pass on the
-    current specification revision. A revised specification invalidates the conformance runs
-    observed against the earlier revision. The case ends passed (operating), rolled back on a complete
-    rollback result, or withheld on an explicit decision.
+    Publish and watch a delivered release, run alone from a delivered tree; nothing in the
+    development cycle opens it. Its input is the delivered tree's work (the specification and the
+    release built from the merged changes) and the acceptance record of that tree's sdc.delivery
+    case, copied in unchanged by delivery.read. The ESS gate must pass on the current specification
+    revision; the release is published on a person's approval and observed running. A revised
+    specification sets the copied acceptance record aside. The case ends passed (published and
+    observed healthy), rolled back on a complete rollback result, or withheld on an explicit
+    decision.
 
 artifacts:
   spec:
@@ -22,12 +24,11 @@ evidence_kinds:
     description: >-
       the ESS gate over a specification revision, the four checks run as one program; passed or
       failed
-  build_provenance:
-    description: the record of how a release revision was built from the merged changes
   release_conformance:
     description: >-
-      `ess verify conform run --target <release> --strict` of the specification's suite against a
-      release revision; its result is passed, failed or inconclusive
+      the acceptance run of the delivered tree (`ess verify conform run --target <release> --strict`
+      against a release revision, recorded by sdc.delivery's acceptance.run), copied unchanged;
+      passed, failed or inconclusive
   release_record:
     description: the record that a release revision was published
   health_observation:
@@ -52,12 +53,6 @@ claims:
       evidence:
         kind: ess_gate
         subject: spec
-  release.built:
-    description: the current release revision carries build provenance
-    true_when:
-      evidence:
-        kind: build_provenance
-        subject: release
   release.accepted:
     description: the conformance suite of the current specification passes on the current release
     true_when:
@@ -65,9 +60,9 @@ claims:
         kind: release_conformance
         result: passed
         subject: release
-  release.acceptance_run:
+  release.acceptance_copied:
     description: >-
-      a conformance run is recorded about the current release revision, against the current specification revision, whatever its result
+      an acceptance record about the current release revision, against the current specification revision, is in this case, whatever its result
     true_when:
       evidence:
         kind: release_conformance
@@ -104,12 +99,8 @@ obligations:
     description: the ESS gate passes on the current specification revision
     discharged_when:
       claim: gate.passed
-  provenance.required:
-    description: the release carries build provenance
-    discharged_when:
-      claim: release.built
   acceptance.required:
-    description: the conformance suite passes on the release
+    description: the delivered tree's acceptance run passed on the release
     discharged_when:
       claim: release.accepted
   health.required:
@@ -128,23 +119,17 @@ actions:
       is: unknown
     may_produce:
       - evidence: ess_gate
-  release.build:
-    description: build a release revision from the merged changes
-    effect: write
-    precondition:
-      claim: gate.passed
-    may_produce:
-      - evidence: build_provenance
-  acceptance.run:
+  delivery.read:
     description: >-
-      run the specification's conformance suite against the release; only while no run is recorded
-      about the current release revision against the current specification revision
+      copy the acceptance record of the delivered tree's sdc.delivery case into this case,
+      unchanged; it accepts nothing, and the record keeps its producer, its release revision and
+      the specification revision it ran against. Only while this case holds no acceptance record
+      about the current release revision: a second copy with another result would leave
+      release.accepted unknown for good
     effect: read
     precondition:
-      all:
-        - claim: release.built
-        - claim: release.acceptance_run
-          is: unknown
+      claim: release.acceptance_copied
+      is: unknown
     may_produce:
       - evidence: release_conformance
   release.publish:
@@ -153,7 +138,6 @@ actions:
     precondition:
       all:
         - claim: gate.passed
-        - claim: release.built
         - claim: release.accepted
     requires:
       - capability: release.approve
@@ -184,12 +168,11 @@ actions:
 outcomes:
   passed:
     description: >-
-      the ESS gate passes, and the current release is built, accepted, published and observed
-      healthy
+      the ESS gate passes, and the current release is accepted (the delivered tree's acceptance
+      run), published and observed healthy
     requires:
       all:
         - claim: gate.passed
-        - claim: release.built
         - claim: release.accepted
         - claim: release.published
         - claim: release.healthy
@@ -204,8 +187,8 @@ outcomes:
 
 invalidation:
   spec.revised:
-    description: a conformance run observed against an earlier specification revision no longer applies
+    description: an acceptance record observed against an earlier specification revision no longer applies
     upstream: spec
     invalidates:
       - release.accepted
-      - release.acceptance_run
+      - release.acceptance_copied

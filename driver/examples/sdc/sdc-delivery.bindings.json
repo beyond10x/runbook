@@ -1,0 +1,48 @@
+{
+  "$artifacts": {
+    "spec": "spec",
+    "release": "release"
+  },
+  "spec.gate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "ess-gate"
+    ],
+    "produces": "ess_gate",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  },
+  "release.build": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "release-build"
+    ],
+    "produces": "build_provenance",
+    "subject": "release",
+    "producer": "sdc-drive.build",
+    "results": {
+      "0": null
+    }
+  },
+  "acceptance.run": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "conform-run",
+      "release"
+    ],
+    "produces": "release_conformance",
+    "subject": "release",
+    "upstream": [
+      "spec"
+    ],
+    "producer": "ess",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  }
+}

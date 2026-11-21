@@ -1,0 +1,175 @@
+{
+  "actions": {
+    "acceptance.run": {
+      "status": "admissible"
+    },
+    "release.build": {
+      "status": "admissible"
+    },
+    "spec.gate": {
+      "reasons": [
+        {
+          "claim": "gate.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "IDEA-12.app.delivery",
+  "claims": {
+    "gate.checked": {
+      "value": "true"
+    },
+    "gate.passed": {
+      "value": "true"
+    },
+    "release.acceptance_run": {
+      "value": "unknown"
+    },
+    "release.accepted": {
+      "value": "unknown"
+    },
+    "release.built": {
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "spec.gate": {
+        "because": [
+          {
+            "claim": "gate.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "gate.checked": {
+        "because": [
+          {
+            "evidence": "g1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "release.acceptance_run": {
+        "because": [
+          {
+            "kind": "release_conformance",
+            "status": "absent",
+            "subject": "release"
+          }
+        ],
+        "value": "unknown"
+      },
+      "release.accepted": {
+        "because": [
+          {
+            "kind": "release_conformance",
+            "status": "absent",
+            "subject": "release"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "release": {
+            "revision": "t1"
+          },
+          "spec": {
+            "revision": "s1"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "IDEA-12.app.delivery",
+        "protocol": "sdc.delivery",
+        "revision": "c2"
+      },
+      "evidence": [
+        "b1",
+        "g1"
+      ],
+      "protocol": "sdc.delivery",
+      "protocol_revision": 1,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "acceptance.required": {
+        "because": [
+          {
+            "claim": "release.accepted",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "not_accepted": {
+        "because": [
+          {
+            "claim": "release.accepted",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "passed": {
+        "because": [
+          {
+            "claim": "release.accepted",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "acceptance.required",
+      "status": "open"
+    },
+    {
+      "id": "gate.required",
+      "status": "discharged"
+    },
+    {
+      "id": "provenance.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "not_accepted": {
+      "reasons": [
+        {
+          "claim": "release.accepted",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "passed": {
+      "reasons": [
+        {
+          "claim": "release.accepted",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.delivery",
+  "protocol_revision": 1
+}

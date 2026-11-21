@@ -13,6 +13,12 @@
 #   scripts/run-trial.sh <name> --reopen        resume a stopped run: the record is renamed
 #                                               run-stopped.<at>.json; without it a resume of a
 #                                               stopped run is refused (exit 8)
+#   scripts/run-trial.sh <name> --release <run>  a standalone sdc.release (D150: the cycle ends
+#                                               delivered and opens none) from the delivered tree
+#                                               of <run> (a run directory or a name under the runs
+#                                               directory): its work/ is copied, its sdc.delivery
+#                                               acceptance record copied in by delivery.read
+#                                               (`init --source`); case IDEA-1.release at store/IDEA-1
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -83,13 +89,14 @@ done
 set -- ${rest[@]+"${rest[@]}"}
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-dry=no stop_reason="" reopen=no autopilot=no pos=()
+dry=no stop_reason="" reopen=no autopilot=no release_from="" pos=()
 while (($#)); do
   case $1 in
     --dry) dry=yes ;;
     --autopilot) autopilot=yes ;;
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
+    --release) release_from=${2:-}; shift ;;
     *) pos+=("$1") ;;
   esac
   shift
@@ -229,12 +236,25 @@ expected() {
   echo "expected LLM calls on the happy path: $fixed (intake 4, direction 3, spec 1, plan 1) + $per_story per story (plan.decompose writes 1 to 3) = $((fixed + per_story)) to $((fixed + 3 * per_story)); retries raise it, capped at $max_llm over the tree"
 }
 
+# --release: the delivered tree it runs from (its root closed `delivered`), checked before anything is written.
+if [[ -n $release_from && ! -d $root ]]; then
+  src=$release_from; [[ -d $src ]] || src=${SDC_RUNS_DIR:-$sdc/runs}/$release_from
+  src=$(cd "$src" 2>/dev/null && pwd) || src=""
+  [[ -n $src && $src != "$out" ]] && jq -e '.termination == "delivered"' "$src/store/IDEA-1/case.json" >/dev/null 2>&1 ||
+    { echo "--release needs a run whose root closed delivered, not '$release_from'"; exit 64; }
+fi
 if [[ ! -d $root ]]; then
   rm -rf "$out"
   mkdir -p "$out/events"
   watch_start
   : > "$log"
   expected | tee "$out/expected-llm-calls.txt"
+  if [[ -n $release_from ]]; then
+    d "$root" init --protocol "$sdc/protocol/sdc-release.protocol.yaml" --id IDEA-1.release --bindings "$ex/sdc-release.bindings.json" --source "$src/store/IDEA-1"
+    [[ $code == 0 ]] || { echo "init failed: $last"; exit 1; }
+    cp -a "$src/store/IDEA-1/work/." "$root/work/"
+    echo "# a standalone release of the delivered tree $src" >> "$log"
+  else
   d "$root" init --protocol "$sdc/protocol/sdc.protocol.yaml" --id IDEA-1 --bindings "$ex/sdc.bindings.json"
   [[ $code == 0 ]] || { echo "init failed: $last"; exit 1; }
   if [[ $dry == yes ]]; then
@@ -245,6 +265,7 @@ if [[ ! -d $root ]]; then
   fi
   [[ -z $goals ]] || cp "$goals" "$root/work/goals.yaml"
   echo "# the person's idea: $(cat "$root/work/idea.yaml")" >> "$log"
+  fi
   leg=started
 else
   watch_start
@@ -329,15 +350,17 @@ print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"
 
 # Close the root through an outcome, write decision.json, status.json and replay.json; exit with
 # replay's code. A run that closes completed, whichever outcome: status.json (sdc.run-status/1)
-# says closed, the outcome and whether it is the delivering one (`operating`), with end_note (why
-# the tree ended otherwise, e.g. a withheld release and the decider's first reason).
+# says closed, the outcome and whether it is the delivering one (`delivered`), with end_note (why
+# the tree ended otherwise, e.g. a withheld standalone release and the decider's first reason). A
+# root case already closed (a standalone release withheld) is not closed again.
 end_note=""
 finish() {
-  d "$root" close --at "$(now)" --outcome "$1"
-  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)} (exit $code)"
+  if jq -e .termination "$root/case.json" > /dev/null; then last=$(jq -c '{terminated: .termination}' "$root/case.json") code=0
+  else d "$root" close --at "$(now)" --outcome "$1"; fi
+  echo "closed $(jq -r .id "$root/case.json"): $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)} (exit $code)"
   [[ $code == 0 ]] || exit 4
   jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" '{format: "sdc.run-status/1", at: $at, state: "closed",
-    outcome: $o, delivered: ($o == "operating"), note: (if $note == "" then null else $note end)}' > "$out/status.json"
+    outcome: $o, delivered: ($o == "delivered"), note: (if $note == "" then null else $note end)}' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
   d "$root" replay
@@ -700,6 +723,7 @@ decide_all() {
 }
 
 for round in $(seq 1 40); do
+  jq -e .termination "$root/case.json" > /dev/null && finish "$(jq -r .termination "$root/case.json")"
   dry_before=$(dry_lines)
   t0=$(date +%s) s0=$(now)
   d "$root" run --at "$s0" --max-llm-calls "$max_llm" --max-wall-seconds "$max_wall"
@@ -714,10 +738,10 @@ for round in $(seq 1 40); do
     terminable)
       outcome=$(jq -r '.position.legitimate_outcomes[0]' <<< "$last")
       [[ $dry == yes && $decider == person ]] && finish "$outcome"
-      # The close is a decision (class close, docs/autonomy-levels.md § 3.2) for `operating`, and
+      # The close is a decision (class close, docs/autonomy-levels.md § 3.2) for `delivered`, and
       # where the outcome requires a decision; an end the protocol reaches by its checks alone
       # (not_delivered, refused) is closed without one.
-      if [[ $decider != person && $outcome != operating ]] &&
+      if [[ $decider != person && $outcome != delivered ]] &&
          ! jq -e --arg o "$outcome" 'any(.outcomes[$o].requires | .. | objects; has("decision"))' "$root/ir.json" > /dev/null 2>&1; then
         finish "$outcome"
       fi
@@ -728,7 +752,7 @@ for round in $(seq 1 40); do
             revision: $rev, question: null, outcome: $o, position: $pos}')"
         [[ -n $dec ]] && finish "$outcome"
       fi
-      echo "the idea is operating: close the root case through \`$outcome\` (your decision):"
+      echo "the idea is delivered: close the root case through \`$outcome\` (your decision):"
       echo "  $drive --canon $canon --case-dir $root close --at \"\$(date -u +%Y-%m-%dT%H:%M:%SZ)\" --outcome $outcome"
       exit 0 ;;
     awaiting_authority|awaiting_person)

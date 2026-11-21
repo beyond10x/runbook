@@ -33,7 +33,13 @@ case close to implementation; completeness is computed by validating, not declar
    - reconstructed: derived from an RFC, an OpenAPI document or an observed system
 9. **Spec complete** = the ESS gate passes at the current spec revision (validate, compile,
    conformance synthesize with 0 refusals, no open-question marker).
-10. **Stories, implement, review, test, release, operate.** ESS conformance is the verification evidence.
+10. **Stories, implement, review, test, merge.** ESS conformance is the verification evidence.
+11. **Delivered.** The cycle ends when the work is delivered and tested: every story merged into
+    the local `mainline/`, the product built and the acceptance run passed against the
+    specification (`sdc.delivery`); the root ends `delivered`. No approval: delivery follows from
+    the checks. Publishing, observing, rollback and operating are not part of the cycle
+    (ruling D150, 2026-11-21): `sdc.release` runs alone from a delivered tree, and a later
+    `sdc.operate` would open it (`docs/protocol-notes.md`, "The cycle ends delivered").
 
 ## Mapping to tools (verified unless marked inferred)
 

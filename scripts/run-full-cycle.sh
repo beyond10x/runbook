@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one full SDC loop, idea to release outcome, with sdc-drive: stub LLM executors, real `ess`,
+# Run one full SDC loop, idea to the root outcome `delivered`, with sdc-drive: stub LLM executors, real `ess`,
 # real `aep` in the case tree's own planning store. The script plays the person: when the run
 # stops awaiting authority or a person, it records the approval through `sdc-drive approve`, as
 # principal $PRINCIPAL (default person:stand-in: the script stands in for the person, and its
@@ -116,7 +116,6 @@ for round in $(seq 1 30); do
             [[ -n ${edited:-} && -n ${SCOPE_RESUME_FIRST:-} ]] && { edited=; break; }
             d "$case_dir" approve --at "$(at)" --capability scope.answer --principal "$principal" --action "$a" ;;
           merge.approve) d "$case_dir" approve --at "$(at)" --capability change.merge --principal "$principal" --action "$a" ;;
-          release.publish) d "$case_dir" approve --at "$(at)" --capability release.approve --principal "$principal" ;;
           *) echo "no approval rule for $a"; exit 1 ;;
         esac
         echo "  approved $a: exit $code"
