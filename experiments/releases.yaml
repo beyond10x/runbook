@@ -268,8 +268,8 @@ entries:
   label: 0.1.3
   short: docs site, its generator
   date: 2026-11-21
-  tree: null
-  tree_note: not tagged yet; prepared on main after the batch-11 merges below, on top of 0.1.2 (72a3eef)
+  tree: 99390b9c61929a15a0c5206cba1e43891c498c23
+  tree_note: 'tag 0.1.3 at main 99390b9: 0.1.2 (72a3eef) with the batch-11 merges below and its preparation'
   experiments: []
   changes:
   - commit: 0dd42eb
