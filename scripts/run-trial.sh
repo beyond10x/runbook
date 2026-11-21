@@ -6,6 +6,13 @@
 #   scripts/run-trial.sh --dry <name>           dry run: the stub fixture idea, the stubs write the
 #                                               artifacts, every LLM command is printed and none is
 #                                               run, and the person's approvals are scripted
+#   scripts/run-trial.sh <name> --stop "<reason>"  stop a run that will not go on: writes
+#                                               run-stopped.json (sdc.run-stopped/1: format, at,
+#                                               by = SDC_PRINCIPAL, reason, verdict_at_stop, case)
+#                                               and a run.log line; nothing else is touched
+#   scripts/run-trial.sh <name> --reopen        resume a stopped run: the record is renamed
+#                                               run-stopped.<at>.json; without it a resume of a
+#                                               stopped run is refused (exit 8)
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -19,7 +26,11 @@
 # runs and started again on a resume; SDC_WATCH=0 skips it.
 #
 # Limits: SDC_MAX_LLM_CALLS (default 30, over the whole tree), SDC_MAX_WALL_SECONDS per run
-# (default 5400). Model: the bindings' `llm.model` (claude-haiku-5-5), or SDC_LLM_MODEL.
+# (default 5400). Model per node class (tools/node-classes.json): SDC_LLM_MODEL_WRITER (spec.author,
+# plan.decompose), SDC_LLM_MODEL_IMPLEMENT (change.implement), SDC_LLM_MODEL_REVIEW (spec.review,
+# change.review: no LLM yet), SDC_LLM_MODEL_OTHER (every other node), else SDC_LLM_MODEL for all
+# nodes, else each binding's `llm.model` (claude-haiku-5-5); the decider SDC_LLM_MODEL_DECIDER,
+# else SDC_DECIDER_MODEL. run-settings.jsonl `models` records the effective model per class.
 #
 # Decider (SDC_DECIDER): who takes the decisions that wait on a person: the pending approvals, the
 # open scope-changing interview questions, and closing the root.
@@ -33,10 +44,27 @@
 # `escalation_suppressed` and the decider's `best` decision is taken; an invalid reply has no best
 # and counts as reject. SDC_MAX_DECIDER_CALLS (default 20) caps the LLM decider calls (exit 5).
 # Every decider decision is taken as principal `decider:<kind>`; questions get
-# `answered_by: decider:<kind>`.
+# `answered_by: decider:<kind>`. At `scope.answer` each open scope-changing question is put to the
+# decider on its own (its text, options, default, dissection item and idea excerpt); the answers
+# are written as a person's are, then `scope.answer` is taken as `decider:<kind>`; under
+# SDC_DECIDER_ESCALATE=final an escalated question takes its default. Each line of
+# decisions.jsonl names its `class`: scope_changing_answer, finding, approval or close.
+# At amend.upstream's handoff each finding waiting for a decision goes to the decider (its text,
+# options, default, cites and what it touches); the answer is written as `decision:` with
+# `decided_by: decider:<kind>` and amend.upstream applies it; under final, `best`, else the
+# default. A decision the program check refuses (`refused_decision`) waits for a person.
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
-# 6 refused by the decider.
+# 6 refused by the decider, 7 autopilot ended at a stop that needs a person, 8 the run is stopped
+# (or already stopped), 64 usage.
+#
+# Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (haiku unless
+# SDC_DECIDER names another; SDC_DECIDER=person is refused) takes every decision, is final, and no
+# stop waits on a person: one that would need a person ends the run (exit 7), and every run that
+# ends unclosed gets a stop record by rule:autopilot. A0 is SDC_DECIDER=person. A1 to A4 have no
+# per-class routing yet and run as SDC_DECIDER says. The level goes into run-settings.jsonl
+# (`autonomy`, `autonomy_source`). SDC_STAND_IN=<who> (and --dry's scripted person) labels a run in
+# which a script or a session stands in for the person (`stand_in: true`, `stand_in_by`).
 set -euo pipefail
 # --goals <file>, anywhere among the arguments: the requester's goals document (sdc.goals/1, or what
 # `sdc-goals resolve` printed), copied unchanged to the root case's work/goals.yaml when the run
@@ -55,10 +83,19 @@ done
 set -- ${rest[@]+"${rest[@]}"}
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-dry=no
-[[ ${1:-} == --dry ]] && { dry=yes; shift; }
-name=${1:?usage: run-trial.sh [--dry] <name> [idea text]}
-idea_text=${2:-}
+dry=no stop_reason="" reopen=no autopilot=no pos=()
+while (($#)); do
+  case $1 in
+    --dry) dry=yes ;;
+    --autopilot) autopilot=yes ;;
+    --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
+    --reopen) reopen=yes ;;
+    *) pos+=("$1") ;;
+  esac
+  shift
+done
+name=${pos[0]:?usage: run-trial.sh [--dry] <name> [idea text] | <name> --stop "<reason>" | <name> --reopen}
+idea_text=${pos[1]:-}
 canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
 ex=$sdc/driver/examples/sdc
@@ -71,7 +108,70 @@ max_wall=${SDC_MAX_WALL_SECONDS:-5400}
 decider=${SDC_DECIDER:-person}
 escalate_mode=${SDC_DECIDER_ESCALATE:-stop}
 max_decider=${SDC_MAX_DECIDER_CALLS:-20}
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
+# run-stopped.json and a run.log line are written; the driver and the event logs are not touched.
+stopped=$out/run-stopped.json
+write_stop() { # <principal> <reason>
+  local at
+  at=$(now)
+  jq -n --arg at "$at" --arg by "$1" --arg why "$2" \
+    --argjson r "$(tail -n 1 "$out/rounds.jsonl" 2>/dev/null | jq -c . 2>/dev/null || echo null)" \
+    '{format: "sdc.run-stopped/1", at: $at, by: $by, reason: $why, verdict_at_stop: ($r.verdict // null),
+      case: (($r.case_dir // "") | split("/") | last | if . == "" or . == null then null else . end)}' > "$stopped.tmp"
+  mv "$stopped.tmp" "$stopped"
+  echo "# stopped at $at by $1: $2" >> "$log"
+  echo "stopped $name: $(jq -c . "$stopped")"
+}
+if [[ -n $stop_reason ]]; then
+  [[ -d $root ]] || { echo "no run $name to stop ($out)"; exit 64; }
+  [[ ! -f $stopped ]] || { echo "$name is already stopped: $(jq -c . "$stopped")"; exit 8; }
+  [[ -n ${SDC_PRINCIPAL:-} ]] || { echo "--stop needs the principal that stops the run in SDC_PRINCIPAL (person:<id>, agent:<name>)"; exit 64; }
+  write_stop "$SDC_PRINCIPAL" "$stop_reason"
+  exit 0
+fi
+if [[ -f $stopped ]]; then
+  if [[ $reopen != yes ]]; then
+    echo "$name was stopped at $(jq -r .at "$stopped") by $(jq -r .by "$stopped"): $(jq -r .reason "$stopped")"
+    echo "to go on: scripts/run-trial.sh $name --reopen"
+    exit 8
+  fi
+  was=$(jq -r .at "$stopped")
+  mv "$stopped" "$out/run-stopped.$was.json"
+  echo "# reopened at $(now) by ${SDC_PRINCIPAL:-an unnamed principal}: stopped at $was (run-stopped.$was.json)" >> "$log"
+fi
+
 case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
+
+# The run mode (docs/autonomy-levels.md § 3.3): SDC_AUTONOMY, or --autopilot for A5. A0 is the
+# person (SDC_DECIDER=person); A5 is autopilot: the decider (haiku unless SDC_DECIDER names another)
+# holds every decision and is final (escalate final), and a stop that would need a person ends the
+# run (exit 7) with a stop record by rule:autopilot. A1 to A4 have no per-class routing yet: they
+# run as SDC_DECIDER says. Without a level it is derived: person A0, a final decider A5, a
+# decider that escalates to a person none (no level matches it).
+autonomy=${SDC_AUTONOMY:-}
+autonomy_source=SDC_AUTONOMY
+[[ $autopilot == yes ]] && { [[ -z $autonomy || $autonomy == A5 ]] || { echo "--autopilot is A5, SDC_AUTONOMY says $autonomy"; exit 64; }; autonomy=A5 autonomy_source=--autopilot; }
+case $autonomy in
+  A5)
+    [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (haiku, approve, reject) or leave it unset (haiku)"; exit 64; }
+    [[ ${SDC_DECIDER_ESCALATE:-final} == final ]] || { echo "autopilot (A5): the decider is final; SDC_DECIDER_ESCALATE=$SDC_DECIDER_ESCALATE is refused"; exit 64; }
+    decider=${SDC_DECIDER:-haiku} escalate_mode=final ;;
+  A0)
+    [[ $decider == person ]] || { echo "A0: every decision is the person's; SDC_DECIDER=$decider is refused"; exit 64; } ;;
+  A1|A2|A3|A4) ;;
+  "")
+    autonomy_source=derived
+    if [[ $decider == person ]]; then autonomy=A0
+    elif [[ $escalate_mode == final ]]; then autonomy=A5
+    fi ;;
+  *) echo "SDC_AUTONOMY: A0 to A5, not $autonomy"; exit 64 ;;
+esac
+# A script or a session standing in for the person (SDC_STAND_IN=<who>; --dry's scripted person)
+# makes the run an end-to-end test of the person path: labelled stand_in, its numbers no eval's.
+stand_in=${SDC_STAND_IN:-}
+[[ $dry == yes && $decider == person ]] && stand_in=${stand_in:-scripts/run-trial.sh --dry}
 
 export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl
 if [[ $dry == yes ]]; then
@@ -80,7 +180,6 @@ else
   export SDC_LLM_ADAPTER=${SDC_LLM_ADAPTER:-metaharness}
   [[ $SDC_LLM_ADAPTER == dry ]] && export SDC_LLM_DRY_LOG=${SDC_LLM_DRY_LOG:-$out/dry-commands.txt}
 fi
-now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The file-change recorder (scripts/watch-run.sh, docs/fs-changes.md) runs while this script
 # does: started before the first driver call, stopped on every exit. SDC_WATCH=0 skips it; any
@@ -151,13 +250,35 @@ exec > >(tee -a "$out/console.txt") 2>&1
 
 # Who holds the decisions in this leg, and its caps: one line per start or resume (the UI reads it).
 model=
-[[ $decider == haiku ]] && model=${SDC_DECIDER_MODEL:-claude-haiku-5-5}
+[[ $decider == haiku ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
+# The effective model per node class (tools/node-classes.json): SDC_LLM_MODEL_<CLASS>, else
+# SDC_LLM_MODEL, else each binding's llm.model (per node; `model` is null when they differ). The
+# decider: SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL, else claude-haiku-5-5.
+models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
+  --argjson b "$(jq -s 'map(to_entries[] | select(.value.llm != null) | {(.key): .value.llm.model}) | add' "$ex"/sdc-*.bindings.json)" \
+  --arg all "${SDC_LLM_MODEL:-}" --arg writer "${SDC_LLM_MODEL_WRITER:-}" --arg implement "${SDC_LLM_MODEL_IMPLEMENT:-}" \
+  --arg review "${SDC_LLM_MODEL_REVIEW:-}" --arg other "${SDC_LLM_MODEL_OTHER:-}" --arg dclass "${SDC_LLM_MODEL_DECIDER:-}" \
+  --arg dmodel "${SDC_DECIDER_MODEL:-}" '
+  {writer: $writer, implement: $implement, review: $review, other: $other} as $set
+  | ($c[0].classes | del(.decider) | to_entries | map(.key as $k
+      | (if $set[$k] != "" then {m: $set[$k], src: "SDC_LLM_MODEL_\($k | ascii_upcase)"}
+         elif $all != "" then {m: $all, src: "SDC_LLM_MODEL"} else {m: null, src: "binding"} end) as $e
+      | (.value | map({(.): ($e.m // $b[.])}) | add // {}) as $nodes
+      | {(.key): {model: ($e.m // ([$nodes[]] | unique | if length == 1 then .[0] else null end)), source: $e.src,
+          nodes: $nodes}}) | add)
+  + {decider: (if $dclass != "" then {model: $dclass, source: "SDC_LLM_MODEL_DECIDER"}
+      elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
+      else {model: "claude-haiku-5-5", source: "default"} end)}')
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
+  --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
-  --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+  --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
+  --arg stand "$stand_in" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+    autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc,
+    per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
   echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
 else
@@ -169,7 +290,15 @@ save() {
     cp "$c/events.jsonl" "$out/events/$(jq -r .id "$c/case.json").jsonl"
   done < <(find "$store" -name case.json -printf '%h\n' | sort)
 }
-trap 'save; watch_stop' EXIT
+# Autopilot (A5): no stop waits on a person. A run that ends anywhere but closed (a stop that would
+# need a person, a cap, stuck, a refusal) is stopped with a record by rule:autopilot.
+end_reason=""
+autopilot_end() {
+  local rc=$1
+  [[ $autonomy == A5 && $rc != 0 && ! -f $stopped && -d $root ]] || return 0
+  write_stop rule:autopilot "autopilot: the run ended with exit $rc: ${end_reason:-$(jq -r '.message // .verdict // empty' <<< "${last:-null}" 2>/dev/null | head -n 1)}" || true
+}
+trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
 
 dry_lines() { { wc -l < "${SDC_LLM_DRY_LOG:-/dev/null}"; } 2>/dev/null || echo 0; }
 print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"$(($1 + 1))" "$SDC_LLM_DRY_LOG" | sed 's/^/  /'; true; }
@@ -187,18 +316,25 @@ finish() {
   exit "$code"
 }
 
-waiting() { jq -r '.message' <<< "$last"; echo "then run again: scripts/run-trial.sh $name"; exit 3; }
+waiting() {
+  if [[ $autonomy == A5 ]]; then
+    end_reason="a stop needs a person and autopilot has none: $(jq -r '.message' <<< "$last" | head -n 1)"
+    echo "$end_reason"
+    exit 7
+  fi
+  jq -r '.message' <<< "$last"; echo "then run again: scripts/run-trial.sh $name"; exit 3
+}
 
 # One decider decision. Arguments: a request JSON (type, case_dir, action, capability, subject,
 # path, revision, question, outcome). Sets $dec (the effective decision: approve or reject; empty
 # when it waits on a person) and $ans (a question's answer); appends to decisions.jsonl.
 decide() {
   local req=$1 key rec n reply line before
-  key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // ""), .revision] | join("|")' <<< "$req")
+  key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
   dec="" ans=""
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
      jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
-       and ([.case, .action, (.question // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
+       and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
     echo "  decider:$decider escalated $key before: a person decides"
     return 0
   fi
@@ -218,8 +354,9 @@ decide() {
     local x=${2:-}
     [[ -n $x ]] || x='{}'
     jq -cn --arg at "$(now)" --arg p "decider:$decider" --arg d "$1" --argjson q "$req" --argjson r "$reply" --argjson x "$x" '{
-      time: $at, case: ($q.case_dir | split("/") | last), type: $q.type, action: $q.action,
-      question: ($q.question.id // null), capability: $q.capability, outcome: $q.outcome,
+      time: $at, case: ($q.case_dir | split("/") | last), type: $q.type,
+      class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
+      question: ($q.question.id // null), finding: ($q.finding.id // null), capability: $q.capability, outcome: $q.outcome,
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
       cites: $r.cites, model: $r.model, adapter: $r.adapter, tokens: $r.usage, cost_usd: $r.cost_usd,
       duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
@@ -229,9 +366,21 @@ decide() {
   ans=$(jq -r '.answer // ""' <<< "$reply")
   if [[ $dec == escalate && $escalate_mode == final ]]; then
     line escalation_suppressed
-    dec=$(jq -r '.best // "reject"' <<< "$reply")
-    reply=$(jq -c '.reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); best decision taken"] + .reasons
-      | .usage = null | .cost_usd = null' <<< "$reply")
+    if [[ $(jq -r .type <<< "$req") == question ]]; then
+      # A scope-changing question takes its default.
+      dec=approve ans=$(jq -r .question.default <<< "$req")
+      reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); the default taken"] + .reasons
+        | .usage = null | .cost_usd = null' <<< "$reply")
+    elif [[ $(jq -r .type <<< "$req") == finding ]]; then
+      # A finding takes the decider's best answer, else its default.
+      dec=approve ans=$(jq -r --argjson q "$req" '.best // $q.finding.default' <<< "$reply")
+      reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); "
+        + (if .best then "best answer" else "the default" end) + " taken"] + .reasons | .usage = null | .cost_usd = null' <<< "$reply")
+    else
+      dec=$(jq -r '.best // "reject"' <<< "$reply")
+      reply=$(jq -c '.reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); best decision taken"] + .reasons
+        | .usage = null | .cost_usd = null' <<< "$reply")
+    fi
     line "$dec" '{"suppressed": true}'
   else
     line "$dec"
@@ -244,34 +393,76 @@ decide() {
   esac
 }
 
+# The open scope-changing questions of the interview in case $1, one decider decision each (action
+# $2, position $3): each answer is written as a person's is (`answer`, `status: accepted` for the
+# default or `changed`, `answered_by: decider:<kind>`). Returns 0 when all were answered, 1 when
+# one waits on a person, 2 when none is open; exits on a refusal.
+answer_questions() {
+  local cdir=$1 act=$2 pos=$3 qf=$1/work/questions.yaml found=no rev q st qs=()
+  rev=$(jq -r '.artifacts.questions.revision // "none"' "$cdir/case.json")
+  mapfile -t qs < <(yq -o=json -I=0 '.questions[] | select(.scope_changing == true and .status == "open")' "$qf" 2>/dev/null)
+  for q in "${qs[@]}"; do
+    [[ -n $q ]] || continue
+    found=yes
+    decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson q "$q" --argjson pos "$pos" \
+      '{type: "question", case_dir: $c, action: $a, capability: "scope.answer", subject: "questions",
+        path: "questions.yaml", revision: $rev, question: $q, outcome: null, position: $pos}')"
+    [[ -n $dec ]] || return 1
+    st=changed
+    [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
+    ANS=$ans yq -i "(.questions[] | select(.id == \"$(jq -r .id <<< "$q")\")) |= (.answer = strenv(ANS)
+      | .status = \"$st\" | .answered_by = \"decider:$decider\")" "$qf"
+  done
+  [[ $found == yes ]] || return 2
+}
+
+# The findings in case $1 that wait for a decision (amend.upstream's handoff, action $2, position
+# $3), one decider decision each: the decision is written as a person's is (`decision:` on the
+# finding) with `decided_by: decider:<kind>`, and amend.upstream applies it on the next round
+# through the same program check as the agent's amendments. A finding whose decider decision
+# that check refused (`refused_decision`) waits for a person. Returns as answer_questions.
+decide_findings() {
+  local cdir=$1 act=$2 pos=$3 ff=$1/work/findings.yaml found=no rev f fid fs=()
+  rev=$(jq -r '.artifacts.findings.revision // "none"' "$cdir/case.json")
+  mapfile -t fs < <(yq -o=json -I=0 '.findings[] | select(.status == "needs_person" and (.decision // "") == "")' "$ff" 2>/dev/null)
+  for f in "${fs[@]}"; do
+    [[ -n $f ]] || continue
+    found=yes
+    fid=$(jq -r .id <<< "$f")
+    if jq -e '.refused_decision' <<< "$f" > /dev/null; then
+      echo "  $fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f")): a person decides"
+      return 1
+    fi
+    decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson f "$f" --argjson pos "$pos" \
+      '{type: "finding", case_dir: $c, action: $a, capability: null, subject: "findings",
+        path: "findings.yaml", revision: $rev, question: null, finding: $f, outcome: null, position: $pos}')"
+    [[ -n $dec ]] || return 1
+    ANS=$ans yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"decider:$decider\")" "$ff"
+  done
+  [[ $found == yes ]] || return 2
+}
+
 # Every pending decision of the stop in $last, through the decider. Returns 0 when all were
 # taken; exits on a refusal; returns 1 when one waits on a person.
 declare -A taken
 decide_all() {
-  local cdir pos n act cap subj path rev q key
+  local cdir pos n act cap subj path rev key rc
   cdir=$(jq -r .case_dir <<< "$last")
   pos=$(jq -c .position <<< "$last")
   while IFS= read -r n; do
     act=$(jq -r .action <<< "$n")
     if jq -e '.command | test(" run --at ")' <<< "$n" > /dev/null; then
-      # A handoff: the open scope-changing questions of the interview.
-      local qf=$cdir/work/questions.yaml found=no
-      rev=$(jq -r '.artifacts.questions.revision // "none"' "$cdir/case.json")
-      local qs=()
-      mapfile -t qs < <(yq -o=json -I=0 '.questions[] | select(.scope_changing == true and .status == "open")' "$qf" 2>/dev/null)
-      for q in "${qs[@]}"; do
-        [[ -n $q ]] || continue
-        found=yes
-        decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson q "$q" --argjson pos "$pos" \
-          '{type: "question", case_dir: $c, action: $a, capability: null, subject: "questions",
-            path: "questions.yaml", revision: $rev, question: $q, outcome: null, position: $pos}')"
-        [[ -n $dec ]] || return 1
-        local st=changed
-        [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
-        ANS=$ans yq -i "(.questions[] | select(.id == \"$(jq -r .id <<< "$q")\")) |= (.answer = strenv(ANS)
-          | .status = \"$st\" | .answered_by = \"decider:$decider\")" "$qf"
-      done
-      [[ $found == yes ]] || { echo "nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; return 1; }
+      # A handoff: the findings that wait for a decision (amend.upstream), else the open
+      # scope-changing questions of the interview.
+      rc=0
+      if [[ $act == amend.upstream ]]; then
+        decide_findings "$cdir" "$act" "$pos" || rc=$?
+        (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no finding waits for a decision"; return 1; }
+      else
+        answer_questions "$cdir" "$act" "$pos" || rc=$?
+      fi
+      (( rc == 1 )) && return 1
+      (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; return 1; }
       continue
     fi
     cap=$(jq -r '.command | capture("--capability (?<c>[^ ]+)").c' <<< "$n")
@@ -280,10 +471,18 @@ decide_all() {
     rev=$(jq -r --arg s "$subj" '.artifacts[$s].revision // "none"' "$cdir/case.json")
     key="$cdir|$act|$rev"
     [[ -z ${taken[$key]:-} ]] || { echo "pending again after decider:$decider approved it: $act at $rev in $cdir"; exit 4; }
-    decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg cap "$cap" --arg s "$subj" --arg p "$path" --arg rev "$rev" \
-      --argjson pos "$pos" '{type: "approval", case_dir: $c, action: $a, capability: $cap, subject: $s,
-        path: $p, revision: $rev, question: null, outcome: null, position: $pos}')"
-    [[ -n $dec ]] || return 1
+    # scope.answer is not an approval of a revision: each open scope-changing question gets its
+    # own answer from the decider, then scope.answer is taken under the decider's principal. With
+    # none open (a person's edits wait for attribution) it is decided as an approval.
+    rc=2
+    [[ $act == scope.answer ]] && { rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?; }
+    (( rc == 1 )) && return 1
+    if (( rc == 2 )); then
+      decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg cap "$cap" --arg s "$subj" --arg p "$path" --arg rev "$rev" \
+        --argjson pos "$pos" '{type: "approval", case_dir: $c, action: $a, capability: $cap, subject: $s,
+          path: $p, revision: $rev, question: null, outcome: null, position: $pos}')"
+      [[ -n $dec ]] || return 1
+    fi
     taken[$key]=1
     if jq -e '.command | test("--action ")' <<< "$n" > /dev/null; then
       d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act"

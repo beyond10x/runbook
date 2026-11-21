@@ -277,10 +277,12 @@ story-tests)
   findings gate story || exit 5
   "$here/tools/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
 amend) findings amend "${2:?stage}" ;;
-# amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision.
+# amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
+# none yet, or one that names no principal (`decided_by: person:<id>` or `decider:<kind>`).
 findings-wait)
   [[ -f findings.yaml ]] &&
-  yq -e '[.findings[]? | select(.status == "needs_person" and (.decision // "") == "")] | length > 0' findings.yaml >/dev/null 2>&1 ;;
+  yq -e '[.findings[]? | select(.status == "needs_person" and ((.decision // "") == ""
+    or ((.decided_by // "") | test("^(person|decider):.") | not)))] | length > 0' findings.yaml >/dev/null 2>&1 ;;
 
 # --- sdc.intake scope.answer (a manual action under the capability scope.answer) ---------------
 scope-answer)

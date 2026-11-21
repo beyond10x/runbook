@@ -346,6 +346,15 @@ What one call does (`llm-node.sh`):
 
 The driver then sees a new revision; only the bound programs produce evidence about it.
 
+**Model per node** (2026-11-21, `story:model-per-node-variable`). The model is a run setting, by
+node class (`tools/node-classes.json`): `SDC_LLM_MODEL_WRITER` (`spec.author`, `plan.decompose`),
+`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`spec.review`,
+`change.review`, program stubs today, so no call uses it yet), `SDC_LLM_MODEL_OTHER` (every other
+node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The decider:
+`SDC_LLM_MODEL_DECIDER`, else `SDC_DECIDER_MODEL`, else `claude-haiku-5-5` (`SDC_LLM_MODEL` does
+not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
+`models` per class (`model`, `source`, and per node).
+
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):
@@ -372,9 +381,23 @@ root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `
 writes `out/decision.json` {decision, answer, reasons, cites, best}, a jq program validates it,
 invalid counts as escalate). The script, not the driver, applies a decision: `sdc-drive approve
 --principal decider:<kind>` (grant and approval record carry that principal) or `answered_by:
-decider:<kind>` in `questions.yaml`; `decisions.jsonl` keeps every decision with its reasons. No
-driver change. Limit: `check-questions` still demands `answered_by: human` for a scope-changing
-answer (see `trial-1.md`).
+decider:<kind>` in `questions.yaml`; `decisions.jsonl` keeps every decision with its reasons and
+its `class`. No driver change. `scope.answer` is put to the decider one open scope-changing
+question at a time (class `scope_changing_answer`), then taken as `decider:<kind>`; a finding
+waiting at `amend.upstream` is put to it as a finding request (class `finding`) and its answer
+written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings amend` checks as it
+checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
+principal for a scope-changing answer (`sdc.intake` r5).
+
+**Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
+`runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
+"<principal>", "reason": "…", "verdict_at_stop": "<last round's verdict>", "case": "<its case id
+or null>"}` (`by` from `SDC_PRINCIPAL`, required), and a `# stopped at … by …: …` line in
+`run.log`; the driver and the event logs are not touched. A resume of a stopped run is refused
+(exit 8) until `--reopen`, which renames the record to `run-stopped.<at>.json`, logs it and goes
+on. `sdc-finding-kpis` reports the time the run waited on a person as L7 (`kpis.md` § 4), with the
+stops that caused it, up to the stop record's instant; with a decider set (A3 and up) a value
+above 0 is printed as `FAILED`.
 
 **Where another model source plugs in** (not built):
 

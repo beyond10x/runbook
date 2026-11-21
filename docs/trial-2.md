@@ -43,7 +43,7 @@ Lines marked *(inferred)* were not observed.
 - Does not work: the wrong amendment (f11's default emptied f9's decision, R7): `story:amendment-keeps-person-decisions`.
 - Does not work: story-stage findings cannot reach the specification (f9, f16): `story:story-finding-reopens-spec`.
 - Does not work: 8 of 14 late findings arose in the story stage: `story:intake-asks-what-stories-will-need`, `story:late-findings-per-stage-kpi`.
-- Does not work: the decider cannot take a finding decision (f1, f9, f16 went to a person): `story:decider-finding-decision`.
+- Did not work: the decider could not take a finding decision (f1, f9, f16 went to a person): `story:decider-finding-decision`, built since (cycles `decider-finding*`).
 - Does not work: the driver counts 30 calls, the record 27: `story:llm-call-count-matches-record`.
 - Does not work: replay of the root fails after a child closes: `story:replay-after-child-close`.
 - Fixed R1: edit-then-approve refused; `sdc.intake` r6, cycle `scope-changed`.
@@ -55,6 +55,7 @@ Lines marked *(inferred)* were not observed.
 - Fixed R7: flat run cap per case, `stuck` after a person's decision; cycles `story-decision`, `story-spent`.
 - Fixed R8: 429s counted as runs, a spent writer hid a due handoff; cycle `story-late-person`.
 - Next: trial 3 (`story:clean-unattended-run-compare`): the same idea run unattended twice in two model settings.
+- Stand-in: for findings f1 and f9 this was an end-to-end test of the person path, not an eval run: the coordinating session decided them for the operator, and the tool of the time recorded `decided_by: human`.
 
 ## What trial 1 showed
 
@@ -132,9 +133,11 @@ built: the agent cannot know how the two meet (local copy and sync is a design c
 ### The person's part
 
 When a finding needs a person, `sdc-drive run` stops `awaiting_person` (exit 3) with the handoff:
-in `work/findings.yaml` set `decision:` (one of its options or free text), or `status: dismissed`;
-then run again. The edit moves the `findings` revision, `amend.upstream` runs again and amends
-with `decided_by: human`. A person may also add a finding by hand (`raised_by: human`) in place of
+in `work/findings.yaml` set `decision:` (one of its options or free text) and `decided_by:
+person:<id>`, or `status: dismissed`; then run again. The edit moves the `findings` revision,
+`amend.upstream` runs again and amends with that principal (2026-11-21: before, every such edit
+was recorded `decided_by: human`; a decision with no principal is now not applied, and the handoff
+stays). A person may also add a finding by hand (`raised_by: human`) in place of
 editing questions and requirements as in trial 1.
 
 ### Canon terms and the state budget
@@ -204,8 +207,13 @@ unchanged.
   not the specification, whose case has already ended: `sdc.epic` (36,864 = 9 × 2^12) has no room
   to reopen `sdc.spec` on a requirements revision.
 - A person's decision on a finding after intake goes through the handoff edit, not through
-  `scope.answer`: no protocol after intake has room for a second capability. A decider (A3+)
-  therefore cannot decide those yet; `run-trial.sh`'s decider stops there for a person.
+  `scope.answer`: no protocol after intake has room for a second capability. Under a decider
+  (A3+) `run-trial.sh` takes that edit itself (added 2026-11-21, `story:decider-finding-decision`):
+  each finding waiting for a decision goes to the decider as a decision request (its text,
+  options, default, cites, and the requirements, prior decisions and context fields it touches);
+  the answer is written as `decision:` with `decided_by: decider:<kind>`, `amend.upstream` applies
+  it through the same program check as the agent's amendments, and a refused one is reverted and
+  kept as `refused_decision`, and the finding waits for a person.
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
@@ -295,9 +303,9 @@ The stops have these forms:
 
 | Stop | What you decide | How |
 |---|---|---|
-| intake `scope.answer` (awaiting authority, or awaiting person once granted) | the scope-changing answers: edit `work/questions.yaml` (`answer`, `status: changed`; `scope.answer` sets `answered_by`) or leave them to accept the defaults | 1. edit (or not); 2. the printed `sdc-drive … approve --capability scope.answer --principal operator --action scope.answer`, once; 3. resume. Needs `sdc.intake` r6 in the case (`jq -r .protocol.revision <case>/ir.json`): under r5 step 2 is refused after an edit (`questions.shaped` unknown), and the order is edit, resume, approve, resume |
+| intake `scope.answer` (awaiting authority, or awaiting person once granted) | the scope-changing answers: edit `work/questions.yaml` (`answer`, `status: changed`; `scope.answer` sets `answered_by`) or leave them to accept the defaults | 1. edit (or not); 2. the printed `sdc-drive … approve --capability scope.answer --principal person:<id> --action scope.answer`, once; 3. resume. Needs `sdc.intake` r6 in the case (`jq -r .protocol.revision <case>/ir.json`): under r5 step 2 is refused after an edit (`questions.shaped` unknown), and the order is edit, resume, approve, resume |
 | direction approvals | context, vision, roadmap, as in trial 1 | the printed `approve … --action context.approve` (then `vision.approve`, `roadmap.approve`) |
-| a finding (`amend.upstream`, awaiting person) | in `work/findings.yaml` set `decision:` on each `needs_person` finding (an option or free text), or `status: dismissed` | edit, then resume |
+| a finding (`amend.upstream`, awaiting person) | in `work/findings.yaml` set `decision:` (an option or free text) and `decided_by: person:<id>` on each `needs_person` finding, or `status: dismissed` | edit, then resume |
 | merge, release, close | as in trial 1 | the printed commands |
 
 Afterwards:
@@ -341,6 +349,18 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `story-decision` (added 2026-11-21, R7: `fixtures/finding-story-rounds.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s stub raises a scope-changing finding and an agent one, then another agent one; the person's decision is an arrival, `change.implement` runs 4 times, `operating`. Before (round-3 driver): exit 1, `stuck` in the story case after 3 runs |
 | `story-spent` (added 2026-11-21, R7: `fixtures/finding-story-spent.yaml`) | 1 | a new agent finding on every `change.implement` run: the run ends `writer_spent` naming `change.implement`, 3 runs. Before: `stuck` with no action named |
 | `story-late-person` (added 2026-11-21, R8: `fixtures/finding-story-late-person.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s third run raises a scope-changing finding: `awaiting_person` (due `handoff_when`) rather than `writer_spent`, then a fresh allowance, `operating`. Before: exit 1, `stuck` after the person's decision |
+| `decider-scope-answer` (added 2026-11-21, `runs/trial-2b-fresh`'s first stop: `scripts/run-trial.sh` with `SDC_DECIDER=haiku` on `tools/llm-adapter-fixture.sh`, `fixtures/scope-two`) | 0 | two scope-changing questions open at `scope.answer`; each goes to the decider on its own (text, options, default, dissection item, idea excerpt; `questions.settled` marked `settled_by_this_decision`): q2 by its default (`accepted`), q3 a free answer (`changed`), both `answered_by: decider:haiku`, class `scope_changing_answer` in `decisions.jsonl`; `scope.answer` taken as `decider:haiku`; closed, replay 8 of 8. Before: exit 3, the decider escalated the approval of `scope.answer` reading `questions.settled` false as a failed check |
+| `decider-scope-final` (added 2026-11-21, as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating q3) | 0 | q3 `escalation_suppressed`, its default taken. Before: exit 6 (the escalated approval had no `best`, counted as reject) |
+| `decider-finding` (added 2026-11-21, `story:decider-finding-decision`: `fixtures/finding-spec-person.yaml` under the decider) | 0 | f1 (scope-changing) goes to the decider as a finding request; it answers option 2; f1 resolved with `decided_by: decider:haiku`, the amendment's question `answered_by: decider:haiku`, class `finding` in `decisions.jsonl`; closed, replay 8 of 8. Before: exit 3, "nothing for decider:haiku at amend.upstream" |
+| `decider-finding-final` (as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating with no `best`) | 0 | `escalation_suppressed`, f1's default taken. Before: exit 3 |
+| `decider-finding-refused` (`fixtures/offline-decision` under the decider) | 3 | the decider takes the default the agent's check already refused; the same check refuses the decider's amendment (it states against decision q3): reverted, `refused_decision` kept, the decider not asked again, a person decides. Before: exit 3 with no decider request and no `refused_decision` |
+| `run-stop` (added 2026-11-21: `scripts/run-trial.sh <run> --stop`, `--reopen`; KPI L7) | 3, then 0, 8, 3 | the run stops at `context.approve` (exit 3); `--stop` writes `run-stopped.json` (`awaiting_authority`, `IDEA-1.direction`) and a `run.log` line, the event logs unchanged; a resume is refused (exit 8); L7 2 s, the stop `until: stopped`; `--reopen` renames the record and the run stops again at the same place (exit 3). Before: `--stop` was taken as idea text and the run resumed (exit 3), no record, L7 absent |
+| `run-stop-decider` (`decider-finding-refused`'s run, stopped) | — | L7 above 0 with `decider: haiku`: `failure: true`, printed `FAILED`. Before: L7 absent |
+| `autopilot` (added 2026-11-21: `--autopilot`, `fixtures/scope-two` plus `finding-spec-person.yaml`) | 0 | the decider answers both scope-changing questions and decides f1; closed; 0 person principals in `decisions.jsonl`, `findings.yaml`, `questions.yaml` and the events' grants and approvals; L7 0; `run-settings.jsonl` A5, escalate final. Before: exit 0 with no level and escalate stop |
+| `autopilot-person` (`--autopilot` with `SDC_DECIDER=person`) | 64 | refused before the run starts. Before: exit 3, a person stop |
+| `autopilot-stop` (`--autopilot`, `fixtures/offline-decision`) | 7 | the decider's amendment is refused, the finding needs a person: the run ends with a stop record by `rule:autopilot`. Before: exit 3, no record |
+| `principals` (finding-person's and finding-person-stop's stores) | — | the scripted person writes `decided_by: person:stand-in`, its run settings say `stand_in` (run-full-cycle.sh); a hand-written decision with no principal is not applied (the finding stays `needs_person`, the handoff stays due), nothing writes `human`. Before: the decision was applied as `decided_by: human` |
+| `models` (added 2026-11-21, `story:model-per-node-variable`: three `--dry` runs with the decider on the dry adapter) | 0, 0, 0 | no setting: every call its binding's `llm.model`, the decider `claude-haiku-5-5`; `SDC_LLM_MODEL`: every node that model; `SDC_LLM_MODEL_WRITER`, `_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_OTHER`: each call line and decider record names its class's model, `run-settings.jsonl` `models` per class with its source. Before: the per-class settings were ignored (every call `model-all`), no `models` record |
 | `scripts/run-trial.sh --dry trial-2-dry` (`SDC_RUNS_DIR=$S/runs`) | 0 | 10 LLM commands printed, none run; scripted approvals; `operating`; replay 8 of 8 match |
 | `$S/t1-replay.sh` (trial 1's own files, copied; q3/r3 put back to browser storage) | 0 | `sdc-findings consistency` exit 5 (`p-storage-location-r3`, cites `context.deployment`, `context.platform`, `r3`); `amend context` resolves it by agent; gate exit 0; `check-questions` 0, `check-requirements` 0. Trial 1's contradiction would have been found at the context check and repaired with no person |
 

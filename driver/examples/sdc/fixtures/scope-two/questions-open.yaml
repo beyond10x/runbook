@@ -1,0 +1,22 @@
+questions:
+  - id: q1
+    item: d3
+    question: Which states does an invoice go through?
+    options: ["draft, issued, paid, cancelled", "draft, issued, paid"]
+    default: draft, issued, paid, cancelled
+    scope_changing: false
+    status: open
+  - id: q2
+    item: d4
+    question: Who may cancel an invoice?
+    options: ["the billing clerk, before it is paid", "the customer or the billing clerk"]
+    default: the billing clerk, before it is paid
+    scope_changing: true
+    status: open
+  - id: q3
+    item: d5
+    question: Who besides the customer receives the invoice email?
+    options: [nobody, the billing clerk]
+    default: nobody
+    scope_changing: true
+    status: open
