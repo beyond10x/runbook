@@ -313,8 +313,8 @@ entries:
   label: 0.2.0
   short: Runbook, spec gate
   date: 2026-11-21
-  tree: null
-  tree_note: not tagged yet; prepared on merge/queue-14 after the batch-13 and batch-14 merges below, on top of 0.1.4 (7bbdee6)
+  tree: 6cde564f7d0cfbef221e372a6c7bfef79d512c26
+  tree_note: 'tag 0.2.0 at main 6cde564: 0.1.4 (7bbdee6) with the batch-13 and batch-14 merges below, the consistency pass and its preparation'
   experiments: []
   changes:
   - commit: 6391cbc
