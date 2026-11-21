@@ -134,7 +134,8 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   decider-finding-refused run-stop run-stop-decider autopilot decider-input trace-reraised decider-budget-reason autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models efforts
-  review-real-path review-invalid-stop review-adapter-refused reopen-review-invalid)
+  review-real-path review-invalid-stop review-adapter-refused reopen-review-invalid
+  rule-approvals rule-approvals-check-failed rule-approvals-revision-changed rule-approvals-off rule-approvals-a3)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -506,7 +507,12 @@ fi
 fixture=$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh
 targs=()
 # run.unstick is off unless a cycle turns it on (SDC_UNSTICK=on): the stops these cycles assert
-# are today's.
+# are today's. SDC_RULE_APPROVALS is the product's default (on at A5); only the cycles that assert a
+# decider call on context.approve, roadmap.approve or release.publish set it off: autopilot (its
+# release.publish and roadmap.approve requests feed decider-later-obligation and decider-input),
+# decider-cite-address, decider-cite-retry, decider-invalid-approval, decider-escalate-nobest,
+# decider-reject, decider-rework-context, decider-rework-model, decider-release-withheld and
+# rework-spent-abandoned.
 trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name>, with the arguments in targs
   local name=$1; shift
   rm -rf "$s/runs/$name"
@@ -690,7 +696,7 @@ fi
 # amendment is refused) ends the run with a stop record by rule:autopilot (exit 7).
 nonperson='^(decider:|rule:|agent$|non-interactive$|derived$)'
 targs=(--autopilot)
-trial autopilot SDC_STUB_FIXTURES="$fx/scope-two" SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml"
+trial autopilot SDC_RULE_APPROVALS=off SDC_STUB_FIXTURES="$fx/scope-two" SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml"
 code=$?
 r=$s/runs/autopilot
 w=$r/store/IDEA-1/work
@@ -765,7 +771,7 @@ fi
 bad='{"decision": "approve", "answer": null, "reasons": ["fixture: cites what is not there"], "cites": ["context.nope"], "best": null}'
 good='{"decision": "approve", "answer": null, "reasons": ["fixture: the context fits"], "cites": ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], "best": null}'
 attempts() { jq -s --arg a "$2" '[.[] | select(.action == $a)]' "$1/decisions.jsonl"; }
-trial decider-cite-address SDC_DECIDER_REPLIES="$(jq -cn --argjson g "$good" '{"context.approve": $g}')"
+trial decider-cite-address SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson g "$good" '{"context.approve": $g}')"
 code=$?
 a=$(attempts "$s/runs/decider-cite-address" context.approve)
 if (( code == 0 )) && jq -e 'length == 1 and .[0].decision == "approve" and .[0].valid == true
@@ -774,7 +780,7 @@ if (( code == 0 )) && jq -e 'length == 1 and .[0].decision == "approve" and .[0]
 else
   echo "decider-cite-address: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
-trial decider-cite-retry SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" --argjson g "$good" '{"context.approve": [$b, $g]}')"
+trial decider-cite-retry SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" --argjson g "$good" '{"context.approve": [$b, $g]}')"
 code=$?
 r=$s/runs/decider-cite-retry
 a=$(attempts "$r" context.approve)
@@ -786,7 +792,7 @@ if (( code == 0 )) && jq -e 'length == 2 and .[0].decision == "invalid_reply" an
 else
   echo "decider-cite-retry: FAILED (exit $code: $(jq -c '[.[] | {decision, attempts, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
-trial decider-invalid-approval SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" '{"context.approve": [$b, $b, $b]}')"
+trial decider-invalid-approval SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" '{"context.approve": [$b, $b, $b]}')"
 code=$?
 r=$s/runs/decider-invalid-approval
 a=$(attempts "$r" context.approve)
@@ -810,7 +816,7 @@ else
 fi
 # escalate-nobest: under autopilot the decider is final: an escalate without best is refused and asked again.
 esc='{"decision": "escalate", "answer": null, "reasons": ["fixture: a person should say"], "cites": ["context.kind"], "best": null}'
-trial decider-escalate-nobest SDC_DECIDER_REPLIES="$(jq -cn --argjson e "$esc" --argjson g "$good" '{"context.approve": [$e, $g]}')"
+trial decider-escalate-nobest SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson e "$esc" --argjson g "$good" '{"context.approve": [$e, $g]}')"
 code=$?
 a=$(attempts "$s/runs/decider-escalate-nobest" context.approve)
 if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "approve"] and (.[0].invalid_reason | test("best"))' <<< "$a" >/dev/null &&
@@ -822,7 +828,7 @@ fi
 # Only while context.approve cannot record a rejection (no writer reworks the context): with one,
 # the reject is reworked, which the decider-rework cycles check.
 if [[ $ctx_rework == no ]]; then
-trial decider-reject SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+trial decider-reject SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/decider-reject
 if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rejected_without_rework_path" and .case == "IDEA-1.direction"
@@ -837,7 +843,7 @@ else
 # decider-rework-context: context.approve rejected every time: context.default reworks the context
 # twice with the rejection (the stub appends it to context.yaml as a comment), context.check runs
 # on each new revision, the third rejection stops by rule:autopilot with cause rework_spent.
-trial decider-rework-context SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+trial decider-rework-context SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/decider-rework-context
 ev=$(find "$r/store" -type d -name 'IDEA-1.direction' | head -n 1)/events.jsonl
@@ -854,7 +860,7 @@ fi
 # (llm-adapter-fixture.sh, which writes the same context every time): the writer gets the rejection
 # as in/rejection.json and writes the artifact itself, so the stub's rework marker is in no file
 # of the run's work/ and the unchanged context makes no new revision (the run stops, not closed).
-trial decider-rework-model SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=context.default \
+trial decider-rework-model SDC_RULE_APPROVALS=off SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=context.default \
   SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/decider-rework-model
@@ -1159,6 +1165,101 @@ if grep -q '^conformance: not observed (off by default; SDC_CONFORMANCE=observe 
 else
   echo "conformance-default-off: FAILED (exit $code; default line: $(grep -c '^conformance: not observed (off by default' "$s/autopilot-close.txt"), called: $(cat "$r/conform-called" 2>/dev/null))"
 fi
+# --- approvals by rule (docs/driver.md "Approvals by program", story:decider-program-approvals).
+# Under A5 context.approve, roadmap.approve and release.publish are taken by rule:autopilot when
+# the program check that guards each (rule-ends.json `by_rule`) recorded a passing result for the
+# exact revision; vision.approve has no program check and stays with the decider, so do merge.approve,
+# scope answers and findings. The fixture decider approves whatever it is asked, so "asked" is read
+# from decisions.jsonl (principal decider:model) and decider/NNN-<action>.
+rule_lines() { jq -sc --arg a "$2" '[.[] | select(.action == $a and .principal == "rule:autopilot")]' "$s/runs/$1/decisions.jsonl"; }
+asked_lines() { jq -sc --arg a "$2" '[.[] | select(.action == $a and .principal == "decider:model" and .decision != "invalid_reply")]' "$s/runs/$1/decisions.jsonl"; }
+asked_dirs() { find "$s/runs/$1/decider" -mindepth 1 -maxdepth 1 -type d -name "*-$2" 2>/dev/null | wc -l; }
+evidence_exists() { [[ -n $(find "$s/runs/$1/store" -path '*/evidence/*' -name "$2.json" 2>/dev/null | head -n 1) ]]; }
+rule_ok() { # <run> <action> <check>: every rule line of the action names the rule, the check and evidence on disk
+  local run=$1 act=$2 chk=$3 id
+  jq -e --arg c "$chk" 'length >= 1 and all(.[]; .decision == "approve" and .model == null and .cost_usd == 0 and .valid == true
+    and .rule.principal == "rule:autopilot" and .rule.rule == "program-checks" and (.rule.checks | any(.check == $c))
+    and (.cites | length) >= 1 and .cites == [.rule.checks[].evidence])' <<< "$(rule_lines "$run" "$act")" > /dev/null || return 1
+  for id in $(jq -r '.[].cites[]' <<< "$(rule_lines "$run" "$act")"); do evidence_exists "$run" "$id" || return 1; done
+  (( $(asked_dirs "$run" "$act") == 0 )) && [[ $(jq length <<< "$(asked_lines "$run" "$act")") == 0 ]]
+}
+all_asked() { # <run>: the decider was asked for context, vision, roadmap and release, a call each
+  local a
+  for a in context.approve vision.approve roadmap.approve release.publish; do
+    [[ $(jq length <<< "$(asked_lines "$1" "$a")") -ge 1 ]] && (( $(asked_dirs "$1" "$a") >= 1 )) || return 1
+  done
+}
+targs=(--autopilot)
+trial rule-approvals SDC_RULE_APPROVALS=on
+code=$?
+r=$s/runs/rule-approvals
+m=$("$metrics" "$r" --json - 2>/dev/null)
+if (( code == 0 )) && jq -e '.outcome == "operating"' "$r/status.json" >/dev/null &&
+   rule_ok rule-approvals context.approve context.check && rule_ok rule-approvals roadmap.approve roadmap.validate &&
+   rule_ok rule-approvals release.publish acceptance.run && rule_ok rule-approvals release.publish spec.gate &&
+   jq -e 'length >= 1' <<< "$(asked_lines rule-approvals vision.approve)" >/dev/null && (( $(asked_dirs rule-approvals vision.approve) >= 1 )) &&
+   jq -e 'length >= 1' <<< "$(asked_lines rule-approvals merge.approve)" >/dev/null &&
+   jq -se 'all(.[]; .producer == "rule:autopilot")' "$r"/store/IDEA-1/children/IDEA-1.direction/evidence/*-context.approve.json >/dev/null &&
+   jq -se 'last.rule_approvals == "on"' "$r/run-settings.jsonl" >/dev/null &&
+   jq -e --argjson n "$(jq -s '[.[] | select(.principal == "rule:autopilot")] | length' "$r/decisions.jsonl")" \
+     --argjson d "$(find "$r/decider" -mindepth 1 -maxdepth 1 -type d | wc -l)" '.metrics.decisions_by_rule == $n and $n >= 3 and .metrics.decider_calls == $d
+       and (.decisions.by_action["approval/context.approve"] | .by_rule >= 1 and .calls == 0 and .asked == 0)' <<< "$m" >/dev/null; then
+  echo "rule-approvals: checks pass (context, roadmap and release taken by rule:autopilot on their checks' evidence ids, no decider call; vision and merge asked; metrics count $(jq .metrics.decisions_by_rule <<< "$m") decisions by rule, $(jq .metrics.decider_calls <<< "$m") decider calls)"
+else
+  echo "rule-approvals: FAILED (exit $code; rule lines: $(jq -c '[.[] | {action, principal}]' <<< "$(rule_lines rule-approvals context.approve)") decider dirs: $(ls "$r/decider" 2>/dev/null | tr '\n' ' '))"
+fi
+# A check that did not pass, or a revision that changed after the check, leaves the approval to the
+# decider. Canon admits context.approve only on a passing check at the current revision, so the
+# cycles make the record on disk disagree with the claim in the window between the driver's stop and
+# the approval (fixtures/rule-approvals/drive-tamper.sh, put back before the approval is recorded).
+tamper=$fx/rule-approvals/drive-tamper.sh
+real_drive=$sdc/driver/target/debug/sdc-drive
+declined_ok() { # <run> <word the declined reason names>
+  local run=$1 word=$2
+  rule_lines "$run" context.approve | jq -e 'length == 0' >/dev/null &&
+    jq -e --arg w "$word" 'length == 1 and .[0].valid == true and (.[0].rule_declined | test($w)) and .[0].rule == null' <<< "$(asked_lines "$run" context.approve)" >/dev/null &&
+    (( $(asked_dirs "$run" context.approve) == 1 )) &&
+    rule_ok "$run" roadmap.approve roadmap.validate && rule_ok "$run" release.publish acceptance.run &&
+    jq -se 'all(.[]; .producer == "decider:model")' "$s/runs/$run"/store/IDEA-1/children/IDEA-1.direction/evidence/*-context.approve.json >/dev/null
+}
+trial rule-approvals-check-failed SDC_RULE_APPROVALS=on DRIVE="$tamper" TAMPER_REAL="$real_drive" TAMPER_MODE=result
+code=$?
+if (( code == 0 )) && declined_ok rule-approvals-check-failed 'recorded no passing context_defaults \(valid\)'; then
+  echo "rule-approvals-check-failed: checks pass (the context check's record read finding: the decider was asked and declined-by-rule is on its line; roadmap and release still by rule)"
+else
+  echo "rule-approvals-check-failed: FAILED (exit $code: $(jq -c '[.[] | {action, principal, rule_declined}]' "$s/runs/rule-approvals-check-failed/decisions.jsonl" 2>/dev/null | cut -c1-400))"
+fi
+trial rule-approvals-revision-changed SDC_RULE_APPROVALS=on DRIVE="$tamper" TAMPER_REAL="$real_drive" TAMPER_MODE=revision
+code=$?
+if (( code == 0 )) && declined_ok rule-approvals-revision-changed 'about context@'; then
+  echo "rule-approvals-revision-changed: checks pass (the only passing check is about an earlier revision: the decider was asked; roadmap and release still by rule)"
+else
+  echo "rule-approvals-revision-changed: FAILED (exit $code: $(jq -c '[.[] | {action, principal, rule_declined}]' "$s/runs/rule-approvals-revision-changed/decisions.jsonl" 2>/dev/null | cut -c1-400))"
+fi
+# SDC_RULE_APPROVALS=off: today's behaviour, every approval asked, recorded in run-settings.jsonl.
+trial rule-approvals-off SDC_RULE_APPROVALS=off
+code=$?
+r=$s/runs/rule-approvals-off
+if (( code == 0 )) && [[ $(jq -s '[.[] | select(.principal == "rule:autopilot")] | length' "$r/decisions.jsonl") == 0 ]] &&
+   [[ ! -d $r/rule-approvals ]] && jq -se 'all(.rule_approvals == "off")' "$r/run-settings.jsonl" >/dev/null &&
+   all_asked rule-approvals-off; then
+  echo "rule-approvals-off: checks pass (SDC_RULE_APPROVALS=off: no rule line, the decider asked for context, vision, roadmap and release; run-settings rule_approvals off)"
+else
+  echo "rule-approvals-off: FAILED (exit $code)"
+fi
+# Below A5 nothing changes: the decider is asked for all four, no rule line, the setting recorded.
+targs=()
+trial rule-approvals-a3 SDC_RULE_APPROVALS=on SDC_AUTONOMY=A3
+code=$?
+r=$s/runs/rule-approvals-a3
+if (( code == 0 )) && [[ $(jq -s '[.[] | select(.principal == "rule:autopilot")] | length' "$r/decisions.jsonl") == 0 ]] &&
+   [[ ! -d $r/rule-approvals ]] && jq -se 'last | .autonomy == "A3" and .rule_approvals == "on"' "$r/run-settings.jsonl" >/dev/null &&
+   all_asked rule-approvals-a3; then
+  echo "rule-approvals-a3: checks pass (A3: the decider asked for context, vision, roadmap and release, no rule line, no rule request)"
+else
+  echo "rule-approvals-a3: FAILED (exit $code)"
+fi
+targs=(--autopilot)
 # decider-input: the decider records of runs/trial-3-haiku-5's close and its release.publish. The
 # close reads published/README.md and no aep/ file: read from autopilot-close-a3, where the decider
 # is asked for the close (under A5 rule:autopilot closes and no close record exists, D140; D161).
@@ -1397,7 +1498,7 @@ else
 fi
 targs=(--autopilot)
 if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1; then
-  trial decider-release-withheld SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
+  trial decider-release-withheld SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
   code=$?
   r=$s/runs/decider-release-withheld
   rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
@@ -1660,7 +1761,7 @@ fi
 # rework-spent-abandoned (R5, pending): context.approve rejected three times. Route: the root ends
 # `abandoned` (explicitly_abandoned recorded by rule:autopilot with the rejections), the run
 # closes. Today: exit 6, rework_spent.
-trial rework-spent-abandoned SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
+trial rework-spent-abandoned SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/rework-spent-abandoned
 if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
@@ -2031,6 +2132,9 @@ bugfix_cycle bugfix-never-red never-red not_reproduced \
 # requirements.normalise context.default spec.author plan.decompose change.implement change.review"
 # SDC_FIXTURE_STUB='{"plan.decompose": ["plan-stories.json", "stories.json"]}' run-trial.sh <run>
 # "<fixtures/idea.yaml text>" --autopilot, then sdc-replay pack <run> fixtures/recorded/stub.
+# SDC_RULE_APPROVALS stays at its default (on): the recording holds no decider call for the
+# approvals the rule takes (context.approve, roadmap.approve, release.publish), and the redrives
+# below run with the rule on too.
 recording=$fx/recorded/stub
 story_case=IDEA-1.billing.invoices
 redrive() { # <name> [run-trial.sh replay arguments ...]

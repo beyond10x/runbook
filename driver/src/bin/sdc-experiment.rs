@@ -375,7 +375,7 @@ const STATUSES: [&str; 4] = ["planned", "running", "complete", "abandoned"];
 /// The one pass rule: the run closed, delivered, and needed no reopen, forced step or unstick.
 const PASS_RULE: &str = "clean-delivery";
 /// The settings a prospective record may set and the environment variable each one becomes.
-const LAUNCH: [(&str, &str); 30] = [
+const LAUNCH: [(&str, &str); 31] = [
     ("implement_mode", "SDC_IMPLEMENT_MODE"),
     ("models.writer.model", "SDC_LLM_MODEL_WRITER"),
     ("models.implement.model", "SDC_LLM_MODEL_IMPLEMENT"),
@@ -398,6 +398,7 @@ const LAUNCH: [(&str, &str); 30] = [
     ("max_wall_seconds", "SDC_MAX_WALL_SECONDS"),
     ("autonomy", "SDC_AUTONOMY"),
     ("conformance", "SDC_CONFORMANCE"),
+    ("rule_approvals", "SDC_RULE_APPROVALS"),
     ("flags.dry", ""),
     ("flags.recorded", ""),
     ("free.model", ""),

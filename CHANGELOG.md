@@ -28,6 +28,17 @@ The crates are `publish = false`; releases are source releases at bare-version t
   `-invalid-named`, `-path-escape` (fixture adapter, `SDC_IMPLEMENT_REPLIES`).
 - Experiment records `implement-one-request` (mixed) and `implement-one-request-strong`, session
   against request, three runs each, registered before any run.
+- Approvals by program (`story:decider-program-approvals`): under A5, `context.approve`,
+  `roadmap.approve` and `release.publish` are taken by `rule:autopilot`, with no decider call, when
+  the program check guarding each (`context.check`, `roadmap.validate`; `spec.gate`,
+  `release.build`, `acceptance.run`) recorded a passing result for the exact revision approved;
+  otherwise the decider is asked. The mapping is `driver/examples/sdc/rule-ends.json`
+  (`approvals.*.by_rule`), checked by `sdc-check-routes` (finding `rule-guard`);
+  `vision.approve` has no program check and is left out. `SDC_RULE_APPROVALS=off` restores the old
+  behaviour and is recorded in `run-settings.jsonl` (`rule_approvals`). The decision record names
+  the rule, the check and the evidence ids. `sdc-run-metrics` counts these as `decisions_by_rule`,
+  not decider calls, and reports `decider_s`. New `sdc-reply rule-approval`; cycles
+  `rule-approvals*`; experiment record `experiments/decider-program-approvals.yaml`.
 
 ## [0.2.0] - 2026-11-21
 

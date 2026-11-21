@@ -533,6 +533,9 @@ struct DecisionClass {
     refused_by_check: usize,
     calls: usize,
     cost: f64,
+    seconds: f64,
+    /// Approvals taken by a rule (principal `rule:*`, no model asked): decisions, not decider calls.
+    by_rule: usize,
     invalid_reasons: BTreeMap<String, usize>,
 }
 
@@ -541,7 +544,8 @@ impl DecisionClass {
         json!({"asked": self.asked, "approved": self.approved, "rejected": self.rejected, "escalated": self.escalated,
             "escalation_suppressed": self.escalation_suppressed, "invalid_replies": self.invalid_replies,
             "retries": self.retries, "refused_by_check": self.refused_by_check, "calls": self.calls,
-            "cost_usd": round6(self.cost), "invalid_reasons": self.invalid_reasons})
+            "cost_usd": round6(self.cost), "seconds": round3(self.seconds), "by_rule": self.by_rule,
+            "invalid_reasons": self.invalid_reasons})
     }
 }
 
@@ -559,7 +563,14 @@ fn decisions_by_class(lines: &[J]) -> (BTreeMap<String, DecisionClass>, BTreeMap
     for l in lines {
         let class = Some(js(&l["class"])).filter(|c| !c.is_empty()).unwrap_or_else(|| js(&l["type"]));
         let key2 = format!("{class}/{}", js(&l["action"]));
+        // A decision taken by a rule (`rule:autopilot`: a program check passed, no model asked) is
+        // counted apart: it was never put to the decider.
+        let by_rule = js(&l["principal"]).starts_with("rule:") && matches!(l["decision"].as_str(), Some("approve" | "reject"));
         for c in [by_class.entry(class.clone()).or_default(), by_action.entry(key2).or_default()] {
+            if by_rule {
+                c.by_rule += 1;
+                continue;
+            }
             let d = l["decision"].as_str().unwrap_or("");
             let has_model = l["model"].as_str().is_some_and(|m| !m.is_empty());
             // A call: a line naming a model that is not an effective line repeating an escalation
@@ -575,6 +586,7 @@ fn decisions_by_class(lines: &[J]) -> (BTreeMap<String, DecisionClass>, BTreeMap
                     if has_model {
                         c.calls += 1;
                         c.cost += l["cost_usd"].as_f64().unwrap_or(0.0);
+                        c.seconds += l["duration_ms"].as_f64().unwrap_or(0.0) / 1000.0;
                     }
                 }
                 "escalation_suppressed" => {
@@ -582,6 +594,7 @@ fn decisions_by_class(lines: &[J]) -> (BTreeMap<String, DecisionClass>, BTreeMap
                     if has_model {
                         c.calls += 1;
                         c.cost += l["cost_usd"].as_f64().unwrap_or(0.0);
+                        c.seconds += l["duration_ms"].as_f64().unwrap_or(0.0) / 1000.0;
                     }
                     if l["valid"] == false {
                         c.invalid_replies += 1;
@@ -607,6 +620,7 @@ fn decisions_by_class(lines: &[J]) -> (BTreeMap<String, DecisionClass>, BTreeMap
                     if has_model && !repeat {
                         c.calls += 1;
                         c.cost += l["cost_usd"].as_f64().unwrap_or(0.0);
+                        c.seconds += l["duration_ms"].as_f64().unwrap_or(0.0) / 1000.0;
                     }
                 }
                 _ => {}
@@ -1065,6 +1079,8 @@ pub fn load(dir: &Path) -> Res<J> {
     let llm_cost: f64 = calls.iter().flatten().map(|l| l["cost_usd"].as_f64().unwrap_or(0.0)).sum();
     let decider_cost: f64 = by_class.values().map(|c| c.cost).sum();
     let decider_calls: usize = by_class.values().map(|c| c.calls).sum();
+    let decider_s: f64 = by_class.values().map(|c| c.seconds).sum();
+    let decisions_by_rule: usize = by_class.values().map(|c| c.by_rule).sum();
     let last_settings = settings.last().cloned().unwrap_or(J::Null);
     let mut flat = BTreeMap::new();
     flat_settings(&last_settings, "", &mut flat);
@@ -1087,6 +1103,7 @@ pub fn load(dir: &Path) -> Res<J> {
         "looping_factor": writers.looping_factor(), "first_pass_yield": writers.first_pass_yield(),
         "llm_calls": calls.as_ref().map(Vec::len), "llm_cost_usd": calls.as_ref().map(|_| round6(llm_cost)),
         "decider_calls": decisions.as_ref().map(|_| decider_calls), "decider_cost_usd": decisions.as_ref().map(|_| round6(decider_cost)),
+        "decider_s": decisions.as_ref().map(|_| round3(decider_s)), "decisions_by_rule": decisions.as_ref().map(|_| decisions_by_rule),
         "cost_usd": round6(llm_cost + decider_cost), "rework_cost_usd": round6(total.rework_cost),
         "tokens": total.tokens.json(),
         "driver_s": driver_rounds_s.map(round3), "take_driver_s": round3(total.driver_s), "model_s": round3(total.model_s),
@@ -1121,9 +1138,9 @@ pub fn load(dir: &Path) -> Res<J> {
 pub const NODE_FIELDS: [&str; 8] =
     ["real_takes", "rework_takes", "looping_factor", "first_pass_yield", "not_called", "cost_usd", "rework_cost_usd", "driver_s"];
 pub const EDGE_FIELDS: [&str; 3] = ["count", "loop_cost_usd", "loop_driver_s"];
-pub const RUN_FIELDS: [&str; 20] = ["closed", "delivered", "clean", "furthest_stage_index", "real_takes", "rework_takes",
+pub const RUN_FIELDS: [&str; 22] = ["closed", "delivered", "clean", "furthest_stage_index", "real_takes", "rework_takes",
     "writer_rework_takes", "looping_factor", "first_pass_yield", "not_called", "llm_calls", "llm_cost_usd", "decider_calls",
-    "decider_cost_usd", "cost_usd", "rework_cost_usd", "driver_s", "wall_s", "waiting_on_person_s", "findings_raised"];
+    "decider_cost_usd", "decider_s", "decisions_by_rule", "cost_usd", "rework_cost_usd", "driver_s", "wall_s", "waiting_on_person_s", "findings_raised"];
 pub const DECISION_FIELDS: [&str; 7] =
     ["asked", "approved", "rejected", "escalation_suppressed", "invalid_replies", "retries", "refused_by_check"];
 
@@ -1253,8 +1270,9 @@ pub fn text(doc: &J) -> String {
     let _ = writeln!(s, "run {}: {}", js(&doc["run"]), js(&m["end"]));
     let _ = writeln!(s, "  clean {} (reopens {}, forced {}, unstuck {}); furthest stage {} (passed {})",
         m["clean"], m["reopens"], m["forced"], m["unstuck"], opt(&m["furthest_stage"]), opt(&m["furthest_stage_passed"]));
-    let _ = writeln!(s, "  cost {} USD (llm {} in {} calls, decider {} in {} calls); rework cost {}",
-        opt(&m["cost_usd"]), opt(&m["llm_cost_usd"]), opt(&m["llm_calls"]), opt(&m["decider_cost_usd"]), opt(&m["decider_calls"]), opt(&m["rework_cost_usd"]));
+    let _ = writeln!(s, "  cost {} USD (llm {} in {} calls, decider {} in {} calls, {} s; {} decisions by rule); rework cost {}",
+        opt(&m["cost_usd"]), opt(&m["llm_cost_usd"]), opt(&m["llm_calls"]), opt(&m["decider_cost_usd"]), opt(&m["decider_calls"]),
+        opt(&m["decider_s"]), opt(&m["decisions_by_rule"]), opt(&m["rework_cost_usd"]));
     let _ = writeln!(s, "  driver {} s, wall {} s, waiting on a person {} s; takes {} real {} rework {} not called {}",
         opt(&m["driver_s"]), opt(&m["wall_s"]), opt(&m["waiting_on_person_s"]), m["takings"], m["real_takes"], m["rework_takes"], m["not_called"]);
     let _ = writeln!(s, "  writers: looping factor {}, first-pass yield {}", opt(&m["looping_factor"]), opt(&m["first_pass_yield"]));

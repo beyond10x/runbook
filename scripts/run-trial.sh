@@ -170,6 +170,12 @@ max_decider=${SDC_MAX_DECIDER_CALLS:-20}
 if [[ -n ${SDC_MAX_REJECTIONS:-} ]]; then rework_cap=$SDC_MAX_REJECTIONS rework_cap_source=SDC_MAX_REJECTIONS
 else rework_cap=$(jq -r .rework_limit "$ex/rule-ends.json") rework_cap_source=rule-ends.json; fi
 [[ $rework_cap =~ ^[0-9]+$ ]] || { echo "$rework_cap_source: the rework cap is a whole number of reworks (0 or more), not '$rework_cap'"; exit 64; }
+# Approvals by rule (docs/driver.md "Approvals by program"): under A5 an approval whose program
+# check recorded a passing result for the exact revision is taken by rule:autopilot, no decider
+# call. SDC_RULE_APPROVALS=off restores every such approval to the decider; run-settings.jsonl
+# records `rule_approvals`. Below A5 it has no effect.
+rule_approvals=${SDC_RULE_APPROVALS:-on}
+[[ $rule_approvals == on || $rule_approvals == off ]] || { echo "SDC_RULE_APPROVALS: on or off, not '$rule_approvals'"; exit 64; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
@@ -437,7 +443,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" --argjson adapters "$adapters" --argjson efforts "$efforts" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --argjson rcap "$rework_cap" --arg rsrc "$rework_cap_source" --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" --arg nodes "${SDC_LLM_NODES:-}" \
+  --argjson rcap "$rework_cap" --arg rsrc "$rework_cap_source" --arg ra "$rule_approvals" --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" --arg nodes "${SDC_LLM_NODES:-}" \
   --arg imode "$implement_mode" \
   --arg commit "$(git -C "$sdc" rev-parse --short=12 HEAD 2>/dev/null || true)" \
   --arg dirty "$(git -C "$sdc" status --porcelain --untracked-files=no 2>/dev/null | head -c 1 || true)" \
@@ -449,7 +455,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
-      max_decider_calls: $dec}, rework_limit: {value: $rcap, source: $rsrc}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
+      max_decider_calls: $dec}, rework_limit: {value: $rcap, source: $rsrc}, rule_approvals: $ra, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, implement_mode: $imode, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
@@ -810,7 +816,7 @@ decide() {
   line() { # $1 decision, $2 extra object
     local x=${2:-}
     [[ -n $x ]] || x='{}'
-    jq -cn --arg at "$(now)" --arg p "decider:$decider" --arg d "$1" --argjson q "$req" --argjson r "$reply" --argjson x "$x" '{
+    jq -cn --arg at "$(now)" --arg p "${line_principal:-decider:$decider}" --arg rd "$rule_declined" --arg d "$1" --argjson q "$req" --argjson r "$reply" --argjson x "$x" '{
       time: $at, case: ($q.case_dir | split("/") | last), type: $q.type,
       class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
       question: ($q.question.id // null), finding: ($q.finding.id // null), capability: $q.capability, outcome: $q.outcome,
@@ -818,8 +824,37 @@ decide() {
       cites: $r.cites, citations: ($r.citations // null), model: $r.model, effort: $r.effort, adapter: $r.adapter, tokens: $r.usage,
       cost_usd: $r.cost_usd, duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
       schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record, side: ($q.side // null),
-      no_ground_in_goals: $r.no_ground_in_goals, strength: ($r.strength // null), grounds: ($r.grounds // null)} + $x' >> "$out/decisions.jsonl"
+      no_ground_in_goals: $r.no_ground_in_goals, strength: ($r.strength // null), grounds: ($r.grounds // null)} + $x
+      + (if $r.rule then {rule: $r.rule} else {} end) + (if $rd == "" then {} else {rule_declined: $rd} end)' >> "$out/decisions.jsonl"
   }
+  # An approval whose program checks passed on the exact revision is taken by rule:autopilot
+  # (sdc-reply rule-approval, the guards in rule-ends.json `by_rule`): recorded with the rule, the
+  # checks and the evidence ids, no decider call. Only under A5, only for the model decider (not
+  # the requester agent, whose reading is the goals'), only when SDC_RULE_APPROVALS is not off.
+  # A check that did not pass, no record at the revision, or an earlier rejection: the decider is
+  # asked as before, the line carrying `rule_declined`.
+  local rule_declined="" line_principal=""
+  if [[ $kind == approval && $autonomy == A5 && $rule_approvals == on && $decider == model ]]; then
+    local rf res
+    rf=$out/rule-approvals/$(tr '|/' '..' <<< "$key")
+    mkdir -p "$out/rule-approvals"
+    jq -c . <<< "$req" > "$rf.request.json"
+    res=$("$reply_bin" rule-approval --request "$rf.request.json" --ends "$ex/rule-ends.json") ||
+      res='{"take": false, "covered": true, "why": "sdc-reply rule-approval failed"}'
+    printf '%s\n' "$res" > "$rf.json"
+    if [[ $(jq -r .take <<< "$res") == true ]]; then
+      reply=$(jq -c .decision <<< "$res")
+      line_principal=rule:autopilot
+      line approve '{"rule_taken": true}'
+      dec=approve ans="" dec_principal=rule:autopilot taker=rule:autopilot
+      echo "  rule:autopilot approve $key: $(jq -r '.reasons | join(" ")' <<< "$reply")"
+      return 0
+    fi
+    if [[ $(jq -r .covered <<< "$res") == true ]]; then
+      rule_declined=$(jq -r .why <<< "$res")
+      echo "  rule:autopilot does not take $key ($rule_declined): the decider is asked"
+    fi
+  fi
   while :; do
     if [[ $llm == yes ]]; then
       n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))

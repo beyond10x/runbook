@@ -593,6 +593,46 @@ root through any outcome that requires no decision as `rule:autopilot` (`sdc-dri
 terminable child with one legitimate outcome in its round. Below A5 the decider still closes
 `operating` (class close, `autonomy-levels.md` § 3.2).
 
+**Approvals by program** (`story:decider-program-approvals`, 2026-11-21). The decider's baseline
+stopped nothing on these approvals (25 of 25 approved), each of them guarded by a check that is a
+program. Under A5, `context.approve`, `roadmap.approve` and `release.publish` are taken by
+`rule:autopilot`, with no decider call, when the program check guarding each recorded a passing
+result for the exact revision being approved; otherwise the decider is asked as before. The
+mapping is data, `driver/examples/sdc/rule-ends.json` (`approvals.<action>.by_rule`: the claim and
+the check that settles it), checked by `sdc-check-routes` against the bindings and protocols (a
+guard that is not a bound, non-manual, non-LLM program action producing that claim's evidence is
+finding `rule-guard`):
+
+| Approval | Claim | Program check |
+|---|---|---|
+| `context.approve` | `context.valid` | `context.check` |
+| `roadmap.approve` | `roadmap.valid` | `roadmap.validate` |
+| `release.publish` | `gate.passed`, `release.built`, `release.accepted` | `spec.gate`, `release.build`, `acceptance.run` |
+
+`vision.approve` has no program check (its precondition holds context claims only and the vision
+is an LLM writer's artifact), so it is left out and stays with the decider. Merge approval, scope
+answers, finding decisions and upstream amendments are untouched, as is the requester path
+(`SDC_REQUESTER_DECIDER`).
+
+`sdc-reply rule-approval` decides: it reads the claims from the request and re-reads the evidence
+on disk (kind, subject, result `valid`/`passed`, `subject_revision` equal to the case's current
+revision, id ending in `-<check>`, not in the position's `excluded_evidence`, upstream revisions
+current). It takes nothing when any of that fails or when the approval was rejected earlier in the
+case, and `run-trial.sh` then asks the decider; the declined reason is on the decision line
+(`rule_declined`). A taken approval is a `decisions.jsonl` line with principal `rule:autopilot`,
+`kind: rule`, `model: null`, `cost_usd: 0`, `rule: program-checks`, `cites` = the evidence ids and
+the full record under `rule` (rule, approval, each check with its evidence id, kind, result,
+subject and revision); the evidence's producer is `rule:autopilot`. The request and result are
+kept under `<run>/rule-approvals/`, never under `decider/`.
+
+`SDC_RULE_APPROVALS=off` restores today's behaviour (every approval asked of the decider); the
+setting is `rule_approvals` (`on`|`off`) in `run-settings.jsonl`, and an experiment record varies
+it (`LAUNCH`). Below A5 the rule is never consulted. `sdc-run-metrics` counts a rule's approval as
+a decision by rule (`decisions.by_class.*.by_rule`, run `decisions_by_rule`), not as a decider call
+(`decider_calls`, `decider_cost_usd`, new `decider_s`). Cycles: `rule-approvals`,
+`rule-approvals-check-failed`, `rule-approvals-revision-changed`, `rule-approvals-off`,
+`rule-approvals-a3` (`scripts/run-finding-cycles.sh`).
+
 **Keep-going** (D142, 2026-11-21, trial and eval runs only: `scripts/run-trial.sh <run>
 --autopilot --keep-going`; refused without `--autopilot`). Where autopilot stops with a cause,
 keep-going first writes a line to `<run>/defects.jsonl` (`sdc.run-defect/1`: at, case, action,

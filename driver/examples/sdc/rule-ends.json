@@ -18,8 +18,19 @@
   },
   "close": {},
   "approvals": {
+    "sdc.direction/context.approve": {
+      "by_rule": {"rule": "program-checks", "guards": [{"claim": "context.valid", "check": "context.check"}]}
+    },
+    "sdc.direction/roadmap.approve": {
+      "by_rule": {"rule": "program-checks", "guards": [{"claim": "roadmap.valid", "check": "roadmap.validate"}]}
+    },
     "sdc.release/release.publish": {
-      "reject": {"decision": "explicitly_withheld", "outcome": "withheld"}
+      "reject": {"decision": "explicitly_withheld", "outcome": "withheld"},
+      "by_rule": {"rule": "program-checks", "guards": [
+        {"claim": "gate.passed", "check": "spec.gate"},
+        {"claim": "release.built", "check": "release.build"},
+        {"claim": "release.accepted", "check": "acceptance.run"}
+      ]}
     }
   },
   "checks": []

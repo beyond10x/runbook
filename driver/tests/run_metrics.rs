@@ -194,6 +194,34 @@ fn a_rejected_approval_is_one_approval_edge_and_a_looping_factor_of_two() {
 }
 
 #[test]
+fn an_approval_taken_by_rule_is_a_decision_by_rule_and_no_decider_call() {
+    let run = scratch("rule").join("run-r");
+    root(&run, Some("operating"));
+    settings(&run, "claude-haiku-5-5");
+    let rule = json!({"principal": "rule:autopilot", "rule": "program-checks", "approval": "sdc.direction/context.approve",
+        "checks": [{"claim": "context.valid", "check": "context.check", "evidence": "e0004-context.check"}]});
+    jsonl(&run.join("decisions.jsonl"), &[
+        json!({"time": at_whole(1), "case": "IDEA-1.direction", "type": "approval", "class": "approval", "action": "context.approve",
+            "decision": "approve", "principal": "rule:autopilot", "model": null, "adapter": "rule", "cost_usd": 0, "duration_ms": null,
+            "valid": true, "cites": ["e0004-context.check"], "rule": rule}),
+        json!({"time": at_whole(2), "case": "IDEA-1.direction", "type": "approval", "class": "approval", "action": "vision.approve",
+            "decision": "approve", "principal": "decider:model", "model": "claude-haiku-5-5", "cost_usd": 0.02, "duration_ms": 41000, "valid": true}),
+    ]);
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    let d = &doc["decisions"]["by_class"]["approval"];
+    assert_eq!((d["by_rule"].as_u64(), d["asked"].as_u64(), d["approved"].as_u64(), d["calls"].as_u64()), (Some(1), Some(1), Some(1), Some(1)), "{d}");
+    assert_eq!(doc["decisions"]["by_action"]["approval/context.approve"]["by_rule"], 1);
+    assert_eq!(doc["decisions"]["by_action"]["approval/context.approve"]["calls"], 0);
+    let m = &doc["metrics"];
+    assert_eq!((m["decider_calls"].as_u64(), m["decisions_by_rule"].as_u64()), (Some(1), Some(1)), "{m}");
+    assert!(close(&m["decider_cost_usd"], 0.02) && close(&m["decider_s"], 41.0), "{m}");
+    // Both figures are comparable metrics of a group of runs.
+    let flat = Command::new(env!("CARGO_BIN_EXE_sdc-run-metrics")).arg(&run).output().unwrap();
+    assert!(String::from_utf8_lossy(&flat.stdout).contains("by rule"), "{}", String::from_utf8_lossy(&flat.stdout));
+}
+
+#[test]
 fn a_check_sends_the_writer_back_and_a_not_called_run_is_no_take() {
     let run = scratch("spec").join("run-s");
     root(&run, None);
