@@ -63,6 +63,9 @@ task docs:test       # the smoke test: every page, both themes, two widths, axe,
 task docs            # all of it, after checking the protocol data is current
 ```
 
+The smoke test serves the two builds itself on 127.0.0.1:7591 and 7592, ports no other suite of
+the repository uses, and stops them when the run ends.
+
 Every protocol page, the flow and the index are generated from the protocol YAML and its bindings
 by `sdc-protocol-site` (`driver/src/bin/sdc-protocol-site.rs`); `scripts/check-bindings.sh` fails
 when the committed data is stale. The evaluation and the timeline read only committed files:

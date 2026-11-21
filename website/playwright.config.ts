@@ -1,7 +1,11 @@
 import {defineConfig} from '@playwright/test';
 
-const site = process.env.SDC_SITE_URL ?? 'http://127.0.0.1:7495/sdc/';
-const fixture = process.env.SDC_FIXTURE_URL ?? 'http://127.0.0.1:7496/sdc/';
+const sitePort = Number(process.env.SDC_DOCS_SITE_PORT ?? 7591);
+const fixturePort = Number(process.env.SDC_DOCS_FIXTURE_PORT ?? 7592);
+const site = process.env.SDC_SITE_URL ?? `http://127.0.0.1:${sitePort}/sdc/`;
+const fixture = process.env.SDC_FIXTURE_URL ?? `http://127.0.0.1:${fixturePort}/sdc/`;
+const serve = (dir: string, port: number) =>
+  `node node_modules/@docusaurus/core/bin/docusaurus.mjs serve --dir ${dir} --port ${port} --host 127.0.0.1 --no-open`;
 
 export default defineConfig({
   testDir: 'tests',
@@ -16,7 +20,7 @@ export default defineConfig({
   webServer: process.env.SDC_SITE_URL
     ? undefined
     : [
-        {command: 'node node_modules/@docusaurus/core/bin/docusaurus.mjs serve --dir build --port 7495 --host 127.0.0.1 --no-open', url: site, reuseExistingServer: true},
-        {command: 'node node_modules/@docusaurus/core/bin/docusaurus.mjs serve --dir build-fixture --port 7496 --host 127.0.0.1 --no-open', url: fixture, reuseExistingServer: true},
+        {command: serve('build', sitePort), url: site, reuseExistingServer: false, gracefulShutdown: {signal: 'SIGTERM', timeout: 5_000}},
+        {command: serve('build-fixture', fixturePort), url: fixture, reuseExistingServer: false, gracefulShutdown: {signal: 'SIGTERM', timeout: 5_000}},
       ],
 });
