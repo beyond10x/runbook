@@ -104,7 +104,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   review-reject-once review-invalid review-spent decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot decider-input autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models
+  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models efforts
   review-real-path review-invalid-stop review-adapter-refused)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
@@ -1378,6 +1378,76 @@ if (( code == 64 )) && grep -q 'refused: node class review (spec.review, change.
   echo "review-adapter-refused: checks pass (a schema class on an adapter without a schema: the run refused to start, exit 64)"
 else
   echo "review-adapter-refused: FAILED (exit $code: $(tail -n 1 "$s/review-adapter-refused.txt" | cut -c1-200))"
+fi
+# efforts: the reasoning effort per LLM node is a run setting like the model (SDC_LLM_EFFORT_<CLASS>,
+# SDC_LLM_EFFORT; unset = the class default of tools/node-classes.json, high, the decider xhigh,
+# recorded with source `default`: a level is always passed, so a run is the same on any host). Four
+# dry runs: no setting; SDC_LLM_EFFORT for every node; one effort per class; an unknown value,
+# refused at the start with exit 64 and the accepted values. Passes when every line of
+# llm-calls.jsonl and decisions.jsonl names the expected effort, the dry argv carries it, and
+# run-settings.jsonl records the effective effort per class. A fifth check runs the claude-cli
+# adapter on a stand-in `claude` that records its argv and environment: hermetic (no settings
+# sources, MCP servers or slash commands, only the request's tools, the effort passed, a fresh
+# config home holding the login copy, CLAUDE_CODE_EFFORT_LEVEL unset, the home removed after).
+eexpect() { # <run> <jq program over {node, class} giving the expected effort> <decider effort>
+  local r=$s/runs/$1
+  jq -se --slurpfile c "$sdc/driver/examples/sdc/tools/node-classes.json" '
+    def class($n): [$c[0].classes | to_entries[] | select(.value | index($n)) | .key] | first // "other";
+    length > 0 and all(.[]; .effort == ({node: .action, class: class(.action)} | '"$2"'))' "$r/llm-calls.jsonl" >/dev/null &&
+  jq -se --arg d "$3" 'length > 0 and all(.[]; .effort == $d)' "$r/decisions.jsonl" >/dev/null
+}
+eargv() { # <run> <node> <expected effort>: the dry argv of the node's first call
+  local a
+  a=$(ls -d "$s/runs/$1"/llm/*-"$2" | head -n 1)/argv.json
+  jq -e --arg e "$3" '.[index("--effort") + 1] == $e' "$a" >/dev/null
+}
+dry efforts-default
+e1=$?
+dry efforts-all SDC_LLM_EFFORT=low
+e2=$?
+dry efforts-class SDC_LLM_EFFORT=low SDC_LLM_EFFORT_WRITER=high SDC_LLM_EFFORT_IMPLEMENT=xhigh \
+  SDC_LLM_EFFORT_REVIEW=medium SDC_LLM_EFFORT_DECIDER=max SDC_LLM_EFFORT_OTHER=medium
+e3=$?
+rm -rf "$s/runs/efforts-bad"
+env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_DECIDER=haiku SDC_LLM_EFFORT_WRITER=bogus \
+  "$sdc/scripts/run-trial.sh" --dry efforts-bad > "$s/efforts-bad.txt" 2>&1
+e4=$?
+# the claude-cli adapter on a stand-in claude
+h=$s/hermetic; rm -rf "$h"; mkdir -p "$h/cwd"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\0" "$@" > "$FAKE_OUT/argv"' 'env > "$FAKE_OUT/env"' \
+  '[[ -f $CLAUDE_CONFIG_DIR/.credentials.json ]] && echo yes > "$FAKE_OUT/login"' \
+  'echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"total_cost_usd\":0,\"num_turns\":1,\"usage\":{}}"' > "$h/claude"
+chmod +x "$h/claude"; echo '{}' > "$h/login.json"; echo go > "$h/prompt.md"
+jq -n --arg p "$h/prompt.md" --arg cwd "$h/cwd" --arg rec "$h/rec" '{model: "m", effort: "high", prompt_file: $p, cwd: $cwd,
+  operations: ["dir.list", "file.read"], max_turns: 1, max_budget_usd: 1, record_dir: $rec, node: "n", attempt: 1}' > "$h/req.json"
+env -u ANTHROPIC_API_KEY CLAUDE="$h/claude" FAKE_OUT="$h" SDC_CLAUDE_CREDENTIALS="$h/login.json" CLAUDE_CODE_EFFORT_LEVEL=low \
+  "$sdc/driver/examples/sdc/tools/llm-adapter-claude-cli.sh" "$h/req.json" > "$h/resp.json" 2>/dev/null
+e5=$?
+hermetic() {
+  jq -Rse 'split("\u0000") as $a | ($a | index("--setting-sources")) as $i | $a[$i + 1] == "" and ($a | index("--strict-mcp-config")) != null
+    and ($a | index("--disable-slash-commands")) != null and $a[($a | index("--tools")) + 1] == "Glob,Read"
+    and $a[($a | index("--effort")) + 1] == "high"' "$h/argv" >/dev/null &&
+  [[ $(sed -n 's/^CLAUDE_CONFIG_DIR=//p' "$h/env") == "$h/rec/config-home."* ]] && ! grep -q '^CLAUDE_CODE_EFFORT_LEVEL=' "$h/env" &&
+  [[ $(cat "$h/login") == yes ]] && ! ls -d "$h"/rec/config-home.* >/dev/null 2>&1 &&
+  jq -e '.adapter == "claude-cli" and .effort == "high"' "$h/resp.json" >/dev/null
+}
+echo "efforts: dry exits $e1 $e2 $e3, unknown value exit $e4, stand-in claude exit $e5"
+if (( e1 == 0 && e2 == 0 && e3 == 0 && e4 == 64 && e5 == 0 )) && hermetic &&
+   eexpect efforts-default '"high"' xhigh &&
+   eexpect efforts-all '"low"' low &&
+   eexpect efforts-class '{writer: "high", implement: "xhigh", other: "medium"}[.class]' max &&
+   eargv efforts-default spec.author high && eargv efforts-all spec.author low &&
+   eargv efforts-class spec.author high && eargv efforts-class idea.dissect medium &&
+   grep -q "low, medium, high, xhigh, max" "$s/efforts-bad.txt" && [[ ! -e $s/runs/efforts-bad/run-settings.jsonl ]] &&
+   jq -se 'last.efforts | [.writer, .implement, .review, .other] | all(.effort == "high" and .source == "default")' "$s/runs/efforts-default/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.efforts | [.decider, .requester] | all(.effort == "xhigh" and .source == "default")' "$s/runs/efforts-default/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.efforts | .writer.effort == "high" and .implement.effort == "xhigh" and .review.effort == "medium"
+     and .decider.effort == "max" and .other.effort == "medium" and .writer.source == "SDC_LLM_EFFORT_WRITER"
+     and .requester.effort == "max" and .requester.source == "SDC_LLM_EFFORT_DECIDER"' "$s/runs/efforts-class/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.efforts | all(.[]; .effort == "low" and .source == "SDC_LLM_EFFORT")' "$s/runs/efforts-all/run-settings.jsonl" >/dev/null; then
+  echo "efforts: checks pass (a level always passed: class defaults, one effort for all, one per class; each call names it; the dry argv carries it; run settings per class and requester; an unknown value exits 64; the claude-cli adapter hermetic)"
+else
+  echo "efforts: FAILED"
 fi
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"

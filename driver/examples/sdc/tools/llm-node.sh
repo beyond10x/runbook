@@ -20,6 +20,8 @@
 #   SDC_LLM_MODEL    overrides the binding's model
 #   SDC_LLM_MODEL_<CLASS> overrides both for the node's class (tools/node-classes.json): WRITER
 #                    (spec.author, plan.decompose), IMPLEMENT (change.implement), REVIEW, OTHER
+#   SDC_LLM_EFFORT, SDC_LLM_EFFORT_<CLASS>  the reasoning effort (low, medium, high, xhigh, max), the same way;
+#                    unset: the class's default_efforts in tools/node-classes.json, always passed (request.json `effort`)
 #   SDC_LLM_RECORD   where each call's record goes (default work/.sdc/llm); one NNN-<action>/ per call
 #   SDC_LLM_LOG      JSON lines, one per call (default $SDC_LLM_RECORD/calls.jsonl)
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
@@ -532,12 +534,16 @@ prompt=$rec/prompt.md
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
 # writer, implement, review, other; $class, set above), else SDC_LLM_MODEL, else the binding's llm.model.
+# The reasoning effort the same way (SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT, else node-classes.json
+# default_efforts).
 cvar=SDC_LLM_MODEL_${class^^}
 model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}}
+evar=SDC_LLM_EFFORT_${class^^}
+effort=${!evar:-${SDC_LLM_EFFORT:-$(jq -r --arg c "$class" '.default_efforts[$c] // empty' "$here/node-classes.json")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
-  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" \
+  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" --arg effort "$effort" \
   --arg case "${SDC_CASE:-}" --arg case_dir "${SDC_CASE_DIR:-}" '{
-    model: $model, prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
+    model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
     case: $case, case_dir: $case_dir,
     operations: ($cfg.operations // $ops), max_turns: ($cfg.max_turns // 30),
     max_budget_usd: ($cfg.max_budget_usd // 1)}' > "$rec/request.json"
@@ -551,7 +557,7 @@ log_call() {
     --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" --arg class "$class" \
     --arg feedback "$feedback" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
     {action: $node, case: $case, started: $started, attempt: $attempt, retry: ($feedback == "yes"),
-     adapter: $res[0].adapter, model: $req[0].model, class: $class, allowed_operations: $req[0].operations,
+     adapter: $res[0].adapter, model: $req[0].model, effort: ($req[0].effort // "default"), class: $class, allowed_operations: $req[0].operations,
      max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
      exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
      cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,

@@ -373,6 +373,39 @@ node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The 
 not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
 `models` per class (`model`, `source`, and per node).
 
+**Reasoning effort per node** (2026-11-21). The same way as the model: `SDC_LLM_EFFORT_WRITER`,
+`_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_OTHER`, else `SDC_LLM_EFFORT` for every node and the decider
+(per class wins), else the class default in `tools/node-classes.json` (`default_efforts`): `high`
+for writer, implement, review and other, `xhigh` for the decider and the requester (which takes
+`SDC_LLM_EFFORT_REQUESTER`, then `_DECIDER`, first). A level is always passed, so a run is the same
+on any host and no adapter falls back to its own default (the `high` the `metaharness` adapter
+used, the `xhigh` the decider's `claude -p` took from this host's `~/.claude/settings.json`).
+Accepted: `low`, `medium`, `high`, `xhigh`, `max` (`claude --help`; list in
+`tools/node-classes.json`). `scripts/run-trial.sh` refuses any other value with exit 64 and the
+list, because both CLIs ignore an unknown one with a warning and run at their own default. The
+value reaches `request.json` (`effort`) and each adapter as `--effort <level>`
+(`tools/llm-adapter-metaharness.sh:38` to `metaharness run claude --effort`, which passes it to
+Claude Code's `--effort`; `tools/llm-adapter-claude-cli.sh:35` to `claude -p --effort`). Each call
+line, decider record and adapter response names its `effort`; `run-settings.jsonl` records
+`efforts` per class and for the requester (`effort`, `source`: the variable, or `default`). A model
+may silently lower a level it does not offer.
+
+**Hermetic `claude-cli` adapter** (ruling D153: a decision does not depend on the machine's personal
+settings). A recorded decider call of the old adapter (`claude -p` with no `--setting-sources`,
+`trial-3-strong-2/decider/001-q1/events.jsonl`) shows the host's setup in its `init` event: 6
+`SessionStart` hooks fired, 60 skills, 11 plugins (7 the user installed, 4 built in),
+26 agents, output style `Operator Report`, 14 tools
+(`SendMessage`, `PushNotification`, `ToolSearch` ...), and the user's global instructions load from
+`~/.claude/CLAUDE.md` (*inferred* from that: the transcript does not print the system prompt). The
+adapter now runs as the `metaharness` adapter does (`../metaharness/crates/metaharness-claude/src/launch.rs:1353`):
+`--setting-sources ""`, a fresh `CLAUDE_CONFIG_DIR` per call holding only a copy of the login file
+`.credentials.json` (mode 600, removed on exit; or `ANTHROPIC_API_KEY`), `--strict-mcp-config`,
+`--disable-slash-commands`, `--tools` limited to the request's operations, auto-memory and the git
+status block off, `CLAUDE_CODE_EFFORT_LEVEL` unset (`tools/llm-adapter-claude-cli.sh:1-14`). A call
+with the new adapter lists tools `Glob`, `Read`, `StructuredOutput`, no hook, no skill, output style
+`default`, only the built-in plugins and agents, and authenticates (probe, 2 Haiku calls). The
+login copy shares the host's refresh token, as the `metaharness` adapter's does.
+
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):
@@ -382,7 +415,7 @@ attempt}; one response JSON on stdout; the session's exit):
 | `stub` (default) | the binding's `llm.stub`, no LLM |
 | `dry` | builds the metaharness frame and argv, appends `would run: metaharness …` to `SDC_LLM_DRY_LOG`, runs nothing, then the stub |
 | `metaharness` | `metaharness run claude --frame <sealed metaharness.frame/1> --decisions frame --cwd <cwd> --scratch-cwd --model M --max-turns N --max-budget-usd B --retain-dir <record>/transcripts -p <prompt>`: Claude Code with the operator's login, its tool calls decided per call against the frame's operations. Record: `frame.json`, `argv.json`, `events.jsonl` (`metaharness.event/1`), `transcripts/` |
-| `claude-cli` | `claude -p … --allowedTools Read,Write,Edit,Glob,Grep --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --permission-mode acceptEdits --output-format stream-json`, the fallback |
+| `claude-cli` | `claude -p … --tools <operations> --allowedTools <operations> --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --setting-sources "" --strict-mcp-config --permission-mode acceptEdits --output-format stream-json` in a fresh config home, hermetic (below), the fallback |
 | a path | any program with the same contract |
 | `tools/llm-adapter-fixture.sh` (a path) | tests, no LLM: writes the node's `stub-file` output into `out/`, so the apply step runs as on a real reply. With `SDC_LLM_NODES="<node> …"` only the named nodes go to the adapter, the rest run their stub (`scope-changed` cycle). `SDC_FIXTURE_STUB='{"<node>": [<fixture>, <artifact>]}'` gives a node without a `stub-file` stub one (`plan-in-project` cycle). `llm-node.sh` and `sdc-tool.sh` call `aep … --root .`: the case store keeps aep's own lifecycles even inside a project with another profile |
 

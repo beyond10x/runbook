@@ -1,5 +1,7 @@
 {
   "format": "sdc.node-classes/1",
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
+  "default_efforts": {"writer": "high", "implement": "high", "review": "high", "other": "high", "decider": "xhigh", "requester": "xhigh"},
   "classes": {
     "writer": ["spec.author", "plan.decompose"],
     "implement": ["change.implement", "test.reproduce", "change.fix"],

@@ -13,4 +13,4 @@ METAHARNESS=$stand_in "$(dirname "$0")/llm-adapter-metaharness.sh" "$1" > /dev/n
 rm -f "$stand_in"
 jq -r --arg p "$(jq -r .prompt_file <<< "$req")" '"would run: metaharness " + (.[1:] | map(if . == "<prompt_file>" then "\"$(cat " + $p + ")\"" else @sh end) | join(" "))' \
   "$rec/argv.json" >> "${SDC_LLM_DRY_LOG:-/dev/stderr}"
-jq -n --arg model "$(jq -r .model <<< "$req")" '{adapter: "dry", model: $model, exit: 0, dry: true}'
+jq -n --arg model "$(jq -r .model <<< "$req")" --arg effort "$(jq -r '.effort // "default"' <<< "$req")" '{adapter: "dry", model: $model, effort: $effort, exit: 0, dry: true}'
