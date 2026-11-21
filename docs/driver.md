@@ -669,6 +669,95 @@ above 0 is printed as `FAILED`. Under `--autopilot` a stop the decider cannot ta
 `decider_budget_spent`, `writer_spent`, `stuck`, …) and a reason that names the action, the cause,
 the case and the fix it waits on; the interval before a `rule:` stop is not counted in L7.
 
+**Replies under a schema, and the free-form exceptions** (AGENTS.md, the operator, 2026-11-21).
+A model call whose output is a data document is made with a response schema, and a program checks
+the reply against it; an invalid reply is asked again with the check's error at most twice, then
+fails with a named cause. Under a schema: the decider (`sdc-reply schema`), `change.review`
+(`--type review`, cause `review_invalid`), `run.unstick` (`reply-schema.json`), `bug.dissect`
+(`sdc-bugfix schema dissection`), and `change.implement` in request mode (below: the envelope).
+Free-form, the only exceptions, each a writer whose output is code or prose that a check reads
+afterwards:
+
+| node | output | checked by |
+|---|---|---|
+| `change.implement` (session mode, the default) | the product tree `impl/`, written in the session | `tests.run`, `change.review`, `merge.approve` |
+| `change.implement` (request mode) | the reply's envelope is schema-checked (`sdc-reply implement-run`); each file's `content` is free text | as above |
+| `test.reproduce`, `change.fix` | a test file and `repro.json`; the fixed tree | `repro.run`, `tests.run`, `gate.run` (`docs/bugfix.md`) |
+| `spec.author` | the ESS sources `spec/` | `spec.validate`, `spec.compile`, `spec.trace` |
+| `vision.write`, `roadmap.write` | Markdown bodies (and a small JSON beside each) | `roadmap.validate`, the approvals |
+| `idea.dissect`, `questions.write`, `questions.answer`, `requirements.normalise`, `context.default`, `plan.decompose` | YAML or JSON files written in the session | `dissection.check`, `questions.check`, `requirements.check`, `context.check`, `plan.validate`, `plan.cover` |
+
+The last row is free-form only until `story:structured-request-nodes` puts those nodes under a
+schema.
+
+**Implement as one request** (2026-11-21, `story:implement-one-request`, `SDC_IMPLEMENT_MODE`).
+`SDC_IMPLEMENT_MODE=session` (the default) runs `change.implement` as before: a session with file
+tools over `in/` and `out/impl/`. `SDC_IMPLEMENT_MODE=request` makes it one request per call, with
+no tool, through `sdc-reply implement-run` (`driver/src/bin/sdc-reply/implement.rs`); any other
+value is refused at start (exit 64). `run-trial.sh` records `implement_mode` in
+`run-settings.jsonl` and, in request mode, the implement class's adapter under `adapters.implement`;
+`sdc-experiment` launches it as the setting `implement_mode`.
+
+- **Input** (`assemble`, written to the call's `prompt.md`, with `implement-inputs.json` naming
+  every section's bytes and every file inlined or listed): the story file; the requirements it
+  delivers with id and text, and its acceptance lines (the rule of `review-inputs`); from the
+  compiled IR only its covered commands with their outcomes, the views its requirements trace to
+  and the views of its commands' domains, and the entities, events, errors and types those name;
+  the run's `build-constraints.yaml` when present, else the session task's build rules; the product
+  tree (rule below); `findings.yaml`; on a rework the failed checks' logs (`in/feedback.md`, as in
+  session mode) and the rejection's reasons with the rework cap. The node reads nothing.
+- **Which files of `impl/`**: all product files (no `target/`, no hidden entry), ranked: named in
+  the story's text; this story's change (absent from or different in `mainline/`, which the
+  epic's earlier stories merged; for a first story, no `mainline/`, that is the whole tree); a
+  crate root file (`Cargo.toml`, `src/lib.rs`, `src/main.rs`, `README.md`, `Taskfile.yml`); a file
+  an earlier story merged and this one has not touched. In that order a file is inlined while the
+  inlined text stays within 64,000 bytes (`INLINE_CAP`); the rest, and any file that is not UTF-8,
+  is listed by path and size only. On the stub fixture (one story covering five commands): the
+  first build's prompt is 17,017 bytes with an empty tree (the specification 12,458 of it, one
+  compact JSON line per declaration, a type reference written as its name); the rework after the
+  failed test (cycle `implement-request-tests-rework`) inlines all six files of
+  `fixtures/test-failure/impl.0`, 4,543 bytes, with 2,429 bytes of feedback: 24,267 bytes.
+- **Reply** (`sdc-reply schema --type implement`): `{files: [{path, content}], note, findings,
+  remaining}`, every key required. `files` holds the complete text of every file written or
+  replaced; a file not listed stays as it is. `check_reply` checks the envelope (keys, types, a
+  finding's six fields, `default` one of 2 to 4 `options`) and every path (`confine`): relative to
+  `impl/`, no `..`, not absolute, no backslash, no empty or `.` segment, no hidden entry, not
+  `target/`. `write_files` checks every path again and refuses one that runs through a symlink or a
+  file before writing any, then writes into the call's `out/impl/` (a copy of `work/impl`); the
+  existing apply step copies that into `work/impl`, a new revision. `findings` go to
+  `out/findings.yaml` and through `sdc-findings promote` as in session mode.
+- **Requests per call**: one, as a rule. An invalid reply (or a failed request, or none) is asked
+  again with the check's error, at most twice per call (`MAX_RETRIES`); still invalid, the call
+  exits 2 with `implement_reply_invalid` and writes nothing. A valid reply that lists paths in
+  `remaining` (it would not fit the output limit) is written, then one continuation request asks
+  for exactly those paths, with the facts again and the written files shown; at most two
+  (`MAX_CONTINUATIONS`), then `implement_reply_incomplete`. A continuation reply must write or
+  list again every path asked. Never an open tool loop. Each request has its own record
+  (`req-<k>/`: request, prompt, response, the adapter's event stream); the call's `response.json`
+  sums cost, turns and usage, `events.jsonl` joins the streams (so `sdc-run-timeline` counts every
+  API request), `requests.jsonl` has one line per request, and the call's `llm-calls.jsonl` line
+  carries `implement_mode`, `requests`, `continuations`, `reply_retries` and `cause`.
+- **Rework routes** stay: a failed check or a rejection (`retry_when`) and a call that failed
+  (R9) start a new call, whose single request carries the feedback and the current files. A call
+  that ended `implement_reply_invalid` counts as a failed run; when its runs are spent the autopilot
+  stop's cause is `implement_reply_invalid` (or `implement_reply_incomplete`), naming the call.
+- **Adapters**: the implement class's adapter is `SDC_IMPLEMENT_ADAPTER`, else `claude-cli` when
+  `SDC_LLM_ADAPTER` is `metaharness`, else `SDC_LLM_ADAPTER` (`sdc-reply adapters`, as the
+  review's). `claude-cli` takes it: `--json-schema` with the reply schema (the CLI validates and
+  asks again on a mismatch), `--tools ""` (no tool), the prompt on stdin (a prompt of up to 64 KB
+  of files plus the facts passes the 128 KiB limit of one argv string), and
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS` from the request's `max_output_tokens` (32,000); `max_turns` 3.
+  `metaharness` has no response-schema option: request mode on it is refused at start. The fixture
+  adapter answers with the stub tree packed as a reply (`sdc-reply implement-pack`) or
+  `SDC_IMPLEMENT_REPLIES`; stub and dry call no model (dry assembles the prompt, then runs the
+  stub). Wherever the adapter enforces the schema, the program check runs on every reply.
+- Cycles `implement-request-build`, `-tests-rework`, `-review-rework`, `-invalid-retry`,
+  `-invalid-named`, `-path-escape`; unit tests in `implement.rs`. Experiment record
+  `experiments/implement-one-request.yaml`.
+- Not verified with a model: whether `claude -p --json-schema` with `--tools ""` answers in one API
+  request, and what it does when a reply reaches the output limit (`structured_output` missing is
+  treated as an invalid reply).
+
 **Where another model source plugs in** (not built):
 
 - A gateway: `SDC_LLM_ENDPOINT=<root URL>` makes the metaharness adapter add `--model-endpoint

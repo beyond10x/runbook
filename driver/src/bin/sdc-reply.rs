@@ -10,6 +10,18 @@
 //!   sdc-reply schema --cwd <call dir> --case-dir <case> --type review
 //!   sdc-reply check-review --cwd <call dir> --case-dir <case> --reply <file> --principal <p>
 //!   sdc-reply adapters --tools <tools dir>
+//!   sdc-reply implement-run --rec <call record> --cwd <call dir> --case-dir <case> --story <story>
+//!                     --adapter <adapter program> [--rework-limit N] [--assemble-only]
+//!   sdc-reply implement-pack --tree <dir> [--note <text>]
+//!   sdc-reply schema --cwd <call dir> --case-dir <case> --type implement
+//!
+//! change.implement as one request (`SDC_IMPLEMENT_MODE=request`, sdc-reply/implement.rs,
+//! docs/driver.md "Implement as one request"): `implement-run` assembles the node's whole input
+//! into one prompt, calls the adapter, checks the reply against the schema and the path rule,
+//! retries an invalid reply at most twice with the check's error, continues by rule for paths a
+//! valid reply left `remaining`, and writes the files into `<cwd>/out/impl/`. `adapters` adds the
+//! class `implement` (node change.implement) in request mode: SDC_IMPLEMENT_ADAPTER, else as the
+//! review's; an SDC_IMPLEMENT_MODE other than session or request is refused.
 //!
 //! `adapters`: the adapter of every node class whose reply is a data document made under a
 //! response schema (`schema_reply` in tools/node-classes.json: review), and whether it can take a
@@ -51,6 +63,9 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use serde_json::{json, Map, Value};
 
+#[path = "sdc-reply/implement.rs"]
+mod implement;
+
 #[derive(Parser)]
 struct Cli {
     #[command(subcommand)]
@@ -88,6 +103,20 @@ enum Cmd {
     },
     /// The adapter of every schema-reply node class and whether it takes a schema (exit 64 if not).
     Adapters { #[arg(long)] tools: PathBuf },
+    /// change.implement as one request (SDC_IMPLEMENT_MODE=request): assemble the input, ask,
+    /// check the reply, retry or continue by rule, write the files into `<cwd>/out/impl/`.
+    ImplementRun {
+        #[arg(long)] rec: PathBuf,
+        #[arg(long)] cwd: PathBuf,
+        #[arg(long)] case_dir: PathBuf,
+        #[arg(long)] story: String,
+        #[arg(long)] adapter: Option<PathBuf>,
+        #[arg(long)] rework_limit: Option<u64>,
+        #[arg(long)] assemble_only: bool,
+        #[arg(long, default_value_t = implement::INLINE_CAP)] max_bytes: usize,
+    },
+    /// A change.implement reply holding every product file of a tree (the fixture adapter).
+    ImplementPack { #[arg(long)] tree: PathBuf, #[arg(long, default_value = "")] note: String },
 }
 
 /// The adapter of a schema-reply class from the environment, and where it came from.
@@ -130,6 +159,21 @@ fn adapters(tools: &Path, env: &dyn Fn(&str) -> Option<String>) -> (Value, Vec<S
                 c.to_ascii_uppercase()));
         }
         out.insert(c.to_string(), json!({"adapter": a, "source": src, "json_schema": schema, "nodes": nodes}));
+    }
+    // change.implement as one request (SDC_IMPLEMENT_MODE=request): its reply is the files under a
+    // response schema, so it needs a schema adapter like the review; session mode adds nothing.
+    match env("SDC_IMPLEMENT_MODE").filter(|m| !m.is_empty()).as_deref() {
+        None | Some("session") => {}
+        Some("request") => {
+            let (a, src) = class_adapter("implement", env);
+            let schema = takes_schema(&a);
+            if schema == Some(false) {
+                refused.push(format!("node class implement (change.implement) replies under a response schema in SDC_IMPLEMENT_MODE=request, \
+                    but its adapter {a} ({src}) takes none: set SDC_IMPLEMENT_ADAPTER=claude-cli"));
+            }
+            out.insert("implement".into(), json!({"adapter": a, "source": src, "json_schema": schema, "nodes": ["change.implement"], "mode": "request"}));
+        }
+        Some(m) => refused.push(format!("SDC_IMPLEMENT_MODE={m}: neither session nor request")),
     }
     (Value::Object(out), refused)
 }
@@ -678,6 +722,10 @@ fn main() -> ExitCode {
                 println!("{}", review_schema(&cwd.join("in")));
                 return ExitCode::SUCCESS;
             }
+            if kind == "implement" {
+                println!("{}", implement::schema());
+                return ExitCode::SUCCESS;
+            }
             let opts: Vec<String> = serde_json::from_str(&options).unwrap_or_default();
             println!("{}", decider_schema(&ctx(&cwd, &case_dir), &kind, r#final, &opts, rule));
             ExitCode::SUCCESS
@@ -715,6 +763,15 @@ fn main() -> ExitCode {
                 eprintln!("refused: {r}");
             }
             ExitCode::from(64)
+        }
+        Cmd::ImplementRun { rec, cwd, case_dir, story, adapter, rework_limit, assemble_only, max_bytes } => {
+            let (code, line) = implement::run(&implement::RunArgs { rec, cwd, case_dir, story, adapter, rework_limit, assemble_only, cap: max_bytes });
+            println!("{line}");
+            ExitCode::from(code)
+        }
+        Cmd::ImplementPack { tree, note } => {
+            println!("{}", implement::pack(&tree, &note));
+            ExitCode::SUCCESS
         }
         Cmd::CheckReview { cwd, case_dir, reply, principal } => {
             let r = read_json(&reply);
@@ -766,6 +823,23 @@ mod tests {
         assert!(refused[0].starts_with("node class review (spec.review, change.review) replies under a response schema, but its adapter metaharness (SDC_REVIEW_ADAPTER) takes none"));
         // An adapter program that does not answer --capabilities takes none.
         assert_eq!(takes_schema("/bin/false"), Some(false));
+    }
+
+    #[test]
+    fn request_mode_puts_change_implement_on_a_schema_adapter() {
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools");
+        // Session mode (unset or `session`): no implement entry, the adapters line as before.
+        assert!(adapters(&tools, &env_of(&[("SDC_LLM_ADAPTER", "metaharness")])).0.get("implement").is_none());
+        assert!(adapters(&tools, &env_of(&[("SDC_IMPLEMENT_MODE", "session")])).0.get("implement").is_none());
+        let (v, refused) = adapters(&tools, &env_of(&[("SDC_LLM_ADAPTER", "metaharness"), ("SDC_IMPLEMENT_MODE", "request")]));
+        assert_eq!(v["implement"], json!({"adapter": "claude-cli", "source": "default: claude-cli, SDC_LLM_ADAPTER is metaharness (no response schema)",
+            "json_schema": true, "nodes": ["change.implement"], "mode": "request"}));
+        assert!(refused.is_empty());
+        let (_, refused) = adapters(&tools, &env_of(&[("SDC_IMPLEMENT_MODE", "request"), ("SDC_IMPLEMENT_ADAPTER", "metaharness")]));
+        assert_eq!(refused.len(), 1);
+        assert!(refused[0].starts_with("node class implement (change.implement) replies under a response schema"), "{}", refused[0]);
+        let (_, refused) = adapters(&tools, &env_of(&[("SDC_IMPLEMENT_MODE", "both")]));
+        assert_eq!(refused, vec!["SDC_IMPLEMENT_MODE=both: neither session nor request"]);
     }
 
     fn ir(name: &str) -> Value {

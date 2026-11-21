@@ -270,6 +270,14 @@ adapters=$("${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}" adapters --tools "
   { grep -v '^{' <<< "$adapters" | sed 's/^/run-trial.sh: /' >&2; exit 64; }
 SDC_REVIEW_ADAPTER=$(jq -r '.review.adapter' <<< "$adapters")
 export SDC_REVIEW_ADAPTER
+# change.implement as one request (SDC_IMPLEMENT_MODE=request, docs/driver.md): its class's adapter
+# the same way (`adapters.implement`); session mode, the default, adds nothing. The mode goes into
+# run-settings.jsonl (`implement_mode`).
+implement_mode=${SDC_IMPLEMENT_MODE:-session}
+if [[ $implement_mode == request ]]; then
+  SDC_IMPLEMENT_ADAPTER=$(jq -r '.implement.adapter' <<< "$adapters")
+  export SDC_IMPLEMENT_ADAPTER
+fi
 
 # The file-change recorder (scripts/watch-run.sh, docs/fs-changes.md) runs while this script
 # does: started before the first driver call, stopped on every exit. SDC_WATCH=0 skips it; any
@@ -427,6 +435,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
   --argjson rcap "$rework_cap" --arg rsrc "$rework_cap_source" --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" --arg nodes "${SDC_LLM_NODES:-}" \
+  --arg imode "$implement_mode" \
   --arg commit "$(git -C "$sdc" rev-parse --short=12 HEAD 2>/dev/null || true)" \
   --arg dirty "$(git -C "$sdc" status --porcelain --untracked-files=no 2>/dev/null | head -c 1 || true)" \
   --argjson replay "$( [[ -n ${SDC_REPLAY:-} ]] && "$replay_bin" settings --out "$out" || echo null)" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
@@ -438,7 +447,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, rework_limit: {value: $rcap, source: $rsrc}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, implement_mode: $imode, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
 [[ -z ${SDC_REPLAY:-} ]] || jq -r .first_line "$SDC_REPLAY"
@@ -461,7 +470,9 @@ save() {
 # applied), decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
 # driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent),
-# and review_invalid (stuck after a change.review that recorded nothing: its reply stayed invalid).
+# and review_invalid (stuck after a change.review that recorded nothing: its reply stayed invalid),
+# implement_reply_invalid and implement_reply_incomplete (writer_spent on change.implement in request
+# mode whose last run's reply stayed invalid, or left files remaining).
 end_reason="" end_cause="" end_action="" end_case="" wait_why=""
 verdict_end() { # <exit code>: end_cause, end_case, end_action and end_reason from the driver's $last
   local rc=$1 v
@@ -470,7 +481,18 @@ verdict_end() { # <exit code>: end_cause, end_case, end_action and end_reason fr
   end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "${last:-null}" 2>/dev/null)
   end_action=$(jq -r '(.spent // .position.spent // [])[0].action // (.position.not_called // [])[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
   case $v in
-    writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
+    writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen"
+      # change.implement in request mode whose last run's reply stayed invalid or incomplete
+      # (sdc-reply implement-run): that named cause, naming the call.
+      local cd line
+      cd=$(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null)
+      line=$(jq -rs '[.[] | select(.event == "action_finished" and .action == "change.implement")] | last | .log // empty' "$cd/events.jsonl" 2>/dev/null)
+      line=$([[ -n $line ]] && grep -v '^[[:space:]]*$' "$cd/blobs/$line" 2>/dev/null | tail -n 1)
+      if [[ $end_action == change.implement && $line =~ recorded\ nothing.*:\ (implement_reply_invalid|implement_reply_incomplete) ]]; then
+        end_cause=${BASH_REMATCH[1]}
+        end_reason="change.implement in $end_case: $end_cause (${line#llm-node: }): it waits on a fix of the implement node or its adapter, then --reopen"
+        end_reason=${end_reason:0:600}
+      fi ;;
     writer_not_called) end_reason="$end_action in $end_case: writer_not_called ($(jq -r '(.position.not_called // [])[0].reason // ""' <<< "$last" | cut -c1-200)): nothing else is useful; it waits on a fix of the writer or a decision, then --reopen" ;;
     stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen"
       # Stuck because the case's last step was a review that recorded nothing (its reply stayed
