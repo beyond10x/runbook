@@ -68,6 +68,9 @@
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
 #   autopilot-close, autopilot-close-a3   runs/trial-3-haiku-5: the close in autopilot (D140)
 #   review-no-rework-prompt  after a merge.approve rejection the review gets no rejection as rework (D138)
+#   bugfix-full, bugfix-not-red, bugfix-edited-test, bugfix-never-red  sdc.bugfix in autopilot on the
+#                   pager seed (docs/bugfix.md): fixed; not_red then red then fixed; the fix that
+#                   changed the test refused then fixed; not_reproduced
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -102,6 +105,7 @@ yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/n
   expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection review-no-rework-prompt)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3)
+expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -1104,5 +1108,44 @@ if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
 else
   echo "models: FAILED"
 fi
+# --- sdc.bugfix (docs/bugfix.md): run-trial.sh --bugfix on the pager seed in autopilot, the stubs
+# write (fixtures/bugfix-pager/cycles/<name> through SDC_STUB_FIXTURES). Each closes by
+# rule:autopilot with its outcome and replay matches. The record check runs over the case's
+# evidence in order: `red` is the last repro_run red, `green` the last test_run passed.
+bfx=$fx/bugfix-pager
+bugfix_cycle() { # <name> <stub cycle or -> <outcome> <jq over the slurped evidence> <what passed>
+  local name=$1 cyc=$2 want=$3 check=$4 what=$5 r=$s/runs/$1 code
+  rm -rf "$r"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=approve \
+    SDC_STUB_FIXTURES="$([[ $cyc == - ]] || echo "$bfx/cycles/$cyc")" \
+    "$sdc/scripts/run-trial.sh" "$name" --bugfix "$bfx" --autopilot > "$s/$name.txt" 2>&1
+  code=$?
+  echo "$name: exit $code"
+  if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+     jq -e --arg o "$want" '.outcome == $o and .closed_by == "rule:autopilot"' "$r/status.json" >/dev/null &&
+     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null &&
+     cat "$r"/store/BUG-1/evidence/*.json | jq -se "$check" >/dev/null; then
+    echo "$name: checks pass ($what)"
+  else
+    echo "$name: FAILED (exit $code, $(jq -c '{outcome, closed_by}' "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
+  fi
+}
+red_then_green='([.[] | select(.kind == "repro_run" and .result == "red")] | last) as $red
+  | ([.[] | select(.kind == "test_run" and .result == "passed")] | last) as $green
+  | $red != null and $green != null and $green.upstream_revisions.repro == $red.subject_revision
+    and $green.subject_revision != $red.upstream_revisions.change'
+bugfix_cycle bugfix-full - fixed "$red_then_green" \
+  "fixed; red at one change revision, the same repro revision green at the next"
+bugfix_cycle bugfix-not-red not-red fixed \
+  "$red_then_green and ([.[] | select(.kind == \"repro_run\" and .result == \"not_red\" and .subject_revision != \"none\")] | length) == 1" \
+  "a test passing on the seed recorded not_red, the next red, then fixed"
+bugfix_cycle bugfix-edited-test edited-test fixed \
+  "$red_then_green and ([.[] | select(.kind == \"test_run\") | .result] == [\"failed\", \"passed\"])" \
+  "the fix that changed the test refused by tests.run, the next fixed"
+grep -q 'the reproducing test was changed' "$s/runs/bugfix-edited-test/store/BUG-1/blobs/"* 2>/dev/null ||
+  echo "bugfix-edited-test: FAILED (no log names the changed test)"
+bugfix_cycle bugfix-never-red never-red not_reproduced \
+  '([.[] | select(.kind == "repro_run" and .result == "red")] | length) == 0 and ([.[] | select(.kind == "implementation_change")] | length) == 0' \
+  "every test passes on the seed: not_reproduced, no fix written"
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"
