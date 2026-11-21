@@ -27,6 +27,14 @@
 #                                               action once (see keep_going_force)
 # Under --autopilot, before a stop that is no cap, run.unstick picks a legal move (D147, see
 # unstick(); SDC_UNSTICK=off turns it off, SDC_LLM_MODEL_UNSTICK, SDC_UNSTICK_ADAPTER).
+#   scripts/run-trial.sh <name> --autopilot --recorded <source run or recording> [--on-divergence
+#     stop|nearest|live] [--live-adapter <a>] [--live-cap <n>] [--inject <fault>]... [--set <k>=<v>]...
+#     [--take-recorded <actions>] [--source-tree <commit>]
+#                                               re-drive a recorded run: the real driver and programs,
+#                                               at every model and decider call the reply the source
+#                                               recorded there (driver/src/bin/sdc-replay.rs,
+#                                               docs/driver.md "Recorded replay"); exit 9 when the
+#                                               recording diverged under the policy stop
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -35,7 +43,8 @@
 # events/<case>.jsonl, and at the end decision.json and replay.json. With a decider also
 # decisions.jsonl (one line per decider decision) and decider/NNN-<id>/ (each LLM decider call).
 # run-settings.jsonl: one line per start or resume (sdc.run-settings/1: the decider's kind, model,
-# escalate mode and call cap, the adapter, the LLM call cap, the calls made before the leg).
+# escalate mode and call cap, the rework cap `rework_limit` {value, source}, the adapter, the LLM
+# call cap, the calls made before the leg).
 # fs/ is the file-change record of sdc-watch (scripts/watch-run.sh), running while this script
 # runs and started again on a resume; SDC_WATCH=0 skips it.
 #
@@ -55,9 +64,12 @@
 #   person (default)  stop and print the commands (exit 3), as before
 #   approve           rule: approve every approval, accept every question's default, close
 #   reject            rule: refuse; the refusal is recorded and the run stops (exit 6)
-#   haiku             tools/decider.sh: one bounded LLM call per decision (SDC_DECIDER_MODEL,
+#   model             tools/decider.sh: one bounded LLM call per decision (SDC_DECIDER_MODEL,
 #                     default claude-haiku-5-5, through SDC_LLM_ADAPTER); escalate or an invalid
-#                     reply stops for a person (exit 3) as today; reject stops (exit 6)
+#                     reply stops for a person (exit 3) as today; reject stops (exit 6). Principal
+#                     decider:model, whatever the model; the model id is in run-settings.jsonl and
+#                     on each decisions.jsonl line (D149). `haiku` is its old name, kept as an alias;
+#                     runs before D149 recorded decider:haiku.
 # SDC_DECIDER_ESCALATE=final (eval runs, no person at all): an escalate is recorded as
 # `escalation_suppressed` and the decider's `best` decision is taken; an invalid reply has no best
 # and counts as reject. SDC_MAX_DECIDER_CALLS (default 20) caps the LLM decider calls (exit 5).
@@ -74,9 +86,9 @@
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
 # 6 refused by the decider (rejected_without_rework_path), 7 autopilot ended at a stop no holder of the run can take, 8 the run is stopped
-# (or already stopped), 64 usage.
+# (or already stopped), 9 a re-driven run's recording diverged (cause recording_diverged), 64 usage.
 #
-# Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (haiku unless
+# Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (model unless
 # SDC_DECIDER names another; SDC_DECIDER=person is refused) takes every decision, is final, and no
 # stop waits on a person: one that would need a person ends the run (exit 7), and every run that
 # ends unclosed gets a stop record by rule:autopilot. A0 is SDC_DECIDER=person. A1 to A4 have no
@@ -101,12 +113,14 @@ done
 set -- ${rest[@]+"${rest[@]}"}
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-dry=no stop_reason="" reopen=no autopilot=no keep_going=no pos=()
+dry=no stop_reason="" reopen=no autopilot=no keep_going=no pos=() recorded="" replay_args=()
 while (($#)); do
   case $1 in
     --dry) dry=yes ;;
     --autopilot) autopilot=yes ;;
     --keep-going) keep_going=yes ;;
+    --recorded) recorded=${2:-}; [[ -n $recorded ]] || { echo "--recorded needs a source run"; exit 64; }; shift ;;
+    --on-divergence|--live-adapter|--live-cap|--inject|--set|--take-recorded|--source-tree) replay_args+=("$1" "${2:-}"); shift ;;
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
     --bugfix) bugfix=${2:-}; [[ -d $bugfix ]] || { echo "--bugfix needs a seed directory, not '$bugfix'"; exit 64; }; bugfix=$(cd "$bugfix" && pwd); shift ;;
@@ -125,11 +139,34 @@ store=$out/store
 root=$store/IDEA-1
 [[ -n ${bugfix:-} || -d $store/BUG-1 ]] && root=$store/BUG-1
 log=$out/run.log
+# Recorded replay: sdc-replay prepares the new run (replay/plan.json) and names its environment:
+# itself as the adapter of every model and decider call, the source's decider, models and caps, the
+# changed conditions. A resume of a re-driven run takes the same environment again.
+replay_bin=${SDC_REPLAY_BIN:-$sdc/driver/target/debug/sdc-replay}
+replay_env=""
+if [[ -n $recorded ]]; then
+  [[ ! -d $root ]] || { echo "--recorded starts a new run: $name exists ($out)"; exit 64; }
+  rm -rf "$out"
+  replay_env=$("$replay_bin" prepare --source "$recorded" --out "$out" --tree "$sdc" ${replay_args[@]+"${replay_args[@]}"}) || exit 64
+elif (( ${#replay_args[@]} )); then
+  echo "${replay_args[0]} needs --recorded <source>"; exit 64
+elif [[ -f $out/replay/plan.json && -z $stop_reason ]]; then
+  replay_env=$("$replay_bin" env --out "$out") || exit 64
+fi
+[[ -z $replay_env ]] || while IFS=$'\t' read -r k v; do export "$k=$v"; done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' <<< "$replay_env")
 max_llm=${SDC_MAX_LLM_CALLS:-30}
 max_wall=${SDC_MAX_WALL_SECONDS:-5400}
 decider=${SDC_DECIDER:-person}
+[[ $decider == haiku ]] && decider=model
 escalate_mode=${SDC_DECIDER_ESCALATE:-stop}
 max_decider=${SDC_MAX_DECIDER_CALLS:-20}
+# The rework cap (D184): how many rejections of one approval are reworked before rework_spent.
+# rule-ends.json `rework_limit` is the default; SDC_MAX_REJECTIONS overrides it when set. The
+# effective value goes into run-settings.jsonl (`rework_limit: {value, source}`), and rework()
+# here and the writer's rework prompt (tools/llm-node.sh, through SDC_RUN_SETTINGS) read it there.
+if [[ -n ${SDC_MAX_REJECTIONS:-} ]]; then rework_cap=$SDC_MAX_REJECTIONS rework_cap_source=SDC_MAX_REJECTIONS
+else rework_cap=$(jq -r .rework_limit "$ex/rule-ends.json") rework_cap_source=rule-ends.json; fi
+[[ $rework_cap =~ ^[0-9]+$ ]] || { echo "$rework_cap_source: the rework cap is a whole number of reworks (0 or more), not '$rework_cap'"; exit 64; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
@@ -175,7 +212,7 @@ if [[ -f $stopped ]]; then
   done < <(find "$store" -name findings.yaml -path '*/work/*' -exec realpath {} + 2>/dev/null | sort -u)
 fi
 
-case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
+case $decider in person|approve|reject|model) ;; *) echo "SDC_DECIDER: person, approve, reject or model (haiku: its old name), not $decider"; exit 64 ;; esac
 
 # The reasoning effort per node class (SDC_LLM_EFFORT_<CLASS>, SDC_LLM_EFFORT): an unknown value is
 # refused here, before anything is created. The adapters' CLIs ignore one with a warning.
@@ -186,7 +223,7 @@ for v in SDC_LLM_EFFORT SDC_LLM_EFFORT_REQUESTER $(jq -r '.classes | keys[] | "S
 done
 
 # The run mode (docs/autonomy-levels.md § 3.3): SDC_AUTONOMY, or --autopilot for A5. A0 is the
-# person (SDC_DECIDER=person); A5 is autopilot: the decider (haiku unless SDC_DECIDER names another)
+# person (SDC_DECIDER=person); A5 is autopilot: the decider (model unless SDC_DECIDER names another)
 # holds every decision and is final (escalate final), and a stop that would need a person ends the
 # run (exit 7) with a stop record by rule:autopilot. A1 to A4 have no per-class routing yet: they
 # run as SDC_DECIDER says. Without a level it is derived: person A0, a final decider A5, a
@@ -196,11 +233,12 @@ autonomy_source=SDC_AUTONOMY
 [[ $autopilot == yes ]] && { [[ -z $autonomy || $autonomy == A5 ]] || { echo "--autopilot is A5, SDC_AUTONOMY says $autonomy"; exit 64; }; autonomy=A5 autonomy_source=--autopilot; }
 case $autonomy in
   A5)
-    [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (haiku, approve, reject) or leave it unset (haiku)"; exit 64; }
+    [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (model, approve, reject) or leave it unset (model)"; exit 64; }
     [[ ${SDC_DECIDER_ESCALATE:-final} == final ]] || { echo "autopilot (A5): the decider is final; SDC_DECIDER_ESCALATE=$SDC_DECIDER_ESCALATE is refused"; exit 64; }
     # The decider reads SDC_DECIDER_ESCALATE: under final its prompt asks for `best` and its check
     # refuses an escalate without one.
-    decider=${SDC_DECIDER:-haiku} escalate_mode=final
+    [[ -n ${SDC_DECIDER:-} ]] || decider=model
+    escalate_mode=final
     export SDC_DECIDER_ESCALATE=final ;;
   A0)
     [[ $decider == person ]] || { echo "A0: every decision is the person's; SDC_DECIDER=$decider is refused"; exit 64; } ;;
@@ -218,7 +256,7 @@ esac
 stand_in=${SDC_STAND_IN:-}
 [[ $dry == yes && $decider == person ]] && stand_in=${stand_in:-scripts/run-trial.sh --dry}
 
-export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl
+export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl SDC_RUN_SETTINGS=$out/run-settings.jsonl
 if [[ $dry == yes ]]; then
   export SDC_LLM_ADAPTER=dry SDC_LLM_DRY_LOG=$out/dry-commands.txt SDC_PRINCIPAL=dry-run
 else
@@ -267,6 +305,16 @@ d() {
   echo "exit $code" >> "$log"
   echo >> "$log"
 }
+# A re-driven run whose recording diverged under the policy stop ends here (exit 9).
+replay_check() {
+  local f=$out/replay/diverged.json
+  [[ -n ${SDC_REPLAY:-} && -f $f ]] || return 0
+  end_cause=recording_diverged end_case=$(jq -r .place.case "$f") end_action=$(jq -r .place.name "$f")
+  end_reason="recording_diverged: $(jq -r .summary "$f") (policy $(jq -r .policy "$f"))"
+  echo "$end_reason"
+  exit 9
+}
+replay_seal() { [[ -z ${SDC_REPLAY:-} ]] || "$replay_bin" seal "$out" > /dev/null || true; }
 
 # The agent-node actions of the happy path: every binding with `llm`; the story's run once per story.
 expected() {
@@ -292,15 +340,18 @@ if [[ -n ${bugfix:-} && ! -d $root ]]; then
   echo "# the bug report: $(cat "$root/work/bug.yaml")" >> "$log"
   leg=started
 elif [[ ! -d $root ]]; then
-  rm -rf "$out"
+  [[ -n $recorded ]] || rm -rf "$out"
   mkdir -p "$out/events"
   watch_start
   : > "$log"
   expected | tee "$out/expected-llm-calls.txt"
   d "$root" init --protocol "$sdc/protocol/sdc.protocol.yaml" --id IDEA-1 --bindings "$ex/sdc.bindings.json"
   [[ $code == 0 ]] || { echo "init failed: $last"; exit 1; }
+  [[ -n $goals || -z ${SDC_REPLAY_GOALS:-} ]] || goals=$SDC_REPLAY_GOALS
   if [[ $dry == yes ]]; then
     cp "$ex/fixtures/idea.yaml" "$root/work/idea.yaml"
+  elif [[ -z $idea_text && -n ${SDC_REPLAY_IDEA:-} ]]; then
+    cp "$SDC_REPLAY_IDEA" "$root/work/idea.yaml"
   else
     : "${idea_text:?a new real trial needs the idea text}"
     jq -n --arg t "$idea_text" '{text: $t}' | yq -P > "$root/work/idea.yaml"
@@ -335,7 +386,7 @@ unstick_model=${SDC_LLM_MODEL_UNSTICK:-claude-opus-5-5}
 
 # Who holds the decisions in this leg, and its caps: one line per start or resume (the UI reads it).
 model=
-[[ $decider == haiku ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
+[[ $decider == model ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
 # The effective model per node class (tools/node-classes.json): SDC_LLM_MODEL_<CLASS>, else
 # SDC_LLM_MODEL, else each binding's llm.model (per node; `model` is null when they differ). The
 # decider: SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL, else claude-haiku-5-5.
@@ -375,17 +426,22 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" --argjson adapters "$adapters" --argjson efforts "$efforts" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" \
-  '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+  --argjson rcap "$rework_cap" --arg rsrc "$rework_cap_source" --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" --arg rq "${SDC_REQUESTER_DECIDER:-}" --arg nodes "${SDC_LLM_NODES:-}" \
+  --arg commit "$(git -C "$sdc" rev-parse --short=12 HEAD 2>/dev/null || true)" \
+  --arg dirty "$(git -C "$sdc" status --porcelain --untracked-files=no 2>/dev/null | head -c 1 || true)" \
+  --argjson replay "$( [[ -n ${SDC_REPLAY:-} ]] && "$replay_bin" settings --out "$out" || echo null)" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+    tree: {commit: (if $commit == "" then null else $commit end), dirty: ($dirty != "")},
+    llm_nodes: (if $nodes == "" then null else $nodes end), replay: $replay,
     autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc, keep_going: ($kg == "yes"),
     unstick: {on: ($uon == "yes"), adapter: $uad, model: $umodel},
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
-      max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
+      max_decider_calls: $dec}, rework_limit: {value: $rcap, source: $rsrc}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, adapters: $adapters, efforts: $efforts, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
+[[ -z ${SDC_REPLAY:-} ]] || jq -r .first_line "$SDC_REPLAY"
 if [[ $leg == started ]]; then
   echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
 else
@@ -595,7 +651,7 @@ defect_line() {
   t=$(mktemp "$out/.defects.XXXXXX")
   { head -n -1 "$defects"; tail -n 1 "$defects" | jq -c --argjson x "$7" '. + $x + (if $x.unstuck then {principal: "agent:unstick"} else {} end)'; } > "$t" && mv "$t" "$defects"
 }
-trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
+trap 'rc=$?; autopilot_end "$rc"; save; replay_seal; watch_stop' EXIT
 
 dry_lines() { { wc -l < "${SDC_LLM_DRY_LOG:-/dev/null}"; } 2>/dev/null || echo 0; }
 print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"$(($1 + 1))" "$SDC_LLM_DRY_LOG" | sed 's/^/  /'; true; }
@@ -690,13 +746,17 @@ decide() {
   [[ -n ${SDC_REQUESTER_DECIDER:-} && $side == requester ]] && decider=requester
   dec_principal=decider:$decider taker=decider:$decider
   local llm=no
-  [[ $decider == haiku || $decider == requester ]] && llm=yes
+  [[ $decider == model || $decider == requester ]] && llm=yes
+  # How the log names it: decider:model with the model id beside it (D149).
+  local who=decider:$decider
+  [[ $decider == model ]] && who+=" ($model)"
   req=$(jq -c --arg c "$cls" --arg s "$side" --arg a "$autonomy" --arg l "$out/decisions.jsonl" '. + {class: $c, side: $s,
     autonomy: (if $a == "" then null else $a end), decisions_log: $l}' <<< "$req")
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
-     jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
+     jq -e --arg k "$key" --arg p "decider:$decider" 'select((.principal == $p or ($p == "decider:model" and .principal == "decider:haiku"))
+       and .decision == "escalate"
        and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
-    echo "  decider:$decider escalated $key before: a person decides"
+    echo "  $who escalated $key before: a person decides"
     return 0
   fi
   line() { # $1 decision, $2 extra object
@@ -728,11 +788,12 @@ decide() {
     before=$(dry_lines)
     reply=$("$ex/tools/decider.sh" "$decider" "$rec/decide-request.json")
     print_dry "$before"
+    replay_check
     [[ $(jq -r .valid <<< "$reply") == false && $llm == yes ]] || break
     why=$(jq -r '.invalid_reason // "invalid"' <<< "$reply")
-    (( attempt <= 2 )) || break
+    (( attempt <= ${SDC_DECIDER_RETRIES:-2} )) || break
     line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
-    echo "  decider:$decider reply refused by the check ($why): asked again ($attempt of 2 retries)"
+    echo "  $who reply refused by the check ($why): asked again ($attempt of ${SDC_DECIDER_RETRIES:-2} retries)"
     attempt=$((attempt + 1))
   done
   dec=$(jq -r .decision <<< "$reply")
@@ -744,17 +805,17 @@ decide() {
       question|finding)
         fallback=invalid_reply_default dec=approve
         ans=$(jq -r 'if .type == "question" then .question.default else .finding.default end' <<< "$req")
-        reply=$(jq -c --arg a "$ans" --arg why "$why" '.answer = $a | .valid = true
-          | .reasons = ["invalid decider reply after 2 retries (\($why)): the default taken"]' <<< "$reply") ;;
+        reply=$(jq -c --arg a "$ans" --arg why "$why" --arg r "${SDC_DECIDER_RETRIES:-2}" '.answer = $a | .valid = true
+          | .reasons = ["invalid decider reply after \($r) retries (\($why)): the default taken"]' <<< "$reply") ;;
       *)
         local failing
         failing=$(checks_failing "$req")
         if [[ $failing == "[]" ]]; then
           fallback=approved_on_checks dec=approve
-          reply=$(jq -c --arg why "$why" '.valid = true | .reasons = ["invalid decider reply after 2 retries (\($why)): approved on the checks, every claim this decision turns on is true and no other obligation is open"]' <<< "$reply")
+          reply=$(jq -c --arg why "$why" --arg r "${SDC_DECIDER_RETRIES:-2}" '.valid = true | .reasons = ["invalid decider reply after \($r) retries (\($why)): approved on the checks, every claim this decision turns on is true and no other obligation is open"]' <<< "$reply")
         else
           fallback=rejected_on_checks dec=reject
-          reply=$(jq -c --arg why "$why" --argjson f "$failing" '.valid = true | .reasons = ["invalid decider reply after 2 retries (\($why)): rejected on the checks: \($f | join(", "))"]' <<< "$reply")
+          reply=$(jq -c --arg why "$why" --arg r "${SDC_DECIDER_RETRIES:-2}" --argjson f "$failing" '.valid = true | .reasons = ["invalid decider reply after \($r) retries (\($why)): rejected on the checks: \($f | join(", "))"]' <<< "$reply")
         fi ;;
     esac
     line "$dec" "$(jq -cn --arg f "$fallback" --argjson a "$attempt" '{fallback: $f, attempts: $a}')"
@@ -780,7 +841,7 @@ decide() {
   else
     line "$dec" "$( (( attempt > 1 )) && jq -cn --argjson a "$attempt" '{attempts: $a}' || echo '{}')"
   fi
-  echo "  decider:$decider $dec $key$( [[ -n $ans ]] && echo " answer: $ans")${fallback:+ ($fallback)}: $(jq -r '.reasons | join(" ")' <<< "$reply")"
+  echo "  $who $dec $key$( [[ -n $ans ]] && echo " answer: $ans")${fallback:+ ($fallback)}: $(jq -r '.reasons | join(" ")' <<< "$reply")"
   case $dec in
     approve) ;;
     reject)
@@ -850,10 +911,12 @@ checks_failing() {
 # the writer whose binding names the approval's kind in `retry_when` is then useful and gets it as
 # in/rejection.json, its checks run on the new revision and the approval is asked again. The count
 # is the case's rejected records of the approval (sdc-reply rejections). Returns 0 when the run
-# goes on; else sets end_cause and end_reason: rework_spent on the third rejection (the approval
-# and the three reasons), rejected_without_rework_path when the approval cannot record a
+# goes on; else sets end_cause and end_reason: rework_spent on the rejection after the last rework (rework_limit + 1, by default the third;
+# the approval and every reason), rejected_without_rework_path when the approval cannot record a
 # rejection or no writer is sent back by it (rework_gap says which).
-reworked="" rework_gap="" taker="" rejection_deferred="" rework_limit=$(jq -r .rework_limit "$ex/rule-ends.json")
+reworked="" rework_gap="" taker="" rejection_deferred=""
+# The rework cap this leg recorded (D184): the one value the rework prompt reads too.
+rework_limit=$(jq -rs 'last.rework_limit.value' "$out/run-settings.jsonl")
 # The third rejection rework() left unrecorded, recorded as the decider's when the run stops.
 record_deferred() {
   local cdir cap act
@@ -883,7 +946,7 @@ rework() { # <request> <decider reply>
   if (( n > rework_limit )) && [[ $keep_going == yes || $unstick_on == yes ]]; then
     rejection_deferred="$cdir $cap $act"
     end_cause=rework_spent
-    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
+    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj $n times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
     return 1
   fi
@@ -896,7 +959,7 @@ rework() { # <request> <decider reply>
   echo "  recorded the rejection of $act at $rev as decider:$decider (rejection $n; at most $rework_limit are reworked)"
   if (( n > rework_limit )); then
     end_cause=rework_spent
-    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
+    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj $n times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
     return 1
   fi
@@ -1115,12 +1178,15 @@ for round in $(seq 1 40); do
   t0=$(date +%s) s0=$(now)
   d "$root" run --at "$s0" --max-llm-calls "$max_llm" --max-wall-seconds "$max_wall"
   round_last=$last unstick_tried=""
+  # A re-driven run whose recording diverged: the round ends there (replay_check below).
+  [[ -z ${SDC_REPLAY:-} || ! -f $out/replay/diverged.json ]] || last=$(jq -c '{verdict: "recording_diverged", case_dir: .place.case_dir, message: .summary}' "$out/replay/diverged.json")
   verdict=$(jq -r '.verdict // "error"' <<< "$last" 2>/dev/null || echo error)
   # One line per round for the KPI L2 (autonomous run time between human interventions).
   jq -cn --arg s "$s0" --arg e "$(now)" --argjson t0 "$t0" --argjson t1 "$(date +%s)" --arg v "$verdict" \
     --arg c "$(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null | sed "s|$store/||")" '{started: $s, ended: $e,
     started_epoch: $t0, ended_epoch: $t1, seconds: ($t1 - $t0), verdict: $v, case_dir: $c}' >> "$out/rounds.jsonl"
   echo "round $round: $verdict $(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null | sed "s|$store/||"), LLM calls so far $(jq -r '.llm_calls // "?"' <<< "$last" 2>/dev/null)"
+  replay_check
   [[ $dry == yes || $SDC_LLM_ADAPTER == dry ]] && print_dry "$dry_before"
   case $verdict in
     terminable)

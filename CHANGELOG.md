@@ -7,6 +7,119 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-21
+
+The documentation site and its generator. No protocol, binding or case changed. The longer note is
+`docs/releases/0.1.3.md`.
+
+### Added
+
+- The documentation site, `website/` (Docusaurus with the beyond10x docs-system theme), published
+  at https://beyond10x.github.io/sdc/ by `.github/workflows/pages.yml` and
+  `.github/workflows/b10x-docs-site.yml`: what the SDC is, the main flow and a browser with one
+  page per protocol, what it is built on, the evaluation per release and model setting, and one
+  run step by step ("The LLM is not the runtime") (`3e93276`, `3c2930b`, `b7497fa`).
+- `sdc-protocol-site`: writes the site's protocol data, `website/data/protocols/`, from the
+  protocol YAML, the bindings and the committed check outputs; `check` fails on stale data and runs
+  in `scripts/check-bindings.sh`; `site-manifest` writes the site's `.well-known/b10x-site.json`
+  (`19209b8`, `3ba6bd6`).
+- Each run in `docs/progress.json` carries its metrics (cost, wall time, model and decider calls,
+  rework takes, review and merge rejections, looping factor and first-pass yield per node, stop
+  cause; null where the run summary has none) (`c45bc91`).
+- `task docs`, `docs:generate`, `docs:build`, `docs:test`: the site's data check, build and smoke
+  test (every page at 1440 and 390 px in both themes, axe, internal links).
+- Two experiment records registered before their runs, on the 0.1.2 tree: `release-0.1.2` (the
+  baseline of 0.1.2 against `baseline-0.1.0`) and `effort-decider-mixed` (the mixed setting's Haiku
+  decider at effort medium against xhigh) (`f619fd4`). Both are planned; no run has been made.
+
+### Changed
+
+- The three crates, their lock files and `ui/package.json` are at 0.1.3.
+
+### Known limits
+
+- No run has used the 0.1.2 or the 0.1.3 tree; the two registered records are planned, not run.
+- A check of the delivered product against its specification is in work and not in this release.
+
+## [0.1.2] - 2026-11-21
+
+Corrections and tools after 0.1.1: recorded replay, the timeline of a run, one rework cap, the
+LLM decider's principal renamed, and the root protocol's description. No rule of a protocol
+changed. The longer note is `docs/releases/0.1.2.md`.
+
+### Added
+
+- Recorded replay: `scripts/run-trial.sh <run> --autopilot --recorded <source>` re-drives a
+  recorded run with the real driver and programs and the recorded model replies (`sdc-replay`,
+  `332d3aa`, `b5ead4c`, merged again in `8a96b50`), with a committed stub recording and seven
+  re-drive cycles. `--set` changes a condition (`max_rejections`, timeouts, retries, run caps),
+  `--inject` puts a decision in place of a recorded one, and `--on-divergence stop|nearest|live`
+  says what a call the source never made gets. `sdc-replay` answers
+  `--capabilities` (`26b8b85`). A re-driven run has `run.unstick` off unless the source called it,
+  because a node the source never called has no recorded reply; `--set unstick=on` decides
+  otherwise (`f717443`).
+- `sdc-run-timeline`: the timeline of one run (`sdc.run-timeline/1`, `f461e61`), and the timelines
+  of `trial-0.1.0-strong-1` and `trial-0.1.0-mixed-1` under `experiments/baseline-0.1.0/timelines/`
+  (`89581f0`).
+
+### Changed
+
+- The LLM decider's principal is `decider:model`, whatever the model; its model id is recorded
+  beside it in `run-settings.jsonl` and on each `decisions.jsonl` line (D149, `41d0023`). Before,
+  the strong runs of trial 3 recorded an Opus decider as `decider:haiku`. `SDC_DECIDER=haiku` stays
+  an alias of `model`. For a reader of old runs: `decider:haiku` in a run before 0.1.2 is the same
+  principal as `decider:model`; the tools and the live view read both, and `sdc-experiment` counts
+  `haiku` and `model` as one setting.
+- One effective rework cap (D184, `9940eed`): `rework_limit` of `rule-ends.json` is the default,
+  `SDC_MAX_REJECTIONS` overrides it when set, and a value that is not a whole number exits 64.
+  `run-settings.jsonl` records it as `rework_limit: {value, source}`; the driver and the writer's
+  rework prompt both read that value. Before, the prompt said "of at most 2" whatever the setting.
+- "SDC" stands for "software delivery cycle" (the operator, 2026-11-21). The root protocol
+  `protocol/sdc.protocol.yaml` said "software development cycle" in its description; it now says
+  "delivery". That changes its compiled IR (`protocol/compiled/sdc.ir.json`, sha256
+  `41c6acc7…` to `8a05e12f…`) and so the IR hash a new case records, but no rule: no action,
+  condition, outcome or binding changed, and `canon simulate` gives the pinned report byte for byte.
+  Runs recorded before keep their own IR in their logs; the committed replay recording still
+  re-drives with every call matched (`1109656`).
+- The three crates, their lock files and `ui/package.json` are at 0.1.2.
+
+### Corrections to 0.1.0
+
+`docs/releases/0.1.0.md` and the GitHub Release of 0.1.0 are not edited; this section holds the
+corrected figures.
+
+- Decider cost: `sdc-run-compare` summed the cost of the `decisions.jsonl` lines that are not
+  `escalation_suppressed`, so every decider call whose escalation was suppressed (a real model
+  call, its cost sits on the suppressed line) was missing from the decider cost and the total.
+  The 0.1.0 Trial 3 figures were taken from the tool. Recomputed for the seven passes as the sum
+  of `cost_usd` over `llm-calls.jsonl` and over every line of `decisions.jsonl`; the decider
+  figure also equals the sum of `decider/*/response.json`.
+
+  | Run | Published (USD) | Recomputed (USD) | Difference |
+  |---|---|---|---|
+  | `trial-3-strong-2` | 3.00 | 3.00 (2.996) | 0 |
+  | `trial-3-strong-1` | 2.93 | 2.93 (2.926) | 0 |
+  | `trial-3-opus-1` | 5.09 | 5.09 (5.088) | 0 |
+  | `trial-3-mixed-6` | 1.86 | 1.86 (1.859) | 0 |
+  | `trial-3-haiku-7` | 1.00 | 1.03 (1.034) | +0.03: its decider cost is 0.371, not 0.335 (1 suppressed line) |
+  | `trial-3-strong-6` | 4.05 | 4.05 (4.055) | 0 |
+  | `trial-3-strong-5` | 5.34 | 5.34 (5.338) | 0 |
+
+  Only `haiku-7` has a suppressed-escalation line among the seven; the others have none, so their
+  published figures stand. Other runs of `docs/trial-3.md` changed the same way (`haiku-6`
+  0.540 to 0.560, `mixed-5` 1.476 to 1.588, and the attempts), and `docs/trial-3.md` is corrected.
+- The fix of the tool is in 0.1.1 (`df58754`, `9ff2996`; `docs/releases/0.1.1.md`, "A defect in a
+  figure tool"); this section is the correction of the 0.1.0 figures that note promises
+  (`8e61332`, `956f1df`).
+
+### Known limits
+
+- No run has used the 0.1.2 tree. The baseline is still `experiments/baseline-0.1.0`: 6 of 9
+  clean passes on the 0.1.0 tree.
+- A check of the delivered product against its specification is in work and not in this release.
+- Recorded replay re-drives the committed stub recording; a re-driven run reproduces the source's
+  calls and has no reply for a node the source never called.
+
 ## [0.1.1] - 2026-11-21
 
 Fixes and tools after the first release; no protocol of the nine changed. The longer note is
@@ -36,6 +149,8 @@ Fixes and tools after the first release; no protocol of the nine changed. The lo
 - The live view's run picker: a search over recent runs with their facts, grouped by experiment
   (`009b8fd`, `4e09b4c`, `ab8472f`).
 - Three more `sdc-bugfix` seeds and four scripted bug-fix cycles (`99238c0`, `e108d5e`).
+- The first baseline on a released tree: `experiments/baseline-0.1.0`, nine runs on the 0.1.0
+  tree, recorded in the progress ledger.
 
 ### Changed
 
@@ -60,6 +175,14 @@ Fixes and tools after the first release; no protocol of the nine changed. The lo
 - `sdc-run-compare` and the live view's KPI strip count every decider call made, once per record
   (`df58754`, `9ff2996`). Before, `sdc-run-compare` left out the cost of every decider call whose
   escalation was suppressed (`trial-3-haiku-9`: 0.159 USD reported, 0.325 USD spent).
+
+### Known limits
+
+- No run has used the 0.1.1 tree. The baseline of 0.1.0 is `experiments/baseline-0.1.0`: 6 of 9
+  clean passes (strong 3 of 3, median 5.50 USD and 1,247 s; mixed 3 of 3, median 2.55 USD and
+  1,489 s; Haiku 0 of 3, stopped `writer_spent` twice and `decision_not_takeable` once).
+- Recorded replay is not in this release: merged and reverted before it (`7c5dd5e`), it follows in
+  a later one.
 
 ## [0.1.0] - 2026-11-21
 

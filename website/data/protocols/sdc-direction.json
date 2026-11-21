@@ -1,0 +1,1126 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "resolve the open findings while the context check is not valid: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list (new revisions), and a vision that cites an amended requirement is set aside, so Canon re-derives the context check, the vision and the roadmap approval",
+      "effect": "write",
+      "executor": {
+        "handoff": true,
+        "kind": "program",
+        "max_runs": 12,
+        "program": "sdc-tool.sh amend context",
+        "timeout_s": 300
+      },
+      "name": "amend.upstream",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:context.valid",
+          "text": "claim is false:"
+        }
+      ],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [
+        "field",
+        "value"
+      ],
+      "capabilities": [],
+      "description": "change one context assumption; moves the context to a new revision",
+      "effect": "write",
+      "executor": {
+        "bound": false,
+        "kind": "person"
+      },
+      "name": "context.change",
+      "precondition": [],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "check the context; only while no context check is recorded about the current context revision against the current requirements list: a second record with another result would leave context.valid unknown for good",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh check-context",
+        "results": {
+          "*": "invalid",
+          "0": "valid",
+          "5": "finding"
+        }
+      },
+      "name": "context.check",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:context.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "context_defaults"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "fill every context field from the requirements list or its default, each recorded as an assumption; moves the context to a new revision; not once the current context revision is approved (a person changes an approved context with context.change). Admissible on a context whose approval was refused, valid or not: a refused approval is left only by a new revision",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh context.default",
+        "retry_when": [
+          "context_approval",
+          "context_defaults"
+        ],
+        "timeout_s": 900
+      },
+      "name": "context.default",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "any of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.approved",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 1,
+          "text": "all of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:context.approved",
+          "text": "claim is unknown:"
+        },
+        {
+          "depth": 2,
+          "text": "any of"
+        },
+        {
+          "depth": 3,
+          "reference": "claim:context.valid",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 3,
+          "reference": "claim:context.valid",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run aep plan artifact validate; only while no validation is recorded about the current roadmap revision: a second record with another result would leave roadmap.valid unknown for good",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "aep",
+        "program": "sdc-tool.sh roadmap-validate",
+        "results": {
+          "*": "invalid",
+          "0": "valid"
+        }
+      },
+      "name": "roadmap.validate",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "roadmap_validation"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "owner.approve"
+      ],
+      "decision_class": {
+        "class": "context",
+        "side": "requester",
+        "type": "approval"
+      },
+      "description": "a person approves or rejects the current context revision; decided once per context revision: only while no approval decision is recorded about it",
+      "effect": "write",
+      "executor": {
+        "bound": true,
+        "kind": "person",
+        "producer": "{principal}",
+        "results": {
+          "0": "approved",
+          "6": "rejected"
+        }
+      },
+      "name": "context.approve",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.decided",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "context_approval"
+      ],
+      "step": 1,
+      "waits_for": [
+        "context.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "owner.approve"
+      ],
+      "decision_class": {
+        "class": "vision",
+        "side": "requester",
+        "type": "approval"
+      },
+      "description": "a person approves or rejects the current vision revision, not while a finding is open; decided once per vision revision: only while no approval decision is recorded about it",
+      "effect": "write",
+      "executor": {
+        "bound": true,
+        "kind": "person",
+        "producer": "{principal}",
+        "results": {
+          "0": "approved",
+          "6": "rejected"
+        }
+      },
+      "name": "vision.approve",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:vision.decided",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "vision_approval"
+      ],
+      "step": 2,
+      "waits_for": [
+        "context.approve",
+        "context.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "write the vision with `aep plan artifact new vision`; moves the vision to a new revision; not once the current vision revision is approved, admissible after a rejection",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh vision.write",
+        "retry_when": [
+          "vision_approval"
+        ],
+        "timeout_s": 900
+      },
+      "name": "vision.write",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:vision.approved",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:vision.approved",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 2,
+      "waits_for": [
+        "context.approve",
+        "context.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [
+        "owner.approve"
+      ],
+      "decision_class": {
+        "class": "roadmap",
+        "side": "requester",
+        "type": "approval"
+      },
+      "description": "a person approves or rejects the current roadmap revision, not while a finding is open; decided once per roadmap revision against the current vision revision: only while no approval decision is recorded about it",
+      "effect": "write",
+      "executor": {
+        "bound": true,
+        "kind": "person",
+        "producer": "{principal}",
+        "results": {
+          "0": "approved",
+          "6": "rejected"
+        }
+      },
+      "name": "roadmap.approve",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:vision.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.decided",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "roadmap_approval"
+      ],
+      "step": 3,
+      "waits_for": [
+        "context.check",
+        "roadmap.validate",
+        "vision.approve"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "write the roadmap naming its epics; moves the roadmap to a new revision; not once the current roadmap revision is approved, admissible after a rejection",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh roadmap.write",
+        "retry_when": [
+          "roadmap_approval",
+          "roadmap_validation"
+        ],
+        "timeout_s": 900
+      },
+      "name": "roadmap.write",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:vision.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:roadmap.approved",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:roadmap.approved",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 3,
+      "waits_for": [
+        "context.check",
+        "vision.approve"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "context.yaml: audience, source and target language, platform and operating systems, kind of thing (service, multi-tenant application, CLI, library), deployment and licence, each with its status default, accepted or changed",
+      "name": "context"
+    },
+    {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution",
+      "name": "findings"
+    },
+    {
+      "description": "goals.yaml, the requester's resolved goals document from the root case (sdc.goals/1), read by the writers; an input only: no claim reads it and no invalidation names it, so a revised goals document makes no record of this case stale",
+      "name": "goals"
+    },
+    {
+      "description": "the interview from sdc.intake, amended by resolved findings",
+      "name": "questions"
+    },
+    {
+      "description": "the requirements list from sdc.intake",
+      "name": "requirements"
+    },
+    {
+      "description": "the roadmap, the outermost planning structure, naming the epics; AEP 0.80.0 has no roadmap kind, so it is an AEP initiative",
+      "name": "roadmap"
+    },
+    {
+      "description": "the vision document, an AEP vision artifact",
+      "name": "vision"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-direction.bindings.json",
+  "check": {
+    "revision": 7,
+    "source": "docs/check-output.txt",
+    "states": 49152
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "the current context revision is approved",
+      "name": "context.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:context_approval",
+          "suffix": "about context",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "a context check is recorded about the current context revision, against the current requirements list, whatever its result",
+      "name": "context.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:context_defaults",
+          "suffix": "about context",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "an approval decision is recorded about the current context revision, whatever its result",
+      "name": "context.decided",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:context_approval",
+          "suffix": "about context",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current context is valid, derived from the current requirements list",
+      "name": "context.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:context_defaults",
+          "suffix": "about context",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "the current roadmap revision is approved, against the current vision revision",
+      "name": "roadmap.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_approval",
+          "suffix": "about roadmap",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "a validation is recorded about the current roadmap revision, whatever its result",
+      "name": "roadmap.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_validation",
+          "suffix": "about roadmap",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "an approval decision is recorded about the current roadmap revision, against the current vision revision, whatever its result",
+      "name": "roadmap.decided",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_approval",
+          "suffix": "about roadmap",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current roadmap validates in the planning store",
+      "name": "roadmap.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_validation",
+          "suffix": "about roadmap",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "the current vision revision is approved",
+      "name": "vision.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:vision_approval",
+          "suffix": "about vision",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "an approval decision is recorded about the current vision revision, whatever its result",
+      "name": "vision.decided",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:vision_approval",
+          "suffix": "about vision",
+          "text": "any evidence:"
+        }
+      ]
+    }
+  ],
+  "description": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every project context default (audience, source and target language, platform and operating systems, kind of thing, deployment and licence) is recorded as an assumption and checked; the context, the vision and the roadmap are each approved by a person. An approval is a record bound to the revision it decided, approved or rejected, produced only by an action that needs the authority owner.approve, once per revision; after a rejection the artifact's writer is admissible and its new revision is checked and approved again. A revised requirements list invalidates the context check; a revised vision invalidates the roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or specifications happens before that. Late findings (docs/trial-2.md, \"The late-finding loop\"): the context check also runs the consistency rules of the context against the requirements list and reads the open findings, and is not valid while one is open; no vision or roadmap is written or approved then. amend.upstream resolves an open finding by amending the questions and the requirements list, which moves the requirements to a new revision, so the context check is observed again.",
+  "evidence": [
+    {
+      "description": "a person's decision on a context revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to the writer)",
+      "name": "context_approval",
+      "produced_by": [
+        "context.approve"
+      ]
+    },
+    {
+      "description": "the context check: schema-valid, every field present and recorded as an assumption with its status, no consistency rule firing between the context and the requirements list, and no open finding; its result is valid, invalid or finding",
+      "name": "context_defaults",
+      "produced_by": [
+        "context.check"
+      ]
+    },
+    {
+      "description": "a person's decision on a roadmap revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to the writer)",
+      "name": "roadmap_approval",
+      "produced_by": [
+        "roadmap.approve"
+      ]
+    },
+    {
+      "description": "the result of `aep plan artifact validate` over the store holding the vision and the roadmap, valid or invalid",
+      "name": "roadmap_validation",
+      "produced_by": [
+        "roadmap.validate"
+      ]
+    },
+    {
+      "description": "a person's decision on a vision revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to the writer)",
+      "name": "vision_approval",
+      "produced_by": [
+        "vision.approve"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:context.approve",
+        "kind": "produces",
+        "to": "evidence:context_approval"
+      },
+      {
+        "from": "action:context.check",
+        "kind": "produces",
+        "to": "evidence:context_defaults"
+      },
+      {
+        "from": "action:roadmap.approve",
+        "kind": "produces",
+        "to": "evidence:roadmap_approval"
+      },
+      {
+        "from": "action:roadmap.validate",
+        "kind": "produces",
+        "to": "evidence:roadmap_validation"
+      },
+      {
+        "from": "action:vision.approve",
+        "kind": "produces",
+        "to": "evidence:vision_approval"
+      },
+      {
+        "from": "claim:context.approved",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:context.default"
+      },
+      {
+        "from": "claim:context.approved",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:context.default"
+      },
+      {
+        "from": "claim:context.approved",
+        "kind": "gates",
+        "to": "action:vision.approve"
+      },
+      {
+        "from": "claim:context.approved",
+        "kind": "gates",
+        "to": "action:vision.write"
+      },
+      {
+        "from": "claim:context.approved",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:context.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:context.check"
+      },
+      {
+        "from": "claim:context.decided",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:context.approve"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:amend.upstream"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "to": "action:context.approve"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:context.default"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:context.default"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "to": "action:roadmap.approve"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "to": "action:roadmap.write"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "to": "action:vision.approve"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "gates",
+        "to": "action:vision.write"
+      },
+      {
+        "from": "claim:context.valid",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:roadmap.write"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:roadmap.write"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:roadmap.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:roadmap.validate"
+      },
+      {
+        "from": "claim:roadmap.decided",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:roadmap.approve"
+      },
+      {
+        "from": "claim:roadmap.valid",
+        "kind": "gates",
+        "to": "action:roadmap.approve"
+      },
+      {
+        "from": "claim:roadmap.valid",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:vision.approved",
+        "kind": "gates",
+        "to": "action:roadmap.approve"
+      },
+      {
+        "from": "claim:vision.approved",
+        "kind": "gates",
+        "to": "action:roadmap.write"
+      },
+      {
+        "from": "claim:vision.approved",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:vision.write"
+      },
+      {
+        "from": "claim:vision.approved",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:vision.write"
+      },
+      {
+        "from": "claim:vision.approved",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:vision.decided",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:vision.approve"
+      },
+      {
+        "from": "evidence:context_approval",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:context.approved"
+      },
+      {
+        "from": "evidence:context_approval",
+        "kind": "establishes",
+        "to": "claim:context.decided"
+      },
+      {
+        "from": "evidence:context_defaults",
+        "kind": "establishes",
+        "to": "claim:context.checked"
+      },
+      {
+        "from": "evidence:context_defaults",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:context.valid"
+      },
+      {
+        "from": "evidence:roadmap_approval",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:roadmap.approved"
+      },
+      {
+        "from": "evidence:roadmap_approval",
+        "kind": "establishes",
+        "to": "claim:roadmap.decided"
+      },
+      {
+        "from": "evidence:roadmap_validation",
+        "kind": "establishes",
+        "to": "claim:roadmap.checked"
+      },
+      {
+        "from": "evidence:roadmap_validation",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:roadmap.valid"
+      },
+      {
+        "from": "evidence:vision_approval",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:vision.approved"
+      },
+      {
+        "from": "evidence:vision_approval",
+        "kind": "establishes",
+        "to": "claim:vision.decided"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:amend.upstream",
+        "kind": "action",
+        "name": "amend.upstream"
+      },
+      {
+        "id": "action:context.approve",
+        "kind": "action",
+        "name": "context.approve"
+      },
+      {
+        "id": "action:context.change",
+        "kind": "action",
+        "name": "context.change"
+      },
+      {
+        "id": "action:context.check",
+        "kind": "action",
+        "name": "context.check"
+      },
+      {
+        "id": "action:context.default",
+        "kind": "action",
+        "name": "context.default"
+      },
+      {
+        "id": "action:roadmap.approve",
+        "kind": "action",
+        "name": "roadmap.approve"
+      },
+      {
+        "id": "action:roadmap.validate",
+        "kind": "action",
+        "name": "roadmap.validate"
+      },
+      {
+        "id": "action:roadmap.write",
+        "kind": "action",
+        "name": "roadmap.write"
+      },
+      {
+        "id": "action:vision.approve",
+        "kind": "action",
+        "name": "vision.approve"
+      },
+      {
+        "id": "action:vision.write",
+        "kind": "action",
+        "name": "vision.write"
+      },
+      {
+        "id": "evidence:context_approval",
+        "kind": "evidence",
+        "name": "context_approval"
+      },
+      {
+        "id": "evidence:context_defaults",
+        "kind": "evidence",
+        "name": "context_defaults"
+      },
+      {
+        "id": "evidence:roadmap_approval",
+        "kind": "evidence",
+        "name": "roadmap_approval"
+      },
+      {
+        "id": "evidence:roadmap_validation",
+        "kind": "evidence",
+        "name": "roadmap_validation"
+      },
+      {
+        "id": "evidence:vision_approval",
+        "kind": "evidence",
+        "name": "vision_approval"
+      },
+      {
+        "id": "claim:context.approved",
+        "kind": "claim",
+        "name": "context.approved"
+      },
+      {
+        "id": "claim:context.checked",
+        "kind": "claim",
+        "name": "context.checked"
+      },
+      {
+        "id": "claim:context.decided",
+        "kind": "claim",
+        "name": "context.decided"
+      },
+      {
+        "id": "claim:context.valid",
+        "kind": "claim",
+        "name": "context.valid"
+      },
+      {
+        "id": "claim:roadmap.approved",
+        "kind": "claim",
+        "name": "roadmap.approved"
+      },
+      {
+        "id": "claim:roadmap.checked",
+        "kind": "claim",
+        "name": "roadmap.checked"
+      },
+      {
+        "id": "claim:roadmap.decided",
+        "kind": "claim",
+        "name": "roadmap.decided"
+      },
+      {
+        "id": "claim:roadmap.valid",
+        "kind": "claim",
+        "name": "roadmap.valid"
+      },
+      {
+        "id": "claim:vision.approved",
+        "kind": "claim",
+        "name": "vision.approved"
+      },
+      {
+        "id": "claim:vision.decided",
+        "kind": "claim",
+        "name": "vision.decided"
+      },
+      {
+        "id": "outcome:passed",
+        "kind": "outcome",
+        "name": "passed"
+      }
+    ]
+  },
+  "id": "sdc.direction",
+  "invalidation": [
+    {
+      "description": "a context check observed against an earlier requirements list no longer applies",
+      "name": "requirements.revised"
+    },
+    {
+      "description": "a roadmap approval given against an earlier vision revision no longer applies",
+      "name": "vision.revised"
+    }
+  ],
+  "obligations": [
+    {
+      "description": "the context is valid and approved",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.approved",
+          "text": "claim"
+        }
+      ],
+      "name": "context.required"
+    },
+    {
+      "description": "the roadmap is valid and approved",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        }
+      ],
+      "name": "roadmap.required"
+    },
+    {
+      "description": "the vision is approved",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:vision.approved",
+          "text": "claim"
+        }
+      ],
+      "name": "vision.required"
+    }
+  ],
+  "outcomes": [
+    {
+      "description": "the context, the vision and the roadmap are valid and approved",
+      "name": "passed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:context.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:vision.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        }
+      ]
+    }
+  ],
+  "parents": [
+    {
+      "action": "direction.open",
+      "protocol": "sdc",
+      "stem": "sdc"
+    }
+  ],
+  "revision": 7,
+  "simulate": {
+    "by_outcome": {
+      "passed": 1
+    },
+    "canon": "2c7a1ea6",
+    "findings": 10,
+    "reachable": 41,
+    "revision": 7,
+    "source": "protocol/simulate/sdc-direction.txt",
+    "stuck_or_cycle": 14,
+    "terminable": 1
+  },
+  "source": {
+    "path": "protocol/sdc-direction.protocol.yaml",
+    "tag": "0.1.3",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.3/protocol/sdc-direction.protocol.yaml"
+  },
+  "stem": "sdc-direction",
+  "summary": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6).",
+  "written_by": "sdc-protocol-site write"
+}

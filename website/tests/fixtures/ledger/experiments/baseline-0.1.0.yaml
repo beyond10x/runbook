@@ -1,0 +1,105 @@
+format: sdc.experiment/1
+id: baseline-0.1.0
+kind: prospective
+status: complete
+created: 2026-11-21
+title: Baseline of release 0.1.0 on main 4468bfd, the to-do idea in three model settings
+purpose: Baseline of release 0.1.0; first runs on the hermetic decider with explicit efforts.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: 4468bfd60e9665c17d57d7ffbbc8e7811d2b4a84
+trees:
+- trial/0.1.0 at 4468bfd (main, no commits), worktree sdc-trial-0-1-0; driver, watch and goals built once before the first start, the file-change recorder (watch release build) once at 12:48Z, never rebuilt under a running run
+fixed:
+  decider.kind: haiku
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  review.adapter: claude-cli
+variants:
+- id: strong
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+  runs:
+  - trial-0.1.0-strong-1
+  - trial-0.1.0-strong-2
+  - trial-0.1.0-strong-3
+- id: mixed
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs:
+  - trial-0.1.0-mixed-1
+  - trial-0.1.0-mixed-2
+  - trial-0.1.0-mixed-3
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: claude-haiku-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs:
+  - run: trial-0.1.0-haiku-1
+    note: writer_spent in IDEA-1.list.shared
+  - run: trial-0.1.0-haiku-2
+    note: decision_not_takeable in IDEA-1.list.add
+  - run: trial-0.1.0-haiku-3
+    note: writer_spent in IDEA-1.todo.spec
+runs_per_variant: 3
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: No hypothesis. Three runs per setting describe the release tree; every end counts, no run is repaired or reopened.
+launch:
+  max_parallel: 3
+  stagger_s: 30
+  principal: agent:trial-runner
+known_confounds:
+- key: canon
+  note: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins
+- key: launcher
+  note: the runs were started by a scheduler script that copies the launcher's environment (env -i, the record's settings, no SDC_LLM_EFFORT variable, so the default efforts), not by sdc-experiment run, so they have no experiment.json; the first scheduler counted its own unit and ran two runs at once until 12:48Z
+- key: recorder
+  note: trial-0.1.0-strong-1 and trial-0.1.0-mixed-1 waited about 2 minutes for the pool before their first event (the recorder's release build); the wall times in the report start at the first event and do not contain it
+facts:
+- All six Sonnet runs (strong and mixed, 3 each) closed operating by rule:autopilot, exit 0, with no stop record, reopen, forced or unstuck step; replay matched in every one and no run waited on a person.
+- 'All three all-Haiku runs stopped: trial-0.1.0-haiku-1 writer_spent in IDEA-1.list.shared (three implement runs sent back by a gate finding about the Postgres store of an accepted default, a review rejection and a gate finding about an ambiguous title edit); trial-0.1.0-haiku-2 decision_not_takeable in IDEA-1.list.add (the decider''s amendment made context.deployment and context.platform contradict r6); trial-0.1.0-haiku-3 writer_spent in IDEA-1.todo.spec (four spec.author runs refused by spec.validate for a missing format version the feedback named).'
+- change.review ran on claude-cli with a response schema in every run, and the review rejected at least once in five of the six Sonnet runs; merge.approve rejected once in trial-0.1.0-mixed-2 and once in trial-0.1.0-haiku-1, both reworked and approved.
+- Cost counts llm-calls.jsonl plus every decisions.jsonl line, suppressed escalations included; sdc-run-compare of this tree leaves the suppressed lines out.
+links:
+- 'experiments/trial-3-main-2.yaml: the runs of the tree before 0.1.0'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 3
+    ended: 3
+    id: strong
+    listed: 3
+    without_summary: []
+  - clean_passes: 3
+    ended: 3
+    id: mixed
+    listed: 3
+    without_summary: []
+  - clean_passes: 0
+    ended: 3
+    id: haiku
+    listed: 3
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

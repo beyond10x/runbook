@@ -1,0 +1,9 @@
+{
+  "stories": [
+    {
+      "name": "invoices",
+      "title": "Invoices",
+      "summary": "covers billing.email.SendEmail billing.invoice.CancelInvoice billing.invoice.CreateInvoice billing.invoice.IssueInvoice billing.invoice.PayInvoice"
+    }
+  ]
+}

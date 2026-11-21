@@ -118,7 +118,7 @@ taking a strong default is not in `autonomy-levels.md`; it is kept as a person-f
 can only take the recommendation. `TakeRecommendation` takes only a strong recommendation, for
 every principal kind; a person who wants a weak or moderate one chooses its option through
 `Decide`. Today `run-trial.sh` sends every class to one decider
-(`autonomy-levels.md:448-450`): A0 is `SDC_DECIDER=person`, A5 is `SDC_DECIDER=haiku
+(`autonomy-levels.md:448-450`): A0 is `SDC_DECIDER=person`, A5 is `SDC_DECIDER=model
 SDC_DECIDER_ESCALATE=final`, and A1 to A4 need per-class routing that is not built.
 
 ## The grounding rule
@@ -223,7 +223,7 @@ still ids, not `evidence_record` grounds.
   decision it follows the order of "What a decided request produces" below.
 - **Decider** (`SDC_DECIDER`, `run-trial.sh:20-33`). `person` is holder P. `approve` and `reject`
   are rule deciders: they `Decide` the approving or refusing option where the holder allows a
-  decider. `haiku` gets the subject, the requirements and only the claims the decision turns on
+  decider. `model` (formerly `haiku`) gets the subject, the requirements and only the claims the decision turns on
   (`decider.sh:119-133`), and returns an option, reasons and cites; the driver turns cites into
   grounds and runs the grounding check. Under P+ the result becomes the recommendation only;
   under R∧D the decider takes the rule's verdict through `TakeRecommendation` or vetoes it
@@ -275,7 +275,7 @@ Canon record and records it. For an option that produces no record ("leave it un
 a Decided request does not revoke the Canon record it produced.
 
 Canon records the principal as given and resolves no identity (`authority-revision-binding.md:57`).
-A decision by `decider:haiku` is judgement-decided evidence in the sense of story:judgement-marking
+A decision by `decider:model` (`decider:haiku` before D149) is judgement-decided evidence in the sense of story:judgement-marking
 (`judgement-marking.md:52`).
 
 ## Ownership

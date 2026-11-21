@@ -100,7 +100,8 @@ test('the settings record says who holds a decision, in place of "not recorded"'
   expect(at(settings('haiku', 'claude-haiku-5-5')).note).toMatch(/run-settings\.jsonl, escalate stop/);
   expect(at(settings('approve'))).toMatchObject({who: 'rule', label: 'Rule (approve)'});
   expect(at(settings('person'))).toMatchObject({who: 'person', label: 'You (operator)'});
-  for (const k of ['haiku', 'approve', 'person']) expect(at(settings(k)).note).not.toMatch(/not recorded/);
+  expect(at(settings('model', 'claude-opus-5-5'))).toMatchObject({who: 'decider', label: 'Decider claude-opus-5-5'});
+  for (const k of ['model', 'haiku', 'approve', 'person']) expect(at(settings(k)).note).not.toMatch(/not recorded/);
   // a decider holds it: no Decide control, the head names the decider
   const html = renderNow(nowState([waiting], noDriver, {decisions: [], settings: settings('haiku', 'claude-haiku-5-5')}, 5000), 5000);
   expect(html).toContain('Held by the decider: it decides when the run continues');
@@ -132,6 +133,8 @@ test('a stopped run: said in the past tense, no Decide control, the KPI clock en
 test('who a principal is: a person only for a person principal', () => {
   expect(principalOf('person:anna')).toMatchObject({kind: 'person', label: 'anna', person: true});
   expect(principalOf('decider:haiku', {model: 'claude-haiku-5-5'})).toMatchObject({kind: 'decider', label: 'decider claude-haiku-5-5, on the operator’s behalf', person: false});
+  // D149: decider:model is the LLM decider whatever its model; decider:haiku its old name (runs before D149)
+  expect(principalOf('decider:model', {model: 'claude-opus-5-5'})).toMatchObject({kind: 'decider', label: 'decider claude-opus-5-5, on the operator’s behalf', person: false});
   expect(principalOf('decider:approve')).toMatchObject({kind: 'rule', label: 'rule approve', person: false});
   expect(principalOf('rule:auto-approve')).toMatchObject({kind: 'rule', label: 'rule auto-approve', person: false});
   expect(principalOf('human')).toMatchObject({kind: 'legacy', label: 'recorded as human (principal not recorded)', person: false});

@@ -1,0 +1,50 @@
+---
+title: The flow
+description: The main flow of the SDC and its child cases, drawn from the protocols.
+hide_table_of_contents: true
+---
+
+import CycleFlow, {ActionFlow} from '@site/src/components/CycleFlow';
+
+# The flow
+
+One idea is one root case of the protocol `sdc`. The root case holds no work of its own: it opens
+child cases, each worked by another party, and ends once its children ended. No case stores a phase;
+where a case stands is what its evidence makes true, and Canon lists at every moment the open
+obligations (what is missing) and the admissible actions (what is next)
+([`docs/protocol-notes.md:18-20`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/protocol-notes.md#L18-L20)).
+
+The diagram below is drawn from the generated protocol data: a box for every protocol a
+`case_open` action names, in the order those actions can be taken. Each box links to the protocol in
+the [browser](pathname:///sdc/protocols), where its actions, records and outcomes are listed.
+
+<CycleFlow />
+
+## Reading it
+
+- **intake** splits the idea into typed items, asks a question with a default answer for each open
+  item and normalises the answers into a requirements list.
+- **direction** sets the project context defaults, writes the vision and the roadmap; each is
+  approved before the next is written, and no specification is written before the roadmap is
+  approved.
+- **epic** runs once per roadmap epic. It opens the specification, the plan, one story case per AEP
+  story, then the release, each once every earlier child ended passed.
+- **spec** is complete when the ESS gate passes at the current specification revision: validate,
+  compile, conformance synthesis with no refusal and no open-question marker
+  ([`docs/phases.md:34-35`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/phases.md#L34-L35)).
+- **story** implements, tests against the specification's conformance suite, is reviewed and
+  merged; **release** builds, runs the acceptance suite, publishes after an approval and observes.
+
+Every child reports `passed` when it succeeds. A child that ends otherwise ends its parent without a
+person: the root ends `refused` (the intake failed) or `not_delivered` (any later child), the epic
+`not_delivered` or `not_released`. These are the descriptions of the protocols themselves; open a
+box to read them.
+
+## One bug fix
+
+`sdc.bugfix` is its own small flow: dissect the report, write a reproducing test that is red, fix,
+run the tests, update the story, run the gate
+([`docs/releases/0.1.0.md:13`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/releases/0.1.0.md#L13)). No protocol opens it
+yet; a run starts it with `scripts/run-trial.sh <run> --bugfix <seed dir>`.
+
+<ActionFlow id="sdc.bugfix" />
