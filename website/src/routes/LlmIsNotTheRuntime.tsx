@@ -18,7 +18,7 @@ interface Props {
 }
 
 const CANON = 'https://github.com/beyond10x/canon/blob/8f1f4527439b813f4c0c0159c8b4ea7cd4131994';
-const SDC = 'https://github.com/beyond10x/sdc/blob/0.1.1';
+const SDC = 'https://github.com/beyond10x/runbook/blob/0.1.1';
 
 function Cite({base, path, lines, label}: {base: string; path: string; lines: string; label: string}): ReactNode {
   const [a, b] = lines.split('-');

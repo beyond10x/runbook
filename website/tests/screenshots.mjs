@@ -3,7 +3,7 @@ import {chromium} from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const base = process.argv[2] ?? 'http://127.0.0.1:7493/sdc/';
+const base = process.argv[2] ?? 'http://127.0.0.1:7493/runbook/';
 const out = process.argv[3] ?? 'screenshots';
 fs.mkdirSync(out, {recursive: true});
 const pages = [

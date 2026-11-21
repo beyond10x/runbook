@@ -23,7 +23,7 @@ scope:
   path: protocol
 - confidence: inferred
   path: watch
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T02:25:43Z", actor: "human:timo", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 - {from: "proposed", to: "active", at: "2026-11-21T19:30:31Z", actor: "human:operator", revision: 8, executor: "agent:rename-stage-1", correlation: "rename-runbook-stage-1"}
@@ -90,3 +90,11 @@ or the chart components) and `ui/`.
 ## Ambiguities
 
 - Refuse old ids or read them for one version (stage 2): requires-stakeholder-input (the operator).
+
+## Stage 3 note
+
+Branch `rename/runbook-repository` (based on `rename/runbook-stage-1`) makes the tree correct for
+`beyond10x/runbook`: the site base `/runbook/`, the Pages workflow inputs, every written
+`beyond10x/sdc` address outside history, the protocol-site generator and its generated data. The
+repository rename itself, the Gates enrolment and the local checkout folder are done outside the
+tree at release time.

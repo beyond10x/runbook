@@ -1086,7 +1086,7 @@
   "source": {
     "path": "protocol/sdc-epic.protocol.yaml",
     "tag": "0.1.5",
-    "url": "https://github.com/beyond10x/sdc/blob/0.1.5/protocol/sdc-epic.protocol.yaml"
+    "url": "https://github.com/beyond10x/runbook/blob/0.1.5/protocol/sdc-epic.protocol.yaml"
   },
   "stem": "sdc-epic",
   "summary": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10).",

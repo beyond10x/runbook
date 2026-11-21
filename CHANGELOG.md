@@ -16,9 +16,13 @@ The crates are `publish = false`; releases are source releases at bare-version t
   inspector (page title, header, `ui/README.md`). The software delivery cycle keeps the name SDC
   and is the first runbook; its protocols, trials and measurements still say SDC.
 - Not renamed yet: crate, binary and file names (`sdc-drive` and the others), `SDC_*` environment
-  names, `sdc.*` format and protocol ids (stage 2, with one `runbook` command and release binaries),
-  and the repository `beyond10x/sdc`, the site base `/sdc/` and their URLs (stage 3, last). The
-  evaluation page and its charts, release notes, trial notes and experiment records are unchanged.
+  names, `sdc.*` format and protocol ids (stage 2, with one `runbook` command and release binaries).
+  The evaluation page and its charts, release notes, trial notes and experiment records are unchanged.
+- The repository is `beyond10x/runbook` (was `beyond10x/sdc`) and the documentation site is at
+  https://beyond10x.github.io/runbook/ (was `/sdc/`; stage 3 of `story:project-rename`). The old git
+  and web addresses of the repository redirect; the old site address does not, so a link to
+  `https://beyond10x.github.io/sdc/` no longer opens the site. Written addresses in the site, the
+  documentation, `AGENTS.md`, the Pages workflow and the protocol-site generator follow the new name.
 
 ## [0.1.5] - 2026-11-21
 

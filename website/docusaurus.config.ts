@@ -14,10 +14,10 @@ const config: Config = {
   future: {v4: true},
 
   url: 'https://beyond10x.github.io',
-  baseUrl: '/sdc/',
+  baseUrl: '/runbook/',
 
   organizationName: 'beyond10x',
-  projectName: 'sdc',
+  projectName: 'runbook',
   deploymentBranch: 'gh-pages',
   trailingSlash: false,
 
@@ -40,7 +40,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           routeBasePath: 'docs',
-          editUrl: 'https://github.com/beyond10x/sdc/tree/main/website/',
+          editUrl: 'https://github.com/beyond10x/runbook/tree/main/website/',
         },
         blog: false,
         theme: {customCss: './src/css/custom.css'},
@@ -62,7 +62,7 @@ const config: Config = {
         {to: '/protocols', label: 'Protocols', position: 'left', activeBaseRegex: '/protocols'},
         {to: '/evaluation', label: 'Evaluation', position: 'left', activeBaseRegex: '/evaluation'},
         {to: '/docs/run-it', label: 'Run it', position: 'left', activeBaseRegex: '/docs/run-it'},
-        {href: 'https://github.com/beyond10x/sdc', position: 'right', className: 'sdc-navbar-github', 'aria-label': 'GitHub repository'},
+        {href: 'https://github.com/beyond10x/runbook', position: 'right', className: 'sdc-navbar-github', 'aria-label': 'GitHub repository'},
       ],
     },
     footer: {
@@ -83,8 +83,8 @@ const config: Config = {
         {
           title: 'Project',
           items: [
-            {label: 'Source', href: 'https://github.com/beyond10x/sdc'},
-            {label: 'Changelog', href: 'https://github.com/beyond10x/sdc/blob/main/CHANGELOG.md'},
+            {label: 'Source', href: 'https://github.com/beyond10x/runbook'},
+            {label: 'Changelog', href: 'https://github.com/beyond10x/runbook/blob/main/CHANGELOG.md'},
           ],
         },
       ],
