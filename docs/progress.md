@@ -16,6 +16,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
 | [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - |
+| [0.1.2](#012) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -226,6 +227,28 @@ Tested by: no experiment yet. No run used this tree, so there is no figure for i
 Limits of this measurement:
 
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+
+## 0.1.2
+
+Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-10 merges below, on top of 0.1.1 (d79975d).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `66e5935` | corrections to 0.1.0: the decider costs of trial 3 (haiku-7 1.03 USD, not 1.00) | no run metric affected |
+| `8a96b50` | recorded replay re-drives a recorded run with its recorded model replies (sdc-replay) | no run metric affected |
+| `f717443` | a re-driven run has run.unstick off unless the source called it | no run metric affected |
+| `9e0492f` | sdc-run-timeline, the timeline of one run | no run metric affected |
+| `1109656` | the root protocol's description says software delivery cycle; no rule changed | no run metric affected |
+| `20fa990` | the LLM decider is decider:model (D149); one rework cap, recorded in run-settings and read by driver and rework prompt (D184) | not measured: no experiment has tested this change |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- A check of the delivered product against its specification is in work and not in this release.
 
 ## Experiments in no entry
 

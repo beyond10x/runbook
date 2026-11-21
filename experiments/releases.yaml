@@ -231,3 +231,34 @@ entries:
     effect: unmeasured
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
+- id: 0.1.2
+  kind: release
+  version: 0.1.2
+  label: 0.1.2
+  short: replay, timeline, rework cap
+  date: 2026-11-21
+  tree: null
+  tree_note: not tagged yet; prepared on main after the batch-10 merges below, on top of 0.1.1 (d79975d)
+  experiments: []
+  changes:
+  - commit: 66e5935
+    line: 'corrections to 0.1.0: the decider costs of trial 3 (haiku-7 1.03 USD, not 1.00)'
+    effect: none
+  - commit: 8a96b50
+    line: recorded replay re-drives a recorded run with its recorded model replies (sdc-replay)
+    effect: none
+  - commit: f717443
+    line: a re-driven run has run.unstick off unless the source called it
+    effect: none
+  - commit: 9e0492f
+    line: sdc-run-timeline, the timeline of one run
+    effect: none
+  - commit: 1109656
+    line: the root protocol's description says software delivery cycle; no rule changed
+    effect: none
+  - commit: 20fa990
+    line: 'the LLM decider is decider:model (D149); one rework cap, recorded in run-settings and read by driver and rework prompt (D184)'
+    effect: unmeasured
+  limits:
+  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
+  - A check of the delivered product against its specification is in work and not in this release.

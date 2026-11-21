@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "sdc-watch"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "clap",
  "inotify",
