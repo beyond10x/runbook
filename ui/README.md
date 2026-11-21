@@ -240,7 +240,8 @@ task ux:update          # take improvements into the baseline (DECISION=D-nnn fo
 task ux:round ROUND=R-02   # measure a round: ux/rounds/R-02/{report.md,round.json,shots/} and trend.md
 ```
 
-Ports 7510 to 7513 (`SDC_UI_UX_PORT`). Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
+Each viewport's server takes a free port and names it in its first line, so two loops on one
+machine do not collide; `SDC_UI_UX_PORT` pins the ports instead. Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
 a regression asset that exists (`ux/specs/findings.spec.mjs`). Round R-01: `ux/rounds/R-01/`
 (report, the two reviews, triage, decision).
 A baseline key may carry its own `tolerance` (decision D-003: the wall-clock sampled metrics of the

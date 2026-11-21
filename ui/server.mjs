@@ -674,7 +674,9 @@ tick();
 if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
 else setInterval(tick, 700);
 setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 15000);
+// --port 0 takes a free port; the line below names the one taken (the ux loop reads it)
+server.on('error', (e) => { console.error(`sdc-ui: cannot listen on ${host}:${port}: ${e.code || e.message}`); process.exit(1); });
 server.listen(port, host, () => {
-  console.log(`sdc-ui on http://${host}:${port}/`);
+  console.log(`sdc-ui on http://${host}:${server.address().port}/`);
   for (const s of sources) console.log(`  source ${s.index}: ${s.path}${fs.existsSync(s.path) ? '' : ' (waiting for it to appear)'}`);
 });
