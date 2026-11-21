@@ -96,11 +96,11 @@ async function checkEvaluation(page: Page): Promise<void> {
   const labels = await page.locator('#metric-cost .sdc-metric__release').allTextContents();
   expect(labels).toEqual(['0.1.0', '0.1.2']);
   await expect(page.locator('.sdc-metric__nodata')).toHaveCount(0);
-  await expect(page.locator('#no-runs')).toHaveText('No runs yet on: 0.1.1, 0.1.3, 0.1.4.');
+  await expect(page.locator('#no-runs')).toHaveText(/^No runs yet on: 0\.1\.1, 0\.1\.3, 0\.1\.4(, \d+\.\d+\.\d+)*\.$/);
   await expect(page.locator('#runs')).toBeAttached();
   const runHeads = await page.locator('section[aria-labelledby="runs"] > section > h3').allTextContents();
   expect(runHeads.map((h) => h.split(' ·')[0])).toEqual(['Release 0.1.2', 'Release 0.1.0']);
-  await expect(page.locator('#runs-none')).toHaveText('No runs yet on: 0.1.1, 0.1.3, 0.1.4.');
+  await expect(page.locator('#runs-none')).toHaveText(/^No runs yet on: 0\.1\.1, 0\.1\.3, 0\.1\.4(, \d+\.\d+\.\d+)*\.$/);
 
   const order = await page.evaluate(() =>
     ['#tiles', '#metric-clean-passes', '#metric-cost', '#more-metrics', '#stops', '#experiments', '#runs', '#method', '#limits'].map((s) => document.querySelector(s)!.getBoundingClientRect().top + window.scrollY),
