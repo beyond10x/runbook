@@ -62,6 +62,7 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `06-approval-once/{context,roadmap}/rechecked` | sdc.direction | as revised with the check valid at revision 2: approve admissible again |
 | `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
 | `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
+| `08-intake-idea-refused` | sdc.intake | idea record invalid: no action revises the idea, outcome `refused` legitimate |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -154,6 +155,15 @@ for this section; c is fixed by the approval rule above.
   expected (`plan_validation` invalid, `stories_scoped` unassessed, `story_states` draft).
   `amend.upstream` stays bound to an open finding (coverage `false`). Case:
   `07-plan-check-failed` (covered, validation invalid: `plan.decompose` admissible).
+- **A failed idea check (a2 on `idea`, 18 findings, sdc.intake).** Nothing in an intake case
+  revises the idea: a revised idea opens a new intake case at the root
+  (`protocol/sdc-intake.protocol.yaml:6`). The case now ends `refused` once `idea.shaped` is
+  `false` (`protocol/sdc-intake.protocol.yaml:253-259`; case `08-intake-idea-refused`). Gap at the
+  root: for the idea's next revision `intake.open` is admissible again, but the refused child's
+  `case_outcome` keeps `children.passed` (`protocol/sdc.protocol.yaml:61-65`, `in: [passed]`)
+  `false` for good, also after the new intake case ends `passed` (limitation 4; probed with
+  `canon evaluate` on a root case at i2 holding both child outcomes), so a reopened intake cannot
+  lead to `operating`.
 
 ## Evidence kinds and the action that produces each
 

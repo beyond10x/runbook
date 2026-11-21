@@ -195,6 +195,15 @@
         ],
         "value": "true"
       },
+      "idea.shaped": {
+        "because": [
+          {
+            "evidence": "s1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "interview.checked": {
         "because": [
           {
@@ -287,7 +296,7 @@
         "s1"
       ],
       "protocol": "sdc.intake",
-      "protocol_revision": 8,
+      "protocol_revision": 9,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -347,6 +356,15 @@
           }
         ],
         "status": "blocked"
+      },
+      "refused": {
+        "because": [
+          {
+            "claim": "idea.shaped",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
       }
     }
   },
@@ -390,8 +408,17 @@
         }
       ],
       "status": "blocked"
+    },
+    "refused": {
+      "reasons": [
+        {
+          "claim": "idea.shaped",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     }
   },
   "protocol": "sdc.intake",
-  "protocol_revision": 8
+  "protocol_revision": 9
 }

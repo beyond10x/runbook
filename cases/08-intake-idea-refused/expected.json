@@ -1,0 +1,36 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "dissection.check": "admissible",
+    "idea.check": "blocked",
+    "idea.dissect": "blocked",
+    "questions.answer": "blocked",
+    "questions.check": "admissible",
+    "questions.write": "blocked",
+    "requirements.check": "admissible",
+    "requirements.normalise": "blocked",
+    "scope.answer": "blocked"
+  },
+  "claims": {
+    "dissection.checked": "unknown",
+    "dissection.valid": "unknown",
+    "idea.checked": "true",
+    "idea.shaped": "false",
+    "interview.checked": "unknown",
+    "questions.checked": "unknown",
+    "questions.settled": "unknown",
+    "questions.shaped": "unknown",
+    "requirements.checked": "unknown",
+    "requirements.valid": "unknown"
+  },
+  "obligations": {
+    "dissection.required": "open",
+    "idea.required": "open",
+    "interview.required": "open",
+    "requirements.required": "open"
+  },
+  "outcomes": {
+    "passed": "blocked",
+    "refused": "legitimate"
+  }
+}

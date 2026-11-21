@@ -2,8 +2,8 @@ valid: protocol `sdc.direction` revision 7
 checked: protocol `sdc.direction` revision 7: 49152 states, 0 properties, 0 findings
 valid: protocol `sdc.epic` revision 3
 checked: protocol `sdc.epic` revision 3: 36864 states, 0 properties, 0 findings
-valid: protocol `sdc.intake` revision 8
-checked: protocol `sdc.intake` revision 8: 49152 states, 0 properties, 0 findings
+valid: protocol `sdc.intake` revision 9
+checked: protocol `sdc.intake` revision 9: 49152 states, 0 properties, 0 findings
 valid: protocol `sdc.plan` revision 7
 checked: protocol `sdc.plan` revision 7: 65536 states, 0 properties, 0 findings
 valid: protocol `sdc` revision 6
