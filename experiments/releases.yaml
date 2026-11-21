@@ -239,7 +239,8 @@ entries:
   date: 2026-11-21
   tree: 72a3eefb20e0edff50dc8ad12fcf561f8e0790e3
   tree_note: 'tag 0.1.2 at main 72a3eef: 0.1.1 (d79975d) with the batch-10 merges below and its preparation'
-  experiments: []
+  experiments:
+  - release-0.1.2
   changes:
   - commit: 66e5935
     line: 'corrections to 0.1.0: the decider costs of trial 3 (haiku-7 1.03 USD, not 1.00)'
@@ -260,7 +261,6 @@ entries:
     line: 'the LLM decider is decider:model (D149); one rework cap, recorded in run-settings and read by driver and rework prompt (D184)'
     effect: unmeasured
   limits:
-  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
   - A check of the delivered product against its specification is in work and not in this release.
 - id: 0.1.3
   kind: release
