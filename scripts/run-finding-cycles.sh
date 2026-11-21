@@ -101,7 +101,7 @@ if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(dec
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
   expected+=(decider-rework rework-spent-dropped rework-not-called rework-pending-rejection review-no-rework-prompt)
 expected+=(decider-later-obligation replay-sibling writer-not-called decider-release-withheld)
-expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3)
+expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 gate-failed-late gate-crashed-late)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -974,6 +974,42 @@ else
   echo "autopilot-close-a3: FAILED (exit $code)"
 fi
 targs=(--autopilot)
+# gate-failed-late (D166, route R10): an `ess` first on PATH that, for the plan case's spec.gate
+# only, refuses the specification (exit 1). Passes when the plan case ends gate_failed by rule (no
+# decision), the epic and the root not_delivered, the root closed by rule:autopilot, replay
+# matches. gate-crashed-late: the same `ess` killed instead: the gate is a tool error (exit 126),
+# no ess_gate record in the plan case, the run stops (exit 5), nothing closed.
+for mode in refuse crash; do
+  gb=$s/bin-gate-$mode; mkdir -p "$gb"
+  if [[ $mode == refuse ]]; then act='echo "spec was refused: fixture"; exit 1'; else act='kill -9 $$'; fi
+  printf '#!/usr/bin/env bash\nif [[ ${SDC_ACTION:-} == spec.gate && ${SDC_CASE:-} == *.plan && $1 == specify ]]; then %s; fi\nexec "%s" "$@"\n' \
+    "$act" "$(command -v ess)" > "$gb/ess"
+  chmod +x "$gb/ess"
+done
+trial gate-failed-late PATH="$s/bin-gate-refuse:$PATH"
+code=$?
+r=$s/runs/gate-failed-late
+pc=$(find "$r/store" -type d -name 'IDEA-1.*.plan' | head -n 1)
+if (( code == 0 )) && [[ -n $pc ]] && jq -e '.termination == "gate_failed"' "$pc/case.json" >/dev/null &&
+   jq -e 'length == 0' "$pc/decisions.json" >/dev/null &&
+   jq -e '.termination == "not_delivered"' "$(dirname "$(dirname "$pc")")/case.json" >/dev/null &&
+   jq -e '.outcome == "not_delivered" and .closed_by == "rule:autopilot"' "$r/status.json" >/dev/null &&
+   jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
+  echo "gate-failed-late: checks pass (plan gate failed: plan gate_failed by rule, epic and root not_delivered, closed by rule:autopilot)"
+else
+  echo "gate-failed-late: FAILED (exit $code, plan $(jq -c .termination "$pc/case.json" 2>/dev/null))"
+fi
+trial gate-crashed-late PATH="$s/bin-gate-crash:$PATH"
+code=$?
+r=$s/runs/gate-crashed-late
+pc=$(find "$r/store" -type d -name 'IDEA-1.*.plan' | head -n 1)
+if (( code == 5 )) && [[ -n $pc && ! -f $r/status.json ]] && grep -q 'spec.gate. could not run (exit 126' "$s/gate-crashed-late.txt" &&
+   ! jq -se 'any(.[]; .kind == "ess_gate")' "$pc"/evidence/*.json >/dev/null 2>&1 &&
+   ! jq -e '.termination' "$r/store/IDEA-1/case.json" >/dev/null; then
+  echo "gate-crashed-late: checks pass (ess killed in the plan's gate: tool error 126, no record, the run stops unclosed)"
+else
+  echo "gate-crashed-late: FAILED (exit $code)"
+fi
 # A refused release (docs/driver.md, "A refused release"), on the standalone sdc.release run from
 # the delivered autopilot tree (D150: the cycle opens no release). release.publish's approval is
 # the capability release.approve, with no `rejected` result and no writer. decider-release-a3: at

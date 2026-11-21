@@ -12,9 +12,11 @@ relations:
 scope:
 - confidence: inferred
   path: driver/examples/sdc/sdc-operate.bindings.json
+- confidence: cited
+  path: driver/examples/sdc/sdc-release.bindings.json
 - confidence: inferred
   path: protocol/sdc-operate.protocol.yaml
-revision: 3
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T10:49:03Z", actor: "human:timo", revision: 2, executor: "agent:sdc-delivered", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -52,3 +54,8 @@ A new protocol under `protocol/`, its bindings in `driver/examples/sdc/`, fixtur
 - What the operational agent is (a Loom-run agent, a conductor instance) and what wakes it is not
   decided; the operate loop is endless, so the protocol's outcomes (handed over, withheld) need a
   decision of their own.
+- `release.rollback` is not bound (route R12 of the route audit, `docs/reject-routes.md`; ruling
+  D166): when `release.observe` records `unhealthy`, the standalone `sdc.release` has no action and
+  no legitimate outcome, although its outcome `rolled_back` exists. Binding the rollback is this
+  story's work, since rollback acts on a published release; until then the row stays a known
+  finding of the standalone protocol.

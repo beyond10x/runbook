@@ -1,7 +1,7 @@
 format: protocol/1
 protocol:
   id: sdc.delivery
-  revision: 1
+  revision: 2
   description: >-
     Prove that an epic whose stories are merged is delivered and tested, the last stage of the development cycle: build the merged changes into a release revision with provenance, then run the ESS conformance suite of the current specification revision against it. The ESS gate must pass on the current specification revision. A revised specification invalidates the conformance runs observed against the earlier revision. Delivery is derived from the checks, with no approval: the case ends passed (delivered) once the gate passes and the release is built and accepted, and not_accepted, without a person, once the acceptance run failed on the current release revision (no action of this case reworks the merged changes; the stories did). Publishing, observing and rolling back are sdc.release, which nothing in the cycle opens.
 artifacts:
@@ -111,10 +111,13 @@ outcomes:
         - claim: release.accepted
   not_accepted:
     description: >-
-      the conformance suite failed (or was inconclusive) on the current release revision. Nothing in this case changes the merged changes, so a rebuild gives the same release and the same result; the case ends here, the epic ends not_accepted and the root not_delivered
+      the conformance suite failed (or was inconclusive) on the current release revision. Nothing in this case changes the merged changes, so a rebuild gives the same release and the same result; the case ends here, the epic ends not_accepted and the root not_delivered. Also legitimate when the ESS gate failed on the specification revision the spec case passed (D166, route R10): nothing is built, and the case ends here by rule
     requires:
-      claim: release.accepted
-      is: "false"
+      any:
+        - claim: release.accepted
+          is: "false"
+        - claim: gate.passed
+          is: "false"
   probe.passed_without_gate:
     description: passed while the ESS gate evidence is not TRUE
     requires:

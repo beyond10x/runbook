@@ -2,7 +2,7 @@ format: protocol/1
 
 protocol:
   id: sdc.delivery
-  revision: 1
+  revision: 2
   description: >-
     Prove that an epic whose stories are merged is delivered and tested, the last stage of the
     development cycle: build the merged changes into a release revision with provenance, then run
@@ -126,10 +126,15 @@ outcomes:
     description: >-
       the conformance suite failed (or was inconclusive) on the current release revision. Nothing
       in this case changes the merged changes, so a rebuild gives the same release and the same
-      result; the case ends here, the epic ends not_accepted and the root not_delivered
+      result; the case ends here, the epic ends not_accepted and the root not_delivered. Also
+      legitimate when the ESS gate failed on the specification revision the spec case passed
+      (D166, route R10): nothing is built, and the case ends here by rule
     requires:
-      claim: release.accepted
-      is: "false"
+      any:
+        - claim: release.accepted
+          is: "false"
+        - claim: gate.passed
+          is: "false"
 
 invalidation:
   spec.revised:

@@ -75,6 +75,8 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `12-delivery/accepted/root` | sdc | every child passed: `delivered` legitimate |
 | `12-delivery/failed/{epic,root}` | sdc.epic, sdc | delivery `not_accepted`: epic `not_accepted`; the epic `not_accepted`: root `not_delivered` |
 | `13-rework-spent/{rejected,spent,spent/revised}` | sdc.story | a rejected merge: `change.implement` and `rework.exhaust` admissible; with the `rework_budget` record: `dropped` legitimate, `change.implement` blocked; at a new change revision the record still applies |
+| `14-gate-failed-late/{plan,story,delivery}` | sdc.plan, sdc.story, sdc.delivery | the gate `failed` after the spec stage: no action admissible; `gate_failed`, `dropped`, `not_accepted` legitimate (D166) |
+| `14-gate-failed-late/plan/epic` | sdc.epic | spec passed, plan `gate_failed`: `not_delivered` legitimate |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -249,6 +251,33 @@ ending outcome requires it, and the rework action's precondition excludes it.
   after a failed test would turn the case's `writer_spent` into `awaiting_person` (the driver's
   verdict order).
 
+## A gate that fails after the spec stage ends the case (ruling D166, 2026-11-21)
+
+Route R10 of the route audit, the one real stuck state of the simulate triage
+(`story:sdc-plan-gate-not-passed-has-no-outcome`). `spec.gate` runs once per specification
+revision in sdc.plan, sdc.story and sdc.delivery, and nothing in those cases revises the
+specification: the spec case has ended. A gate that fails on a specification its spec case passed
+is a tool or environment fault, so:
+
+- **The gate program's own failure is a tool error.** `sdc-tool.sh ess-gate` exits 1 only on a
+  verdict about the specification (an `ess` check that ran and refused it, an `UNMAPPED:` mark, a
+  refusal count above 0). A command that did not run to a verdict (exit 126 or more: missing, not
+  executable, killed), an unreadable `spec/` for the scan, or a synthesize run that exits 0 with
+  no refusal count on stdout exits 126: no evidence, the run stops, as `impl-gate` does for
+  unreadable test output.
+- **A recorded `failed` ends the case by rule.** sdc.plan revision 8 gains the outcome
+  `gate_failed` (`gate.passed` `false`); sdc.story revision 9 `dropped` and sdc.delivery revision 2
+  `not_accepted` take `gate.passed` `false` as a second alternative (`any`). No person and no
+  parent's `abandoned` decision: the driver closes the child on its one legitimate outcome, the
+  epic ends `not_delivered` (plan or story) or `not_accepted` (delivery), the root
+  `not_delivered`. The outcomes read existing claims: states unchanged (plan 65,536, story 49,152,
+  delivery 128). `canon simulate` (Canon a1a937e, read-only), findings before and after: plan 17
+  to 16, story 4 to 3, delivery 1 to 0.
+- **Not changed:** sdc.epic's own `spec.gate` (`story:sdc-epic-record-without-unlocking-result`)
+  and the standalone sdc.release, whose `withheld` stays a decision.
+
+Cases `14-gate-failed-late/{plan,plan/epic,story,delivery}`.
+
 ## Every child outcome has a way on in the parent
 
 `children.passed` (`{children: {in: [passed]}}`) is `false` for good once any child ended with
@@ -279,14 +308,15 @@ The outcomes read existing claims, so the state counts do not move (sdc 4608, ep
 | sdc.epic | sdc.spec | `passed` | `plan.open` |
 | sdc.epic | sdc.spec | `abandoned` | ends `not_delivered` |
 | sdc.epic | sdc.plan | `passed` | `stories.open` |
+| sdc.epic | sdc.plan | `gate_failed` (D166) | ends `not_delivered` |
 | sdc.epic | sdc.story | `passed` | `delivery.open` once every story passed |
-| sdc.epic | sdc.story | `dropped` | ends `not_delivered` |
+| sdc.epic | sdc.story | `dropped` (rework spent, or the gate failed) | ends `not_delivered` |
 | sdc.epic | sdc.delivery | `passed` | `passed` (delivered and tested) |
-| sdc.epic | sdc.delivery | `not_accepted` (the acceptance run failed) | ends `not_accepted` |
+| sdc.epic | sdc.delivery | `not_accepted` (the acceptance run or the gate failed) | ends `not_accepted` |
 
 sdc.release has no parent: nothing in the cycle opens it, and its `withheld` and `rolled_back`
-change no cycle outcome. sdc.direction and sdc.plan have no outcome but `passed` (a plan is given up through the epic's
-`abandoned`). Either parent can also end `abandoned` on its explicit decision at any point.
+change no cycle outcome. sdc.direction has no outcome but `passed`, and sdc.plan none but `passed`
+and `gate_failed` (a plan is otherwise given up through the epic's `abandoned`). Either parent can also end `abandoned` on its explicit decision at any point.
 
 **A refused release.** sdc.release ends `withheld` on the decision `explicitly_withheld`
 (`protocol/sdc-release.protocol.yaml`, outcomes). Canon cannot tie that decision to a state: an

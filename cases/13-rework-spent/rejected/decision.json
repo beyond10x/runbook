@@ -183,6 +183,15 @@
         ],
         "value": "true"
       },
+      "gate.passed": {
+        "because": [
+          {
+            "evidence": "g1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "merge.approved": {
         "because": [
           {
@@ -271,7 +280,7 @@
         "t1"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 8,
+      "protocol_revision": 9,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -280,6 +289,10 @@
     "outcomes": {
       "dropped": {
         "because": [
+          {
+            "claim": "gate.passed",
+            "value": "true"
+          },
           {
             "claim": "rework.spent",
             "value": "unknown"
@@ -321,6 +334,10 @@
     "dropped": {
       "reasons": [
         {
+          "claim": "gate.passed",
+          "value": "true"
+        },
+        {
           "claim": "rework.spent",
           "value": "unknown"
         }
@@ -338,5 +355,5 @@
     }
   },
   "protocol": "sdc.story",
-  "protocol_revision": 8
+  "protocol_revision": 9
 }

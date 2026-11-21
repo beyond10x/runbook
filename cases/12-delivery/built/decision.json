@@ -56,6 +56,15 @@
         ],
         "value": "true"
       },
+      "gate.passed": {
+        "because": [
+          {
+            "evidence": "g1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "release.acceptance_run": {
         "because": [
           {
@@ -97,7 +106,7 @@
         "g1"
       ],
       "protocol": "sdc.delivery",
-      "protocol_revision": 1,
+      "protocol_revision": 2,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -117,6 +126,10 @@
     "outcomes": {
       "not_accepted": {
         "because": [
+          {
+            "claim": "gate.passed",
+            "value": "true"
+          },
           {
             "claim": "release.accepted",
             "value": "unknown"
@@ -154,6 +167,10 @@
     "not_accepted": {
       "reasons": [
         {
+          "claim": "gate.passed",
+          "value": "true"
+        },
+        {
           "claim": "release.accepted",
           "value": "unknown"
         }
@@ -171,5 +188,5 @@
     }
   },
   "protocol": "sdc.delivery",
-  "protocol_revision": 1
+  "protocol_revision": 2
 }

@@ -141,12 +141,26 @@ roadmap-validate) [[ -f aep/initiative/roadmap.md ]] && aep plan artifact valida
 
 # --- ESS: the gate as one program, and its parts --------------------------------------------
 ess-gate)
+  # A recorded `failed` ends a later stage's case by rule (D166, route R10), so only a verdict
+  # about the specification is a failure (exit 1). A command that did not run to a verdict (exit
+  # 126 or more: missing, not executable, killed) or a synthesize run that exits 0 with no
+  # refusal count on stdout is a tool error: 126, no evidence, the run stops.
   mkdir -p .sdc/gate
-  ess specify validate --path spec --strict-requires &&
-  ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null &&
-  ! grep -rn 'UNMAPPED:' spec &&
-  ess verify conform synthesize --path spec --suite-format 5 --out .sdc/gate/suite.json \
-    | grep -q ' 0 refusal occurrence' ;;
+  gate_step() { "$@"; local rc=$?
+    (( rc >= 126 )) && { echo "ess-gate: \`$1 $2 $3\` did not run to a verdict (exit $rc)"; exit 126; }
+    return $rc; }
+  gate_step ess specify validate --path spec --strict-requires || exit 1
+  gate_step ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null || exit 1
+  grep -rn 'UNMAPPED:' spec; rc=$?
+  (( rc == 0 )) && exit 1
+  (( rc == 1 )) || { echo "ess-gate: the scan for UNMAPPED: could not read spec (exit $rc)"; exit 126; }
+  out=$(gate_step ess verify conform synthesize --path spec --suite-format 5 --out .sdc/gate/suite.json); rc=$?
+  echo "$out"
+  (( rc >= 126 )) && exit 126
+  (( rc == 0 )) || exit 1
+  n=$(grep -oE '[0-9]+ refusal occurrence' <<< "$out" | head -n 1 | cut -d' ' -f1)
+  [[ -n $n ]] || { echo "ess-gate: synthesize exit 0, no refusal count on its stdout"; exit 126; }
+  (( n == 0 )) ;;
 spec-validate) ess specify validate --path spec --strict-requires ;;
 spec-compile) ess specify compile --path spec --out .sdc/spec-ir.json ;;
 spec-scan) grep -rn 'UNMAPPED:' spec; [[ $? == 1 ]] ;;

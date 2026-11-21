@@ -152,6 +152,15 @@
         ],
         "value": "true"
       },
+      "gate.passed": {
+        "because": [
+          {
+            "evidence": "g1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "plan.active": {
         "because": [
           {
@@ -269,7 +278,7 @@
         "v1"
       ],
       "protocol": "sdc.plan",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -305,6 +314,15 @@
       }
     },
     "outcomes": {
+      "gate_failed": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
       "passed": {
         "because": [
           {
@@ -336,6 +354,15 @@
     }
   ],
   "outcomes": {
+    "gate_failed": {
+      "reasons": [
+        {
+          "claim": "gate.passed",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
     "passed": {
       "reasons": [
         {
@@ -347,5 +374,5 @@
     }
   },
   "protocol": "sdc.plan",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

@@ -30,6 +30,7 @@
     "scope.required": "open"
   },
   "outcomes": {
+    "gate_failed": "blocked",
     "passed": "blocked"
   }
 }

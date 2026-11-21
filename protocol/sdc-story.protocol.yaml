@@ -2,7 +2,7 @@ format: protocol/1
 
 protocol:
   id: sdc.story
-  revision: 8
+  revision: 9
   description: >-
     Deliver one AEP story of an approved ESS specification: implement it against the current
     specification revision, verify it with the ESS conformance run against the implementation,
@@ -293,9 +293,14 @@ outcomes:
       merge (D152). Legitimate without a person; the epic then ends not_delivered and the root
       not_delivered. It replaces the decision explicitly_dropped, which nobody took and which the
       record does not fit beside under the state bound (98,304 states with both); a person gives a
-      story up through the epic's abandoned decision
+      story up through the epic's abandoned decision. Also legitimate when the ESS gate failed on
+      the specification revision the spec case passed (D166, route R10): nothing in this case
+      revises the specification, so the case ends here by rule
     requires:
-      claim: rework.spent
+      any:
+        - claim: rework.spent
+        - claim: gate.passed
+          is: "false"
 
 invalidation:
   spec.revised:

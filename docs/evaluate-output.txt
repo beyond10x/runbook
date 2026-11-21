@@ -50,4 +50,8 @@ pass cases/12-delivery/failed/root
 pass cases/13-rework-spent/rejected
 pass cases/13-rework-spent/spent
 pass cases/13-rework-spent/spent/revised
+pass cases/14-gate-failed-late/delivery
+pass cases/14-gate-failed-late/plan/epic
+pass cases/14-gate-failed-late/plan
+pass cases/14-gate-failed-late/story
 exit 0

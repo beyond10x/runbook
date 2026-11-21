@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: g1
+kind: ess_gate
+result: failed
+subject: spec
+subject_revision: s1
+producer: ess
+observed_at: 2026-11-20T10:00:00Z

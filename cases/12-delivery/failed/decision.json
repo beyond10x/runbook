@@ -111,7 +111,7 @@
         "g1"
       ],
       "protocol": "sdc.delivery",
-      "protocol_revision": 1,
+      "protocol_revision": 2,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -170,5 +170,5 @@
     }
   },
   "protocol": "sdc.delivery",
-  "protocol_revision": 1
+  "protocol_revision": 2
 }
