@@ -1,6 +1,6 @@
 [package]
 name = "sdc-drive"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 publish = false
 
@@ -47,6 +47,10 @@ path = "src/bin/sdc-run-metrics.rs"
 [[bin]]
 name = "sdc-experiment"
 path = "src/bin/sdc-experiment.rs"
+
+[[bin]]
+name = "sdc-protocol-site"
+path = "src/bin/sdc-protocol-site.rs"
 
 [[bin]]
 name = "sdc-replay"

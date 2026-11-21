@@ -1,0 +1,7 @@
+node_modules/
+.docusaurus/
+build/
+
+build-fixture/
+test-results/
+playwright-report/

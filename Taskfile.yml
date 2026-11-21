@@ -19,6 +19,37 @@ tasks:
     cmds:
       - scripts/check-protocols.sh
 
+  docs:generate:
+    desc: Write the site's protocol data, website/data/protocols/, from the protocols and their bindings.
+    cmds:
+      - cd driver && cargo build --locked --bin sdc-protocol-site
+      - driver/target/debug/sdc-protocol-site write --root .
+
+  docs:build:
+    desc: Build the documentation site into website/build, and the fixture build into website/build-fixture.
+    dir: website
+    cmds:
+      - npm ci
+      - env -u SDC_SITE_FIXTURES npm run build
+      - "! grep -rlq --include='*.html' data-sdc-fixture-build build"
+      - "! grep -rlq -e fixture-free-agent -e 'fixture: three releases' build"
+      - SDC_SITE_FIXTURES=tests/fixtures/ledger npx docusaurus build --out-dir build-fixture
+
+  docs:test:
+    desc: "Smoke test of the built site: every page at 1440 and 390 px in both themes, axe, internal links, the fixture build. Playwright serves build/ on 127.0.0.1:7591 and build-fixture/ on 7592 for the run only (SDC_DOCS_SITE_PORT, SDC_DOCS_FIXTURE_PORT move them)."
+    dir: website
+    cmds:
+      - npx playwright install chromium
+      - npx playwright test --workers=2
+
+  docs:
+    desc: Check the site data is current, build the site and run its smoke test.
+    cmds:
+      - cd driver && cargo build --locked --bin sdc-protocol-site
+      - driver/target/debug/sdc-protocol-site check --root .
+      - task: docs:build
+      - task: docs:test
+
   release:check:
     desc: "Check that a release is prepared: task release:check VERSION=0.1.0."
     requires:
