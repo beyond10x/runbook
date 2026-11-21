@@ -1354,6 +1354,50 @@
     },
     {
       "hypothesis": null,
+      "id": "implement-cites-requirements",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "tree",
+          "note": "the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef beffea1)."
+        },
+        {
+          "key": "unstick",
+          "note": "run.unstick is on under autopilot with an Opus model in both trees (scripts/run-trial.sh); an unstuck run is not a clean pass."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time, which no record pins; release-0.1.2 has the same confound."
+        },
+        {
+          "key": "adapter",
+          "note": "the implement node runs on metaharness, which has no response-schema option, so the coverage schema reaches it in the prompt and the reply is a file (out/coverage.json) checked by program; under claude-cli it would be schema-constrained."
+        }
+      ],
+      "primary": null,
+      "purpose": "Whether the coverage check of story:implement-cites-requirements lowers the review rejections per run against release 0.1.2 in the strong and mixed settings.",
+      "tree": "beffea1",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "mixed",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
       "id": "small-idea-1",
       "kind": "retrospective",
       "known_confounds": [],
@@ -1629,6 +1673,10 @@
     {
       "path": "experiments/effort-implement-levels.yaml",
       "sha256": "e8c25a7980bd05b201f24e34b14dc200c04e79520ba4bd55a525efa3ba808a80"
+    },
+    {
+      "path": "experiments/implement-cites-requirements.yaml",
+      "sha256": "1b8422162bb1ed70f8ab7e5d94b651ba74675bb431361354dcd497d0a36fd05f"
     },
     {
       "path": "experiments/small-idea-1.yaml",
