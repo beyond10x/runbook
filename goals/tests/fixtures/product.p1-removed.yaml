@@ -1,0 +1,5 @@
+format: sdc.goals/1
+layer: product
+requester: operator
+entries:
+  - {id: product/p2, kind: constraint, statement: "Everything works offline; no edit is lost, also when both of us edit offline.", sources: ["person:operator"], valid_from: 2026-11-21}

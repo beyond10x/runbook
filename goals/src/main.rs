@@ -48,6 +48,33 @@ enum Cmd {
         #[arg(required = true)]
         files: Vec<PathBuf>,
     },
+    /// Check one ground that cites a goals entry, `goals@<revision>#<entry id>`, against the
+    /// given layers: the revision is current, the entry exists, its digest is the cited one, it
+    /// is inside its validity window at the instant and no applying lower-layer entry overrides
+    /// it. Prints a JSON report; each refusal also goes to stderr as `<cite>: <code>: <message>`.
+    /// Exit 0 the ground holds, 1 refused, 2 usage or unreadable file.
+    Ground {
+        /// YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ; no clock is read.
+        #[arg(long, value_parser = parse_instant)]
+        at: String,
+        /// goals@<revision>#<entry id>
+        #[arg(long, value_parser = parse_cite)]
+        cite: String,
+        /// The current revision of the goals artifact (the case snapshot's).
+        #[arg(long)]
+        current: String,
+        /// The entry digest the ground carries, sha256:<hex>; absent: not compared.
+        #[arg(long)]
+        digest: Option<String>,
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+}
+
+fn parse_cite(s: &str) -> Result<String, String> {
+    check::parse_cite(s)
+        .map(|_| s.to_string())
+        .ok_or_else(|| format!("`{s}` is not goals@<revision>#<layer>/<name>"))
 }
 
 fn parse_instant(s: &str) -> Result<String, String> {
@@ -59,7 +86,67 @@ fn main() -> ExitCode {
         Cmd::Check { files, format } => run_check(&files, format),
         Cmd::Digest { file, id } => run_digest(&file, &id),
         Cmd::Resolve { at, files } => run_resolve(&at, &files),
+        Cmd::Ground {
+            at,
+            cite,
+            current,
+            digest,
+            files,
+        } => run_ground(&at, &cite, &current, digest.as_deref(), &files),
     }
+}
+
+fn run_ground(
+    at: &str,
+    cite: &str,
+    current: &str,
+    digest: Option<&str>,
+    files: &[PathBuf],
+) -> ExitCode {
+    let docs = match read_all(files) {
+        Ok(d) => d,
+        Err(c) => return c,
+    };
+    let (revision, id) = check::parse_cite(cite).expect("validated by clap");
+    let report = check::check(&docs);
+    let (entry, refusals) = if report.findings.is_empty() {
+        let g = check::ground(&report, revision, current, id, digest, at);
+        (g.entry, g.refusals)
+    } else {
+        let f = &report.findings[0];
+        let message = format!(
+            "the goals layers have {} finding(s), first {}:{}: {}: {}",
+            report.findings.len(),
+            f.file,
+            f.id,
+            f.code,
+            f.message
+        );
+        (
+            None,
+            vec![check::Refusal {
+                code: "invalid_goals",
+                message,
+            }],
+        )
+    };
+    for r in &refusals {
+        eprintln!("{cite}: {}: {}", r.code, r.message);
+    }
+    let out = json!({
+        "cite": cite,
+        "revision": revision,
+        "current": current,
+        "entry": id,
+        "at": at,
+        "holds": refusals.is_empty(),
+        "digest": entry.map(check::Entry::digest),
+        "layer": entry.map(|e| e.layer),
+        "file": entry.map(|e| e.file.as_str()),
+        "refusals": refusals.iter().map(|r| json!({"code": r.code, "message": r.message})).collect::<Vec<_>>(),
+    });
+    println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    ExitCode::from(u8::from(!refusals.is_empty()))
 }
 
 fn read_all(files: &[PathBuf]) -> Result<Vec<(String, String)>, ExitCode> {

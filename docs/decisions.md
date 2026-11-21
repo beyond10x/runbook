@@ -43,19 +43,25 @@ A `DecisionRequest` holds:
   writes (approval) or the answer it writes (question), and the kind of Canon record it produces
   (`produces`; absent when it produces none). An outcome request has two options: the decision,
   and "leave it untaken", which produces no record.
-- **The recommendation**: option, strength (`strong`, `moderate`, `weak`; `none` means there is
+- **The recommendation**: option, or for a question request a free answer in its place
+  (`recommended_answer`), strength (`strong`, `moderate`, `weak`; `none` means there is
   none), whether silence takes it (`default_on_silence`, strong only), who proposed it (`rule`,
   `llm`, `person`, `prior_decision`), and its **grounds**. Or, instead, the reason there is none.
 - **Each ground**: source kind (`idea`, `vision`, `requirement`, `prior_decision`, `prd`, `story`,
-  `spec`, `policy`, `evidence_record`, `autonomy_rule`), a citation (`path_line` with a digest of
-  the lines, `record_id` in a named store, or `artifact_revision`), the option it supports, and
-  one sentence on how. `idea` was added because the decider cites dissection items (`d1` to `d4`).
+  `spec`, `policy`, `evidence_record`, `autonomy_rule`, `goals`), a citation (`path_line` with a
+  digest of the lines, `record_id` in a named store, or `artifact_revision`; for `goals` with the
+  `entry` id and the entry's `digest`, shown `goals@<rev>#<id>`), the option it supports (absent:
+  the free answer), and one sentence on how. `idea` was added because the decider cites dissection
+  items (`d1` to `d4`); `goals` for the requester side (`requester.md` § 2).
 - **Who decides**: the run's autonomy level (A0 to A5), the decision class (13 request classes,
   the rows of `autonomy-levels.md:244-256`; the `escalation` row is not a request class, see
   Escalate below), the **holder** for that class at that level, the eligible principals (handed
   in by the host), and whose inbox it is in (`addressed_to`).
-- **The decision**: option, principal (`operator`, `decider:<kind>`, `rule:<name>` or `silence`), its
-  kind, time, reasons, and, added afterwards by `RecordProduced`, the Canon record it produced.
+- **The decision**: option, or for a question request a free answer (`decided_answer`; both of
+  the operator's trial-2 answers were "neither option as asked"), principal (`operator`,
+  `decider:<kind>`, `rule:<name>` or `silence`), its kind, time, reasons, and, added afterwards by
+  `RecordProduced`, the Canon record it produced. Exactly one of option and answer is given
+  (`OptionOrAnswer`); an approval or an outcome takes no answer (`AnswerNotAllowed`).
 - **Links**: `supersedes` and `superseded_by` (relations to another request).
 
 Lifecycle:
@@ -118,17 +124,26 @@ SDC_DECIDER_ESCALATE=final`, and A1 to A4 need per-class routing that is not bui
 ## The grounding rule
 
 Deterministic first. `tools/decision-grounds.sh <proposal.json> --case <case dir> [--root DIR]
-[--log decisions.jsonl]` reads a request and a proposed recommendation and prints the
-`Recommend` input with `check_verdict` and `check_report`. Exit 0 verified, 1 refused.
+[--log decisions.jsonl] [--at INSTANT] [--goals FILE]...` reads a request and a proposed
+recommendation and prints the `Recommend` input with `check_verdict` and `check_report`. Exit 0
+verified, 1 refused.
 
-1. A recommendation names an option of the request, cites at least one ground, and at least one
-   ground supports that option. A proposer that escalated proposes no option, so the request
-   carries no recommendation.
+1. A recommendation names an option of the request, or, on a question request only, a free answer
+   (exactly one of the two); it cites at least one ground, and at least one ground supports that
+   option (for a free answer: a ground with no `supports`). A proposer that escalated proposes no
+   option, so the request carries no recommendation.
 2. Every citation resolves: the file exists and the lines are inside it (paths resolve against the
    case directory, then `--root`); a digest, when given, still matches the lines; a record id is
    in its store (case `evidence/`, `authority.json`, `decisions.json`, the decision log, or the
    AEP store under `work/aep/`); an `artifact@revision` is the current revision in `case.json`.
-   The digest of each cited range is written into the ground, so a later check sees a change.
+   A goals entry (`goals@<rev>#<id>`) goes to `sdc-goals ground --at <instant> --cite <it>
+   --current <revision in case.json> [--digest <d>] <layer files>`, which refuses, naming each
+   cause: `not_current`, `no_entry`, `digest_changed`, `not_yet_valid`, `expired`, `overridden`
+   (by an applying lower-layer entry), `invalid_goals`. The instant is `--at`, else the request's
+   `opened_at`; the layers are `--goals`, else `work/goals.yaml` and `work/goals.*.yaml` of the
+   cited case; the binary is `$SDC_GOALS`, else `goals/target/debug/sdc-goals`, else `PATH`.
+   The digest of each cited range or entry is written into the ground, so a later check sees a
+   change.
 3. The subject revision is still current (for an outcome, the case revision); if not, the request
    must be superseded.
 4. A Decided request in the log with the same `question_key` and subject revision is reused while
@@ -151,6 +166,24 @@ roadmap, holder P):
 | `roadmap-dangling.json` | 1 | refused: `docs/phases.md` lines 460-460 outside the file (46 lines); no record `e9999-roadmap.approve` in canon_evidence; `roadmap@t0000000000000000` is not current |
 | `roadmap-valid.json --log prior-decisions.jsonl` | 0 | reuses `...-0b`; `...-0a` not reused: its ground `vision@t0ld0ld0ld0ld0ld0` is not current |
 | a ground with a wrong digest | 1 | "changed: lines 20-27 of work/aep/vision/product.md differ from the cited digest" |
+
+Goals grounds (`decision/examples/goals-grounds/`; trial 2's q1 at A3, holder D→P, answered by
+neither option; one proposal, `q1-free-answer.json`, citing `product/p1` at `tg0001`, against
+case snapshots that differ only in the goals layers and their revision):
+
+| `--case` | exit | result |
+|---|---|---|
+| `case` | 0 | verified, "1 grounds, all resolve" |
+| `case-changed` (p1's statement edited, revision `tg0002`) | 1 | `not_current`; `digest_changed` |
+| `case-removed` (p1 removed, `tg0003`) | 1 | `not_current`; `no_entry` |
+| `case-moved` (only a new preference `p3` added, `tg0004`) | 1 | `not_current` |
+| `case --at 2026-11-20T23:00:00Z` | 1 | `not_yet_valid` |
+| `beyond10x-q1.json --case beyond10x --goals eval/personas/beyond10x/goals.company.yaml --goals eval/personas/beyond10x/goals.product.trial.yaml` | 0 | verified, "2 grounds, all resolve" (`product/p07`, `company/c28` of the drafted persona; an edit of either entry turns it to 1) |
+
+`case-moved` shows a conflict with `requester.md` § 0 decision 3 ("one new preference must not
+reopen every answer"): the story's acceptance requires a non-current revision to be refused, so a
+new entry refuses every goals ground until it is cited again at the new revision. Open for the
+operator: accept on an unchanged entry digest alone at a newer revision.
 
 ### The 5 real decider records of `runs/trial-todo-1`
 

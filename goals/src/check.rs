@@ -442,6 +442,81 @@ pub fn resolve<'a>(entries: &'a [Entry], at: &str) -> Vec<&'a Entry> {
     out
 }
 
+/// Why a goals ground does not hold: a code and a message naming the cause.
+pub struct Refusal {
+    pub code: &'static str,
+    pub message: String,
+}
+
+/// A cited goals entry, `goals@<revision>#<id>`, checked against the given layers at an instant.
+pub struct Grounded<'a> {
+    pub entry: Option<&'a Entry>,
+    pub refusals: Vec<Refusal>,
+}
+
+/// Parses `goals@<revision>#<entry id>` into (revision, id).
+pub fn parse_cite(cite: &str) -> Option<(&str, &str)> {
+    let rest = cite.strip_prefix("goals@")?;
+    let (rev, id) = rest.split_once('#')?;
+    (!rev.is_empty() && split_id(id).is_some()).then_some((rev, id))
+}
+
+/// Checks one goals ground (docs/requester.md § 2, decision 3): the cited revision is the current
+/// one, the entry exists in the given layers, its digest is the cited one (when one is cited), it
+/// is inside its validity window at `at`, and no entry of a lower layer that applies at `at`
+/// overrides it. Every failing check is one refusal; `report` must have no findings.
+pub fn ground<'a>(
+    report: &'a Report,
+    revision: &str,
+    current: &str,
+    id: &str,
+    digest: Option<&str>,
+    at: &str,
+) -> Grounded<'a> {
+    let mut refusals = Vec::new();
+    let mut no = |code, message| refusals.push(Refusal { code, message });
+    if revision != current {
+        no(
+            "not_current",
+            format!("goals@{revision} is not the current revision ({current})"),
+        );
+    }
+    let entry = report.entries.iter().find(|e| e.id == id);
+    match entry {
+        None => no(
+            "no_entry",
+            format!("no entry {id} in the given goals layers"),
+        ),
+        Some(e) => {
+            let now = e.digest();
+            if let Some(d) = digest.filter(|d| *d != now) {
+                no(
+                    "digest_changed",
+                    format!("{id} changed: its digest is {now}, the ground cites {d}"),
+                );
+            }
+            match (&e.valid_from, &e.valid_until) {
+                (Some(f), _) if at < f.as_str() => no(
+                    "not_yet_valid",
+                    format!("{id} applies from {f}, after {at}"),
+                ),
+                (_, Some(u)) if at >= u.as_str() => {
+                    no("expired", format!("{id} applied until {u}, not at {at}"))
+                }
+                _ => {}
+            }
+            let live = resolve(&report.entries, at);
+            if let Some(o) = live.iter().find(|o| o.overrides.as_deref() == Some(id)) {
+                no(
+                    "overridden",
+                    format!("{id} is overridden by {} ({}) at {at}", o.id, o.layer),
+                );
+            }
+        }
+    }
+    Grounded { entry, refusals }
+}
+
 /// The entry with this id as parsed, without any validation.
 pub fn raw_entry(text: &str, id: &str) -> Option<Json> {
     let root: Value = serde_yaml::from_str(text).ok()?;
