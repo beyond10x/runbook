@@ -16,7 +16,7 @@ scope:
   path: .github/workflows/pages.yml
 - confidence: cited
   path: Taskfile.yml
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T21:47:10Z", actor: "human:operator", revision: 2, executor: "agent:ci-test-budget", correlation: "operator-standing-acceptance-2026-11-21"}
 - {from: "proposed", to: "active", at: "2026-11-21T21:47:10Z", actor: "human:operator", revision: 3, executor: "agent:ci-test-budget", correlation: "ci-test-budget"}
@@ -33,7 +33,7 @@ documentation check and skips the code's own test; a change to code runs everyth
 Rule served (`../AGENTS.md`, "Planning-only pull requests skip the tests"): "the required job runs,
 finds only such paths, and exits 0. One path list per repository, in the workflow, with a test case
 for both sides of it"; "A change to a built docs site still runs the docs check; it skips the build
-and test jobs of the code"; "The ruleset ... is Timo's. Do not change it."
+and test jobs of the code"; "The ruleset ... is [the operator's]. Do not change it."
 
 ## Path list
 
