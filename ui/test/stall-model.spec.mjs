@@ -8,6 +8,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {amendStall, inbox} from '../decisions.mjs';
 import {nowState, renderNow} from '../web/now.js';
+import {useSdcView} from './sdc-view.mjs';
+useSdcView();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'stall');

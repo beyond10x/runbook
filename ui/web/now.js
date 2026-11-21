@@ -9,7 +9,8 @@
 // server's /api/live (llm/ and decider/ record directories whose response.json is still empty, with
 // the progress read from their metaharness event stream; fs/changes.jsonl), llm-calls.jsonl.
 import {actorOf, predicateRefs, VERDICTS, evalAt} from './model.js';
-import {PHASES, esc} from './lenses.js';
+import {esc} from './lenses.js';
+import {phaseItems} from './view.js';
 import {highlightLine, langOf, LANG_LABEL} from './highlight.js';
 import {classify, CLASS_LABEL} from './meaning.js';
 import {holderOf, takenText, fieldsOf, fieldCounts} from './holder.js';
@@ -196,12 +197,14 @@ export function recentSteps(cases, run, n = 4) {
   return all.slice(0, n);
 }
 
-// The SDC phase an action works on: the phase of its protocol whose claims its evidence kinds
-// establish (directly, or through a derived claim), else the first open phase of that protocol.
+// The phase an action works on (the runbook's view, web/view.js): the phase of its protocol whose claims
+// its evidence kinds establish (directly, or through a derived claim), else the first open phase of that
+// protocol. Without a view each protocol is its own phase, named by its id.
 export function phaseOf(c, action) {
   const ir = c.ir || {};
   const proto = c.case?.protocol || ir.protocol?.id;
-  const mine = PHASES.filter((p) => p.p === proto);
+  if (!phaseItems().length) return proto || null;
+  const mine = phaseItems().filter((p) => p.protocol === proto);
   if (!mine.length) return null;
   const kinds = new Set((ir.actions?.[action]?.may_produce || []).map((m) => m.evidence));
   const direct = new Set(Object.entries(ir.claims || {}).filter(([, d]) => predicateRefs(d.true_when).evidence.some((x) => kinds.has(x.kind))).map(([id]) => id));

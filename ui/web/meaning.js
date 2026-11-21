@@ -2,6 +2,8 @@
 // sources), direction and intake artifacts, decisions, code. Pure functions, used by the server
 // (to classify each fs change once) and by the page; no dependencies.
 
+import {fileKindOf, artifactClassOf} from './view.js';
+
 // ---- a small YAML reader -------------------------------------------------------------------------
 // Block maps and sequences, flow [..] and {..}, quoted and plain scalars, | and > block scalars,
 // comments. Enough for the run's YAML and AEP front matter; anything else throws, and the caller
@@ -225,20 +227,11 @@ export function sections(body) {
 // ---- classes -------------------------------------------------------------------------------------
 export const CLASSES = ['planning', 'spec', 'direction', 'decision', 'code'];
 export const CLASS_LABEL = {planning: 'Planning', spec: 'Specification', direction: 'Direction', decision: 'Decision', code: 'Code'};
-const DIRECTION_FILES = /(^|\/)(idea|dissection|questions|requirements|context|findings|vision|roadmap)\.(ya?ml|md)$/;
 const base = (p) => String(p || '').split('/').pop();
 
-export function classify(p) {
-  const s = String(p || '').replace(/\\/g, '/');
-  if (/(^|\/)(aep|\.engineering\/planning)\/(vision|initiative)s?\/[^/]+\.md$/.test(s)) return {cls: 'direction', kind: /vision/.test(s) ? 'vision' : 'roadmap'};
-  if (/(^|\/)(aep|\.engineering\/planning)\/.+\.md$/.test(s)) return {cls: 'planning', kind: 'aep'};
-  if (/(^|\/)(adrs?|decisions)\/[^/]+\.md$/i.test(s) || /(^|\/)adr[-_ ]?\d+[^/]*\.md$/i.test(s)) return {cls: 'decision', kind: 'adr'};
-  if (DIRECTION_FILES.test(s)) return {cls: 'direction', kind: base(s).replace(/\.\w+$/, '')};
-  if (/\.ya?ml$/.test(s) && (/(^|\/)spec\//.test(s) || /(^|\/)(system|components|topology)\.ya?ml$/.test(s) || /(^|\/)domains\//.test(s) || /(^|\/)scenarios\//.test(s))) {
-    return {cls: 'spec', kind: /(^|\/)scenarios\//.test(s) ? 'scenario' : /(^|\/)domains\//.test(s) ? 'domain' : base(s).replace(/\.ya?ml$/, '')};
-  }
-  return {cls: 'code', kind: 'code'};
-}
+// What a path is (class and kind) is the runbook's view (web/view.js, file_kinds.rules: the first rule that
+// matches). A path no rule matches, and every path without a view, is code: its label is its path.
+export const classify = (p) => fileKindOf(p) || {cls: 'code', kind: 'code'};
 
 // ---- helpers for sentences -------------------------------------------------------------------------
 const short = (n) => String(n ?? '').split('.').pop();
@@ -498,10 +491,8 @@ export function meaningOf(change, before, after) {
 }
 
 // ---- without fs/changes.jsonl: what the case store still says ------------------------------------
-// Artifact names of the SDC protocols and their class.
-const ARTIFACT_CLASS = {idea: 'direction', dissection: 'direction', questions: 'direction', requirements: 'direction', context: 'direction', vision: 'direction', roadmap: 'direction',
-  spec: 'spec', plan: 'planning', epic: 'planning', story: 'planning', stories: 'planning', change: 'code', release: 'code'};
-export const artifactClass = (name) => ARTIFACT_CLASS[name] || 'code';
+// Artifact names of the runbook (file_kinds.artifacts of its view) and their class.
+export const artifactClass = (name) => artifactClassOf(name) || 'code';
 // Items from the event log (revisions by action) and from the final AEP front matter (transitions
 // with their time and actor). The content of each revision is not recorded there.
 export function storeItems(cases, files = []) {

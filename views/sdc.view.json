@@ -1,0 +1,340 @@
+{
+  "format": "runbook.view/1",
+  "phases": {
+    "stages": [
+      "Intake",
+      "Direction",
+      "Specify & plan",
+      "Build",
+      "Ship"
+    ],
+    "items": [
+      {
+        "id": "input",
+        "stage": "Intake",
+        "label": "Input",
+        "protocol": "sdc.intake",
+        "claims": [
+          "idea.shaped"
+        ],
+        "doc": "docs/phases.md step 1"
+      },
+      {
+        "id": "dissection",
+        "stage": "Intake",
+        "label": "Dissection",
+        "protocol": "sdc.intake",
+        "claims": [
+          "dissection.valid"
+        ],
+        "doc": "docs/phases.md step 2"
+      },
+      {
+        "id": "interview",
+        "stage": "Intake",
+        "label": "Interview",
+        "protocol": "sdc.intake",
+        "claims": [
+          "questions.shaped",
+          "questions.settled"
+        ],
+        "doc": "docs/phases.md step 3"
+      },
+      {
+        "id": "requirements",
+        "stage": "Intake",
+        "label": "Requirements",
+        "protocol": "sdc.intake",
+        "claims": [
+          "requirements.valid"
+        ],
+        "doc": "docs/phases.md step 3"
+      },
+      {
+        "id": "context",
+        "stage": "Direction",
+        "label": "Context defaults",
+        "short": "Context",
+        "protocol": "sdc.direction",
+        "claims": [
+          "context.valid",
+          "context.approved"
+        ],
+        "doc": "docs/phases.md step 4"
+      },
+      {
+        "id": "vision",
+        "stage": "Direction",
+        "label": "Vision",
+        "protocol": "sdc.direction",
+        "claims": [
+          "vision.approved"
+        ],
+        "doc": "docs/phases.md step 5"
+      },
+      {
+        "id": "roadmap",
+        "stage": "Direction",
+        "label": "Roadmap",
+        "protocol": "sdc.direction",
+        "claims": [
+          "roadmap.valid",
+          "roadmap.approved"
+        ],
+        "doc": "docs/phases.md step 6"
+      },
+      {
+        "id": "epics",
+        "stage": "Specify & plan",
+        "label": "Epics",
+        "protocol": "sdc",
+        "claims": [
+          "epics.opened"
+        ],
+        "doc": "docs/phases.md step 7"
+      },
+      {
+        "id": "spec",
+        "stage": "Specify & plan",
+        "label": "Spec",
+        "protocol": "sdc.spec",
+        "claims": [
+          "spec.sourced"
+        ],
+        "doc": "docs/phases.md step 8",
+        "has_source": true
+      },
+      {
+        "id": "gate",
+        "stage": "Specify & plan",
+        "label": "ESS gate",
+        "protocol": "sdc.spec",
+        "claims": [
+          "spec.complete"
+        ],
+        "doc": "docs/phases.md step 9"
+      },
+      {
+        "id": "specdone",
+        "stage": "Specify & plan",
+        "label": "Spec review",
+        "short": "Spec review",
+        "protocol": "sdc.spec",
+        "claims": [
+          "spec.traced",
+          "spec.approved"
+        ],
+        "doc": "docs/phases.md step 9"
+      },
+      {
+        "id": "plan",
+        "stage": "Specify & plan",
+        "label": "Plan",
+        "protocol": "sdc.plan",
+        "claims": [
+          "plan.valid",
+          "plan.covers_spec",
+          "plan.scoped",
+          "plan.active"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "stories",
+        "stage": "Specify & plan",
+        "label": "Stories",
+        "protocol": "sdc.epic",
+        "claims": [
+          "stories.opened"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "implement",
+        "stage": "Build",
+        "label": "Implement",
+        "protocol": "sdc.story",
+        "claims": [
+          "change.built"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "review",
+        "stage": "Build",
+        "label": "Review",
+        "protocol": "sdc.story",
+        "claims": [
+          "change.reviewed"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "test",
+        "stage": "Build",
+        "label": "Test (ESS conformance)",
+        "short": "Test",
+        "protocol": "sdc.story",
+        "claims": [
+          "tests.pass"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "merge",
+        "stage": "Build",
+        "label": "Merge",
+        "protocol": "sdc.story",
+        "claims": [
+          "change.merged"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "release",
+        "stage": "Ship",
+        "label": "Release",
+        "protocol": "sdc.release",
+        "claims": [
+          "release.built",
+          "release.accepted",
+          "release.published"
+        ],
+        "doc": "docs/phases.md step 10"
+      },
+      {
+        "id": "operate",
+        "stage": "Ship",
+        "label": "Operate",
+        "protocol": "sdc.release",
+        "claims": [
+          "release.healthy"
+        ],
+        "doc": "docs/phases.md step 10",
+        "root_outcome": "operating"
+      }
+    ],
+    "absent": [
+      {
+        "stage": "Ticket",
+        "steps": [
+          "fetch",
+          "research",
+          "breakdown"
+        ],
+        "protocol_pattern": "ticket",
+        "note": "A ticket run (\"SDC, implement this ticket\") would show fetch, research, breakdown here. This store holds no ticket protocol case."
+      }
+    ]
+  },
+  "file_kinds": {
+    "rules": [
+      {
+        "match": "(^|/)(aep|\\.engineering/planning)/visions?/[^/]+\\.md$",
+        "class": "direction",
+        "kind": "vision"
+      },
+      {
+        "match": "(^|/)(aep|\\.engineering/planning)/initiatives?/[^/]+\\.md$",
+        "class": "direction",
+        "kind": "roadmap"
+      },
+      {
+        "match": "(^|/)(aep|\\.engineering/planning)/.+\\.md$",
+        "class": "planning",
+        "kind": "aep"
+      },
+      {
+        "match": "(^|/)(adrs?|decisions)/[^/]+\\.md$",
+        "flags": "i",
+        "class": "decision",
+        "kind": "adr"
+      },
+      {
+        "match": "(^|/)adr[-_ ]?\\d+[^/]*\\.md$",
+        "flags": "i",
+        "class": "decision",
+        "kind": "adr"
+      },
+      {
+        "match": "(^|/)(idea|dissection|questions|requirements|context|findings|vision|roadmap)\\.(ya?ml|md)$",
+        "class": "direction",
+        "kind": "$basename"
+      },
+      {
+        "match": "(^|/)scenarios/.*\\.ya?ml$",
+        "class": "spec",
+        "kind": "scenario"
+      },
+      {
+        "match": "(^|/)domains/.*\\.ya?ml$",
+        "class": "spec",
+        "kind": "domain"
+      },
+      {
+        "match": "(^|/)spec/.*\\.ya?ml$",
+        "class": "spec",
+        "kind": "$basename"
+      },
+      {
+        "match": "(^|/)(system|components|topology)\\.ya?ml$",
+        "class": "spec",
+        "kind": "$basename"
+      }
+    ],
+    "artifacts": {
+      "idea": "direction",
+      "dissection": "direction",
+      "questions": "direction",
+      "requirements": "direction",
+      "context": "direction",
+      "vision": "direction",
+      "roadmap": "direction",
+      "spec": "spec",
+      "plan": "planning",
+      "epic": "planning",
+      "story": "planning",
+      "stories": "planning",
+      "change": "code",
+      "release": "code"
+    }
+  },
+  "tool_owners": {
+    "always": [
+      "yq"
+    ],
+    "driver": [
+      "jq"
+    ],
+    "continue": [
+      "ess",
+      "aep"
+    ],
+    "tools": [
+      {
+        "argv0": "sdc-tool\\.sh$",
+        "subcommands": [
+          {
+            "match": "^(ess-gate|spec-validate|spec-compile|spec-synthesize|plan-cover|plan-cover-shape)$",
+            "needs": [
+              "ess"
+            ]
+          },
+          {
+            "match": "^(conform-run|story-tests|story-tests-run|impl-gate)$",
+            "needs": [
+              "ess",
+              "slot"
+            ]
+          },
+          {
+            "match": "^(stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status)$",
+            "needs": [
+              "aep"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

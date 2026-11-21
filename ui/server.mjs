@@ -19,6 +19,7 @@ import {fileURLToPath} from 'node:url';
 import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
+import {setView, getView, VIEW_FORMAT} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
@@ -37,9 +38,14 @@ const paths = [];
 const runsDirs = [];
 // --experiments DIR (repeatable): the experiment records (DIR/<id>.yaml); default experiments/ of the checkout served
 const expDirs = [];
+// --view FILE: the runbook's view (web/view.js, format runbook.view/1); default views/sdc.view.json of the checkout
+// when it exists; --no-view runs the inspector without one
+let viewFile = null, noView = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
   else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
+  else if (args[i] === '--view') viewFile = path.resolve(args[++i]);
+  else if (args[i] === '--no-view') noView = true;
   else if (args[i] === '--experiments') expDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--write') config.write = true;
   else if (args[i] === '--write-only') { config.write = true; config.writeOnly.add(path.resolve(args[++i])); }
@@ -50,6 +56,14 @@ if (!/^[A-Za-z0-9._-]+$/.test(config.principal)) { console.error('--principal: l
 if (config.principal === 'non-interactive') { console.error('--principal: non-interactive is the agent\'s own answerer; name a person'); process.exit(2); }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
 if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
+if (noView && viewFile) { console.error('--view and --no-view exclude each other'); process.exit(2); }
+if (!viewFile && !noView && fs.existsSync(path.join(sdc, 'views/sdc.view.json'))) viewFile = path.join(sdc, 'views/sdc.view.json');
+if (viewFile) {
+  let v = null;
+  try { v = JSON.parse(fs.readFileSync(viewFile, 'utf8')); } catch (e) { console.error(`--view ${viewFile}: ${e.message}`); process.exit(2); }
+  if (v?.format !== VIEW_FORMAT) { console.error(`--view ${viewFile}: format is ${JSON.stringify(v?.format)}, not ${VIEW_FORMAT}`); process.exit(2); }
+  setView(v);
+}
 if (!paths.length && !runsDirs.length) {
   // the default store is a recorded run; runs/ is git-ignored, so a fresh clone has none
   const d = path.join(sdc, 'runs/full-cycle-1/store');
@@ -774,6 +788,7 @@ const server = http.createServer((req, res) => {
   if (p === '/api/sources') return send(res, 200, sources.map(sourceRow));
   if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
+  if (p === '/api/view') return send(res, 200, getView());
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
   if (p === '/api/tree') {
     const only = url.searchParams.get('cases');

@@ -30,6 +30,7 @@
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
 - `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
+- `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
 - `eval/` eval runner, adversaries, levels, reports (`docs/eval-design.md`).
