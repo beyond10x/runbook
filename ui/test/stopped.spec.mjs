@@ -159,8 +159,9 @@ test('--runs: a run that appears later joins the store selector without a restar
   await expect(page.locator('#source option')).toHaveCount(sources.length);
   fixture('person', 'late');
   await expect(page.locator('#source option')).toHaveCount(sources.length + 1, {timeout: 15000});
-  const opt = page.locator('#source option').last();
-  await expect(opt).toHaveText('late');
+  // a fixture run: listed with the stub and fixture runs, labelled
+  const opt = page.locator('#source optgroup option', {hasText: /^late\b/});
+  await expect(opt).toHaveText('late · stub');
   await page.locator('#source').selectOption(await opt.getAttribute('value'));
   await expect(page.locator('#tree .case').first()).toBeVisible({timeout: 15000});
   await expect(page.locator('#now .nc.wait')).toBeVisible();

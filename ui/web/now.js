@@ -525,11 +525,13 @@ function sayNow(st) {
   return {head, sub};
 }
 
-export function renderNow(st, now, items = []) {
+// a run whose content a stub, fixture or dry adapter wrote (server.mjs programOf)
+export const STUB_NOTE = 'stub run: canned content, not a model\'s work';
+export function renderNow(st, now, items = [], stub = null) {
   const {head, sub} = nowSay(st);
   const itemOf = (w) => (items || []).find((i) => i.case === w.c.id && (i.action === w.action || i.approval?.action === w.action));
   const cards = st.mode === 'stopped' ? restCard(st, now) : st.running.map((r) => runCard(r, now)).join('') + st.gone.map((r) => goneCard(r, now)).join('') + st.waiting.map((w) => waitCard(w, now, itemOf(w))).join('') + (st.running.length || st.gone.length || st.waiting.length ? '' : restCard(st, now));
-  return `<div class="now-h" data-key="h"><span class="now-l">Now</span><span class="now-s m-${st.mode}"><i></i>${esc(head)}</span>${sub ? `<span class="now-sub">${esc(sub)}</span>` : ''}${driverChip(st)}</div>
+  return `${stub ? `<div class="now-stub" data-key="stub" title="${esc(stub.why)}">${esc(STUB_NOTE)}</div>` : ''}<div class="now-h" data-key="h"><span class="now-l">Now</span><span class="now-s m-${st.mode}"><i></i>${esc(head)}</span>${sub ? `<span class="now-sub">${esc(sub)}</span>` : ''}${driverChip(st)}</div>
     <div class="now-cards n${st.mode === 'stopped' ? 1 : Math.min(3, st.running.length + st.gone.length + st.waiting.length || 1)}" data-key="cards">${cards}</div>${trail(st, now)}`;
 }
 

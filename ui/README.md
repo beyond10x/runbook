@@ -261,3 +261,8 @@ Animations and transitions are off in the measured page, layout shift is counted
 steps' clock, and a scenario waiting on someone reaches its truth when the card names who it waits
 on. The values this changed (the measurement, not the UI) were taken under D-005, and the D-003
 tolerances were dropped. Round files are written with repository-relative paths.
+Decision D-006 labels stub runs. The played scenarios are fixture runs, so the measured page
+shows the label "stub run: canned content, not a model's work" in the header and in a row of its
+own above the Now band. reading_load rises by the label's 8 words in every played scenario, and two's
+layout shift falls a little because the band starts one row lower. These values were taken under
+D-006: the UI changed on purpose.

@@ -4,7 +4,7 @@ import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
-import {nowState, renderNow, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo} from './now.js';
+import {nowState, renderNow, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
 import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
@@ -81,14 +81,21 @@ function pickFollow() {
 
 // ---- render, once per animation frame -------------------------------------------------------------
 let raf = 0;
+// stub, fixture and dry runs (server.mjs programOf): listed apart, labelled, never the default
+const isStub = (s) => s?.program?.kind === 'stub';
+const byNewest = (a, b) => (b.lastWrite || 0) - (a.lastWrite || 0);
+const defaultSource = (list) => list.filter((s) => !isStub(s)).sort(byNewest)[0]?.index ?? 0;
 const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
 
 function render() {
   const src = S.sources[S.src];
-  patch($('#source'), S.sources.map((s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${s.stopped ? ' · stopped' : s.exists ? '' : ' · waiting'}</option>`).join(''));
+  // real runs first, newest first; stub and fixture runs in a group of their own below, each labelled
+  const opt = (s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${isStub(s) ? ' · stub' : ''}${s.stopped ? ' · stopped' : s.exists ? '' : ' · waiting'}</option>`;
+  const stubs = S.sources.filter(isStub).sort(byNewest);
+  patch($('#source'), S.sources.filter((s) => !isStub(s)).sort(byNewest).map(opt).join('') + (stubs.length ? `<optgroup label="Stub and fixture runs (no model calls)">${stubs.map(opt).join('')}</optgroup>` : ''));
   // who this run is: an end-to-end test with a stand-in, autopilot; the graph legend follows
   const set = S.run?.settings;
-  patch($('#runmark'), [standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
+  patch($('#runmark'), [isStub(src) ? `<span class="rm rm-stub" title="${esc(src.program.why)}">${esc(STUB_NOTE)}</span>` : '', standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
   const lg = $('#lg-person');
   const lgText = autopilot(set) ? 'decider (on the operator’s behalf)' : 'person';
   if (lg && lg.textContent !== lgText) lg.innerHTML = `<i class="lg c-person"></i>${lgText}`;
@@ -125,7 +132,7 @@ function render() {
   // flashing "between steps" for one poll.
   if (ns.mode === 'running') S.lastRunAt = now;
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
-  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items)); }
+  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); }
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
@@ -208,7 +215,8 @@ function renderEvents(c, at) {
 function renderDecisions() {
   const n = S.inbox.items.length;
   const tag = S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads';
-  if ($('#tagline').textContent !== tag) $('#tagline').textContent = tag;
+  // the header may cut it (a stub run's label takes its room): the title keeps it readable
+  if ($('#tagline').textContent !== tag) { $('#tagline').textContent = tag; $('#tagline').title = tag; }
   const btn = $('#decbtn');
   btn.classList.toggle('has', n > 0 && !S.inbox.stopped);
   btn.classList.toggle('stopped', !!S.inbox.stopped);
@@ -516,6 +524,7 @@ function connect() {
 
 (async () => {
   S.sources = await api('/api/sources');
+  if (!q0.has('source')) S.src = defaultSource(S.sources);
   S.meta = await api('/api/meta');
   await loadTree();
   await loadRun();
