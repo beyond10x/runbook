@@ -28,11 +28,11 @@ const NEGATIVE: [&str; 10] =
 #[derive(Debug)]
 pub struct Fail(pub String);
 
-type Res<T> = Result<T, Fail>;
+pub type Res<T> = Result<T, Fail>;
 
 // ---- reading -----------------------------------------------------------------------------------
 
-fn read_opt(path: &Path) -> Res<Option<String>> {
+pub fn read_opt(path: &Path) -> Res<Option<String>> {
     match fs::read_to_string(path) {
         Ok(t) => Ok(Some(t)),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -41,7 +41,7 @@ fn read_opt(path: &Path) -> Res<Option<String>> {
 }
 
 /// The lines of a JSONL file that parse, and the number that did not.
-fn jsonl(path: &Path, malformed: &mut usize) -> Res<Option<Vec<J>>> {
+pub fn jsonl(path: &Path, malformed: &mut usize) -> Res<Option<Vec<J>>> {
     let Some(text) = read_opt(path)? else { return Ok(None) };
     let mut out = vec![];
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
@@ -55,7 +55,7 @@ fn jsonl(path: &Path, malformed: &mut usize) -> Res<Option<Vec<J>>> {
 
 /// Every line of a JSONL file in order, `Null` for a line that does not parse (so that an index
 /// into the file stays an index into the vector).
-fn jsonl_indexed(path: &Path, malformed: &mut usize) -> Res<Vec<J>> {
+pub fn jsonl_indexed(path: &Path, malformed: &mut usize) -> Res<Vec<J>> {
     let Some(text) = read_opt(path)? else { return Ok(vec![]) };
     Ok(text
         .lines()
@@ -69,12 +69,12 @@ fn jsonl_indexed(path: &Path, malformed: &mut usize) -> Res<Vec<J>> {
         .collect())
 }
 
-fn json_opt(path: &Path) -> Res<Option<J>> {
+pub fn json_opt(path: &Path) -> Res<Option<J>> {
     let Some(text) = read_opt(path)? else { return Ok(None) };
     Ok(serde_json::from_str(&text).ok())
 }
 
-fn js(v: &J) -> String {
+pub fn js(v: &J) -> String {
     v.as_str().map(String::from).unwrap_or_else(|| if v.is_null() { String::new() } else { v.to_string() })
 }
 
@@ -124,7 +124,7 @@ fn stage_index(stage: &str) -> Option<usize> {
 }
 
 /// Every case directory of the tree at `root`: the root, then each `children/<id>` below it.
-fn case_dirs(root: &Path, out: &mut Vec<PathBuf>) {
+pub fn case_dirs(root: &Path, out: &mut Vec<PathBuf>) {
     if root.join("events.jsonl").is_file() {
         out.push(root.to_path_buf());
     }
@@ -646,11 +646,16 @@ fn finding_protocol_stage(s: &str) -> &str {
 /// Seconds the run spent waiting on a person (as `sdc-run-compare`'s "time waiting on a person"
 /// and L7 of `sdc-finding-kpis`): a stop after which the run did not go on by itself.
 fn waiting(rounds: &[J], legs: &[i64], stopped: Option<i64>, stopped_by_rule: bool, closed: bool) -> Option<i64> {
+    waiting_intervals(rounds, legs, stopped, stopped_by_rule, closed).map(|v| v.iter().map(|(a, b)| (b - a).max(0)).sum())
+}
+
+/// The intervals (epoch seconds) `waiting` counts as time waiting on a person.
+pub fn waiting_intervals(rounds: &[J], legs: &[i64], stopped: Option<i64>, stopped_by_rule: bool, closed: bool) -> Option<Vec<(i64, i64)>> {
     if rounds.is_empty() {
         return None;
     }
     let first_leg = legs.iter().min().copied();
-    let mut total = 0;
+    let mut out = vec![];
     for (i, r) in rounds.iter().enumerate() {
         let end = r["ended_epoch"].as_i64().unwrap_or(0);
         let verdict = r["verdict"].as_str().unwrap_or("");
@@ -662,18 +667,45 @@ fn waiting(rounds: &[J], legs: &[i64], stopped: Option<i64>, stopped_by_rule: bo
                 let ns = n["started_epoch"].as_i64().unwrap_or(end);
                 let waits = if legacy { person_verdict } else { legs.iter().any(|&l| l >= end && l <= ns) };
                 if waits {
-                    total += (ns - end).max(0);
+                    out.push((end, ns.max(end)));
                 }
             }
             None if closed || stopped_by_rule || !(person_verdict || !legacy) => {}
             None => {
                 if let Some(at) = stopped {
-                    total += (at - end).max(0);
+                    out.push((end, at.max(end)));
                 }
             }
         }
     }
-    Some(total)
+    Some(out)
+}
+
+/// Whether a decisions.jsonl line is one decider call, as `decisions_by_class` counts calls: a
+/// line naming a model that does not repeat an escalation or an invalid reply already counted.
+pub fn decider_line_is_call(l: &J) -> bool {
+    let has_model = l["model"].as_str().is_some_and(|m| !m.is_empty());
+    let repeat = l["suppressed"] == true || l.get("fallback").is_some_and(|f| !f.is_null());
+    match l["decision"].as_str().unwrap_or("") {
+        "invalid_reply" | "escalation_suppressed" => has_model,
+        "approve" | "reject" | "escalate" => has_model && !repeat,
+        _ => false,
+    }
+}
+
+pub type WaitingInputs = (Vec<J>, Vec<i64>, Option<i64>, bool);
+
+/// The rounds, the starts of the run's legs, the stop time and whether a rule stopped it: what
+/// `waiting_intervals` needs.
+pub fn waiting_inputs(dir: &Path) -> Res<WaitingInputs> {
+    let mut m = 0;
+    let rounds = jsonl(&dir.join("rounds.jsonl"), &mut m)?.unwrap_or_default();
+    let settings = jsonl(&dir.join("run-settings.jsonl"), &mut m)?.unwrap_or_default();
+    let legs: Vec<i64> = settings.iter().filter_map(|s| s["at"].as_str().and_then(epoch_ms)).map(|t| t.div_euclid(1000)).collect();
+    let stopped = json_opt(&dir.join("run-stopped.json"))?;
+    let stopped_at = stopped.as_ref().and_then(|s| s["at"].as_str()).and_then(epoch_ms).map(|t| t.div_euclid(1000));
+    let by_rule = stopped.as_ref().and_then(|s| s["by"].as_str()).is_some_and(|b| b.starts_with("rule:"));
+    Ok((rounds, legs, stopped_at, by_rule))
 }
 
 /// The value at a dotted path of a JSON document (`decider.model`, `models.writer.model`).
