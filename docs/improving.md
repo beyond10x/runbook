@@ -6,6 +6,27 @@ releases after every improvement." One change at a time, measured, merged, relea
 in `docs/progress.md` and `docs/img/progress.svg`, written by `sdc-experiment progress`. The
 candidates are the stories of `epic:improvement-loop` (`aep plan artifact list`).
 
+## Target
+
+The operator, 2026-11-21, after one free Sonnet session built the same idea for 0.41 to 0.48 USD:
+"so, this is our target then 10% costs". And how: "reduce context to minimal fact sets / inputs -
+dont collect big conversations, figure out where we can use cheeper models".
+
+- **Figure**: `run.cost_usd` 0.47 USD on the `todo-app` input in every setting, the median of the
+  three runs of `free-agent-0.1.0` (record on branch `feat/run-timeline`). Now: strong 5.50, mixed
+  2.55 (`baseline-0.1.0`).
+- **Condition**: neither delivery nor the product check gets worse. `run.delivered` and `run.clean`
+  stay at least the setting's reference record. The product check is the oracle once runs write
+  one; until then, the passing tests and the requirements covered in `work/impl`.
+- **Machine-readable**: `experiments/targets.yaml` (`sdc.targets/1`), validated by
+  `sdc-experiment check --all`.
+- **Where the money goes and the levers**: `experiments/baseline-0.1.0/costs.md` (budget by token
+  kind and node class, the floor), `inputs.md` (fact sets per node), `models.md` (cheaper models
+  per class, the replay test).
+- **The floor with today's protocols**: about 2.0 USD with Sonnet on the writer, implement and
+  review nodes, even with no reruns. 0.47 USD needs Haiku work nodes that pass and fewer sessions
+  (34 per run against 1).
+
 ## The loop
 
 1. **Baseline.** On the last release's tree, n ≥ 3 runs per model setting, started by
@@ -32,6 +53,20 @@ candidates are the stories of `epic:improvement-loop` (`aep plan artifact list`)
    Run `sdc-experiment progress`; `sdc-experiment check --all` (in `scripts/check-bindings.sh`)
    fails until the ledger and the image match the records. Commit them with the release.
 9. The new release is the next baseline: its tree is new, so step 1 runs again.
+
+## What the 0.1.0 baseline says
+
+From the nine runs of `experiments/baseline-0.1.0`, counted in `experiments/baseline-0.1.0/losses.md`:
+
+- Reruns took 25 % of the strong setting's cost (4.29 of 17.13 USD), 31 % of mixed (2.78 of 8.93) and 57 % of Haiku (1.50 of 2.64).
+- The largest loss is the review sending the build back: 10 rejections, 5.25 USD and 1,873 s; 4 of them an offline requirement not built.
+- The Haiku decider is 6 to 7 % of a mixed run's cost but 45 to 48 % of its wall time (717, 952, 693 s); at effort `xhigh` it thinks 20k to 35k tokens per merge approval.
+- The Opus decider is 33 to 37 % of a strong run's cost (1.82 to 2.08 USD).
+- Of 92 content refusals, 5 named an exact fix a program could apply, all a format version; haiku-3 stopped after applying it to a domain file.
+- haiku-1's Postgres default (q9) was accepted by the non-interactive rule, not by the decider.
+- Stories 3, 5 and 7 of `epic:improvement-loop` address about zero loss in these runs; they are parked.
+
+Ranking rule, since the target: by saving per run toward 0.47 USD (`costs.md`, `inputs.md`, `models.md`). Equal savings go first to what needs no new code (a setting, then an existing branch), then to what a recorded replay can test before a full run.
 
 ## Versioning
 

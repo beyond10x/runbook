@@ -17,7 +17,7 @@ scope:
   path: driver/examples/sdc/tools/llm-node.sh
 - confidence: inferred
   path: experiments
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T12:38:22Z", actor: "human:operator", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -46,3 +46,12 @@ per stage; whether the intake nodes can be varied alone is the first question
 
 An experiment record whose one variable is the intake nodes' model, with at least 3 runs per
 variant, reaches a verdict by `sdc-experiment report`.
+
+## Parked by the 0.1.0 baseline
+
+Parked (2026-11-21), not dropped. In the nine runs of `experiments/baseline-0.1.0` the intake
+stage had one model rerun (`questions.write` in strong-1, 15 s, no cost worth a line) and no stop;
+none of the three Haiku stops was in intake (`experiments/baseline-0.1.0/losses.md`). The loss
+this story addresses directly is about 0. Its indirect claim, fewer late findings sent back to
+intake (`finding@spec -> intake` 19 in the Haiku runs against 4 in the strong ones), is not
+attributable to the intake model from these runs, since the writer model changed with it.

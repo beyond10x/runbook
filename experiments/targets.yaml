@@ -1,0 +1,38 @@
+format: sdc.targets/1
+targets:
+- id: cost-like-one-agent
+  set: 2026-11-21
+  by: human:operator
+  said: so, this is our target then 10% costs
+  metric: run.cost_usd
+  input: todo-app
+  target: 0.47
+  basis: median of run.cost_usd over free-agent-0.1.0-sonnet-1, -2, -3 (0.41, 0.47, 0.48)
+  source_experiment: free-agent-0.1.0
+  source_note: the record free-agent-0.1.0 is on branch feat/run-timeline, not yet on main; the runs are in runs/ of the SDC checkout
+  per_setting:
+  - setting: strong
+    reference: baseline-0.1.0
+    now: 5.50
+    target: 0.47
+  - setting: mixed
+    reference: baseline-0.1.0
+    now: 2.55
+    target: 0.47
+  - setting: haiku
+    reference: baseline-0.1.0
+    now: 0.28
+    target: 0.47
+    note: below the target only because no Haiku run of baseline-0.1.0 delivered; the guards decide
+  guards:
+  - metric: run.delivered
+    worse: decrease
+    against: the setting's reference record
+  - metric: run.clean
+    worse: decrease
+    against: the setting's reference record
+  product_check: not worse than the setting's reference record; the oracle once runs write oracle.json, until then the passing tests and the requirements covered in work/impl, reported per run
+  breakdown: experiments/baseline-0.1.0/costs.md
+  levers:
+  - experiments/baseline-0.1.0/inputs.md
+  - experiments/baseline-0.1.0/models.md

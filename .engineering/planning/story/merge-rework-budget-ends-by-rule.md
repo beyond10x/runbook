@@ -19,7 +19,7 @@ scope:
   path: experiments
 - confidence: inferred
   path: protocol/sdc-story.protocol.yaml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T12:38:21Z", actor: "human:operator", revision: 5, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -47,3 +47,11 @@ Today a third merge rejection stops the run `rework_spent` (`trial-3-mixed-8`,
 
 An experiment record with this hypothesis and at least 3 runs per variant reaches a verdict by
 `sdc-experiment report`, and the ledger lists it whatever the verdict.
+
+## Parked by the 0.1.0 baseline
+
+Parked (2026-11-21), not dropped. In the nine runs of `experiments/baseline-0.1.0` no run had
+more than one merge rejection (mixed-2 and haiku-1 one each, both reworked and approved), so the
+third rejection this story ends by rule never happened: the loss it addresses there is 0 USD and
+0 s (`experiments/baseline-0.1.0/losses.md`). 0.1.2 has one effective rework cap (D184). It comes
+back when a run reaches a second merge rejection of one case.
