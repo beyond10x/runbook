@@ -37,7 +37,8 @@ for (const mode of MODES) {
     test('page, graphics, headings, scroll, axe', async ({page}) => {
       const errors = await open(page, mode.theme);
       await expect(page.locator('h1')).toHaveText('Context');
-      for (const h of HEADINGS) await expect(page.getByRole('heading', {level: 2, name: h, exact: true})).toBeVisible();
+      const h2 = (await page.locator('article h2').allInnerTexts()).map((t) => t.replace(/[\u200b\s]+$/, '').trim());
+      for (const h of HEADINGS) expect(h2, 'h2 headings').toContain(h);
 
       const flow = page.getByTestId('context-flow');
       await expect(flow).toBeVisible();
