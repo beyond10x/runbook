@@ -355,19 +355,30 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
     metrics.push(("LLM calls".into(), calls.as_ref().map_or(Cell::Missing, |c| int(c.len()))));
     metrics.push(("LLM cost (USD)".into(), calls.as_ref().map_or(Cell::Missing, |_| usd(llm_cost))));
 
-    // Decider calls and cost (decisions.jsonl): a line is an LLM call when it names a model and
-    // is not an escalation suppressed afterwards (that line repeats the call already recorded);
-    // rule deciders (`decider:approve`, `decider:reject`) name no model.
+    // Decider calls and cost (decisions.jsonl): every decider model call that was made, whatever
+    // became of its reply, once. A call is its record (`record`, decider/NNN-*); several lines
+    // can share one: an escalation suppressed afterwards carries the call's cost on its
+    // `escalation_suppressed` line and none on the decision line after it, and a fallback line
+    // repeats the last invalid reply's call. A line without a record is a call of its own. Rule
+    // deciders (`decider:approve`, `decider:reject`) name no model.
     let decisions = jsonl_opt(&dir.join("decisions.jsonl"))?;
     let mut decider_by_model: BTreeMap<String, Tally> = BTreeMap::new();
     let mut decider_by_principal: BTreeMap<String, usize> = BTreeMap::new();
     if let Some(d) = &decisions {
-        for l in d {
+        let mut by_call: BTreeMap<String, (String, f64)> = BTreeMap::new();
+        for (i, l) in d.iter().enumerate() {
             *decider_by_principal.entry(js(&l["principal"])).or_default() += 1;
             let model = js(&l["model"]);
-            if !model.is_empty() && l["decision"] != "escalation_suppressed" {
-                tally(&mut decider_by_model, &model, l["cost_usd"].as_f64().unwrap_or(0.0));
+            if model.is_empty() {
+                continue;
             }
+            let key = l["record"].as_str().map_or_else(|| format!("line {i}"), str::to_string);
+            let cost = l["cost_usd"].as_f64().unwrap_or(0.0);
+            let e = by_call.entry(key).or_insert((model, 0.0));
+            e.1 = e.1.max(cost);
+        }
+        for (model, cost) in by_call.into_values() {
+            tally(&mut decider_by_model, &model, cost);
         }
     }
     let decider_calls: usize = decider_by_model.values().map(|t| t.calls).sum();

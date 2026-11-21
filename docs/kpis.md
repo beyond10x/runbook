@@ -122,7 +122,7 @@ is a rule, `decider:haiku` an LLM decider, any other principal a person.
 | H1 | decisions by who | count per class (person, rule, decider) of approvals, answers and closes | `authority_recorded.principal`, `action_finished.principal` (manual actions) in `events.jsonl`; `answered_by` in `questions.yaml`; `runs/<run>/decisions.jsonl` `principal` | n/a | advisory |
 | H2 | decider escalations | `decisions.jsonl` lines with `decision` `escalate` or `escalation_suppressed` / decider decisions; invalid replies (`valid: false`, counted as escalate) reported apart | `decisions.jsonl` | ↓ | advisory |
 | H3 | decider decisions later reversed | decider decisions followed by a decision on the same case and action (or question) by another principal with a different result, or by a person's rewrite of the approved artifact (`context.change`, an edit of an answered question) / decider decisions | `decisions.jsonl` joined to later `action_finished.principal` and `revised` events of the subject | ↓ | ratchet once runs exist |
-| H4 | decider cost | Σ `cost_usd`, Σ `tokens` of decider calls per run | `decisions.jsonl` | ↓ | advisory |
+| H4 | decider cost | Σ `cost_usd`, Σ `tokens` of decider calls per run: every call made, whatever became of its reply, once per `record` (a suppressed escalation's cost is on its `escalation_suppressed` line) | `decisions.jsonl` | ↓ | advisory |
 
 ## 2. Ownership
 

@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {parseYaml, frontMatter, classify, meaningOf, storeItems} from '../web/meaning.js';
 import {feedItems} from '../web/feed.js';
 import {computeKpis, isPerson} from '../web/kpis.js';
+import {decisionRecord} from '../decisions.mjs';
 import {needRun} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -151,4 +152,25 @@ test('KPIs: values where recorded, "not recorded" where not, waiting time as a u
   expect(by(k, 'decisions')).toMatchObject({text: '1', parts: [{label: 'escalated', text: '1'}, {label: 'by decider', text: '2'}]});
   expect(by(k, 'time')).toMatchObject({value: 40 * 60000, live: Date.parse(t(0))});
   expect([isPerson('operator'), isPerson('decider:haiku'), isPerson('non-interactive'), isPerson('rule:x'), isPerson(null)]).toEqual([true, false, false, false, false]);
+});
+
+test('KPIs: every decider call made counts once per record, whatever became of its reply', () => {
+  // decisions.jsonl as run-trial.sh writes it: a suppressed escalation has the call's cost on its
+  // escalation_suppressed line and none on the decision after it; a fallback after three invalid
+  // replies repeats the last one's call; a rule decider names no model.
+  const raw = [
+    {decision: 'approve', model: 'h', cost_usd: 0.004, record: 'decider/001-roadmap.approve'},
+    {decision: 'escalation_suppressed', model: 'h', cost_usd: 0.003, record: 'decider/002-f1'},
+    {decision: 'approve', model: 'h', cost_usd: null, suppressed: true, record: 'decider/002-f1'},
+    {decision: 'approve', principal: 'decider:approve', model: null, cost_usd: null},
+    {decision: 'approve', model: 'h', cost_usd: 0.006, record: 'decider/003-change.merge'},
+    {decision: 'invalid_reply', model: 'h', cost_usd: 0.001, valid: false, attempt: 1, record: 'decider/004-q1'},
+    {decision: 'invalid_reply', model: 'h', cost_usd: 0.001, valid: false, attempt: 2, record: 'decider/005-q1'},
+    {decision: 'invalid_reply', model: 'h', cost_usd: 0.001, valid: false, attempt: 3, record: 'decider/006-q1'},
+    {decision: 'approve', model: 'h', cost_usd: 0.001, fallback: 'invalid_reply_default', record: 'decider/006-q1'},
+  ];
+  const k = computeKpis([], {llm: [], decisions: raw.map(decisionRecord)}, [], {mode: 'closed'}, 0);
+  const by = (key) => k.find((x) => x.key === key);
+  expect(by('cost').parts[1]).toEqual({label: 'decider', text: '$0.016'});
+  expect(by('calls').parts[1]).toEqual({label: 'decider', text: '6'});
 });

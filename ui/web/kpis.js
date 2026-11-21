@@ -93,14 +93,24 @@ export function computeKpis(cases, run, history, ns, now = Date.now()) {
   const llmFile = (run?.llm || []).some((x) => x.where === 'llm-calls.jsonl');
   const lt = llmTotals(run);
   const dec = run?.decisions || [];
-  const decCalls = dec.filter((d) => d.model || d.cost != null);
-  const decUsd = decCalls.reduce((s, d) => s + (Number(d.cost) || 0), 0);
+  // Every decider model call made, whatever became of its reply, once: lines sharing a `record`
+  // (decider/NNN-*) are one call, its cost the highest of theirs (a suppressed escalation has it on
+  // its escalation_suppressed line, a fallback repeats the last invalid reply's call); a line
+  // without a record is a call of its own. Rule deciders name no model.
+  const byCall = new Map();
+  dec.forEach((d, i) => {
+    if (!d.model && d.cost == null) return;
+    const key = d.record || `line ${i}`;
+    byCall.set(key, Math.max(byCall.get(key) ?? 0, Number(d.cost) || 0));
+  });
+  const decCalls = [...byCall.values()];
+  const decUsd = decCalls.reduce((s, c) => s + c, 0);
   const workRecorded = llmFile || lt.calls > 0;
   const decRecorded = dec.length > 0;
   kp.push({key: 'cost', ids: 'R6 · H4', label: 'Cost', value: workRecorded || decRecorded ? lt.usd + decUsd : null,
     text: workRecorded || decRecorded ? `$${(lt.usd + decUsd).toFixed(2)}` : null,
     parts: [{label: 'work', text: workRecorded ? `$${lt.usd.toFixed(3)}` : null}, {label: 'decider', text: decRecorded ? `$${decUsd.toFixed(3)}` : null}],
-    title: 'R6: Σ cost_usd of llm-calls.jsonl (agent nodes). H4: Σ cost_usd of decisions.jsonl (decider calls).'});
+    title: 'R6: Σ cost_usd of llm-calls.jsonl (agent nodes). H4: Σ cost_usd of decisions.jsonl, one decider call per record, whatever became of its reply.'});
   kp.push({key: 'calls', ids: 'R4', label: 'LLM calls', value: workRecorded || decRecorded ? lt.calls + decCalls.length : null,
     text: workRecorded || decRecorded ? String(lt.calls + decCalls.length) : null,
     parts: [{label: 'work', text: workRecorded ? String(lt.calls) : null}, {label: 'decider', text: decRecorded ? String(decCalls.length) : null}],
