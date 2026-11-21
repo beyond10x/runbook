@@ -15,7 +15,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'The cycle',
       collapsed: false,
-      items: [page('flow', 'The flow'), link('/protocols', 'Protocol browser')],
+      items: [page('flow', 'The flow'), page('context', 'Context'), link('/protocols', 'Protocol browser')],
     },
     {
       type: 'category',
