@@ -6,7 +6,7 @@
  * (`sdc-experiment progress`), `experiments/*.yaml`, `experiments/releases.yaml` and
  * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`), the committed run summaries
  * `experiments/<id>/runs/*.json`, `experiments/<id>/conformance/*.json` and
- * `experiments/<id>/sizes.json`, and `driver/examples/sdc/tools/node-classes.json`. Nothing
+ * `experiments/<id>/sizes.json`, `experiments/<id>/scores.json` with its rubric, and `driver/examples/sdc/tools/node-classes.json`. Nothing
  * under the repository's `runs/` is read.
  * `SDC_SITE_FIXTURES=<dir>` replaces the repository's progress ledger, experiments and timelines
  * with the files in that directory, for the fixture build the tests use.
@@ -28,6 +28,7 @@ export interface SdcContent {
   runSummaries: any[];
   conformance: any[];
   sizes: any[];
+  quality: any[];
   fixtures: boolean;
 }
 
@@ -121,6 +122,39 @@ function runSummary(doc: any): any {
   };
 }
 
+/**
+ * A quality evaluation (`sdc.quality-scores/1`): per product the score, the failed items, cost,
+ * wall time and the exploratory findings; per side the score and passes per item; the rubric's
+ * item names from its `- <id> <name>:` lines. No per-step evidence.
+ */
+function qualitySummary(experiment: string, doc: any, rubric: string): any {
+  const items: Array<{id: string; name: string}> = [];
+  for (const m of rubric.matchAll(/^- ([A-Z][0-9]+) ([^:\n]+):/gm)) items.push({id: m[1], name: m[2].trim()});
+  return {
+    experiment,
+    n: doc.n ?? null,
+    rubric: typeof doc.rubric === 'string' ? `experiments/${experiment}/${doc.rubric}` : null,
+    items,
+    sides: Object.entries(doc.sides ?? {}).map(([id, s]: [string, any]) => ({
+      id,
+      score: s.score ?? null,
+      per_item_passes: s.per_item_passes ?? {},
+      runs: (s.runs ?? []).map((r: string) => r.split('=')[0]),
+    })),
+    products: (doc.products ?? []).map((p: any) => ({
+      run: p.run,
+      side: p.side,
+      score: p.score ?? null,
+      n: p.n ?? null,
+      not_testable: p.not_testable ?? null,
+      failed: p.failed ?? [],
+      cost_usd: p.cost_usd ?? null,
+      wall_s: p.wall_s ?? null,
+      findings: (p.exploratory_findings ?? []).map((f: any) => (typeof f === 'string' ? f : f.finding)),
+    })),
+  };
+}
+
 /** A conformance summary (`sdc.conformance-summary/1`) without its per-table detail. */
 function conformanceSummary(doc: any): any {
   return {
@@ -160,6 +194,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
       const runSummaries: any[] = [];
       const conformance: any[] = [];
       const sizes: any[] = [];
+      const quality: any[] = [];
       let releasesTable: any = null;
       for (const name of await list(expDir)) {
         const file = path.join(expDir, name);
@@ -183,6 +218,14 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
             const doc = await readJson(path.join(file, 'conformance', c));
             if (doc?.format === 'sdc.conformance-summary/1') conformance.push({experiment: name, ...conformanceSummary(doc)});
           }
+          if (await exists(path.join(file, 'scores.json'))) {
+            const doc = await readJson(path.join(file, 'scores.json'));
+            if (doc?.format === 'sdc.quality-scores/1') {
+              const rubricFile = path.join(file, typeof doc.rubric === 'string' ? doc.rubric : 'rubric.md');
+              const rubric = (await exists(rubricFile)) ? await fs.readFile(rubricFile, 'utf8') : '';
+              quality.push(qualitySummary(name, doc, rubric));
+            }
+          }
           if (await exists(path.join(file, 'sizes.json'))) {
             const doc = await readJson(path.join(file, 'sizes.json'));
             if (doc?.format === 'sdc.product-sizes/1') for (const p of doc.products ?? []) sizes.push({experiment: name, ...p});
@@ -190,7 +233,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         }
       }
       const nodeClasses = await readJson(path.join(repo, 'driver', 'examples', 'sdc', 'tools', 'node-classes.json'));
-      return {index, protocols, progress, progressSvg, experiments, releasesTable, nodeClasses, timelines, runSummaries, conformance, sizes, fixtures: Boolean(fixtureDir)};
+      return {index, protocols, progress, progressSvg, experiments, releasesTable, nodeClasses, timelines, runSummaries, conformance, sizes, quality, fixtures: Boolean(fixtureDir)};
     },
     async contentLoaded({content, actions}) {
       const {createData, addRoute, setGlobalData} = actions;
@@ -227,6 +270,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         experiments: content.experiments,
         releasesTable: content.releasesTable,
         nodeClasses: content.nodeClasses,
+        quality: content.quality,
         fixtures: content.fixtures,
       });
       addRoute({path: route('/evaluation'), exact: true, component: '@site/src/routes/Evaluation.tsx', modules: {evaluation, index: indexData}});
@@ -234,7 +278,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         path: route('/llm-is-not-the-runtime'),
         exact: true,
         component: '@site/src/routes/LlmIsNotTheRuntime.tsx',
-        modules: {timelines: await data('sdc-timelines.json', {timelines: content.timelines, experiments: content.experiments, runs: content.runSummaries, conformance: content.conformance, sizes: content.sizes, fixtures: content.fixtures}), index: indexData},
+        modules: {timelines: await data('sdc-timelines.json', {timelines: content.timelines, experiments: content.experiments, runs: content.runSummaries, conformance: content.conformance, sizes: content.sizes, quality: content.quality, fixtures: content.fixtures}), index: indexData},
       });
     },
   };

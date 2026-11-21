@@ -1,0 +1,30 @@
+// Checks whether a product's page sends an offline change after context.setOffline(false), and
+// whether the page sees the 'online' event. Diagnostic only.
+import {chromium} from 'playwright';
+import {Running, freePort, resetData} from './products.ts';
+import {ADAPTERS} from './adapters.ts';
+const id = process.argv[2];
+const ad = ADAPTERS[id];
+resetData(id);
+const r = new Running(id, await freePort(), await freePort());
+await r.start();
+const b = await chromium.launch();
+const c = await b.newContext();
+const p = await c.newPage();
+const reqs: string[] = [];
+p.on('request', q => { if (q.url().includes('/api/')) reqs.push(`${q.method()} ${new URL(q.url()).pathname}`); });
+p.on('response', async s => { if (s.url().includes('/api/') && s.request().method() === 'POST') reqs.push(`  -> ${s.status()} ${(await s.text().catch(() => '')).slice(0, 120)}`); });
+const addr = await ad.address(r, p);
+await p.goto(addr); await ad.gate(p, 'A'); await p.waitForTimeout(800);
+await ad.add(p, 'Online one', 'A'); await p.waitForTimeout(1000);
+await p.evaluate(() => { (window as any).__ev = []; addEventListener('online', () => (window as any).__ev.push('online')); addEventListener('offline', () => (window as any).__ev.push('offline')); });
+await c.setOffline(true); await p.waitForTimeout(1000);
+await ad.add(p, 'Offline one', 'A'); await p.waitForTimeout(1000);
+reqs.push('--- going online');
+await c.setOffline(false); await p.waitForTimeout(8000);
+console.log('events seen by page:', await p.evaluate(() => (window as any).__ev));
+console.log(reqs.join('\n'));
+const c2 = await b.newContext(); const p2 = await c2.newPage();
+await p2.goto(addr); await ad.gate(p2, 'B'); await p2.waitForTimeout(1500);
+console.log('second context list:', JSON.stringify(await p2.locator('li').allInnerTexts()));
+await b.close(); await r.stop();

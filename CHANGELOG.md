@@ -79,6 +79,13 @@ them. No rule of a protocol changed. The longer note is `docs/releases/0.1.4.md`
   the first paragraph, the timelines on one time axis and cost scale, medians, the hypothesis and
   its verdict per pair, product sizes, conformance of both sides, what the SDC run records that the
   free run does not, what was held equal and the confounds; quality evaluation pending.
+- Blinded quality evaluation of the nine 0.1.0 to-do products (`docs/quality-0.1.0.md`,
+  `experiments/quality-0.1.0/`, harness `eval/quality/`): a 23-item rubric written from the idea
+  text before any product was opened, scored in a real browser on blinded copies.
+- Site, "The LLM is not the runtime": the quality result in place of "pending", from
+  `scores.json` and the rubric: points per side beside cost and wall time, a chart of points
+  against cost per product, the items where the sides differ, the defects found and the limits;
+  one sentence of it in the first paragraph. Evaluation describes it as a case with a link.
 
 ### Changed
 

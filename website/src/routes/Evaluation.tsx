@@ -16,6 +16,7 @@ import {
   type LedgerRun,
   type LedgerSetting,
 } from '../components/evaluation';
+import {QUALITY_DOC, sideStats, type Quality} from '../components/Quality';
 
 interface Experiment {
   id: string;
@@ -34,6 +35,7 @@ interface Props {
     experiments: Experiment[];
     releasesTable: {input?: {name: string; description?: string; sha256: string}} | null;
     nodeClasses: {classes: Record<string, string[]>; default_efforts: Record<string, string>};
+    quality?: Quality[];
     fixtures: boolean;
   };
 }
@@ -54,6 +56,25 @@ const usd = (x: number | null | undefined) => (typeof x === 'number' ? `$${x.toF
 const mins = (x: number | null | undefined) => (typeof x === 'number' ? `${Math.round(x / 60)} min` : '–');
 const num = (x: number | null | undefined, d = 0) => (typeof x === 'number' ? (d ? x.toFixed(d) : String(x)) : '–');
 const pct = (x: number | null | undefined) => (typeof x === 'number' ? `${Math.round(x * 100)} %` : '–');
+
+/** A committed quality evaluation, described as a case, with its medians per side and a link to the full result. */
+function QualityCase({q, freeRuns}: {q: Quality; freeRuns: string[]}): ReactNode {
+  const sides = sideStats(q, freeRuns);
+  return (
+    <>
+      <h3 id={`case-${q.experiment}`}>The quality case: {q.products.length} delivered products, blinded</h3>
+      <p>
+        The delivered products of one idea, from SDC runs and from free-running agent sessions, scored on blinded copies
+        by one rubric of {q.n} items written from the idea text before any product was opened, in a real browser,
+        including offline use and two people sharing one list (<code>experiments/{q.experiment}/</code>). Median points of{' '}
+        {q.n}: {sides.map((s) => `${s.side.id} ${s.score ? `${s.score.median} [${s.score.min}–${s.score.max}]` : 'no data'}`).join(', ')}.
+        The result, with cost, the items that differ, the defects found and the limits:{' '}
+        <Link to="/llm-is-not-the-runtime#quality">The LLM is not the runtime, quality</Link>; the report:{' '}
+        <a href={QUALITY_DOC}><code>docs/quality-0.1.0.md</code></a>.
+      </p>
+    </>
+  );
+}
 
 /** The failed count, with the scenarios refused for a precondition the specification does not model split out. */
 function failedCell(run: LedgerRun): ReactNode {
@@ -157,7 +178,8 @@ function StopsTable({entry, settings}: {entry: LedgerEntry; settings: LedgerSett
 }
 
 export default function Evaluation({evaluation}: Props): ReactNode {
-  const {progress, experiments, releasesTable, nodeClasses, fixtures} = evaluation;
+  const {progress, experiments, releasesTable, nodeClasses, fixtures, quality = []} = evaluation;
+  const freeRuns = (experiments as any[]).flatMap((e) => (e.treatment ? (e.variants ?? []).find((v: any) => v.id === e.treatment)?.runs ?? [] : []));
   const rel = releasesOf(progress);
   const settings = chartedSettings(progress);
   const labels = new Map(progress.settings.map((s) => [s.id, s.label]));
@@ -302,6 +324,7 @@ export default function Evaluation({evaluation}: Props): ReactNode {
             <Cite path="docs/conformance.md" lines={[23, 27]} at="main" />). Writing the tables costs about 1 to 3 USD
             of node cost per product (<Cite path="docs/conformance.md" lines={[18, 19]} at="main" />).
           </p>
+          {quality.map((q) => <QualityCase key={q.experiment} q={q} freeRuns={freeRuns} />)}
           <h3>n, and when a difference counts</h3>
           <p>
             At least three runs per setting on each release tree (<Cite path="docs/improving.md" lines={[11, 12]} />). A

@@ -83,6 +83,8 @@ async function checkEvaluation(page: Page): Promise<void> {
   const confLabel = (await conf.locator('svg').getAttribute('aria-label')) ?? '';
   expect(confLabel).toMatch(/0\.1\.0: All Haiku not observed; Sonnet work, Haiku decider median 32 %, min 13 %, max 79 %, n 3/);
   await expect(page.locator('#conformance')).toBeAttached();
+  await expect(page.locator('#case-quality-0\\.1\\.0')).toBeAttached();
+  await expect(page.locator('a[href$="/llm-is-not-the-runtime#quality"]')).toBeAttached();
   await expect(page.locator('a[href*="docs/conformance.md#L18-L19"]')).toBeAttached();
   const runs010 = page.locator('section[aria-labelledby="runs-0.1.0"]');
   await expect(runs010).toContainText('spec scenarios proven passed: 2 of 16 (lower bound)');
@@ -120,7 +122,26 @@ async function checkLlm(page: Page): Promise<void> {
   await expect(page.locator('#free-conformance')).toContainText('spec scenarios proven passed: 16 of 17 (lower bound)');
   await expect(page.locator('#free-records')).toContainText('5 in 3 of 3 runs');
   await expect(page.locator('.sdc-confounds li')).toHaveCount(9);
-  await expect(page.locator('#quality')).toContainText('Quality evaluation: pending.');
+  await expect(page.getByText('Quality evaluation: pending')).toHaveCount(0);
+  await expect(lede).toContainText('For about 5 and 12 times the cost, the SDC products scored 2 to 3 points more of 23 in a blinded browser evaluation, the difference being edit, remove and conflicting offline edits');
+  const sides = page.locator('#quality-sides tbody tr');
+  await expect(sides).toHaveCount(3);
+  await expect(sides.nth(0)).toContainText('SDC strong');
+  await expect(sides.nth(0)).toContainText('23 [20\u201323]');
+  await expect(sides.nth(0)).toContainText('5.503 [5.432\u20136.194]');
+  await expect(sides.nth(1)).toContainText('22 [20\u201323]');
+  await expect(sides.nth(1)).toContainText('2.549 [2.497\u20133.883]');
+  await expect(sides.nth(2)).toContainText('free agent');
+  await expect(sides.nth(2)).toContainText('20 [19\u201320]');
+  await expect(sides.nth(2)).toContainText('163 [143\u2013173]');
+  await expect(page.locator('#quality-cost .sdc-quality__mark')).toHaveCount(9);
+  expect(await page.locator('#quality-cost svg[role="img"]').getAttribute('aria-label')).toContain('free-agent-0.1.0-sonnet-3, free agent: 19 of 23');
+  await expect(page.locator('#quality-items li')).toHaveCount(4);
+  await expect(page.locator('#quality-items')).toContainText('F3 edit: passed in 2 of 3 (SDC strong), 2 of 3 (SDC mixed), 0 of 3 (free agent)');
+  await expect(page.getByText('The other 19 items passed in all 9 products.')).toBeVisible();
+  await expect(page.locator('#quality-defects li')).toHaveCount(4);
+  await expect(page.getByText('4 defects, all in SDC products')).toBeVisible();
+  await expect(page.getByText('Blinding did not hide the side')).toBeVisible();
 }
 
 test('every internal link resolves', async ({page, request, baseURL}) => {

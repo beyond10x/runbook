@@ -4,6 +4,7 @@ import Link from '@docusaurus/Link';
 import {Lanes, SpanDetail, StepList, Totals, dur, usd, LANES, type Timeline} from '../components/RunTimeline';
 import {stat} from '../components/evaluation';
 import FreeAgentComparison, {ResultLede, comparisonModel, type ConfRow, type RunRow, type SizeRow, type Tl} from '../components/FreeAgentComparison';
+import type {Quality} from '../components/Quality';
 
 interface Entry {
   experiment: string;
@@ -12,7 +13,7 @@ interface Entry {
 }
 
 interface Props {
-  timelines: {timelines: Entry[]; experiments: any[]; runs?: RunRow[]; conformance?: ConfRow[]; sizes?: SizeRow[]; fixtures: boolean};
+  timelines: {timelines: Entry[]; experiments: any[]; runs?: RunRow[]; conformance?: ConfRow[]; sizes?: SizeRow[]; quality?: Quality[]; fixtures: boolean};
 }
 
 const CANON = 'https://github.com/beyond10x/canon/blob/8f1f4527439b813f4c0c0159c8b4ea7cd4131994';
@@ -125,7 +126,7 @@ export default function LlmIsNotTheRuntime({timelines}: Props): ReactNode {
         <header className="sdc-head">
           <p className="b10x-kicker">Principle</p>
           <h1>The LLM is not the runtime</h1>
-          {model ? <ResultLede m={model} /> : null}
+          {model ? <ResultLede m={model} quality={timelines.quality} /> : null}
           <p className="sdc-lede">
             Canon says what is legitimate, a program takes the step, and a model is called only to execute one action. Below
             is the principle as Canon states it, how the SDC applies it, one run drawn step by step, and the comparison with a free-running agent.
@@ -207,7 +208,7 @@ export default function LlmIsNotTheRuntime({timelines}: Props): ReactNode {
 
         <section aria-labelledby="free">
           <h2 id="free">Against a free-running agent</h2>
-          {model ? <FreeAgentComparison m={model} /> : <Compare sdc={sdc} free={free} experiments={timelines.experiments} />}
+          {model ? <FreeAgentComparison m={model} quality={timelines.quality} /> : <Compare sdc={sdc} free={free} experiments={timelines.experiments} />}
         </section>
       </main>
     </Layout>
