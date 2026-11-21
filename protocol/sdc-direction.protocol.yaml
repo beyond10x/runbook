@@ -2,7 +2,7 @@ format: protocol/1
 
 protocol:
   id: sdc.direction
-  revision: 5
+  revision: 6
   description: >-
     Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every
     project context default (audience, source and target language, platform and operating systems,
@@ -20,6 +20,9 @@ protocol:
 artifacts:
   requirements:
     description: the requirements list from sdc.intake
+  goals:
+    description: >-
+      goals.yaml, the requester's resolved goals document from the root case (sdc.goals/1), read by the writers; an input only: no claim reads it and no invalidation names it, so a revised goals document makes no record of this case stale
   context:
     description: >-
       context.yaml: audience, source and target language, platform and operating systems, kind of

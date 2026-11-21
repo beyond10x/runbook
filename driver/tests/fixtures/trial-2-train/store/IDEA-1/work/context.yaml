@@ -1,0 +1,28 @@
+audience:
+  value: 'Two people: the owner and their partner'
+  status: default
+  reason: The idea says the app is for the user and their partner, and no requirement widens that group.
+source_language:
+  value: en
+  status: default
+  reason: The idea and the requirements are written in English.
+target_language:
+  value: en
+  status: default
+  reason: No other product language is named, so the product text matches the English source.
+platform:
+  value: Web browsers on desktop and mobile
+  status: default
+  reason: Requirement r6 says the web app runs in current desktop and mobile browsers without home-screen installation.
+kind:
+  value: multi-tenant application
+  status: default
+  reason: Each user has their own lists behind their own sign-in, which fits a user-facing multi-user application better than the other kinds.
+deployment:
+  value: A hosted web server for sign-in and sync; the browser client keeps a local copy of the lists and works without a connection, syncing when it is connected again.
+  status: changed
+  reason: 'operator (via coordinator), 2026-11-21'
+licence:
+  value: Proprietary, all rights reserved
+  status: default
+  reason: No input names a licence, so the code is kept private by default.

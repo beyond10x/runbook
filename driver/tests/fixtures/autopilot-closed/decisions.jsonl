@@ -1,0 +1,4 @@
+{"time":"2026-11-22T09:20:05Z","case":"IDEA-1.direction","type":"approval","action":"roadmap.approve","principal":"decider:haiku","decision":"approve","model":"claude-haiku-5-5","cost_usd":0.004,"valid":true}
+{"time":"2026-11-22T09:25:00Z","case":"IDEA-1.intake","type":"finding","class":"finding","action":"amend.upstream","principal":"decider:haiku","decision":"escalation_suppressed","model":"claude-haiku-5-5","cost_usd":null,"valid":true}
+{"time":"2026-11-22T09:26:00Z","case":"IDEA-1.todo.access","type":"approval","action":"change.merge","principal":"decider:approve","decision":"approve","model":null,"cost_usd":null,"valid":true}
+{"time":"2026-11-22T09:27:00Z","case":"IDEA-1.todo.access","type":"approval","action":"change.merge","principal":"decider:haiku","decision":"approve","model":"claude-haiku-5-5","cost_usd":0.006,"valid":true}

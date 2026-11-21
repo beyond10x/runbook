@@ -1,0 +1,43 @@
+{
+  "request": {
+    "request_id": "DR-IDEA-1.intake-questions.answer-q1-1",
+    "state": "Open",
+    "case_id": "IDEA-1.intake",
+    "question_key": "IDEA-1.intake|questions.answer|q1",
+    "unblocks": {"kind": "question", "action": "questions.answer", "question_id": "q1"},
+    "subject_artifact": "questions",
+    "subject_revision": "tq0001",
+    "subject_path": "work/questions.yaml",
+    "question": "Should you and your partner share one single to-do list, or keep separate lists that you can share with each other?",
+    "options": [
+      {"letter": "A", "does": "One shared list for both of us.", "cost": "The default; one list, no per-user data.",
+       "consequence": {"admits": ["questions.check"], "blocks": [], "answer": "One shared list for both of us", "produces": "artifact_revision"}},
+      {"letter": "B", "does": "Separate lists, each shareable with the other.", "cost": "Sharing per list.",
+       "consequence": {"admits": ["questions.check"], "blocks": [], "answer": "Separate lists, each shareable with the other", "produces": "artifact_revision"}}
+    ],
+    "autonomy_level": "A3",
+    "decision_class": "scope_changing_answer",
+    "holder": "decider",
+    "eligible": ["decider:requester", "operator"],
+    "addressed_to": "decider:requester",
+    "opened_at": "2026-11-21T12:00:00Z",
+    "recommendation_strength": "none",
+    "default_on_silence": false,
+    "grounds": [],
+    "decision_reasons": []
+  },
+  "proposal": {
+    "recommended_answer": "Neither option as asked: each user has several lists of their own; no shared list.",
+    "strength": "strong",
+    "default_on_silence": false,
+    "proposed_by": "llm",
+    "grounds": [
+      {
+        "source": "goals",
+        "citation": {"form": "artifact_revision", "value": {"artifact": "goals", "revision": "tg0001", "entry": "product/p1",
+          "digest": "sha256:c48f4e97c95e7083fedcc8ab5220a60090d683da9ad8ea306a19332cfa86ceb1"}},
+        "how": "product/p1 states that each of us keeps our own to-dos in several lists, which neither option gives."
+      }
+    ]
+  }
+}

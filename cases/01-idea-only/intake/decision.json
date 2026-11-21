@@ -265,6 +265,9 @@
           "findings": {
             "revision": "none"
           },
+          "goals": {
+            "revision": "none"
+          },
           "idea": {
             "revision": "i1"
           },
@@ -284,7 +287,7 @@
         "s1"
       ],
       "protocol": "sdc.intake",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -390,5 +393,5 @@
     }
   },
   "protocol": "sdc.intake",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

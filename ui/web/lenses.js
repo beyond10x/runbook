@@ -1,5 +1,6 @@
 // Lenses over the same data: SDC phases, autonomy, security, metrics.
 import {actorOf, ACTOR_LABEL, principalKind, caseState, evalAt, claimHistory, caseMetrics, describeEvent, seqOfEvidence} from './model.js';
+import {principalOf, autopilot, actorLabel, runSettings} from './principal.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]));
 const nr = (why) => `<span class="nr" title="${esc(why)}">not recorded yet</span>`;
@@ -170,7 +171,7 @@ function llmLine(r) {
 }
 
 const short = (id) => (id.includes('.') ? id.slice(id.indexOf('.') + 1) : id);
-const badge = (k) => `<span class="badge-h b-${k}">${ACTOR_LABEL[k]}</span>`;
+const badge = (k) => `<span class="badge-h b-${k}">${esc(actorLabel(k, ACTOR_LABEL))}</span>`;
 
 // One decision already taken: by a person or by a decider agent in a person's place.
 const reasonText = (r) => (typeof r === 'string' ? r : r?.text || r?.reason || r?.why || JSON.stringify(r));
@@ -185,7 +186,7 @@ export function decisionRows(list, prefix) {
     return `<div class="drow w-${esc(d.who)}${d.refused ? ' bad' : ''}" data-key="${esc(key)}">
       <div class="d1"><span class="stime">${esc((d.at || '').slice(5, 16).replace('T', ' ') || '—')}</span>${badge(d.who)}<b class="mono">${esc(d.what || '')}</b></div>
       ${d.question ? `<div class="d3">${esc(d.question)}</div>` : ''}
-      <div class="d2"><span class="dv dv-${esc(String(d.decision || '').split(':')[0])}">${esc(d.decision ?? '—')}</span><span class="muted">by <b>${esc(d.principal || '—')}</b>${d.model ? ` · ${esc(d.model)}` : ''}${d.ms != null ? ` · ${(d.ms / 1000).toFixed(1)} s` : ''}${d.cost != null ? ` · $${Number(d.cost).toFixed(4)}` : ''}</span>${d.dry ? '<span class="cs cs-default">dry run</span>' : ''}${d.invalid ? `<span class="cs bad">invalid: ${esc(d.invalid)}</span>` : ''}</div>
+      <div class="d2"><span class="dv dv-${esc(String(d.decision || '').split(':')[0])}">${esc(d.decision ?? '—')}</span><span class="muted">by <b title="${esc(d.principal || 'no principal in the record')}">${esc(principalOf(d.principal, {model: d.model}).label)}</b>${d.ms != null ? ` · ${(d.ms / 1000).toFixed(1)} s` : ''}${d.cost != null ? ` · $${Number(d.cost).toFixed(4)}` : ''}</span>${d.dry ? '<span class="cs cs-default">dry run</span>' : ''}${d.invalid ? `<span class="cs bad">invalid: ${esc(d.invalid)}</span>` : ''}</div>
       ${reasons.length ? `<ul class="dreasons">${reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
       ${d.cites?.length ? `<div class="dcites"><span class="muted">cites</span>${d.cites.map((x) => `<code>${esc(x)}</code>`).join('')}</div>` : ''}
       <div class="foot">${d.case ? `${esc(d.case)} · ` : ''}${esc(d.src)}${d.seq ? ` #${d.seq}` : ''}${d.revision ? ` · revision ${esc(d.revision)}` : ''}${d.record ? ` · ${esc(d.record.split('/').slice(-2).join('/'))}` : ''}</div></div>`;
@@ -194,7 +195,8 @@ export function decisionRows(list, prefix) {
 export function decisionSummary(list) {
   const by = (k) => list.filter((d) => d.who === k);
   const usd = by('decider').reduce((s, d) => s + (Number(d.cost) || 0), 0);
-  return `<div class="whoact"><span class="wa">${badge('person')}<b>${by('person').length}</b></span><span class="wa">${badge('decider')}<b>${by('decider').length}</b></span>${usd ? `<span class="wa"><span class="muted">decider cost</span><b>$${usd.toFixed(4)}</b></span>` : ''}</div>`;
+  const legacy = by('legacy').length, rule = by('rule').length;
+  return `<div class="whoact">${autopilot(runSettings()) && !by('person').length ? '' : `<span class="wa">${badge('person')}<b>${by('person').length}</b></span>`}<span class="wa">${badge('decider')}<b>${by('decider').length}</b></span>${rule ? `<span class="wa">${badge('rule')}<b>${rule}</b></span>` : ''}${legacy ? `<span class="wa">${badge('legacy')}<b>${legacy}</b></span>` : ''}${usd ? `<span class="wa"><span class="muted">decider cost</span><b>$${usd.toFixed(4)}</b></span>` : ''}</div>`;
 }
 
 export function renderAutonomy(cases, run, meta, onlyCase, history) {
@@ -202,14 +204,16 @@ export function renderAutonomy(cases, run, meta, onlyCase, history) {
   const llmAny = (run?.llm || []).length > 0;
   const st = steps(cases).filter((s) => !onlyCase || s.case.id === onlyCase);
   const counts = st.reduce((m, s) => { const k = principalKind(s.end.principal) || s.actor.kind; m[k] = (m[k] || 0) + 1; return m; }, {});
-  let h = `<div class="sect">Where a person must act next</div>`;
-  h += next.length ? next.map((n) => `<div class="next" data-key="nx:${esc(n.case.id)}:${esc(n.action)}"><div class="nx1"><span class="badge-h b-person">YOU</span><b class="mono">${esc(n.action || '')}</b><span class="muted mono">${esc(n.case.id)}</span></div><div class="nx2">${esc(n.why)}</div>${n.cmd ? `<pre class="cmd">${esc(n.cmd)}</pre>` : ''}${n.from ? `<div class="foot">command from ${esc(n.from)}</div>` : ''}</div>`).join('') : `<p class="muted">Nobody right now: no case is awaiting a person or an authority.</p>`;
+  // autopilot (autonomy A5): no person acts in the run, so nothing is listed as a person's to do
+  const auto = autopilot(run?.settings);
+  let h = auto ? `<div class="sect">Who acts next</div><p class="muted">Autopilot (autonomy A5): the decider or a rule takes every decision of this run.</p>` : `<div class="sect">Where a person must act next</div>`;
+  if (!auto) h += next.length ? next.map((n) => `<div class="next" data-key="nx:${esc(n.case.id)}:${esc(n.action)}"><div class="nx1"><span class="badge-h b-person">YOU</span><b class="mono">${esc(n.action || '')}</b><span class="muted mono">${esc(n.case.id)}</span></div><div class="nx2">${esc(n.why)}</div>${n.cmd ? `<pre class="cmd">${esc(n.cmd)}</pre>` : ''}${n.from ? `<div class="foot">command from ${esc(n.from)}</div>` : ''}</div>`).join('') : `<p class="muted">Nobody right now: no case is awaiting a person or an authority.</p>`;
   const tt = llmTotals(run);
   h += `<div class="sect">Who acted ${onlyCase ? `in ${esc(onlyCase)}` : 'across the tree'}</div><div class="whoact">${Object.entries(counts).map(([k, n]) => `<span class="wa">${badge(k)}<b>${n}</b></span>`).join('')}</div>`;
   h += llmAny ? `<div class="llmsum"><span><b>${tt.calls}</b> LLM calls</span><span><b>${(tt.tin + tt.tout).toLocaleString()}</b> tokens in+out</span><span><b>${(tt.cache).toLocaleString()}</b> cache tokens</span><span><b>${(tt.ms / 1000).toFixed(1)} s</b> model time</span><span><b>$${tt.usd.toFixed(4)}</b></span></div>${run.expected ? `<p class="foot">${esc(run.expected.trim())}</p>` : ''}`
     : `<p class="muted">LLM calls (model, tokens, duration): ${nr('no llm-calls.jsonl next to the store; the stub executors call no model')}</p>`;
   const hist = (history || []).filter((d) => !onlyCase || d.case === onlyCase);
-  h += `<div class="sect">Decisions taken <span class="muted">person or decider, newest first</span></div>`;
+  h += `<div class="sect">Decisions taken <span class="muted">${auto ? 'decider or rule' : 'person or decider'}, newest first</span></div>`;
   h += hist.length ? decisionSummary(hist) + `<div class="steplist">${decisionRows(hist.slice(0, 60), 'ah')}</div>` : `<p class="muted">None yet.</p>`;
   if (!(run?.decisions || []).length) h += `<p class="foot">Decider records (model, reasons, cost): ${nr('no decisions.jsonl in the run directory')}</p>`;
   const deciderFor = (s) => (run?.decisions || []).filter((d) => d.case === s.case.id && d.what === s.end.action && d.principal === s.end.principal);
@@ -223,7 +227,7 @@ export function renderAutonomy(cases, run, meta, onlyCase, history) {
     const ok = String(s.end.exit) === '0';
     h += `<div data-key="s:${esc(s.case.rel)}:${s.end.seq}" class="step w-${who}${s.discarded ? ' bad' : ''}" data-case="${esc(s.case.rel)}" data-seq="${s.end.seq}">
       <div class="s1"><span class="stime">${esc((s.end.at || '').slice(11, 16))}</span><span class="sact">${esc(s.end.action)}</span>${badge(who)}</div>
-      <div class="s2"><span class="scase">${esc(s.case.id)}</span><span class="sexit ${ok ? '' : 'nz'}">exit ${esc(s.end.exit)}</span><span class="sres">${esc(ev || rev || 'no evidence')}${s.end.principal ? ` · by ${esc(s.end.principal)}` : ''}</span>${s.discarded ? '<b class="bad"> discarded</b>' : ''}</div>
+      <div class="s2"><span class="scase">${esc(s.case.id)}</span><span class="sexit ${ok ? '' : 'nz'}">exit ${esc(s.end.exit)}</span><span class="sres">${esc(ev || rev || 'no evidence')}${s.end.principal ? ` · by ${esc(principalOf(s.end.principal).label)}` : ''}</span>${s.discarded ? '<b class="bad"> discarded</b>' : ''}</div>
       ${who === 'llm' ? `<div class="s3">${calls.length ? calls.map(({record}) => llmLine(record)).join('') : nr('no LLM call record for this step')}</div>` : ''}
       ${who === 'decider' ? `<div class="s3">${dec.length ? dec.map((d) => `<div class="llmrec">${esc([d.model, d.cost != null ? `$${Number(d.cost).toFixed(4)}` : null].filter(Boolean).join(' · ') || d.principal)}</div>${(d.reasons || []).map((r) => `<div class="dr1">${esc(reasonText(r))}</div>`).join('')}`).join('') : nr('no decisions.jsonl record for this step')}</div>` : ''}</div>`;
   }

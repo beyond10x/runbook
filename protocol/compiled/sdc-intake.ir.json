@@ -287,6 +287,9 @@
     "findings": {
       "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution"
     },
+    "goals": {
+      "description": "goals.yaml, the requester's resolved goals document from the root case (sdc.goals/1), read by the writers; an input only: no claim reads it and no invalidation names it, so a revised goals document makes no record of this case stale"
+    },
     "idea": {
       "description": "idea.yaml, an sdc.intake.Idea instance; its revision is the file's sha256"
     },
@@ -525,6 +528,6 @@
   "protocol": {
     "description": "Turn an idea into a requirements list (docs/phases.md steps 1 to 3). The idea record is checked against its schema; the idea is dissected into typed items (fact, wish, belief, unknown, ambiguity, dark spot), each citing its span of the idea; every open item becomes an interview question with a default answer, accepted as is or changed, every scope-changing one through the action scope.answer, which needs the capability scope.answer (the runtime grants it per autonomy level: a person at A0 to A2, a decider at A3 and up); the answers are normalised into a requirements list. Every result is a program's exit status, never an LLM's word. A revised dissection invalidates the interview check, a revised interview the requirements check. A revised idea opens a new intake case (the root's intake.open is bound to the idea revision), so this case declares no invalidation from the idea. The case ends passed; abandoning the idea is the root case's decision. Late findings (docs/trial-2.md, \"The late-finding loop\"): the requirements check also reads the open findings and is not valid while one is open; amend.upstream resolves them by amending the questions and the requirements list.",
     "id": "sdc.intake",
-    "revision": 7
+    "revision": 8
   }
 }

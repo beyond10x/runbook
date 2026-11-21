@@ -23,7 +23,7 @@ checked: protocol `sdc.epic` revision 1: 36864 states, 0 properties, 8 findings
 exit 1
 
 $ canon check --path docs/limitations/story-with-four-gate-kinds.protocol.yaml
-error[state-space-bound]: protocol `sdc.story` revision 3 has 786432 states, more than the bound of 65536: evidence kind `code_review` about `change` with producers independent on [`different_principal`] 4, evidence kind `conformance_run` about `change` with upstream `spec` 16, evidence kind `implementation_change` about `change` with upstream `spec` 4, evidence kind `merge_record` about `change` 2, evidence kind `open_markers` about `spec` 4, evidence kind `spec_compile` about `spec` 4, evidence kind `spec_synthesis` about `spec` 4, evidence kind `spec_validation` about `spec` 4, capability `change.merge` 3, decision `explicitly_dropped` 2
+error[state-space-bound]: protocol `sdc.story` revision 4 has 786432 states, more than the bound of 65536: evidence kind `code_review` about `change` with producers independent on [`different_principal`] 4, evidence kind `conformance_run` about `change` with upstream `spec` 16, evidence kind `implementation_change` about `change` with upstream `spec` 4, evidence kind `merge_record` about `change` 2, evidence kind `open_markers` about `spec` 4, evidence kind `spec_compile` about `spec` 4, evidence kind `spec_synthesis` about `spec` 4, evidence kind `spec_validation` about `spec` 4, capability `change.merge` 3, decision `explicitly_dropped` 2
 exit 1
 
 $ canon validate --path docs/limitations/child-outcomes-invalidated.protocol.yaml

@@ -52,7 +52,7 @@ compiled outputs to the session scratch directory.
 
 | Where | What it does | Cite |
 |---|---|---|
-| Protocol `sdc` | `epics.open` opens one `sdc.epic` per roadmap epic from one action, argument `epics: [..]` | `protocol/sdc.protocol.yaml:112-134` |
+| Protocol `sdc` | `epics.open` opens one `sdc.epic` per roadmap epic from one action, argument `epics: [..]` | `protocol/sdc.protocol.yaml:115-137` |
 | Protocol `sdc.epic` | `stories.open` opens one `sdc.story` per AEP story, "opened together" | `protocol/sdc-epic.protocol.yaml:6`, `:152-178` |
 | Bindings | `child.each: "stories"` / `"epics"`: one child per argument entry | `driver/examples/sdc/sdc-epic.bindings.json:58-62`; `sdc.bindings.json:45-46` |
 | Driver: open | `open_children` creates every child at once and writes one `case_outcome` `open` per child | `driver/src/main.rs:446-478` |
@@ -73,7 +73,7 @@ N default 4: `W:408-414`, `:487-492`), run by instruction, outside Canon.
 ### 1.2 End conditions
 
 - Root `sdc`: outcome `operating` when the roadmap is approved, epics opened and every child
-  ended `passed`; or `abandoned` by decision (`sdc.protocol.yaml:140-151`). `operating` is a
+  ended `passed`; or `abandoned` by decision (`sdc.protocol.yaml:143-154`). `operating` is a
   terminal outcome: after it the case is closed (`main.rs:486-511`) and nothing reads it again.
 - `sdc.release` `passed` requires `release.healthy` (`sdc-release.protocol.yaml:184-195`), a
   `health_observation` with `max_age: 30m` (`:37`). The expiry is real, but nothing re-observes
@@ -123,7 +123,7 @@ machine. The main session's work maps as follows:
 | `triage` | intake | `intake.triaged` | program | written only when every entry is routed; no result field (state bound) |
 | `ideas_dispatched` | intake | `ideas.dispatched` | runtime (`case_open sdc`) | |
 | `admission` | wave | `wave.admitted` | program | `admitted` / `refused` |
-| `wave_approval` | wave | `wave.approved` | person or decider through `wave.approve` | revision-bound record, since Canon grants are not (`docs/protocol-notes.md:174-178`) |
+| `wave_approval` | wave | `wave.approved` | person or decider through `wave.approve` | revision-bound record, since Canon grants are not (`docs/protocol-notes.md:227-231`) |
 | `wave_dispatched` | wave | `wave.dispatched` | runtime (`case_open sdc.story`) | |
 | `wave_result` | wave | `wave.delivered` | program | `delivered` / `failed`; one record per wave, whatever its size |
 | `backlog_state` | portfolio | `backlog.drained` | program | `drained` / `pending` |
@@ -136,7 +136,7 @@ machine. The main session's work maps as follows:
 
 ### 2.3 Where the LLM is and where it is not
 
-- LLM, writing artifacts only, never evidence (the SDC rule, `docs/protocol-notes.md:52-53`):
+- LLM, writing artifacts only, never evidence (the SDC rule, `docs/protocol-notes.md:105-106`):
   `intake.route` (classify, file drafts citing the entry), `wave.propose` (rank ready stories,
   give reasons). Inside children: every writer the child protocols already have.
 - Deterministic: `intake.check`, `wave.admit`, `wave.integrate`, `backlog.survey`,
@@ -164,7 +164,7 @@ Admission is global to the area, not per epic: two epics touching one crate coll
 needs one change to the existing family (*proposed*): `sdc.epic` stops opening its own stories
 (`stories.open`, `sdc-epic.protocol.yaml:152-178`); it hands its accepted stories to the
 portfolio and waits for a copied `stories_delivered` record, the way `roadmap.read` copies today
-(`sdc.protocol.yaml` `roadmap.read`; copy limitation `docs/protocol-notes.md:168-173`).
+(`sdc.protocol.yaml` `roadmap.read`; copy limitation `docs/protocol-notes.md:221-226`).
 
 Each admitted child gets its own managed worktree from `worktree create` and its own build
 directory (`BM:26-29`), replacing the shared `work/` (`main.rs:235-237`). Children of one wave
@@ -203,7 +203,7 @@ Canon has child-to-parent evidence (`case_outcome`) and nothing in the other dir
   ends `dropped`;
 - spec revised under running stories: each `sdc.story` invalidates its own
   `change.built`/`tests.pass` (`sdc-story.protocol.yaml:218-226`); the parent cannot (Canon
-  `inert-invalidation`, `docs/protocol-notes.md:158-162`) and does not need to;
+  `inert-invalidation`, `docs/protocol-notes.md:211-215`) and does not need to;
 - a pre-existing finding becomes a backlog draft that waits for the next plan, exactly the AEP
   wave rule (`W:552-569`).
 
@@ -225,12 +225,12 @@ Why N does not appear:
 - each new wave or intake revision makes the previous records inapplicable by revision binding,
   so the history does not accumulate in the evaluated state.
 
-Why not the `children` form: it reads all children alike (`docs/protocol-notes.md:163-167`); a
+Why not the `children` form: it reads all children alike (`docs/protocol-notes.md:216-220`); a
 single child that ends `dropped` makes it `false` for good, and in a standing case children
 accumulate for the life of the product, so one dropped story months ago would block every later
 wave. It also costs 72 (`8 × 9`) per listed outcome against 4 for an aggregate record. The cost
 of the aggregate: Canon cannot tell a program's `wave_result` from a forgery, as with any copied
-record (`docs/protocol-notes.md:168-173`). Canon request: a `children` form scoped to the children
+record (`docs/protocol-notes.md:221-226`). Canon request: a `children` form scoped to the children
 opened at the current revision of a subject (extends `docs/canon-requests.md:33-36`).
 
 Canon's answer (2026-11-21): request 14 accepted as Canon `story:child-outcome-subject` (Canon
@@ -345,7 +345,7 @@ What the SDC intake would derive:
   context: Rust CLI, private, offline, from `Cargo.toml`, `AGENTS.md`;
 - vision: adopt `vision:decider` (draft: needs an approval decision); roadmap: **none**, the store
   has no initiative, so `sdc` root's `epics.open` (needs `roadmap.approved`,
-  `sdc.protocol.yaml:112-134`) is blocked until a one-epic roadmap is reconstructed and approved;
+  `sdc.protocol.yaml:115-137`) is blocked until a one-epic roadmap is reconstructed and approved;
 - spec source `reused` (in-repository).
 
 Where it would start: `sdc.epic` for `epic:decider-v1` at `spec.gate`, which fails, so the case
@@ -358,11 +358,11 @@ not have (it runs `interpreted` only).
 ### 4.4 Rating: 2 of 5 for brownfield today
 
 - Works: facts-not-phases evaluation means "continue" and "start mid-way" need no special code;
-  `spec.reuse` / `spec.reconstruct` exist (`docs/protocol-notes.md:70`); AEP and ESS have the
+  `spec.reuse` / `spec.reconstruct` exist (`docs/protocol-notes.md:123`); AEP and ESS have the
   reverse tools (`RE`, `R`).
 - Gaps:
   1. no roadmap kind; the SDC requires an approved roadmap before any epic
-     (`docs/protocol-notes.md:192-194`);
+     (`docs/protocol-notes.md:245-246`);
   2. the all-or-nothing ESS gate blocks every adopted spec that is not already clean (decider:
      pin + 45 refusals);
   3. `sdc.plan` needs every story active, so one draft story blocks the epic;

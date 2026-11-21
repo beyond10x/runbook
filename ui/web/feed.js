@@ -7,10 +7,12 @@ import {esc} from './lenses.js';
 import {actorOf} from './model.js';
 import {KIND_LABEL, fmtAgo, meaningFor, classBadge} from './now.js';
 import {CLASSES, CLASS_LABEL, classify, storeItems} from './meaning.js';
-import {isPerson} from './kpis.js';
+import {principalOf, autopilot, runSettings} from './principal.js';
 
 const clock = (t) => (t == null || isNaN(t) ? '' : new Date(t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}));
-const whoOfPrincipal = (p) => (!p ? null : /^decider:(approve|reject)$/.test(p) || /^rule:/.test(p) ? {kind: 'rule', label: `Rule ${p.split(':')[1]}`} : /^decider:/.test(p) ? {kind: 'decider', label: `Decider ${p.split(':')[1]}`} : isPerson(p) ? {kind: 'person', label: `Person ${p}`} : {kind: 'driver', label: p});
+// who decided, from the record's principal (web/principal.js): "Person" only for a person
+const cap = (s) => s[0].toUpperCase() + s.slice(1);
+const whoOfPrincipal = (p, model) => { const x = principalOf(p, {model}); return x.kind === 'none' ? null : x.kind === 'agent' ? {kind: 'driver', label: x.label} : {kind: x.kind, label: x.kind === 'person' ? `Person ${x.id}` : cap(x.label)}; };
 const DECISION_WORD = {approve: 'approved', approved: 'approved', reject: 'rejected', rejected: 'rejected', escalate: 'escalated to a person', escalation_suppressed: 'escalation suppressed', granted: 'granted'};
 
 function whoOfChange(x, cases) {
@@ -53,14 +55,14 @@ export function feedItems(cases, live, history, facts) {
   } else {
     for (const it of storeItems(cases, facts?.files || [])) {
       const c = cases.find((k) => k.rel === it.rel || k.id === it.case);
-      const who = whoOfPrincipal(it.principal) || (c && it.action ? (() => { const k = actorOf(c, it.action).kind; return {kind: k, label: KIND_LABEL[k] || k}; })() : {kind: 'none', label: '—'});
+      const who = whoOfPrincipal(it.principal) || (c && it.action ? (() => { const k = actorOf(c, it.action).kind; return k === 'person' && autopilot(runSettings()) ? {kind: 'decider', label: 'Decider'} : {kind: k, label: KIND_LABEL[k] || k}; })() : {kind: 'none', label: '—'});
       out.push({...it, who, store: true});
     }
   }
   const qFromFs = fsOn && live.fs.changes.some((x) => classify(x.path).kind === 'questions');
   (history || []).forEach((d, i) => {
     if (d.src === 'ui-actions.jsonl' || d.refused) return;
-    const who = whoOfPrincipal(d.principal) || {kind: 'person', label: 'a person'};
+    const who = whoOfPrincipal(d.principal, d.model) || {kind: 'none', label: 'Principal not recorded'};
     if (who.kind === 'driver') return;
     const t = Date.parse(d.at);
     if (d.question || (d.src && /questions/.test(d.src))) {

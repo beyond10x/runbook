@@ -1,0 +1,15 @@
+findings:
+- id: f1
+  type: ambiguity
+  stage: requirements
+  raised_by: llm:requirements.normalise
+  status: resolved
+  decision: Each list can be shared with the partner
+  decided_by: person:ada
+  resolution:
+    default_taken: false
+- id: f2
+  type: missing_decision
+  stage: spec
+  raised_by: llm:spec.author
+  status: needs_person

@@ -1,11 +1,13 @@
 // Who holds an open decision, what taking it does, and the fields one decision covers. Pure, shared by
 // the Now band (now.js) and the Decisions drawer (inbox.js); tested in test/holder-model.spec.mjs.
 //
-// The run's decider setting (SDC_DECIDER of scripts/run-trial.sh) is not recorded durably: the line
-// "resuming <run>: adapter …, decider <kind>" goes to the terminal before console.txt starts. What
-// the run does record: a decider call in progress (decider/NNN-<action>/ with no response yet) and
-// every decider decision (decisions.jsonl, principal decider:<kind>). So the holder is read from those,
-// and the absence is said, never guessed.
+// The run's decider setting (SDC_DECIDER of scripts/run-trial.sh) is recorded in run-settings.jsonl
+// (sdc.run-settings/1, one line per start or resume; the last holds). Older runs have no such file:
+// then the holder is read from a decider call in progress (decider/NNN-<action>/ with no response
+// yet) and the decider decisions (decisions.jsonl, principal decider:<kind>), and the absence of the
+// setting is said, never guessed.
+
+import {autopilot} from './principal.js';
 
 const RULES = new Set(['approve', 'reject']);
 const deciderKind = (p) => (/^decider:/.test(p || '') ? p.slice(8) : null);
@@ -22,22 +24,35 @@ export function deciderOn(decisions, caseId, action, revision) {
 }
 
 // w: a waiting entry of nowState ({c, action, principal, kind, record, revision, subject, capability}).
+// settings: the run's settings record (run-settings.jsonl, last line), when the run wrote one.
 // Returns {who: 'decider'|'rule'|'person', label, note, tone}.
-export function holderOf(w, decisions) {
+export function holderOf(w, decisions, settings) {
   const all = deciderDecisions(decisions);
   const lastKind = all.length ? deciderKind(all.at(-1).principal) : null;
   if (w.kind === 'decider' && w.record) {
     const m = w.record.model || null;
-    return {who: 'decider', label: `Decider ${m || ''}`.trim(), note: 'deciding now, in a person’s place', tone: 'decider'};
+    return {who: 'decider', label: `Decider ${m || ''}`.trim(), note: 'deciding now, on the operator’s behalf', tone: 'decider'};
   }
   const mine = w.action ? deciderOn(decisions, w.c?.id, w.action, w.revision) : null;
   const you = `You${w.principal ? ` (${w.principal})` : ''}`;
+  const set = settings?.decider || null;
+  // autopilot (autonomy A5): the decider or a rule holds every decision; no person is named
+  if (autopilot(settings)) {
+    const rule = RULES.has(set?.kind);
+    const label = rule ? `Rule (${set.kind})` : `Decider ${set?.model || set?.kind || ''}`.trim();
+    const did = mine ? `${RULES.has(deciderKind(mine.principal)) ? 'the rule' : 'the decider'} ${/^reject/.test(mine.decision || '') ? 'refused it' : /escalat/.test(mine.decision || '') ? 'escalated it' : mine.invalid ? 'gave no valid reply' : `decided ${mine.decision}`}; ` : '';
+    return {who: rule ? 'rule' : 'decider', label, note: `${did}autopilot (autonomy A5): ${rule ? 'the rule' : 'the decider'} takes it on the operator’s behalf when the run continues`, tone: 'decider', setting: set, autopilot: true};
+  }
   if (mine) {
     const k = deciderKind(mine.principal);
     const verb = /^reject/.test(mine.decision || '') ? 'refused it' : /escalat/.test(mine.decision || '') ? 'handed it to a person' : mine.invalid ? 'gave no valid reply' : `decided ${mine.decision}`;
     const by = RULES.has(k) ? `the rule decider (${k})` : `the decider (${mine.model || k})`;
     return {who: 'person', label: you, note: `${by} ${verb}${mine.reasons?.[0] ? `: ${mine.reasons[0]}` : ''}`, tone: 'person', decider: mine};
   }
+  // the run's own setting (scripts/run-trial.sh writes it at every start and resume)
+  if (set?.kind === 'person') return {who: 'person', label: you, note: 'this run gives its decisions to a person (run-settings.jsonl)', tone: 'person', setting: set};
+  if (set?.kind && RULES.has(set.kind)) return {who: 'rule', label: `Rule (${set.kind})`, note: `this run gives its decisions to the rule decider:${set.kind} (run-settings.jsonl); it takes this one when the run continues`, tone: 'decider', setting: set};
+  if (set?.kind) return {who: 'decider', label: `Decider ${set.model || set.kind}`, note: `this run gives its decisions to decider:${set.kind} (run-settings.jsonl, escalate ${set.escalate || 'not recorded'}); it takes this one when the run continues`, tone: 'decider', setting: set};
   if (lastKind && RULES.has(lastKind)) return {who: 'rule', label: `Rule (${lastKind})`, note: `the run's earlier decisions were taken by the rule decider:${lastKind}; it takes this one when the run continues`, tone: 'decider'};
   if (lastKind) return {who: 'person', label: you, note: `nobody decides this until the run continues; this run's decider setting is not recorded, its earlier decisions were taken by decider:${lastKind}`, tone: 'person'};
   return {who: 'person', label: you, note: 'no decider has decided in this run (the decider setting is not recorded; a person is the default)', tone: 'person'};

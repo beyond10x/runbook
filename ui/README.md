@@ -16,6 +16,27 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
 
 - Each argument is a store directory (its subdirectories are root cases) or one case directory. A
   path that does not exist yet is waited for; cases and events show up as the run writes them.
+- `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
+  store selector without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
+  first and are not listed twice.
+- A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
+  case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
+  waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
+  at the stop; the store selector and the case tree mark it; its open decisions show greyed in the
+  drawer, and the server refuses to take them (continuing the run stays possible).
+- A run with no stop record, not closed, and no driver attached (no live pid in `driver.json` or
+  `.sdc-drive.lock`) moves no more: the Now band adds "no driver attached, last activity <time>" and
+  every clock stands at the last event, including the waiting time.
+- `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
+  holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
+  "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
+  `A5` is autopilot: the page never names a person or "you" for a decision, and says "the decider is
+  deciding" or "no decision is pending". `stand_in: true` marks the run "end-to-end test with a
+  stand-in" in the header and its KPI strip "not eval numbers".
+- Who decided comes from the record's principal (`web/principal.js`): `person:<id>` (and a bare id,
+  as older drivers wrote it) is a person; `decider:<kind>` is "decider <model>, on the operator's
+  behalf"; `rule:<name>` and `decider:approve|reject` are "rule <name>"; `human` without an id is
+  "recorded as human (principal not recorded)", never a person.
 - The server needs Node 22 and nothing else, and listens on 127.0.0.1 only.
 - Without `--write` it never writes anything. With `--write` the Decisions drawer can act on every
   store, with `--write-only STORE` (repeatable) on those stores only; the principal is `operator`
@@ -35,9 +56,11 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
   subject at its revision), how many fields one approval covers, and what taking it does. The band's
   head says what is true in words: "Waiting on you: nothing runs until this is decided", "Decider
   deciding", "Stopped: stuck since …, no step is admissible (open obligations)", "Closed: ended
-  <outcome>"; "Driver gone" only for a step that was started, never finished and has no live
-  driver. The run's decider setting (`SDC_DECIDER`) is not written into the run directory, so the
-  holder comes from a decider call in progress and `decisions.jsonl`. On the right, the last
+  <outcome>"; "Driver gone" for a step that was started, never finished and has no live driver;
+  with no driver attached the head keeps its words and the line under it says "no driver attached,
+  last activity <time>". The holder comes from a decider call in progress, `decisions.jsonl`, and the run's
+  decider setting in `run-settings.jsonl`; a run without that file says the setting is not
+  recorded. On the right, the last
   four finished steps with duration and result. Click a card for the case and its action. The same
   action glows in the graph (with its clock) and in the phase strip.
 - **KPI strip** (under the header): five run KPIs of `docs/kpis.md`, live. Elapsed (R7: first event
@@ -179,6 +202,12 @@ of one approval without a browser.
 `test/preflight.spec.mjs` (port 7524, `SDC_UI_PREFLIGHT_PORT`) starts a server whose PATH has jq and
 no yq: every act that would start the driver or a tool is refused with the missing programs named
 (nothing runs, no check is recorded), and the Decisions drawer shows the same message up front.
+`test/stopped.spec.mjs` (port 7528, `SDC_UI_STOPPED_PORT`) serves `--runs` over played runs (`person`,
+`held` with a decider in its settings, `stopped`, and `late`, which appears while the page is open)
+and checks the stopped state, the failed waiting KPI and the live store list; `test/autopilot.spec.mjs`
+(port 7530, `SDC_UI_AUTOPILOT_PORT`) checks that an autopilot run (fixture `autopilot`) never names a
+person and that a legacy run (fixture `human`) says "recorded as human". Screenshots at both gating
+viewports: `screenshots/{1600x1000,1366x768}-{stopped,stopped-drawer,held,autopilot,autopilot-drawer,human}.png`.
 `test/stall-model.spec.mjs` tests the stalled case (a wait on `amend.upstream` with no finding for a
 person names the writer that used its runs and its last error).
 `test/paths.spec.mjs` (port 7526, `SDC_UI_PATHS_PORT`) fails when a file git would commit under
@@ -209,5 +238,10 @@ Ports 7510 to 7513 (`SDC_UI_UX_PORT`). Findings are `ux/findings/UXF-nnn.md`; a 
 a regression asset that exists (`ux/specs/findings.spec.mjs`). Round R-01: `ux/rounds/R-01/`
 (report, the two reviews, triage, decision).
 A baseline key may carry its own `tolerance` (decision D-003: the wall-clock sampled metrics of the
-played scenarios); the ratchet counts a value as worse or better only outside that band. Round
+played scenarios); the ratchet counts a value as worse or better only outside that band. Decision
+D-004 took worse values the operator's wording asks for: the line "no driver attached, last
+activity …" (reading load +7 to +9 words in person, decider and changes; a layout shift in agent
+and decider and two more cue changes in two at 1366x768 when the played driver detaches at the
+end), and 3 more truncated elements at 1366x768 (and in
+closed at 1600x1000) from the longer principal labels and stop marks of the same change. Round
 files are written with repository-relative paths.

@@ -19,6 +19,14 @@ No case stores a phase. Where a case stands is what its evidence makes true; `ca
 lists the open obligations (what is missing) and the admissible actions (what is next) at every
 stage, as `cases/*/decision.json` show.
 
+The root case's artifacts are `idea`, `goals` and `roadmap` (`sdc.protocol.yaml:7-14`). `goals` is
+the requester's resolved goals document, `work/goals.yaml`, put there by `scripts/run-trial.sh
+--goals FILE` (`docs/requester.md`, "How a run receives it"); `sdc.intake` and `sdc.direction`
+declare it too (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`) and read the same
+file through the shared `work/`. It is an input only: no claim, invalidation or child opening names
+it, so its revision changes no state count of `canon check` and sets no record aside. Without
+`--goals` its revision is `none`, as in the fixture cases.
+
 Commands (from `../canon`; `cargo` is the slot shim):
 
 ```console

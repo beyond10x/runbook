@@ -153,6 +153,9 @@
     "computed_from": {
       "case": {
         "artifacts": {
+          "goals": {
+            "revision": "none"
+          },
           "idea": {
             "revision": "i1"
           },
@@ -169,7 +172,7 @@
         "a1"
       ],
       "protocol": "sdc",
-      "protocol_revision": 5,
+      "protocol_revision": 6,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -264,5 +267,5 @@
     }
   },
   "protocol": "sdc",
-  "protocol_revision": 5
+  "protocol_revision": 6
 }

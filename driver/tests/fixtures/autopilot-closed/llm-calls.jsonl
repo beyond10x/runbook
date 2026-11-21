@@ -1,0 +1,4 @@
+{"action":"idea.dissect","case":"IDEA-1.intake","attempt":1,"retry":false,"adapter":"metaharness","model":"claude-haiku-5-5","exit":0,"duration_ms":6000,"cost_usd":0.002,"num_turns":3}
+{"action":"spec.author","case":"IDEA-1.todo.spec","attempt":1,"retry":false,"adapter":"metaharness","model":"claude-sonnet-5-5","exit":0,"duration_ms":90000,"cost_usd":0.2,"num_turns":20}
+{"action":"spec.author","case":"IDEA-1.todo.spec","attempt":2,"retry":true,"adapter":"metaharness","model":"claude-sonnet-5-5","exit":0,"duration_ms":80000,"cost_usd":0.15,"num_turns":18}
+{"action":"change.implement","case":"IDEA-1.todo.access","attempt":1,"retry":false,"adapter":"metaharness","model":"claude-sonnet-5-5","exit":0,"duration_ms":120000,"cost_usd":0.3,"num_turns":30}

@@ -5,5 +5,7 @@ revision: c1
 artifacts:
   idea:
     revision: i1
+  goals:
+    revision: none
   roadmap:
     revision: r1

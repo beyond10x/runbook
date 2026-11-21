@@ -5,6 +5,8 @@ revision: c1
 artifacts:
   idea:
     revision: i1
+  goals:
+    revision: none
   dissection:
     revision: none
   questions:

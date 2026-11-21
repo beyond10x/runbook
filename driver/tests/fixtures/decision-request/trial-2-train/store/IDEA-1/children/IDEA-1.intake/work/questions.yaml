@@ -1,0 +1,67 @@
+questions:
+- id: q1
+  item: d3
+  excerpt: for me and my partner
+  question: Should you and your partner share one single to-do list, or keep separate lists that you can share with each other?
+  options:
+  - One shared list for both of us
+  - Separate lists, each shareable with the other
+  default: One shared list for both of us
+  default_reason: The idea says "for me and my partner", which most simply reads as one list the two of you both use.
+  consequences:
+  - does: Builds one list that both of you read and edit; no per-user data is built.
+    cost: The smallest build, about one list screen and one store.
+  - does: Builds a list per user with sharing of a list with the other user; sign-in and per-user data are built.
+    cost: Roughly twice the build, because every list carries an owner and a share.
+  scope_changing: true
+  status: open
+- id: q2
+  item: d4
+  question: When you change the list offline and your partner changes it too, how should conflicting edits be resolved?
+  options:
+  - Last change saved wins
+  - Keep both changes and ask us to pick
+  - Merge changes item by item
+  default: Last change saved wins
+  scope_changing: false
+  status: accepted
+  answer: Last change saved wins
+  answered_by: non-interactive
+- id: q3
+  item: d5
+  excerpt: for me and my partner
+  question: How should you and your partner sign in so that only you two can see the list?
+  options:
+  - Each of us signs in with an email and password
+  - Sign in with a one-time code sent by email
+  - No sign-in; a private link known only to us
+  default: Sign in with a one-time code sent by email
+  default_reason: A one-time code needs no password to store or reset, and the idea names no account the two of you would have to keep.
+  consequences:
+  - does: Builds email and password sign-in with password storage and a reset path.
+    cost: The largest of the three, because passwords must be stored safely and can be forgotten.
+  - does: Builds sign-in by a one-time code sent to your email; no password is stored.
+    cost: An email sender must be set up and kept running.
+  - does: Builds no sign-in; the list is reached through a private link and anyone holding the link can edit it.
+    cost: The smallest build, with the least protection for your list.
+  scope_changing: true
+  status: open
+- id: q7
+  item: f1
+  excerpt: for me and my partner
+  question: The answer to q1 gives each user their own lists, but it does not say whether the partner can see or edit them.
+  options:
+  - Each list is private to its owner
+  - Each list can be shared with the partner
+  - Both users see all lists
+  default: Both users see all lists
+  default_reason: With two people sharing a household app, seeing everything is the least surprising start.
+  consequences:
+  - does: Builds lists visible only to their owner; no sharing is built.
+    cost: The smallest build.
+  - does: Builds sharing of a list with the partner, who can then see and edit it.
+    cost: A share record and a permission check on every list read and write.
+  - does: Builds lists that every signed-in user sees and edits; no owner check is built.
+    cost: Small, but a third user would see everything.
+  scope_changing: true
+  status: open

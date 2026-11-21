@@ -22,12 +22,12 @@
         "value": 0.011
       },
       "reading_load.max@1366x768": {
-        "value": 98,
-        "decision": "D-002"
+        "value": 107,
+        "decision": "D-004"
       },
       "reading_load.median@1366x768": {
-        "value": 98,
-        "decision": "D-002"
+        "value": 107,
+        "decision": "D-004"
       },
       "cue_churn.changes@1366x768": {
         "value": 0
@@ -45,7 +45,8 @@
         "value": 0
       },
       "contract.truncated_hidden@1366x768": {
-        "value": 8
+        "value": 11,
+        "decision": "D-004"
       },
       "completion.miss@1366x768": {
         "value": 0
@@ -89,12 +90,12 @@
         "value": 0.006
       },
       "reading_load.max@1600x1000": {
-        "value": 107,
-        "decision": "D-002"
+        "value": 116,
+        "decision": "D-004"
       },
       "reading_load.median@1600x1000": {
-        "value": 107,
-        "decision": "D-002"
+        "value": 116,
+        "decision": "D-004"
       },
       "cue_churn.changes@1600x1000": {
         "value": 0
@@ -164,8 +165,8 @@
         "value": 0
       },
       "layout_shift.per_minute@1366x768": {
-        "value": 0.026,
-        "decision": "D-002"
+        "value": 0.053,
+        "decision": "D-004"
       },
       "reading_load.max@1366x768": {
         "value": 78,
@@ -193,7 +194,8 @@
         "value": 0
       },
       "contract.truncated_hidden@1366x768": {
-        "value": 28
+        "value": 31,
+        "decision": "D-004"
       },
       "completion.miss@1366x768": {
         "value": 0
@@ -308,9 +310,9 @@
         "tolerance": 0.35
       },
       "cue_churn.changes@1366x768": {
-        "value": 1,
+        "value": 3,
         "tolerance": 1,
-        "decision": "D-003"
+        "decision": "D-004"
       },
       "cue_churn.flip_flops@1366x768": {
         "value": 0
@@ -325,9 +327,9 @@
         "value": 0
       },
       "contract.truncated_hidden@1366x768": {
-        "value": 26,
+        "value": 29,
         "tolerance": 1,
-        "decision": "D-003"
+        "decision": "D-004"
       },
       "completion.miss@1366x768": {
         "value": 0
@@ -429,15 +431,16 @@
         "value": 0
       },
       "layout_shift.per_minute@1366x768": {
-        "value": 0.019
+        "value": 0.03,
+        "decision": "D-004"
       },
       "reading_load.max@1366x768": {
-        "value": 96,
-        "decision": "D-002"
+        "value": 105,
+        "decision": "D-004"
       },
       "reading_load.median@1366x768": {
-        "value": 96,
-        "decision": "D-002"
+        "value": 105,
+        "decision": "D-004"
       },
       "cue_churn.changes@1366x768": {
         "value": 0
@@ -455,7 +458,8 @@
         "value": 0
       },
       "contract.truncated_hidden@1366x768": {
-        "value": 9
+        "value": 12,
+        "decision": "D-004"
       },
       "completion.miss@1366x768": {
         "value": 0
@@ -575,7 +579,8 @@
         "value": 0
       },
       "contract.truncated_hidden@1366x768": {
-        "value": 36
+        "value": 41,
+        "decision": "D-004"
       },
       "completion.miss@1366x768": {
         "value": 0
@@ -632,7 +637,8 @@
         "value": 0
       },
       "contract.truncated_hidden@1600x1000": {
-        "value": 15
+        "value": 18,
+        "decision": "D-004"
       },
       "completion.miss@1600x1000": {
         "value": 0
@@ -670,10 +676,12 @@
         "value": 0.011
       },
       "reading_load.max@1366x768": {
-        "value": 84
+        "value": 91,
+        "decision": "D-004"
       },
       "reading_load.median@1366x768": {
-        "value": 84
+        "value": 91,
+        "decision": "D-004"
       },
       "cue_churn.changes@1366x768": {
         "value": 0
@@ -691,7 +699,7 @@
         "value": 0
       },
       "contract.truncated_hidden@1366x768": {
-        "value": 18,
+        "value": 16,
         "decision": "D-002"
       },
       "completion.miss@1366x768": {
@@ -730,10 +738,12 @@
         "value": 0.006
       },
       "reading_load.max@1600x1000": {
-        "value": 94
+        "value": 101,
+        "decision": "D-004"
       },
       "reading_load.median@1600x1000": {
-        "value": 94
+        "value": 101,
+        "decision": "D-004"
       },
       "cue_churn.changes@1600x1000": {
         "value": 0

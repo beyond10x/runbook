@@ -1,6 +1,7 @@
 {
   "$artifacts": {
     "idea": "idea.yaml",
+    "goals": "goals.yaml",
     "roadmap": "aep/initiative/roadmap.md"
   },
   "roadmap.read": {
