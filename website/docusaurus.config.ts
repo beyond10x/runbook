@@ -8,8 +8,8 @@ import {PRISM_ADDITIONAL_LANGUAGES} from '@beyond10x/docs-system/code';
 const siteDir = path.dirname(fileURLToPath(import.meta.url));
 
 const config: Config = {
-  title: 'SDC',
-  tagline: 'A software delivery cycle that runs on Canon protocols.',
+  title: 'Runbook',
+  tagline: 'Agentic runbooks: fixed, checked ways to handle a case.',
 
   future: {v4: true},
 
@@ -51,7 +51,7 @@ const config: Config = {
   themeConfig: {
     prism: {additionalLanguages: [...PRISM_ADDITIONAL_LANGUAGES]},
     navbar: {
-      title: 'SDC',
+      title: 'Runbook',
       items: [
         {to: '/docs/', label: 'What it is', position: 'left', activeBaseRegex: '^/sdc/docs/?$'},
         {to: '/llm-is-not-the-runtime', label: 'The LLM is not the runtime', position: 'left'},
@@ -85,12 +85,12 @@ const config: Config = {
           ],
         },
       ],
-      copyright: 'A beyond10x prototype. SDC · Apache-2.0.',
+      copyright: 'A beyond10x prototype. Runbook · Apache-2.0.',
     },
   } satisfies Preset.ThemeConfig,
 };
 
-const site = withProductSite(config, {mark: 'Sd'});
+const site = withProductSite(config, {mark: 'Rb'});
 
 export default {
   ...site,

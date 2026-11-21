@@ -1,14 +1,21 @@
 ---
-title: What the SDC is
+title: What Runbook is
 sidebar_label: What it is
 slug: /
-description: The SDC is a prototype software delivery cycle that runs on Canon protocols.
+description: "Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next step from recorded facts; a model carries out single steps."
 ---
 
-# What the SDC is
+# What Runbook is
 
-The SDC is a prototype of a software delivery cycle that runs on [Canon](https://github.com/beyond10x/canon)
-protocols. An idea goes through eight stages (idea, intake, direction, epic, spec, plan, story,
+Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides
+the next step from recorded facts; a model carries out single steps. Runbook is a prototype that
+runs on [Canon](https://github.com/beyond10x/canon) protocols.
+
+The first runbook is the software delivery cycle (SDC): it takes an idea to a built, tested
+product. Other runbooks are planned, not built: incident handling, investigations and ticket
+triage.
+
+In the SDC an idea goes through eight stages (idea, intake, direction, epic, spec, plan, story,
 release), each a Canon `protocol/1` case with child cases. The stage is derived from facts (files
 in the case's repository and recorded check results), never from a stored phase
 ([`README.md:3-6`](https://github.com/beyond10x/sdc/blob/0.1.1/README.md#L3-L6)). A ninth
@@ -17,8 +24,10 @@ protocol, `sdc.bugfix`, fixes one bug, red first
 
 ## The name
 
-SDC stands for software delivery cycle
-([`README.md:3`](https://github.com/beyond10x/sdc/blob/0.1.1/README.md#L3)).
+Runbook is the name of the product: the driver, the protocol format, the run inspector, the
+experiment tools and this site. SDC stands for software delivery cycle, the first runbook. The
+binaries, environment names, format ids and the repository still carry `sdc`; they are renamed
+later.
 
 ## The LLM is not the runtime
 
