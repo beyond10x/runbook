@@ -8,7 +8,17 @@ questions:
     answer: draft, issued, paid, cancelled
   - id: q2
     item: d4
+    excerpt: Bill customers with invoices
     question: Who may cancel an invoice?
+    options:
+      - the billing clerk, before it is paid
+      - the billing clerk or the customer, before it is paid
     default: the billing clerk, before it is paid
+    default_reason: The idea names only the customer who is billed and no way for them to act on an invoice, so only the clerk cancels.
+    consequences:
+      - does: Builds a cancel action for the billing clerk only; customers have no action on an invoice.
+        cost: The smallest build, one permission.
+      - does: Builds a cancel action for the billing clerk and for the customer on their own invoices; customers can act on an invoice.
+        cost: A customer sign-in and an ownership check on every cancel, so a larger build.
     scope_changing: true
     status: open
