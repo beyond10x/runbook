@@ -7,6 +7,35 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-11-21
+
+A fix of the spec gate and the results of the release-0.1.2 runs. No protocol or binding changed;
+one tool's check got stricter. The longer note is `docs/releases/0.1.5.md`.
+
+### Fixed
+
+- The spec gate requires the synthesized conformance suite to pass against ESS's interpreted target
+  (`sdc-tool.sh` `spec_conform`, used by `spec.synthesize` and `spec.gate`): an unsupported, failed
+  or errored scenario refuses the spec, and `spec.author` gets one line per such scenario through
+  the existing `spec_synthesis` feedback route. Before, a spec whose own suite did not pass reached
+  the story, where the implementing writer cannot change it (`release-0.1.2.mixed.1`, `writer_spent`
+  at `change.implement`). Cycle `spec-interp-unsupported`; the committed replay recording re-packed
+  because the review's `in/gate.txt` now ends with the interpreted run's line (`238c70d`,
+  `501d207`).
+
+### Added
+
+- The nine runs of `release-0.1.2` on tree 72a3eef: report, run summaries, timelines and
+  `notes.md` (strong 3 of 3 clean, mixed 2 of 3, Haiku 2 of 3) (`12e3069`, `74b6f1e`).
+
+### Changed
+
+- `experiments/baseline-0.1.0/inputs.md`, `costs.md` and the record `review-minimal-facts`: the
+  review is a reading session with `Glob`, `Read` and `Grep`, not one request (`39d2db3`).
+- The progress ledger's 0.1.2 entry names `release-0.1.2` as its experiment: 7 of 9 clean passes
+  on the 0.1.2 tree, and the site's charts get the 0.1.2 column.
+- The three crates, their lock files and `ui/package.json` are at 0.1.5.
+
 ## [0.1.4] - 2026-11-21
 
 An observation, data and docs: the free-running agent comparison (its registered hypothesis

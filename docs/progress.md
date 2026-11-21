@@ -16,9 +16,10 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | not observed | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
 | [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | spec scenarios proven passed: 53 of 103 (lower bound); 31 failed, of which 8 refused for a precondition the specification does not model; 19 not measurable (6 of 9 runs) | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - | - |
-| [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | no experiment yet | no run | - | - |
+| [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | `release-0.1.2` | 7 of 9 | not observed | haiku 2 of 3; mixed 2 of 3; strong 3 of 3 |
 | [0.1.3](#013) | release | 2026-11-21 | `99390b9` | no experiment yet | no run | - | - |
 | [0.1.4](#014) | release | 2026-11-21 | `7bbdee6` | no experiment yet | no run | - | - |
+| [0.1.5](#015) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -255,12 +256,28 @@ What changed:
 | `1109656` | the root protocol's description says software delivery cycle; no rule changed | no run metric affected |
 | `20fa990` | the LLM decider is decider:model (D149); one rework cap, recorded in run-settings and read by driver and rework prompt (D184) | not measured: no experiment has tested this change |
 
-Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+Tested by, primary metric and verdict:
+
+- [`release-0.1.2`](../experiments/release-0.1.2/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
+
+Clean passes of ended runs, all settings: **7 of 9** (`release-0.1.2`); rate: 78 %.
+
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): not observed on any of the 9 ended runs.
+
+| setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
+|---|---|---|---|---|---|---|---|
+| All Haiku | `release-0.1.2` | haiku | 2 of 3 | 67 % | 0.91 [0.88, 0.93] (2) | 3032 [2832, 3231] (2) | release-0.1.2.haiku.1 (stopped: writer_spent in IDEA-1.list.sync), **release-0.1.2.haiku.2**, **release-0.1.2.haiku.3** |
+| Sonnet work, Haiku decider | `release-0.1.2` | mixed | 2 of 3 | 67 % | 2.78 [2.52, 3.03] (2) | 1699 [1577, 1821] (2) | release-0.1.2.mixed.1 (stopped: writer_spent in IDEA-1.sharedlist.list), **release-0.1.2.mixed.2**, **release-0.1.2.mixed.3** |
+| Sonnet work, Opus decider | `release-0.1.2` | strong | 3 of 3 | 100 % | 4.70 [4.46, 4.82] (3) | 972 [886, 1108] (3) | **release-0.1.2.strong.1**, **release-0.1.2.strong.2**, **release-0.1.2.strong.3** |
 
 Limits of this measurement:
 
-- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- The baseline on this tree is release-0.1.2 (three runs per setting): strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean; the haiku result is inconclusive against baseline-0.1.0 under the record's rule.
 - A check of the delivered product against its specification is in work and not in this release.
+- `release-0.1.2`, known confound `unstick`: run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh:377-385); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick that baseline-0.1.0 did not have. An unstuck run is not a clean pass, so a stop the routes turn into an unstick counts against P1 and for P2.
+- `release-0.1.2`, known confound `canon`: every run uses the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins; baseline-0.1.0 had the same confound.
+- `release-0.1.2`, known confound `launcher`: baseline-0.1.0 was started by a scheduler script with the same settings; these runs are started by sdc-experiment run, with experiment.json.
+- `release-0.1.2`, known confound `decider-kind`: decider.kind is model here and haiku in baseline-0.1.0; 0.1.2 made haiku an alias of model and sdc-experiment counts them as one setting (CHANGELOG 0.1.2).
 
 ## 0.1.3
 
@@ -300,6 +317,23 @@ Limits of this measurement:
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
 - The conformance figure is a lower bound judged against each run's own specification; the blinded quality evaluation has three products per side and makes no significance claim.
 
+## 0.1.5
+
+Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-13 merges below, on top of 0.1.4 (7bbdee6).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `6391cbc` | the spec gate requires the synthesized suite to pass against ESS's interpreted target | not measured: no experiment has tested this change |
+| `ea7c7d0` | the release-0.1.2 runs: strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean; the review is a reading session | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+
 ## Experiments in no entry
 
 Records of other inputs, of settings across trees, and planned ones. Inconclusive and contradicted verdicts are listed like held ones.
@@ -312,7 +346,6 @@ Records of other inputs, of settings across trees, and planned ones. Inconclusiv
 | [`effort-decider-mixed`](../experiments/effort-decider-mixed/report.md) | prospective | 72a3eef | Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass. | With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s. | xhigh 0 ended of 0; medium 0 ended of 0 | `run.wall_s`: xhigh -; medium - | planned, no run yet |
 | [`effort-implement-levels`](../experiments/effort-implement-levels/report.md) | prospective | - | Whether more reasoning effort on the implement class lowers how often change.implement is sent back, three runs per level, as the operator described. | With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5. | low 0 ended of 0; medium 0 ended of 0; high 0 ended of 0 | `node.story/change.implement.looping_factor`: low -; medium -; high - | planned, no run yet |
 | [`free-agent-0.1.0`](../experiments/free-agent-0.1.0/report.md) | prospective | 3ad3391 | Whether the SDC, where the LLM is not the runtime, costs less than one agent doing the whole cycle in one go with its own tool calls. | A free-running agent given the same idea and the same list of deliverables costs more (run.cost_usd and run.tokens_total) than the SDC run on 0.1.0. | strong 3 of 3; mixed 3 of 3; sonnet 3 of 3 | ``: strong -; mixed -; sonnet - | contradicted |
-| [`release-0.1.2`](../experiments/release-0.1.2/report.md) | prospective | 72a3eef | Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0. | - | strong 3 of 3; mixed 2 of 3; haiku 2 of 3 | - | descriptive |
 | [`review-haiku-replay`](../experiments/review-haiku-replay/report.md) | prospective | 72a3eef | Whether the review class can move from Sonnet to Haiku (0.75 to about 0.04 USD per strong run) without changing a review decision, tested on recorded inputs before any full run. | - | haiku-review 0 ended of 3 | - | planned, no run yet |
 | [`review-minimal-facts`](../experiments/review-minimal-facts/report.md) | prospective | - | Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input. | - | minimal-facts 0 ended of 0 | - | planned, no run yet |
 | [`small-idea-1`](../experiments/small-idea-1/report.md) | retrospective | acd6f12 | Run a deliberately small idea from idea to close with no person, to see whether the loops of the to-do runs come from the idea's size. | - | haiku 0 of 1; sonnet 0 of 1 | - | descriptive |
