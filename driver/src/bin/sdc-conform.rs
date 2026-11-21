@@ -53,6 +53,8 @@ const USAGE: &str = "usage: sdc-conform observe <run dir> [--tables <n>] [--tabl
        sdc-conform ess-install [--archive <file>] [--pin <ess-pin.json>]";
 const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 const DEFAULT_TABLES: usize = 3;
+/// Node sessions per table slot: three for the check, one retry after a faulty run, one more.
+const MAX_SESSIONS: u32 = 5;
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const LIMITS: [&str; 4] = [
     "The product runs on this host without confinement (Substrate is not used yet); it is started from a copy of the delivered tree and bound to 127.0.0.1 only as far as it honours the port it is given.",
@@ -237,6 +239,11 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
   where the README says `cargo run --release -- <port> <file>`, start [\"target/release/<bin>\", \"{port}\",\n\
   \"{data_file}\"] and cite that README line and the Cargo.toml line naming the package or binary.\n\
   Never use an argument or a header the README describes as a test, demo or mock mode.\n\
+  `start.args` (optional): where the README leaves a start value to the operator (e.g. <partner-account-id>)\n\
+  and the specification has an input field for it, [{\"name\", \"kind\": \"from_scenario\", \"field\": <input field>,\n\
+  \"nth\": 0, \"when_absent\": <the README's example value>}] and \"{arg.<name>}\" in start.argv: the adapter\n\
+  starts the product per scenario with the nth distinct value the scenario sends in that field, else\n\
+  when_absent (which must be on the cited lines). Never a script and never a write into the data file.\n\
   `start.ready`: a request the product answers once it is up, e.g. {\"method\": \"GET\", \"path\": \"/\"}.\n\
 - `captures` (optional): values the product prints when it starts, e.g. a link, a token or a board code\n\
   minted at start: {name, stream (stdout or stderr), regex (exactly one group), timeout_s (1-120)}.\n\
@@ -256,9 +263,9 @@ Reply with one route table (format sdc.conformance-table/1), exactly the reply s
   response lacks). An outcome that is external (`condition.kind` external) needs a `forced` entry: the\n\
   request on the command's own method and route that makes the product take it (e.g. a body member\n\
   or a query parameter that simulates a lost connection).\n\
-  `status` may be a list when several statuses mean one outcome (e.g. [409, 404] where the product\n\
-  answers a missing entity 404 and the specification calls that case wrong-state). Two outcomes may\n\
-  share a status only with a `when_body` {path, equals} on each. The `error` name is the declared error,\n\
+  `status` may be a list when several statuses mean one outcome. Never list 404 on a wrong-state outcome:\n\
+  the adapter itself reads a refusal (404, or the wrong-state status) of an id the scenario never created\n\
+  as wrong-state, and 404 for an id the scenario created never. Two outcomes may share a status only with a `when_body` {path, equals} on each. The `error` name is the declared error,\n\
   written as is; payload fields and error `fields` are never literals: fill each from the response, a lookup, a capture or the input. A field filled from the\n\
   input is recorded unverified, because the check then compares the input with itself; prefer the\n\
   response where the product echoes the value.\n\
@@ -580,6 +587,7 @@ fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<
         .args(["--target-timeout", &timeout.to_string(), "--report-format", "2", "--strict", "--format", "json", "--report-out"]).arg(&report)
         .arg("--").arg(&adapter).arg("--table").arg(&table_path).arg("--tree").arg(&product)
         .arg("--work").arg(dir.join("scenarios")).arg("--log").arg(&log)
+        .arg("--ir").arg(cx.out.join("ir.json")).arg("--suite").arg(&cx.suite)
         .args(["--start-timeout", "20", "--request-timeout", &timeout.min(20).to_string()]);
     let limit = Duration::from_secs((n as u64 + 1) * (2 * timeout + 25) + 60);
     let (code, tail) = run_bounded(&mut cmd, limit, Some(&detail), &dir.join("ess-run.stderr"));
@@ -735,6 +743,7 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         };
         rec["slot"] = json!(slot);
         rec["retried_after_run"] = json!(false);
+        rec["one_more_session"] = json!(false);
         let (mut attempts, mut cost) = (0u32, 0.0f64);
         let first = match (&table_file, &node) {
             (Some(f), _) => read_json(f).map_err(|e| ("table_missing", e, vec![])),
@@ -753,20 +762,35 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
                 let mut r = run_table(&cx, &table, &sdir.join("run-1"), 1, &mut products);
                 details.push(json!({"table": slot, "run": 1, "ess": r.detail.clone()}));
                 runs.push(r.rec.clone());
-                if r.cause.is_none() && !r.evidence.is_empty() {
+                // A run that shows a fault of the table is asked again once with that evidence; a
+                // slot refused after that retry (by the check or by its run) gets one more fresh
+                // session; at most MAX_SESSIONS node sessions per slot.
+                let mut feedback = (r.cause.is_none() && !r.evidence.is_empty()).then(|| Feedback::Run(r.evidence.clone()));
+                if feedback.is_some() {
                     rec["evidence"] = json!(r.evidence);
-                    if let Some(nd) = &node {
-                        rec["retried_after_run"] = json!(true);
-                        match obtain(nd, &sdir, slot, &mut attempts, &mut cost, 1, Feedback::Run(r.evidence.clone()), &cx.ir_doc) {
-                            Ok(t2) => {
-                                r = run_table(&cx, &t2, &sdir.join("run-2"), 2, &mut products);
-                                details.push(json!({"table": slot, "run": 2, "ess": r.detail.clone()}));
-                                runs.push(r.rec.clone());
+                }
+                let mut round: usize = 1;
+                while let (Some(fb), Some(nd)) = (feedback.take(), &node) {
+                    if round >= 3 || attempts >= MAX_SESSIONS {
+                        break;
+                    }
+                    rec[if round == 1 { "retried_after_run" } else { "one_more_session" }] = json!(true);
+                    round += 1;
+                    match obtain(nd, &sdir, slot, &mut attempts, &mut cost, 1, fb, &cx.ir_doc) {
+                        Ok(t2) => {
+                            ended = None;
+                            r = run_table(&cx, &t2, &sdir.join(format!("run-{round}")), round, &mut products);
+                            details.push(json!({"table": slot, "run": round, "ess": r.detail.clone()}));
+                            runs.push(r.rec.clone());
+                            if r.cause.is_none() && !r.evidence.is_empty() {
+                                rec["evidence"] = json!(r.evidence);
+                                feedback = Some(Feedback::Run(r.evidence.clone()));
                             }
-                            Err((cause, why, refusals)) => {
-                                rec["refused"] = json!(refusals);
-                                ended = Some((cause, format!("asked again after its run: {why}")));
-                            }
+                        }
+                        Err((cause, why, refusals)) => {
+                            rec["refused"] = json!(refusals);
+                            ended = Some((cause, format!("asked again after its run: {why}")));
+                            feedback = Some(Feedback::Check(refusals));
                         }
                     }
                 }
@@ -799,6 +823,7 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         recs.push(rec);
     }
     let total_cost: f64 = recs.iter().filter_map(|r| r["cost_usd"].as_f64()).sum();
+    o.rec["node_sessions"] = json!(recs.iter().filter_map(|r| r["attempts"].as_u64()).sum::<u64>());
     o.rec["table_cost_usd"] = json!((total_cost * 1e6).round() / 1e6);
     o.rec["tables"] = J::Array(recs.clone());
     let detail_doc = json!({"format": "sdc.conformance-detail/1", "runs": details});

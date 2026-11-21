@@ -204,8 +204,8 @@ fn check_argv(what: &str, v: &J, start: bool, p: &mut Vec<String>) {
             p.push(format!("{what}.argv: {x:?} reaches outside the delivered tree"));
         }
         for ph in path_placeholders(x) {
-            if !start || !START_PLACEHOLDERS.contains(&ph.as_str()) {
-                p.push(format!("{what}.argv: unknown placeholder {ph} (start may use {})", START_PLACEHOLDERS.join(", ")));
+            if !start || !(START_PLACEHOLDERS.contains(&ph.as_str()) || ph.starts_with("{arg.")) {
+                p.push(format!("{what}.argv: unknown placeholder {ph} (start may use {}, and {{arg.<name>}} of start.args)", START_PLACEHOLDERS.join(", ")));
             }
         }
     }
@@ -499,7 +499,7 @@ fn usage_slots(line: &str, base: &str) -> Vec<Option<Vec<String>>> {
 /// Ruling: the start command is one the delivered tree's README or manifest states for normal use.
 /// `start.from` cites the file and line; the cited lines together hold the program's file name and
 /// every argument without a placeholder, and none of them describes a test, demo or mock mode.
-fn check_start_from(t: &J, tree: &Path, p: &mut Vec<String>) {
+fn check_start_from(t: &J, ir: &J, tree: &Path, p: &mut Vec<String>) {
     let Some(from) = t["start"]["from"].as_array().filter(|a| !a.is_empty()) else {
         p.push("start.from: missing (the README or manifest file and line of the delivered tree that states this start command for normal use)".into());
         return;
@@ -526,6 +526,7 @@ fn check_start_from(t: &J, tree: &Path, p: &mut Vec<String>) {
         text.push_str(&l);
         text.push('\n');
     }
+    check_start_args(t, ir, &text, p);
     if text.is_empty() {
         return;
     }
@@ -545,6 +546,85 @@ fn check_start_from(t: &J, tree: &Path, p: &mut Vec<String>) {
             p.push(format!("start.from: the cited lines do not contain {want} (they must state the program and every argument of start.argv that holds no placeholder)"));
         }
     }
+}
+
+/// Start values the README leaves to the operator, taken from the scenario: each `start.args` entry
+/// `{name, kind: from_scenario, field, nth, when_absent}` fills `{arg.<name>}` in `start.argv` with
+/// the `nth` (default 0) distinct value the scenario sends in the input field `field`, else
+/// `when_absent`, which must be on the cited lines.
+fn check_start_args(t: &J, ir: &J, cited: &str, p: &mut Vec<String>) {
+    let inputs: BTreeSet<String> = match &ir["commands"] {
+        J::Object(m) => m.values().flat_map(|c| c["input"].as_array().into_iter().flatten().map(|f| s(&f["name"]).to_string())).collect(),
+        J::Array(a) => a.iter().flat_map(|c| c["input"].as_array().into_iter().flatten().map(|f| s(&f["name"]).to_string())).collect(),
+        _ => BTreeSet::new(),
+    };
+    let mut names = BTreeSet::new();
+    if !t["start"]["args"].is_null() && !t["start"]["args"].is_array() {
+        p.push("start.args: not a list".into());
+    }
+    for (i, a) in t["start"]["args"].as_array().into_iter().flatten().enumerate() {
+        let name = s(&a["name"]);
+        let what = format!("start.args[{i}] {name}");
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || !names.insert(name.to_string()) {
+            p.push(format!("{what}: name must be letters, digits and _, once"));
+        }
+        if a["kind"] != "from_scenario" {
+            p.push(format!("{what}: kind must be from_scenario"));
+        }
+        if !inputs.contains(s(&a["field"])) {
+            p.push(format!("{what}: {} is no input field of a command of the specification", s(&a["field"])));
+        }
+        if !a["nth"].is_null() && !a["nth"].is_u64() {
+            p.push(format!("{what}: nth must be a whole number"));
+        }
+        let absent = s(&a["when_absent"]);
+        if absent.is_empty() || !contains_word(cited, absent) {
+            p.push(format!("{what}: when_absent {absent} is not on the cited lines (the value the README gives for a scenario that carries none)"));
+        }
+    }
+    for a in t["start"]["argv"].as_array().into_iter().flatten() {
+        for ph in path_placeholders(s(a)) {
+            if let Some(n) = ph.strip_prefix("{arg.").and_then(|x| x.strip_suffix('}')) {
+                if !names.contains(n) {
+                    p.push(format!("start.argv: placeholder {ph} names no start.args entry"));
+                }
+            }
+        }
+    }
+}
+
+fn command_of<'a>(ir: &'a J, command: &str) -> Option<&'a J> {
+    by_name(&ir["commands"], command)
+}
+
+/// The input field naming the existing instance a command acts on: a `moves`/`updates` subject
+/// whose `instance` is supplied by the caller (compiled IR).
+pub fn instance_field(ir: &J, command: &str) -> Option<String> {
+    command_of(ir, command)?["outcomes"].as_array()?.iter().find_map(|o| {
+        let sub = &o["subject"];
+        (matches!(s(&sub["effect"]), "moves" | "updates") && sub["instance"]["from"] == "supplied")
+            .then(|| s(&sub["instance"]["field"]["name"]).to_string())
+            .filter(|f| !f.is_empty())
+    })
+}
+
+/// ESS's answer for an instance no record carries (ESS 0.97.0
+/// `docs/design/typed-literals-and-unknown-instances.md` § 2 and § 2a): the command's not-found
+/// outcome when it declares exactly one (an `external` refusal acting on no instance whose error
+/// carries a field of the instance identity's type), otherwise its `wrong_state` outcome.
+/// `(outcome, error)`; None when the command acts on no supplied instance or declares neither.
+pub fn unknown_instance_answer(ir: &J, command: &str) -> Option<(String, Option<String>)> {
+    let c = command_of(ir, command)?;
+    let field = instance_field(ir, command)?;
+    let id_type = c["input"].as_array()?.iter().find(|f| s(&f["name"]) == field).map(|f| f["type_ref"].clone())?;
+    let outcomes = c["outcomes"].as_array()?;
+    let not_found: Vec<&J> = outcomes.iter().filter(|o| {
+        o["condition"]["kind"] == "external" && o["subject"].is_null() && o["error"].as_str().is_some_and(|e| {
+            by_name(&ir["errors"], e).is_some_and(|err| err["fields"].as_array().into_iter().flatten().any(|f| f["type_ref"] == id_type))
+        })
+    }).collect();
+    let o = if not_found.len() == 1 { not_found[0] } else { outcomes.iter().find(|o| o["condition"]["kind"] == "wrong_state")? };
+    Some((s(&o["name"]).to_string(), o["error"].as_str().map(String::from)))
 }
 
 /// Ruling: a start argument or a request header that a README of the delivered tree describes as
@@ -602,7 +682,7 @@ pub fn check_table(t: &J, ir: &J, tree: &Path) -> Vec<String> {
     if t["format"] != TABLE_FORMAT {
         p.push(format!("format is {}, not {TABLE_FORMAT}", t["format"]));
     }
-    check_start_from(t, tree, &mut p);
+    check_start_from(t, ir, tree, &mut p);
     check_test_mode(t, tree, &mut p);
     if !t["build"].is_null() {
         check_argv("build", &t["build"]["argv"], false, &mut p);
@@ -665,6 +745,9 @@ pub fn check_table(t: &J, ir: &J, tree: &Path) -> Vec<String> {
                 p.push(format!("{ow}: status is not an HTTP status or a non-empty list of HTTP statuses"));
                 continue;
             };
+            if so["condition"]["kind"] == "wrong_state" && statuses.contains(&404) {
+                p.push(format!("{ow}: 404 on the wrong_state outcome is the adapter's to decide: a refusal of an id the scenario never created is read as {on}, and 404 for an id it created never is"));
+            }
             let lookup = o["lookup"].is_object();
             if lookup {
                 check_request(&format!("{ow} lookup"), &o["lookup"], &inputs, &BTreeSet::new(), &mut p);
@@ -813,6 +896,9 @@ pub fn table_schema() -> J {
                 "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}}}]},
             "start": {"type": "object", "required": ["argv", "ready", "from"],
                 "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "ready": request,
+                    "args": {"type": "array", "items": {"type": "object", "required": ["name", "kind", "field", "when_absent"],
+                        "properties": {"name": {"type": "string"}, "kind": {"type": "string", "enum": ["from_scenario"]}, "field": {"type": "string"},
+                            "nth": {"type": "integer", "minimum": 0}, "when_absent": {"type": "string"}}}},
                     "from": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["file", "line"],
                         "properties": {"file": {"type": "string"}, "line": {"type": "integer", "minimum": 1}}}}}},
             "commands": {"type": "array", "items": {"type": "object", "required": ["command"], "properties": {

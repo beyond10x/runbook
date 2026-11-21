@@ -1,10 +1,12 @@
 //! Test double for `sdc-conform` (driver/tests/conformance.rs), two roles in one binary.
 //!
-//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|nostart|failbuild|token|token-silent]`
+//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|gone|nostart|failbuild|token|token-silent|partner <code>]`
 //! serves the `chores` fixture specification (driver/tests/fixtures/conformance/spec) on 127.0.0.1
 //! over HTTP: `POST /chores {"title"}` 201, `POST /chores/<id>/finish [{"board":"down"}]` 200, 503
 //! or 409 `{"error","state"}`, `GET /boards/<code>` 200 `{"code"}`, `GET /chores/open`,
 //! `GET /chores/done`, `GET /health` (a query string is ignored). `deviate` answers an unknown chore 404 instead of 409 (one scenario of the suite
+//! fails under a table that reads 404 as nothing; `gone` answers finishing a done chore 404 instead of 409;
+//! `partner <code>` knows only the board `<code>` given at start (else 404);
 //! fails); `nostart` exits at once; `failbuild` exits 1 (a build step that fails). `token` mints a
 //! token at start and prints `board token: <token>` on stdout; every route but `/health` then needs
 //! the header `x-token: <token>` (else 401) and `/boards/<code>` knows only the token (else 404).
@@ -112,6 +114,10 @@ fn main() {
         }
         match (method, parts.as_slice()) {
             ("GET", ["health"]) => respond(&mut st, 200, &json!({"ok": true})),
+            ("GET", ["boards", code]) if mode == "partner" => match args.get(3) {
+                Some(b) if b == code => respond(&mut st, 200, &json!({"code": code})),
+                _ => respond(&mut st, 404, &json!({"error": "no such board"})),
+            },
             ("GET", ["boards", code]) => match &token {
                 Some(t) if t != code => respond(&mut st, 404, &json!({"error": "no such board"})),
                 _ => respond(&mut st, 200, &json!({"code": code})),
@@ -139,6 +145,7 @@ fn main() {
                     _ if down => respond(&mut st, 503, &json!({"error": "board unreachable"})),
                     None if mode == "deviate" => respond(&mut st, 404, &json!({"error": "no such chore", "state": "Open"})),
                     None => respond(&mut st, 409, &json!({"error": "no such chore", "state": "Open"})),
+                    Some(c) if c.done && mode == "gone" => respond(&mut st, 404, &json!({"error": "gone"})),
                     Some(c) if c.done => respond(&mut st, 409, &json!({"error": "already done", "state": "Done"})),
                     Some(c) => {
                         c.done = true;

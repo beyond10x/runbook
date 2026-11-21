@@ -22,7 +22,7 @@
 //! table declares `none` `unsupported`. One JSON line per start, unmapped status and unfillable
 //! template goes to `--log`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
@@ -72,6 +72,13 @@ struct Adapter {
     writes: u64,
     captured: J,
     reverse: BTreeMap<String, J>,
+    /// The compiled specification (`--ir`): which input names the instance a command acts on, and
+    /// the answer for an instance no record carries.
+    ir: J,
+    /// The suite (`--suite`): the values a scenario sends, for `start.args` of kind from_scenario.
+    suite: J,
+    /// Every value the events of this scenario carried: the identities it created.
+    created: BTreeSet<String>,
 }
 
 enum Answer {
@@ -120,6 +127,65 @@ impl Adapter {
         }
     }
 
+    /// The values of `start.args` for this scenario: per entry the `nth` distinct literal value the
+    /// scenario sends in its input field, else `when_absent`.
+    fn start_values(&mut self) -> Vec<(String, String)> {
+        let steps = self.suite["scenarios"][self.scenario.as_str()]["steps"].as_array().cloned().unwrap_or_default();
+        let mut out = vec![];
+        for a in self.table["start"]["args"].as_array().cloned().unwrap_or_default() {
+            let field = s(&a["field"]);
+            let mut seen: Vec<String> = vec![];
+            for st in steps.iter().filter(|st| st["step"] == "execute_command") {
+                if let Some(v) = st["input"][field]["value"].as_str().filter(|_| st["input"][field]["kind"] == "literal") {
+                    if !seen.iter().any(|x| x == v) {
+                        seen.push(v.to_string());
+                    }
+                }
+            }
+            let nth = a["nth"].as_u64().unwrap_or(0) as usize;
+            let v = seen.get(nth).cloned().unwrap_or_else(|| s(&a["when_absent"]).to_string());
+            out.push((s(&a["name"]).to_string(), v));
+        }
+        if !out.is_empty() {
+            self.note(json!({"event": "start_values", "values": out.iter().map(|(n, v)| json!({"name": n, "value": v})).collect::<Vec<_>>()}));
+        }
+        out
+    }
+
+    /// Ruling (ESS 0.97.0 `docs/design/typed-literals-and-unknown-instances.md` § 2, § 2a): a
+    /// command on an instance no record carries is answered with the command's not-found outcome,
+    /// else its `wrong_state` outcome. The adapter knows from the scenario whether it created the
+    /// addressed id: a refusal (404, or a status the table maps to that answer) of an id no event
+    /// of this scenario carried is read as that answer, with no error fields; for an id the scenario
+    /// created, 404 is never read so (the check refuses 404 on a `wrong_state` outcome).
+    fn unknown_instance(&self, name: &str, c: &J, input: &J, status: u16) -> Option<(String, Option<String>)> {
+        let field = conformance::instance_field(&self.ir, name)?;
+        let id = input.get(&field)?;
+        if self.created.contains(&id.to_string()) {
+            return None;
+        }
+        let (outcome, error) = conformance::unknown_instance_answer(&self.ir, name)?;
+        let maps = |o: &J| conformance::statuses(o).is_some_and(|st| st.contains(&i64::from(status)));
+        let outs: Vec<&J> = c["outcomes"].as_array().into_iter().flatten().collect();
+        // Input guards answer first: a status the table maps to another outcome keeps that reading.
+        if outs.iter().any(|o| s(&o["outcome"]) != outcome && maps(o)) {
+            return None;
+        }
+        let mapped = outs.iter().any(|o| s(&o["outcome"]) == outcome && maps(o));
+        (status == 404 || mapped).then_some((outcome, error))
+    }
+
+    fn remember(&mut self, v: &J) {
+        match v {
+            J::Array(a) => a.iter().for_each(|x| self.remember(x)),
+            J::Object(m) => m.values().for_each(|x| self.remember(x)),
+            J::Null => {}
+            x => {
+                self.created.insert(x.to_string());
+            }
+        }
+    }
+
     fn start(&mut self) -> Result<(), Fail> {
         self.product = None;
         self.captured = json!({});
@@ -129,15 +195,17 @@ impl Adapter {
         let data = dir.join("data");
         fs::create_dir_all(&data).map_err(|e| Fail::Start(format!("{}: {e}", data.display())))?;
         let port = free_port().map_err(Fail::Start)?;
+        let values = self.start_values();
         let argv: Vec<String> = self.table["start"]["argv"]
             .as_array()
             .into_iter()
             .flatten()
             .map(|a| {
-                s(a).replace("{host}", "127.0.0.1")
+                let a = s(a).replace("{host}", "127.0.0.1")
                     .replace("{port}", &port.to_string())
                     .replace("{data_dir}", &data.to_string_lossy())
-                    .replace("{data_file}", &data.join("data").to_string_lossy())
+                    .replace("{data_file}", &data.join("data").to_string_lossy());
+                values.iter().fold(a, |a, (name, v)| a.replace(&format!("{{arg.{name}}}"), v))
             })
             .collect();
         let Some(prog) = argv.first() else { return Err(Fail::Start("start.argv is empty".into())) };
@@ -323,6 +391,11 @@ impl Adapter {
         self.writes += 1;
         let body = reply.json();
         ctx.insert("response", body.clone());
+        if let Some((outcome, error)) = self.unknown_instance(&name, &c, &req["input"], reply.status) {
+            self.note(json!({"event": "unknown_instance", "command": name, "status": reply.status, "outcome": outcome}));
+            return Answer::Ok(json!({"outcome": {"command": name, "outcome": outcome}, "error": error.map(|e| json!({"error": e, "fields": {}})),
+                "consistency": self.writes.to_string(), "direct_events": []}));
+        }
         let matched = c["outcomes"].as_array().into_iter().flatten().find(|o| {
             conformance::statuses(o).is_some_and(|st| st.contains(&i64::from(reply.status)))
                 && (!o["when_body"].is_object() || at(&body, s(&o["when_body"]["path"])) == Some(&o["when_body"]["equals"]))
@@ -356,6 +429,9 @@ impl Adapter {
                 fields.insert(k.clone(), self.unbind(v));
             }
             result["error"] = json!({"error": o["error"]["error"], "fields": fields});
+        }
+        for e in &events {
+            self.remember(&e["payload"]);
         }
         self.events.extend(events.iter().cloned());
         result["direct_events"] = J::Array(events);
@@ -396,6 +472,7 @@ impl Adapter {
             "begin_scenario" => {
                 self.scenario = s(&req["scenario"]).to_string();
                 self.events.clear();
+                self.created.clear();
                 self.forced.clear();
                 self.writes = 0;
                 match self.start() {
@@ -446,7 +523,7 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (Some(table), Some(tree), Some(work)) = (arg(&args, "--table"), arg(&args, "--tree"), arg(&args, "--work")) else {
-        eprintln!("usage: sdc-conform-adapter --table <table.json> --tree <dir> --work <dir> [--log <file>] [--start-timeout <s>] [--request-timeout <s>]");
+        eprintln!("usage: sdc-conform-adapter --table <table.json> --tree <dir> --work <dir> [--ir <ir.json>] [--suite <suite.json>] [--log <file>] [--start-timeout <s>] [--request-timeout <s>]");
         return ExitCode::from(64);
     };
     let t = match read_json(Path::new(&table)) {
@@ -474,6 +551,9 @@ fn main() -> ExitCode {
         writes: 0,
         captured: json!({}),
         reverse: BTreeMap::new(),
+        ir: arg(&args, "--ir").and_then(|p| read_json(Path::new(&p)).ok()).unwrap_or(J::Null),
+        suite: arg(&args, "--suite").and_then(|p| read_json(Path::new(&p)).ok()).unwrap_or(J::Null),
+        created: BTreeSet::new(),
     };
     let _ = fs::create_dir_all(&a.work);
     let stdin = std::io::stdin();
