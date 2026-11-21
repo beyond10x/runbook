@@ -1,0 +1,15 @@
+{
+  "model": "claude-haiku-5-5",
+  "prompt_file": "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve/prompt.md",
+  "cwd": "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve/cwd",
+  "record_dir": "~/beyond10x/sdc/runs/trial-todo-1/decider/001-roadmap.approve",
+  "node": "decide.roadmap.approve",
+  "attempt": 1,
+  "operations": [
+    "dir.list",
+    "file.read",
+    "file.write"
+  ],
+  "max_turns": 8,
+  "max_budget_usd": 0.25
+}

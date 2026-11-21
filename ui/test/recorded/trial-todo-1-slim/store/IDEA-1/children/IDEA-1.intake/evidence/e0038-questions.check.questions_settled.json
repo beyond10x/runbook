@@ -1,0 +1,13 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0038-questions.check.questions_settled",
+  "kind": "questions_settled",
+  "observed_at": "2026-11-20T23:16:04Z",
+  "producer": "sdc-check",
+  "result": "open",
+  "subject": "questions",
+  "subject_revision": "tab132880ac5ffdbe",
+  "upstream_revisions": {
+    "dissection": "tb9dcaedb60926c30"
+  }
+}

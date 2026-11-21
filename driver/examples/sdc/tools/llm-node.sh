@@ -140,6 +140,31 @@ if [[ $adapter == stub ]]; then
   exit $code
 fi
 
+# A derived tree is not re-derived by the LLM when every decision taken since this node last wrote
+# it is the default of a finding this node raised: the prompt has the node follow each default it
+# raises (and each open finding's), so the tree already follows those decisions. Only the
+# requirements digest in `.derived-from` is renewed (a new revision, so the checks run again). In
+# runs/trial-3-haiku-2 every re-derivation raised one new agent finding (f14, f16, f17) until
+# spec.author was spent. Not on a retry (a check sent the tree back) and not for the stubs, which
+# follow nothing (they model a writer that never converges, cycle story-spent).
+t=${derived[$node]:-}
+if [[ $raises == yes && -n $t && -z ${SDC_FEEDBACK:-} && -f $work/$t/.derived-from && -f $work/findings.yaml ]]; then
+  first=$(head -n 1 "$work/$t/.derived-from")
+  if [[ $first == "requirements "*" resolved"* ]]; then
+    was=" ${first#* resolved} "
+    new=$(yq -r '.findings[]? | select(.status == "resolved") | .id' "$work/findings.yaml" | while read -r id; do
+      [[ $was == *" $id "* ]] || echo "$id"; done | tr '\n' ' ')
+    own=$(N="llm:$node" yq -r '[.findings[]? | select(.status == "resolved" and .raised_by == strenv(N)
+      and .resolution.default_taken == true) | .id] | join(" ")' "$work/findings.yaml")
+    if [[ -n ${new// /} ]] && ! for id in $new; do [[ " $own " == *" $id "* ]] || echo x; done | grep -q x; then
+      echo "llm-node: $node not called: the decisions since $t/ was written are the defaults it raised and follows (${new% }); $t/ marked as derived from the amended requirements"
+      echo "requirements $(sha256sum < "$work/requirements.yaml" | cut -c1-16) resolved $(yq -r '[.findings[]? | select(.status == "resolved") | .id] | join(" ")' "$work/findings.yaml")" \
+        > "$work/$t/.derived-from"
+      exit 0
+    fi
+  fi
+fi
+
 case $adapter in
   metaharness|claude-cli|dry) adapter_bin=$here/llm-adapter-$adapter.sh ;;
   *) adapter_bin=$adapter ;;
@@ -206,7 +231,32 @@ out/questions.yaml with one top-level key \`questions\`, a list. Each question h
 - default: the recommended answer, one of the options, the simplest that fits the idea
 - scope_changing: true when the answer adds or removes a user-visible capability, a kind of user
   or a component; else false
-- status: open" ;;
+- status: open
+A question with scope_changing: true has three more keys, so that a person can answer it without
+reading anything else; a question with scope_changing: false has none of them:
+- excerpt: the words of the idea (in/idea.yaml, field \`text\`) the question is about, copied
+  character by character, as one string
+- default_reason: one sentence: why the default is the recommended answer, citing the idea
+- consequences: a list with exactly one entry per option, in the order of options. Each entry has
+  exactly two keys, both one sentence in plain words: \`does\` (what is built, or not built, if that
+  option is chosen) and \`cost\` (what that option costs: build size, upkeep, or what is given up)
+Example of a scope-changing question (idea: 'A recipe box for my family'):
+- id: q1
+  item: d2
+  excerpt: for my family
+  question: Should family members have their own sign-in?
+  options:
+  - No sign-in; one shared recipe box
+  - Each family member signs in
+  default: No sign-in; one shared recipe box
+  default_reason: The idea names one box for the family and no account for anyone.
+  consequences:
+  - does: Builds one recipe box that anyone with the link opens; no sign-in is built.
+    cost: The smallest build; anyone holding the link can change recipes.
+  - does: Builds sign-in and a recipe box that only signed-in family members open.
+    cost: Accounts and a way to invite and remove members must be built and kept.
+  scope_changing: true
+  status: open" ;;
 questions.answer)
   input idea.yaml; input dissection.yaml; input questions.yaml; seed questions.yaml; out=questions.yaml
   task="Answer the interview. out/questions.yaml is a copy of the current interview: edit it in place.
@@ -322,7 +372,8 @@ out/findings.yaml with one top-level key \`findings\`, a list; each finding has 
   a component; else false
 Then still do the task, following each default. Write no out/findings.yaml when there is
 nothing to report. A finding in in/findings.yaml with status resolved is a decision already
-taken: follow its \`decision\`; never raise it again."
+taken: follow its \`decision\`; never raise it again. A finding there with status open is already
+raised and waits for its decision: follow its \`default\`; never raise it again."
 fi
 
 feedback=""

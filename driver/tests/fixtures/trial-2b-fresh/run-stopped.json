@@ -1,0 +1,8 @@
+{
+  "format": "sdc.run-stopped/1",
+  "at": "2026-11-21T02:43:00Z",
+  "by": "agent:sdc-orchestrator",
+  "reason": "not continued: the decider escalated at scope.answer (a defect fixed on branch impl/unattended-run); a new fresh run starts after that branch is merged",
+  "verdict_at_stop": "awaiting_person",
+  "case": "IDEA-1.intake"
+}

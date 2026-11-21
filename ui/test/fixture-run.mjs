@@ -3,7 +3,11 @@
 //
 //   node test/fixture-run.mjs <scenario> <target-run-dir> [speed]
 //
-// Copies the recorded store (default ../runs/trial-todo-1, SDC_UI_FIXTURE_SOURCE to change) into
+// What it writes is canned: its run-settings.jsonl and llm-calls.jsonl lines name fixture-run.mjs as
+// the adapter, so the server lists the run as a stub run (server.mjs programOf).
+//
+// Copies the recorded store (default ../runs/trial-todo-1, else test/recorded/trial-todo-1-slim for the
+// scenarios person, stopped, human, decider and autopilot; SDC_UI_FIXTURE_SOURCE to change) into
 // <target-run-dir>/store, cuts each case's events.jsonl back to the scenario's point, then plays
 // the rest as the driver and the adapters would write it: an `action_started` line, an LLM or
 // decider record directory whose response.json is empty while its metaharness event stream grows,
@@ -16,6 +20,13 @@
 //            unparsable story, a decider decision); the steps of `two` stay in flight
 //   decider  a case awaiting a person while the decider (an LLM) decides in its place
 //   person   a case awaiting a person, nothing running
+//   stopped  the person stop of `person`, then stopped on purpose: run-stopped.json (sdc.run-stopped/1,
+//            by the operator 11 minutes ago, 19 minutes into the wait) and run-settings.jsonl giving
+//            the decisions to a decider (haiku), so the wait is a failure of the run (should be 0)
+//   autopilot  `decider` in autopilot: run-settings.jsonl with autonomy A5 and stand_in true, and no
+//            person principal anywhere (every recorded principal and answered_by is decider:haiku)
+//   human    the person stop of `person` as a legacy run: every principal and answered_by is "human",
+//            without an id
 // Static scenarios (nothing is played; two cases have an action started and never finished):
 //   gone         driver.json names a pid that is not running
 //   gone-nofile  no driver.json, while observed.jsonl exists
@@ -31,11 +42,21 @@ import crypto from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {unifiedDiff} from '../udiff.mjs';
-import {missingRun} from './need-run.mjs';
+import {missingRun, fixtureSource} from './need-run.mjs';
+import {installClock, readGate, RealDate} from '../vclock.mjs';
+
+// The ux loop's measured run (SDC_CLOCK_DIR, vclock.mjs): the time is the shared clock, each sleep is
+// one step the loop releases, and every file written in a step carries the clock's time as mtime.
+const GATE = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
+if (GATE) installClock(GATE);
+const utimes = fs.utimesSync;
+const stamped = new Map();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SRC = path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(here, '../../runs/trial-todo-1'));
 const [scenario, targetArg, speedArg] = process.argv.slice(2);
+// the recorded run when it is there (runs/ is git-ignored); else, for the scenarios that need only the
+// cases intake and direction, its committed slim copy (need-run.mjs fixtureSource)
+const SRC = fixtureSource(scenario);
 const TWO = {cut: {'IDEA-1': 22, 'IDEA-1.todolist': 24, 'IDEA-1.todolist.spec': 7, 'IDEA-1.todolist.plan': 11, 'IDEA-1.todolist.storage': 'drop', 'IDEA-1.todolist.release': 'drop'}, active: ['IDEA-1.todolist.spec', 'IDEA-1.todolist.plan']};
 const SCEN = {
   agent: {cut: {'IDEA-1': 22, 'IDEA-1.todolist': 30, 'IDEA-1.todolist.storage': 7, 'IDEA-1.todolist.release': 'drop'}, active: ['IDEA-1.todolist.storage'], signals: true},
@@ -43,6 +64,9 @@ const SCEN = {
   changes: {...TWO},
   decider: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 109, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], signals: true},
   person: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction']},
+  autopilot: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 109, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], signals: true, principal: 'decider:haiku'},
+  human: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], principal: 'human'},
+  stopped: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction']},
   gone: {...TWO, still: 'dead-driver'},
   'gone-nofile': {...TWO, still: 'observed-only'},
   legacy: {...TWO, still: 'none'},
@@ -55,7 +79,51 @@ const target = path.resolve(targetArg);
 if (missingRun(SRC)) { console.error(`fixture-run.mjs: ${missingRun(SRC)}`); process.exit(2); }
 if (target.startsWith(path.resolve(SRC))) { console.error('refused: the target is inside the source run'); process.exit(2); }
 const speed = Number(speedArg || 1);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// play time in the measured run: every sleep is a timer on a play clock of its own; the timers fire
+// one at a time in order of play time (then of creation), each after the work the last one started
+// has run to its next sleep, and only up to the budget the loop releases (go)
+let playMs = 0, timerSeq = 0, pumping = false;
+const timers = [];
+// path inside the run directory, the same before and after the move from .part into place
+const inRun = (p) => (p.startsWith(part) ? p.slice(part.length) : p.startsWith(target) ? p.slice(target.length) : p);
+if (GATE) fs.utimesSync = (p, a, m) => { utimes(p, a, m); stamped.set(inRun(path.resolve(p)), fs.statSync(p).mtimeMs); };
+function settle() {
+  if (!GATE || !fs.existsSync(target)) return;
+  const v = new RealDate(Date.now());
+  const walk = (d) => {
+    for (const n of fs.readdirSync(d)) {
+      const p = path.join(d, n);
+      const st = fs.lstatSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (st.isFile() && stamped.get(inRun(p)) !== st.mtimeMs) { utimes(p, v, v); stamped.set(inRun(p), fs.statSync(p).mtimeMs); }
+    }
+  };
+  walk(target);
+}
+async function pump() {
+  if (pumping) return;
+  pumping = true;
+  for (;;) {
+    // the work the last timer started runs on until it sleeps again (fs is synchronous here)
+    await new Promise((r) => setImmediate(r));
+    if (!timers.length) break;
+    timers.sort((a, b) => a.due - b.due || a.n - b.n);
+    const t = timers[0];
+    // past the budget: what the step wrote is stamped and reported, then the player waits
+    if (Number(readGate(GATE, 'go')) < t.due) {
+      settle();
+      fs.writeFileSync(path.join(GATE, 'at'), String(t.due));
+      while (Number(readGate(GATE, 'go')) < t.due) await realSleep(10);
+    }
+    timers.shift();
+    playMs = t.due;
+    t.fire();
+  }
+  pumping = false;
+}
+const after = (ms, fire) => { timers.push({due: playMs + ms, n: timerSeq++, fire}); pump(); };
+const sleep = GATE ? (ms) => new Promise((r) => after(ms, r)) : realSleep;
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 const lines = (f) => fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim());
 
@@ -66,6 +134,9 @@ fs.rmSync(target, {recursive: true, force: true});
 fs.rmSync(part, {recursive: true, force: true});
 fs.mkdirSync(part, {recursive: true});
 fs.cpSync(path.join(SRC, 'store'), path.join(part, 'store'), {recursive: true, verbatimSymlinks: true});
+// the slim copy names its own directory @SRC@: the copy names the target
+const unslim = (d) => { for (const n of fs.readdirSync(d)) { const p = path.join(d, n); const st = fs.lstatSync(p); if (st.isDirectory()) unslim(p); else if (st.isFile() && /\.(json|jsonl|ya?ml|md)$/.test(n)) { const t = fs.readFileSync(p, 'utf8'); if (t.includes('@SRC@')) fs.writeFileSync(p, t.split('@SRC@').join(target)); } } };
+unslim(path.join(part, 'store'));
 const caseDirs = new Map();
 const visit = (d) => {
   caseDirs.set(JSON.parse(fs.readFileSync(path.join(d, 'case.json'), 'utf8')).id, d);
@@ -88,10 +159,31 @@ for (const [id, cut] of Object.entries(sc.cut)) {
   // records of later steps wait aside until the step that wrote them is played
   for (const f of fs.readdirSync(path.join(d, 'evidence'))) { const m = /^e(\d+)-/.exec(f); if (m && Number(m[1]) > cut && later.has(f.replace(/\.json$/, ''))) { stash.set(`${id}/${f.replace(/\.json$/, '')}`, fs.readFileSync(path.join(d, 'evidence', f))); fs.rmSync(path.join(d, 'evidence', f)); } }
 }
+// every recorded principal and answer as one kind (autopilot: the decider; human: the legacy record)
+if (sc.principal) {
+  const swap = (p) => (/^(decider|rule):|^(non-interactive|derived|dry-run)$/.test(p) ? p : sc.principal);
+  for (const d of caseDirs.values()) {
+    const ev = path.join(d, 'events.jsonl');
+    if (fs.existsSync(ev)) fs.writeFileSync(ev, lines(ev).map((l) => { const e = JSON.parse(l); if (e.principal) e.principal = swap(e.principal); return JSON.stringify(e); }).join('\n') + '\n');
+  }
+  const q = path.join(part, 'store/IDEA-1/work/questions.yaml');
+  if (fs.existsSync(q)) fs.writeFileSync(q, fs.readFileSync(q, 'utf8').replace(/answered_by: .*/g, `answered_by: ${sc.principal}`));
+}
+if (scenario === 'autopilot') {
+  const sec = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, 'Z');
+  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(Date.now() - 600000), leg: 'started', autonomy: 'A5', stand_in: true, decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'final', max_decider_calls: 20}, adapter: 'fixture-run.mjs', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
+}
 // cases that did not move during the scenario get a past mtime, so nothing reads as just written
 const past = new Date(Date.now() - 9 * 60000);
 for (const [id, d] of caseDirs) if (fs.existsSync(d) && !sc.active.includes(id)) fs.utimesSync(path.join(d, 'events.jsonl'), past, past);
 if (scenario === 'person') { const t = new Date(Date.now() - 252000); fs.utimesSync(path.join(caseDirs.get('IDEA-1.direction'), 'events.jsonl'), t, t); }
+if (scenario === 'stopped') {
+  const waitAt = Date.now() - 30 * 60000, stopAt = Date.now() - 11 * 60000;
+  fs.utimesSync(path.join(caseDirs.get('IDEA-1.direction'), 'events.jsonl'), new Date(waitAt), new Date(waitAt));
+  const sec = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, 'Z');
+  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(waitAt - 20 * 60000), leg: 'started', decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'stop', max_decider_calls: 20}, adapter: 'fixture-run.mjs', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
+  fs.writeFileSync(path.join(part, 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: sec(stopAt), by: 'operator', reason: 'stopped to look at the context before the decider takes it', verdict_at_stop: 'awaiting_person', case: 'IDEA-1.direction'}, null, 2) + '\n');
+}
 
 // ---- what the driver now writes: observed.jsonl, driver.json -------------------------------------------
 const iso = (t) => new Date(t).toISOString();
@@ -126,8 +218,10 @@ if (signals) {
   fs.writeFileSync(path.join(root, 'driver.json'), driverJson(process.pid));
   process.on('exit', () => fs.rmSync(path.join(root, 'driver.json'), {force: true}));
 }
+// the last step: what the exit leaves, then done
+if (GATE) process.on('exit', () => { settle(); fs.writeFileSync(path.join(GATE, 'at'), 'done'); });
 const calls = fs.existsSync(path.join(SRC, 'llm-calls.jsonl')) ? lines(path.join(SRC, 'llm-calls.jsonl')).map((l) => JSON.parse(l)) : [];
-const rel = (p) => p.replace(SRC, target);
+const rel = (p) => p.split(SRC).join(target).split('@SRC@').join(target);
 
 // ---- file changes ---------------------------------------------------------------------------------
 let fsSeq = 0;
@@ -177,7 +271,7 @@ async function playRecord(kind, name, {caseId, action, onTool} = {}) {
   fs.writeFileSync(path.join(to, 'response.json'), rel(fs.readFileSync(path.join(from, 'response.json'), 'utf8')));
   status('finished', {finished_at: iso(Date.now()), exit: 0});
   const rec =calls.find((c) => c.record?.endsWith(`/${kind}/${name}`));
-  if (rec) fs.appendFileSync(path.join(target, 'llm-calls.jsonl'), rel(JSON.stringify(rec)) + '\n');
+  if (rec) fs.appendFileSync(path.join(target, 'llm-calls.jsonl'), rel(JSON.stringify({...rec, adapter: 'fixture-run.mjs'})) + '\n');
 }
 const writes = (caseId, action) => async (e, record) => {
   if (!/^(Write|Edit)$/.test(e.name) || !e.input?.file_path) return;
@@ -188,8 +282,9 @@ const writes = (caseId, action) => async (e, record) => {
     // the stream lagged behind this write: recorded against the call, its tool supplied later
     change(`${record}/cwd`, p, e.input.content ?? '', {case: caseId, action, record, tool: null, basis: 'record'});
     const seq = fsSeq;
-    setTimeout(() => fs.appendFileSync(path.join(target, 'fs', 'changes.jsonl'), JSON.stringify({format: 'sdc.fs-attribution/1', change: seq, at: new Date().toISOString(),
-      attribution: {case: caseId, action, record, tool, basis: 'tool-window'}}) + '\n'), 1500 / speed);
+    const lag = () => fs.appendFileSync(path.join(target, 'fs', 'changes.jsonl'), JSON.stringify({format: 'sdc.fs-attribution/1', change: seq, at: new Date().toISOString(),
+      attribution: {case: caseId, action, record, tool, basis: 'tool-window'}}) + '\n');
+    if (GATE) after(1500 / speed, lag); else setTimeout(lag, 1500 / speed);
     return;
   }
   change(`${record}/cwd`, p, e.input.content ?? '', {case: caseId, action, record, tool, basis: 'tool-window'});
@@ -271,7 +366,7 @@ if (scenario === 'agent') {
   change(W, 'aep/story/broken.md', '---\nkind: story\nrelations: [unclosed\n---\n', exact('IDEA-1.todolist.plan', 'plan.status'));
   const d = fs.existsSync(path.join(SRC, 'decisions.jsonl')) ? lines(path.join(SRC, 'decisions.jsonl')).find((l) => l.includes('001-roadmap.approve')) : null;
   if (d) fs.appendFileSync(path.join(target, 'decisions.jsonl'), rel(d) + '\n');
-} else if (scenario === 'decider') {
+} else if (scenario === 'decider' || scenario === 'autopilot') {
   change(W, 'aep/initiative/roadmap.md', MEANING.roadmap(), exact('IDEA-1.direction', 'roadmap.write'));
   change(W, 'aep/initiative/roadmap.md', MEANING.roadmap2(), exact('IDEA-1.direction', 'roadmap.write'));
   await playRecord('decider', '001-roadmap.approve', {caseId: 'IDEA-1.direction'});

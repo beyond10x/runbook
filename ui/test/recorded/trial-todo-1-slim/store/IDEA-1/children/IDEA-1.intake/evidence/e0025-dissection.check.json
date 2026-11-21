@@ -1,0 +1,13 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0025-dissection.check",
+  "kind": "dissection_shape",
+  "observed_at": "2026-11-20T23:16:04Z",
+  "producer": "sdc-check",
+  "result": "valid",
+  "subject": "dissection",
+  "subject_revision": "tb9dcaedb60926c30",
+  "upstream_revisions": {
+    "idea": "td9fda9924178dca3"
+  }
+}

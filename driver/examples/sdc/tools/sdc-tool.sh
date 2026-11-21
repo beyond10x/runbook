@@ -82,6 +82,22 @@ check-questions)
   [[ -f questions.yaml ]] || exit 2
   yq -e '(.questions | length) > 0 and ([.questions[] | select((.id // "") == "" or (.item // "") == ""
     or (.default // "") == "")] | length) == 0' questions.yaml >/dev/null || exit 2
+  # A scope-changing question carries what a person needs to answer it cold: `excerpt`,
+  # `default_reason` and `consequences`, a list parallel to `options`, each entry {does, cost}
+  # (the shape sdc-decision-request parses). Each missing key is named with the question id.
+  lacks=$(yq -o=json questions.yaml | jq -r '
+    def txt: type == "string" and (gsub("^\\s+|\\s+$"; "") != "");
+    .questions[] | select(.scope_changing == true) | .id as $id
+    | [(.options // []) | if type == "array" then .[] | select(txt) else empty end] as $o
+    | (.consequences // null) as $c
+    | (if ($o | length) < 2 then "options (at least two)" else empty end),
+      (if (.excerpt | txt) then empty else "excerpt" end),
+      (if (.default_reason | txt) then empty else "default_reason" end),
+      (if ($c | type) != "array" or ($c | length) != ($o | length) then "consequences (one entry per option)"
+       else ($c | to_entries[] | select((.value | type) != "object" or (.value.does | txt | not) or (.value.cost | txt | not))
+             | "consequences[\(.key)] does and cost") end)
+    | "\($id): lacks \(.)"') || exit 2
+  [[ -z $lacks ]] || { echo "check-questions: scope-changing question lacks a key" >&2; echo "$lacks" >&2; exit 2; }
   open=$(yq -r '.items[] | select(.type == "belief" or .type == "unknown" or .type == "ambiguity"
     or .type == "dark_spot") | .id' dissection.yaml)
   for i in $open; do

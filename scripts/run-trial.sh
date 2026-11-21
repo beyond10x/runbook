@@ -66,6 +66,22 @@
 # (`autonomy`, `autonomy_source`). SDC_STAND_IN=<who> (and --dry's scripted person) labels a run in
 # which a script or a session stands in for the person (`stand_in: true`, `stand_in_by`).
 set -euo pipefail
+# --goals <file>, anywhere among the arguments: the requester's goals document (sdc.goals/1, or what
+# `sdc-goals resolve` printed), copied unchanged to the root case's work/goals.yaml when the run
+# starts (artifact `goals` of sdc; intake and direction read it through the shared work/). A
+# resume keeps the file in work/; a person edits it there.
+goals="" rest=()
+while (($#)); do
+  if [[ $1 == --goals ]]; then
+    goals=${2:-}
+    [[ -f $goals ]] || { echo "--goals needs a goals file, not '$goals'"; exit 64; }
+    shift 2
+  else
+    rest+=("$1"); shift
+  fi
+done
+set -- ${rest[@]+"${rest[@]}"}
+
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 dry=no stop_reason="" reopen=no autopilot=no pos=()
 while (($#)); do
@@ -227,6 +243,7 @@ if [[ ! -d $root ]]; then
     : "${idea_text:?a new real trial needs the idea text}"
     jq -n --arg t "$idea_text" '{text: $t}' | yq -P > "$root/work/idea.yaml"
   fi
+  [[ -z $goals ]] || cp "$goals" "$root/work/goals.yaml"
   echo "# the person's idea: $(cat "$root/work/idea.yaml")" >> "$log"
   leg=started
 else

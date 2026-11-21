@@ -1,0 +1,15 @@
+{
+  "artifacts": {
+    "idea": {
+      "revision": "td9fda9924178dca3"
+    },
+    "roadmap": {
+      "revision": "t2b3f8657120d0679"
+    }
+  },
+  "format": "canon-case/1",
+  "id": "IDEA-1",
+  "protocol": "sdc",
+  "revision": "c2",
+  "termination": "operating"
+}

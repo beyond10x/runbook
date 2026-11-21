@@ -9,6 +9,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {needDriver} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -26,7 +27,7 @@ test.afterAll(() => srv?.kill());
 test('no committed file under ui/ names an absolute home path', () => {
   const ls = spawnSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '.'], {cwd: ui, encoding: 'utf8'});
   expect(ls.status, ls.stderr).toBe(0);
-  const files = ls.stdout.split('\0').filter((f) => f && !/\.(png|jpe?g|gif|webp|ico|woff2?)$/i.test(f) && fs.existsSync(path.join(ui, f)));
+  const files = ls.stdout.split('\0').filter((f) => f && !/\.(png|jpe?g|gif|webp|ico|woff2?)$/i.test(f) && fs.existsSync(path.join(ui, f)) && fs.statSync(path.join(ui, f)).isFile());
   expect(files.some((f) => /^ux\/rounds\/R-\d\d\/round\.json$/.test(f)), 'the generated round files are among the checked files').toBe(true);
   const bad = files.flatMap((f) => hits(fs.readFileSync(path.join(ui, f), 'utf8')).map((h) => `${f}:${h}`));
   expect(bad, 'absolute home paths in files git would commit').toEqual([]);
@@ -34,13 +35,15 @@ test('no committed file under ui/ names an absolute home path', () => {
 
 test('no served page or API answer names an absolute home path', async ({page}) => {
   test.setTimeout(120000);
+  needDriver('paths.spec.mjs (test/scope-fixture.mjs)', test);
   const r = spawnSync('node', ['test/scope-fixture.mjs', dir, 'one'], {cwd: ui, encoding: 'utf8'});
   if (r.status !== 0) throw new Error(`scope-fixture: ${r.stderr}`);
-  // the store already names absolute paths (the bindings' tool argv); add the run's own records
-  const home = process.env.HOME;
-  fs.writeFileSync(path.join(dir, 'run.log'), `$ ${home}/beyond10x/sdc/driver/target/debug/sdc-drive --case-dir ${dir}/store/IDEA-1 run\nexit 0\n`);
+  // the store already names absolute paths (the bindings' tool argv); add the run's own records, with
+  // the driver of the checkout this test runs in, wherever that checkout lives
+  fs.writeFileSync(path.join(dir, 'run.log'), `$ ${path.resolve(ui, '..')}/driver/target/debug/sdc-drive --case-dir ${dir}/store/IDEA-1 run\nexit 0\n`);
   fs.writeFileSync(path.join(dir, 'decisions.jsonl'), JSON.stringify({at: '2026-11-20T12:07:00Z', case: 'IDEA-1.intake', action: 'scope.answer', principal: 'decider:claude', decision: 'approve', record: `${dir}/decider/001-scope.answer`}) + '\n');
-  expect(fs.readFileSync(path.join(dir, 'store/IDEA-1/case.json'), 'utf8') + fs.readFileSync(path.join(dir, 'run.log'), 'utf8')).toContain(HOME_PATH);
+  // (the paths are absolute; under a home directory when the checkout or the fixture directory is)
+  expect(fs.readFileSync(path.join(dir, 'run.log'), 'utf8')).toContain(path.resolve(ui, '..') + '/driver/');
   if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_PATHS_PORT`);
   srv = spawn(process.execPath, ['server.mjs', '--port', String(port), path.join(dir, 'store')], {cwd: ui, stdio: 'ignore'});
   for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
@@ -51,9 +54,9 @@ test('no served page or API answer names an absolute home path', async ({page}) 
     const res = await fetch(base + u);
     bad.push(...hits(await res.text()).map((h) => `${u} ${h}`));
   }
-  // the absolute paths reach the page, made relative to the repository
+  // the absolute paths reach the page, made relative to the repository and to the run's directory
   const runInfo = await (await fetch(base + '/api/run?source=0')).text();
-  expect(runInfo.includes('"cmd":"driver/target/debug/sdc-drive --case-dir '), 'run.log served with a repository-relative path').toBe(true);
+  expect(runInfo, 'run.log served with paths relative to the repository and the run').toMatch(/"cmd":"driver\/target\/debug\/sdc-drive --case-dir ([\w.-]+\/)*paths\/run\/store\/IDEA-1 run/);
   // the page itself, with the Decisions drawer open
   await page.goto(`${base}/?source=0&drawer=1`);
   await page.locator('#tree .case').first().waitFor();

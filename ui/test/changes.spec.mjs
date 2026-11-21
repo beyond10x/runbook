@@ -16,8 +16,8 @@ const procs = [];
 let base;
 
 test.beforeAll(async ({}, info) => {
-  needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'changes.spec.mjs (fixture source)');
-  needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'changes.spec.mjs');
+  needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'changes.spec.mjs (fixture source)', test);
+  needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'changes.spec.mjs', test);
   const k = info.project.name === 'wide' ? 0 : 1;
   const port = Number(process.env.SDC_UI_CHANGES_PORT || 7503) + k;
   const dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
@@ -97,13 +97,12 @@ test('KPI strip: five KPIs, "not recorded" where the run has none, each links to
   // the fixture has decisions.jsonl and no llm-calls.jsonl
   await expect(page.locator('#kpis .k-cost .k-p', {hasText: 'work'}).locator('.k-nr')).toHaveText('not recorded');
   await expect(page.locator('#kpis .k-cost .k-p', {hasText: 'decider'})).toContainText('$0.004');
-  // elapsed ticks in place while the run is open
-  const t = page.locator('#kpis .k-time .k-v [data-since]');
-  const el = await t.elementHandle();
+  // no driver attached (nothing is played): elapsed stands at the last event, it does not tick
+  await expect(page.locator('#kpis .k-time .k-v [data-since]')).toHaveCount(0);
+  const t = page.locator('#kpis .k-time .k-v');
   const v1 = await t.textContent();
   await page.waitForTimeout(1600);
-  expect(await t.textContent()).not.toBe(v1);
-  expect(await el.evaluate((n) => n.isConnected)).toBe(true);
+  expect(await t.textContent()).toBe(v1);
   await page.locator('#kpis .k-cost').click();
   await expect(page.locator('#tabs button[data-tab=metrics]')).toHaveClass(/on/);
   await expect(page.locator('#kpi-cost')).toBeInViewport();

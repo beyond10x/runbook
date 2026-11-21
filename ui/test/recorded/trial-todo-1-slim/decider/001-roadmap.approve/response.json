@@ -1,0 +1,25 @@
+{
+  "adapter": "metaharness",
+  "model": "claude-haiku-5-5",
+  "exit": 0,
+  "duration_ms": 9798,
+  "wall_ms": 11789,
+  "cost_usd": 0.0037292099999999997,
+  "num_turns": 13,
+  "usage": {
+    "input_tokens": 8,
+    "output_tokens": 2020,
+    "cache_read_input_tokens": 86801,
+    "cache_creation_input_tokens": 9252,
+    "cache_creation_5m_input_tokens": 0,
+    "cache_creation_1h_input_tokens": 9252,
+    "service_tier": "standard",
+    "thinking_tokens": 549,
+    "iterations": 1,
+    "speed": "standard",
+    "cost_usd": null
+  },
+  "is_error": false,
+  "subtype": "success",
+  "result": "(the answer is not kept in the committed fixture)"
+}

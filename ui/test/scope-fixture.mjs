@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync, spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
+import {missingTool} from './need-run.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sdc = path.resolve(here, '../..');
@@ -20,6 +21,7 @@ const target = path.resolve(targetArg);
 const ex = path.join(sdc, 'driver/examples/sdc');
 const drive = path.join(sdc, 'driver/target/debug/sdc-drive');
 const canon = path.join(process.env.HOME, 'beyond10x/canon/target/debug/canon');
+for (const [f, how] of [[drive, 'cargo build in driver/'], [canon, 'cargo build in the canon repository']]) { const m = missingTool(f, how); if (m) { console.error(`scope-fixture.mjs: ${m}`); process.exit(2); } }
 const root = path.join(target, 'store', 'IDEA-1');
 const stubs = variant === 'two' ? path.join(here, 'scope-fixtures/two') : path.join(ex, 'fixtures/scope-question');
 const env = {...process.env, SDC_STUB_FIXTURES: stubs};

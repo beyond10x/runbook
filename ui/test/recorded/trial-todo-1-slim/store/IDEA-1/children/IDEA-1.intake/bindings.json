@@ -1,0 +1,174 @@
+{
+  "$artifacts": {
+    "dissection": "dissection.yaml",
+    "idea": "idea.yaml",
+    "questions": "questions.yaml",
+    "requirements": "requirements.yaml"
+  },
+  "dissection.check": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "check-dissection"
+    ],
+    "producer": "sdc-check",
+    "produces": "dissection_shape",
+    "results": {
+      "*": "invalid",
+      "0": "valid"
+    },
+    "subject": "dissection",
+    "upstream": [
+      "idea"
+    ]
+  },
+  "idea.check": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "check-idea"
+    ],
+    "producer": "sdc-check",
+    "produces": "idea_shape",
+    "results": {
+      "*": "invalid",
+      "0": "valid"
+    },
+    "subject": "idea"
+  },
+  "idea.dissect": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "idea.dissect"
+    ],
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-file",
+        "dissection.yaml",
+        "dissection.yaml"
+      ]
+    },
+    "max_runs": 3,
+    "retry_when": {
+      "dissection_shape": [
+        "invalid"
+      ]
+    },
+    "timeout_s": 900
+  },
+  "questions.answer": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "questions.answer"
+    ],
+    "handoff": "answer the scope-changing questions: in {work}/questions.yaml set, for every question with status open, `answer`, `status: accepted` (the default) or `status: changed`, and `answered_by: human`; then run again",
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-file",
+        "questions-answered.yaml",
+        "questions.yaml"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "questions.check": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "check-questions"
+    ],
+    "producer": "sdc-check",
+    "produces": [
+      "questions_shape",
+      "questions_settled"
+    ],
+    "results": {
+      "*": {
+        "questions_settled": "open",
+        "questions_shape": "invalid"
+      },
+      "0": {
+        "questions_settled": "settled",
+        "questions_shape": "valid"
+      },
+      "1": {
+        "questions_settled": "open",
+        "questions_shape": "valid"
+      },
+      "3": {
+        "questions_settled": "needs_human",
+        "questions_shape": "valid"
+      }
+    },
+    "subject": "questions",
+    "upstream": [
+      "dissection"
+    ]
+  },
+  "questions.write": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "questions.write"
+    ],
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-file",
+        "questions-open.yaml",
+        "questions.yaml"
+      ]
+    },
+    "max_runs": 3,
+    "retry_when": {
+      "questions_shape": [
+        "invalid"
+      ]
+    },
+    "timeout_s": 900
+  },
+  "requirements.check": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "check-requirements"
+    ],
+    "producer": "sdc-check",
+    "produces": "requirements_shape",
+    "results": {
+      "*": "invalid",
+      "0": "valid"
+    },
+    "subject": "requirements",
+    "upstream": [
+      "questions"
+    ]
+  },
+  "requirements.normalise": {
+    "argv": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/llm-node.sh",
+      "requirements.normalise"
+    ],
+    "llm": {
+      "max_budget_usd": 0.5,
+      "max_turns": 15,
+      "model": "claude-haiku-5-5",
+      "stub": [
+        "stub-file",
+        "requirements.yaml",
+        "requirements.yaml"
+      ]
+    },
+    "max_runs": 3,
+    "retry_when": {
+      "requirements_shape": [
+        "invalid"
+      ]
+    },
+    "timeout_s": 900
+  }
+}

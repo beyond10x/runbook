@@ -1,0 +1,13 @@
+requirements:
+  - id: r1
+    text: The to-do list web application holds exactly one to-do list, used by a single user, and no other user can view or share it.
+    cites: [d1, q1]
+    spec_domains: [todo.list]
+  - id: r2
+    text: The web application has no sign-in, and its one user accesses the application anonymously without an account.
+    cites: [d1, q2]
+    spec_domains: [todo.access]
+  - id: r3
+    text: The application keeps to-do items on the server, in the daemon's data file, so that they remain available between sessions; the browser holds no copy that is the source of truth.
+    cites: [d1, q3]
+    spec_domains: [todo.storage]

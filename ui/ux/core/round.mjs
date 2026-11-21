@@ -28,7 +28,7 @@ const write = (file, text) => fs.writeFileSync(file, repoRel(text));
 
 let exit = 0;
 if (!rest.includes('--no-run')) {
-  for (const n of fs.readdirSync(path.join(dir, 'shots'))) if (!n.startsWith('review-') && !n.startsWith('decision-')) fs.rmSync(path.join(dir, 'shots', n));
+  for (const n of fs.readdirSync(path.join(dir, 'shots'))) if (!/^(review|decision|before)-/.test(n)) fs.rmSync(path.join(dir, 'shots', n));
   const r = spawnSync('slot', ['npx', 'playwright', 'test', '-c', config, '--workers=2', '--reporter=line,json'], {stdio: ['ignore', 'inherit', 'inherit'],
     env: {...process.env, UX_ROUND: round, PLAYWRIGHT_JSON_OUTPUT_NAME: path.join(dir, 'playwright.json')}});
   exit = r.status ?? 1;

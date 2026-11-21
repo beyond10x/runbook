@@ -9,7 +9,8 @@
 //!     (folded into each stage check)
 //! sdc-findings --rules <…> promote <node> <file>
 //!     check the findings a stage agent wrote (shape, citations) and add the valid ones to
-//!     findings.yaml as open; the invalid ones as rejected, with the reason
+//!     findings.yaml as open; the invalid ones as rejected, with the reason; one that repeats a
+//!     finding not rejected (same type, cited items and text) is not added
 //! sdc-findings --rules <…> amend <stage>
 //!     resolve the open findings: classify each (agent or person), take the default or the
 //!     person's decision, amend questions.yaml and requirements.yaml, verify the amendment, and
@@ -49,17 +50,24 @@ fn is_open(s: &str) -> bool {
 
 /// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it.
 fn is_decider(principal: &str) -> bool {
-    principal.strip_prefix("decider:").is_some_and(|k| !k.is_empty())
+    principal
+        .strip_prefix("decider:")
+        .is_some_and(|k| !k.is_empty())
 }
 
 /// A person's principal (`person:<id>`): written only where a person acted.
 fn is_person(principal: &str) -> bool {
-    principal.strip_prefix("person:").is_some_and(|k| !k.is_empty())
+    principal
+        .strip_prefix("person:")
+        .is_some_and(|k| !k.is_empty())
 }
 
 fn load(path: &str) -> Value {
-    fs::read_to_string(path).ok().and_then(|t| serde_yaml::from_str::<Value>(&t).ok())
-        .filter(|v| v.is_mapping()).unwrap_or_else(|| Value::Mapping(Mapping::new()))
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_yaml::from_str::<Value>(&t).ok())
+        .filter(|v| v.is_mapping())
+        .unwrap_or_else(|| Value::Mapping(Mapping::new()))
 }
 
 fn save(path: &str, v: &Value) -> R<()> {
@@ -71,7 +79,11 @@ fn save(path: &str, v: &Value) -> R<()> {
 
 fn sha16(path: &str) -> String {
     match fs::read(path) {
-        Ok(b) => Sha256::digest(&b).iter().take(8).map(|x| format!("{x:02x}")).collect(),
+        Ok(b) => Sha256::digest(&b)
+            .iter()
+            .take(8)
+            .map(|x| format!("{x:02x}"))
+            .collect(),
         Err(_) => "none".into(),
     }
 }
@@ -81,11 +93,17 @@ fn st<'a>(v: &'a Value, k: &str) -> &'a str {
 }
 
 fn seq<'a>(v: &'a Value, k: &str) -> &'a [Value] {
-    v.get(k).and_then(Value::as_sequence).map(Vec::as_slice).unwrap_or(&[])
+    v.get(k)
+        .and_then(Value::as_sequence)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 fn strs(v: &Value, k: &str) -> Vec<String> {
-    seq(v, k).iter().filter_map(|x| x.as_str().map(String::from)).collect()
+    seq(v, k)
+        .iter()
+        .filter_map(|x| x.as_str().map(String::from))
+        .collect()
 }
 
 fn s(x: &str) -> Value {
@@ -97,7 +115,10 @@ fn sv(xs: &[String]) -> Value {
 }
 
 fn re(pattern: &str) -> R<Regex> {
-    RegexBuilder::new(pattern).case_insensitive(true).build().map_err(|e| e.to_string())
+    RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 fn by_len_then_id(ids: &mut [String]) {
@@ -105,11 +126,15 @@ fn by_len_then_id(ids: &mut [String]) {
 }
 
 fn qnum(id: &str) -> Option<u64> {
-    id.strip_prefix('q').filter(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))?.parse().ok()
+    id.strip_prefix('q')
+        .filter(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))?
+        .parse()
+        .ok()
 }
 
 fn is_rid(id: &str) -> bool {
-    id.strip_prefix('r').is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+    id.strip_prefix('r')
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
 }
 
 /// The work files the loop reads and amends.
@@ -125,14 +150,19 @@ struct Work {
 impl Work {
     fn open(rules: &str) -> R<Work> {
         let text = fs::read_to_string(rules).map_err(|e| format!("{rules}: {e}"))?;
-        let doc: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{rules}: {e}"))?;
+        let doc: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| format!("{rules}: {e}"))?;
         let mut fd = load("findings.yaml");
         if !fd.get("findings").is_some_and(Value::is_sequence) {
             fd["findings"] = Value::Sequence(vec![]);
         }
         Ok(Work {
-            req: load("requirements.yaml"), qs: load("questions.yaml"), diss: load("dissection.yaml"),
-            ctx: load("context.yaml"), fd, rules: doc["rules"].as_array().cloned().unwrap_or_default(),
+            req: load("requirements.yaml"),
+            qs: load("questions.yaml"),
+            diss: load("dissection.yaml"),
+            ctx: load("context.yaml"),
+            fd,
+            rules: doc["rules"].as_array().cloned().unwrap_or_default(),
         })
     }
 
@@ -141,38 +171,71 @@ impl Work {
     }
 
     fn findings_mut(&mut self) -> &mut Vec<Value> {
-        self.fd["findings"].as_sequence_mut().expect("findings is a sequence")
+        self.fd["findings"]
+            .as_sequence_mut()
+            .expect("findings is a sequence")
     }
 
     fn req(&self, id: &str) -> Option<&Value> {
-        seq(&self.req, "requirements").iter().find(|r| st(r, "id") == id)
+        seq(&self.req, "requirements")
+            .iter()
+            .find(|r| st(r, "id") == id)
     }
 
     fn req_mut(&mut self, id: &str) -> Option<&mut Value> {
-        self.req.get_mut("requirements")?.as_sequence_mut()?.iter_mut().find(|r| st(r, "id") == id)
+        self.req
+            .get_mut("requirements")?
+            .as_sequence_mut()?
+            .iter_mut()
+            .find(|r| st(r, "id") == id)
     }
 
     fn req_ids(&self) -> Vec<String> {
-        seq(&self.req, "requirements").iter().map(|r| st(r, "id").to_string()).filter(|i| !i.is_empty()).collect()
+        seq(&self.req, "requirements")
+            .iter()
+            .map(|r| st(r, "id").to_string())
+            .filter(|i| !i.is_empty())
+            .collect()
     }
 
     fn question(&self, id: &str) -> Option<&Value> {
-        seq(&self.qs, "questions").iter().find(|q| st(q, "id") == id)
+        seq(&self.qs, "questions")
+            .iter()
+            .find(|q| st(q, "id") == id)
     }
 
     fn question_ids(&self) -> Vec<String> {
-        seq(&self.qs, "questions").iter().map(|q| st(q, "id").to_string()).filter(|i| !i.is_empty()).collect()
+        seq(&self.qs, "questions")
+            .iter()
+            .map(|q| st(q, "id").to_string())
+            .filter(|i| !i.is_empty())
+            .collect()
     }
 
     fn context_field(&self, item: &str) -> Option<&Value> {
-        item.strip_prefix("context.").and_then(|k| self.ctx.get(k)).filter(|v| v.is_mapping())
+        item.strip_prefix("context.")
+            .and_then(|k| self.ctx.get(k))
+            .filter(|v| v.is_mapping())
     }
 
     fn ids(&self) -> BTreeSet<String> {
-        let mut ids: BTreeSet<String> = self.req_ids().into_iter().chain(self.question_ids()).collect();
-        ids.extend(seq(&self.diss, "items").iter().map(|i| st(i, "id").to_string()).filter(|i| !i.is_empty()));
+        let mut ids: BTreeSet<String> = self
+            .req_ids()
+            .into_iter()
+            .chain(self.question_ids())
+            .collect();
+        ids.extend(
+            seq(&self.diss, "items")
+                .iter()
+                .map(|i| st(i, "id").to_string())
+                .filter(|i| !i.is_empty()),
+        );
         if let Some(m) = self.ctx.as_mapping() {
-            ids.extend(m.iter().filter(|(_, v)| v.is_mapping()).filter_map(|(k, _)| k.as_str().map(|k| format!("context.{k}"))));
+            ids.extend(
+                m.iter()
+                    .filter(|(_, v)| v.is_mapping())
+                    .filter_map(|(k, _)| k.as_str().map(|k| format!("context.{k}"))),
+            );
         }
         ids.extend(self.findings().iter().map(|f| st(f, "id").to_string()));
         ids
@@ -180,17 +243,30 @@ impl Work {
 
     fn text(&self, item: &str) -> String {
         if item.starts_with("context.") {
-            return self.context_field(item).and_then(|v| v.get("value")).map(scalar).unwrap_or_default();
+            return self
+                .context_field(item)
+                .and_then(|v| v.get("value"))
+                .map(scalar)
+                .unwrap_or_default();
         }
-        self.req(item).map(|r| st(r, "text").to_string()).unwrap_or_default()
+        self.req(item)
+            .map(|r| st(r, "text").to_string())
+            .unwrap_or_default()
     }
 
     /// 2: a principal's own decision (or derived from one); 1: a principal accepted a proposed
     /// default; 0: an agent's. A requirement takes the highest rank of the questions it cites.
     fn authority(&self, item: &str) -> u8 {
-        let rank = |status: &str| match status { "changed" => 2, "accepted" => 1, _ => 0 };
+        let rank = |status: &str| match status {
+            "changed" => 2,
+            "accepted" => 1,
+            _ => 0,
+        };
         if item.starts_with("context.") {
-            return self.context_field(item).map(|v| rank(st(v, "status"))).unwrap_or(0);
+            return self
+                .context_field(item)
+                .map(|v| rank(st(v, "status")))
+                .unwrap_or(0);
         }
         if let Some(q) = self.question(item) {
             return match st(q, "answered_by") {
@@ -200,7 +276,12 @@ impl Work {
             };
         }
         if let Some(r) = self.req(item) {
-            return strs(r, "cites").iter().filter(|c| self.question(c).is_some()).map(|c| self.authority(c)).max().unwrap_or(0);
+            return strs(r, "cites")
+                .iter()
+                .filter(|c| self.question(c).is_some())
+                .map(|c| self.authority(c))
+                .max()
+                .unwrap_or(0);
         }
         0
     }
@@ -209,8 +290,14 @@ impl Work {
     fn scope_questions(&self, cites: &[String]) -> Vec<String> {
         let mut out = BTreeSet::new();
         for c in cites {
-            let qids = if self.question(c).is_some() { vec![c.clone()] } else { self.req(c).map(|r| strs(r, "cites")).unwrap_or_default() };
-            out.extend(qids.into_iter().filter(|q| self.question(q).and_then(|q| q.get("scope_changing")) == Some(&Value::Bool(true))));
+            let qids = if self.question(c).is_some() {
+                vec![c.clone()]
+            } else {
+                self.req(c).map(|r| strs(r, "cites")).unwrap_or_default()
+            };
+            out.extend(qids.into_iter().filter(|q| {
+                self.question(q).and_then(|q| q.get("scope_changing")) == Some(&Value::Bool(true))
+            }));
         }
         out.into_iter().collect()
     }
@@ -236,18 +323,30 @@ impl Work {
     fn rule_hits(&self) -> R<Vec<Value>> {
         let mut hits = Vec::new();
         for rule in &self.rules {
-            let (pa, pb) = (re(rule["a"]["pattern"].as_str().unwrap_or(""))?, re(rule["b"]["pattern"].as_str().unwrap_or(""))?);
+            let (pa, pb) = (
+                re(rule["a"]["pattern"].as_str().unwrap_or(""))?,
+                re(rule["b"]["pattern"].as_str().unwrap_or(""))?,
+            );
             let items = |side: &str| rule[side]["items"].as_array().cloned().unwrap_or_default();
             // `unless`: the rule does not fire while one of these items states what makes both
             // sides hold (offline-hosted: the client keeps a local copy and works offline).
             if let Some(p) = rule["unless"]["pattern"].as_str() {
                 let pu = re(p)?;
-                if self.expand(&items("unless")).iter().any(|i| { let t = self.text(i); !t.is_empty() && pu.is_match(&t) }) {
+                if self.expand(&items("unless")).iter().any(|i| {
+                    let t = self.text(i);
+                    !t.is_empty() && pu.is_match(&t)
+                }) {
                     continue;
                 }
             }
-            let side_a: Vec<String> = self.expand(&items("a")).into_iter()
-                .filter(|a| { let t = self.text(a); !t.is_empty() && pa.is_match(&t) }).collect();
+            let side_a: Vec<String> = self
+                .expand(&items("a"))
+                .into_iter()
+                .filter(|a| {
+                    let t = self.text(a);
+                    !t.is_empty() && pa.is_match(&t)
+                })
+                .collect();
             for b in self.expand(&items("b")) {
                 let tb = self.text(&b);
                 if tb.is_empty() || !pb.is_match(&tb) {
@@ -262,13 +361,32 @@ impl Work {
                 cites.push(b.clone());
                 let mut h = Mapping::new();
                 h.insert(s("id"), s(&format!("p-{id}-{b}")));
-                h.insert(s("type"), s(rule["type"].as_str().unwrap_or("contradiction")));
+                h.insert(
+                    s("type"),
+                    s(rule["type"].as_str().unwrap_or("contradiction")),
+                );
                 h.insert(s("raised_by"), s(&format!("program:{id}")));
                 h.insert(s("cites"), sv(&cites));
-                h.insert(s("says"), s(&format!("{} against {b}: {}", a.join(", "), rule["says"].as_str().unwrap_or(""))));
-                h.insert(s("options"), sv(&[rule["options"]["a"].as_str().unwrap_or("").into(), rule["options"]["b"].as_str().unwrap_or("").into()]));
+                h.insert(
+                    s("says"),
+                    s(&format!(
+                        "{} against {b}: {}",
+                        a.join(", "),
+                        rule["says"].as_str().unwrap_or("")
+                    )),
+                );
+                h.insert(
+                    s("options"),
+                    sv(&[
+                        rule["options"]["a"].as_str().unwrap_or("").into(),
+                        rule["options"]["b"].as_str().unwrap_or("").into(),
+                    ]),
+                );
                 h.insert(s("rule"), s(id));
-                h.insert(s("sides"), Value::Sequence(vec![sv(&a), sv(&[b.clone()])]));
+                h.insert(
+                    s("sides"),
+                    Value::Sequence(vec![sv(&a), sv(std::slice::from_ref(&b))]),
+                );
                 hits.push(Value::Mapping(h));
             }
         }
@@ -280,21 +398,36 @@ fn scalar(v: &Value) -> String {
     match v {
         Value::String(x) => x.clone(),
         Value::Null => String::new(),
-        other => serde_yaml::to_string(other).unwrap_or_default().trim().to_string(),
+        other => serde_yaml::to_string(other)
+            .unwrap_or_default()
+            .trim()
+            .to_string(),
     }
 }
 
 fn blocking(w: &Work) -> R<Vec<String>> {
-    let status = |id: &str| w.findings().iter().find(|f| st(f, "id") == id).map(|f| st(f, "status").to_string());
-    let mut out: Vec<String> = w.findings().iter().filter(|f| is_open(st(f, "status")))
-        .map(|f| format!("{} ({}): {}", st(f, "id"), st(f, "status"), st(f, "says"))).collect();
+    let status = |id: &str| {
+        w.findings()
+            .iter()
+            .find(|f| st(f, "id") == id)
+            .map(|f| st(f, "status").to_string())
+    };
+    let mut out: Vec<String> = w
+        .findings()
+        .iter()
+        .filter(|f| is_open(st(f, "status")))
+        .map(|f| format!("{} ({}): {}", st(f, "id"), st(f, "status"), st(f, "says")))
+        .collect();
     for h in w.rule_hits()? {
         if matches!(status(st(&h, "id")).as_deref(), None | Some("resolved")) {
             out.push(format!("{} (rule hit): {}", st(&h, "id"), st(&h, "says")));
         }
     }
     for fid in strs(&w.req, "open_findings") {
-        let closed = matches!(status(&fid).as_deref(), Some("resolved" | "dismissed" | "rejected"));
+        let closed = matches!(
+            status(&fid).as_deref(),
+            Some("resolved" | "dismissed" | "rejected")
+        );
         if !closed && !out.iter().any(|o| o.starts_with(&format!("{fid} "))) {
             out.push(format!("{fid} (held in requirements.yaml open_findings)"));
         }
@@ -308,19 +441,34 @@ fn check_finding(f: &Value, ids: &BTreeSet<String>) -> Option<String> {
     if !TYPES.contains(&t) {
         return Some(format!("type {t:?} is not one of {}", TYPES.join(", ")));
     }
-    let Some(cites) = f.get("cites").and_then(Value::as_sequence).filter(|c| !c.is_empty()) else {
+    let Some(cites) = f
+        .get("cites")
+        .and_then(Value::as_sequence)
+        .filter(|c| !c.is_empty())
+    else {
         return Some("cites no item".into());
     };
     let cites: Vec<String> = cites.iter().map(scalar).collect();
     let bad: Vec<&String> = cites.iter().filter(|c| !ids.contains(*c)).collect();
     if !bad.is_empty() {
-        return Some(format!("cites items that do not exist: {}", bad.iter().map(|b| b.as_str()).collect::<Vec<_>>().join(", ")));
+        return Some(format!(
+            "cites items that do not exist: {}",
+            bad.iter()
+                .map(|b| b.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
     if t == "contradiction" && cites.iter().collect::<BTreeSet<_>>().len() < 2 {
         return Some("a contradiction cites at least two items".into());
     }
-    if !cites.iter().any(|c| c.starts_with('r') || c.starts_with('q') || c.starts_with("context.")) {
-        return Some("cites no requirement, question or context field (nothing upstream to amend)".into());
+    if !cites
+        .iter()
+        .any(|c| c.starts_with('r') || c.starts_with('q') || c.starts_with("context."))
+    {
+        return Some(
+            "cites no requirement, question or context field (nothing upstream to amend)".into(),
+        );
     }
     if st(f, "says").trim().is_empty() {
         return Some("says nothing".into());
@@ -338,27 +486,66 @@ fn check_finding(f: &Value, ids: &BTreeSet<String>) -> Option<String> {
     None
 }
 
+/// Two findings are the same when type, the set of cited items and the text (case and runs of
+/// whitespace ignored) are equal.
+fn same_finding(a: &Value, b: &Value) -> bool {
+    let cites = |v: &Value| -> BTreeSet<String> { seq(v, "cites").iter().map(scalar).collect() };
+    let text = |v: &Value| st(v, "says").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    st(a, "type") == st(b, "type") && cites(a) == cites(b) && text(a) == text(b)
+}
+
 fn promote(rules: &str, node: &str, path: &str) -> R<u8> {
     let mut w = Work::open(rules)?;
     let raised: Vec<Value> = seq(&load(path), "findings").to_vec();
     let ids = w.ids();
-    let mut n = w.findings().iter().filter(|f| st(f, "id").strip_prefix('f').is_some_and(|x| !x.is_empty() && x.bytes().all(|c| c.is_ascii_digit()))).count();
+    let mut n = w
+        .findings()
+        .iter()
+        .filter(|f| {
+            st(f, "id")
+                .strip_prefix('f')
+                .is_some_and(|x| !x.is_empty() && x.bytes().all(|c| c.is_ascii_digit()))
+        })
+        .count();
     let stage = match node {
-        "requirements.normalise" => "requirements", "context.default" => "context", "vision.write" => "vision",
-        "roadmap.write" => "roadmap", "spec.author" => "spec", "plan.decompose" => "plan", "change.implement" => "story",
+        "requirements.normalise" => "requirements",
+        "context.default" => "context",
+        "vision.write" => "vision",
+        "roadmap.write" => "roadmap",
+        "spec.author" => "spec",
+        "plan.decompose" => "plan",
+        "change.implement" => "story",
         other => other,
     };
-    let keys: BTreeSet<String> = w.findings().iter().map(|f| st(f, "key").to_string()).filter(|k| !k.is_empty()).collect();
+    let keys: BTreeSet<String> = w
+        .findings()
+        .iter()
+        .map(|f| st(f, "key").to_string())
+        .filter(|k| !k.is_empty())
+        .collect();
     let mut added = 0;
     for f in raised {
         if !f.is_mapping() || (!st(&f, "key").is_empty() && keys.contains(st(&f, "key"))) {
+            continue;
+        }
+        // The same finding raised again (runs/trial-3-haiku-2: a writer's retry re-raised its own
+        // open findings, f10-f13 = f6-f9): not added; the earlier one stands with its decision.
+        if let Some(e) = w.findings().iter().find(|e| st(e, "status") != "rejected" && same_finding(e, &f)) {
+            println!("promote: not added, the same as {} ({}): {}", st(e, "id"), st(e, "status"), st(&f, "says"));
             continue;
         }
         n += 1;
         let id = format!("f{n}");
         let mut e = Mapping::new();
         e.insert(s("id"), s(&id));
-        for k in ["type", "cites", "says", "options", "default", "scope_changing"] {
+        for k in [
+            "type",
+            "cites",
+            "says",
+            "options",
+            "default",
+            "scope_changing",
+        ] {
             if let Some(v) = f.get(k) {
                 e.insert(s(k), v.clone());
             }
@@ -379,7 +566,10 @@ fn promote(rules: &str, node: &str, path: &str) -> R<u8> {
                 if !w.req.get("open_findings").is_some_and(Value::is_sequence) {
                     w.req["open_findings"] = Value::Sequence(vec![]);
                 }
-                w.req["open_findings"].as_sequence_mut().unwrap().push(s(&id));
+                w.req["open_findings"]
+                    .as_sequence_mut()
+                    .unwrap()
+                    .push(s(&id));
                 println!("promote: {id} open: {}", st(&f, "says"));
             }
         }
@@ -403,76 +593,190 @@ fn classify(w: &Work, f: &Value) -> (String, String, String) {
     let cites = strs(f, "cites");
     let sides = seq(f, "sides");
     if st(f, "type") == "contradiction" && sides.len() == 2 {
-        let side = |i: usize| -> Vec<String> { sides[i].as_sequence().map(|x| x.iter().map(scalar).collect()).unwrap_or_default() };
+        let side = |i: usize| -> Vec<String> {
+            sides[i]
+                .as_sequence()
+                .map(|x| x.iter().map(scalar).collect())
+                .unwrap_or_default()
+        };
         let (a, b) = (side(0), side(1));
         let ra = a.iter().map(|x| w.authority(x)).max().unwrap_or(0);
         let rb = b.iter().map(|x| w.authority(x)).max().unwrap_or(0);
         if ra != rb {
-            let (win, who) = if ra > rb { (0, a.join(", ")) } else { (1, b.join(", ")) };
+            let (win, who) = if ra > rb {
+                (0, a.join(", "))
+            } else {
+                (1, b.join(", "))
+            };
             let (hi, lo) = (ra.max(rb), ra.min(rb));
             if hi > 0 {
                 return ("agent".into(), opt(win), format!(
                     "derived: {who} is a person's decision of higher rank ({hi} over {lo}), so it stands and the other side follows it"));
             }
-            return ("agent".into(), opt(win), "both sides are an agent's defaults".into());
+            return (
+                "agent".into(),
+                opt(win),
+                "both sides are an agent's defaults".into(),
+            );
         }
         if ra > 0 {
-            return ("person".into(), opt(0), format!("both sides are a person's decisions of the same rank ({ra})"));
+            return (
+                "person".into(),
+                opt(0),
+                format!("both sides are a person's decisions of the same rank ({ra})"),
+            );
         }
         let sq = w.scope_questions(&cites);
         if !sq.is_empty() {
-            return ("person".into(), opt(0), format!("the cited items rest on scope-changing questions {}", sq.join(", ")));
+            return (
+                "person".into(),
+                opt(0),
+                format!(
+                    "the cited items rest on scope-changing questions {}",
+                    sq.join(", ")
+                ),
+            );
         }
-        return ("agent".into(), opt(0), "both sides are an agent's defaults and no scope-changing question is behind them".into());
+        return (
+            "agent".into(),
+            opt(0),
+            "both sides are an agent's defaults and no scope-changing question is behind them"
+                .into(),
+        );
     }
     if f.get("scope_changing") == Some(&Value::Bool(true)) {
-        return ("person".into(), default, "the raiser marks it scope-changing".into());
+        return (
+            "person".into(),
+            default,
+            "the raiser marks it scope-changing".into(),
+        );
     }
     if st(f, "type") == "contradiction" {
-        let people: Vec<String> = cites.iter().filter(|c| w.authority(c) > 0).cloned().collect();
+        let people: Vec<String> = cites
+            .iter()
+            .filter(|c| w.authority(c) > 0)
+            .cloned()
+            .collect();
         if !people.is_empty() {
-            return ("person".into(), default, format!("it would overturn a person's decision: {}", people.join(", ")));
+            return (
+                "person".into(),
+                default,
+                format!(
+                    "it would overturn a person's decision: {}",
+                    people.join(", ")
+                ),
+            );
         }
     }
-    ("agent".into(), default, "changes no scope: it adds a decision and overturns no person's decision".into())
+    (
+        "agent".into(),
+        default,
+        "changes no scope: it adds a decision and overturns no person's decision".into(),
+    )
 }
 
 fn next_qid(w: &Work) -> String {
-    format!("q{}", w.question_ids().iter().filter_map(|q| qnum(q)).max().unwrap_or(0) + 1)
+    format!(
+        "q{}",
+        w.question_ids()
+            .iter()
+            .filter_map(|q| qnum(q))
+            .max()
+            .unwrap_or(0)
+            + 1
+    )
 }
 
 /// Amend questions and requirements for one decided finding; returns the ids it amended.
-fn amend_one(w: &mut Work, f: &Value, decision: &str, decided_by: &str, basis: &str) -> R<Vec<String>> {
+fn amend_one(
+    w: &mut Work,
+    f: &Value,
+    decision: &str,
+    decided_by: &str,
+    basis: &str,
+) -> R<Vec<String>> {
     let qid = next_qid(w);
     let fid = st(f, "id").to_string();
-    let reason = format!("finding {fid} ({}, raised by {}): {basis}", st(f, "type"), st(f, "raised_by"));
-    let answered_by = if is_person(decided_by) || is_decider(decided_by) { decided_by }
-        else if basis.starts_with("derived") { "derived" } else { "non-interactive" };
+    let reason = format!(
+        "finding {fid} ({}, raised by {}): {basis}",
+        st(f, "type"),
+        st(f, "raised_by")
+    );
+    let answered_by = if is_person(decided_by) || is_decider(decided_by) {
+        decided_by
+    } else if basis.starts_with("derived") {
+        "derived"
+    } else {
+        "non-interactive"
+    };
     let mut q = Mapping::new();
     q.insert(s("id"), s(&qid));
     q.insert(s("item"), s(&fid));
     q.insert(s("question"), f.get("says").cloned().unwrap_or(Value::Null));
-    q.insert(s("options"), f.get("options").cloned().unwrap_or(Value::Null));
-    q.insert(s("default"), f.get("default").cloned().unwrap_or(Value::Null));
-    q.insert(s("scope_changing"), Value::Bool(is_person(decided_by) || is_decider(decided_by)));
-    q.insert(s("status"), s(if decision == st(f, "default") { "accepted" } else { "changed" }));
+    q.insert(
+        s("options"),
+        f.get("options").cloned().unwrap_or(Value::Null),
+    );
+    q.insert(
+        s("default"),
+        f.get("default").cloned().unwrap_or(Value::Null),
+    );
+    let scope_changing = is_person(decided_by) || is_decider(decided_by);
+    q.insert(s("scope_changing"), Value::Bool(scope_changing));
+    if scope_changing {
+        // A scope-changing question carries the keys questions.check requires of one
+        // (story:interview-question-context): the raiser's own, else what the finding itself says.
+        let own = |k: &str| f.get(k).filter(|v| v.as_str().is_some_and(|x| !x.trim().is_empty())).cloned();
+        q.insert(s("excerpt"), own("excerpt").unwrap_or_else(|| s(st(f, "says"))));
+        q.insert(s("default_reason"), own("default_reason").unwrap_or_else(|| s(&format!("the default of finding {fid}: {basis}"))));
+        let own_c = f.get("consequences").filter(|c| c.as_sequence().is_some_and(|c| c.len() == strs(f, "options").len())).cloned();
+        let c = own_c.unwrap_or_else(|| Value::Sequence(strs(f, "options").iter().map(|o| {
+            let mut e = Mapping::new();
+            e.insert(s("does"), s(&format!("Takes the option \"{o}\" as the decision.")));
+            e.insert(s("cost"), s("The raiser of the finding did not state a cost."));
+            Value::Mapping(e)
+        }).collect()));
+        q.insert(s("consequences"), c);
+    }
+    q.insert(
+        s("status"),
+        s(if decision == st(f, "default") {
+            "accepted"
+        } else {
+            "changed"
+        }),
+    );
     q.insert(s("answer"), s(decision));
     q.insert(s("answered_by"), s(answered_by));
     q.insert(s("reason"), s(&reason));
     if !w.qs.get("questions").is_some_and(Value::is_sequence) {
         w.qs["questions"] = Value::Sequence(vec![]);
     }
-    w.qs["questions"].as_sequence_mut().unwrap().push(Value::Mapping(q));
+    w.qs["questions"]
+        .as_sequence_mut()
+        .unwrap()
+        .push(Value::Mapping(q));
     let mut amended = vec![qid.clone()];
     let opts = strs(f, "options");
     let mut lose: Vec<String> = vec![];
     if let Some(rule) = w.rule(st(f, "rule")).cloned() {
         if opts.iter().any(|o| o == decision) {
-            let lose_side = if opts.first().map(String::as_str) == Some(decision) { "b" } else { "a" };
+            let lose_side = if opts.first().map(String::as_str) == Some(decision) {
+                "b"
+            } else {
+                "a"
+            };
             let idx = if lose_side == "a" { 0 } else { 1 };
-            lose = seq(f, "sides").get(idx).and_then(Value::as_sequence).map(|x| x.iter().map(scalar).collect()).unwrap_or_default();
+            lose = seq(f, "sides")
+                .get(idx)
+                .and_then(Value::as_sequence)
+                .map(|x| x.iter().map(scalar).collect())
+                .unwrap_or_default();
             let pat = re(rule[lose_side]["pattern"].as_str().unwrap_or(""))?;
-            let rep = rule["replace"][lose_side].as_str().unwrap_or("").to_string();
+            let rep = rule["replace"][lose_side]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
             for x in &lose {
                 if let Some(k) = x.strip_prefix("context.") {
                     if let Some(field) = w.ctx.get_mut(k).filter(|v| v.is_mapping()) {
@@ -522,15 +826,30 @@ fn amend_one(w: &mut Work, f: &Value, decision: &str, decided_by: &str, basis: &
 }
 
 /// Program check of an amendment: why it fails, or None.
-fn verify(before: &Value, ctx_before: &Value, hits_before: &BTreeSet<String>, w: &Work, f: &Value,
-          decision: &str, new_q: &str, agent: bool) -> R<Option<String>> {
-    let mut allowed: BTreeSet<String> = seq(&w.diss, "items").iter()
-        .filter(|i| matches!(st(i, "type"), "fact" | "wish")).map(|i| st(i, "id").to_string()).collect();
+#[allow(clippy::too_many_arguments)]
+fn verify(
+    before: &Value,
+    ctx_before: &Value,
+    hits_before: &BTreeSet<String>,
+    w: &Work,
+    f: &Value,
+    decision: &str,
+    new_q: &str,
+    agent: bool,
+) -> R<Option<String>> {
+    let mut allowed: BTreeSet<String> = seq(&w.diss, "items")
+        .iter()
+        .filter(|i| matches!(st(i, "type"), "fact" | "wish"))
+        .map(|i| st(i, "id").to_string())
+        .collect();
     allowed.extend(w.question_ids());
     for r in seq(&w.req, "requirements") {
         let cites = strs(r, "cites");
         if cites.is_empty() || cites.iter().any(|c| !allowed.contains(c)) {
-            return Ok(Some(format!("{} cites an item that is neither a fact, a wish nor a question", st(r, "id"))));
+            return Ok(Some(format!(
+                "{} cites an item that is neither a fact, a wish nor a question",
+                st(r, "id")
+            )));
         }
     }
     for q in seq(&w.qs, "questions") {
@@ -538,24 +857,41 @@ fn verify(before: &Value, ctx_before: &Value, hits_before: &BTreeSet<String>, w:
         if !matches!(status, "accepted" | "changed" | "open") {
             return Ok(Some(format!("{} is not answered", st(q, "id"))));
         }
-        if q.get("scope_changing") == Some(&Value::Bool(true)) && status != "open"
-            && matches!(st(q, "answered_by"), "" | "non-interactive") {
-            return Ok(Some(format!("{} is scope-changing and names no principal that answered it", st(q, "id"))));
+        if q.get("scope_changing") == Some(&Value::Bool(true))
+            && status != "open"
+            && matches!(st(q, "answered_by"), "" | "non-interactive")
+        {
+            return Ok(Some(format!(
+                "{} is scope-changing and names no principal that answered it",
+                st(q, "id")
+            )));
         }
     }
-    let domains = |v: &Value| -> BTreeSet<String> { seq(v, "requirements").iter().flat_map(|r| strs(r, "spec_domains")).collect() };
-    if seq(before, "requirements").len() != seq(&w.req, "requirements").len() || domains(before) != domains(&w.req) {
+    let domains = |v: &Value| -> BTreeSet<String> {
+        seq(v, "requirements")
+            .iter()
+            .flat_map(|r| strs(r, "spec_domains"))
+            .collect()
+    };
+    if seq(before, "requirements").len() != seq(&w.req, "requirements").len()
+        || domains(before) != domains(&w.req)
+    {
         return Ok(Some("the amendment adds or removes a requirement or a specification domain: that changes scope".into()));
     }
     let hits = w.rule_hits()?;
     if !st(f, "rule").is_empty() && hits.iter().any(|h| st(h, "id") == st(f, "id")) {
-        return Ok(Some("the consistency rule still fires after the amendment".into()));
+        return Ok(Some(
+            "the consistency rule still fires after the amendment".into(),
+        ));
     }
     if !agent {
         return Ok(None); // a person's decision stands; the checks below are for the agent's amendments
     }
     if let Some(h) = hits.iter().find(|h| !hits_before.contains(st(h, "id"))) {
-        return Ok(Some(format!("the amendment makes another rule fire: {}", st(h, "says"))));
+        return Ok(Some(format!(
+            "the amendment makes another rule fire: {}",
+            st(h, "says")
+        )));
     }
     // A rule decision removes the losing side's content. A decision that a requirement outside
     // the losing side cites and that states that content is contradicted by the amendment (trial
@@ -564,19 +900,48 @@ fn verify(before: &Value, ctx_before: &Value, hits_before: &BTreeSet<String>, w:
     if let Some(rule) = w.rule(st(f, "rule")) {
         let opts = strs(f, "options");
         if opts.iter().any(|o| o == decision) {
-            let (lose_side, idx) = if opts.first().map(String::as_str) == Some(decision) { ("b", 1) } else { ("a", 0) };
-            let lose: Vec<String> = seq(f, "sides").get(idx).and_then(Value::as_sequence)
-                .map(|x| x.iter().map(scalar).collect()).unwrap_or_default();
-            let win: Vec<String> = seq(f, "sides").get(1 - idx).and_then(Value::as_sequence)
-                .map(|x| x.iter().map(scalar).collect()).unwrap_or_default();
+            let (lose_side, idx) = if opts.first().map(String::as_str) == Some(decision) {
+                ("b", 1)
+            } else {
+                ("a", 0)
+            };
+            let lose: Vec<String> = seq(f, "sides")
+                .get(idx)
+                .and_then(Value::as_sequence)
+                .map(|x| x.iter().map(scalar).collect())
+                .unwrap_or_default();
+            let win: Vec<String> = seq(f, "sides")
+                .get(1 - idx)
+                .and_then(Value::as_sequence)
+                .map(|x| x.iter().map(scalar).collect())
+                .unwrap_or_default();
             let pat = re(rule[lose_side]["pattern"].as_str().unwrap_or(""))?;
-            let bw = Work { req: before.clone(), qs: Value::Null, diss: Value::Null, ctx: ctx_before.clone(), fd: Value::Null, rules: vec![] };
-            let side = |items: &[String]| items.iter().map(|i| format!("{i} \"{}\"", bw.text(i))).collect::<Vec<_>>().join("; ");
-            for r in seq(&w.req, "requirements").iter().filter(|r| !lose.iter().any(|l| l == st(r, "id"))) {
+            let bw = Work {
+                req: before.clone(),
+                qs: Value::Null,
+                diss: Value::Null,
+                ctx: ctx_before.clone(),
+                fd: Value::Null,
+                rules: vec![],
+            };
+            let side = |items: &[String]| {
+                items
+                    .iter()
+                    .map(|i| format!("{i} \"{}\"", bw.text(i)))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            };
+            for r in seq(&w.req, "requirements")
+                .iter()
+                .filter(|r| !lose.iter().any(|l| l == st(r, "id")))
+            {
                 for c in strs(r, "cites").iter().filter(|c| c.as_str() != new_q) {
                     let Some(q) = w.question(c) else { continue };
                     let answer = scalar(q.get("answer").unwrap_or(&Value::Null));
-                    if matches!(st(q, "status"), "accepted" | "changed") && !answer.is_empty() && pat.is_match(&answer) {
+                    if matches!(st(q, "status"), "accepted" | "changed")
+                        && !answer.is_empty()
+                        && pat.is_match(&answer)
+                    {
                         return Ok(Some(format!(
                             "decision {c} (\"{answer}\", answered by {}, cited by {}) states what the amendment removes from {}; both sides: {} | {}",
                             st(q, "answered_by"), st(r, "id"), lose.join(", "), side(&win), side(&lose))));
@@ -591,22 +956,32 @@ fn verify(before: &Value, ctx_before: &Value, hits_before: &BTreeSet<String>, w:
 fn mark_derived(stage: &str, amended: &[String]) -> R<Option<String>> {
     if let Some((_, path)) = DERIVED.iter().find(|(st, _)| *st == stage) {
         if Path::new(path).is_dir() {
+            // Appended: the writer's own first line (`requirements <digest> resolved <ids>`, the
+            // findings resolved when it wrote the tree) stays, so it can tell which decisions are new.
             let line = format!("requirements {} amended by {}: re-derive\n", sha16("requirements.yaml"), amended.join(" "));
-            fs::write(format!("{path}/.derived-from"), line).map_err(|e| e.to_string())?;
+            let file = format!("{path}/.derived-from");
+            let before = fs::read_to_string(&file).unwrap_or_default();
+            fs::write(&file, before + &line).map_err(|e| e.to_string())?;
             return Ok(Some(format!("{path}/ marked as derived from an earlier requirements revision")));
         }
     }
     if stage == "context" && Path::new(VISION).exists() {
         let text = fs::read_to_string(VISION).map_err(|e| e.to_string())?;
-        let cites_amended = amended.iter().filter(|a| is_rid(a))
-            .any(|a| Regex::new(&format!(r"\b{}\b", regex::escape(a))).is_ok_and(|r| r.is_match(&text)));
+        let cites_amended = amended.iter().filter(|a| is_rid(a)).any(|a| {
+            Regex::new(&format!(r"\b{}\b", regex::escape(a))).is_ok_and(|r| r.is_match(&text))
+        });
         let cites_any = Regex::new(r"\br\d+\b").unwrap().is_match(&text);
         if cites_amended || !cites_any {
             fs::create_dir_all(".sdc/superseded").map_err(|e| e.to_string())?;
-            let n = fs::read_dir(".sdc/superseded").map(|d| d.count()).unwrap_or(0) + 1;
+            let n = fs::read_dir(".sdc/superseded")
+                .map(|d| d.count())
+                .unwrap_or(0)
+                + 1;
             let to = format!(".sdc/superseded/vision-{n}.md");
             fs::rename(VISION, &to).map_err(|e| e.to_string())?;
-            return Ok(Some(format!("{VISION} set aside to {to} (it cites an amended requirement)")));
+            return Ok(Some(format!(
+                "{VISION} set aside to {to} (it cites an amended requirement)"
+            )));
         }
     }
     Ok(None)
@@ -684,13 +1059,26 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         let f = w.findings()[i].clone();
         let before = w.req.clone();
         let snap = (w.req.clone(), w.qs.clone(), w.ctx.clone());
-        let hits_before: BTreeSet<String> = w.rule_hits()?.iter().map(|h| st(h, "id").to_string()).collect();
+        let hits_before: BTreeSet<String> = w
+            .rule_hits()?
+            .iter()
+            .map(|h| st(h, "id").to_string())
+            .collect();
         let amended = amend_one(&mut w, &f, &decision, &decided_by, &basis)?;
         let new_q = amended.first().cloned().unwrap_or_default();
         // A decider's decision goes through the same checks as the agent's amendments: only a
         // person's decision stands unchecked.
         let checked = decided_by == "agent" || is_decider(&decided_by);
-        if let Some(why) = verify(&before, &snap.2, &hits_before, &w, &f, &decision, &new_q, checked)? {
+        if let Some(why) = verify(
+            &before,
+            &snap.2,
+            &hits_before,
+            &w,
+            &f,
+            &decision,
+            &new_q,
+            checked,
+        )? {
             (w.req, w.qs, w.ctx) = snap;
             let attempts = f.get("attempts").and_then(Value::as_u64).unwrap_or(0) + 1;
             let e = &mut w.findings_mut()[i];
@@ -708,9 +1096,13 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
                 rd.insert(s("decided_by"), s(&decided_by));
                 rd.insert(s("why"), s(&why));
                 e["refused_decision"] = Value::Mapping(rd);
-                e["basis"] = s(&format!("program check of {decided_by}'s amendment failed: {why}"));
+                e["basis"] = s(&format!(
+                    "program check of {decided_by}'s amendment failed: {why}"
+                ));
             } else {
-                e["basis"] = s(&format!("program check of the agent's amendment failed: {why}"));
+                e["basis"] = s(&format!(
+                    "program check of the agent's amendment failed: {why}"
+                ));
             }
             println!("amend: {fid} needs a person: {why}");
             changed = true;
@@ -726,11 +1118,19 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         e["decision"] = s(&decision);
         e["decided_by"] = s(&decided_by);
         e["resolution"] = Value::Mapping(res);
-        println!("amend: {fid} resolved by {decided_by}: {decision} (amends {})", amended.join(", "));
+        println!(
+            "amend: {fid} resolved by {decided_by}: {decision} (amends {})",
+            amended.join(", ")
+        );
         amended_all.extend(amended);
         changed = true;
     }
-    let held: Vec<String> = w.findings().iter().filter(|f| is_open(st(f, "status"))).map(|f| st(f, "id").to_string()).collect();
+    let held: Vec<String> = w
+        .findings()
+        .iter()
+        .filter(|f| is_open(st(f, "status")))
+        .map(|f| st(f, "id").to_string())
+        .collect();
     if strs(&w.req, "open_findings") != held {
         if held.is_empty() {
             if let Some(m) = w.req.as_mapping_mut() {
@@ -747,7 +1147,9 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         if w.qs.as_mapping().is_some_and(|m| !m.is_empty()) {
             save("questions.yaml", &w.qs)?;
         }
-        if w.ctx.as_mapping().is_some_and(|m| !m.is_empty()) && amended_all.iter().any(|a| a.starts_with("context.")) {
+        if w.ctx.as_mapping().is_some_and(|m| !m.is_empty())
+            && amended_all.iter().any(|a| a.starts_with("context."))
+        {
             save("context.yaml", &w.ctx)?;
         }
     }
@@ -765,7 +1167,11 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
 fn run(args: &[String]) -> R<u8> {
     let (rules, rest) = match args {
         [flag, path, rest @ ..] if flag == "--rules" => (path.clone(), rest),
-        rest => (std::env::var("SDC_CONSISTENCY_RULES").map_err(|_| "--rules <consistency-rules.json> is required")?, rest),
+        rest => (
+            std::env::var("SDC_CONSISTENCY_RULES")
+                .map_err(|_| "--rules <consistency-rules.json> is required")?,
+            rest,
+        ),
     };
     match rest {
         [c] if c == "consistency" => {
@@ -797,5 +1203,73 @@ fn main() -> ExitCode {
             eprintln!("sdc-findings: {e}");
             ExitCode::from(if e.starts_with("usage") { 64 } else { 1 })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn work() -> Work {
+        let qs = "questions:\n- id: q1\n  item: d3\n  question: Which states?\n  default: a\n  scope_changing: false\n  status: accepted\n  answer: a\n";
+        Work {
+            req: serde_yaml::from_str("requirements:\n- id: r1\n  text: Bill customers.\n  cites: [d1]\n").unwrap(),
+            qs: serde_yaml::from_str(qs).unwrap(),
+            diss: Value::Mapping(Mapping::new()),
+            ctx: Value::Mapping(Mapping::new()),
+            fd: Value::Mapping(Mapping::new()),
+            rules: vec![],
+        }
+    }
+
+    fn last_question(w: &Work) -> Value {
+        w.qs["questions"].as_sequence().unwrap().last().unwrap().clone()
+    }
+
+    /// A question a finding's decision adds is scope-changing when a person or a decider decided it,
+    /// so it carries what `questions.check` requires of such a question
+    /// (`story:interview-question-context`).
+    fn assert_context_keys(decided_by: &str) {
+        let f: Value = serde_yaml::from_str(
+            "id: f1\ntype: ambiguity\nraised_by: llm\ncites: [r1]\nsays: r1 names the clerk only\noptions: [only the clerk, the customer too]\ndefault: only the clerk\nscope_changing: true\n",
+        )
+        .unwrap();
+        let mut w = work();
+        amend_one(&mut w, &f, "the customer too", decided_by, "decided").unwrap();
+        let q = last_question(&w);
+        assert_eq!(q["scope_changing"], Value::Bool(true));
+        assert!(q["excerpt"].as_str().is_some_and(|x| !x.trim().is_empty()), "excerpt: {q:?}");
+        assert!(q["default_reason"].as_str().is_some_and(|x| !x.trim().is_empty()), "default_reason: {q:?}");
+        let c = q["consequences"].as_sequence().expect("consequences");
+        assert_eq!(c.len(), 2);
+        for e in c {
+            assert!(e["does"].as_str().is_some_and(|x| !x.trim().is_empty()), "does: {e:?}");
+            assert!(e["cost"].as_str().is_some_and(|x| !x.trim().is_empty()), "cost: {e:?}");
+        }
+    }
+
+    #[test]
+    fn a_question_added_from_a_person_decided_finding_carries_the_context_keys() {
+        assert_context_keys("person:operator");
+    }
+
+    #[test]
+    fn a_question_added_from_a_decider_decided_finding_carries_the_context_keys() {
+        assert_context_keys("decider:claude");
+    }
+
+    /// The raiser's own `excerpt`, `default_reason` and `consequences` are kept when it wrote them.
+    #[test]
+    fn the_raisers_own_context_keys_are_kept() {
+        let f: Value = serde_yaml::from_str(
+            "id: f1\ntype: ambiguity\nraised_by: llm\ncites: [r1]\nsays: r1 names the clerk only\noptions: [a, b]\ndefault: a\nscope_changing: true\nexcerpt: Bill customers\ndefault_reason: simplest\nconsequences:\n- {does: builds a, cost: small}\n- {does: builds b, cost: large}\n",
+        )
+        .unwrap();
+        let mut w = work();
+        amend_one(&mut w, &f, "b", "person:operator", "a person decided").unwrap();
+        let q = last_question(&w);
+        assert_eq!(q["excerpt"].as_str(), Some("Bill customers"));
+        assert_eq!(q["default_reason"].as_str(), Some("simplest"));
+        assert_eq!(q["consequences"][1]["cost"].as_str(), Some("large"));
     }
 }

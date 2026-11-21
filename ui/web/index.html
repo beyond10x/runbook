@@ -6,19 +6,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <link rel="preload" href="fonts/inter-variable-latin.woff2" as="font" type="font/woff2" crossorigin>
-<script>try { if (localStorage.getItem('sdc-ui.panel') === 'open' || /[?&](tab|node)=/.test(location.search)) document.documentElement.classList.add('rp-open'); } catch {}</script>
+<script>try { if ((localStorage.getItem('sdc-ui.panel') === 'open' && !matchMedia('(max-width: 900px)').matches) || /[?&](tab|node)=/.test(location.search)) document.documentElement.classList.add('rp-open'); } catch {}</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
   <div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5 12 2l8 4.5v11L12 22l-8-4.5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 9.5 12 7.3l4 2.2v5L12 16.7l-4-2.2z" fill="currentColor" opacity=".9"/></svg>
-    <span class="bt">SDC Inspector</span><span class="bs" id="tagline">Canon decides · the driver records · this page only reads</span></div>
+    <span class="bt">SDC Inspector</span><span class="bs" id="tagline" title="Canon decides · the driver records · this page only reads">Canon decides · the driver records · this page only reads</span></div>
   <div class="hctl">
-    <label class="selectw"><span>Store</span><select id="source"></select></label>
-    <label class="switch" title="select the case that moved last"><input type="checkbox" id="follow" checked><span class="sw"></span>Follow active case</label>
+    <label class="selectw"><span>Store</span><select id="source"></select></label><span id="runmark"></span>
+    <label class="switch" title="select the case that moved last"><input type="checkbox" id="follow" checked><span class="sw"></span><span class="swl">Follow active case</span></label>
     <button id="decbtn" class="decbtn" title="pending person decisions"><span>Decisions</span><b id="deccount">0</b></button>
     <span id="live" class="live connecting"><i></i><span>Connecting</span></span>
   </div>
+  <div id="nowbar" role="group" aria-label="Run state and current step"></div><button id="railbtn" aria-controls="right" title="the panel: Explain, Autonomy, Security, Metrics, Changes, Events, Run log">Details</button>
+
 </header>
 <section id="kpis" aria-label="Run KPIs"></section>
 <section id="now" aria-label="What runs now" aria-live="polite"></section>
@@ -33,12 +35,13 @@
     <div class="gbar">
       <div id="gtitle"></div>
       <div class="gtools">
-        <span class="legend"><span><i class="lg c-true"></i>TRUE</span><span><i class="lg c-false"></i>FALSE</span><span><i class="lg c-unknown"></i>UNKNOWN</span><span class="sep"></span><span><i class="lg c-adm"></i>admissible</span><span><i class="lg c-appr"></i>needs approval</span><span><i class="lg c-blk"></i>blocked</span><span class="sep"></span><span><i class="lg c-llm"></i>LLM</span><span><i class="lg c-person"></i>person</span><span><i class="lg c-prog"></i>program</span></span>
+        <span class="legend"><span><i class="lg c-true"></i>TRUE</span><span><i class="lg c-false"></i>FALSE</span><span><i class="lg c-unknown"></i>UNKNOWN</span><span class="sep"></span><span><i class="lg c-adm"></i>admissible</span><span><i class="lg c-appr"></i>needs approval</span><span><i class="lg c-blk"></i>blocked</span><span class="sep"></span><span><i class="lg c-llm"></i>LLM</span><span id="lg-person"><i class="lg c-person"></i>person</span><span><i class="lg c-prog"></i>program</span></span>
         <label class="switch" title="draw the claims each action reads (its precondition) and the invalidation edges"><input type="checkbox" id="reads"><span class="sw"></span>Reads</label>
         <span class="zoom"><button id="zout" class="ib" title="zoom out">−</button><button id="zfit" class="ib wide" title="fit width">Fit</button><button id="zin" class="ib" title="zoom in">+</button></span>
       </div>
     </div>
     <div id="graph"></div>
+    <p id="ghint" class="ghint" data-ux="hint" hidden>The graph is wider than the screen: drag sideways inside it to see every column.</p>
     <div id="timeline"></div>
   </section>
   <aside id="right">

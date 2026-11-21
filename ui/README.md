@@ -16,6 +16,27 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
 
 - Each argument is a store directory (its subdirectories are root cases) or one case directory. A
   path that does not exist yet is waited for; cases and events show up as the run writes them.
+- `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the
+  store selector without a restart (`node server.mjs --runs ../runs`). Explicit store arguments come
+  first and are not listed twice.
+- A run directory with `run-stopped.json` (`sdc.run-stopped/1`: at, by, reason, verdict_at_stop,
+  case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
+  waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
+  at the stop; the store selector and the case tree mark it; its open decisions show greyed in the
+  drawer, and the server refuses to take them (continuing the run stays possible).
+- A run with no stop record, not closed, and no driver attached (no live pid in `driver.json` or
+  `.sdc-drive.lock`) moves no more: the Now band adds "no driver attached, last activity <time>" and
+  every clock stands at the last event, including the waiting time.
+- `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
+  holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
+  "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
+  `A5` is autopilot: the page never names a person or "you" for a decision, and says "the decider is
+  deciding" or "no decision is pending". `stand_in: true` marks the run "end-to-end test with a
+  stand-in" in the header and its KPI strip "not eval numbers".
+- Who decided comes from the record's principal (`web/principal.js`): `person:<id>` (and a bare id,
+  as older drivers wrote it) is a person; `decider:<kind>` is "decider <model>, on the operator's
+  behalf"; `rule:<name>` and `decider:approve|reject` are "rule <name>"; `human` without an id is
+  "recorded as human (principal not recorded)", never a person.
 - The server needs Node 22 and nothing else, and listens on 127.0.0.1 only.
 - Without `--write` it never writes anything. With `--write` the Decisions drawer can act on every
   store, with `--write-only STORE` (repeatable) on those stores only; the principal is `operator`
@@ -35,9 +56,11 @@ Open http://127.0.0.1:7490/. Pick the store in the header. Or, from this directo
   subject at its revision), how many fields one approval covers, and what taking it does. The band's
   head says what is true in words: "Waiting on you: nothing runs until this is decided", "Decider
   deciding", "Stopped: stuck since …, no step is admissible (open obligations)", "Closed: ended
-  <outcome>"; "Driver gone" only for a step that was started, never finished and has no live
-  driver. The run's decider setting (`SDC_DECIDER`) is not written into the run directory, so the
-  holder comes from a decider call in progress and `decisions.jsonl`. On the right, the last
+  <outcome>"; "Driver gone" for a step that was started, never finished and has no live driver;
+  with no driver attached the head keeps its words and the line under it says "no driver attached,
+  last activity <time>". The holder comes from a decider call in progress, `decisions.jsonl`, and the run's
+  decider setting in `run-settings.jsonl`; a run without that file says the setting is not
+  recorded. On the right, the last
   four finished steps with duration and result. Click a card for the case and its action. The same
   action glows in the graph (with its clock) and in the phase strip.
 - **KPI strip** (under the header): five run KPIs of `docs/kpis.md`, live. Elapsed (R7: first event
@@ -179,19 +202,32 @@ of one approval without a browser.
 `test/preflight.spec.mjs` (port 7524, `SDC_UI_PREFLIGHT_PORT`) starts a server whose PATH has jq and
 no yq: every act that would start the driver or a tool is refused with the missing programs named
 (nothing runs, no check is recorded), and the Decisions drawer shows the same message up front.
+`test/stopped.spec.mjs` (port 7528, `SDC_UI_STOPPED_PORT`) serves `--runs` over played runs (`person`,
+`held` with a decider in its settings, `stopped`, and `late`, which appears while the page is open)
+and checks the stopped state, the failed waiting KPI and the live store list; `test/autopilot.spec.mjs`
+(port 7530, `SDC_UI_AUTOPILOT_PORT`) checks that an autopilot run (fixture `autopilot`) never names a
+person and that a legacy run (fixture `human`) says "recorded as human". Screenshots at both gating
+viewports: `screenshots/{1600x1000,1366x768}-{stopped,stopped-drawer,held,autopilot,autopilot-drawer,human}.png`.
 `test/stall-model.spec.mjs` tests the stalled case (a wait on `amend.upstream` with no finding for a
 person names the writer that used its runs and its last error).
 `test/paths.spec.mjs` (port 7526, `SDC_UI_PATHS_PORT`) fails when a file git would commit under
 `ui/` or any page or API answer names an absolute home path; the server shows paths relative to
 the repository, its workspace (`../`) or `~`.
-`runs/` is git-ignored: `fixture-run.mjs`, `now.spec.mjs`, `changes.spec.mjs`,
-`meaning-model.spec.mjs`, `live.spec.mjs`, the ux loop and the server without arguments need the
-recorded runs `runs/trial-todo-1` and `runs/full-cycle-1`, and fail naming the missing directory.
+`runs/` is git-ignored, and the suite exits 0 on a checkout without it. `stopped.spec.mjs` and
+`autopilot.spec.mjs` play their runs from `test/recorded/trial-todo-1-slim`, a committed slim copy of
+`runs/trial-todo-1` (cases intake and direction; no prompt, transcript or answer of an LLM, no
+absolute home path; remade with `node test/slim-source.mjs`). `now.spec.mjs`, `changes.spec.mjs`,
+`meaning-model.spec.mjs` and `live.spec.mjs` need the recorded runs `runs/trial-todo-1` and
+`runs/full-cycle-1`, `screens.spec.mjs` a server over `runs/full-cycle-1`, and `scope.spec.mjs`,
+`preflight.spec.mjs` and the second test of `paths.spec.mjs` the built `sdc-drive` and `canon`:
+without them they are skipped through `test/need-run.mjs`, the reason naming what is missing. The
+ux loop and the server without arguments still need the recorded runs and say which is missing.
 
 ## UI iteration loop
 
 `ux/` holds the measured loop of the `ui-iteration-loop` skill. `ux/adapter.mjs` names the gating
-viewports (1600x1000, 1366x768; 1280x720 and 1920x1080 are measured only), the one theme, what is
+viewports (1600x1000, 1366x768 and the phone 390x844; 1280x720, 1920x1080 and the phones 360x800,
+414x896 and 768x1024 are measured only), the one theme, what is
 always visible (Now band, KPI strip, store selector, Decisions), the scroll exceptions (decision
 D-001), the guidance cue (the Now band's waiting card and its Decide control) and six scenarios
 with their truth. `ux/core/` is generic: the layout contract with axe-core, the screen-only user's
@@ -205,9 +241,64 @@ task ux:update          # take improvements into the baseline (DECISION=D-nnn fo
 task ux:round ROUND=R-02   # measure a round: ux/rounds/R-02/{report.md,round.json,shots/} and trend.md
 ```
 
-Ports 7510 to 7513 (`SDC_UI_UX_PORT`). Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
+Each server of the loop and of the phone contract (and the contract's recorded runs) takes a free
+port and names it in its first line, so two loops on one machine do not collide. `SDC_UI_UX_PORT`
+pins them instead: its value on for the loop, 60 above for the phone contract, 80 above for its
+recorded runs. Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
 a regression asset that exists (`ux/specs/findings.spec.mjs`). Round R-01: `ux/rounds/R-01/`
 (report, the two reviews, triage, decision).
 A baseline key may carry its own `tolerance` (decision D-003: the wall-clock sampled metrics of the
-played scenarios); the ratchet counts a value as worse or better only outside that band. Round
-files are written with repository-relative paths.
+played scenarios); the ratchet counts a value as worse or better only outside that band. Decision
+D-004 took worse values the operator's wording asks for: the line "no driver attached, last
+activity …" (reading load +7 to +9 words in person, decider and changes; a layout shift in agent
+and decider and two more cue changes in two at 1366x768 when the played driver detaches at the
+end), and 3 more truncated elements at 1366x768 (and in
+closed at 1600x1000) from the longer principal labels and stop marks of the same change.
+Decision D-005 made the measurement deterministic. The ratchet failed on a different sampled value
+from run to run because the fixture player ran on the wall clock, the server rescanned every 700 ms,
+and the loop sampled every 1.4 s of wall time and divided layout shift by wall minutes: which state
+changes fell into the window depended on the machine's load. The measured run now shares one clock
+(`vclock.mjs`) between the server, the player and the page, moved only by the loop: per step the
+clock moves 1.4 s, the player plays 1.4 s of its sleeps and waits, the server rescans when the
+player reports, and the page fetches and paints (`window.__sdcSync`) before anything is sampled.
+Animations and transitions are off in the measured page, layout shift is counted per minute of the
+steps' clock, and a scenario waiting on someone reaches its truth when the card names who it waits
+on. The values this changed (the measurement, not the UI) were taken under D-005, and the D-003
+tolerances were dropped. Round files are written with repository-relative paths.
+
+### Phone sizes (decision D-006)
+
+The operator, 2026-11-21 ("mobile view looks pretty unusable atm"), set the adapter's values for a
+phone (`ux/adapter.mjs` `phone` and `policy`), applied at the gating phone size 390x844 and reported
+at 360x800, 414x896 and 768x1024:
+
+- Vertical page scroll is allowed on a phone; horizontal page scroll is not, and nothing runs past
+  the screen's edge.
+- Always visible at every state change, scrolled or not: the run's state (running, waiting, stopped
+  with its reason), the Now band's current step and the open-decision indicator (Decisions).
+- The top KPIs stay reachable within one scroll screen.
+- The right rail is a full-width sheet opened from a visible control (Details), never a column.
+- The case graph is a list or scrolls sideways inside its own box with a visible hint, never a
+  clipped canvas.
+- Dialogs (the change dialog, the Decisions drawer with its decision cards) are full-screen sheets
+  with their close control in view.
+- Every tap target is at least 44x44 CSS px; no body text under 14 px (and no label under 12 px).
+- Desktop behaviour at 1600x1000 and 1366x768 does not change: every phone rule is under
+  `@media (max-width: 900px)`.
+
+`ux/core/phone.mjs` measures these facts (generic); `ux/specs/phone.spec.mjs` is the phone layout
+contract at every key moment of the six scenarios and of the recorded runs `trial-2-train`,
+`trial-3-haiku` and `trial-todo-1` (skipped without `runs/`), with metrics `phone.*` in the
+ratchet; `test/mobile.spec.mjs` (port 7532, `SDC_UI_MOBILE_PORT`) holds one test per phone finding
+(UXF-016 to UXF-026) over played runs that need no `runs/`. In `ux/specs/loop.spec.mjs` the
+screen-only user may scroll the page at a phone size; what it scrolls to costs a glance 3. Round
+R-03: `ux/rounds/R-03/`.
+
+Decision D-007 labels stub runs. The played scenarios are fixture runs, so the measured page
+shows the label "stub run: canned content, not a model's work" in the header and in a row of its
+own above the Now band. reading_load rises by the label's 8 words in every played scenario, and two's
+layout shift falls a little because the band starts one row lower. These values were taken under
+D-007: the UI changed on purpose. On a phone (390x844) the header mark and the label row are whole
+and in the first screen (`test/stub-runs.spec.mjs`); there reading_load rises by 8 as well, and in two
+the screen-only user scrolls once more (screen_only.looks 4 to 6, glance_cost.p95 1 to 3) because
+the second card moves below the first screen.

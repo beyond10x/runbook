@@ -1,0 +1,8 @@
+{
+  "format": "sdc.run-stopped/1",
+  "at": "2026-11-22T10:12:00Z",
+  "by": "operator",
+  "reason": "stopped to look at the questions before the decider takes them",
+  "verdict_at_stop": "awaiting_person",
+  "case": "IDEA-1.intake"
+}

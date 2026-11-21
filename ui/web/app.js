@@ -4,19 +4,22 @@ import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
-import {nowState, renderNow, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo} from './now.js';
+import {nowState, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
 import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
+import {setRunSettings, autopilot, standIn} from './principal.js';
 
 const q0 = new URLSearchParams(location.search);
+// a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
+const PHONE = matchMedia('(max-width: 900px)');
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
   inbox: {items: [], write: false, principal: null}, drawer: q0.get('drawer') === '1', form: {}, editing: null, busy: null, results: {}, proc: null, dirty: false, toast: null,
   liveData: null, offset: 0, diff: null,
   // the right panel: a rail of tab names until a tab is opened; remembered across loads
-  panel: q0.get('tab') || q0.get('node') ? true : localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
+  panel: q0.get('tab') || q0.get('node') ? true : !PHONE.matches && localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
 const LS = (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
 function setPanel(open, tab) {
   if (tab) S.tab = tab;
@@ -49,11 +52,14 @@ async function loadTree(only) {
   for (const c of t.cases) S.cases.set(c.rel, c);
   for (const k of Array.from(S.cases.keys())) if (!t.present.includes(k)) S.cases.delete(k);
 }
-async function loadRun() { S.run = await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; }
+async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
 async function loadFacts() { S.facts = await api(`/api/workfacts?source=${S.src}`).catch(() => ({files: []})); }
-const serverNow = () => Date.now() + S.offset;
+// the page's clock: the server's, or the stop of a run stopped on purpose (every clock stands there)
+const stopAt = () => { const t = Date.parse(S.run?.stopped?.at); return isNaN(t) ? null : t; };
+// or the last event of a run no driver is attached to (S.frozenAt, set by each render)
+const serverNow = () => stopAt() ?? S.frozenAt ?? Date.now() + S.offset;
 async function loadInbox() { S.inbox = await api(`/api/inbox?source=${S.src}`).catch(() => S.inbox); }
 
 function pickFollow() {
@@ -77,11 +83,24 @@ function pickFollow() {
 
 // ---- render, once per animation frame -------------------------------------------------------------
 let raf = 0;
+// stub, fixture and dry runs (server.mjs programOf): listed apart, labelled, never the default
+const isStub = (s) => s?.program?.kind === 'stub';
+const byNewest = (a, b) => (b.lastWrite || 0) - (a.lastWrite || 0);
+const defaultSource = (list) => list.filter((s) => !isStub(s)).sort(byNewest)[0]?.index ?? 0;
 const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
 
 function render() {
   const src = S.sources[S.src];
-  patch($('#source'), S.sources.map((s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${s.exists ? '' : ' · waiting'}</option>`).join(''));
+  // real runs first, newest first; stub and fixture runs in a group of their own below, each labelled
+  const opt = (s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${isStub(s) ? ' · stub' : ''}${s.stopped ? ' · stopped' : s.exists ? '' : ' · waiting'}</option>`;
+  const stubs = S.sources.filter(isStub).sort(byNewest);
+  patch($('#source'), S.sources.filter((s) => !isStub(s)).sort(byNewest).map(opt).join('') + (stubs.length ? `<optgroup label="Stub and fixture runs (no model calls)">${stubs.map(opt).join('')}</optgroup>` : ''));
+  // who this run is: an end-to-end test with a stand-in, autopilot; the graph legend follows
+  const set = S.run?.settings;
+  patch($('#runmark'), [isStub(src) ? `<span class="rm rm-stub" title="${esc(src.program.why)}">${esc(STUB_NOTE)}</span>` : '', standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
+  const lg = $('#lg-person');
+  const lgText = autopilot(set) ? 'decider (on the operator’s behalf)' : 'person';
+  if (lg && lg.textContent !== lgText) lg.innerHTML = `<i class="lg c-person"></i>${lgText}`;
   $('#follow').checked = S.follow;
   $('#reads').checked = S.showReads;
   const live = $('#live');
@@ -92,6 +111,7 @@ function render() {
   if (!cases.length) {
     patch($('#phases'), '');
     patch($('#now'), '');
+    patch($('#nowbar'), '');
     patch($('#kpis'), '');
     patch($('#feed'), '');
     patch($('#tree'), `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
@@ -105,18 +125,21 @@ function render() {
   const c = current();
   const ev = evalAt(c, S.atSeq);
   c._revisions = ev?.explanation?.computed_from?.case?.artifacts || c.case.artifacts || {};
+  const ns = nowState(cases, S.liveData, S.run, Date.now() + S.offset);
+  S.frozenAt = ns.idle?.t ?? null;
   const now = serverNow();
-  const ns = nowState(cases, S.liveData, S.run, now);
+  ns.now = now;
   S.nowState = ns;
   const nowEl = $('#now');
   // A step ends and the next starts within a moment: hold the band over that gap instead of
   // flashing "between steps" for one poll.
   if (ns.mode === 'running') S.lastRunAt = now;
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
-  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items)); }
+  else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); patch($('#nowbar'), renderNowBar(ns)); }
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
-  patch($('#kpis'), renderKpis(S.kpis, now));
+  // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
+  patch($('#kpis'), renderKpis(S.kpis, now) + (standIn(S.run?.settings) ? '<span class="k-standin" data-key="kstand" title="run-settings.jsonl: stand_in true. A stand-in took the person’s part; these values do not count as an evaluation.">not eval numbers</span>' : ''));
   S.feed = feedItems(cases, S.liveData, S.inbox?.history, S.facts);
   patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present));
   patch($('#tree'), renderTree(cases, ns, now));
@@ -128,11 +151,16 @@ function render() {
     const host = $('#graph');
     const live = graphLive(ns, c);
     const probe = renderGraph(host, c, ev, {zoom: S.zoom, selected: S.node, showReads: S.showReads, atSeq: S.atSeq, revisions: c._revisions, live, now});
-    const z = S.fit ? Math.min(1.15, Math.max(0.75, (host.clientWidth - 24) / probe.width)) : S.zoom;
+    // on a phone the graph keeps a readable scale (labels 12 px and more) and scrolls in its own box
+    const z = S.fit ? (PHONE.matches ? 1.3 : Math.min(1.15, Math.max(0.75, (host.clientWidth - 24) / probe.width))) : S.zoom;
     if (z !== S.zoom) { S.zoom = z; renderGraph(host, c, ev, {zoom: z, selected: S.node, showReads: S.showReads, atSeq: S.atSeq, revisions: c._revisions, live, now}); }
+    const hint = $('#ghint');
+    const wide = PHONE.matches && host.scrollWidth > host.clientWidth + 1;
+    if (hint.hidden === wide) hint.hidden = !wide;
   } else $('#graph').innerHTML = '<p class="muted pad">no ir.json in this case</p>';
   patch($('#timeline'), renderTimeline(c, at, last));
   document.documentElement.classList.toggle('rp-open', S.panel);
+  if (PHONE.matches) { $('#panel').setAttribute('tabindex', '0'); $('#panel').setAttribute('role', 'region'); $('#panel').setAttribute('aria-label', 'Panel'); }
   document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
   if (!S.panel) return;
   const scope = S.scopeCase ? c.id : null;
@@ -150,8 +178,12 @@ function render() {
 }
 
 function renderTree(cases, st, now) {
-  const run = new Map(st.running.map((r) => [r.c, r]));
-  return cases.map((x) => {
+  // a run stopped on purpose: said above the tree, on the case it stopped in, and nothing spins
+  const stop = st.stopped;
+  const run = new Map(stop ? [] : st.running.map((r) => [r.c, r]));
+  const stopCase = stop ? cases.find((c) => c.id === stop.case) || cases.find((c) => !c.parent) : null;
+  const head = stop ? `<div class="tree-stop" data-key="tstop" title="${esc(stop.reason || '')}"><i></i>Run stopped by ${esc(stop.by || 'not recorded')} at ${esc(new Date(stop.t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}))}</div>` : '';
+  return head + cases.map((x) => {
     const st = caseState(x);
     const e = evalAt(x, null);
     const claims = Object.values(e?.claims || {});
@@ -159,7 +191,7 @@ function renderTree(cases, st, now) {
     const name = x.parent ? x.id.slice(x.parent.length + 1) : x.id;
     const guides = Array.from({length: x.depth}, (_, i) => `<span class="guide" style="left:${16 + i * 16}px"></span>`).join('');
     return `<div data-key="c:${esc(x.rel)}" class="case${x.rel === S.sel ? ' sel' : ''}" data-case="${esc(x.rel)}" style="padding-left:${16 + x.depth * 16}px">${guides}
-      <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
+      <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
       <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span><span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span></div></div>`;
   }).join('');
 }
@@ -191,14 +223,18 @@ function renderEvents(c, at) {
 function renderDecisions() {
   const n = S.inbox.items.length;
   const tag = S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads';
-  if ($('#tagline').textContent !== tag) $('#tagline').textContent = tag;
+  // the header may cut it (a stub run's label takes its room): the title keeps it readable
+  if ($('#tagline').textContent !== tag) { $('#tagline').textContent = tag; $('#tagline').title = tag; }
   const btn = $('#decbtn');
-  btn.classList.toggle('has', n > 0);
+  btn.classList.toggle('has', n > 0 && !S.inbox.stopped);
+  btn.classList.toggle('stopped', !!S.inbox.stopped);
   btn.classList.toggle('on', S.drawer);
   patch($('#deccount'), String(n));
   document.body.classList.toggle('drawer-open', S.drawer);
   if (S.drawer) {
     patch($('#drawer'), renderDrawer(S));
+    // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
+    if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
     const pl = $('#proclog');
     if (pl) pl.scrollTop = pl.scrollHeight;
   }
@@ -322,6 +358,7 @@ document.addEventListener('click', async (ev) => {
   }
   if (t.closest('#decbtn') || t.closest('[data-open-drawer]')) { S.drawer = !S.drawer || !!t.closest('[data-open-drawer]'); return render(); }
   if (t.closest('#rpclose')) { setPanel(false); return render(); }
+  if (t.closest('#railbtn')) { setPanel(true); return render(); }
   const chip = t.closest('[data-feed]');
   if (chip) { S.feedCls = S.feedCls === chip.dataset.feed ? '' : chip.dataset.feed; LS('sdc-ui.feed', S.feedCls); return render(); }
   const kpi = t.closest('[data-kpi]');
@@ -340,7 +377,8 @@ document.addEventListener('click', async (ev) => {
   if (nav && !nav.disabled) return stepDiff(Number(nav.dataset.fsnav));
   if (t.closest('[data-fsclose]') || t.id === 'diffdlg') return $('#diffdlg').close();
   const go = t.closest('[data-goto]');
-  if (go && t.closest('#now')) {
+  // the Now band's cards and the stops a failed KPI lists (strip and Metrics) go to their case and event
+  if (go && (t.closest('#now') || t.closest('.k-stop, .kf-stop'))) {
     if (t.closest('a[data-tab]')) { ev.preventDefault(); openPanel('changes'); S.scopeCase = true; selectCase(go.dataset.goto); return render(); }
     S.follow = false; S.sel = go.dataset.goto; S.atSeq = go.dataset.seq ? Number(go.dataset.seq) : null; S.fit = true;
     if (go.dataset.node) { S.node = go.dataset.node; openPanel('explain'); }
@@ -409,7 +447,7 @@ document.addEventListener('keydown', (ev) => {
   if (!c) return;
   if (ev.key === 'ArrowLeft') { setIdx(idxOf(c) - 1); ev.preventDefault(); }
   if (ev.key === 'ArrowRight') { setIdx(idxOf(c) + 1); ev.preventDefault(); }
-  if (ev.key === 'Escape') { S.node = null; render(); }
+  if (ev.key === 'Escape') { S.node = null; if (PHONE.matches && S.panel) setPanel(false); render(); }
 });
 // drag the graph to pan; a click without movement still selects a node
 let pan = null;
@@ -456,6 +494,14 @@ async function drain() {
     schedule();
   } catch { /* the next change retries */ } finally { inflight = false; }
 }
+// The ux loop's measured run (ux/specs/env.mjs) calls this after each step of its shared clock: fetch
+// everything, render, resolve when the frame is painted. Nothing calls it otherwise.
+window.__sdcSync = async () => {
+  while (inflight) await new Promise((r) => setTimeout(r, 20));
+  pending.full = true;
+  await drain();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+};
 function connect() {
   const es = new EventSource('/events');
   es.addEventListener('hello', () => { if (S.live !== 'on') { S.live = 'on'; pending.full = true; drain(); } });
@@ -482,11 +528,14 @@ function connect() {
     S.proc.running = false; S.proc.exit = d.exit;
     pending.full = true; drain();
   });
+  // a run that appeared under --runs, or a run stopped or resumed: the store selector follows
+  es.addEventListener('sources', async () => { S.sources = await api('/api/sources').catch(() => S.sources); schedule(); });
   es.addEventListener('act', (m) => { if (JSON.parse(m.data).source === S.src) { pending.run = true; drain(); } });
 }
 
 (async () => {
   S.sources = await api('/api/sources');
+  if (!q0.has('source')) S.src = defaultSource(S.sources);
   S.meta = await api('/api/meta');
   await loadTree();
   await loadRun();

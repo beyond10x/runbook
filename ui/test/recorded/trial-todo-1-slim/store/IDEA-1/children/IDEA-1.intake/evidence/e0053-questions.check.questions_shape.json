@@ -1,0 +1,13 @@
+{
+  "format": "canon-evidence/1",
+  "id": "e0053-questions.check.questions_shape",
+  "kind": "questions_shape",
+  "observed_at": "2026-11-20T23:19:43Z",
+  "producer": "sdc-check",
+  "result": "valid",
+  "subject": "questions",
+  "subject_revision": "td05a064f047676ee",
+  "upstream_revisions": {
+    "dissection": "tb9dcaedb60926c30"
+  }
+}

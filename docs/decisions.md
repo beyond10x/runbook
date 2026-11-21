@@ -7,7 +7,7 @@ produced. The operator, 2026-11-21: every approval or decision "should always co
 recommendation", based on a vision, a previous decision, a PRD or a story.
 
 Specification: `ess/` (domain `sdc.decision`, entity `DecisionRequest`). Grounding check:
-`tools/decision-grounds.sh`. A decider record turned into a request: `tools/decision-from-record.sh`.
+`tools/decision-grounds.sh`. A decider record turned into a request: `tools/decision-from-record.sh`. A scope-changing question: `sdc-decision-request`.
 Examples: `decision/examples/`.
 
 ## What exists already
@@ -43,19 +43,25 @@ A `DecisionRequest` holds:
   writes (approval) or the answer it writes (question), and the kind of Canon record it produces
   (`produces`; absent when it produces none). An outcome request has two options: the decision,
   and "leave it untaken", which produces no record.
-- **The recommendation**: option, strength (`strong`, `moderate`, `weak`; `none` means there is
+- **The recommendation**: option, or for a question request a free answer in its place
+  (`recommended_answer`), strength (`strong`, `moderate`, `weak`; `none` means there is
   none), whether silence takes it (`default_on_silence`, strong only), who proposed it (`rule`,
   `llm`, `person`, `prior_decision`), and its **grounds**. Or, instead, the reason there is none.
 - **Each ground**: source kind (`idea`, `vision`, `requirement`, `prior_decision`, `prd`, `story`,
-  `spec`, `policy`, `evidence_record`, `autonomy_rule`), a citation (`path_line` with a digest of
-  the lines, `record_id` in a named store, or `artifact_revision`), the option it supports, and
-  one sentence on how. `idea` was added because the decider cites dissection items (`d1` to `d4`).
+  `spec`, `policy`, `evidence_record`, `autonomy_rule`, `goals`), a citation (`path_line` with a
+  digest of the lines, `record_id` in a named store, or `artifact_revision`; for `goals` with the
+  `entry` id and the entry's `digest`, shown `goals@<rev>#<id>`), the option it supports (absent:
+  the free answer), and one sentence on how. `idea` was added because the decider cites dissection
+  items (`d1` to `d4`); `goals` for the requester side (`requester.md` § 2).
 - **Who decides**: the run's autonomy level (A0 to A5), the decision class (13 request classes,
   the rows of `autonomy-levels.md:244-256`; the `escalation` row is not a request class, see
   Escalate below), the **holder** for that class at that level, the eligible principals (handed
   in by the host), and whose inbox it is in (`addressed_to`).
-- **The decision**: option, principal (`operator`, `decider:<kind>`, `rule:<name>` or `silence`), its
-  kind, time, reasons, and, added afterwards by `RecordProduced`, the Canon record it produced.
+- **The decision**: option, or for a question request a free answer (`decided_answer`; both of
+  the operator's trial-2 answers were "neither option as asked"), principal (`operator`,
+  `decider:<kind>`, `rule:<name>` or `silence`), its kind, time, reasons, and, added afterwards by
+  `RecordProduced`, the Canon record it produced. Exactly one of option and answer is given
+  (`OptionOrAnswer`); an approval or an outcome takes no answer (`AnswerNotAllowed`).
 - **Links**: `supersedes` and `superseded_by` (relations to another request).
 
 Lifecycle:
@@ -118,17 +124,31 @@ SDC_DECIDER_ESCALATE=final`, and A1 to A4 need per-class routing that is not bui
 ## The grounding rule
 
 Deterministic first. `tools/decision-grounds.sh <proposal.json> --case <case dir> [--root DIR]
-[--log decisions.jsonl]` reads a request and a proposed recommendation and prints the
-`Recommend` input with `check_verdict` and `check_report`. Exit 0 verified, 1 refused.
+[--log decisions.jsonl] [--at INSTANT] [--goals FILE]...` reads a request and a proposed
+recommendation and prints the `Recommend` input with `check_verdict` and `check_report`. Exit 0
+verified, 1 refused.
 
-1. A recommendation names an option of the request, cites at least one ground, and at least one
-   ground supports that option. A proposer that escalated proposes no option, so the request
-   carries no recommendation.
+1. A recommendation names an option of the request, or, on a question request only, a free answer
+   (exactly one of the two); it cites at least one ground, and at least one ground supports that
+   option (for a free answer: a ground with no `supports`). A proposer that escalated proposes no
+   option, so the request carries no recommendation.
 2. Every citation resolves: the file exists and the lines are inside it (paths resolve against the
    case directory, then `--root`); a digest, when given, still matches the lines; a record id is
    in its store (case `evidence/`, `authority.json`, `decisions.json`, the decision log, or the
    AEP store under `work/aep/`); an `artifact@revision` is the current revision in `case.json`.
-   The digest of each cited range is written into the ground, so a later check sees a change.
+   A goals entry (`goals@<rev>#<id>`) goes to `sdc-goals ground --at <instant> --cite <it>
+   --current <revision in case.json> [--digest <d>] <layer files>`. The ground rests on the
+   entry, not on the document (`requester.md` § 0, decision 3; plan decision D93): it holds when
+   the entry exists in the current layers, its digest is the cited one, it is inside its validity
+   window at the instant and no applying lower-layer entry overrides it. Otherwise it is refused,
+   naming each cause: `no_entry`, `digest_changed`, `not_yet_valid`, `expired`, `overridden`
+   (and `invalid_goals` when the layer files fail `sdc-goals check`). A cited revision that is no
+   longer current is not a refusal: `checks` and `check_report` carry the note `revision_moved`
+   with the cited and the current revision. The instant is `--at`, else the request's
+   `opened_at`; the layers are `--goals`, else `work/goals.yaml` and `work/goals.*.yaml` of the
+   cited case; the binary is `$SDC_GOALS`, else `goals/target/debug/sdc-goals`, else `PATH`.
+   The digest of each cited range or entry is written into the ground, so a later check sees a
+   change.
 3. The subject revision is still current (for an outcome, the case revision); if not, the request
    must be superseded.
 4. A Decided request in the log with the same `question_key` and subject revision is reused while
@@ -151,6 +171,19 @@ roadmap, holder P):
 | `roadmap-dangling.json` | 1 | refused: `docs/phases.md` lines 460-460 outside the file (46 lines); no record `e9999-roadmap.approve` in canon_evidence; `roadmap@t0000000000000000` is not current |
 | `roadmap-valid.json --log prior-decisions.jsonl` | 0 | reuses `...-0b`; `...-0a` not reused: its ground `vision@t0ld0ld0ld0ld0ld0` is not current |
 | a ground with a wrong digest | 1 | "changed: lines 20-27 of work/aep/vision/product.md differ from the cited digest" |
+
+Goals grounds (`decision/examples/goals-grounds/`; trial 2's q1 at A3, holder D→P, answered by
+neither option; one proposal, `q1-free-answer.json`, citing `product/p1` at `tg0001`, against
+case snapshots that differ only in the goals layers and their revision):
+
+| `--case` | exit | result |
+|---|---|---|
+| `case` | 0 | verified, "1 grounds, all resolve" |
+| `case-changed` (p1's statement edited, revision `tg0002`) | 1 | `digest_changed`; note `revision_moved` |
+| `case-removed` (p1 removed, `tg0003`) | 1 | `no_entry`; note `revision_moved` |
+| `case-moved` (only a new preference `p3` added, `tg0004`) | 0 | verified; note `revision_moved`: `goals@tg0001#product/p1` cited, current revision `tg0004` |
+| `case --at 2026-11-20T23:00:00Z` | 1 | `not_yet_valid` |
+| `beyond10x-q1.json --case beyond10x --goals eval/personas/beyond10x/goals.company.yaml --goals eval/personas/beyond10x/goals.product.trial.yaml` | 0 | verified, "2 grounds, all resolve" (`product/p07`, `company/c28` of the drafted persona; an edit of either entry turns it to 1) |
 
 ### The 5 real decider records of `runs/trial-todo-1`
 
@@ -318,3 +351,40 @@ maps action → artifact through the bindings file. A pending recommendation is 
 4. The entity itself (`sdc/ess/domains/decision.yaml`, commands `Request`, `Recommend`, `Decide`,
    `TakeRecommendation`, `RecordProduced`, `Escalate`, `Supersede`, `Expire`) as the contract,
    moved into Loom's ESS when it is taken.
+
+## A question as a decision request
+
+`sdc-decision-request <case dir> <question id>` (`driver/src/bin/sdc-decision-request.rs`) prints
+one JSON request for a scope-changing question of `<case dir>/work/questions.yaml`. A program
+builds it from `questions.yaml`, `dissection.yaml`, `idea.yaml` and `case.json`; no LLM writes any
+of it. Same case, same bytes (no clock; keys print sorted). Tested on a trial-2 intake fixture in
+`driver/tests/decision_request.rs`, fixture `driver/tests/fixtures/decision-request/`.
+
+- Output: `request` (the `DecisionRequest` fields, `ess/domains/decision.yaml:221-262`), plus three
+  lines that are not contract fields (`.engineering/planning/epic/decisions-a-person-can-take-cold.md`,
+  "Ambiguities"): `about` (the dissection item and words that raised it), `context`
+  ("<run>, <idea>, <stage>": the directory above `store`, the idea text cut at 160 characters, the
+  case's protocol without `sdc.`) and `what_happens_next` (always the last key).
+- The question needs `scope_changing: true`, `excerpt`, `default_reason` and a `consequences`
+  list with `does` and `cost` for every option (`story:interview-question-context`). Otherwise exit
+  2 and stderr names what is missing. The recorded trial-2 questions lack these keys
+  (`runs/trial-2-train/store/IDEA-1/work/questions.yaml:1-36`), so the fixture adds them by hand;
+  the interview prompt does not write them yet.
+- Options: letters A, B, C in order; `does` and `cost` from `consequences`; `consequence.answer` is
+  the option's text, `produces: artifact_revision`, `admits: [scope.answer]`
+  (`ess/domains/decision.yaml:86-105`).
+- Unblocks: kind `question`, action and capability `scope.answer`, the action the run takes after
+  the answer (`docs/trial-2.md:168-185`; `driver/examples/sdc/tools/sdc-tool.sh:286-298`).
+- Recommendation: the question's default, strength `weak`, proposed by `rule`, one ground of source
+  `idea` citing the question's dissection item as `work/dissection.yaml:<first line>-<last line>`
+  with `default_reason` as its `how`. The tool runs `tools/decision-grounds.sh` on it
+  (`tools/decision-grounds.sh:2-9`) and writes back its digest and report. With no such item in
+  `dissection.yaml`, or a refused check, the request carries no recommendation and
+  `no_recommendation_reason` says why. `SDC_DECISION_GROUNDS` overrides the script's path.
+- Who decides: `--level` (default A0), `--holder` (person), `--eligible` (operator; the first is
+  `addressed_to`), `--opened-at` (default `1970-01-01T00:00:00Z`, a placeholder: the opener stamps
+  the real instant). The driver sets these from the run.
+- Shape check: the test generates the JSON Schemas of `ess/` with `ess generate --path ess --kind
+  schema --schema-id-base https://sdc.invalid/`, gives the closed `DecisionRequest` schema the one
+  `schema` selector property that `ess generate schema validate` needs, and validates `request`;
+  it checks that a bad `state` and a missing `options` are refused. There is no separate script.

@@ -5,7 +5,7 @@
 import {test, expect} from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
-import {scenarios, alwaysVisible, scrollAllowed, primary, cue} from '../adapter.mjs';
+import {scenarios, primary, cue, policy} from '../adapter.mjs';
 import {scrollOffenders, visibilityMisses, axeViolations, truncatedWithoutValue, startShifts, shiftsPerMinute, visibleControl, visibleText, wordsIn} from '../core/contract.mjs';
 import {record, median, p95, max} from '../core/metrics.mjs';
 import {start, OUT, SHOTS, gating} from './env.mjs';
@@ -15,12 +15,13 @@ test.describe.configure({mode: 'default'});
 test.beforeAll(async ({}, info) => { env = await start(info.project.name); });
 test.afterAll(() => env?.stop());
 
-const SAMPLES = 5, EVERY = 1400;
+const SAMPLES = 5;
 const shot = async (page, info, name) => { if (SHOTS) { fs.mkdirSync(SHOTS, {recursive: true}); await page.screenshot({path: path.join(SHOTS, `${info.project.name}-${name}.png`)}); } };
 
 // Hard gate 5, keyboard: the person's decision taken with the keyboard alone.
 test('keyboard alone: from the page to the decision', async ({page}, info) => {
   const s = scenarios.find((x) => x.write);
+  await env.prepare(page);
   await page.goto(`${env.base}/?source=${env.source(s)}`);
   await expect(page.locator(cue.card)).toBeVisible({timeout: 20000});
   const focusText = () => page.evaluate(() => (document.activeElement?.innerText || document.activeElement?.getAttribute('aria-label') || '').trim());
@@ -43,34 +44,44 @@ for (const s of scenarios) {
     const m = (k, v) => record(OUT, vp, s.name, k, v);
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
-    const played = env.play(s);
+    const played = await env.play(s);
     await page.addInitScript(() => { try { localStorage.clear(); } catch { /* first load */ } });
+    await env.prepare(page);
     await page.goto(`${env.base}/?source=${env.source(s)}`);
     await expect(page.locator('#now .now-h')).toBeVisible({timeout: 20000});
-    // wait for the scenario's first truth to be on screen: the steps it takes are time_to_act
+    await env.sync(page);
+    // step the run until the scenario's first truth is on screen: the steps it takes are time_to_act
     let steps = 0;
     const truthOn = async () => {
       if (s.truth.running.length) return (await page.locator('#now .nc.run').count()) >= s.truth.running.length;
-      if (s.truth.waiting) return (await page.locator('#now .nc.wait').count()) > 0;
+      // a wait is the truth once it is the scenario's wait: held by whom the scenario says
+      if (s.truth.waiting) return (await page.locator('#now .nc.wait').count()) > 0 && (!s.truth.waiting.who || await visibleText(page, primary, s.truth.waiting.who));
       if (s.truth.completion === 'closed') return (await page.locator('#now.m-closed').count()) > 0;
       return true;
     };
-    while (!(await truthOn()) && steps < 40) { await page.waitForTimeout(500); steps++; }
+    while (!(await truthOn()) && steps < 40) { await env.step(page); steps++; }
     expect(await truthOn(), 'the scenario reaches its truth').toBe(true);
     m('screen_only.time_to_act_steps.max', steps);
     await startShifts(page);
 
     // ---- L3, first part: the screen-only user reads the truth while it is the truth ---------------
     const u = {actions: 0, looks: [], steers: 0, fixes: []};
+    // at a phone size the page scrolls vertically (D-006): what is below the fold is scrolled to, at
+    // the cost of a glance 3 (not in view), and is then read or used where it is
+    const pol = policy(vp);
+    const scrollTo = async (loc) => { if (!pol.pageScrollY || !(await loc.count())) return false; await loc.filter({visible: true}).first().evaluate((e) => e.scrollIntoView({block: 'center'}), null, {timeout: 5000}).catch(() => null); return true; };
     const read = async (scope, text) => {
-      const ok = await visibleText(page, scope, text);
+      let ok = await visibleText(page, scope, text);
+      if (!ok && await scrollTo(page.locator(scope).getByText(text, {exact: false}))) { ok = await visibleText(page, scope, text); if (ok) { u.looks.push(3); return true; } }
       u.looks.push(ok ? (scope === primary ? 1 : 2) : 3);
       return ok;
     };
     const use = async (role, name) => {
-      const c = await visibleControl(page, role, name, primary);
+      let c = await visibleControl(page, role, name, primary);
+      let scrolled = false;
+      if (!c && await scrollTo(page.getByRole(role, typeof name === 'string' ? {name, exact: true} : {name}))) { c = await visibleControl(page, role, name, primary); scrolled = true; }
       if (!c) { u.looks.push(3); return false; }
-      u.looks.push(c.glance);
+      u.looks.push(scrolled ? 3 : c.glance);
       await c.locator.click();
       u.actions++;
       return true;
@@ -88,23 +99,25 @@ for (const s of scenarios) {
       if (s.truth.waiting.say) expect.soft(await read(primary, s.truth.waiting.say), `reads in words: ${s.truth.waiting.say}`).toBe(true);
     }
 
-    // ---- L2: sample the states while the run moves ------------------------------------------------
+    // ---- L2: sample the states while the run moves, one step of the shared clock apart -------------
     const scroll = [], vis = [], trunc = [], words = [], keys = [];
     let axe = [];
+    if (pol.pageScrollY) await page.evaluate(() => window.scrollTo(0, 0));
+    const vw = page.viewportSize().width;
     for (let i = 0; i < SAMPLES; i++) {
-      scroll.push(...(await scrollOffenders(page, scrollAllowed)).map((x) => x.sel));
-      vis.push(...(await visibilityMisses(page, alwaysVisible)).map((x) => `${x.sel}: ${x.why}`));
+      scroll.push(...(await scrollOffenders(page, pol.scrollAllowed)).filter((x) => !(pol.pageScrollY && x.sel === 'document' && x.w <= vw + 1)).map((x) => x.sel));
+      vis.push(...(await visibilityMisses(page, pol.alwaysVisible)).map((x) => `${x.sel}: ${x.why}`));
       trunc.push((await truncatedWithoutValue(page)).length);
       words.push(await wordsIn(page, primary));
       keys.push(await page.locator('#now .now-cards > .nc').first().getAttribute('data-key').catch(() => null));
       if (i === 0) { axe = await axeViolations(page); await shot(page, info, `${s.name}-0`); }
-      await page.waitForTimeout(EVERY);
+      await env.step(page);
     }
     // the cue (the Now band's first card): how often it changes, and whether it comes back (A→B→A)
     const k2 = keys.map((k) => k || '');
     let changes = 0, flips = 0;
     for (let i = 1; i < k2.length; i++) if (k2[i] !== k2[i - 1]) { changes++; if (i > 1 && k2[i] === k2[i - 2]) flips++; }
-    m('layout_shift.per_minute', await shiftsPerMinute(page));
+    m('layout_shift.per_minute', await shiftsPerMinute(page, env.minutes(SAMPLES)));
     m('reading_load.max', max(words));
     m('reading_load.median', median(words));
     m('cue_churn.changes', changes);
@@ -188,6 +201,7 @@ for (const s of scenarios) {
     if (gating(vp)) expect.soft(max(u.fixes), 'hard gate 4: every fix in at most 2 actions').toBeLessThanOrEqual(2);
     await shot(page, info, `${s.name}-end`);
     expect.soft(errors, 'no page errors').toEqual([]);
-    if (played) await played;
+    env.release();
+    if (played) await played.done;
   });
 }

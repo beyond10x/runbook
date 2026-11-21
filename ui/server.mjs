@@ -19,6 +19,12 @@ import {fileURLToPath} from 'node:url';
 import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
+import {installClock, readGate} from './vclock.mjs';
+
+// the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
+const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
+if (CLOCK) installClock(CLOCK);
+let clockAt = null;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sdc = path.resolve(here, '..');
@@ -27,8 +33,11 @@ let port = 7490;
 const host = '127.0.0.1';
 const config = {write: false, writeOnly: new Set(), principal: 'operator'};
 const paths = [];
+// --runs DIR (repeatable): every DIR/<run>/store is a source, and a run that appears later joins live
+const runsDirs = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
+  else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--write') config.write = true;
   else if (args[i] === '--write-only') { config.write = true; config.writeOnly.add(path.resolve(args[++i])); }
   else if (args[i] === '--principal') config.principal = args[++i];
@@ -36,7 +45,8 @@ for (let i = 0; i < args.length; i++) {
 }
 if (!/^[A-Za-z0-9._-]+$/.test(config.principal)) { console.error('--principal: letters, digits, . _ - only'); process.exit(2); }
 if (config.principal === 'non-interactive') { console.error('--principal: non-interactive is the agent\'s own answerer; name a person'); process.exit(2); }
-if (!paths.length) {
+for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
+if (!paths.length && !runsDirs.length) {
   // the default store is a recorded run; runs/ is git-ignored, so a fresh clone has none
   const d = path.join(sdc, 'runs/full-cycle-1/store');
   if (!fs.existsSync(d)) { console.error('no store given and the default one is missing: missing run directory runs/full-cycle-1/store (runs/ is git-ignored); pass a store directory: node server.mjs <run>/store'); process.exit(2); }
@@ -66,7 +76,51 @@ function readEvents(dir) {
 
 // ---- sources ---------------------------------------------------------------------------------
 const nameOf = (p) => { const r = path.relative(path.join(sdc, 'runs'), p); return r.startsWith('..') ? p.split(path.sep).slice(-2).join('/') : r; };
-const sources = paths.map((p, i) => ({index: i, path: p, name: nameOf(p), sig: '', cases: new Map(), version: 0, times: new Map(), liveSig: ''}));
+const sources = [];
+const addSource = (p, found = false) => { const s = {index: sources.length, path: p, name: found || nameOf(p), found: !!found, sig: '', cases: new Map(), version: 0, times: new Map(), liveSig: ''}; sources.push(s); return s; };
+for (const p of paths) addSource(p);
+// the runs under --runs that have a store/, in name order at the start; a later one is appended
+// (source indexes never move); returns the ones added
+function discover() {
+  const added = [];
+  for (const r of runsDirs) for (const n of listDir(r)) {
+    const st = path.join(r, n, 'store');
+    if (!sources.some((s) => s.path === st) && fs.existsSync(st) && fs.statSync(st).isDirectory()) added.push(addSource(st, path.relative(path.join(sdc, 'runs'), path.join(r, n)).startsWith('..') ? n : path.relative(path.join(sdc, 'runs'), path.join(r, n))));
+  }
+  return added;
+}
+discover();
+
+// A run stopped on purpose (sdc.run-stopped/1, written by the stop command into the run directory):
+// who stopped it, when, why, and what it waited on at that moment. Null without the file.
+function stoppedOf(runDir) {
+  const j = readJson(path.join(runDir, 'run-stopped.json'));
+  if (!j || j.format !== 'sdc.run-stopped/1' || isNaN(Date.parse(j.at))) return null;
+  return {at: j.at, by: typeof j.by === 'string' && j.by ? j.by : null, reason: typeof j.reason === 'string' ? j.reason : '', verdict_at_stop: j.verdict_at_stop ?? null, case: j.case ?? null};
+}
+// The run's settings (sdc.run-settings/1, one line per start or resume by scripts/run-trial.sh): the
+// last line holds; its decider says who takes the decisions that wait on a person. Null without one.
+function settingsOf(runDir) {
+  const text = readText(path.join(runDir, 'run-settings.jsonl')) || '';
+  const rows = text.split('\n').filter((l) => l.trim()).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((r) => r && r.format === 'sdc.run-settings/1');
+  const last = rows.at(-1);
+  return last ? {...last, legs: rows.length, file: 'run-settings.jsonl'} : null;
+}
+// Whether a model did the run's work (real) or a stub, fixture or dry adapter wrote canned content
+// (stub): the last run-settings.jsonl line names the adapter; a run without settings is real when one
+// llm-calls.jsonl line is a model call that is not dry. Stub runs are never listed beside real runs
+// without a label.
+const STUB_ADAPTER = /stub|fixture|dry|fake|canned/i;
+function programOf(runDir) {
+  const set = settingsOf(runDir);
+  if (set) return STUB_ADAPTER.test(String(set.adapter ?? '')) ? {kind: 'stub', why: `run-settings.jsonl: adapter ${set.adapter}`} : {kind: 'real', why: `run-settings.jsonl: adapter ${set.adapter ?? 'not named'}`};
+  const calls = (readText(path.join(runDir, 'llm-calls.jsonl')) || '').split('\n').map((l) => { try { return JSON.parse(l); } catch { return null; } });
+  const paid = calls.find((c) => c && typeof c.model === 'string' && c.model && c.dry !== true && !STUB_ADAPTER.test(String(c.adapter ?? '')));
+  return paid ? {kind: 'real', why: `llm-calls.jsonl: ${paid.model} via ${paid.adapter ?? 'an adapter'}`} : {kind: 'stub', why: 'no run-settings.jsonl, and no model call in llm-calls.jsonl'};
+}
+// when the run last wrote: its directory, its settings, calls and log, its store
+const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }));
+const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path)});
 
 // When each event was written. The events' own `at` is the instant the caller passed to the whole
 // `sdc-drive run` (every step of one run shares it), so the wall clock of a step comes from here:
@@ -134,7 +188,7 @@ function scan(src) {
   }
   for (const dir of Array.from(src.cases.keys())) if (!seen.has(dir)) { src.cases.delete(dir); src.times.delete(dir); changed.push(dir); }
   const runDir = runDirOf(src);
-  const runSig = ['run.log', 'console.txt', 'llm-calls.jsonl', 'decisions.jsonl', 'ui-actions.jsonl'].map((f) => statSig(path.join(runDir, f))).join('|') + listDir(runDir).join(',');
+  const runSig = ['run.log', 'console.txt', 'llm-calls.jsonl', 'decisions.jsonl', 'ui-actions.jsonl', 'run-stopped.json', 'run-settings.jsonl'].map((f) => statSig(path.join(runDir, f))).join('|') + listDir(runDir).join(',');
   const runChanged = runSig !== src.runSig;
   src.runSig = runSig;
   const liveSig = liveSignature(src, runDir);
@@ -473,8 +527,8 @@ function runInfo(src) {
     for (const n of listDir(path.join(runDir, 'traces'))) if (n.endsWith('.jsonl')) parseJsonBlocks(readText(path.join(runDir, 'traces', n)) || '', 'traces/' + n, llm);
   }
   const expected = readText(path.join(runDir, 'expected-llm-calls.txt'));
-  const decisions = jsonl(path.join(runDir, 'decisions.jsonl')).map((r) => ({...decisionRecord(r), who: whoKind(r.principal) || 'person'}));
-  return {runDir, hasLog: !!log, commands, llm: llm.slice(0, 2000), expected, decisions, console: readText(path.join(runDir, 'console.txt'))};
+  const decisions = jsonl(path.join(runDir, 'decisions.jsonl')).map((r) => ({...decisionRecord(r), who: whoKind(r.principal) || 'none'}));
+  return {runDir, hasLog: !!log, commands, llm: llm.slice(0, 2000), expected, decisions, console: readText(path.join(runDir, 'console.txt')), stopped: stoppedOf(runDir), settings: settingsOf(runDir)};
 }
 
 // ---- structural data: compiled IRs, canon check output, binding examples, eval levels ----------
@@ -510,14 +564,27 @@ const clients = new Set();
 // Every path leaves the server relative to the repository (sdc/), its workspace (../) or ~, never
 // as an absolute home path: what the page shows and what a screenshot or a saved page keeps.
 const HOME = process.env.HOME || '/nonexistent';
-const shownPaths = (s) => s.split(sdc + '/').join('').split(sdc).join('.').split(path.dirname(sdc) + '/').join('../')
+// a worktree whose runs/ links to another checkout's runs/ has that checkout as a second root
+const roots = (() => { try { const r = path.dirname(fs.realpathSync(path.join(sdc, 'runs'))); return r !== sdc ? [sdc, r] : [sdc]; } catch { return [sdc]; } })();
+const rootRel = (s, r) => s.split(r + '/').join('').split(r).join('.').split(path.dirname(r) + '/').join('../');
+// every directory the server was given (--runs DIR, the run directory of each store argument) shows by
+// the name of its parent: <runs>/<run>/..., wherever the checkout or the run lives
+const givenDirs = () => [...new Set([...runsDirs.map((d) => path.join(d, 'x')), ...sources.map(runDirOf)].map((d) => path.dirname(d)))]
+  .filter((d) => d !== path.dirname(d)).sort((x, y) => y.length - x.length);
+const givenRel = (s, d) => s.split(d + '/').join(path.basename(d) + '/');
+const shownPaths = (s) => givenDirs().reduce(givenRel, roots.reduce(rootRel, s))
   .split(HOME + '/').join('~/').split(HOME).join('~').replace(/\/home\/[^/\s"'<>\\]+/g, '~');
 function push(name, data) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;
   for (const res of clients) res.write(msg);
 }
 
+let sourcesSig = '';
 function tick() {
+  discover();
+  // the list the store selector shows: a run that appeared, a store that came, a run that was stopped
+  const sig = sources.map((s) => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}`).join('|');
+  if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
   for (const src of sources) {
     const existed = src.exists;
     src.exists = fs.existsSync(src.path);
@@ -546,7 +613,8 @@ const server = http.createServer((req, res) => {
     req.on('close', () => clients.delete(res));
     return;
   }
-  if (p === '/api/sources') return send(res, 200, sources.map((s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s)})));
+  if (p === '/api/sources') return send(res, 200, sources.map(sourceRow));
+  if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
   if (p === '/api/tree') {
@@ -567,7 +635,7 @@ const server = http.createServer((req, res) => {
     const x = ctx(src);
     // what the driver needs and this server cannot find: the drawer says so before anyone acts
     const missing = writable(src) ? missingPrograms(x, {kind: 'continue'}) : [];
-    return send(res, 200, {write: writable(src), principal: config.principal, items: inbox(x), history: history(x), missing, missingText: missing.length ? missingText(missing) : null});
+    return send(res, 200, {write: writable(src), principal: config.principal, items: inbox(x), history: history(x), missing, missingText: missing.length ? missingText(missing) : null, stopped: stoppedOf(runDirOf(src))});
   }
   if (p === '/api/act') {
     if (req.method !== 'POST') return send(res, 405, {error: 'POST only'});
@@ -579,6 +647,9 @@ const server = http.createServer((req, res) => {
     req.on('end', async () => {
       let b;
       try { b = JSON.parse(body); } catch { return send(res, 400, {error: 'bad JSON'}); }
+      // an open decision of a stopped run is not taken from here; continuing the run stays possible
+      const stop = stoppedOf(runDirOf(src));
+      if (stop && b && b.kind !== 'continue') return send(res, 409, {ok: false, error: `refused: the run was stopped by ${stop.by || 'someone'} at ${stop.at}${stop.reason ? ` (${stop.reason})` : ''}; its open decisions are not taken while it is stopped`});
       try {
         const out = await act(ctx(src), b, (ev, data) => push(ev, {source: src.index, ...data}));
         send(res, out.ok ? 200 : 409, out);
@@ -600,9 +671,12 @@ const server = http.createServer((req, res) => {
 });
 
 tick();
-setInterval(tick, 700);
+if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
+else setInterval(tick, 700);
 setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 15000);
+// --port 0 takes a free port; the line below names the one taken (the ux loop reads it)
+server.on('error', (e) => { console.error(`sdc-ui: cannot listen on ${host}:${port}: ${e.code || e.message}`); process.exit(1); });
 server.listen(port, host, () => {
-  console.log(`sdc-ui on http://${host}:${port}/`);
+  console.log(`sdc-ui on http://${host}:${server.address().port}/`);
   for (const s of sources) console.log(`  source ${s.index}: ${s.path}${fs.existsSync(s.path) ? '' : ' (waiting for it to appear)'}`);
 });

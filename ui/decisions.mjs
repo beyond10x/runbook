@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFile, execFileSync, spawn} from 'node:child_process';
+import {principalOf} from './web/principal.js';
 
 const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent', 'terminable'];
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -216,7 +217,8 @@ export function inbox(ctx) {
 // ---- history: every decision already taken, by whom ------------------------------------------------
 // A principal `decider:<model>` or `decider:<rule>` is an agent deciding in a person's place
 // (runs/<run>/decisions.jsonl); any other principal is a person.
-export const whoKind = (p) => (!p ? null : /^decider:/.test(p) ? 'decider' : 'person');
+// who a principal is (web/principal.js): person, decider, rule, legacy ("human" without an id), agent; null when none
+export const whoKind = (p) => { const k = principalOf(p).kind; return k === 'none' ? null : k; };
 export function jsonl(file) {
   const out = [];
   for (const l of (readText(file) || '').split('\n')) { if (!l.trim()) continue; try { out.push(JSON.parse(l)); } catch { /* a line mid-write */ } }
@@ -273,7 +275,7 @@ export function history(ctx) {
       decision: r.refused ? 'refused' : r.action === 'answer' ? r.answer : r.action === 'context' ? r.value : r.exit === 0 ? 'done' : r.exit == null ? 'started' : `exit ${r.exit}`,
       reasons: [r.refused, r.reason, r.error].filter(Boolean), revision: r.revision || null, refused: !!r.refused});
   }
-  for (const h of out) h.who = whoKind(h.principal) || 'person';
+  for (const h of out) h.who = whoKind(h.principal) || 'none';
   out.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
   return out.slice(0, 400);
 }

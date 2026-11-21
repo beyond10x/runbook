@@ -1,0 +1,58 @@
+{
+  "$artifacts": {
+    "idea": "idea.yaml",
+    "roadmap": "aep/initiative/roadmap.md"
+  },
+  "direction.open": {
+    "child": {
+      "bindings": "~/beyond10x/sdc/driver/examples/sdc/sdc-direction.bindings.json",
+      "name": "direction",
+      "protocol": "~/beyond10x/sdc/driver/examples/sdc/../../../protocol/sdc-direction.protocol.yaml"
+    },
+    "producer": "sdc-drive",
+    "produces": "direction_opened",
+    "results": {
+      "0": null
+    },
+    "subject": "idea"
+  },
+  "epics.open": {
+    "args_from": [
+      "~/beyond10x/sdc/driver/examples/sdc/tools/sdc-tool.sh",
+      "list-epics"
+    ],
+    "child": {
+      "bindings": "~/beyond10x/sdc/driver/examples/sdc/sdc-epic.bindings.json",
+      "each": "epics",
+      "protocol": "~/beyond10x/sdc/driver/examples/sdc/../../../protocol/sdc-epic.protocol.yaml",
+      "revisions": {
+        "epic": "{name}"
+      }
+    },
+    "producer": "sdc-drive",
+    "produces": "epics_opened",
+    "results": {
+      "0": null
+    },
+    "subject": "roadmap"
+  },
+  "intake.open": {
+    "child": {
+      "bindings": "~/beyond10x/sdc/driver/examples/sdc/sdc-intake.bindings.json",
+      "name": "intake",
+      "protocol": "~/beyond10x/sdc/driver/examples/sdc/../../../protocol/sdc-intake.protocol.yaml"
+    },
+    "producer": "sdc-drive",
+    "produces": "intake_opened",
+    "results": {
+      "0": null
+    },
+    "subject": "idea"
+  },
+  "roadmap.read": {
+    "copy": {
+      "from": "sdc.direction",
+      "kind": "roadmap_approval"
+    }
+  }
+}

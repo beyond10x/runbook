@@ -1,0 +1,198 @@
+{
+  "actions": {
+    "direction.open": {
+      "reasons": [
+        {
+          "claim": "direction.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "epics.open": {
+      "status": "admissible"
+    },
+    "intake.open": {
+      "reasons": [
+        {
+          "claim": "intake.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.read": {
+      "status": "admissible"
+    }
+  },
+  "case": "IDEA-1",
+  "claims": {
+    "children.passed": {
+      "value": "true"
+    },
+    "direction.opened": {
+      "value": "true"
+    },
+    "epics.opened": {
+      "value": "unknown"
+    },
+    "intake.opened": {
+      "value": "true"
+    },
+    "roadmap.approved": {
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "direction.open": {
+        "because": [
+          {
+            "claim": "direction.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "intake.open": {
+        "because": [
+          {
+            "claim": "intake.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "direction.opened": {
+        "because": [
+          {
+            "evidence": "e0010-direction.open",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "epics.opened": {
+        "because": [
+          {
+            "kind": "epics_opened",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "intake.opened": {
+        "because": [
+          {
+            "evidence": "e0004-intake.open",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      }
+    },
+    "computed_from": {
+      "at": "2026-11-20T23:57:02Z",
+      "authority": [],
+      "case": {
+        "artifacts": {
+          "idea": {
+            "revision": "td9fda9924178dca3"
+          },
+          "roadmap": {
+            "revision": "t2b3f8657120d0679"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "IDEA-1",
+        "protocol": "sdc",
+        "revision": "c2"
+      },
+      "decisions": [],
+      "evidence": [
+        "e0004-intake.open",
+        "e0004-intake.open.intake",
+        "e0010-direction.open",
+        "e0010-direction.open.direction",
+        "e0124-roadmap.approve"
+      ],
+      "protocol": "sdc",
+      "protocol_revision": 4,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "epics.required": {
+        "because": [
+          {
+            "claim": "epics.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "abandoned": {
+        "because": [
+          {
+            "decision": "explicitly_abandoned",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "operating": {
+        "because": [
+          {
+            "claim": "epics.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "direction.required",
+      "status": "discharged"
+    },
+    {
+      "id": "epics.required",
+      "status": "open"
+    },
+    {
+      "id": "intake.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "abandoned": {
+      "reasons": [
+        {
+          "decision": "explicitly_abandoned",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "operating": {
+      "reasons": [
+        {
+          "claim": "epics.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc",
+  "protocol_revision": 4
+}
