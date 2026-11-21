@@ -153,6 +153,15 @@ enum Cmd {
         #[arg(long)]
         principal: String,
     },
+    /// Mark a reopen in every case of the tree (event `reopened`): a step that ran at a case's
+    /// current snapshot but recorded nothing (an observation whose reply stayed invalid, a writer
+    /// that was not called) may run once more on the unchanged state. Writes nothing else.
+    Reopen {
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        principal: Option<String>,
+    },
     /// Re-run `canon evaluate` on every case of the tree as last evaluated and compare the state
     /// and decision digests with the ones the log recorded.
     Replay,
@@ -668,6 +677,15 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
         .iter()
         .filter(|e| e["event"] == "action_finished")
         .collect();
+    // A run before the last reopen (`sdc-drive reopen`) that recorded nothing does not hold its
+    // snapshot: the reopen lets it run once more on the unchanged state (a review whose reply
+    // stayed invalid, runs/trial-3-strong-3; a writer that was not called). A run that recorded
+    // evidence still holds it, so a valid review runs once per snapshot.
+    let reopened = evs.iter().rposition(|e| e["event"] == "reopened");
+    let holds = |e: &Value| {
+        e["evidence"].as_array().is_some_and(|v| !v.is_empty())
+            || reopened.is_none_or(|r| e["seq"].as_u64().is_some_and(|s| s as usize > r))
+    };
     let mut auto = Vec::new();
     let mut manual = Vec::new();
     let mut spent = Vec::new();
@@ -685,6 +703,7 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
             ran(&e)
                 && e["case"] == snapshot.as_str()
                 && e["revises"].as_object().is_none_or(|m| m.is_empty())
+                && holds(e)
         });
         let is_useful = if b.get("copy").is_some() {
             copy_source(dir, b)?.is_some_and(|r| !records.iter().any(|x| x["id"] == r["id"]))
@@ -720,6 +739,7 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
                 && e["not_called"].is_string()
                 && e["case"] == snapshot.as_str()
                 && granted.is_none_or(|g| e["seq"].as_u64() > evs[g]["seq"].as_u64())
+                && holds(e)
         }) {
             not_called.push(json!({"action": a, "run_seq": e["seq"], "reason": e["not_called"]}));
             continue;
@@ -1826,7 +1846,7 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             {
                 return Err(format!("`{decision}` is already recorded in this case"));
             }
-            let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated");
+            let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated" && e["event"] != "reopened");
             let requires = |a: &Value| {
                 ir["actions"][a.as_str().unwrap_or("")]["requires"]
                     .as_array()
@@ -1872,6 +1892,13 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             }
             event(dir, at, "allowance_granted", json!({"action": action, "principal": principal}))?;
             Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
+        }
+        Cmd::Reopen { at, principal } => {
+            let cases = all_cases(dir);
+            for c in &cases {
+                event(c, at, "reopened", json!({"principal": principal}))?;
+            }
+            Ok((json!({"reopened": cases.len()}), 0))
         }
         Cmd::Replay => {
             let mut report = Vec::new();

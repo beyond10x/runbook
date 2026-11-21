@@ -47,6 +47,8 @@
 #   review-adapter-refused SDC_REVIEW_ADAPTER=metaharness: the run refuses to start (exit 64)
 #   trace-constraint-decided the person answers a trace gap in runs/trial-3-small-sonnet-1's words:
 #                   r3 a constraint, the earlier send-back answer superseded
+#   reopen-review-invalid a run stopped review_invalid, reopened on another review adapter: the
+#                   review runs again on the unchanged state, the run closes
 # and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
@@ -112,7 +114,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   decider-finding-refused run-stop run-stop-decider autopilot decider-input trace-reraised decider-budget-reason autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models efforts
-  review-real-path review-invalid-stop review-adapter-refused)
+  review-real-path review-invalid-stop review-adapter-refused reopen-review-invalid)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -1709,6 +1711,33 @@ if (( e1 == 0 && e2 == 0 && e3 == 0 && e4 == 64 && e5 == 0 )) && hermetic &&
   echo "efforts: checks pass (a level always passed: class defaults, one effort for all, one per class; each call names it; the dry argv carries it; run settings per class and requester; an unknown value exits 64; the claude-cli adapter hermetic)"
 else
   echo "efforts: FAILED"
+fi
+# reopen-review-invalid: runs/trial-3-strong-3, -4 and mixed-7, reopened on the fixed tree, stopped
+# again in 1 s naming the old call: the review had run at that state, so it was never dispatched
+# again. Leg 1: the review on the fixture adapter (SDC_REVIEW_ADAPTER) with an invalid reply:
+# review_invalid. Leg 2: --reopen with the adapter swapped back to the default (claude-cli, the
+# fake model, a valid reply). Passes when leg 2 makes a new review call on claude-cli, records an
+# approved code_review and closes (exit 0), with the reopen marked in the story case.
+trial reopen-review-invalid "${real_env[@]}" SDC_REVIEW_ADAPTER="$fixture" \
+  SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$bad" '{rounds: [$j]}')"
+code1=$?
+r=$s/runs/reopen-review-invalid
+calls1=$(ls -d "$r"/llm/*-change.review 2>/dev/null | wc -l)
+env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" "${real_env[@]}" \
+  "$sdc/scripts/run-trial.sh" reopen-review-invalid --reopen --autopilot > "$s/reopen-review-invalid.2.txt" 2>&1
+code=$?
+echo "reopen-review-invalid: reopen exit $code ($(tail -n 1 "$s/reopen-review-invalid.2.txt" | cut -c1-160))"
+st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' 2>/dev/null | head -n 1)
+last_call=$(ls -d "$r"/llm/*-change.review 2>/dev/null | tail -n 1)
+if (( code1 != 0 && code == 0 )) && jq -e '.cause == "review_invalid"' "$r"/run-stopped.*.json >/dev/null 2>&1 &&
+   (( $(ls -d "$r"/llm/*-change.review | wc -l) == calls1 + 1 )) &&
+   jq -e '.adapter == "claude-cli" and .schema_constrained == true' "$last_call/response.json" >/dev/null &&
+   jq -se 'any(.[]; .event == "reopened")' "$st/events.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.kind == "code_review")] | length == 1 and .[0].result == "approved"' "$st"/evidence/*.json >/dev/null &&
+   [[ ! -f $r/run-stopped.json ]]; then
+  echo "reopen-review-invalid: checks pass (stopped review_invalid; reopened on another adapter, the review ran again, approved, closed)"
+else
+  echo "reopen-review-invalid: FAILED (leg 1 exit $code1, reopen exit $code, review calls $calls1 then $(ls -d "$r"/llm/*-change.review 2>/dev/null | wc -l))"
 fi
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"

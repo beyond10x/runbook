@@ -311,6 +311,14 @@ elif [[ ! -d $root ]]; then
 else
   watch_start
   leg=resumed
+  # --reopen: a step that ran at its case's current state but recorded nothing (a review whose reply
+  # stayed invalid: review_invalid) runs once more on the unchanged state (sdc-drive reopen), so a
+  # fixed node or adapter gets its turn; invalid again, the stop names the new call.
+  if [[ $reopen == yes ]]; then
+    d "$root" reopen --at "$(now)" ${SDC_PRINCIPAL:+--principal "$SDC_PRINCIPAL"}
+    [[ $code == 0 ]] || { echo "reopen failed: $last"; exit 1; }
+    echo "# reopen: $(jq -r .reopened <<< "$last") case(s) marked: a step that recorded nothing at its case's state runs once more" >> "$log"
+  fi
 fi
 
 exec > >(tee -a "$out/console.txt") 2>&1
