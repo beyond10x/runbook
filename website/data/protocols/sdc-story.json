@@ -146,11 +146,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "review",
-        "operations": [
-          "dir.list",
-          "file.read",
-          "search"
-        ],
+        "operations": [],
         "producer": "llm-review",
         "program": "llm-node.sh change.review",
         "results": {

@@ -385,18 +385,15 @@
       "case": "IDEA-1.billing.invoices",
       "id": "llm/009-change.review",
       "inputs": {
-        "in/aep/story/invoices.md": "97e4eecbc8a90dad3bd1f00a8ecedfacf62fb66529e58146016e24cd7d010b8e",
         "in/change.diff": "21d8aa15b11490844b59681d113acfe33b99f48f4c6dd2ef91a4924fbd54b621",
-        "in/commands.json": "aa120e38bf97f34a8f9d415a319a4f96b793bb4b16f55cb7fa4eafac2495e1b5",
-        "in/gate.txt": "94196ccc9a0b1e4fc7f37a5c7645c7dfef3101f43b891537a7df9cda58ccdac3",
         "in/impl/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
         "in/impl/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
         "in/impl/README.md": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab",
         "in/impl/Taskfile.yml": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7",
         "in/impl/src/lib.rs": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b",
         "in/impl/tests/billing.rs": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714",
+        "in/review.md": "932c37fc659e0f5122256e3bfff4a8d34ad5e1657f233e5981cf0654f0e3a8e0",
         "in/scope.json": "31119e5c70f4a27865d1e9dc6c9f3940fc12c9855230c1ddf48ce359d5af5896",
-        "in/tests.txt": "949e420ba437dbd02ffc9dd543311c37ed9353cee85b8464f42c6d1a7f6d2913",
         "in/uncovered.json": "fc945c2fc0ab1b16d0638cda4d04275975b2d05c4a330868f9601c5e53cf933a"
       },
       "kind": "work",
@@ -405,19 +402,15 @@
       "ordinal": 1,
       "ordinal_run": 1,
       "out": "calls/009/out",
-      "prompt": "237a0f7025feab970e9adf1118f71de0c85bc459281249bf8a8ba163f8d08589",
+      "prompt": "4bee87099706d41c110a2935213e44c6a7699e47970a459f367be545db5e0a34",
       "request": {
         "case": "IDEA-1.billing.invoices",
         "effort": "high",
         "max_budget_usd": 1,
-        "max_turns": 30,
+        "max_turns": 4,
         "model": "claude-haiku-5-5",
         "node": "change.review",
-        "operations": [
-          "dir.list",
-          "file.read",
-          "search"
-        ]
+        "operations": []
       },
       "response": {
         "adapter": "fixture",
@@ -751,12 +744,12 @@
           "source": "SDC_LLM_ADAPTER"
         }
       },
-      "at": "2026-11-21T13:42:03Z",
+      "at": "2026-11-21T17:58:19Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
       "decider": {
         "escalate": "final",
-        "kind": "haiku",
+        "kind": "model",
         "max_decider_calls": 20,
         "model": "claude-haiku-5-5"
       },
@@ -849,11 +842,15 @@
       "per_class_routing": null,
       "replay": null,
       "requester_decider": null,
+      "rework_limit": {
+        "source": "rule-ends.json",
+        "value": 2
+      },
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "26b8b85ee7b7",
-        "dirty": false
+        "commit": "99390b9c6192",
+        "dirty": true
       },
       "unstick": {
         "adapter": "<path>",
@@ -870,7 +867,7 @@
     "state": "closed"
   },
   "tree": {
-    "commit": "26b8b85ee7b7",
-    "dirty": false
+    "commit": "99390b9c6192",
+    "dirty": true
   }
 }

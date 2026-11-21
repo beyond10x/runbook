@@ -29,9 +29,11 @@ tools=$(jq -r '[.operations[] | {"file.read": "Read", "file.write": "Write", "fi
   "dir.list": "Glob", "search": "Grep", "shell": "Bash"}[.] // empty] | join(",")' <<< "$req")
 argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
   --max-turns "$(r .max_turns)" --max-budget-usd "$(r .max_budget_usd)"
-  --allowedTools "$tools" --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
+  --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
   --tools "$tools" --setting-sources "" --strict-mcp-config --disable-slash-commands
   --permission-mode acceptEdits --output-format stream-json --verbose --no-session-persistence)
+# No operations (change.review: one request, no tools): `--tools ""` offers none and no allow list is passed.
+[[ -n $tools ]] && argv+=(--allowedTools "$tools")
 [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
 # A request with `json_schema` (a schema file): `--json-schema`, the CLI validates the reply against
 # it and re-prompts on a mismatch; the reply is the final result's `structured_output`, written to

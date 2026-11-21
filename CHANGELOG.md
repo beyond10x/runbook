@@ -7,6 +7,18 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Changed
+
+- `change.review` gets the smallest fact set, not the whole tree (`story:review-minimal-facts`):
+  `sdc-reply review-inputs` assembles one document, `in/review.md`, with the story's requirements
+  and commands, the test summary (counts and failing names, not the log), the build constraints
+  when the tree has them, the diff and the full text of only the files the diff touches; the
+  review is one request with no tools (`operations` empty, `max_turns` 4, `--tools ""`), and the
+  document's size is recorded per call as `input_bytes` in `llm-calls.jsonl`. Verdict rules and the
+  response schema are unchanged; a finding's `at` can cite only a changed file. The record
+  `review-minimal-facts` decides by recorded replay whether the decisions hold (`docs/driver.md`,
+  "The code review").
+
 ## [0.1.3] - 2026-11-21
 
 The documentation site and its generator. No protocol, binding or case changed. The longer note is

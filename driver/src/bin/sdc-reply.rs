@@ -20,9 +20,12 @@
 //! `{<class>: {adapter, source, json_schema, nodes}}`; exit 64 (stderr names the class and
 //! the adapter) when a class's adapter cannot take a schema.
 //!
-//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/` (the
-//! story, its acceptance lines, the requirements it delivers and those no story covers, the
-//! covered commands, the change tree, its diff against the mainline, the gate and test logs);
+//! change.review (tools/llm-node.sh): `review-inputs` writes the review's inputs into `in/`: the one
+//! document `review.md` the model reads (the requirements the story delivers and those no story
+//! covers, its acceptance lines, the covered commands, the test summary of the conformance run, the
+//! diff against the mainline, the full text of only the files the diff touches, the build
+//! constraints when the tree has them) and, for the checks, `scope.json`, `uncovered.json`,
+//! `change.diff` and the touched files under `impl/`; it prints `document_bytes`;
 //! `schema --type review` prints the reply schema; `check-review` checks the reply: exit 0
 //! approved, 1 rejected (stdout: the sdc.rejection/1 that sends the implementer back), 2 invalid
 //! (stderr: why; nothing is recorded).
@@ -484,19 +487,6 @@ fn review_scope(reqs: &[Value], traces: &Value, commands: &Value, cov: &[String]
     (mine, uncovered)
 }
 
-fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for e in fs::read_dir(from)?.flatten() {
-        let name = e.file_name();
-        if name == "target" || name == ".sdc" || name == ".derived-from" {
-            continue;
-        }
-        let (s, d) = (e.path(), to.join(&name));
-        if s.is_dir() { copy_tree(&s, &d)? } else { fs::copy(&s, &d).map(|_| ())? }
-    }
-    Ok(())
-}
-
 /// The log of the last record of `kind` about `revision` in the case (its step's log blob).
 fn record_log(case_dir: &Path, kind: &str, revision: &str) -> Option<String> {
     let events: Vec<Value> = fs::read_to_string(case_dir.join("events.jsonl")).unwrap_or_default().lines()
@@ -511,17 +501,158 @@ fn record_log(case_dir: &Path, kind: &str, revision: &str) -> Option<String> {
     })
 }
 
-/// Write the review's inputs into `<cwd>/in/` and return what was written. The story, its
-/// acceptance lines (the summary line and the lines of an `## Acceptance` section), the
-/// requirements it delivers and those no story covers, the covered commands' IR entries, the
-/// change tree, its diff against the mainline (empty for the first story), the gate and test logs.
+/// The files a unified diff touches (its `+++ impl/<path>` lines), in order, once each.
+fn changed_files(diff: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)) {
+        if !out.iter().any(|o| o == p) {
+            out.push(p.to_string());
+        }
+    }
+    out
+}
+
+/// The diff, but a file the change creates (`@@ -0,0 +1,N @@`) keeps only its header and one line:
+/// its full text follows in the document, so its lines would be there twice.
+fn compact_diff(diff: &str) -> String {
+    fn flush(section: &mut Vec<&str>, out: &mut String) {
+        let created = section.iter().any(|l| l.starts_with("@@ -0,0 +1"));
+        // The `diff -ruN ...` command line and the files' timestamps are not facts about the change.
+        for l in section.iter().take_while(|l| !(created && l.starts_with("@@"))).filter(|l| !l.starts_with("diff ")) {
+            out.push_str(if l.starts_with("--- ") || l.starts_with("+++ ") { l.split('\t').next().unwrap_or(l) } else { l });
+            out.push('\n');
+        }
+        if created {
+            out.push_str("(new file: every line is added; its full text is below)\n");
+        }
+        section.clear();
+    }
+    let mut out = String::new();
+    let mut section: Vec<&str> = Vec::new();
+    for l in diff.lines() {
+        if l.starts_with("diff ") {
+            flush(&mut section, &mut out);
+        }
+        section.push(l);
+    }
+    flush(&mut section, &mut out);
+    out
+}
+
+/// A file's text with its line numbers, the numbers a finding's `at` cites.
+fn number_lines(text: &str) -> String {
+    let w = text.lines().count().to_string().len().max(3);
+    text.lines().enumerate().map(|(i, l)| format!("{:>w$}  {l}\n", i + 1)).collect()
+}
+
+/// The counts and the failing names of a conformance and test log, not the log: the run's header
+/// line, the scenario counts, the unit tests' totals, and every scenario or test that failed.
+fn test_summary(log: &str) -> String {
+    let scenarios = regex::Regex::new(r"^\d+ scenarios?: ").unwrap();
+    let unit = regex::Regex::new(r"^test result: \w+\. (\d+) passed; (\d+) failed; (\d+) ignored").unwrap();
+    let scenario_bad = regex::Regex::new(r"^(?:failed|error)\s+(\S+)").unwrap();
+    let test_bad = regex::Regex::new(r"^test (\S+) \.\.\. (?:FAILED|failed)").unwrap();
+    let (mut head, mut counts) = (None, None);
+    let mut totals: Option<[u64; 3]> = None;
+    let mut failing: Vec<String> = Vec::new();
+    for l in log.lines() {
+        let t = l.trim();
+        if head.is_none() && t.contains(" against ") && (t.ends_with("— passed") || t.ends_with("— failed")) {
+            head = Some(t.to_string());
+        } else if counts.is_none() && scenarios.is_match(t) {
+            counts = Some(t.to_string());
+        } else if let Some(c) = unit.captures(t) {
+            let n = |i: usize| c[i].parse::<u64>().unwrap_or(0);
+            let s = totals.get_or_insert([0; 3]);
+            (s[0], s[1], s[2]) = (s[0] + n(1), s[1] + n(2), s[2] + n(3));
+        } else if let Some(c) = scenario_bad.captures(t).or_else(|| test_bad.captures(t)) {
+            if !failing.contains(&c[1].to_string()) {
+                failing.push(c[1].to_string());
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(h) = head {
+        out += &format!("conformance: {h}\n");
+    }
+    if let Some(c) = counts {
+        out += &format!("scenarios: {c}\n");
+    }
+    if let Some([p, f, i]) = totals {
+        out += &format!("unit tests: {p} passed, {f} failed, {i} ignored\n");
+    }
+    if out.is_empty() {
+        out += "no counts found in the run's log\n";
+    }
+    out += &format!("failing: {}\n", if failing.is_empty() { "none".to_string() } else { failing.join(", ") });
+    out
+}
+
+/// What the review is given, as facts: nothing of the tree beyond `files`, the files the diff touches.
+struct ReviewFacts<'a> {
+    story: &'a str,
+    /// `mainline` when the diff is against the mainline tree, else `empty` (the first story).
+    base: &'a str,
+    /// `{cite, text}`: the summary line and the lines of the `## Acceptance` section.
+    acceptance: &'a [Value],
+    /// `{id, text, cites}`: the requirements the story delivers.
+    requirements: &'a [Value],
+    /// The requirements no story of the plan covers.
+    uncovered: &'a [Value],
+    /// The compiled specification's entries of the commands the story covers.
+    commands: &'a Map<String, Value>,
+    /// The text of the tree's build constraints, when it has them.
+    constraints: Option<&'a str>,
+    /// `test_summary` of the conformance run on the revision under review.
+    tests: &'a str,
+    diff: &'a str,
+    /// The touched files: path under `impl/` and the text, None for a file the change deletes.
+    files: &'a [(String, Option<String>)],
+}
+
+/// The one document the review reads: the story's requirements and commands, the test summary, the
+/// diff and the full text of every file the diff touches.
+fn review_document(f: &ReviewFacts) -> String {
+    let line = |v: &Value, k: &str| format!("- {}: {}\n", v[k].as_str().unwrap_or(""), v["text"].as_str().unwrap_or("").trim());
+    let mut d = format!("# Review input: story `{}`\n\nThis is everything you are given. Judge the change from it alone.\n", f.story);
+    d += "\n## Requirements this story delivers (a violation names the id)\n";
+    d += &f.requirements.iter().map(|r| line(r, "id")).collect::<String>();
+    d += "\n## Acceptance lines (a violation names the cite)\n";
+    d += &f.acceptance.iter().map(|a| line(a, "cite")).collect::<String>();
+    d += "\n## Commands it must serve (a violation names the command; the compiled specification)\n";
+    for (name, v) in f.commands {
+        d += &format!("- {name}: {v}\n");
+    }
+    d += "\n## Requirements no story of the plan covers (kind `outside`; never a reason to reject)\n";
+    d += &if f.uncovered.is_empty() { "none\n".to_string() } else { f.uncovered.iter().map(|r| line(r, "id")).collect() };
+    if let Some(c) = f.constraints {
+        d += &format!("\n## Build constraints\n{}\n", c.trim_end());
+    }
+    d += &format!("\n## Test summary (the conformance run that passed on this revision)\n{}", f.tests);
+    d += &format!("\n## Change against the {} tree (unified diff)\n~~~diff\n{}~~~\n", f.base, compact_diff(f.diff));
+    d += "\n## Changed files, full text (the line numbers are the ones `at` cites; a file the diff does not touch is not shown)\n";
+    for (path, text) in f.files {
+        match text {
+            Some(t) => d += &format!("\n### impl/{path} ({} lines)\n~~~\n{}~~~\n", t.lines().count(), number_lines(t)),
+            None => d += &format!("\n### impl/{path}\nDeleted by this change.\n"),
+        }
+    }
+    d
+}
+
+/// Write the review's inputs into `<cwd>/in/` and return what was written. `review.md` is the
+/// document the model reads (`review_document`): the requirements the story delivers and the
+/// commands it covers, its acceptance lines, the test summary, the diff against the mainline (empty
+/// tree for the first story) and the full text of only the files the diff touches, plus the
+/// build constraints when the tree has them. Beside it, for the programs only: `scope.json` and
+/// `uncovered.json` (what a finding may name), `change.diff` and the touched files under `impl/`
+/// (what `at` may cite). No other file of the tree, no other story, no log.
 fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
     let work = case_dir.join("work");
     let in_dir = cwd.join("in");
     let rel = format!("aep/story/{story}.md");
     let text = fs::read_to_string(work.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
-    fs::create_dir_all(in_dir.join("aep/story")).map_err(|e| e.to_string())?;
-    fs::write(in_dir.join(&rel), &text).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&in_dir).map_err(|e| e.to_string())?;
     let (sl, summary) = story_summary(&text).ok_or(format!("{rel} has no summary"))?;
     let cov = covers(&summary);
     let mut acceptance = vec![json!({"cite": format!("{rel}:{sl}"), "text": summary})];
@@ -545,8 +676,6 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
     w("scope.json", &json!({"story": story, "covers": cov, "acceptance": acceptance, "requirements": mine,
         "traced_by": if traces.is_null() { "spec_domains (no spec/traces.json)" } else { "spec/traces.json" }}))?;
     w("uncovered.json", &json!({"about": "requirements no story of the plan covers: outside this story", "requirements": uncovered}))?;
-    w("commands.json", &Value::Object(commands))?;
-    copy_tree(&work.join("impl"), &in_dir.join("impl")).map_err(|e| format!("impl: {e}"))?;
     let base = work.join("mainline");
     let empty = cwd.join("base-empty");
     let base = if base.is_dir() { base } else { fs::create_dir_all(&empty).map_err(|e| e.to_string())?; empty };
@@ -558,6 +687,19 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
         l + "\n"
     }).collect();
     fs::write(in_dir.join("change.diff"), &diff).map_err(|e| e.to_string())?;
+    let changed = changed_files(&diff);
+    let mut files: Vec<(String, Option<String>)> = Vec::new();
+    for p in &changed {
+        let src = work.join("impl").join(p);
+        if p.contains("..") || !src.is_file() {
+            files.push((p.clone(), None));
+            continue;
+        }
+        let dst = in_dir.join("impl").join(p);
+        fs::create_dir_all(dst.parent().unwrap_or(&in_dir)).map_err(|e| e.to_string())?;
+        fs::copy(&src, &dst).map_err(|e| format!("impl/{p}: {e}"))?;
+        files.push((p.clone(), Some(String::from_utf8_lossy(&fs::read(&src).map_err(|e| e.to_string())?).into_owned())));
+    }
     let case = read_json(&case_dir.join("case.json"));
     let rev = |a: &str| case["artifacts"][a]["revision"].as_str().unwrap_or("none").to_string();
     // sdc.story (revision 7) admits change.review only once the conformance run passed at the
@@ -565,13 +707,16 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
     let tests = record_log(case_dir, "conformance_run", &rev("change")).ok_or(format!(
         "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", rev("change")))?;
     let gate = record_log(case_dir, "ess_gate", &rev("spec"));
-    fs::write(in_dir.join("tests.txt"), &tests).map_err(|e| e.to_string())?;
-    fs::write(in_dir.join("gate.txt"), gate.clone().unwrap_or("no gate run recorded on this specification revision\n".into()))
-        .map_err(|e| e.to_string())?;
-    let changed: Vec<&str> = diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)).collect();
+    let tests = test_summary(&tests);
+    let constraints = fs::read_to_string(work.join("build-constraints.yaml")).ok();
+    let doc = review_document(&ReviewFacts { story, base: if base.ends_with("mainline") { "mainline" } else { "empty" },
+        acceptance: &acceptance, requirements: &mine, uncovered: &uncovered, commands: &commands,
+        constraints: constraints.as_deref(), tests: &tests, diff: &diff, files: &files });
+    fs::write(in_dir.join("review.md"), &doc).map_err(|e| e.to_string())?;
     Ok(json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
         "uncovered": uncovered.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), "changed_files": changed,
-        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
+        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" },
+        "build_constraints": constraints.is_some(), "document": "in/review.md", "document_bytes": doc.len()}))
 }
 
 /// What a review finding may name as violated (`violation`: the story's requirements, acceptance
@@ -610,8 +755,7 @@ fn review_schema(in_dir: &Path) -> Value {
 fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> Result<(bool, Value), Vec<String>> {
     let c = ctx(cwd, case_dir);
     let (inside, outside) = review_targets(&c.in_dir);
-    let changed: BTreeSet<String> = fs::read_to_string(c.in_dir.join("change.diff")).unwrap_or_default().lines()
-        .filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l).to_string()).collect();
+    let changed: BTreeSet<String> = changed_files(&fs::read_to_string(c.in_dir.join("change.diff")).unwrap_or_default()).into_iter().collect();
     let mut why = Vec::new();
     let decision = reply["decision"].as_str().unwrap_or("");
     if decision != "approved" && decision != "rejected" {
@@ -892,5 +1036,133 @@ mod tests {
         let (ok, v) = check_review(&cwd, &case, &reply, "p").unwrap();
         assert!(ok);
         assert_eq!(v["notes"].as_array().unwrap().len(), 1);
+    }
+
+    /// A case of two stories (tasks covers todo.task.AddTask, sync covers todo.sync.SyncChanges) and
+    /// three requirements (r1 tasks, r2 sync, r3 nobody). The change under review edits
+    /// `src/lib.rs` and adds `src/new.rs`; `src/untouched.rs` and `README.md` are not in the diff.
+    fn review_case(name: &str, tests_log: &str) -> (PathBuf, PathBuf) {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-scratch/review-inputs").join(name);
+        let _ = fs::remove_dir_all(&root);
+        let (cwd, case) = (root.join("call"), root.join("case"));
+        let w = case.join("work");
+        for d in ["aep/story", "impl/src", "mainline/src", ".sdc/gate", "../evidence", "../blobs"] {
+            fs::create_dir_all(w.join(d)).unwrap();
+        }
+        let put = |p: PathBuf, t: &str| fs::write(p, t).unwrap();
+        put(w.join("aep/story/tasks.md"), "---\nid: story:tasks\nsummary: Tasks. covers todo.task.AddTask\n---\n# T\n\n## Acceptance\n\nAdding a task shows it in the list.\n");
+        put(w.join("aep/story/sync.md"), "---\nid: story:sync\nsummary: Sync. covers todo.sync.SyncChanges\n---\n# S\n");
+        put(w.join("requirements.yaml"), "requirements:\n  - {id: r1, text: R1 TASKS TEXT, spec_domains: [todo.task]}\n  - {id: r2, text: R2 SYNC TEXT, spec_domains: [todo.sync]}\n  - {id: r3, text: R3 NOBODY TEXT, spec_domains: [todo.access]}\n");
+        put(w.join(".sdc/gate/ir.json"), &json!({"commands": {"todo.task.AddTask": {"name": "AddTask", "outcomes": ["added"]},
+            "todo.sync.SyncChanges": {"name": "SyncChanges", "outcomes": ["SYNC_ONLY_OUTCOME"]}}}).to_string());
+        put(w.join("mainline/src/lib.rs"), "pub fn add() {}\n");
+        put(w.join("impl/src/lib.rs"), "pub fn add() {}\npub fn remove() {}\n");
+        put(w.join("impl/src/new.rs"), "pub fn brand_new() {}\n");
+        for d in ["mainline", "impl"] {
+            put(w.join(d).join("src/untouched.rs"), "pub fn UNTOUCHED_MARKER() {}\n");
+            put(w.join(d).join("README.md"), "UNTOUCHED_README\n");
+        }
+        put(case.join("case.json"), &json!({"id": "IDEA-1.app.tasks", "artifacts": {"change": {"revision": "t1"}, "spec": {"revision": "s1"}}}).to_string());
+        put(case.join("evidence/e1.json"), &json!({"kind": "conformance_run", "subject_revision": "t1"}).to_string());
+        put(case.join("blobs/tests.log"), tests_log);
+        put(case.join("events.jsonl"), &(json!({"event": "action_finished", "evidence": ["e1"], "log": "tests.log"}).to_string() + "\n"));
+        (cwd, case)
+    }
+
+    const PASSING_LOG: &str = "billing v3 against reference 0.96.0 — passed\n  passed todo.task.AddTask/outcome/added\n  passed todo.task.AddTask/outcome/refused\n\
+        2 scenarios: 2 passed, 0 failed, 0 error, 0 unsupported\n\nrunning 2 tests\ntest tests::add ... ok\ntest tests::remove ... ok\n\n\
+        test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n";
+
+    #[test]
+    fn the_review_input_holds_the_touched_files_and_no_other() {
+        let (cwd, case) = review_case("touched", PASSING_LOG);
+        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert_eq!(v["changed_files"], json!(["src/lib.rs", "src/new.rs"]));
+        assert!(doc.contains("### impl/src/lib.rs") && doc.contains("pub fn remove()"), "{doc}");
+        assert!(doc.contains("### impl/src/new.rs") && doc.contains("brand_new"), "{doc}");
+        // A file outside the diff is in neither the document nor in/.
+        assert!(!doc.contains("UNTOUCHED_MARKER") && !doc.contains("UNTOUCHED_README"), "{doc}");
+        assert!(!cwd.join("in/impl/src/untouched.rs").exists() && !cwd.join("in/impl/README.md").exists());
+        assert!(cwd.join("in/impl/src/lib.rs").is_file() && cwd.join("in/impl/src/new.rs").is_file());
+        // Line numbers, and a new file's lines once (not again in the diff).
+        assert!(doc.contains("  2  pub fn remove() {}"), "{doc}");
+        assert_eq!(doc.matches("brand_new").count(), 1, "{doc}");
+        assert!(doc.contains("+pub fn remove() {}"), "the diff of the edited file stays: {doc}");
+        assert_eq!(v["document_bytes"], doc.len());
+    }
+
+    #[test]
+    fn the_review_input_holds_the_stories_requirements_and_commands_only() {
+        let (cwd, case) = review_case("scope", PASSING_LOG);
+        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert_eq!(v["requirements"], json!(["r1"]));
+        assert_eq!(v["uncovered"], json!(["r3"]));
+        // The story's requirement and acceptance line; the uncovered one, apart; the other story's, absent.
+        assert!(doc.contains("- r1: R1 TASKS TEXT") && doc.contains("Adding a task shows it in the list."), "{doc}");
+        assert!(doc.contains("- r3: R3 NOBODY TEXT"), "{doc}");
+        assert!(!doc.contains("R2 SYNC TEXT") && !doc.contains("SYNC_ONLY_OUTCOME") && !doc.contains("todo.sync"), "{doc}");
+        assert!(doc.contains("- todo.task.AddTask: {") && doc.contains("\"outcomes\""), "{doc}");
+        // Every id the schema lets a finding name is in the document.
+        let (inside, outside) = review_targets(&cwd.join("in"));
+        for id in inside.iter().filter(|i| !i.contains(':')).chain(outside.iter()) {
+            assert!(doc.contains(id.as_str()), "{id} missing from {doc}");
+        }
+        assert!(inside.contains(&"aep/story/tasks.md:9".to_string()) && doc.contains("aep/story/tasks.md:9"), "{doc}");
+    }
+
+    #[test]
+    fn the_review_input_holds_the_test_summary_not_the_log() {
+        let (cwd, case) = review_case("tests", PASSING_LOG);
+        review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert!(doc.contains("2 scenarios: 2 passed, 0 failed, 0 error, 0 unsupported"), "{doc}");
+        assert!(doc.contains("unit tests: 2 passed, 0 failed, 0 ignored") && doc.contains("failing: none"), "{doc}");
+        assert!(!doc.contains("passed todo.task.AddTask/outcome/added") && !doc.contains("test tests::add"), "{doc}");
+        assert!(!cwd.join("in/tests.txt").exists() && !cwd.join("in/gate.txt").exists());
+        let failing = PASSING_LOG.replace("  passed todo.task.AddTask/outcome/refused", "  failed todo.task.AddTask/outcome/refused")
+            .replace("test tests::remove ... ok", "test tests::remove ... FAILED");
+        let (cwd, case) = review_case("tests-failing", &failing);
+        review_inputs(&cwd, &case, "tasks").unwrap();
+        let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
+        assert!(doc.contains("failing: todo.task.AddTask/outcome/refused, tests::remove"), "{doc}");
+    }
+
+    #[test]
+    fn the_build_constraints_are_in_the_document_when_the_tree_has_them() {
+        let (cwd, case) = review_case("no-constraints", PASSING_LOG);
+        assert_eq!(review_inputs(&cwd, &case, "tasks").unwrap()["build_constraints"], false);
+        assert!(!fs::read_to_string(cwd.join("in/review.md")).unwrap().contains("Build constraints"));
+        let (cwd, case) = review_case("constraints", PASSING_LOG);
+        fs::write(case.join("work/build-constraints.yaml"), "language: rust\n").unwrap();
+        assert_eq!(review_inputs(&cwd, &case, "tasks").unwrap()["build_constraints"], true);
+        assert!(fs::read_to_string(cwd.join("in/review.md")).unwrap().contains("## Build constraints\nlanguage: rust"));
+    }
+
+    #[test]
+    fn changed_files_are_the_diffs_plus_files_once_each() {
+        let diff = "diff -ruN a/x b/x\n--- mainline/src/a.rs\t1\n+++ impl/src/a.rs\t2\n@@ -1 +1 @@\n-x\n+y\ndiff -ruN a/y b/y\n--- mainline/b.md\t1\n+++ impl/b.md\t2\n";
+        assert_eq!(changed_files(diff), vec!["src/a.rs", "b.md"]);
+        assert!(changed_files("").is_empty());
+    }
+
+    #[test]
+    fn a_created_file_keeps_its_header_and_not_its_lines_in_the_diff() {
+        let diff = "diff -ruN m/a i/a\n--- mainline/a.rs\t1\n+++ impl/a.rs\t2\n@@ -1 +1,2 @@\n x\n+kept\ndiff -ruN m/n i/n\n--- mainline/n.rs\t1\n+++ impl/n.rs\t2\n@@ -0,0 +1,2 @@\n+gone1\n+gone2\n";
+        let c = compact_diff(diff);
+        assert!(c.contains("+kept") && c.contains("+++ impl/n.rs") && c.contains("(new file"), "{c}");
+        assert!(!c.contains("gone1") && !c.contains("gone2"), "{c}");
+    }
+
+    #[test]
+    fn the_test_summary_has_counts_and_failing_names_only() {
+        let log = "Requires an empty namespace.\ntodo v1 against interpreted 0.96.0 — failed\n  passed a/outcome/x\n  failed todo.task.AddTask/outcome/added\n  error todo.sync.Send/outcome/e\n\
+            3 scenarios: 1 passed, 1 failed, 1 error, 0 unsupported\nrunning 2 tests\ntest tests::ok ... ok\ntest tests::bad ... FAILED\n\
+            test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured\n";
+        let s = test_summary(log);
+        assert_eq!(s, "conformance: todo v1 against interpreted 0.96.0 — failed\nscenarios: 3 scenarios: 1 passed, 1 failed, 1 error, 0 unsupported\n\
+            unit tests: 1 passed, 1 failed, 0 ignored\nfailing: todo.task.AddTask/outcome/added, todo.sync.Send/outcome/e, tests::bad\n");
+        assert!(test_summary("nothing\n").starts_with("no counts found"));
     }
 }

@@ -93,13 +93,9 @@
     },
     "llm": {
       "model": "claude-haiku-5-5",
-      "max_turns": 30,
+      "max_turns": 4,
       "max_budget_usd": 1,
-      "operations": [
-        "dir.list",
-        "file.read",
-        "search"
-      ],
+      "operations": [],
       "stub": [
         "review-change"
       ]
