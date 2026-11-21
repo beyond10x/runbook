@@ -49,6 +49,8 @@
 #   run-stop        a waiting run is stopped (--stop), a resume refused, --reopen goes on; L7
 #   run-stop-decider L7 on a decider's run that waits on a person: reported FAILED
 #   autopilot       --autopilot: closed with 0 person principals and L7 0 (A5, escalate final)
+#   decider-input   the autopilot run's decider records: the close reads published/README.md, no
+#                   aep/; Cargo.lock copied; final-mode prompt lines (runs/trial-3-haiku-5)
 #   autopilot-person --autopilot refuses SDC_DECIDER=person (exit 64)
 #   autopilot-stop  a stop no holder can take ends an autopilot run (exit 7, rule:autopilot,
 #                   cause decision_not_takeable, no message naming a person, L7 0)
@@ -81,7 +83,7 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
   scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent superseded-answer
   story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
-  decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
+  decider-finding-refused run-stop run-stop-decider autopilot decider-input autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
@@ -529,6 +531,25 @@ if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <
   echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final; work/aep transitions by agent:, no human:)"
 else
   echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, the settings do not name A5, or work/aep has a human: actor or no agent: one)"
+fi
+# decider-input: the autopilot run's decider records (runs/trial-3-haiku-5's close and its
+# release.publish). The close reads published/README.md and no aep/ file; a tree input keeps its
+# Cargo.lock; a prompt with aep/ inputs says their status and revision say nothing about approval;
+# every prompt (the decider is final) says a decider's answer is the product owner's own and offers
+# no escalation to a person.
+dr=$s/runs/autopilot/decider
+close_d=$(find "$dr" -maxdepth 1 -type d -name '*-close' 2>/dev/null | sort | tail -n 1)
+lock_d=$(grep -l '"path": "impl"' "$dr"/*/decide-request.json 2>/dev/null | head -n 1)
+lock_d=${lock_d%/decide-request.json}
+aep_d=$(find "$dr" -maxdepth 1 -type d -name '*-roadmap.approve' 2>/dev/null | head -n 1)
+if [[ -n $close_d && -f $close_d/cwd/in/published/README.md && ! -e $close_d/cwd/in/aep ]] &&
+   [[ -n $lock_d && -f $lock_d/cwd/in/impl/Cargo.lock ]] &&
+   [[ -n $aep_d ]] && grep -q 'belong to the planning tool' "$aep_d/prompt.md" &&
+   ! grep -q 'Escalate to a person' "$dr"/*/prompt.md &&
+   [[ -z $(grep -L "is the product owner's own decision" "$dr"/*/prompt.md) ]]; then
+  echo "decider-input: checks pass (close reads published/README.md, no aep/; impl/Cargo.lock copied; aep status note; decider answers binding, no escalation to a person)"
+else
+  echo "decider-input: FAILED (close ${close_d:-none}, Cargo.lock ${lock_d:-none}, roadmap ${aep_d:-none}: an input or a prompt line is wrong)"
 fi
 trial autopilot-person SDC_DECIDER=person
 code=$?
