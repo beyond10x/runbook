@@ -1,0 +1,600 @@
+{
+  "end": {
+    "capped": null,
+    "exit": 0,
+    "state": "completed"
+  },
+  "format": "sdc.run-timeline/1",
+  "kind": "free-agent",
+  "notes": [
+    "per-request cost is not recorded by the stream: model spans carry cost_usd null and totals.cost_usd is the session result's total_cost_usd",
+    "times are when the launcher received each stream line; a request starts at the harness's status line `requesting` before it, else when the agent's previous step ended (the session start, the last tool result, the previous response); per-request tokens are the final usage of each response (message_delta)"
+  ],
+  "run": "free-agent-0.1.0-sonnet-3",
+  "session": {
+    "api_retries": 0,
+    "cost_usd": 0.47788110000000006,
+    "duration_api_ms": 166928,
+    "duration_ms": 173474,
+    "is_error": false,
+    "model_usage": {
+      "claude-sonnet-5-5": {
+        "cache_read": 366931,
+        "cache_write": 40939,
+        "cost_usd": 0.47788110000000006,
+        "input": 26,
+        "output": 27738
+      }
+    },
+    "num_turns": 13,
+    "subtype": "success",
+    "usage": {
+      "cache_read": 366931,
+      "cache_write": 40939,
+      "input": 26,
+      "output": 27738
+    },
+    "usage_beyond_streamed_requests": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "input": 0,
+      "output": 0
+    }
+  },
+  "settings": {
+    "adapter": "claude-cli",
+    "confinement": "bubblewrap: new mount, PID, IPC and UTS namespaces, killed with the launcher; writable only <run>/work (the working directory), <run>/home (HOME and the config home with a copy of the login, removed at the end) and <run>/cargo-home; /usr, /etc and the resolver stub /run/systemd/resolve read only; the Rust toolchain, claude, ess and the cargo shim read only under /opt; the rest of the root is an empty read-only tmpfs: nothing else of the host (no repository checkout, no other run); empty environment plus PATH, HOME, the config home and cargo's; the session keeps the network for the model API; cargo build/test/check/clippy/doc go through the broker to slot run, in a confinement of the same view without network and without the login",
+    "effort": "high",
+    "max_budget_usd": 25.0,
+    "max_wall_s": 5400,
+    "model": "claude-sonnet-5-5",
+    "tools": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash"
+    ]
+  },
+  "spans": [
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 0.0,
+      "t1_s": 1.963
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 1.963,
+      "t1_s": 3.731,
+      "tokens": {
+        "cache_read": 7207,
+        "cache_write": 382,
+        "input": 2,
+        "output": 75
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.005
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 3.683,
+      "t1_s": 3.866
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 3.866,
+      "t1_s": 3.874
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 3.874,
+      "t1_s": 5.226,
+      "tokens": {
+        "cache_read": 7589,
+        "cache_write": 440,
+        "input": 2,
+        "output": 101
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 0.917
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 5.199,
+      "t1_s": 5.256
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 5.256,
+      "t1_s": 5.263
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 5.263,
+      "t1_s": 26.678,
+      "tokens": {
+        "cache_read": 8029,
+        "cache_write": 10087,
+        "input": 2,
+        "output": 3298
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 0.904
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 26.648,
+      "t1_s": 26.731
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 26.731,
+      "t1_s": 26.735
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 26.735,
+      "t1_s": 34.018,
+      "tokens": {
+        "cache_read": 18116,
+        "cache_write": 3447,
+        "input": 2,
+        "output": 885
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 0.908
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 33.964,
+      "t1_s": 34.038
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 34.038,
+      "t1_s": 34.042
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 34.042,
+      "t1_s": 58.238,
+      "tokens": {
+        "cache_read": 21563,
+        "cache_write": 948,
+        "input": 2,
+        "output": 3140
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.052
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 58.218,
+      "t1_s": 58.299
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 58.299,
+      "t1_s": 58.308
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 58.308,
+      "t1_s": 95.38,
+      "tokens": {
+        "cache_read": 22511,
+        "cache_write": 3313,
+        "input": 2,
+        "output": 7908
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.227
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 95.35,
+      "t1_s": 95.467
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 95.467,
+      "t1_s": 95.476
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 95.476,
+      "t1_s": 124.627,
+      "tokens": {
+        "cache_read": 25824,
+        "cache_write": 8048,
+        "input": 2,
+        "output": 5675
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.082
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 124.615,
+      "t1_s": 124.647
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 124.647,
+      "t1_s": 124.651
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 124.651,
+      "t1_s": 141.176,
+      "tokens": {
+        "cache_read": 33872,
+        "cache_write": 5733,
+        "input": 2,
+        "output": 3078
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.044
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 141.164,
+      "t1_s": 144.647
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 144.647,
+      "t1_s": 144.651
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 144.651,
+      "t1_s": 154.389,
+      "tokens": {
+        "cache_read": 39605,
+        "cache_write": 4014,
+        "input": 2,
+        "output": 1456
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.102
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": true,
+      "lane": "tool",
+      "t0_s": 154.372,
+      "t1_s": 155.43
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 155.43,
+      "t1_s": 155.435
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 155.435,
+      "t1_s": 159.86,
+      "tokens": {
+        "cache_read": 43619,
+        "cache_write": 1658,
+        "input": 2,
+        "output": 434
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 0.79
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 159.846,
+      "t1_s": 159.872
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 159.872,
+      "t1_s": 159.873
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 159.873,
+      "t1_s": 170.345,
+      "tokens": {
+        "cache_read": 45277,
+        "cache_write": 690,
+        "input": 2,
+        "output": 1382
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 0.887
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 170.296,
+      "t1_s": 171.287
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 171.287,
+      "t1_s": 171.292
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 171.292,
+      "t1_s": 174.161,
+      "tokens": {
+        "cache_read": 45967,
+        "cache_write": 1785,
+        "input": 2,
+        "output": 303
+      },
+      "tool_calls": {
+        "Bash": 1
+      },
+      "ttft_s": 1.39
+    },
+    {
+      "action": "Bash",
+      "case": null,
+      "cause": null,
+      "is_error": false,
+      "lane": "tool",
+      "t0_s": 174.132,
+      "t1_s": 174.31
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 174.31,
+      "t1_s": 174.314
+    },
+    {
+      "action": "request",
+      "api_requests": 1,
+      "case": null,
+      "cause": null,
+      "cost_usd": null,
+      "effort": "high",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "t0_s": 174.314,
+      "t1_s": 175.127,
+      "tokens": {
+        "cache_read": 47752,
+        "cache_write": 394,
+        "input": 2,
+        "output": 3
+      },
+      "tool_calls": {},
+      "ttft_s": 0.799
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "harness",
+      "lane": "idle",
+      "t0_s": 175.127,
+      "t1_s": 175.676
+    }
+  ],
+  "totals": {
+    "api_requests": 13,
+    "api_requests_unrecorded_spans": 0,
+    "cost_source": "session result (no API request records its own cost)",
+    "cost_usd": 0.47788110000000006,
+    "decider_calls": 0,
+    "decider_s": 0.0,
+    "idle_by_cause": {
+      "harness": 2.576
+    },
+    "idle_s": 2.576,
+    "model_s": 167.079,
+    "model_sessions": 1,
+    "model_tool_calls": 12,
+    "model_tool_calls_by_name": {
+      "Bash": 12
+    },
+    "model_tool_calls_denied": 0,
+    "overlap_s": 0.342,
+    "program_s": 0.0,
+    "program_steps": 0,
+    "rule_s": 0.0,
+    "rule_steps": 0,
+    "tokens": {
+      "cache_read": 366931,
+      "cache_write": 40939,
+      "input": 26,
+      "output": 27738
+    },
+    "tool_s": 6.363,
+    "waiting_on_person_s": 0.0,
+    "wall_s": 175.676
+  },
+  "tree": null
+}

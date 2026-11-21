@@ -49,6 +49,9 @@ use sha2::{Digest, Sha256};
 #[path = "../run_metrics.rs"]
 #[allow(dead_code)]
 mod run_metrics;
+#[path = "../run_timeline.rs"]
+#[allow(dead_code)]
+mod run_timeline;
 
 use run_metrics::{choose, flat_metrics, metric_of, summary};
 
@@ -76,6 +79,10 @@ struct Run {
 }
 
 fn load_run(dir: &Path) -> Result<Run, String> {
+    // A free-running agent's run (sdc-free-agent) has its own metrics in the same shape.
+    if let Some(doc) = run_timeline::free_metrics(dir).map_err(|run_metrics::Fail(m)| m)? {
+        return Ok(run_of(doc));
+    }
     let doc = run_metrics::load(dir).map_err(|run_metrics::Fail(m)| m)?;
     Ok(run_of(doc))
 }
@@ -367,7 +374,7 @@ const STATUSES: [&str; 4] = ["planned", "running", "complete", "abandoned"];
 /// The one pass rule: the run closed, delivered, and needed no reopen, forced step or unstick.
 const PASS_RULE: &str = "clean-delivery";
 /// The settings a prospective record may set and the environment variable each one becomes.
-const LAUNCH: [(&str, &str); 22] = [
+const LAUNCH: [(&str, &str); 28] = [
     ("models.writer.model", "SDC_LLM_MODEL_WRITER"),
     ("models.implement.model", "SDC_LLM_MODEL_IMPLEMENT"),
     ("models.review.model", "SDC_LLM_MODEL_REVIEW"),
@@ -390,7 +397,16 @@ const LAUNCH: [(&str, &str); 22] = [
     ("autonomy", "SDC_AUTONOMY"),
     ("flags.dry", ""),
     ("flags.recorded", ""),
+    ("free.model", ""),
+    ("free.effort", ""),
+    ("free.adapter", ""),
+    ("free.max_usd", ""),
+    ("free.max_wall_s", ""),
+    ("free.max_turns", ""),
 ];
+/// What a launched variant with `runner: free-agent` sets (sdc-free-agent run).
+const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "free.max_usd", "free.max_wall_s", "free.max_turns"];
+const RUNNERS: [&str; 2] = ["sdc", "free-agent"];
 const REQUIRED_LAUNCH: [&str; 11] = ["models.writer.model", "models.implement.model", "models.review.model", "models.other.model",
     "decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "adapter", "max_llm_calls", "autonomy"];
 /// Launch settings that `run-settings.jsonl` does not record, so no run can be checked against them.
@@ -415,6 +431,12 @@ struct Variant {
     /// `fixed` with the variant's own settings over it.
     settings: BTreeMap<String, String>,
     runs: Vec<RunRef>,
+    /// `sdc` (the default) or `free-agent`: what runs the idea.
+    runner: String,
+    /// The record whose runs the variant lists; such a variant is not launched.
+    from: Option<String>,
+    /// The name of a launched run, `{n}` the ordinal; default `<id>.<variant>.<n>`.
+    run_name: Option<String>,
 }
 
 fn settings_map(v: Option<&Y>) -> BTreeMap<String, String> {
@@ -436,12 +458,37 @@ fn variants(r: &Y) -> Vec<Variant> {
         let own = settings_map(v.get("settings"));
         let mut settings = fixed.clone();
         settings.extend(own.clone());
-        Variant { id: ystr(v, "id").unwrap_or("").to_string(), own, settings, runs: run_refs(v) }
+        Variant { id: ystr(v, "id").unwrap_or("").to_string(), own, settings, runs: run_refs(v),
+            runner: ystr(v, "runner").unwrap_or("sdc").to_string(), from: ystr(v, "from").map(String::from),
+            run_name: ystr(v, "run_name").map(String::from) }
     }).collect()
 }
 
 fn has_hypothesis(r: &Y) -> bool {
     ystr(r, "hypothesis").is_some_and(|h| !h.trim().is_empty())
+}
+
+/// The baseline variants: `baseline` names one, or lists several (each compared on its own).
+fn baselines(r: &Y) -> Vec<String> {
+    match r.get("baseline") {
+        Some(Y::String(s)) => vec![s.clone()],
+        Some(Y::Sequence(v)) => v.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+        _ => vec![],
+    }
+}
+
+/// The primary metrics: `primary` is one, or a list (each decided by the rule).
+fn primaries(r: &Y) -> Vec<Y> {
+    match r.get("primary") {
+        Some(Y::Sequence(v)) => v.clone(),
+        Some(m @ Y::Mapping(_)) => vec![m.clone()],
+        _ => vec![],
+    }
+}
+
+/// Whether the record compares against several baselines or on several primary metrics.
+fn multi(r: &Y) -> bool {
+    matches!(r.get("baseline"), Some(Y::Sequence(_))) || matches!(r.get("primary"), Some(Y::Sequence(_)))
 }
 
 fn one_line(s: &str) -> bool {
@@ -568,7 +615,25 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
                 _ => {}
             }
         }
-        if prospective {
+        if !RUNNERS.contains(&v.runner.as_str()) {
+            p.push(format!("variant {:?}: `runner` must be sdc or free-agent", v.id));
+        }
+        if v.from.as_deref().is_some_and(|f| f.trim().is_empty()) {
+            p.push(format!("variant {:?}: `from` must name the record whose runs it lists", v.id));
+        }
+        if v.run_name.as_deref().is_some_and(|n| !n.contains("{n}") || n.contains('/')) {
+            p.push(format!("variant {:?}: `run_name` must hold {{n}} and no /", v.id));
+        }
+        if prospective && v.from.is_none() && v.runner == "free-agent" {
+            for k in REQUIRED_FREE {
+                if !v.settings.contains_key(k) {
+                    p.push(format!("variant {:?}: the settings do not set {k} (a free-agent launch needs the model, effort, adapter and caps)", v.id));
+                }
+            }
+            for k in v.settings.keys().filter(|k| !k.starts_with("free.")) {
+                p.push(format!("variant {:?}: {k} is no free-agent launch setting", v.id));
+            }
+        } else if prospective {
             for k in REQUIRED_LAUNCH {
                 if !v.settings.contains_key(k) {
                     p.push(format!("variant {:?}: the settings do not set {k} (a launch needs every class's model, the decider, the adapter, the call cap and the autonomy)", v.id));
@@ -642,52 +707,74 @@ fn check_hypothesis(r: &Y, vs: &[Variant], p: &mut Vec<String>) {
     if variable.is_empty() {
         p.push("`variable` must name one settings key".into());
     }
-    let mut values = vec![];
-    let mut other_keys: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for v in vs {
-        match v.own.get(variable) {
-            Some(x) => values.push(x.clone()),
-            None => p.push(format!("variant {:?}: `settings` does not set the variable {variable:?}", v.id)),
+    let bases = baselines(r);
+    let treat = ystr(r, "treatment").unwrap_or("");
+    if variable == "runner" {
+        // What runs the idea is the variable: each runner has its own settings, so the variants
+        // differ in them too; `known_confounds` says what is not held equal.
+        let runner_of = |id: &str| vs.iter().find(|v| v.id == id).map(|v| v.runner.clone());
+        for b in &bases {
+            if runner_of(b).is_some() && runner_of(b) == runner_of(treat) {
+                p.push(format!("the treatment {treat:?} and the baseline {b:?} must differ in the runner"));
+            }
         }
-        for (k, x) in &v.own {
-            if k != variable {
-                other_keys.entry(k.clone()).or_default().push(x.clone());
+        if yseq(r, "known_confounds").is_empty() {
+            p.push("a record whose variable is the runner lists in `known_confounds` what is not held equal".into());
+        }
+    } else {
+        let mut values = vec![];
+        let mut other_keys: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        for v in vs {
+            match v.own.get(variable) {
+                Some(x) => values.push(x.clone()),
+                None => p.push(format!("variant {:?}: `settings` does not set the variable {variable:?}", v.id)),
+            }
+            for (k, x) in &v.own {
+                if k != variable {
+                    other_keys.entry(k.clone()).or_default().push(x.clone());
+                }
+            }
+        }
+        let mut dedup = values.clone();
+        dedup.sort();
+        dedup.dedup();
+        if dedup.len() != values.len() {
+            p.push("the variants must differ in the variable".into());
+        }
+        for (k, xs) in &other_keys {
+            if xs.len() != vs.len() || xs.iter().any(|x| x != &xs[0]) {
+                p.push(format!("variants differ in {k:?} as well as in the variable: one variable per experiment"));
             }
         }
     }
-    let mut dedup = values.clone();
-    dedup.sort();
-    dedup.dedup();
-    if dedup.len() != values.len() {
-        p.push("the variants must differ in the variable".into());
+    if bases.is_empty() || bases.iter().any(|b| !vs.iter().any(|v| &v.id == b)) {
+        p.push("`baseline` must name a variant (or be a list of variants)".into());
     }
-    for (k, xs) in &other_keys {
-        if xs.len() != vs.len() || xs.iter().any(|x| x != &xs[0]) {
-            p.push(format!("variants differ in {k:?} as well as in the variable: one variable per experiment"));
-        }
+    if !vs.iter().any(|v| v.id == treat) {
+        p.push("`treatment` must name a variant".into());
     }
-    for k in ["baseline", "treatment"] {
-        if !vs.iter().any(|v| Some(v.id.as_str()) == ystr(r, k)) {
-            p.push(format!("`{k}` must name a variant"));
-        }
-    }
-    if ystr(r, "baseline").is_some() && ystr(r, "baseline") == ystr(r, "treatment") {
+    if bases.iter().any(|b| b == treat) {
         p.push("`baseline` and `treatment` must differ".into());
     }
     let metric_ok = |m: &str| METRIC_PREFIXES.iter().any(|x| m.starts_with(x)) && m.rsplit_once('.').is_some_and(|(_, f)| !f.is_empty());
-    let primary = r.get("primary").cloned().unwrap_or(Y::Null);
-    if !ystr(&primary, "metric").is_some_and(metric_ok) {
-        p.push("`primary.metric` must be a metric name (run., node., edge. or decision.<...>.<field>)".into());
+    let prims = primaries(r);
+    if prims.is_empty() {
+        p.push("`primary` must be a metric with direction and min_effect (or a list of them)".into());
     }
-    if !matches!(ystr(&primary, "direction"), Some("increase" | "decrease")) {
-        p.push("`primary.direction` must be increase or decrease".into());
-    }
-    if primary.get("min_effect").and_then(Y::as_f64).is_none_or(|x| x < 0.0) {
-        p.push("`primary.min_effect` must be a number of at least 0 (the size the hypothesis names)".into());
-    }
-    if let (Some(m), Some(t)) = (ystr(&primary, "metric"), Some(tname).filter(|t| !t.is_empty())) {
-        if !m.contains(t) && ystr(&target, "kind") != Some("run") {
-            p.push(format!("`primary.metric` {m:?} is not a metric of the target {t:?}"));
+    for primary in &prims {
+        if !ystr(primary, "metric").is_some_and(metric_ok) {
+            p.push("`primary.metric` must be a metric name (run., node., edge. or decision.<...>.<field>)".into());
+        }
+        if !matches!(ystr(primary, "direction"), Some("increase" | "decrease")) {
+            p.push("`primary.direction` must be increase or decrease".into());
+        }
+        if primary.get("min_effect").and_then(Y::as_f64).is_none_or(|x| x < 0.0) {
+            p.push("`primary.min_effect` must be a number of at least 0 (the size the hypothesis names)".into());
+        }
+        if let (Some(m), Some(t)) = (ystr(primary, "metric"), Some(tname).filter(|t| !t.is_empty())) {
+            if !m.contains(t) && ystr(&target, "kind") != Some("run") {
+                p.push(format!("`primary.metric` {m:?} is not a metric of the target {t:?}"));
+            }
         }
     }
     for g in yseq(r, "guards") {
@@ -840,9 +927,9 @@ fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<S
             let doc = match load_summary(&dir.join(format!("{}.json", rr.run))) {
                 Ok(Some(x)) => x.doc,
                 Ok(None) => match runs_dir.map(|d| d.join(&rr.run)).filter(|d| d.is_dir()) {
-                    Some(d) => match run_metrics::load(&d) {
-                        Ok(x) => x,
-                        Err(run_metrics::Fail(m)) => {
+                    Some(d) => match load_run(&d) {
+                        Ok(x) => x.doc,
+                        Err(m) => {
                             problems.push(format!("variant {:?}: run {}: {m}", v.id, rr.run));
                             continue;
                         }
@@ -901,6 +988,9 @@ fn compute_result(r: &Y, loaded: &Loaded) -> J {
     if !has_hypothesis(r) {
         return json!({"computed_by": "sdc-experiment report", "verdict": "descriptive",
             "why": "no hypothesis: the record describes its runs and decides nothing", "variants": variant_docs});
+    }
+    if multi(r) {
+        return compute_multi(r, loaded, variant_docs);
     }
     let primary = r.get("primary").cloned().unwrap_or(Y::Null);
     let metric = ystr(&primary, "metric").unwrap_or("").to_string();
@@ -989,6 +1079,102 @@ fn compute_result(r: &Y, loaded: &Loaded) -> J {
         "median_difference": diff, "separation": separation, "p_one_sided": p,
         "guards": guard_docs, "guards_ok": guards_ok,
         "verdict": verdict, "why": why, "recommendation": recommendation,
+    })
+}
+
+/// The complete-separation rule on one metric between a baseline's and the treatment's runs:
+/// verdict, separation, exact one-sided p, median difference and why.
+fn separate(bv: &BTreeMap<String, f64>, tv: &BTreeMap<String, f64>, direction: &str, min_effect: f64, rpv: usize) -> (&'static str, &'static str, Option<f64>, Option<f64>, String) {
+    let bs = stat(&bv.values().copied().collect::<Vec<_>>());
+    let ts = stat(&tv.values().copied().collect::<Vec<_>>());
+    match (&bs, &ts) {
+        (Some(b), Some(t)) if b.n >= rpv && t.n >= rpv => {
+            let diff = t.median - b.median;
+            let expected = if direction == "decrease" { t.max < b.min } else { t.min > b.max };
+            let reversed = if direction == "decrease" { t.min > b.max } else { t.max < b.min };
+            let p = 1.0 / choose(b.n + t.n, t.n);
+            if expected && diff.abs() >= min_effect {
+                ("held", "expected", Some(p), Some(diff), format!("ranges separate in the expected direction, median difference {}, n {} and {}, one-sided exact p {}",
+                    signed(diff), b.n, t.n, fmt((p * 1000.0).round() / 1000.0)))
+            } else if expected {
+                ("contradicted", "expected", Some(p), Some(diff), format!("ranges separate as expected but the median difference {} is below {}", fmt(diff.abs()), fmt(min_effect)))
+            } else if reversed {
+                ("contradicted", "reversed", Some(p), Some(diff), format!("ranges separate against the expected direction (median difference {})", signed(diff)))
+            } else {
+                ("inconclusive", "overlap", None, Some(diff), format!("ranges overlap (median difference {}): no effect is claimed", signed(diff)))
+            }
+        }
+        _ => ("inconclusive", "n", None, bs.as_ref().zip(ts.as_ref()).map(|(b, t)| t.median - b.median),
+            format!("too few ended runs with the metric: {} and {}, the rule needs {rpv} each", bs.as_ref().map_or(0, |s| s.n), ts.as_ref().map_or(0, |s| s.n))),
+    }
+}
+
+/// The result of a record with several baselines or several primary metrics: the rule on every
+/// pair; held when every pair holds, contradicted when one is contradicted, else inconclusive.
+fn compute_multi(r: &Y, loaded: &Loaded, mut variant_docs: Vec<J>) -> J {
+    let rpv = rpv_of(r).max(1);
+    let treat = ystr(r, "treatment").unwrap_or("").to_string();
+    let empty = vec![];
+    let runs_of = |id: &str| loaded.iter().find(|(v, _, _)| v.id == id).map_or(&empty, |(_, rs, _)| rs);
+    let t_runs = runs_of(&treat);
+    let mut comps = vec![];
+    let mut whys = vec![];
+    let mut verdicts = vec![];
+    for primary in primaries(r) {
+        let metric = ystr(&primary, "metric").unwrap_or("").to_string();
+        let direction = ystr(&primary, "direction").unwrap_or("increase").to_string();
+        let min_effect = primary.get("min_effect").and_then(Y::as_f64).unwrap_or(0.0);
+        let tv = values_of(t_runs, &metric);
+        for b in baselines(r) {
+            let bv = values_of(runs_of(&b), &metric);
+            let (verdict, sep, p, diff, why) = separate(&bv, &tv, &direction, min_effect, rpv);
+            whys.push(format!("{metric}, {treat} against {b}: {verdict} ({why})"));
+            verdicts.push(verdict);
+            comps.push(json!({"metric": metric, "direction": direction, "min_effect": min_effect, "baseline": b, "treatment": treat,
+                "verdict": verdict, "separation": sep, "p_one_sided": p, "median_difference": diff, "why": why,
+                "baseline_values": stat_json(&bv), "treatment_values": stat_json(&tv)}));
+        }
+        for (d, (_, rs, _)) in variant_docs.iter_mut().zip(loaded) {
+            d["primaries"][metric.as_str()] = stat_json(&values_of(rs, &metric));
+        }
+    }
+    let verdict = if !verdicts.is_empty() && verdicts.iter().all(|v| *v == "held") {
+        "held"
+    } else if verdicts.contains(&"contradicted") {
+        "contradicted"
+    } else {
+        "inconclusive"
+    };
+    let mut guard_docs = vec![];
+    let mut guards_ok = true;
+    for g in yseq(r, "guards") {
+        let gm = ystr(&g, "metric").unwrap_or("").to_string();
+        let worse_up = ystr(&g, "worse") == Some("increase");
+        let gt = values_of(t_runs, &gm);
+        for b in baselines(r) {
+            let gb = values_of(runs_of(&b), &gm);
+            let sb = stat(&gb.values().copied().collect::<Vec<_>>());
+            let st = stat(&gt.values().copied().collect::<Vec<_>>());
+            let (state, worsening) = match (&sb, &st) {
+                (Some(bs), Some(ts)) => {
+                    let w = if worse_up { ts.median - bs.median } else { bs.median - ts.median };
+                    let bound = g.get("max_worsening").and_then(Y::as_f64)
+                        .or_else(|| g.get("max_worsening_ratio").and_then(Y::as_f64).map(|x| x * bs.median.abs())).unwrap_or(0.0);
+                    if w <= bound + 1e-12 { ("holds", Some(w)) } else { ("fails", Some(w)) }
+                }
+                _ => ("unknown", None),
+            };
+            guards_ok &= state != "fails";
+            guard_docs.push(json!({"metric": gm, "baseline": b, "state": state, "worsening": worsening, "baseline_values": stat_json(&gb), "treatment_values": stat_json(&gt)}));
+        }
+    }
+    json!({
+        "computed_by": "sdc-experiment report",
+        "comparisons": comps, "variants": variant_docs,
+        "guards": guard_docs, "guards_ok": guards_ok,
+        "verdict": verdict,
+        "why": format!("{} on every pair of primary metric and baseline is required for held; {}", "held", whys.join("; ")),
+        "recommendation": "none: a comparison of runners, nothing to adopt",
     })
 }
 
@@ -1148,7 +1334,22 @@ fn render_report(r: &Y, loaded: &Loaded, result: &J) -> String {
     // Verdict.
     let _ = writeln!(md, "\n## Verdict\n");
     let _ = writeln!(md, "{}: {}.", result["verdict"].as_str().unwrap_or(""), result["why"].as_str().unwrap_or(""));
-    if has_hypothesis(r) {
+    if has_hypothesis(r) && multi(r) {
+        let _ = writeln!(md, "\nEach pair of primary metric and baseline (median [min, max] (n)):\n");
+        let st = |v: &J| format!("{} [{}, {}] ({})", v["median"].as_f64().map_or("-".into(), |x| fmt((x * 1000.0).round() / 1000.0)),
+            v["min"].as_f64().map_or("-".into(), |x| fmt((x * 1000.0).round() / 1000.0)),
+            v["max"].as_f64().map_or("-".into(), |x| fmt((x * 1000.0).round() / 1000.0)), v["n"]);
+        for c in result["comparisons"].as_array().into_iter().flatten() {
+            let _ = writeln!(md, "- `{}` ({}), {} against {}: {}; {} {}, {} {}; {}", c["metric"].as_str().unwrap_or(""), c["direction"].as_str().unwrap_or(""),
+                c["treatment"].as_str().unwrap_or(""), c["baseline"].as_str().unwrap_or(""), c["verdict"].as_str().unwrap_or(""),
+                c["treatment"].as_str().unwrap_or(""), st(&c["treatment_values"]), c["baseline"].as_str().unwrap_or(""), st(&c["baseline_values"]),
+                c["why"].as_str().unwrap_or(""));
+        }
+        for g in result["guards"].as_array().into_iter().flatten() {
+            let _ = writeln!(md, "- guard `{}` against {}: {} (worsening {})", g["metric"].as_str().unwrap_or(""), g["baseline"].as_str().unwrap_or(""),
+                g["state"].as_str().unwrap_or(""), g["worsening"].as_f64().map_or("-".into(), |x| fmt((x * 1000.0).round() / 1000.0)));
+        }
+    } else if has_hypothesis(r) {
         let _ = writeln!(md, "\nPrimary metric `{}` ({}, at least {}):\n", result["metric"].as_str().unwrap_or(""),
             result["direction"].as_str().unwrap_or(""), result["min_effect"]);
         for v in result["variants"].as_array().into_iter().flatten() {
@@ -1479,8 +1680,9 @@ fn planned_runs(r: &Y) -> Vec<Planned> {
     let vs = variants(r);
     let mut out = vec![];
     for n in 1..=rpv_of(r) {
-        for v in &vs {
-            out.push(Planned { variant: v.clone(), ordinal: n, name: format!("{id}.{}.{n}", v.id),
+        for v in vs.iter().filter(|v| v.from.is_none()) {
+            let name = v.run_name.as_deref().map(|t| t.replace("{n}", &n.to_string())).unwrap_or_else(|| format!("{id}.{}.{n}", v.id));
+            out.push(Planned { variant: v.clone(), ordinal: n, name,
                 unit: format!("sdc-exp-{}-{}-{n}", unit_part(id), unit_part(&v.id)) });
         }
     }
@@ -1503,6 +1705,23 @@ fn launch_env(settings: &BTreeMap<String, String>, runs_dir: &Path, principal: &
         }
     }
     env
+}
+
+/// The command line of a free-running agent's run (`runner: free-agent`): sdc-free-agent of the
+/// build, the idea text, the prompt and example spec of the build's tree, the record's settings.
+fn free_argv(build: &Path, name: &str, input: &Y, settings: &BTreeMap<String, String>, runs_dir: &Path) -> Vec<String> {
+    let g = |k: &str| settings.get(k).cloned().unwrap_or_default();
+    let mut v: Vec<String> = vec![build.join("driver/target/debug/sdc-free-agent").display().to_string(), "run".into(),
+        "--run-dir".into(), runs_dir.join(name).display().to_string(),
+        "--idea".into(), ystr(input, "text").unwrap_or("").trim().to_string(),
+        "--prompt".into(), build.join("driver/examples/sdc/free-agent/prompt.md").display().to_string(),
+        "--example-spec".into(), build.join("driver/examples/sdc/fixtures/billing-spec").display().to_string()];
+    for (flag, key) in [("--model", "free.model"), ("--effort", "free.effort"), ("--max-usd", "free.max_usd"),
+        ("--max-wall-s", "free.max_wall_s"), ("--max-turns", "free.max_turns")] {
+        v.push(flag.into());
+        v.push(g(key));
+    }
+    v
 }
 
 fn launch_argv(build: &Path, name: &str, input: &Y, settings: &BTreeMap<String, String>, runs_dir: &Path) -> Vec<String> {
@@ -1730,7 +1949,8 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             for (k, v) in env.iter().filter(|(k, _)| k.starts_with("SDC_")) {
                 println!("  {k}={v}");
             }
-            println!("  {}", launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir).join(" "));
+            let argv = if p.variant.runner == "free-agent" { free_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) } else { launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) };
+            println!("  {}", argv.join(" "));
         }
         return Ok(());
     }
@@ -1755,9 +1975,18 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         }
         let _ = Command::new("systemctl").args(["--user", "reset-failed", &p.unit]).output();
         let env = launch_env(&p.variant.settings, &runs_dir, &principal, &base);
-        let argv = launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir);
+        let free = p.variant.runner == "free-agent";
+        let argv = if free { free_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) } else { launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) };
+        // run-trial.sh writes events/ once the run directory is fresh; sdc-free-agent writes free-agent.json.
+        let marker = if free { dir.join("free-agent.json") } else { dir.join("events") };
+        // A free run's home holds a copy of the login: the unit removes it on every stop, also when
+        // the launcher is killed or crashes and runs no destructor.
+        let stop_post: Vec<String> =
+            if free { vec![format!("--property=ExecStopPost=/usr/bin/rm -rf -- {}", dir.join("home").display())] } else { vec![] };
         let st = Command::new("systemd-run")
-            .args(["--user", "--quiet", "--unit", &p.unit, "--description"])
+            .args(["--user", "--quiet", "--unit", &p.unit])
+            .args(&stop_post)
+            .arg("--description")
             .arg(format!("sdc experiment {id}: run {}", p.name))
             .arg(format!("--working-directory={}", build.display()))
             .args(["/usr/bin/env", "-i"])
@@ -1772,11 +2001,11 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         // run-trial.sh removes and recreates a new run's directory before it writes events/; the
         // record goes in after that.
         let mut waited = 0;
-        while !dir.join("events").is_dir() && waited < 120 {
+        while !marker.exists() && waited < 120 {
             sleep_s(1);
             waited += 1;
         }
-        if !dir.join("events").is_dir() {
+        if !marker.exists() {
             let _ = Command::new("systemctl").args(["--user", "stop", &p.unit]).output();
             return Err((1, format!("{} did not create {} within 120 s; its unit {} was stopped", p.name, dir.display(), p.unit)));
         }

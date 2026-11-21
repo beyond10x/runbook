@@ -700,7 +700,7 @@ fn load_free(dir: &Path, name: &str, meta: J) -> Res<J> {
         }
     }
     let mut notes: BTreeSet<String> = BTreeSet::new();
-    notes.insert("times are when the launcher received each stream line; a request starts when the agent's previous step ended (the session start, the last tool result before it, or the previous response)".into());
+    notes.insert("times are when the launcher received each stream line; a request starts at the harness's status line `requesting` before it, else when the agent's previous step ended (the session start, the last tool result, the previous response); per-request tokens are the final usage of each response (message_delta)".into());
     notes.insert("per-request cost is not recorded by the stream: model spans carry cost_usd null and totals.cost_usd is the session result's total_cost_usd".into());
     let mut spans: Vec<Span> = vec![];
     let mut event_times = vec![];
@@ -717,6 +717,7 @@ fn load_free(dir: &Path, name: &str, meta: J) -> Res<J> {
         model: J,
         usage: J,
         output: Option<i64>,
+        final_usage: J,
         tools: Vec<String>,
     }
     let mut reqs: Vec<(String, Req)> = vec![];
@@ -724,6 +725,7 @@ fn load_free(dir: &Path, name: &str, meta: J) -> Res<J> {
     let mut last_step_end = start;
     let mut tool_open: BTreeMap<String, (i64, String)> = BTreeMap::new();
     let mut tools_seen: BTreeSet<String> = BTreeSet::new();
+    let mut requesting: Option<i64> = None;
     let mut result = J::Null;
     let mut retries = 0;
     let mut sub_ignored = 0;
@@ -741,20 +743,24 @@ fn load_free(dir: &Path, name: &str, meta: J) -> Res<J> {
                 }
             }
             "system" if e["subtype"] == "api_retry" => retries += 1,
+            "system" if e["subtype"] == "status" && e["status"] == "requesting" => requesting = Some(t),
             "stream_event" => {
                 let se = &e["event"];
                 match se["type"].as_str().unwrap_or("") {
                     "message_start" => {
                         let m = &se["message"];
-                        let sent = last_step_end.unwrap_or(t);
+                        let sent = requesting.take().or(last_step_end).unwrap_or(t);
                         reqs.push((js(&m["id"]), Req { sent, first: Some(t), end: None, model: m["model"].clone(),
-                            usage: m["usage"].clone(), output: None, tools: vec![] }));
+                            usage: m["usage"].clone(), output: None, final_usage: J::Null, tools: vec![] }));
                         cur = Some(reqs.len() - 1);
                     }
                     "message_delta" => {
                         if let Some(k) = cur {
                             if let Some(o) = se["usage"]["output_tokens"].as_i64() {
                                 reqs[k].1.output = Some(o);
+                            }
+                            if se["usage"].is_object() {
+                                reqs[k].1.final_usage = se["usage"].clone();
                             }
                         }
                     }
@@ -822,10 +828,16 @@ fn load_free(dir: &Path, name: &str, meta: J) -> Res<J> {
             *tc.entry(n).or_default() += 1;
         }
         s.extra.insert("tool_calls".into(), json!(tc));
-        let mut tok = tokens_of(&r.usage);
-        if tok.is_object() {
-            tok["output"] = json!(r.output);
-        }
+        // The final usage of the response (message_delta), else the start's input figures with output null.
+        let tok = if r.final_usage["input_tokens"].is_i64() {
+            tokens_of(&r.final_usage)
+        } else {
+            let mut t = tokens_of(&r.usage);
+            if t.is_object() {
+                t["output"] = json!(r.output);
+            }
+            t
+        };
         s.extra.insert("tokens".into(), tok);
         s.extra.insert("cost_usd".into(), J::Null);
         spans.push(s);
@@ -885,6 +897,56 @@ pub fn load(dir: &Path) -> Res<J> {
         return load_free(dir, &name, meta);
     }
     load_sdc(dir, &name)
+}
+
+/// A number as a record writes it: `25`, not `25.0`.
+fn num_str(v: &J) -> String {
+    match v.as_f64() {
+        Some(x) if x.fract() == 0.0 && x.abs() < 1e15 => format!("{}", x as i64),
+        Some(x) => format!("{x}"),
+        None => js(v),
+    }
+}
+
+/// The metrics of a free-running agent's run in the shape of `sdc.run-metrics/1` (the run fields
+/// `sdc-experiment` compares: `metrics.cost_usd`, `wall_s`, `tokens`, `closed`, `delivered`,
+/// `clean`, `finished`), from its timeline, `free-agent.json` and the measured `outcome.json`.
+/// None for a directory that is no free-agent run. A run is finished once it has ended and its
+/// outcome is measured.
+pub fn free_metrics(dir: &Path) -> Res<Option<J>> {
+    let Some(meta) = rm::json_opt(&dir.join("free-agent.json"))? else { return Ok(None) };
+    let t = load(dir)?;
+    let outcome = rm::json_opt(&dir.join("outcome.json"))?;
+    let tot = &t["totals"];
+    let ended = meta["end"] != "running";
+    let o = outcome.clone().unwrap_or(J::Null);
+    let closed = o["ended_by_itself"] == true;
+    let delivered = o["delivered"] == true;
+    let capped = meta["capped"].clone();
+    let end = match (meta["end"].as_str().unwrap_or(""), capped.as_str()) {
+        ("capped", Some(c)) => format!("capped: {c}"),
+        (e, _) => e.to_string(),
+    };
+    let tk = &tot["tokens"];
+    let settings = json!({"free.model": js(&meta["model"]), "free.effort": js(&meta["effort"]), "free.adapter": js(&meta["adapter"]),
+        "free.max_usd": num_str(&meta["caps"]["max_usd"]), "free.max_wall_s": num_str(&meta["caps"]["max_wall_s"]),
+        "free.max_turns": num_str(&meta["caps"]["max_turns"])});
+    let metrics = json!({
+        "end": end, "end_kind": if !ended { "open" } else if closed { "closed" } else { "stopped" },
+        "closed": closed, "outcome": if delivered { json!("delivered") } else { json!("not delivered") },
+        "delivered": delivered, "clean": delivered && capped.is_null(), "finished": ended && outcome.is_some(),
+        "capped": capped, "reopens": 0, "forced": 0, "unstuck": 0,
+        "cost_usd": tot["cost_usd"], "llm_calls": null, "llm_cost_usd": tot["cost_usd"], "decider_calls": 0, "decider_cost_usd": 0.0,
+        "api_requests": tot["api_requests"], "tool_calls": tot["model_tool_calls"], "tool_calls_by_name": tot["model_tool_calls_by_name"],
+        "tokens": {"input": tk["input"], "output": tk["output"], "cache_read": tk["cache_read"], "cache_creation": tk["cache_write"]},
+        "session_usage": t["session"]["usage"], "usage_beyond_streamed_requests": t["session"]["usage_beyond_streamed_requests"],
+        "wall_s": tot["wall_s"], "model_s": tot["model_s"], "tool_s": tot["tool_s"], "idle_s": tot["idle_s"], "waiting_on_person_s": 0,
+    });
+    Ok(Some(json!({
+        "format": "sdc.free-agent-metrics/1", "run": t["run"], "settings": settings, "metrics": metrics,
+        "outcome": o, "stages": [], "nodes": [], "edges": [], "decisions": {"by_class": {}, "by_action": {}},
+        "records": {"free_agent": true, "outcome": outcome.is_some()},
+    })))
 }
 
 fn opt(v: &J) -> String {
