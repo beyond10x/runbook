@@ -52,6 +52,10 @@ path = "src/bin/sdc-experiment.rs"
 name = "sdc-replay"
 path = "src/bin/sdc-replay.rs"
 
+[[bin]]
+name = "sdc-run-timeline"
+path = "src/bin/sdc-run-timeline.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"
