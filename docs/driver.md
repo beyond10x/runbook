@@ -366,8 +366,8 @@ The driver then sees a new revision; only the bound programs produce evidence ab
 
 **Model per node** (2026-11-21, `story:model-per-node-variable`). The model is a run setting, by
 node class (`tools/node-classes.json`): `SDC_LLM_MODEL_WRITER` (`spec.author`, `plan.decompose`),
-`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`spec.review`,
-`change.review`, program stubs today, so no call uses it yet), `SDC_LLM_MODEL_OTHER` (every other
+`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`change.review`;
+`spec.review` is still a program stub), `SDC_LLM_MODEL_OTHER` (every other
 node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The decider:
 `SDC_LLM_MODEL_DECIDER`, else `SDC_DECIDER_MODEL`, else `claude-haiku-5-5` (`SDC_LLM_MODEL` does
 not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
@@ -459,6 +459,31 @@ The fixture adapter answers node `requester.<question or action>` from `SDC_REQU
 (cycles `requester-decider`, `requester-no-ground`). Findings and code review are not requests in
 this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer node.
 
+**The code review** (2026-11-21, `story:review-node-is-a-model`). `change.review` is an LLM call
+of class REVIEW (`SDC_LLM_MODEL_REVIEW`) by `llm-node.sh change.review`, producer `llm-review`,
+which the story bindings list as independent (`different_principal`): the implementer is
+`llm-node`. A fresh session with no implementer context and read-only operations. Its inputs are
+built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary and an
+`## Acceptance` section), the requirements it delivers (`spec/traces.json`: a covered command, or a
+view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`
+(requirements no story covers: findings of kind `outside`, never a reason to reject), the covered
+commands' IR entries, the change tree, its diff against `mainline/` (empty for the first story),
+the gate log, and the log of the conformance run that passed on the revision under review (sdc.story
+revision 7 admits `change.review` only after `tests.pass`; without that log the node records
+nothing). The reply is constrained by
+`sdc-reply schema --type review` (claude-cli `--json-schema`): `decision` approved or rejected,
+`findings` each `{kind, at: impl/<path>:<line>, violates, says}`, `summary`. `sdc-reply
+check-review` checks it: every `at` a line of the change tree, every `violates` in the story's set
+(or, for `outside`, in the uncovered set), a rejection with at least one violation. An invalid
+reply is asked again with the reason (`SDC_REVIEW_RETRIES`, default 2); still invalid, or a failed
+call: exit 2, nothing recorded, so the case is stuck on that revision; never an approval. A valid
+rejection exits 1 with only its `sdc.rejection/1` on stdout (approval `change.review`, principal
+`llm-review:<model>`, reasons, citations with `in_diff`, count); that log reaches `change.implement`
+through `retry_when: {code_review: [rejected]}` as `in/rejection.json`. The bound is
+`change.implement`'s `max_runs` 3 per arrival, shared with failed conformance runs: the third
+rejection ends `writer_spent` with `sent_back` naming `change.review`. Cycles `review-reject-once`,
+`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`).
+
 **A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
 writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
 revision, principal, reasons, citations, count) and records it: `sdc-drive approve … --action
@@ -546,7 +571,8 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | spec | `spec.author` | `llm-node.sh`, `domain` from `args_from: spec-domain` (stub: copies `fixtures/billing-spec`, ESS `examples/billing`) | `spec_source=authored` |
 | spec | `spec.validate`, `spec.compile`, `spec.synthesize` | the `ess` commands above, one each | `valid`, `compiled`, `clean` |
 | spec | `spec.scan`, `spec.trace` | `grep -rn UNMAPPED:`; every `system.yaml` domain cited by a requirement | `none`, `traced` |
-| spec, story | `spec.review`, `change.review` | reviewer stub (`test -f`), producer `reviewer-stub`, listed independent | `approved` |
+| spec | `spec.review` | reviewer stub (`test -f`), producer `reviewer-stub`, listed independent | `approved` |
+| story | `change.review` | `llm-node.sh change.review`, class REVIEW, producer `llm-review`, listed independent (see "The code review"); stub `test -s impl/README.md` | `approved`/`rejected` |
 | plan | `plan.decompose` | `llm-node.sh`: proposal → `aep plan artifact new story`, `scope --add`, `move --to active` (epic, story) | revises `plan` |
 | plan | `plan.validate`, `plan.scope`, `plan.status` | `aep plan artifact validate --strict`; `waves --kind story` with 0 unassessed; `list` all active | `valid`, `scoped`, `active` |
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
@@ -693,8 +719,8 @@ New with the LLM executor (2026-11-21):
     checks the spec against itself) plus the tree's own `task check` (tests the LLM wrote). Next:
     ESS's generated Go/TypeScript runner or `conform report` with a runner that drives `impl/`.
     Interim: the story's `impl-gate` (see "Interim story gate").
-17. **Reviews are stubs.** `spec.review` and `change.review` are `test -f` checks by
-    `reviewer-stub`; an LLM reviewer would be a second principal listed as independent.
+17. **The spec review is a stub.** `spec.review` is a `test -f` check by `reviewer-stub`.
+    `change.review` is a model call by `llm-review` since 2026-11-21 ("The code review").
 18. **No per-call narrowing of a shell.** The frame admits operations, not commands, so the
     agents get no shell at all: they cannot run `ess specify validate` or their tests and learn
     only through `retry_when` feedback. Narrowing (`ess specify validate` only) needs metaharness

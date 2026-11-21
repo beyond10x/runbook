@@ -292,7 +292,7 @@ release-build)
 publish) rm -rf published && mkdir -p published && cp -r release/. published/ ;;
 observe) cmp -s published/PROVENANCE release/PROVENANCE ;;
 review-spec) test -f spec/system.yaml ;;
-review-change) test -s impl/README.md ;;
+review-change) test -s impl/README.md ;; # change.review's stub; the review itself: tools/llm-node.sh change.review
 
 # --- the late-finding loop (docs/trial-2.md, "The late-finding loop") ------------------------
 # Each stage's check is its own check, then the finding gate: exit 1 when its own check fails,
