@@ -1488,7 +1488,7 @@ echo "efforts: dry exits $e1 $e2 $e3, unknown value exit $e4, stand-in claude ex
 if (( e1 == 0 && e2 == 0 && e3 == 0 && e4 == 64 && e5 == 0 )) && hermetic &&
    eexpect efforts-default '"high"' xhigh &&
    eexpect efforts-all '"low"' low &&
-   eexpect efforts-class '{writer: "high", implement: "xhigh", other: "medium"}[.class]' max &&
+   eexpect efforts-class '{writer: "high", implement: "xhigh", review: "medium", other: "medium"}[.class]' max &&
    eargv efforts-default spec.author high && eargv efforts-all spec.author low &&
    eargv efforts-class spec.author high && eargv efforts-class idea.dissect medium &&
    grep -q "low, medium, high, xhigh, max" "$s/efforts-bad.txt" && [[ ! -e $s/runs/efforts-bad/run-settings.jsonl ]] &&
