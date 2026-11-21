@@ -22,7 +22,10 @@
 # (marked dry), as llm-node.sh falls back to its stub.
 # SDC_DECIDER_ESCALATE=final (eval runs, no person at all): the prompt also asks for `best`
 # (approve or reject), required on an escalate; scripts/run-trial.sh records
-# `escalation_suppressed` and takes `best`. Default `stop`: an escalate waits for a person.
+# `escalation_suppressed` and takes `best` (for a question: its default). Default `stop`: an
+# escalate waits for a person.
+# Claims: in/checks.json marks `settled_by_this_decision` on each claim the decided action's
+# precondition admits only while it is not true (the action is there to settle it).
 set -uo pipefail
 for p in jq yq; do command -v "$p" >/dev/null 2>&1 || { echo "decider.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 here=$(cd "$(dirname "$0")" && pwd)
@@ -71,7 +74,7 @@ validate() {
         elif any($c[]; IN($ids[]) | not) then "cites an id that does not exist: \([$c[] | select(IN($ids[]) | not)])"
         elif $b != null and $d != "escalate" then "best is only for an escalate"
         elif $b != null and ($b | IN("approve", "reject") | not) then "best is not approve or reject"
-        elif $final == "yes" and $d == "escalate" and $b == null then "an escalate needs best: approve or reject (SDC_DECIDER_ESCALATE=final)"
+        elif $final == "yes" and $d == "escalate" and $b == null and $type != "question" then "an escalate needs best: approve or reject (SDC_DECIDER_ESCALATE=final)"
         elif $type == "question" and ($d == "approve" or $b == "approve") and (($a | type) != "string" or $a == "") then "an approved question needs an answer"
         elif $type != "question" and $a != null then "answer is only for a question"
         else "" end end' "$out" 2>&1) || why="validator error: $why"
@@ -132,22 +135,39 @@ story=$(cut -d. -f3 <<< "$(jq -r .id "$(r .case_dir)/case.json")")
 path=$(r '.path // ""')
 case $path in ""|idea.yaml|dissection.yaml|questions.yaml|requirements.yaml|context.yaml|aep/*) ;; *) input "$path" ;; esac
 # Only the claims the decision turns on: an approval's action precondition, a close's outcome
-# condition. A question sees all of them. Claims about later steps (release.healthy before
-# publish) would read as failures.
+# condition; a question, the precondition of the action that takes its answer (scope.answer), or
+# all of them when that action has none. Claims about later steps (release.healthy before
+# publish, requirements.valid before scope.answer) would read as failures.
 ir=$(r .case_dir)/ir.json
-reads=null
+reads=null settles=[]
 if [[ -s $ir ]]; then
   case $type in
     approval) reads=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects | .id] | unique' "$ir") ;;
+    question) reads=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects | .id] | unique
+      | if . == [] then null else . end' "$ir") ;;
     close) reads=$(jq -c --arg o "$(r .outcome)" '[.outcomes[$o].requires // {} | .. | objects | .claim? | objects | .id] | unique' "$ir") ;;
   esac
+  # The claims the decided action is there to settle: its precondition admits them only while
+  # they are not true (scope.answer: questions.settled false or unknown). Their value is not a
+  # failed check, so they are marked (runs/trial-2b-fresh: the decider escalated scope.answer
+  # because questions.settled was false). may_produce does not reach them: scope.answer produces
+  # no evidence, questions.check checks the revision it writes.
+  settles=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects
+    | {id, is}] | group_by(.id) | map(select(all(.is != "true")) | .[0].id)' "$ir")
 fi
-jq --argjson reads "$reads" '.position | {claims: (if $reads == null then .claims
-  else (.claims | with_entries(select(.key | IN($reads[])))) end), open_obligations, legitimate_outcomes}' \
-  <<< "$req" > "$cwd/in/checks.json"
+jq --argjson reads "$reads" --argjson settles "$settles" '.position | {claims: (if $reads == null then .claims
+  else (.claims | with_entries(select(.key | IN($reads[])))) end
+  | with_entries(if (.key | IN($settles[])) then .value += {settled_by_this_decision: true} else . end)),
+  open_obligations, legitimate_outcomes}' <<< "$req" > "$cwd/in/checks.json"
 inputs+=("in/checks.json (the program checks this decision turns on: each claim's value at the current revisions, the open obligations)")
-jq '{type, case: (.case_dir | split("/") | last), action, capability, subject, artifact_path: .path,
-  revision, question, outcome}' <<< "$req" > "$cwd/in/decision.json"
+# A question comes with the dissection item it was asked about and that item's words in the idea.
+item=null
+if [[ $type == question ]]; then
+  item=$(yq -o=json -I=0 ".items[] | select(.id == \"$(r '.question.item // ""')\")" "$work/dissection.yaml" 2>/dev/null)
+  [[ -n $item ]] || item=null
+fi
+jq --argjson item "$item" '{type, case: (.case_dir | split("/") | last), action, capability, subject, artifact_path: .path,
+  revision, question, item: $item, idea_excerpt: ($item.span // null), outcome}' <<< "$req" > "$cwd/in/decision.json"
 
 case $type in
   approval) what="Decide whether to approve \`$(r .action)\`: the $(r .subject) at revision $(r .revision) (in/$path).
@@ -161,7 +181,8 @@ In in/checks.json a claim's \`value\` is the check's result at the current revis
 \`excluded_evidence\` only lists older records set aside, which is normal after a rewrite. The open
 obligation of what you decide (for example roadmap.required) is open because your approval is
 missing." ;;
-  question) what="Answer the interview question in in/decision.json (\`question\`: its text, \`options\`, \`default\`).
+  question) what="Answer the interview question in in/decision.json (\`question\`: its text, \`options\`, \`default\`;
+\`item\`: the dissection item it was asked about; \`idea_excerpt\`: that item's words in the idea).
 Approve with \`answer\` = the default, unless the default contradicts the idea; then \`answer\` is the
 option (or a short better answer) that fits the idea. The question is scope-changing: escalate when
 every answer, the default included, would add a capability, a kind of user or a component the idea
@@ -183,6 +204,9 @@ prompt=$rec/prompt.md
   echo "Decision:"
   echo "$what"
   echo
+  echo "A claim in in/checks.json marked \`settled_by_this_decision\` is one that taking this decision"
+  echo "makes true: its value now (false or unknown) is not a failed check."
+  echo
   echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
   echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
   echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
@@ -192,12 +216,15 @@ prompt=$rec/prompt.md
   echo ' "answer": <for a question: the answer string; otherwise null>,'
   echo ' "reasons": ["<one sentence each, at least one>"],'
   echo ' "cites": ["<ids your reasons rest on: requirement ids (r1, ...), else dissection item or question ids, or claim ids from in/checks.json>"],'
-  if [[ $final == yes ]]; then
-    echo ' "best": <when decision is escalate: "approve" or "reject", the decision you would take if no'
-    echo '          person could be asked (for a question, "approve" uses your answer); otherwise null>}'
+  if [[ $final == yes && $type == question ]]; then
+    echo ' "best": null}'
     echo
-    echo "No person is available in this run: on escalate, \`best\` is taken. Give an answer for a"
-    echo "question even when you escalate."
+    echo "No person is available in this run: on escalate, the question's default is taken."
+  elif [[ $final == yes ]]; then
+    echo ' "best": <when decision is escalate: "approve" or "reject", the decision you would take if no'
+    echo '          person could be asked; otherwise null>}'
+    echo
+    echo "No person is available in this run: on escalate, \`best\` is taken."
   else
     echo ' "best": null}'
   fi

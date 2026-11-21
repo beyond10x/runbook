@@ -29,6 +29,11 @@
 #   story-spent     change.implement raises a new finding on every run: `writer_spent`
 #   story-late-person the spent writer's last finding needs a person: `awaiting_person`, then a
 #                   fresh allowance
+# and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
+#   decider-scope-answer the decider answers two open scope-changing questions one by one
+#                   (default, free answer) and takes scope.answer; the run closes
+#   decider-scope-final as above under SDC_DECIDER_ESCALATE=final: an escalated question takes
+#                   its default, escalation_suppressed recorded
 # Prints each run's exit code and its KPIs L1-L6.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
@@ -191,4 +196,57 @@ if (( code == 0 )) && jq -se '([.[] | select(.event == "awaiting_person")] | len
   echo "story-late-person: checks pass (person stop on the late finding, then a fresh allowance)"
 else
   echo "story-late-person: FAILED (cycle exit $code, or writer_spent instead of the person stop)"
+fi
+
+# --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the
+# decider on tools/llm-adapter-fixture.sh (scripted replies, SDC_DECIDER_REPLIES), no LLM ---------
+fixture=$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh
+trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name>
+  local name=$1; shift
+  rm -rf "$s/runs/$name"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" "$@" \
+    "$sdc/scripts/run-trial.sh" "$name" "$(yq -r .text "$fx/idea.yaml")" > "$s/$name.txt" 2>&1
+  local code=$?
+  echo "$name: exit $code ($(tail -n 1 "$s/$name.txt" | cut -c1-160))"
+  return $code
+}
+# decider-scope-answer: runs/trial-2b-fresh's first stop. Two scope-changing questions are open at
+# scope.answer (fixtures/scope-two); asked to approve scope.answer as a whole, the decider escalates
+# (the recorded reply: it read questions.settled false as a failed check). Each question goes to
+# the decider instead: q2 by its default, q3 with a free answer; the answers are written as a
+# person's are, scope.answer is taken as decider:haiku and intake closes. Passes when the run ends
+# 0, q2 and q3 carry decider:haiku (accepted, changed), decisions.jsonl has both as class
+# scope_changing_answer, and the decider was shown questions.settled as settled by its decision.
+free="the billing clerk who issued it, as a copy"
+trial decider-scope-answer SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn --arg f "$free" '{
+  "scope.answer": {decision: "escalate", answer: null, best: null, cites: ["q2", "q3", "questions.settled"],
+    reasons: ["Questions q2 and q3 are scope-changing and still open.", "The claim questions.settled is false at the current revision."]},
+  q3: {decision: "approve", answer: $f, best: null, cites: ["d5", "d2"], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}}')"
+code=$?
+r=$s/runs/decider-scope-answer
+q=$r/store/IDEA-1/children/IDEA-1.intake/work/questions.yaml
+if (( code == 0 )) &&
+   yq -o=json "$q" | jq -e --arg f "$free" '[.questions[] | select(
+     (.id == "q2" and .status == "accepted" and .answer == .default and .answered_by == "decider:haiku")
+     or (.id == "q3" and .status == "changed" and .answer == $f and .answered_by == "decider:haiku"))] | length == 2' >/dev/null &&
+   jq -se '[.[] | select(.class == "scope_changing_answer" and .decision == "approve")] | map(.question) == ["q2", "q3"]' "$r/decisions.jsonl" >/dev/null &&
+   jq -e '.claims["questions.settled"].settled_by_this_decision == true' "$(ls -d "$r"/decider/*-q2 | head -n 1)/cwd/in/checks.json" >/dev/null; then
+  echo "decider-scope-answer: checks pass (q2 default, q3 free answer, both decider:haiku; class scope_changing_answer; questions.settled marked)"
+else
+  echo "decider-scope-answer: FAILED (run exit $code, or the answers, their records or the claim marks are wrong)"
+fi
+# decider-scope-final: as decider-scope-answer under SDC_DECIDER_ESCALATE=final, the decider
+# escalating q3: no person is asked, q3 takes its default and escalation_suppressed is recorded.
+trial decider-scope-final SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_ESCALATE=final SDC_DECIDER_REPLIES="$(jq -cn '{
+  "scope.answer": {decision: "escalate", answer: null, best: null, cites: [], reasons: ["The claim questions.settled is false."]},
+  q3: {decision: "escalate", answer: null, best: null, cites: ["d5"], reasons: ["Who else is emailed adds a kind of recipient the idea does not name."]}}')"
+code=$?
+r=$s/runs/decider-scope-final
+q=$r/store/IDEA-1/children/IDEA-1.intake/work/questions.yaml
+if (( code == 0 )) &&
+   yq -o=json "$q" | jq -e '.questions[] | select(.id == "q3") | .status == "accepted" and .answer == .default and .answered_by == "decider:haiku"' >/dev/null &&
+   jq -se '[.[] | select(.question == "q3") | .decision] == ["escalation_suppressed", "approve"]' "$r/decisions.jsonl" >/dev/null; then
+  echo "decider-scope-final: checks pass (q3 escalated, suppressed, its default taken)"
+else
+  echo "decider-scope-final: FAILED (run exit $code, or q3 not at its default, or no escalation_suppressed)"
 fi

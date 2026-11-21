@@ -33,7 +33,11 @@
 # `escalation_suppressed` and the decider's `best` decision is taken; an invalid reply has no best
 # and counts as reject. SDC_MAX_DECIDER_CALLS (default 20) caps the LLM decider calls (exit 5).
 # Every decider decision is taken as principal `decider:<kind>`; questions get
-# `answered_by: decider:<kind>`.
+# `answered_by: decider:<kind>`. At `scope.answer` each open scope-changing question is put to the
+# decider on its own (its text, options, default, dissection item and idea excerpt); the answers
+# are written as a person's are, then `scope.answer` is taken as `decider:<kind>`; under
+# SDC_DECIDER_ESCALATE=final an escalated question takes its default. Each line of
+# decisions.jsonl names its `class`: scope_changing_answer, finding, approval or close.
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
 # 6 refused by the decider.
@@ -201,7 +205,8 @@ decide() {
     local x=${2:-}
     [[ -n $x ]] || x='{}'
     jq -cn --arg at "$(now)" --arg p "decider:$decider" --arg d "$1" --argjson q "$req" --argjson r "$reply" --argjson x "$x" '{
-      time: $at, case: ($q.case_dir | split("/") | last), type: $q.type, action: $q.action,
+      time: $at, case: ($q.case_dir | split("/") | last), type: $q.type,
+      class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
       question: ($q.question.id // null), capability: $q.capability, outcome: $q.outcome,
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
       cites: $r.cites, model: $r.model, adapter: $r.adapter, tokens: $r.usage, cost_usd: $r.cost_usd,
@@ -212,9 +217,16 @@ decide() {
   ans=$(jq -r '.answer // ""' <<< "$reply")
   if [[ $dec == escalate && $escalate_mode == final ]]; then
     line escalation_suppressed
-    dec=$(jq -r '.best // "reject"' <<< "$reply")
-    reply=$(jq -c '.reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); best decision taken"] + .reasons
-      | .usage = null | .cost_usd = null' <<< "$reply")
+    if [[ $(jq -r .type <<< "$req") == question ]]; then
+      # A scope-changing question takes its default.
+      dec=approve ans=$(jq -r .question.default <<< "$req")
+      reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); the default taken"] + .reasons
+        | .usage = null | .cost_usd = null' <<< "$reply")
+    else
+      dec=$(jq -r '.best // "reject"' <<< "$reply")
+      reply=$(jq -c '.reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); best decision taken"] + .reasons
+        | .usage = null | .cost_usd = null' <<< "$reply")
+    fi
     line "$dec" '{"suppressed": true}'
   else
     line "$dec"
@@ -227,34 +239,43 @@ decide() {
   esac
 }
 
+# The open scope-changing questions of the interview in case $1, one decider decision each (action
+# $2, position $3): each answer is written as a person's is (`answer`, `status: accepted` for the
+# default or `changed`, `answered_by: decider:<kind>`). Returns 0 when all were answered, 1 when
+# one waits on a person, 2 when none is open; exits on a refusal.
+answer_questions() {
+  local cdir=$1 act=$2 pos=$3 qf=$1/work/questions.yaml found=no rev q st qs=()
+  rev=$(jq -r '.artifacts.questions.revision // "none"' "$cdir/case.json")
+  mapfile -t qs < <(yq -o=json -I=0 '.questions[] | select(.scope_changing == true and .status == "open")' "$qf" 2>/dev/null)
+  for q in "${qs[@]}"; do
+    [[ -n $q ]] || continue
+    found=yes
+    decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson q "$q" --argjson pos "$pos" \
+      '{type: "question", case_dir: $c, action: $a, capability: "scope.answer", subject: "questions",
+        path: "questions.yaml", revision: $rev, question: $q, outcome: null, position: $pos}')"
+    [[ -n $dec ]] || return 1
+    st=changed
+    [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
+    ANS=$ans yq -i "(.questions[] | select(.id == \"$(jq -r .id <<< "$q")\")) |= (.answer = strenv(ANS)
+      | .status = \"$st\" | .answered_by = \"decider:$decider\")" "$qf"
+  done
+  [[ $found == yes ]] || return 2
+}
+
 # Every pending decision of the stop in $last, through the decider. Returns 0 when all were
 # taken; exits on a refusal; returns 1 when one waits on a person.
 declare -A taken
 decide_all() {
-  local cdir pos n act cap subj path rev q key
+  local cdir pos n act cap subj path rev key rc
   cdir=$(jq -r .case_dir <<< "$last")
   pos=$(jq -c .position <<< "$last")
   while IFS= read -r n; do
     act=$(jq -r .action <<< "$n")
     if jq -e '.command | test(" run --at ")' <<< "$n" > /dev/null; then
       # A handoff: the open scope-changing questions of the interview.
-      local qf=$cdir/work/questions.yaml found=no
-      rev=$(jq -r '.artifacts.questions.revision // "none"' "$cdir/case.json")
-      local qs=()
-      mapfile -t qs < <(yq -o=json -I=0 '.questions[] | select(.scope_changing == true and .status == "open")' "$qf" 2>/dev/null)
-      for q in "${qs[@]}"; do
-        [[ -n $q ]] || continue
-        found=yes
-        decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson q "$q" --argjson pos "$pos" \
-          '{type: "question", case_dir: $c, action: $a, capability: null, subject: "questions",
-            path: "questions.yaml", revision: $rev, question: $q, outcome: null, position: $pos}')"
-        [[ -n $dec ]] || return 1
-        local st=changed
-        [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
-        ANS=$ans yq -i "(.questions[] | select(.id == \"$(jq -r .id <<< "$q")\")) |= (.answer = strenv(ANS)
-          | .status = \"$st\" | .answered_by = \"decider:$decider\")" "$qf"
-      done
-      [[ $found == yes ]] || { echo "nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; return 1; }
+      rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?
+      (( rc == 1 )) && return 1
+      (( rc == 2 )) && { echo "nothing for decider:$decider at $act: no open scope-changing question (questions.check may refuse a non-human answer)"; return 1; }
       continue
     fi
     cap=$(jq -r '.command | capture("--capability (?<c>[^ ]+)").c' <<< "$n")
@@ -263,10 +284,18 @@ decide_all() {
     rev=$(jq -r --arg s "$subj" '.artifacts[$s].revision // "none"' "$cdir/case.json")
     key="$cdir|$act|$rev"
     [[ -z ${taken[$key]:-} ]] || { echo "pending again after decider:$decider approved it: $act at $rev in $cdir"; exit 4; }
-    decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg cap "$cap" --arg s "$subj" --arg p "$path" --arg rev "$rev" \
-      --argjson pos "$pos" '{type: "approval", case_dir: $c, action: $a, capability: $cap, subject: $s,
-        path: $p, revision: $rev, question: null, outcome: null, position: $pos}')"
-    [[ -n $dec ]] || return 1
+    # scope.answer is not an approval of a revision: each open scope-changing question gets its
+    # own answer from the decider, then scope.answer is taken under the decider's principal. With
+    # none open (a person's edits wait for attribution) it is decided as an approval.
+    rc=2
+    [[ $act == scope.answer ]] && { rc=0; answer_questions "$cdir" "$act" "$pos" || rc=$?; }
+    (( rc == 1 )) && return 1
+    if (( rc == 2 )); then
+      decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg cap "$cap" --arg s "$subj" --arg p "$path" --arg rev "$rev" \
+        --argjson pos "$pos" '{type: "approval", case_dir: $c, action: $a, capability: $cap, subject: $s,
+          path: $p, revision: $rev, question: null, outcome: null, position: $pos}')"
+      [[ -n $dec ]] || return 1
+    fi
     taken[$key]=1
     if jq -e '.command | test("--action ")' <<< "$n" > /dev/null; then
       d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act"
