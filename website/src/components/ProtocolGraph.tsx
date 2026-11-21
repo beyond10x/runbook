@@ -145,8 +145,10 @@ export default function ProtocolGraph({doc, selected, onSelect, onOpenChild}: Pr
                   >
                     <rect className="b10x-graph__body" width={ln.width} height={ln.height} rx={7} />
                     <rect className="b10x-graph__accent" width={4} height={ln.height - 12} x={0} y={6} rx={2} />
-                    <text x={14} y={18} className="b10x-graph__node-kicker">{KIND_LABEL[n.kind].toUpperCase()}</text>
-                    <text x={14} y={35} className="b10x-graph__node-name">{n.name}</text>
+                    <text>
+                      <tspan x={14} y={18} className="b10x-graph__node-kicker">{KIND_LABEL[n.kind].toUpperCase()}</tspan>{' '}
+                      <tspan x={14} y={35} className="b10x-graph__node-name">{n.name}</tspan>
+                    </text>
                   </g>
                 );
               })}

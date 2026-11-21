@@ -4,7 +4,8 @@
  * Inputs, all committed and all written by programs: `website/data/protocols/*.json`
  * (`sdc-protocol-site write`), `docs/progress.json` and `docs/img/progress.svg`
  * (`sdc-experiment progress`), `experiments/*.yaml`, `experiments/releases.yaml` and
- * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`). Nothing under `runs/` is read.
+ * `experiments/<id>/timelines/*.json` (`sdc.run-timeline/1`) and
+ * `driver/examples/sdc/tools/node-classes.json`. Nothing under `runs/` is read.
  * `SDC_SITE_FIXTURES=<dir>` replaces the repository's progress ledger, experiments and timelines
  * with the files in that directory, for the fixture build the tests use.
  */
@@ -20,6 +21,7 @@ export interface SdcContent {
   progressSvg: string;
   experiments: any[];
   releasesTable: any;
+  nodeClasses: any;
   timelines: any[];
   fixtures: boolean;
 }
@@ -107,7 +109,8 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
           }
         }
       }
-      return {index, protocols, progress, progressSvg, experiments, releasesTable, timelines, fixtures: Boolean(fixtureDir)};
+      const nodeClasses = await readJson(path.join(repo, 'driver', 'examples', 'sdc', 'tools', 'node-classes.json'));
+      return {index, protocols, progress, progressSvg, experiments, releasesTable, nodeClasses, timelines, fixtures: Boolean(fixtureDir)};
     },
     async contentLoaded({content, actions}) {
       const {createData, addRoute, setGlobalData} = actions;
@@ -143,6 +146,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         progress: content.progress,
         experiments: content.experiments,
         releasesTable: content.releasesTable,
+        nodeClasses: content.nodeClasses,
         fixtures: content.fixtures,
       });
       addRoute({path: route('/evaluation'), exact: true, component: '@site/src/routes/Evaluation.tsx', modules: {evaluation, index: indexData}});
@@ -150,7 +154,7 @@ export default function sdcData(context: LoadContext): Plugin<SdcContent> {
         path: route('/llm-is-not-the-runtime'),
         exact: true,
         component: '@site/src/routes/LlmIsNotTheRuntime.tsx',
-        modules: {timelines: await data('sdc-timelines.json', {timelines: content.timelines, fixtures: content.fixtures}), index: indexData},
+        modules: {timelines: await data('sdc-timelines.json', {timelines: content.timelines, experiments: content.experiments, fixtures: content.fixtures}), index: indexData},
       });
     },
   };

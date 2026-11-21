@@ -97,7 +97,7 @@ export interface ProtocolSummary {
   parents: string[];
   states: number | null;
   simulate_findings: number | null;
-  action_order: {name: string; step: number}[];
+  action_order: {name: string; step: number; executor: string; opens: string | null}[];
 }
 
 export interface ReleaseInfo {

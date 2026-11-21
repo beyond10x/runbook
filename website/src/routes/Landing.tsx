@@ -18,6 +18,7 @@ export default function Landing({index, progressSvg}: Props): ReactNode {
   return (
     <Layout title="SDC: a software delivery cycle on Canon protocols" description="A prototype software delivery cycle that runs on Canon protocols: the stage is derived from facts, and a model is only one action's executor." wrapperClassName="b10x-product-page">
       <main id="b10x-product-main">
+        <div className="b10x-product">
         <ProductHero
           eyebrow="Prototype · software delivery cycle on Canon"
           promise={['From an idea to a delivered app,', 'one admissible action at a time.']}
@@ -26,8 +27,8 @@ export default function Landing({index, progressSvg}: Props): ReactNode {
               The SDC is a prototype of a software delivery cycle that runs on Canon protocols: an idea goes through{' '}
               {stages} protocols (idea, intake, direction, epic, spec, plan, story, release), each a <code>protocol/1</code>{' '}
               case with child cases. Where a case stands is derived from facts, the files in its repository and the recorded
-              check results, never from a stored phase. A driver runs the tool bound to one admissible action at a time; a
-              language model is only ever one action's executor, and its output is an artifact revision, never evidence and
+              check results, never from a stored phase. A driver runs the tool bound to one admissible action at a time, and a
+              language model is only ever one action's executor: its output is an artifact revision, never evidence and
               never the next state.
             </>
           }
@@ -62,6 +63,7 @@ export default function Landing({index, progressSvg}: Props): ReactNode {
             <Feature title="Run it" description="The scripted checks and a dry run with stub executors." href="/docs/run-it" />
           </FeatureGrid>
         </ProductSection>
+        </div>
       </main>
     </Layout>
   );
