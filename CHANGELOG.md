@@ -9,6 +9,10 @@ bare-version tags (`docs/releasing.md`).
 
 ### Added
 
+- `cycles/suite.yaml` (`runbook.cycles/1`, `story:cycles-suite-as-data`): the finding cycles of
+  `scripts/run-finding-cycles.sh` as data, what cannot be said declaratively listed per cycle as
+  `unexpressed`, and `task check:cycles-suite` holding it equal to the script's cycle ids and states
+  (`docs/cycles-suite.md`).
 - `change.implement` as one request (`story:implement-one-request`), behind the run setting
   `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
   `run-settings.jsonl`, a launch setting of `sdc-experiment`). `sdc-reply implement-run` assembles
