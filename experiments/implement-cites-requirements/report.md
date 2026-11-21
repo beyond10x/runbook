@@ -6,8 +6,8 @@ Written by `sdc-experiment report implement-cites-requirements` from `experiment
 - Purpose: Whether the coverage check of story:implement-cites-requirements lowers the review rejections per run against release 0.1.2 in the strong and mixed settings.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
-- Tree: `beffea1e59dbd528107f7e3ac23fda033e7695e6`
-  - impr/implement-cites-requirements at beffea1 (release 0.1.2, 72a3eef, plus the coverage reply, the postcondition and the review input); the comparison tree is release 0.1.2 at 72a3eef, whose runs belong to experiments/release-0.1.2.yaml
+- Tree: `3f3a57703ef30ebaebeb479121a31134f2eb87a7`
+  - impr/implement-cites-requirements at 3f3a577 (release 0.1.2, 72a3eef, plus the coverage reply, the postcondition and the review input); the comparison tree is release 0.1.2 at 72a3eef, whose runs belong to experiments/release-0.1.2.yaml
 - Runs per variant: 3; pass rule: clean-delivery (closed, delivered, no reopen, forced step or unstick).
 - Decision rule (descriptive): The tree is the variable (release 0.1.2 against this branch), which one record cannot hold: sdc-experiment names one tree per record and has no tree setting, and the change has no run setting that turns it off (docs/improving.md step 4). So this record holds the treatment only and is reported as descriptive; the comparison is made per setting against the runs of experiments/release-0.1.2.yaml (same input, same settings, tree 72a3eef; registered on exp/improve-1, f619fd4), with the registered predictions below and the default rule: n = 3 against n = 3, a difference is claimed only when the two ranges separate completely in the registered direction (exact one-sided p = 1/20); overlapping ranges claim no effect. If release-0.1.2 has no complete runs when these end, baseline-0.1.0 (tree 4468bfd) is the comparison and the report says so. Every end counts; no run is repaired, reopened or forced. A refuted or inconclusive result is published as such.
 
@@ -32,7 +32,7 @@ Written by `sdc-experiment report implement-cites-requirements` from `experiment
 
 Known confounds:
 
-- `tree`: the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef beffea1).
+- `tree`: the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef 3f3a577).
 - `unstick`: run.unstick is on under autopilot with an Opus model in both trees (scripts/run-trial.sh); an unstuck run is not a clean pass.
 - `canon`: every run uses the canon binary of the canon checkout at run time, which no record pins; release-0.1.2 has the same confound.
 - `adapter`: the implement node runs on metaharness, which has no response-schema option, so the coverage schema reaches it in the prompt and the reply is a file (out/coverage.json) checked by program; under claude-cli it would be schema-constrained.

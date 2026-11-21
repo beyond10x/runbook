@@ -1359,7 +1359,7 @@
       "known_confounds": [
         {
           "key": "tree",
-          "note": "the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef beffea1)."
+          "note": "the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef 3f3a577)."
         },
         {
           "key": "unstick",
@@ -1376,7 +1376,7 @@
       ],
       "primary": null,
       "purpose": "Whether the coverage check of story:implement-cites-requirements lowers the review rejections per run against release 0.1.2 in the strong and mixed settings.",
-      "tree": "beffea1",
+      "tree": "3f3a577",
       "variants": [
         {
           "clean_passes": 0,
@@ -1676,7 +1676,7 @@
     },
     {
       "path": "experiments/implement-cites-requirements.yaml",
-      "sha256": "1b8422162bb1ed70f8ab7e5d94b651ba74675bb431361354dcd497d0a36fd05f"
+      "sha256": "52b27328e654e2527091c3f2723a3cf156dcdf4a44302aebfc44dafd99346867"
     },
     {
       "path": "experiments/small-idea-1.yaml",

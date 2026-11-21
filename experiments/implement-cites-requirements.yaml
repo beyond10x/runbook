@@ -10,9 +10,9 @@ inputs:
   kind: idea
   text: A to-do list web app for me and my partner that also works on the train without a connection
   sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
-tree_commit: beffea1e59dbd528107f7e3ac23fda033e7695e6
+tree_commit: 3f3a57703ef30ebaebeb479121a31134f2eb87a7
 trees:
-- impr/implement-cites-requirements at beffea1 (release 0.1.2, 72a3eef, plus the coverage reply, the postcondition and the review input); the comparison tree is release 0.1.2 at 72a3eef, whose runs belong to experiments/release-0.1.2.yaml
+- impr/implement-cites-requirements at 3f3a577 (release 0.1.2, 72a3eef, plus the coverage reply, the postcondition and the review input); the comparison tree is release 0.1.2 at 72a3eef, whose runs belong to experiments/release-0.1.2.yaml
 fixed:
   decider.kind: model
   decider.escalate: final
@@ -83,7 +83,7 @@ launch:
   principal: agent:sdc-experiment
 known_confounds:
 - key: tree
-  note: the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef beffea1).
+  note: the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef 3f3a577).
 - key: unstick
   note: run.unstick is on under autopilot with an Opus model in both trees (scripts/run-trial.sh); an unstuck run is not a clean pass.
 - key: canon
