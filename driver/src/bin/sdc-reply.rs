@@ -14,6 +14,7 @@
 //!   into a YAML or JSON file, a list element named by its `id` (`requirements.r1`);
 //! - `<path>:<line>[-<line_end>]` (path_line): a file under `in/` (written without `in/`), the
 //!   lines inside it; it is recorded as `work/<path>`, which resolves against the case directory.
+//!
 //! `citable` prints the enumerable set (ids, every artifact entry two levels deep, every non-empty
 //! line of a Markdown input), the artifacts, and one example of each form from the actual input.
 //! `resolve` prints one line per cite with its form and value (exit 0 when all resolve, else 1).
