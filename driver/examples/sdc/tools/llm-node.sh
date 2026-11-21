@@ -455,17 +455,29 @@ must pass. You cannot run commands." ;;
 change.fix)
   input bug.yaml; input bug-dissection.json; input repro; input impl; seed impl; out=impl
   repro_file=$(jq -r '.file // ""' "$work/repro/repro.json" 2>/dev/null)
+  # A run seeded from a ticket works on a repository that may have dependencies of its own.
+  stdlib=" Standard library only."
+  yq -e '.ticket' "$work/bug.yaml" >/dev/null 2>&1 && stdlib=""
   task="Fix the bug in in/bug.yaml (dissected in in/bug-dissection.json) in out/impl/, a copy of the
 crate. The test $(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null) in out/impl/$repro_file
 reproduces the bug: it fails now and must pass after your fix.
 - Do not change out/impl/$repro_file in any way: a program compares it byte for byte and refuses
   the fix otherwise. Do not delete, weaken or ignore any test.
-- Change as little as the fix needs; keep the public API. Standard library only.
+- Change as little as the fix needs; keep the public API.$stdlib
 - The whole suite must pass, and the crate must pass \`cargo clippy --all-targets -- -D warnings\`
   and \`cargo fmt --check\` (rustfmt's default style).
 You cannot run commands: write code that passes the tests." ;;
 *) echo "llm-node: no agent node $node" >&2; exit 64 ;;
 esac
+# A run seeded from a ticket (bug.yaml `ticket`, docs/bugfix.md "From a ticket"): the ticket's
+# constraints bind the code writers. A run without a ticket keeps its prompt byte for byte.
+if [[ $node == test.reproduce || $node == change.fix ]] && yq -e '.ticket' "$work/bug.yaml" >/dev/null 2>&1; then
+  constraints=$(yq -r '(.constraints // [])[] | "- " + .' "$work/bug.yaml")
+  [[ -z $constraints ]] || task="$task
+
+Constraints of the ticket (in/bug.yaml \`constraints\`), each one binding:
+$constraints"
+fi
 
 if [[ $raises == yes ]]; then
   [[ -f $work/findings.yaml ]] && input findings.yaml

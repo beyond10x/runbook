@@ -2,6 +2,7 @@
 //! Run by sdc-drive with cwd = the case's work directory; every path is relative to it.
 //!
 //!   sdc-bugfix schema dissection|repro   the JSON schema of an LLM data document
+//!   sdc-bugfix schema ticket             the JSON schema of the ticket document sdc.ticket/1
 //!   sdc-bugfix dissection-check          bug-dissection.json against its schema and impl/: exit 0 valid, 1 invalid
 //!   sdc-bugfix repro-install             impl/ := mainline/ plus the reproducing test of repro/
 //!   sdc-bugfix repro-run                 exit 0 red, 1 not red (the reason on stdout)
@@ -11,6 +12,11 @@
 //!   sdc-bugfix seed --from <dir> [--text <report>] [--story <id>]
 //!                                        a new case's work/: mainline/ and impl/ from the crate, bug.yaml,
 //!                                        the story created and moved to active (what a parent hands in)
+//!   sdc-bugfix seed --ticket <file> [--repo <worktree>]
+//!                                        the same from a ticket (sdc.ticket/1) on a clean git worktree
+//!                                        at the ticket's base commit: mainline/ and impl/ are exactly
+//!                                        what `git ls-files` lists, bug.yaml is written from the
+//!                                        ticket, .sdc/seed.json records the base (docs/bugfix.md)
 //!
 //! Artifacts (driver/examples/sdc/sdc-bugfix.bindings.json): bug.yaml (report), bug-dissection.json
 //! (dissection), repro/ (repro: repro.json `{file, test}` and the test file), impl/ (change), aep/
@@ -81,7 +87,8 @@ fn schema(which: &str) -> R<u8> {
     let s = match which {
         "dissection" => dissection_schema(),
         "repro" => repro_schema(),
-        _ => return Err("schema dissection|repro".into()),
+        "ticket" => ticket_schema(),
+        _ => return Err("schema dissection|repro|ticket".into()),
     };
     println!("{}", serde_json::to_string_pretty(&s).unwrap());
     Ok(0)
@@ -493,14 +500,27 @@ fn seed(args: &[String]) -> R<u8> {
     let mut from = None;
     let mut text = None;
     let mut story = None;
+    let mut ticket = None;
+    let mut repo = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--from" => from = it.next().cloned(),
             "--text" => text = it.next().cloned(),
             "--story" => story = it.next().cloned(),
+            "--ticket" => ticket = it.next().cloned(),
+            "--repo" => repo = it.next().cloned(),
             _ => return Err(format!("seed: unknown argument {a}")),
         }
+    }
+    if let Some(t) = ticket {
+        if from.is_some() || text.is_some() || story.is_some() {
+            return Err("seed --ticket <file> [--repo <worktree>]: --from, --text and --story go with the other form".into());
+        }
+        return seed_ticket(Path::new(&t), repo.as_deref().map(Path::new));
+    }
+    if repo.is_some() {
+        return Err("seed: --repo goes with --ticket <file>".into());
     }
     let from = PathBuf::from(from.ok_or("seed --from <crate or fixture dir>")?);
     let krate = if from.join("Cargo.toml").is_file() { from.clone() } else { from.join("crate") };
@@ -526,6 +546,423 @@ fn seed(args: &[String]) -> R<u8> {
     }
     fs::write("bug.yaml", serde_yaml::to_string(&rep).unwrap()).map_err(|e| e.to_string())?;
     println!("seed: mainline/ and impl/ from {}, bug.yaml", krate.display());
+    std::env::set_var("SDC_ACTION", "bugfix.seed");
+    story_to(&rep, "active")
+}
+
+// --- the ticket (sdc.ticket/1) -------------------------------------------------------------------
+//
+// What a controller outside writes for one ticket of any system (docs/bugfix.md, "From a ticket").
+// Its text reaches the prompts (bug.yaml) and the run's own records only: no error or log line
+// here quotes a value of the ticket but its id.
+
+const TICKET_FORMAT: &str = "sdc.ticket/1";
+const TICKET_KEYS: [&str; 11] =
+    ["format", "id", "kind", "title", "text", "context", "source", "repository", "check", "constraints", "branch"];
+const TICKET_REQUIRED: [&str; 6] = ["format", "id", "kind", "title", "text", "repository"];
+const CONTEXT_KINDS: [&str; 3] = ["comment", "linked", "doc"];
+const COMMIT_RE: &str = r"^([0-9a-f]{40}|[0-9a-f]{64})$";
+const SYSTEM_RE: &str = r"^[A-Za-z0-9][A-Za-z0-9._-]*$";
+const INSTANT_RE: &str = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$";
+const BRANCH_RE: &str = r"^[A-Za-z0-9][A-Za-z0-9._/-]*$";
+
+/// The size cap of a repository seeded from a ticket. Every model call copies the code tree into
+/// its scratch directory and back (`tools/llm-node.sh`, `input impl`, `seed impl`), so a large tree
+/// costs every call. Raised for one run with SDC_SEED_MAX_FILES and SDC_SEED_MAX_BYTES.
+const SEED_MAX_FILES: u64 = 2000;
+const SEED_MAX_BYTES: u64 = 16 * 1024 * 1024;
+
+struct Context {
+    kind: String,
+    reference: String,
+    text: String,
+}
+
+struct Source {
+    system: String,
+    url: Option<String>,
+    fetched_at: String,
+}
+
+struct Ticket {
+    id: String,
+    kind: String,
+    title: String,
+    text: String,
+    context: Vec<Context>,
+    source: Option<Source>,
+    path: String,
+    remote: Option<String>,
+    base_ref: String,
+    base_commit: String,
+    check: Option<Vec<String>>,
+    constraints: Vec<String>,
+    branch: Option<String>,
+}
+
+struct Caps {
+    files: u64,
+    bytes: u64,
+}
+
+fn ticket_schema() -> Value {
+    let s = json!({"type": "string", "minLength": 1});
+    let strings = json!({"type": "array", "items": s});
+    json!({
+        "$id": TICKET_FORMAT, "type": "object", "additionalProperties": false, "required": TICKET_REQUIRED,
+        "properties": {
+            "format": {"const": TICKET_FORMAT},
+            "id": {"type": "string", "minLength": 1, "description": "the ticket's key in its system"},
+            "kind": {"enum": ["bug", "feature"], "description": "sdc-bugfix takes bug only"},
+            "title": s, "text": s,
+            "context": {"type": "array", "items": {"type": "object", "additionalProperties": false,
+                "required": ["kind", "ref", "text"], "properties": {
+                    "kind": {"enum": CONTEXT_KINDS}, "ref": s, "text": s}}},
+            "source": {"type": "object", "additionalProperties": false, "required": ["system", "fetched_at"],
+                "properties": {"system": {"type": "string", "pattern": SYSTEM_RE, "description": "a free word: jira, github, ..."},
+                    "url": s, "fetched_at": {"type": "string", "pattern": INSTANT_RE}}},
+            "repository": {"type": "object", "additionalProperties": false, "required": ["path", "base"],
+                "properties": {"path": {"type": "string", "minLength": 1, "description": "a local git worktree; relative to the ticket file"},
+                    "remote": s,
+                    "base": {"type": "object", "additionalProperties": false, "required": ["ref", "commit"],
+                        "properties": {"ref": s, "commit": {"type": "string", "pattern": COMMIT_RE,
+                            "description": "checked against the worktree's HEAD"}}}}},
+            "check": {"type": "object", "additionalProperties": false, "required": ["argv"],
+                "properties": {"argv": {"type": "array", "minItems": 1, "items": s}}},
+            "constraints": strings,
+            "branch": {"type": "string", "pattern": BRANCH_RE}
+        }
+    })
+}
+
+type Ym = serde_yaml::Mapping;
+
+/// A mapping with only `allowed` keys and every `required` one; each miss one line in `errs`.
+fn mapping<'a>(v: &'a serde_yaml::Value, at: &str, allowed: &[&str], required: &[&str], errs: &mut Vec<String>) -> Option<&'a Ym> {
+    let Some(m) = v.as_mapping() else {
+        errs.push(format!("{at} is not a mapping"));
+        return None;
+    };
+    for k in m.keys() {
+        match k.as_str() {
+            Some(k) if allowed.contains(&k) => {}
+            Some(k) => errs.push(format!("{at}: key `{k}` is not in {TICKET_FORMAT} (keys: {})", allowed.join(", "))),
+            None => errs.push(format!("{at}: a key is not a string")),
+        }
+    }
+    let missing: Vec<&str> = required.iter().copied().filter(|k| m.get(*k).is_none()).collect();
+    if !missing.is_empty() {
+        errs.push(format!("{at}: required key{} missing: {}", if missing.len() == 1 { "" } else { "s" }, missing.join(", ")));
+    }
+    Some(m)
+}
+
+/// A present key as a non-empty string; never quotes the value.
+fn string(m: &Ym, k: &str, at: &str, errs: &mut Vec<String>) -> Option<String> {
+    match m.get(k)? {
+        serde_yaml::Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+        serde_yaml::Value::String(_) => {
+            errs.push(format!("{at}.{k} is empty"));
+            None
+        }
+        _ => {
+            let hint = if k == "id" { " (quote a number: id: \"123\")" } else { "" };
+            errs.push(format!("{at}.{k} is not a string{hint}"));
+            None
+        }
+    }
+}
+
+fn matching(m: &Ym, k: &str, at: &str, re: &str, what: &str, errs: &mut Vec<String>) -> Option<String> {
+    let s = string(m, k, at, errs)?;
+    if Regex::new(re).unwrap().is_match(&s) {
+        Some(s)
+    } else {
+        errs.push(format!("{at}.{k} is not {what}"));
+        None
+    }
+}
+
+fn strings(m: &Ym, k: &str, at: &str, non_empty: bool, errs: &mut Vec<String>) -> Option<Vec<String>> {
+    let Some(seq) = m.get(k)?.as_sequence() else {
+        errs.push(format!("{at}.{k} is not a list"));
+        return None;
+    };
+    if non_empty && seq.is_empty() {
+        errs.push(format!("{at}.{k} is empty"));
+        return None;
+    }
+    let out: Vec<String> = seq.iter().filter_map(|v| v.as_str().filter(|s| !s.trim().is_empty()).map(str::to_string)).collect();
+    if out.len() != seq.len() {
+        errs.push(format!("{at}.{k}: every entry is a non-empty string"));
+        return None;
+    }
+    Some(out)
+}
+
+/// The ticket, or every way it misses sdc.ticket/1, one line each.
+fn ticket_parse(doc: &str) -> Result<Ticket, Vec<String>> {
+    let v: serde_yaml::Value = serde_yaml::from_str(doc).map_err(|e| vec![format!("not YAML: {e}")])?;
+    let mut errs = Vec::new();
+    let Some(m) = mapping(&v, "ticket", &TICKET_KEYS, &TICKET_REQUIRED, &mut errs) else { return Err(errs) };
+    let at = "ticket";
+    if let Some(f) = string(m, "format", at, &mut errs) {
+        if f != TICKET_FORMAT {
+            errs.push(format!("ticket.format is not {TICKET_FORMAT}"));
+        }
+    }
+    let id = string(m, "id", at, &mut errs);
+    let kind = string(m, "kind", at, &mut errs).filter(|k| {
+        let ok = k == "bug" || k == "feature";
+        if !ok {
+            errs.push("ticket.kind is not bug or feature".into());
+        }
+        ok
+    });
+    let title = string(m, "title", at, &mut errs);
+    let text = string(m, "text", at, &mut errs);
+    let mut context = Vec::new();
+    if let Some(c) = m.get("context") {
+        match c.as_sequence() {
+            None => errs.push("ticket.context is not a list".into()),
+            Some(seq) => {
+                for (i, e) in seq.iter().enumerate() {
+                    let at = format!("ticket.context[{i}]");
+                    let Some(e) = mapping(e, &at, &["kind", "ref", "text"], &["kind", "ref", "text"], &mut errs) else { continue };
+                    let kind = string(e, "kind", &at, &mut errs);
+                    if kind.as_deref().is_some_and(|k| !CONTEXT_KINDS.contains(&k)) {
+                        errs.push(format!("{at}.kind is not comment, linked or doc"));
+                    }
+                    if let (Some(kind), Some(reference), Some(text)) =
+                        (kind, string(e, "ref", &at, &mut errs), string(e, "text", &at, &mut errs))
+                    {
+                        context.push(Context { kind, reference, text });
+                    }
+                }
+            }
+        }
+    }
+    let source = m.get("source").and_then(|s| {
+        let at = "ticket.source";
+        let s = mapping(s, at, &["system", "url", "fetched_at"], &["system", "fetched_at"], &mut errs)?;
+        let system = matching(s, "system", at, SYSTEM_RE, "one word (jira, github, ...)", &mut errs);
+        let url = string(s, "url", at, &mut errs);
+        let fetched_at = matching(s, "fetched_at", at, INSTANT_RE, "an RFC 3339 instant (2026-11-21T09:00:00Z)", &mut errs);
+        Some(Source { system: system?, url, fetched_at: fetched_at? })
+    });
+    let (mut path, mut remote, mut base_ref, mut base_commit) = (None, None, None, None);
+    if let Some(r) = m.get("repository") {
+        let at = "ticket.repository";
+        if let Some(r) = mapping(r, at, &["path", "remote", "base"], &["path", "base"], &mut errs) {
+            path = string(r, "path", at, &mut errs);
+            remote = string(r, "remote", at, &mut errs);
+            if let Some(b) = r.get("base") {
+                let at = "ticket.repository.base";
+                if let Some(b) = mapping(b, at, &["ref", "commit"], &["ref", "commit"], &mut errs) {
+                    base_ref = string(b, "ref", at, &mut errs);
+                    base_commit = matching(b, "commit", at, COMMIT_RE, "a full commit id (40 or 64 lower-case hex digits)", &mut errs);
+                }
+            }
+        }
+    }
+    let check = m.get("check").and_then(|c| {
+        let c = mapping(c, "ticket.check", &["argv"], &["argv"], &mut errs)?;
+        strings(c, "argv", "ticket.check", true, &mut errs)
+    });
+    let constraints = strings(m, "constraints", at, false, &mut errs).unwrap_or_default();
+    let branch = m.get("branch").and_then(|_| {
+        let b = matching(m, "branch", at, BRANCH_RE, "a branch name (letters, digits, . _ / -)", &mut errs)?;
+        if b.contains("..") || b.ends_with('/') || b.ends_with(".lock") {
+            errs.push("ticket.branch is not a branch name git takes".into());
+            return None;
+        }
+        Some(b)
+    });
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    match (id, kind, title, text, path, base_ref, base_commit) {
+        (Some(id), Some(kind), Some(title), Some(text), Some(path), Some(base_ref), Some(base_commit)) => Ok(Ticket {
+            id, kind, title, text, context, source, path, remote, base_ref, base_commit, check, constraints, branch,
+        }),
+        _ => Err(vec!["ticket: incomplete".into()]),
+    }
+}
+
+/// sdc-bugfix runs bug tickets only.
+fn ticket_runnable(t: &Ticket) -> R<()> {
+    if t.kind == "bug" {
+        Ok(())
+    } else {
+        Err(format!("ticket {} is kind `{}`: sdc-bugfix takes bug tickets only, and the protocol for a feature \
+            (sdc-feature, a feature runbook) does not exist yet", t.id, t.kind))
+    }
+}
+
+/// `story:ticket-<id>`, the id lower case with every run of other characters one `-`.
+fn ticket_story(id: &str) -> R<String> {
+    let mut s = String::new();
+    for c in id.chars().map(|c| c.to_ascii_lowercase()) {
+        if c.is_ascii_alphanumeric() {
+            s.push(c);
+        } else if !s.is_empty() && !s.ends_with('-') {
+            s.push('-');
+        }
+    }
+    let s: String = s.trim_end_matches('-').chars().take(60).collect();
+    let s = s.trim_end_matches('-');
+    if s.is_empty() {
+        return Err("ticket.id has no letter or digit to name the story with".into());
+    }
+    Ok(format!("story:ticket-{s}"))
+}
+
+/// bug.yaml from the ticket: `text` is the title, the text and the context entries in that order;
+/// `ticket` names it (id, kind, source) without its text.
+fn ticket_report(t: &Ticket) -> R<serde_yaml::Value> {
+    use serde_yaml::Value as Y;
+    let mut text = format!("{}\n\n{}", t.title.trim(), t.text.trim());
+    for c in &t.context {
+        text.push_str(&format!("\n\n--- {} {}\n{}", c.kind, c.reference, c.text.trim()));
+    }
+    let mut ticket = Ym::new();
+    ticket.insert("id".into(), Y::String(t.id.clone()));
+    ticket.insert("kind".into(), Y::String(t.kind.clone()));
+    if let Some(s) = &t.source {
+        let mut src = Ym::new();
+        src.insert("system".into(), Y::String(s.system.clone()));
+        if let Some(u) = &s.url {
+            src.insert("url".into(), Y::String(u.clone()));
+        }
+        src.insert("fetched_at".into(), Y::String(s.fetched_at.clone()));
+        ticket.insert("source".into(), Y::Mapping(src));
+    }
+    let mut m = Ym::new();
+    m.insert("title".into(), Y::String(t.title.trim().to_string()));
+    m.insert("text".into(), Y::String(text));
+    m.insert("story".into(), Y::String(ticket_story(&t.id)?));
+    m.insert("ticket".into(), Y::Mapping(ticket));
+    m.insert("constraints".into(), Y::Sequence(t.constraints.iter().cloned().map(Y::String).collect()));
+    if let Some(argv) = &t.check {
+        let mut c = Ym::new();
+        c.insert("argv".into(), Y::Sequence(argv.iter().cloned().map(Y::String).collect()));
+        m.insert("check".into(), Y::Mapping(c));
+    }
+    Ok(Y::Mapping(m))
+}
+
+fn seed_caps() -> R<Caps> {
+    let get = |name: &str, default: u64| -> R<u64> {
+        match std::env::var(name) {
+            Ok(v) => v.trim().parse().map_err(|_| format!("{name}={v} is not a whole number")),
+            Err(_) => Ok(default),
+        }
+    };
+    Ok(Caps { files: get("SDC_SEED_MAX_FILES", SEED_MAX_FILES)?, bytes: get("SDC_SEED_MAX_BYTES", SEED_MAX_BYTES)? })
+}
+
+fn git(repo: &Path, args: &[&str]) -> R<String> {
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("git is not on PATH: {e}"))?;
+    if !o.status.success() {
+        return Err(format!("git {} in {}: {}", args.join(" "), repo.display(), String::from_utf8_lossy(&o.stderr).trim()));
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// The files `git ls-files` lists in the ticket's repository and their bytes, after its checks: the
+/// top of a git worktree, no change to a tracked file, HEAD at `repository.base.commit`, a
+/// `Cargo.toml` at the root, no submodule or symlink, within the size cap.
+fn repo_files(repo: &Path, t: &Ticket, caps: &Caps) -> R<(Vec<String>, u64)> {
+    let canon = fs::canonicalize(repo).map_err(|e| format!("repository {}: {e}", repo.display()))?;
+    let top = git(&canon, &["rev-parse", "--show-toplevel"])?;
+    if fs::canonicalize(top.trim()).ok().as_deref() != Some(canon.as_path()) {
+        return Err(format!("repository {} is not the top directory of a git worktree", repo.display()));
+    }
+    let dirty = git(&canon, &["status", "--porcelain", "--untracked-files=no"])?;
+    if !dirty.trim().is_empty() {
+        return Err(format!("repository {} is dirty: {} tracked path(s) changed; commit or stash them, then seed again",
+            repo.display(), dirty.lines().count()));
+    }
+    let head = git(&canon, &["rev-parse", "HEAD"])?.trim().to_string();
+    if head != t.base_commit {
+        return Err(format!("repository {}: HEAD is {head}, the ticket's repository.base.commit is {}", repo.display(), t.base_commit));
+    }
+    let listed = git(&canon, &["ls-files", "-z", "--stage"])?;
+    let mut files = Vec::new();
+    for entry in listed.split('\0').filter(|e| !e.is_empty()) {
+        let (meta, path) = entry.split_once('\t').ok_or(format!("git ls-files: unreadable entry {entry}"))?;
+        match meta.split(' ').next() {
+            Some("160000") => return Err(format!("repository {}: {path} is a submodule; the seed takes none", repo.display())),
+            Some("120000") => return Err(format!("repository {}: {path} is a symlink; the seed takes none", repo.display())),
+            _ => files.push(path.to_string()),
+        }
+    }
+    files.dedup();
+    if !files.iter().any(|f| f == "Cargo.toml") {
+        return Err(format!("repository {} has no Cargo.toml at its root: sdc-bugfix takes a Rust repository built with \
+            cargo only today, with Cargo.toml at the root (other languages are a later story)", repo.display()));
+    }
+    if files.len() as u64 > caps.files {
+        return Err(format!("repository {}: {} files, above the cap of {} (SDC_SEED_MAX_FILES): every model call copies \
+            the tree in and out", repo.display(), files.len(), caps.files));
+    }
+    let mut bytes = 0u64;
+    for f in &files {
+        bytes += fs::symlink_metadata(canon.join(f)).map_err(|e| format!("{f}: {e}"))?.len();
+    }
+    if bytes > caps.bytes {
+        return Err(format!("repository {}: {bytes} bytes in {} files, above the cap of {} (SDC_SEED_MAX_BYTES): every \
+            model call copies the tree in and out", repo.display(), files.len(), caps.bytes));
+    }
+    Ok((files, bytes))
+}
+
+/// `to` := exactly `files` of `repo`.
+fn copy_listed(repo: &Path, files: &[String], to: &Path) -> R<()> {
+    reset_dir(to)?;
+    for f in files {
+        let dst = to.join(f);
+        if let Some(p) = dst.parent() {
+            fs::create_dir_all(p).map_err(|e| format!("{}: {e}", p.display()))?;
+        }
+        fs::copy(repo.join(f), &dst).map_err(|e| format!("{f}: {e}"))?;
+    }
+    Ok(())
+}
+
+fn seed_ticket(file: &Path, repo_arg: Option<&Path>) -> R<u8> {
+    let doc = fs::read_to_string(file).map_err(|e| format!("ticket {}: {e}", file.display()))?;
+    let t = ticket_parse(&doc).map_err(|errs| format!("ticket {} is not {TICKET_FORMAT}:\n  {}", file.display(), errs.join("\n  ")))?;
+    ticket_runnable(&t)?;
+    let mut repo = PathBuf::from(&t.path);
+    if repo.is_relative() {
+        repo = file.parent().unwrap_or(Path::new(".")).join(repo);
+    }
+    if let Some(r) = repo_arg {
+        if !matches!((fs::canonicalize(r), fs::canonicalize(&repo)), (Ok(a), Ok(b)) if a == b) {
+            return Err(format!("--repo {} is not the ticket's repository.path {}", r.display(), repo.display()));
+        }
+    }
+    let (files, bytes) = repo_files(&repo, &t, &seed_caps()?)?;
+    for d in ["mainline", "impl"] {
+        copy_listed(&repo, &files, Path::new(d))?;
+    }
+    let rep = ticket_report(&t)?;
+    fs::write("bug.yaml", serde_yaml::to_string(&rep).unwrap()).map_err(|e| e.to_string())?;
+    let record = json!({"format": "sdc.bugfix-seed/1", "ticket": {"id": t.id, "kind": t.kind, "branch": t.branch},
+        "repository": {"path": fs::canonicalize(&repo).map_err(|e| e.to_string())?, "remote": t.remote,
+            "base": {"ref": t.base_ref, "commit": t.base_commit}},
+        "files": files.len(), "bytes": bytes});
+    fs::create_dir_all(".sdc").map_err(|e| e.to_string())?;
+    fs::write(".sdc/seed.json", serde_json::to_string_pretty(&record).unwrap() + "\n").map_err(|e| e.to_string())?;
+    println!("seed: mainline/ and impl/ from {} at {} ({} files, {bytes} bytes, as git ls-files lists them), \
+        bug.yaml from the ticket, .sdc/seed.json", repo.display(), t.base_commit, files.len());
     std::env::set_var("SDC_ACTION", "bugfix.seed");
     story_to(&rep, "active")
 }
@@ -698,5 +1135,211 @@ error: test failed, to rerun pass `--test last_page`
     fn schemas_name_every_field() {
         assert_eq!(dissection_schema()["required"].as_array().unwrap().len(), 4);
         assert_eq!(repro_schema()["required"], json!(["file", "test"]));
+        assert_eq!(ticket_schema()["required"], json!(TICKET_REQUIRED));
+        assert_eq!(ticket_schema()["properties"].as_object().unwrap().len(), TICKET_KEYS.len());
+    }
+
+    // --- the ticket: invented tickets only ---
+
+    const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    fn ticket_doc(commit: &str) -> String {
+        format!("format: sdc.ticket/1
+id: PAGER-7
+kind: bug
+title: The last partial page is never shown
+text: With 11 items and 5 per page, page_count returns 2.
+context:
+- kind: comment
+  ref: comment-1
+  text: Any total that is not a multiple of the page size.
+- kind: linked
+  ref: PAGER-3
+  text: The page view.
+source:
+  system: example
+  url: https://tickets.example.invalid/PAGER-7
+  fetched_at: 2026-11-21T09:00:00Z
+repository:
+  path: repo
+  base:
+    ref: main
+    commit: {commit}
+check:
+  argv: [cargo, test]
+constraints:
+- Keep the public API of the crate unchanged.
+branch: fix/pager-7
+")
+    }
+
+    fn errs_of(doc: &str) -> Vec<String> {
+        match ticket_parse(doc) {
+            Ok(_) => vec![],
+            Err(e) => e,
+        }
+    }
+
+    #[test]
+    fn a_full_and_a_minimal_ticket_parse() {
+        let t = ticket_parse(&ticket_doc(COMMIT)).unwrap();
+        assert_eq!((t.id.as_str(), t.kind.as_str(), t.context.len()), ("PAGER-7", "bug", 2));
+        assert_eq!(t.check.as_deref(), Some(&["cargo".to_string(), "test".to_string()][..]));
+        assert_eq!(t.branch.as_deref(), Some("fix/pager-7"));
+        let min = format!("format: sdc.ticket/1\nid: \"7\"\nkind: bug\ntitle: t\ntext: x\nrepository: {{path: r, base: {{ref: main, commit: {COMMIT}}}}}\n");
+        let t = ticket_parse(&min).unwrap();
+        assert!(t.context.is_empty() && t.source.is_none() && t.check.is_none() && t.constraints.is_empty());
+    }
+
+    #[test]
+    fn every_refusal_of_the_format_is_named() {
+        let ok = ticket_doc(COMMIT);
+        let cases: Vec<(String, &str)> = vec![
+            (ok.replace("branch:", "owner: someone\nbranch:"), "key `owner` is not in sdc.ticket/1"),
+            (ok.replace("    ref: main\n", "    ref: main\n    tag: v1\n"), "ticket.repository.base: key `tag`"),
+            (ok.replace("title: The last partial page is never shown\n", "").replace("text: With", "txt: With"),
+                "ticket: required keys missing: title, text"),
+            (ok.replace("sdc.ticket/1", "sdc.ticket/2"), "ticket.format is not sdc.ticket/1"),
+            (ok.replace("kind: bug", "kind: epic"), "ticket.kind is not bug or feature"),
+            (ok.replace("kind: comment", "kind: chat"), "ticket.context[0].kind is not comment, linked or doc"),
+            (ok.replace("  ref: comment-1\n", ""), "ticket.context[0]: required key missing: ref"),
+            (ok.replace(COMMIT, "abc123"), "ticket.repository.base.commit is not a full commit id"),
+            (ok.replace("id: PAGER-7", "id: 7"), "ticket.id is not a string (quote a number"),
+            (ok.replace("2026-11-21T09:00:00Z", "yesterday"), "ticket.source.fetched_at is not an RFC 3339 instant"),
+            (ok.replace("  system: example\n", ""), "ticket.source: required key missing: system"),
+            (ok.replace("argv: [cargo, test]", "argv: []"), "ticket.check.argv is empty"),
+            (ok.replace("- Keep the public API of the crate unchanged.", "- 3"), "ticket.constraints: every entry is a non-empty string"),
+            (ok.replace("branch: fix/pager-7", "branch: fix..x"), "ticket.branch is not a branch name"),
+            (ok.replace("repository:\n  path: repo\n", "repository:\n"), "ticket.repository: required key missing: path"),
+            ("- a list".to_string(), "ticket is not a mapping"),
+        ];
+        for (doc, want) in cases {
+            let e = errs_of(&doc);
+            assert!(e.iter().any(|e| e.contains(want)), "want `{want}`, got {e:?}");
+        }
+    }
+
+    #[test]
+    fn no_refusal_quotes_the_ticket_text() {
+        let doc = ticket_doc(COMMIT).replace("kind: bug", "kind: secret-word").replace("2026-11-21T09:00:00Z", "secret-instant");
+        let e = errs_of(&doc).join("\n");
+        assert!(!e.is_empty() && !e.contains("secret"), "{e}");
+    }
+
+    #[test]
+    fn a_feature_ticket_is_refused_naming_the_missing_protocol() {
+        let t = ticket_parse(&ticket_doc(COMMIT).replace("kind: bug", "kind: feature")).unwrap();
+        let e = ticket_runnable(&t).unwrap_err();
+        assert!(e.contains("sdc-feature") && e.contains("bug tickets only"), "{e}");
+        assert!(ticket_runnable(&ticket_parse(&ticket_doc(COMMIT)).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn bug_yaml_carries_the_ticket_text_in_order_and_names_it_without_text() {
+        let t = ticket_parse(&ticket_doc(COMMIT)).unwrap();
+        let y = ticket_report(&t).unwrap();
+        assert_eq!(y["text"].as_str().unwrap(), "The last partial page is never shown\n\n\
+            With 11 items and 5 per page, page_count returns 2.\n\n\
+            --- comment comment-1\nAny total that is not a multiple of the page size.\n\n\
+            --- linked PAGER-3\nThe page view.");
+        assert_eq!(y["title"].as_str(), Some("The last partial page is never shown"));
+        assert_eq!(y["story"].as_str(), Some("story:ticket-pager-7"));
+        assert_eq!(y["ticket"]["id"].as_str(), Some("PAGER-7"));
+        assert_eq!(y["ticket"]["kind"].as_str(), Some("bug"));
+        assert_eq!(y["ticket"]["source"]["system"].as_str(), Some("example"));
+        assert_eq!(y["ticket"].as_mapping().unwrap().len(), 3);
+        assert_eq!(y["constraints"][0].as_str(), Some("Keep the public API of the crate unchanged."));
+        assert_eq!(y["check"]["argv"][1].as_str(), Some("test"));
+        assert!(y.get("base").is_none(), "bug.yaml `base` is the base directory, not the commit");
+        assert_eq!(ticket_story("Proj/ABC  12--").unwrap(), "story:ticket-proj-abc-12");
+        assert!(ticket_story("---").is_err());
+    }
+
+    /// git in a fixture repository, with no hook, signing or identity of the machine's.
+    fn g(dir: &Path, args: &[&str]) -> String {
+        let o = Command::new("git")
+            .args(["-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false",
+                "-c", "core.hooksPath=/dev/null", "-c", "init.defaultBranch=main"])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    }
+
+    /// A repository in target/: Cargo.toml (unless `cargo` is false), src/lib.rs, .gitignore,
+    /// committed; then an ignored and an untracked file.
+    fn fixture_repo(name: &str, cargo: bool) -> (PathBuf, String) {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("target/sdc-bugfix-repo-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("src")).unwrap();
+        g(&dir, &["init", "-q"]);
+        if cargo {
+            fs::write(dir.join("Cargo.toml"), "[package]\nname = \"pager\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+        }
+        fs::write(dir.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        fs::write(dir.join(".gitignore"), "ignored.txt\n").unwrap();
+        g(&dir, &["add", "."]);
+        g(&dir, &["commit", "-q", "-m", "fixture"]);
+        fs::write(dir.join("ignored.txt"), "ignored\n").unwrap();
+        fs::write(dir.join("untracked.txt"), "untracked\n").unwrap();
+        let head = g(&dir, &["rev-parse", "HEAD"]);
+        (dir, head)
+    }
+
+    const CAPS: Caps = Caps { files: SEED_MAX_FILES, bytes: SEED_MAX_BYTES };
+
+    #[test]
+    fn the_seed_copies_exactly_what_git_ls_files_lists() {
+        let (dir, head) = fixture_repo("copy", true);
+        let t = ticket_parse(&ticket_doc(&head)).unwrap();
+        let (files, bytes) = repo_files(&dir, &t, &CAPS).unwrap();
+        assert_eq!(files, vec![".gitignore", "Cargo.toml", "src/lib.rs"]);
+        assert!(bytes > 0);
+        let to = dir.with_extension("copy");
+        copy_listed(&dir, &files, &to).unwrap();
+        assert!(to.join("src/lib.rs").is_file() && to.join("Cargo.toml").is_file());
+        assert!(!to.join("ignored.txt").exists() && !to.join("untracked.txt").exists() && !to.join(".git").exists());
+        fs::remove_dir_all(&to).unwrap();
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_dirty_worktree_and_a_wrong_head_are_refused() {
+        let (dir, head) = fixture_repo("dirty", true);
+        let t = ticket_parse(&ticket_doc(&head)).unwrap();
+        fs::write(dir.join("src/lib.rs"), "pub fn g() {}\n").unwrap();
+        let e = repo_files(&dir, &t, &CAPS).unwrap_err();
+        assert!(e.contains("is dirty"), "{e}");
+        fs::write(dir.join("src/lib.rs"), "pub fn f() {}\n").unwrap();
+        assert!(repo_files(&dir, &t, &CAPS).is_ok());
+        let wrong = ticket_parse(&ticket_doc(COMMIT)).unwrap();
+        let e = repo_files(&dir, &wrong, &CAPS).unwrap_err();
+        assert!(e.contains(&format!("HEAD is {head}")) && e.contains(COMMIT), "{e}");
+        let e = repo_files(&dir.join("src"), &t, &CAPS).unwrap_err();
+        assert!(e.contains("not the top directory"), "{e}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_repository_without_cargo_toml_is_refused_naming_the_limit() {
+        let (dir, head) = fixture_repo("nocargo", false);
+        let t = ticket_parse(&ticket_doc(&head)).unwrap();
+        let e = repo_files(&dir, &t, &CAPS).unwrap_err();
+        assert!(e.contains("no Cargo.toml at its root") && e.contains("other languages are a later story"), "{e}");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_size_cap_refuses_files_and_bytes() {
+        let (dir, head) = fixture_repo("cap", true);
+        let t = ticket_parse(&ticket_doc(&head)).unwrap();
+        let e = repo_files(&dir, &t, &Caps { files: 2, bytes: SEED_MAX_BYTES }).unwrap_err();
+        assert!(e.contains("3 files, above the cap of 2 (SDC_SEED_MAX_FILES)"), "{e}");
+        let e = repo_files(&dir, &t, &Caps { files: SEED_MAX_FILES, bytes: 10 }).unwrap_err();
+        assert!(e.contains("above the cap of 10 (SDC_SEED_MAX_BYTES)"), "{e}");
+        assert!(repo_files(&dir, &t, &Caps { files: 3, bytes: 1 << 20 }).is_ok());
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -99,7 +99,7 @@ the last partial page. `bug.yaml` holds the report. `stub-dissection.json`, `stu
 `scripts/run-finding-cycles.sh` runs the four in autopilot (`bugfix-full`, `bugfix-not-red`,
 `bugfix-edited-test`, `bugfix-never-red`). It checks the outcome, `closed_by: rule:autopilot`,
 replay, and the records: the green `test_run` names the red `repro_run`'s repro revision at
-another change revision.
+another change revision. A fifth, `bugfix-from-ticket`, starts from a ticket (below).
 
 More seeds, each with one planted bug of another kind:
 
@@ -110,6 +110,114 @@ More seeds, each with one planted bug of another kind:
 `cases/12-bugfix-red-first/` holds Canon evaluations. Two matter most: `green-without-red` (a fix
 and a green suite with no red record) leaves `change.fix`, `tests.run` and `story.update` blocked;
 `test-edited` makes `change.fix` the writer again and `not_fixed` legitimate.
+
+## From a ticket: `sdc.ticket/1` (2026-11-21)
+
+The operator, 2026-11-21: "then I can actually point it to say Jira ticket and then it will just do
+it. Maybe we can have external outside controller session, which is maybe first fetching the ticket
+context, and the repo context and such, and then starting the runbook with a certain protocol."
+`story:ticket-input-and-repo-seed`. The controller that fetches a ticket is a later story; this one
+defines the document it writes and makes the bug-fix runbook take it.
+
+```console
+$ scripts/run-trial.sh <run> --bugfix-ticket <ticket file> [--autopilot | --dry]
+$ sdc-bugfix seed --ticket <ticket file> [--repo <worktree>]      # what run-trial.sh calls in work/
+$ sdc-bugfix schema ticket                                         # the JSON schema of the format
+```
+
+### The format
+
+| key | | |
+|---|---|---|
+| `format` | required | `sdc.ticket/1` |
+| `id` | required | the ticket's key in its system, a string (quote a number) |
+| `kind` | required | `bug` or `feature`; `sdc-bugfix` refuses `feature`: its protocol (`sdc-feature`) does not exist yet |
+| `title`, `text` | required | the ticket's words |
+| `context` | optional | a list of `{kind: comment\|linked\|doc, ref, text}` |
+| `source` | optional | `{system, url?, fetched_at}`: `system` is one free word (`jira`, `github`), `fetched_at` an RFC 3339 instant |
+| `repository` | required | `{path, remote?, base: {ref, commit}}`: `path` a local git worktree (relative to the ticket file), `commit` the full commit id its HEAD must be at |
+| `check` | optional | `{argv: [...]}`: recorded in `bug.yaml`, not run yet; the gate is cargo's |
+| `constraints` | optional | a list of strings, added to the code writers' prompts |
+| `branch` | optional | the branch a later hand-back step will create |
+
+Validation is strict: an unknown key at any level is refused, every missing required key is named,
+and no refusal quotes a value of the ticket.
+
+An invented example, also the fixture of the cycle `bugfix-from-ticket`
+(`driver/examples/sdc/fixtures/bugfix-pager/ticket.yaml`; the cycle sets the commit):
+
+```yaml
+format: sdc.ticket/1
+id: PAGER-7
+kind: bug
+title: The last partial page is never shown
+text: >-
+  An invented ticket. With 11 items and 5 items per page, pager::page_count(11, 5) returns 2 and
+  pager::page(&items, 3, 5) returns an empty slice, so item 11 is never shown. Expected: 3 pages,
+  the third holding item 11.
+context:
+- kind: comment
+  ref: comment-1
+  text: Seen with every total that is not a multiple of the page size.
+source:
+  system: example
+  url: https://tickets.example.invalid/PAGER-7
+  fetched_at: 2026-11-21T09:00:00Z
+repository:
+  path: repo
+  base:
+    ref: main
+    commit: "0000000000000000000000000000000000000000"
+check:
+  argv: [cargo, test, --offline]
+constraints:
+- Keep the public API of the crate unchanged.
+- Add no dependency.
+branch: fix/pager-7
+```
+
+### What the seed does
+
+`sdc-bugfix seed --ticket` (`driver/src/bin/sdc-bugfix.rs`, `seed_ticket`) refuses, before it
+writes anything, a path that is not the top of a git worktree, a worktree with a changed tracked
+file (untracked and ignored files do not count: they are not copied), a HEAD other than
+`repository.base.commit`, a repository with no `Cargo.toml` at its root, a submodule or a symlink,
+and a tree above the size cap. `--repo`, when given, must name the same directory as
+`repository.path`.
+
+It then copies exactly the files `git ls-files` lists to `work/mainline/` and `work/impl/`, and
+writes:
+
+- `work/bug.yaml`: `title`; `text`, the title, the text and each context entry in that order,
+  separated by a blank line, an entry headed `--- <kind> <ref>`; `story: story:ticket-<id>` (the id
+  lower case, every run of other characters one `-`); `ticket` (`id`, `kind`, `source`, no text);
+  `constraints`; `check` when the ticket has one;
+- `work/.sdc/seed.json` (`sdc.bugfix-seed/1`): the ticket's id, kind and branch, the repository's
+  path, remote and base (`ref`, `commit`), and the number of files and bytes copied.
+
+The story is created in `work/aep/` and moved to `active`, as in the other form. From there the run
+is the same as from a seed directory.
+
+Prompts (`driver/examples/sdc/tools/llm-node.sh`): when `bug.yaml` carries `ticket`, `change.fix`
+loses "Standard library only", and `test.reproduce` and `change.fix` end with the ticket's
+constraints. A run without a ticket keeps its prompts byte for byte
+(`driver/tests/bugfix_prompt.rs` against `driver/tests/fixtures/bugfix-prompt/`).
+
+### Limits
+
+- Rust and cargo only, with `Cargo.toml` at the repository's root. Other languages are a later
+  story (with `check.argv` as the gate).
+- The gate runs cargo `--offline`: the repository's dependencies must be fetched (`cargo fetch`)
+  before the run.
+- Bug tickets only: `kind: feature` is refused.
+- Size cap: 2000 files and 16 MiB (`SEED_MAX_FILES`, `SEED_MAX_BYTES`), raised for one run with
+  `SDC_SEED_MAX_FILES` and `SDC_SEED_MAX_BYTES`. Every model call copies the code tree into its
+  scratch directory and back (`llm-node.sh`, `input impl` and `seed impl`).
+- No hand-back: nothing is committed or pushed to the repository, and `branch` is only recorded.
+
+The ticket's text reaches the prompts and the run's own records (`runs/`, never committed) only.
+The seed prints the repository, the commit and the counts; the cycle checks that the run's output
+holds no ticket text.
 
 ## Run `runs/bugfix-1` (2026-11-21, real, autopilot)
 
