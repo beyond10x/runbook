@@ -1,0 +1,11 @@
+{"seq":1,"event":"revised","at":"2026-11-21T00:53:37Z","artifacts":{"idea":"tc87b516e338704cd"}}
+{"seq":4,"event":"child_opened","at":"2026-11-21T00:53:37Z","child_case":"IDEA-1.intake"}
+{"seq":5,"event":"action_finished","at":"2026-11-21T00:53:37Z","action":"intake.open"}
+{"seq":7,"event":"child_closed","at":"2026-11-21T01:23:33Z","outcome":"passed","child_case":"IDEA-1.intake"}
+{"seq":10,"event":"child_opened","at":"2026-11-21T01:23:33Z","child_case":"IDEA-1.direction"}
+{"seq":11,"event":"action_finished","at":"2026-11-21T01:23:33Z","action":"direction.open"}
+{"seq":13,"event":"child_closed","at":"2026-11-21T01:33:53Z","outcome":"passed","child_case":"IDEA-1.direction"}
+{"seq":14,"event":"revised","at":"2026-11-21T01:33:53Z","artifacts":{"roadmap":"tedcc307fa9dc6871"}}
+{"seq":17,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"roadmap.read"}
+{"seq":21,"event":"child_opened","at":"2026-11-21T01:33:53Z","child_case":"IDEA-1.todo"}
+{"seq":22,"event":"action_finished","at":"2026-11-21T01:33:53Z","action":"epics.open"}

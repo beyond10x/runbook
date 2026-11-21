@@ -1,0 +1,8 @@
+questions:
+- id: q1
+  status: changed
+  answered_by: person:ada
+  answer: Each list is private to its owner
+- id: q2
+  status: accepted
+  answered_by: decider:haiku

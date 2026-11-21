@@ -1,0 +1,1 @@
+{"format":"sdc.run-settings/1","at":"2026-11-22T08:59:58Z","leg":"started","autonomy":"A5","stand_in":false,"decider":{"kind":"haiku","model":"claude-haiku-5-5","escalate":"final","max_decider_calls":20},"models":{"spec.author":"claude-sonnet-5-5","default":"claude-haiku-5-5"},"adapter":"metaharness","max_llm_calls":45,"max_wall_seconds":5400,"llm_calls_before":0}
