@@ -27,6 +27,9 @@ set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 fx=$here/../fixtures
 node=$1
+# A run that does nothing ends here: exit 0, and sdc-drive is told (SDC_NOT_CALLED, a file it
+# reads back) so the run is recorded `not_called` and not counted against max_runs.
+not_called() { echo "$1"; [[ -n ${SDC_NOT_CALLED:-} ]] && printf '%s\n' "$1" > "$SDC_NOT_CALLED"; exit 0; }
 # A missing program is a program error (exit 127: sdc-drive stops, records nothing), not a result.
 for p in jq yq; do
   command -v "$p" >/dev/null 2>&1 || { echo "llm-node: $p is not on PATH: $node could not run" >&2; exit 127; }
@@ -47,8 +50,7 @@ export AEP_ACTOR=$aep_actor
 # answer, an edit or an amendment) holds answers: in runs/trial-2-train the rewrite after
 # amend.upstream wiped the operator's answers and the finding decision.
 if [[ $node == questions.write && -s questions.yaml && -z ${SDC_FEEDBACK:-} ]]; then
-  echo "llm-node: questions.write not called: questions.yaml exists and no check found it invalid"
-  exit 0
+  not_called "llm-node: questions.write not called: questions.yaml exists and no check found it invalid"
 fi
 cfg=${SDC_LLM_NODE:-'{}'}
 adapter=${SDC_LLM_ADAPTER:-stub}
@@ -73,8 +75,7 @@ raises=no
 if [[ $raises == yes && -f $work/findings.yaml ]] &&
   yq -e '[.findings[] | select(.status == "needs_person" and (.decision // "") == "")] | length > 0' \
     "$work/findings.yaml" >/dev/null 2>&1; then
-  echo "llm-node: $node not called: findings wait for a person ($(yq -r '[.findings[] | select(.status == "needs_person")] | map(.id) | join(" ")' "$work/findings.yaml"))"
-  exit 0
+  not_called "llm-node: $node not called: findings wait for a person ($(yq -r '[.findings[] | select(.status == "needs_person")] | map(.id) | join(" ")' "$work/findings.yaml"))"
 fi
 
 # After the node's output is applied: its raised findings go through the program check into
@@ -120,6 +121,20 @@ if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]]; then
   rejection=$(jq -r '[.[] | select(.result == "rejected") | .log // empty] | last // empty' "$SDC_FEEDBACK")
   [[ -n $rejection && -f $rejection ]] && jq -e '.format == "sdc.rejection/1"' "$rejection" > /dev/null 2>&1 || rejection=""
 fi
+# A rejection of this writer's subject still pending though SDC_FEEDBACK does not carry it (a later
+# write by another action moved the subject's revision, so the rejected record is no longer
+# current): the case's last rejected approval with no run of this writer after it that exited 0
+# and was not `not_called`. It is addressed as if fed back, and the skip rule below does not apply.
+cd_=${SDC_CASE_DIR:-}
+if [[ -z $rejection && -n $cd_ && -f $cd_/events.jsonl ]]; then
+  rejection=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished")] as $f
+    | ([$f | to_entries[] | select(.value.result == "rejected") | .key] | last) as $k
+    | if $k == null or any($f[$k + 1:][]; .action == $n and .exit == "0" and (.not_called | type) != "string") then empty
+      else $f[$k].log // empty end' "$cd_/events.jsonl" 2>/dev/null)
+  [[ -n $rejection ]] && rejection=$cd_/blobs/$rejection
+  [[ -n $rejection && -f $rejection ]] && jq -e --arg s "$(jq -r --arg n "$node" '.[$n].subject // ""' "$cd_/bindings.json" 2>/dev/null)" \
+    '.format == "sdc.rejection/1" and .subject == $s' "$rejection" > /dev/null 2>&1 || rejection=""
+fi
 
 if [[ $adapter == stub ]]; then
   run_stub; code=$?
@@ -148,7 +163,7 @@ fi
 # spec.author was spent. Not on a retry (a check sent the tree back) and not for the stubs, which
 # follow nothing (they model a writer that never converges, cycle story-spent).
 t=${derived[$node]:-}
-if [[ $raises == yes && -n $t && -z ${SDC_FEEDBACK:-} && -f $work/$t/.derived-from && -f $work/findings.yaml ]]; then
+if [[ $raises == yes && -n $t && -z ${SDC_FEEDBACK:-} && -z $rejection && -f $work/$t/.derived-from && -f $work/findings.yaml ]]; then
   first=$(head -n 1 "$work/$t/.derived-from")
   if [[ $first == "requirements "*" resolved"* ]]; then
     was=" ${first#* resolved} "
@@ -157,10 +172,9 @@ if [[ $raises == yes && -n $t && -z ${SDC_FEEDBACK:-} && -f $work/$t/.derived-fr
     own=$(N="llm:$node" yq -r '[.findings[]? | select(.status == "resolved" and .raised_by == strenv(N)
       and .resolution.default_taken == true) | .id] | join(" ")' "$work/findings.yaml")
     if [[ -n ${new// /} ]] && ! for id in $new; do [[ " $own " == *" $id "* ]] || echo x; done | grep -q x; then
-      echo "llm-node: $node not called: the decisions since $t/ was written are the defaults it raised and follows (${new% }); $t/ marked as derived from the amended requirements"
       echo "requirements $(sha256sum < "$work/requirements.yaml" | cut -c1-16) resolved $(yq -r '[.findings[]? | select(.status == "resolved") | .id] | join(" ")' "$work/findings.yaml")" \
         > "$work/$t/.derived-from"
-      exit 0
+      not_called "llm-node: $node not called: the decisions since $t/ was written are the defaults it raised and follows (${new% }); $t/ marked as derived from the amended requirements"
     fi
   fi
 fi

@@ -67,6 +67,10 @@ o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
 [[ ${a[0]:-} == stub-file || ${a[0]:-} == stub-tree ]] && [[ -n ${a[2]:-} ]] ||
   { echo "llm-adapter-fixture: node $node has no stub-file or stub-tree stub" >&2; exit 64; }
 mkdir -p "$cwd/out"
-(cd "$cwd" && "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" "out/${a[2]}") || exit 1
+# Run in the call's directory; a stub-tree's call count stays in work/.sdc (llm-node.sh runs this in
+# work/), so <name>.<n> of SDC_STUB_FIXTURES counts the stub's and this adapter's calls together.
+w=$PWD
+mkdir -p "$w/.sdc"
+(cd "$cwd" && SDC_STUB_COUNTER="$w/.sdc" "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" "out/${a[2]}") || exit 1
 jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
   num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'

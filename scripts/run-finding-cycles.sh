@@ -59,6 +59,8 @@
 #                   decision with no principal is not applied
 #   models          three dry runs: binding models, SDC_LLM_MODEL, SDC_LLM_MODEL_<CLASS>; each call
 #                   and decider record names its model, run-settings.jsonl the model per class
+#   rework-not-called, rework-pending-rejection, decider-later-obligation, replay-sibling,
+#   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -89,7 +91,8 @@ ctx_rework=no
 jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
-  expected+=(decider-rework decider-rework-spent)
+  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
+expected+=(decider-later-obligation replay-sibling writer-not-called)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -675,6 +678,108 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
   fi
+  # rework-not-called: runs/trial-3-haiku-4's list story. change.implement on llm-node.sh's apply
+  # path (fixture adapter); merge.approve rejected once, then approved. The rework (with the
+  # rejection) raises an agent finding (fixtures/finding-story-rework.yaml) and writes a tree that
+  # does not build (fixtures/rework-not-called/impl.1); the finding gate stops tests.run first, the
+  # agent amendment takes the default, and the next run is "not called" (the writer's own default).
+  # tests.run then fails on the tree. Passes when that not-called run is recorded `not_called` and
+  # not counted: a fourth run (third call) fixes the tree, the merge is approved, the run closes
+  # (before: writer_spent, 3 runs, as in haiku-4).
+  trial rework-not-called SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.implement \
+    SDC_STUB_FIXTURES="$fx/rework-not-called" SDC_STUB_FINDINGS="$fx/finding-story-rework.yaml" \
+    SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{"merge.approve": {"rounds": [$j, $a]}}')"
+  code=$?
+  r=$s/runs/rework-not-called
+  st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' | head -n 1)
+  if (( code == 0 )) && [[ -n $st ]] &&
+     jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] as $c
+       | ($c | length) == 4 and ([$c[] | select(.not_called | type == "string")] | length) == 1
+       and ([.[] | select(.event == "writer_spent")] | length) == 0' "$st/events.jsonl" >/dev/null &&
+     [[ $(jq -s '[.[] | select(.action == "change.implement")] | length' "$r/llm-calls.jsonl") == 3 ]] &&
+     jq -e '[.[] | .decision] == ["reject", "approve"]' <<< "$(attempts "$r" merge.approve)" >/dev/null; then
+    echo "rework-not-called: checks pass (the not-called run recorded not_called and not counted; a fourth run fixed the tree; approved, closed)"
+  else
+    echo "rework-not-called: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+  fi
+  # rework-pending-rejection: the same story case cut back to the moment after the rejection (its
+  # events up to the rejected merge.approve), with impl/ derived before the writer's own default
+  # was taken: llm-node.sh change.implement without SDC_FEEDBACK. Passes when the writer is called
+  # with in/rejection.json (a rejection no write answered yet), not skipped as "not called".
+  p=$s/pending; rm -rf "$p"; mkdir -p "$p"
+  if [[ -n $st ]]; then
+    cp -a "$st" "$p/case" && rm -f "$p/case/work" && cp -rL "$r/store/IDEA-1/work" "$p/work"
+    k=$(jq -s '[.[] | select(.event == "action_finished" and .result == "rejected")] | first | .seq' "$st/events.jsonl")
+    jq -c --argjson k "$k" 'select(.seq <= $k)' "$st/events.jsonl" > "$p/case/events.jsonl"
+    sed -i '1s/ resolved .*$/ resolved /' "$p/work/impl/.derived-from"
+    out=$(cd "$p/work" && env -u SDC_FEEDBACK -u SDC_NOT_CALLED -u SDC_STUB_FINDINGS SDC_CASE_DIR="$p/case" SDC_CASE="$(jq -r .id "$st/case.json")" \
+      SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODE="$(jq -c '."change.implement".llm' "$st/bindings.json")" SDC_LLM_RECORD="$p/llm" \
+      "$sdc/driver/examples/sdc/tools/llm-node.sh" change.implement 2>&1)
+    pc=$?
+  fi
+  if [[ -n $st ]] && (( pc == 0 )) && ! grep -q 'not called' <<< "$out" &&
+     jq -e '.format == "sdc.rejection/1" and .approval == "merge.approve"' "$(ls -d "$p"/llm/*-change.implement 2>/dev/null | tail -n 1)/cwd/in/rejection.json" >/dev/null 2>&1; then
+    echo "rework-pending-rejection: checks pass (a pending rejection: the writer called with in/rejection.json, the own-default skip not taken)"
+  else
+    echo "rework-pending-rejection: FAILED (exit ${pc:-none}: $(tail -n 1 <<< "${out:-}" | cut -c1-200))"
+  fi
+fi
+# decider-later-obligation: runs/trial-3-mixed-3's refused release. The autopilot cycle's decider
+# records (no new run): release.publish's in/checks.json does not list health.required as open (it
+# needs release.healthy, a health_observation of release.observe, admissible only after the
+# publish) but under met_after_this_action, and the prompt says it is no condition; vision.approve's
+# moves roadmap.required (roadmap.approve comes after it).
+rp=$(ls -d "$s"/runs/autopilot/decider/*-release.publish 2>/dev/null | tail -n 1)
+va=$(ls -d "$s"/runs/autopilot/decider/*-vision.approve 2>/dev/null | tail -n 1)
+if [[ -n $rp && -n $va ]] &&
+   jq -e '(.open_obligations | index("health.required") | not) and .met_after_this_action.action == "release.publish"
+     and .met_after_this_action.obligations == ["health.required"]' "$rp/cwd/in/checks.json" >/dev/null &&
+   grep -q '^`met_after_this_action` .* after release.publish: not a condition of this decision' "$rp/prompt.md" &&
+   jq -e '(.open_obligations | index("roadmap.required") | not) and (.met_after_this_action.obligations | index("roadmap.required"))' "$va/cwd/in/checks.json" >/dev/null; then
+  echo "decider-later-obligation: checks pass (health.required met after release.publish, roadmap.required after vision.approve: listed apart, not open)"
+else
+  echo "decider-later-obligation: FAILED (release.publish checks: $(jq -c '{open_obligations, met_after_this_action}' "$rp/cwd/in/checks.json" 2>/dev/null))"
+fi
+# replay-sibling: runs/trial-3-haiku-4's replay (IDEA-1.todo: 7 of 9). Two stories opened by one
+# stories.open (fixtures/plan-two-stories.json through plan.decompose's apply path); the first
+# closes, the second's change.implement raises a scope-changing finding and the run stops there
+# for a person (exit 3). Passes when `sdc-drive replay` of the stopped tree exits 0: the epic was
+# evaluated after the child_closed that rewrote its record.
+cycle replay-sibling SDC_LLM_NODES=plan.decompose SDC_LLM_ADAPTER="$fixture" \
+  SDC_FIXTURE_STUB='{"plan.decompose":["plan-two-stories.json","stories.json"]}' SDC_STUB_FINDINGS="$fx/finding-story-second.yaml"
+code=$?
+root=$s/store-replay-sibling/IDEA-1
+"$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$root" replay > "$s/replay-sibling.json" 2>&1
+rc=$?
+if (( code == 3 && rc == 0 )) &&
+   jq -se '[.[] | select(.event == "child_closed") | .child_case] | index("IDEA-1.billing.emails")' "$root/children/IDEA-1.billing/events.jsonl" >/dev/null &&
+   ! jq -e 'has("termination")' "$root/children/IDEA-1.billing/children/IDEA-1.billing.invoices/case.json" >/dev/null; then
+  echo "replay-sibling: checks pass (one story closed, stopped in its sibling; replay exit 0)"
+else
+  echo "replay-sibling: FAILED (cycle exit $code, replay exit $rc: $(jq -c '[.[] | select(.state_matches_log == false or .decision_matches_log == false) | .case]' "$s/replay-sibling.json" 2>/dev/null))"
+fi
+# writer-not-called: a copy of replay-sibling's stopped tree. In the waiting story, change.implement
+# is bound to a program that only says it is not called (SDC_NOT_CALLED), amend.upstream to
+# nothing; the open finding is dismissed and impl/Cargo.toml removed (edits: an arrival), so
+# tests.run fails and sends the writer back. Passes when the run stops with the verdict
+# writer_not_called (each run not called, none counted), not three runs into writer_spent.
+w=$s/not-called; rm -rf "$w"; cp -a "$s/store-replay-sibling" "$w"
+sc=$w/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices
+if [[ -f $sc/bindings.json ]]; then
+  jq '."change.implement".argv = ["sh", "-c", "echo \"fixture: not called\" > \"$SDC_NOT_CALLED\""] | del(."amend.upstream")' \
+    "$sc/bindings.json" > "$sc/bindings.json.new" && mv "$sc/bindings.json.new" "$sc/bindings.json"
+  yq -i '(.findings[] | select(.status == "needs_person")).status = "dismissed"' "$w/IDEA-1/work/findings.yaml"
+  rm -f "$w/IDEA-1/work/impl/Cargo.toml"
+  wo=$("$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$w/IDEA-1" \
+    run --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" 2> "$s/writer-not-called.err")
+  wc_=$?
+fi
+if [[ -f $sc/bindings.json ]] && (( wc_ == 4 )) && jq -e '.verdict == "writer_not_called"' <<< "$wo" >/dev/null 2>&1 &&
+   jq -se '([.[] | select(.event == "writer_not_called")] | length) == 1 and ([.[] | select(.event == "writer_spent")] | length) == 0
+     and ([.[] | select(.event == "action_finished" and .action == "change.implement" and (.not_called | type == "string"))] | length) >= 1' "$sc/events.jsonl" >/dev/null; then
+  echo "writer-not-called: checks pass (not-called runs, uncounted, then the stop writer_not_called)"
+else
+  echo "writer-not-called: FAILED (exit ${wc_:-none}: $(jq -r '.verdict // empty' <<< "${wo:-}" 2>/dev/null) $(tail -n 1 <<< "${wo:-}" | cut -c1-200))"
 fi
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3

@@ -1,0 +1,14 @@
+{
+  "stories": [
+    {
+      "name": "emails",
+      "title": "Invoice emails",
+      "summary": "covers billing.email.SendEmail"
+    },
+    {
+      "name": "invoices",
+      "title": "Invoices",
+      "summary": "covers billing.invoice.CancelInvoice billing.invoice.CreateInvoice billing.invoice.IssueInvoice billing.invoice.PayInvoice"
+    }
+  ]
+}

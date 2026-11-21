@@ -1,0 +1,10 @@
+node: change.implement
+rounds:
+  - []
+  - - key: story-rework-1
+      type: missing_decision
+      cites: [r1]
+      says: r1 does not say how an invoice number is formatted
+      options: [the year and a running number, a running number only]
+      default: the year and a running number
+      scope_changing: false

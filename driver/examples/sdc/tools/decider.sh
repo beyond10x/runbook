@@ -320,10 +320,19 @@ if [[ -s $ir ]]; then
   settles=$(jq -c --arg a "$(r .action)" '[.actions[$a].precondition // {} | .. | objects | .claim? | objects
     | {id, is}] | group_by(.id) | map(select(all(.is != "true")) | .[0].id)' "$ir")
 fi
-jq --argjson reads "$reads" --argjson settles "$settles" '.position | {claims: (if $reads == null then .claims
+# What only a step after the decided action can meet (sdc-reply later, from the protocol): never an
+# open condition of this decision; listed apart under met_after_this_action (runs/trial-3-mixed-3:
+# health.required, met by release.observe after release.publish, read as unmet).
+later='{"claims": [], "obligations": []}'
+[[ -s $ir && $type != close ]] && later=$("$reply_bin" later --ir "$ir" --action "$(r .action)" 2>/dev/null || echo "$later")
+jq --argjson reads "$reads" --argjson settles "$settles" --argjson later "$later" '.position | {claims: (if $reads == null then .claims
   else (.claims | with_entries(select(.key | IN($reads[])))) end
+  | with_entries(select(.key | IN($later.claims[]) | not))
   | with_entries(if (.key | IN($settles[])) then .value += {settled_by_this_decision: true} else . end)),
-  open_obligations, legitimate_outcomes}' <<< "$req" > "$cwd/in/checks.json"
+  open_obligations: [.open_obligations[]? | select(IN($later.obligations[]) | not)], legitimate_outcomes}
+  + ([.open_obligations[]? | select(IN($later.obligations[]))] as $o | ((.claims // {}) | keys - (keys - $later.claims)) as $c
+    | if ($o + $c) == [] then {} else {met_after_this_action: {action: $later.action, obligations: $o, claims: $c,
+      note: "met after \($later.action), not a condition of this decision"}} end)' <<< "$req" > "$cwd/in/checks.json"
 inputs+=("in/checks.json (the program checks this decision turns on: each claim's value at the current revisions, the open obligations)")
 # A question comes with the dissection item it was asked about and that item's words in the idea.
 item=null
@@ -416,6 +425,8 @@ prompt=$rec/prompt.md
   echo
   echo "A claim in in/checks.json marked \`settled_by_this_decision\` is one that taking this decision"
   echo "makes true: its value now (false or unknown) is not a failed check."
+  jq -e '.met_after_this_action' "$cwd/in/checks.json" > /dev/null 2>&1 &&
+    echo "\`met_after_this_action\` in in/checks.json lists what can only be met by a step after $(r .action): not a condition of this decision, never a reason to reject it."
   echo
   echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
   echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
