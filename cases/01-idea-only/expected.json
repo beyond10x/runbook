@@ -20,6 +20,7 @@
   },
   "outcomes": {
     "abandoned": "blocked",
-    "operating": "blocked"
+    "operating": "blocked",
+    "stopped": "blocked"
   }
 }

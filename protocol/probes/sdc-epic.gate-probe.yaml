@@ -1,9 +1,9 @@
 format: protocol/1
 protocol:
   id: sdc.epic
-  revision: 3
+  revision: 4
   description: >-
-    Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision.
+    Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision, or stopped once a child case ended other than passed.
 artifacts:
   roadmap:
     description: the roadmap the epic belongs to
@@ -213,6 +213,12 @@ outcomes:
     description: the epic was explicitly abandoned
     requires:
       decision: explicitly_abandoned
+  stopped:
+    description: >-
+      a child case ended with an outcome other than passed (the specification abandoned, a story dropped, the release rolled back or withheld); the children form keeps that outcome for every later revision, so the case ends here and the root case ends stopped with it
+    requires:
+      claim: children.passed
+      is: "false"
   probe.passed_without_gate:
     description: passed while the ESS gate evidence is not TRUE
     requires:

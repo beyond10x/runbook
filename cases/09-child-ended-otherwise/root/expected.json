@@ -1,0 +1,26 @@
+{
+  "actions": {
+    "direction.open": "blocked",
+    "epics.open": "blocked",
+    "intake.open": "blocked",
+    "roadmap.read": "admissible"
+  },
+  "claims": {
+    "children.passed": "false",
+    "direction.opened": "unknown",
+    "epics.opened": "unknown",
+    "intake.opened": "true",
+    "roadmap.approved": "unknown",
+    "roadmap.copied": "unknown"
+  },
+  "obligations": {
+    "direction.required": "open",
+    "epics.required": "open",
+    "intake.required": "discharged"
+  },
+  "outcomes": {
+    "abandoned": "blocked",
+    "operating": "blocked",
+    "stopped": "legitimate"
+  }
+}

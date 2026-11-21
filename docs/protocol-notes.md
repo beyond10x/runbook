@@ -63,6 +63,7 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
 | `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
 | `08-intake-idea-refused` | sdc.intake | idea record invalid: no action revises the idea, outcome `refused` legitimate |
+| `09-child-ended-otherwise/{root,epic}` | sdc, sdc.epic | intake ended `refused`, spec ended `abandoned`: `stopped` legitimate |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -143,6 +144,34 @@ sdc.release keeps `release.approve` as a capability of `release.publish`: the sa
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
 
+## Every child outcome has a way on in the parent
+
+`children.passed` (`{children: {in: [passed]}}`) is `false` for good once any child ended with
+another outcome, whatever revision it was about (limitation 4), so reopening a child cannot make
+it `true` again. sdc and sdc.epic therefore end `stopped` when `children.passed` is `false`
+(`protocol/sdc.protocol.yaml:155-163`, `protocol/sdc-epic.protocol.yaml:209-216`). The outcome
+reads the existing claim, so the state counts do not move (sdc 4608, epic 36864). Cases:
+`09-child-ended-otherwise/root` (intake `refused`: `stopped` legitimate),
+`09-child-ended-otherwise/epic` (spec `abandoned`: `stopped` legitimate).
+
+| Parent | Child protocol | Child outcome | Parent does |
+|---|---|---|---|
+| sdc | sdc.intake | `passed` | `direction.open` |
+| sdc | sdc.intake | `refused` (idea failed its check) | ends `stopped`; the next idea revision is a new root case |
+| sdc | sdc.direction | `passed` | `epics.open` once the roadmap is approved |
+| sdc | sdc.epic | `passed` | `operating` once every epic passed |
+| sdc | sdc.epic | `abandoned`, `stopped` | ends `stopped` |
+| sdc.epic | sdc.spec | `passed` | `plan.open` |
+| sdc.epic | sdc.spec | `abandoned` | ends `stopped` |
+| sdc.epic | sdc.plan | `passed` | `stories.open` |
+| sdc.epic | sdc.story | `passed` | `release.open` once every story passed |
+| sdc.epic | sdc.story | `dropped` | ends `stopped` |
+| sdc.epic | sdc.release | `passed` | `passed` |
+| sdc.epic | sdc.release | `rolled_back`, `withheld` | ends `stopped` |
+
+sdc.direction and sdc.plan have no outcome but `passed`. Either parent can also end `abandoned`
+on its explicit decision at any point.
+
 ## What `canon simulate` still reports and why
 
 Canon's classification of the findings on f364b6b (classes a1, a2, a3, c, d, e) is the reference
@@ -158,12 +187,12 @@ for this section; c is fixed by the approval rule above.
 - **A failed idea check (a2 on `idea`, 18 findings, sdc.intake).** Nothing in an intake case
   revises the idea: a revised idea opens a new intake case at the root
   (`protocol/sdc-intake.protocol.yaml:6`). The case now ends `refused` once `idea.shaped` is
-  `false` (`protocol/sdc-intake.protocol.yaml:253-259`; case `08-intake-idea-refused`). Gap at the
-  root: for the idea's next revision `intake.open` is admissible again, but the refused child's
-  `case_outcome` keeps `children.passed` (`protocol/sdc.protocol.yaml:61-65`, `in: [passed]`)
-  `false` for good, also after the new intake case ends `passed` (limitation 4; probed with
-  `canon evaluate` on a root case at i2 holding both child outcomes), so a reopened intake cannot
-  lead to `operating`.
+  `false` (`protocol/sdc-intake.protocol.yaml:253-259`; case `08-intake-idea-refused`). The root
+  then ends `stopped` (previous section): for the idea's next revision `intake.open` is
+  admissible again, but the refused child's `case_outcome` keeps `children.passed`
+  (`protocol/sdc.protocol.yaml:61-65`, `in: [passed]`) `false` for good, also after the new
+  intake case ends `passed` (limitation 4; probed with `canon evaluate` on a root case at i2
+  holding both child outcomes), so a reopened intake cannot lead to `operating`.
 
 ## Evidence kinds and the action that produces each
 

@@ -1,0 +1,9 @@
+format: canon-evidence/1
+id: k1
+kind: case_outcome
+result: abandoned
+subject: spec
+subject_revision: none
+producer: sdc-drive
+child_case: EPIC-9.spec
+observed_at: 2026-11-20T08:30:00Z

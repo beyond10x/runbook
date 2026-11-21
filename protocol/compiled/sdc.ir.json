@@ -293,11 +293,20 @@
           }
         ]
       }
+    },
+    "stopped": {
+      "description": "a child case ended with an outcome other than passed (the intake refused its idea, an epic was abandoned or stopped); the children form keeps that outcome for every later revision, so no child can be opened again to good effect and the case ends here; the idea starts again as a new root case",
+      "requires": {
+        "claim": {
+          "id": "children.passed",
+          "is": "false"
+        }
+      }
     }
   },
   "protocol": {
-    "description": "Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.",
+    "description": "Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision, or stopped once a child case ended other than passed. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.",
     "id": "sdc",
-    "revision": 6
+    "revision": 7
   }
 }

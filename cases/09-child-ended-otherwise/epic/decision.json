@@ -1,0 +1,322 @@
+{
+  "actions": {
+    "plan.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    },
+    "release.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.read": {
+      "reasons": [
+        {
+          "claim": "roadmap.copied",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.gate": {
+      "status": "admissible"
+    },
+    "spec.open": {
+      "reasons": [
+        {
+          "claim": "spec.opened",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "stories.open": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "EPIC-9",
+  "claims": {
+    "children.passed": {
+      "value": "false"
+    },
+    "gate.checked": {
+      "value": "unknown"
+    },
+    "gate.passed": {
+      "value": "unknown"
+    },
+    "plan.opened": {
+      "value": "unknown"
+    },
+    "release.opened": {
+      "value": "unknown"
+    },
+    "roadmap.approved": {
+      "value": "true"
+    },
+    "roadmap.copied": {
+      "value": "true"
+    },
+    "spec.opened": {
+      "value": "true"
+    },
+    "stories.opened": {
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "plan.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      },
+      "release.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      },
+      "roadmap.read": {
+        "because": [
+          {
+            "claim": "roadmap.copied",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.open": {
+        "because": [
+          {
+            "claim": "spec.opened",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "stories.open": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "children.passed": {
+        "because": [
+          {
+            "children": [
+              "passed"
+            ],
+            "value": "false"
+          }
+        ],
+        "value": "false"
+      },
+      "gate.checked": {
+        "because": [
+          {
+            "kind": "ess_gate",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "gate.passed": {
+        "because": [
+          {
+            "kind": "ess_gate",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
+      "plan.opened": {
+        "because": [
+          {
+            "kind": "plan_opened",
+            "status": "absent",
+            "subject": "epic"
+          }
+        ],
+        "value": "unknown"
+      },
+      "release.opened": {
+        "because": [
+          {
+            "kind": "release_opened",
+            "status": "absent",
+            "subject": "epic"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.copied": {
+        "because": [
+          {
+            "evidence": "a1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.opened": {
+        "because": [
+          {
+            "evidence": "s1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "stories.opened": {
+        "because": [
+          {
+            "kind": "stories_opened",
+            "status": "absent",
+            "subject": "epic"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "epic": {
+            "revision": "e1"
+          },
+          "roadmap": {
+            "revision": "r1"
+          },
+          "spec": {
+            "revision": "none"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "EPIC-9",
+        "protocol": "sdc.epic",
+        "revision": "c1"
+      },
+      "evidence": [
+        "a1",
+        "k1",
+        "s1"
+      ],
+      "protocol": "sdc.epic",
+      "protocol_revision": 4,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "gate.required": {
+        "because": [
+          {
+            "claim": "gate.passed",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "release.required": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "abandoned": {
+        "because": [
+          {
+            "decision": "explicitly_abandoned",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "passed": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "false"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "gate.required",
+      "status": "open"
+    },
+    {
+      "id": "release.required",
+      "status": "open"
+    },
+    {
+      "id": "roadmap.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "abandoned": {
+      "reasons": [
+        {
+          "decision": "explicitly_abandoned",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "passed": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "false"
+        }
+      ],
+      "status": "blocked"
+    },
+    "stopped": {
+      "status": "legitimate"
+    }
+  },
+  "protocol": "sdc.epic",
+  "protocol_revision": 4
+}

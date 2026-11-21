@@ -1,0 +1,9 @@
+format: canon-evidence/1
+id: k1
+kind: case_outcome
+result: refused
+subject: idea
+subject_revision: i1
+producer: sdc-drive
+child_case: IDEA-9.intake
+observed_at: 2026-11-20T09:05:00Z

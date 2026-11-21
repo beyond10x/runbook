@@ -326,7 +326,7 @@
         "a1"
       ],
       "protocol": "sdc.epic",
-      "protocol_revision": 3,
+      "protocol_revision": 4,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -395,6 +395,15 @@
           }
         ],
         "status": "blocked"
+      },
+      "stopped": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
       }
     }
   },
@@ -443,8 +452,17 @@
         }
       ],
       "status": "blocked"
+    },
+    "stopped": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
     }
   },
   "protocol": "sdc.epic",
-  "protocol_revision": 3
+  "protocol_revision": 4
 }
