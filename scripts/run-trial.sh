@@ -325,11 +325,17 @@ trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
 dry_lines() { { wc -l < "${SDC_LLM_DRY_LOG:-/dev/null}"; } 2>/dev/null || echo 0; }
 print_dry() { [[ -n ${SDC_LLM_DRY_LOG:-} && -f $SDC_LLM_DRY_LOG ]] && tail -n +"$(($1 + 1))" "$SDC_LLM_DRY_LOG" | sed 's/^/  /'; true; }
 
-# Close the root through an outcome, write decision.json and replay.json; exit with replay's code.
+# Close the root through an outcome, write decision.json, status.json and replay.json; exit with
+# replay's code. A run that closes completed, whichever outcome: status.json (sdc.run-status/1)
+# says closed, the outcome and whether it is the delivering one (`operating`), with end_note (why
+# the tree ended otherwise, e.g. a withheld release and the decider's first reason).
+end_note=""
 finish() {
   d "$root" close --at "$(now)" --outcome "$1"
-  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last") (exit $code)"
+  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)} (exit $code)"
   [[ $code == 0 ]] || exit 4
+  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" '{format: "sdc.run-status/1", at: $at, state: "closed",
+    outcome: $o, delivered: ($o == "operating"), note: (if $note == "" then null else $note end)}' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
   d "$root" replay
@@ -360,8 +366,8 @@ waiting() {
 # taken, recorded as `fallback`: a question or a finding takes its default (invalid_reply_default);
 # an approval or a close is approved when every claim it turns on is true and no obligation is
 # open but the one it discharges (approved_on_checks), else rejected with the failing checks
-# (rejected_on_checks). A reject at an approval ends the run as rejected_without_rework_path: no
-# protocol here has an action that reworks a rejected revision with the reasons.
+# (rejected_on_checks). A reject at an approval: under A5 reworked by its writer (rework), else ended
+# by the protocol's end for a refusal (withhold), else the run ends rejected_without_rework_path.
 decide() {
   local req=$1 key rec n reply before attempt=1 why="" kind fallback=""
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
@@ -460,6 +466,8 @@ decide() {
       # Autopilot: a rejected approval is reworked (rework below), not an end.
       if [[ $autonomy == A5 && $kind == approval ]]; then
         rework "$req" "$reply" && { dec="" reworked=yes; return 0; }
+        # No writer, but the protocol's end for a refusal (a withheld release).
+        [[ -z $end_cause ]] && withhold "$req" "$reply" && { dec="" reworked=yes; return 0; }
       fi
       if [[ -z $end_cause ]]; then
         end_cause=rejected_without_rework_path
@@ -511,6 +519,7 @@ rework() { # <request> <decider reply>
     --argjson r "$reply" --argjson n "$n" '{format: "sdc.rejection/1", approval: $a, case: $c, subject: $s, revision: $rev,
       principal: $p, at: $at, reasons: $r.reasons, citations: ($r.citations // [($r.cites // [])[] | {cite: .}]),
       decision_record: $r.record, count: $n}' > "$file"
+  rework_file=$file
   d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act" --result rejected --reasons "$file"
   if [[ $code != 0 ]]; then
     rework_gap="\`$act\` cannot record a rejected result ($(tail -n 1 <<< "$last" | sed 's/^sdc-drive: //'))"
@@ -531,6 +540,36 @@ rework() { # <request> <decider reply>
     return 1
   fi
   echo "  rework: $writers runs again with the rejection's reasons (in/rejection.json), then $act is asked again"
+  return 0
+}
+
+# Autopilot end of a refused approval that has no writer but an end in the protocol: a rejected
+# release.publish withholds the release (sdc.release outcome `withheld`, decision
+# `explicitly_withheld`). Canon admits that decision from anyone in any state, so this is the
+# tools' rule: only under A5, only directly after the decider refused, and only for the actions in
+# refusal_end. The refusal is recorded as the protocol represents it, the capability denied by
+# the decider (`approve --deny`; the approval has no `rejected` result); then the decision by
+# rule:autopilot with the rejection (the decider's reasons and citations) as its log blob
+# (`sdc-drive decide --after-denial`, which refuses it in any other state), and the case is closed
+# through the outcome. The parents then end through the outcome their evaluation offers (epic
+# not_released, root not_delivered). Returns 1 when the action has no such end.
+declare -A refusal_end=([release.publish]="explicitly_withheld withheld")
+rework_file=""
+withhold() { # <request> <decider reply>
+  local req=$1 reply=$2 cdir act cap subj dn oc
+  act=$(jq -r .action <<< "$req")
+  [[ $autonomy == A5 && -n ${refusal_end[$act]:-} && -n $rework_file ]] || return 1
+  read -r dn oc <<< "${refusal_end[$act]}"
+  cdir=$(jq -r .case_dir <<< "$req") cap=$(jq -r .capability <<< "$req") subj=$(jq -r '.subject // ""' <<< "$req")
+  jq -e --arg o "$oc" --arg d "$dn" '.outcomes[$o].requires == {decision: $d}' "$cdir/ir.json" > /dev/null || return 1
+  d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --deny
+  [[ $code == 0 ]] || { rework_gap="\`$cap\` could not be denied: $(tail -n 1 <<< "$last")"; return 1; }
+  d "$cdir" decide --at "$(now)" --decision "$dn" --outcome "$oc" --principal rule:autopilot --after-denial "$cap" --reasons "$rework_file"
+  [[ $code == 0 ]] || { rework_gap="\`$dn\` was refused: $(tail -n 1 <<< "$last" | sed 's/^sdc-drive: //')"; return 1; }
+  d "$cdir" close --at "$(now)" --outcome "$oc"
+  [[ $code == 0 ]] || { rework_gap="\`$oc\` could not be closed: $(tail -n 1 <<< "$last")"; return 1; }
+  end_note="${subj:-$act} $oc: $(jq -r '.reasons[0] // ""' <<< "$reply")"
+  echo "  $act refused by decider:$decider: $cap denied, $dn recorded by rule:autopilot, ${cdir##*/} closed $oc"
   return 0
 }
 
@@ -653,6 +692,13 @@ for round in $(seq 1 40); do
     terminable)
       outcome=$(jq -r '.position.legitimate_outcomes[0]' <<< "$last")
       [[ $dry == yes && $decider == person ]] && finish "$outcome"
+      # The close is a decision (class close, docs/autonomy-levels.md § 3.2) for `operating`, and
+      # where the outcome requires a decision; an end the protocol reaches by its checks alone
+      # (not_delivered, refused) is closed without one.
+      if [[ $decider != person && $outcome != operating ]] &&
+         ! jq -e --arg o "$outcome" 'any(.outcomes[$o].requires | .. | objects; has("decision"))' "$root/ir.json" > /dev/null 2>&1; then
+        finish "$outcome"
+      fi
       if [[ $decider != person ]]; then
         decide "$(jq -cn --arg c "$root" --arg o "$outcome" --argjson pos "$(jq -c .position <<< "$last")" \
           --arg rev "$(jq -r '.revision' "$root/case.json")" \

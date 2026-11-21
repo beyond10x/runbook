@@ -465,10 +465,11 @@ written into each `run-settings.jsonl` line.
   for the direction approvals) runs again with the reasons in its inputs (`in/rejection.json`),
   its checks run again on the new revision, and the approval is asked again. At most 2 rejections
   per approval per case: the third stops the run by `rule:autopilot` with cause `rework_spent`,
-  naming the approval and the three reasons. A reject that cannot be recorded or sends no writer
-  back stops with `rejected_without_rework_path`; so does the release approval, which is the
-  capability `release.approve` on `release.publish` and has no `rejected` result. No message says
-  a person decides.
+  naming the approval and the three reasons. A rejected `release.publish` (the capability
+  `release.approve`, no writer) ends the tree instead: the release is withheld, the epic ends
+  `not_released`, the root `not_delivered`, and the run is closed, not stopped (`docs/driver.md`,
+  "A refused release"). A reject that has neither a writer nor such an end stops with
+  `rejected_without_rework_path`. No message says a person decides.
 - **Every would-be escalation is recorded** as the event `escalation_suppressed`, with the class,
   the subject at revision, the reasons and `best`. It is counted as the KPI R21, escalations
   suppressed (§ 5).

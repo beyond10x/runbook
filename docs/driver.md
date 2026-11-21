@@ -427,10 +427,26 @@ Markdown file) so its rework is a new revision (cycle `decider-rework-model`: no
 adapter). The new revision leaves the record behind and the approval is asked again; the
 decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
 evidence and the event log). The third rejection stops the run with cause `rework_spent`; a
-rejection that cannot be recorded, or that sends no writer back, with
-`rejected_without_rework_path` (exit 6), as `release.publish` does: its approval is a capability
-with no `rejected` result. An open case keeps the `ir.json` and `bindings.json` it
-was opened with, so a run started before a protocol change does not gain the new actions.
+rejection that cannot be recorded, or that sends no writer back, and has no end of its own (below)
+with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
+it was opened with, so a run started before a protocol change does not gain the new actions.
+
+**A refused release** (2026-11-21, `docs/protocol-notes.md`). `release.publish` is approved by the
+capability `release.approve`: no `rejected` result, no writer. The release's other end is
+`withheld`, which requires the decision `explicitly_withheld`; Canon admits that decision from any
+principal in any state, so the tools hold the rule. Under autopilot only, directly after the
+decider rejected `release.publish`, `run-trial.sh` records the refusal as the protocol represents
+it, `approve --capability release.approve --deny` by the decider, then `sdc-drive decide
+--decision explicitly_withheld --outcome withheld --principal rule:autopilot --after-denial
+release.approve --reasons <rejection>`, which appends the `canon-decisions/1` entry (decision,
+outcome, principal, case revision) with the rejection (the decider's reasons and citations) as its
+log blob, and refuses before writing unless the outcome requires that decision alone and the
+case's last step was that denial. The release is closed `withheld`; the driver's round closes the
+epic `not_released`, and the root, terminable `not_delivered`, is closed without a decider: the
+decider closes only `operating` (class close) and outcomes that require a decision. The run is
+closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)`,
+and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note), no stop record. Under
+A0–A4 the reject stops the run as before and nothing is recorded in the release case.
 
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":

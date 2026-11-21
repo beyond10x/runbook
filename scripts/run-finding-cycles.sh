@@ -75,7 +75,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   story-late-person decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-rework-none principals models)
+  decider-escalate-nobest decider-release-a3 principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -626,19 +626,62 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
   fi
 fi
+# A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
+# capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3
+# the decider's reject ends the run with rejected_without_rework_path (exit 6) and nothing is
+# recorded in the release case: the withheld decision is autopilot's only. A copy of that release
+# case, awaiting the approval, refuses `sdc-drive decide` (the decision outside the refused
+# state). Where the epic protocol has not_released: decider-release-withheld: under autopilot the
+# decider rejects release.publish; release.approve is denied by the decider, explicitly_withheld
+# recorded by rule:autopilot with the rejection as its log blob, the release closes withheld, the
+# epic not_released, the root not_delivered; exit 0, the closed line names the reason,
+# status.json says not delivered, no stop record, no person principal, L7 0, replay matches.
 rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the release notes name no version"], "cites": ["r1"], "best": null}'
-trial decider-rework-none SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
+targs=()
+trial decider-release-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
 code=$?
-r=$s/runs/decider-rework-none
+r=$s/runs/decider-release-a3
 rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
-if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rejected_without_rework_path"
-     and (.reason | test("^autopilot: release.publish in ") and test("cannot record a rejected result") and (test("person") | not)
-       and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
-   [[ -n $rs && $(jq -s '[.[] | select(.result == "rejected")] | length' "$rs"/evidence/*.json) == 0 ]] &&
-   "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0' >/dev/null; then
-  echo "decider-rework-none: checks pass (release.publish rejected; its capability approval cannot record it: rejected_without_rework_path, nothing recorded)"
+cp_=$s/decide-refused; rm -rf "$cp_"; [[ -n $rs ]] && cp -r "$rs" "$cp_"
+printf '{"format": "sdc.rejection/1", "reasons": ["fixture"]}\n' > "$s/decide-refused.json"
+refusal=$("$sdc/driver/target/debug/sdc-drive" --canon "${CANON:-$HOME/beyond10x/canon/target/debug/canon}" --case-dir "$cp_" decide \
+  --at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --decision explicitly_withheld --outcome withheld --principal rule:autopilot \
+  --after-denial release.approve --reasons "$s/decide-refused.json" 2>&1)
+rcode=$?
+if (( code == 6 )) && [[ -n $rs && ! -f $r/run-stopped.json && ! -f $r/status.json ]] &&
+   grep -q 'release.publish in .*rejected_without_rework_path' "$s/decider-release-a3.txt" &&
+   jq -e 'length == 0' "$rs/decisions.json" >/dev/null && jq -e 'all(.decision != "denied")' "$rs/authority.json" >/dev/null &&
+   (( rcode != 0 )) && grep -q 'taken only directly after `release.approve` was denied' <<< "$refusal" &&
+   jq -e 'length == 0' "$cp_/decisions.json" >/dev/null; then
+  echo "decider-release-a3: checks pass (A3: rejected_without_rework_path, nothing recorded; decide refused outside the refused state)"
 else
-  echo "decider-rework-none: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+  echo "decider-release-a3: FAILED (exit $code, decide exit $rcode: $(tail -n 1 <<< "$refusal"))"
+fi
+targs=(--autopilot)
+if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1; then
+  trial decider-release-withheld SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
+  code=$?
+  r=$s/runs/decider-release-withheld
+  rs=$(find "$r/store" -type d -name '*.release' | head -n 1)
+  ep=$(dirname "$(dirname "$rs")")
+  blob=$(jq -r 'select(.event == "decision_recorded") | .log' "$rs/events.jsonl" 2>/dev/null)
+  people=$( { jq -r '.principal' "$r/decisions.jsonl"
+              find "$r/store" -name events.jsonl -exec jq -r 'select(.event == "authority_recorded" or .event == "decision_recorded" or (.event == "action_finished" and .principal != null)) | .principal' {} +
+            } | grep -Evc "$nonperson")
+  if (( code == 0 && people == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+     grep -q '^closed IDEA-1: "not_delivered" (release withheld: fixture: the release notes name no version)' "$s/decider-release-withheld.txt" &&
+     jq -e '.state == "closed" and .outcome == "not_delivered" and .delivered == false' "$r/status.json" >/dev/null &&
+     jq -e '. == [{"capability": "release.approve", "decision": "denied"}]' "$rs/authority.json" >/dev/null &&
+     jq -e 'length == 1 and .[0].decision == "explicitly_withheld" and .[0].outcome == "withheld" and .[0].principal == "rule:autopilot"' "$rs/decisions.json" >/dev/null &&
+     jq -e '.format == "sdc.rejection/1" and .approval == "release.publish" and .reasons == ["fixture: the release notes name no version"]' "$rs/blobs/$blob" >/dev/null &&
+     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["withheld"]' "$rs/events.jsonl" >/dev/null &&
+     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["not_released"]' "$ep/events.jsonl" >/dev/null &&
+     "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0' >/dev/null &&
+     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
+    echo "decider-release-withheld: checks pass (release withheld by rule:autopilot after the decider's refusal, epic not_released, root not_delivered; exit 0, no person, L7 0, replay matches)"
+  else
+    echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+  fi
 fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted

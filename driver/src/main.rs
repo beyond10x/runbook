@@ -108,6 +108,26 @@ enum Cmd {
         #[arg(long, requires = "result")]
         reasons: Option<PathBuf>,
     },
+    /// Record a decision of the protocol (`canon-decisions/1`: decision, outcome, principal, case
+    /// revision) for an outcome that requires that decision alone. Canon admits such a decision
+    /// from any principal in any state, so the driver admits it only directly after the case's
+    /// last step denied `--after-denial` (`approve --deny`): a refused release is withheld
+    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied). The reasons file
+    /// is the decision's log blob. Refused before anything is written otherwise.
+    Decide {
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        decision: String,
+        #[arg(long)]
+        outcome: String,
+        #[arg(long)]
+        principal: String,
+        #[arg(long)]
+        after_denial: String,
+        #[arg(long)]
+        reasons: PathBuf,
+    },
     /// Terminate the case through an outcome; Canon refuses one that is not legitimate.
     Close {
         #[arg(long)]
@@ -1671,6 +1691,61 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                 ),
                 None => Ok((position(dir, &evaluate(canon, dir, at)?)?, 0)),
             }
+        }
+        Cmd::Decide {
+            at,
+            decision,
+            outcome,
+            principal,
+            after_denial,
+            reasons,
+        } => {
+            let ir = read_json(&dir.join("ir.json"))?;
+            if ir["outcomes"][outcome.as_str()]["requires"] != json!({ "decision": decision }) {
+                return Err(format!(
+                    "outcome `{outcome}` does not require the decision `{decision}` alone"
+                ));
+            }
+            let p = dir.join("decisions.json");
+            let mut list = read_json(&p)?;
+            if list
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|e| e["decision"] == decision.as_str())
+            {
+                return Err(format!("`{decision}` is already recorded in this case"));
+            }
+            let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated");
+            let denied = last.as_ref().is_some_and(|e| {
+                e["event"] == "authority_recorded"
+                    && e["capability"] == after_denial.as_str()
+                    && e["decision"] == "denied"
+            });
+            if !denied {
+                return Err(format!(
+                    "`{decision}` is taken only directly after `{after_denial}` was denied in this case; its last step is {}",
+                    last.map(|e| match e["action"].as_str() {
+                        Some(a) => format!("{} {a}", e["event"].as_str().unwrap_or("?")),
+                        None => e["event"].as_str().unwrap_or("?").to_string(),
+                    })
+                    .unwrap_or_else(|| "none".into())
+                ));
+            }
+            let log = fs::read(reasons).map_err(|e| format!("{}: {e}", reasons.display()))?;
+            let blob = sha(&log);
+            fs::write(dir.join("blobs").join(&blob), &log).map_err(|e| e.to_string())?;
+            let revision = read_json(&dir.join("case.json"))?["revision"].clone();
+            let entry = json!({"decision": decision, "outcome": outcome, "principal": principal,
+                "case_revision": revision});
+            list.as_array_mut()
+                .ok_or("decisions.json is not a list")?
+                .push(entry.clone());
+            write_json(&p, &list)?;
+            let mut body = entry;
+            body["log"] = json!(blob);
+            event(dir, at, "decision_recorded", body)?;
+            Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
         }
         Cmd::Close { at, outcome } => Ok((close(canon, dir, at, outcome)?, 0)),
         Cmd::Replay => {
