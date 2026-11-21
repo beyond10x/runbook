@@ -496,7 +496,7 @@ verdict_end() { # <exit code>: end_cause, end_case, end_action and end_reason fr
   end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "${last:-null}" 2>/dev/null)
   end_action=$(jq -r '(.spent // .position.spent // [])[0].action // (.position.not_called // [])[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
   case $v in
-    writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen"
+    writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs\(if .kind == "requirement_coverage" then " sent back by requirement_coverage" else "" end), last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen"
       # change.implement in request mode whose last run's reply stayed invalid or incomplete
       # (sdc-reply implement-run): that named cause, naming the call. Every lookup may find
       # nothing (another writer, no log): under set -e each one falls back to "" itself.

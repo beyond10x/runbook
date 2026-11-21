@@ -564,6 +564,23 @@ fn retry_records<'a>(b: &Value, current: &[&'a Value]) -> Vec<&'a Value> {
         .collect()
 }
 
+/// The writer's own last run, refused by its binding's `postcondition` at the subject's current
+/// revision, as a record that sends the writer back like a failed check: {kind, result `refused`,
+/// subject, action, exit, log}. A program check run by the driver right after the writer
+/// (change.implement's requirement coverage, story:implement-cites-requirements); the refusal is
+/// the `refused` entry of the run's `action_finished`, not evidence, so the protocol is unchanged.
+fn own_refusal(dir: &Path, evs: &[Value], case: &Value, b: &Value, a: &str) -> Option<Value> {
+    let last = evs.iter().rev().find(|e| {
+        e["event"] == "action_finished" && e["action"] == a && !program_error(&e["exit"]) && !e["not_called"].is_string()
+    })?;
+    let r = last.get("refused").filter(|r| r.is_object())?;
+    let subject = b["subject"].as_str()?;
+    (case["artifacts"][subject]["revision"] == r["subject_revision"]).then(|| {
+        json!({"kind": r["kind"], "result": "refused", "subject": subject, "action": a, "exit": r["exit"],
+            "log": r["log"].as_str().map(|l| dir.join("blobs").join(l))})
+    })
+}
+
 /// The admissible actions that can still change something, in the order the fixed policy takes
 /// them: observations (`effect` other than `write`) before writes, then identifier order. An action
 /// that may produce evidence is useful while a kind it produces has no applicable record at the
@@ -647,6 +664,11 @@ fn spent_entry(dir: &Path, a: &str, kind: &str, runs: u64, max: u64, total: u64,
     let mut sent_back = Vec::new();
     let after: Vec<&Value> = evs.iter().skip(since).filter(|e| e["event"] == "action_finished" && !program_error(&e["exit"])).collect();
     for (i, run) in after.iter().enumerate().filter(|(_, e)| e["action"] == a && !e["not_called"].is_string()) {
+        // A run refused by its own postcondition was sent back by that check.
+        if let Some(r) = run.get("refused").filter(|r| r.is_object()) {
+            sent_back.push(json!({"run_seq": run["seq"], "by": a, "kind": r["kind"], "exit": "refused", "line": log_line(dir, r)}));
+            continue;
+        }
         let by = after[i + 1..].iter().take_while(|e| e["action"] != a).find(|e| e["exit"] != "0");
         sent_back.push(json!({"run_seq": run["seq"], "by": by.map(|e| e["action"].clone()),
             "exit": by.map(|e| e["exit"].clone()), "line": by.map(|e| log_line(dir, e))}));
@@ -658,6 +680,10 @@ fn spent_entry(dir: &Path, a: &str, kind: &str, runs: u64, max: u64, total: u64,
 /// `sent_back` as one line for the stop message.
 fn sent_back_text(s: &Value) -> String {
     let parts: Vec<String> = s["sent_back"].as_array().into_iter().flatten().map(|b| match b["by"].as_str() {
+        Some(_) if b["kind"].is_string() => {
+            let line: String = b["line"].as_str().unwrap_or("").chars().take(160).collect();
+            format!("run {} refused by its postcondition {}: {line}", b["run_seq"], b["kind"].as_str().unwrap_or(""))
+        }
         Some(by) => {
             let line: String = b["line"].as_str().unwrap_or("").chars().take(160).collect();
             format!("run {} then {by} exit {}: {line}", b["run_seq"], b["exit"].as_str().unwrap_or("?"))
@@ -689,6 +715,7 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
     let bindings = bindings_of(dir)?;
     let case_bytes = fs::read(dir.join("case.json")).map_err(|e| e.to_string())?;
     let snapshot = sha(&case_bytes);
+    let case_now: Value = serde_json::from_slice(&case_bytes).map_err(|e| e.to_string())?;
     let records = evidence_records(dir)?;
     let current = current_records(dir, d, &records)?;
     let present: Vec<&Value> = current.iter().map(|r| &r["kind"]).collect();
@@ -782,7 +809,9 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
             let max = b["max_runs"].as_u64().unwrap_or(8);
             let backstop = max.max(8);
             let count = |k: &Value| runs_by.iter().filter(|r| r.is_empty() || r.contains(k)).count() as u64;
-            let due: Vec<Value> = retry_records(b, &current).iter().map(|r| r["kind"].clone()).collect();
+            // A refusal by the writer's own postcondition is due like a failed check's record.
+            let due: Vec<Value> = retry_records(b, &current).iter().map(|r| r["kind"].clone())
+                .chain(own_refusal(dir, &evs, &case_now, b, a).map(|r| r["kind"].clone())).collect();
             let total = runs_by.len() as u64;
             let out = if due.is_empty() {
                 Some(("none".to_string(), runs_by.iter().filter(|r| r.is_empty()).count() as u64)).filter(|(_, n)| *n >= max)
@@ -1419,12 +1448,14 @@ fn step(
     let before = pos["state"].clone();
     let case_before = read_json(&dir.join("case.json"))?;
     let mut recorded: Vec<Value> = Vec::new();
-    let code;
+    let mut code;
     let mut log = Vec::new();
     // What the step leaves for the end: the new snapshot, written after evidence and
     // `action_finished`, so a crash never leaves a moved revision without its step's record.
     let mut snapshot: Option<(Value, Map<String, Value>)> = None;
     let mut not_called: Option<String> = None;
+    // The refusal of the binding's `postcondition` (own_refusal), when it refused this run.
+    let mut refused: Option<Value> = None;
     if b.get("copy").is_some() {
         // TEMPORARY (Loom, boundary.md row 28): copy a record from another case of the tree.
         // Kept as given, except `upstream_revisions` entries for artifacts this protocol does not
@@ -1471,11 +1502,14 @@ fn step(
             .into_iter()
             .filter(|e| e["event"] == "action_finished")
             .collect();
-        let feedback: Vec<Value> = retry_records(b, &current).into_iter().map(|r| {
+        let mut feedback: Vec<Value> = retry_records(b, &current).into_iter().map(|r| {
             let by = finished.iter().find(|e| e["evidence"].as_array().is_some_and(|ids| ids.contains(&r["id"])));
             json!({"kind": r["kind"], "result": r["result"], "subject": r["subject"], "action": by.map(|e| e["action"].clone()),
                 "exit": by.map(|e| e["exit"].clone()), "log": by.and_then(|e| e["log"].as_str()).map(|l| dir.join("blobs").join(l))})
         }).collect();
+        if decl["effect"] == "write" {
+            feedback.extend(own_refusal(dir, &events(dir), &case_before, b, &chosen));
+        }
         let mut env = vec![
             ("SDC_ACTION", chosen.clone()),
             ("SDC_ARGS", args.to_string()),
@@ -1538,8 +1572,31 @@ fn step(
             let _ = fs::remove_file(&not_called_file);
             not_called = (code == "0").then_some(why.trim().to_string());
         }
+        // The binding's `postcondition` {argv, kind, timeout_s}: a program check of what the writer
+        // left, run right after a run that did something (exit 0, called). Exit 0: the step goes
+        // on; 1: the run is refused, nothing is recorded, and the writer is sent back with the
+        // check's output as a failed check of `kind` (own_refusal); anything else: a program error.
+        if let Some(post) = b.get("postcondition").filter(|p| p.is_object() && code == "0" && not_called.is_none()) {
+            let pargv: Vec<String> = serde_json::from_value(post["argv"].clone()).map_err(|e| format!("postcondition argv: {e}"))?;
+            let kind = post["kind"].as_str().ok_or("postcondition names no kind")?;
+            let (pcode, pout) = run_tool(dir, &pargv, &env, post["timeout_s"].as_u64().unwrap_or(120))?;
+            log.extend(format!("\nsdc-drive: postcondition {kind} (exit {pcode}):\n").into_bytes());
+            log.extend(&pout);
+            match pcode.as_str() {
+                "0" => {}
+                "1" => {
+                    let blob = sha(&pout);
+                    fs::write(dir.join("blobs").join(&blob), &pout).map_err(|e| e.to_string())?;
+                    refused = Some(json!({"kind": kind, "result": "refused", "exit": pcode, "log": blob}));
+                }
+                _ => code = "126".to_string(),
+            }
+        }
         // A tool cannot name a revision: what it left in `work/` is digested here.
         let (case, moved) = pending(dir)?;
+        if let Some(r) = refused.as_mut() {
+            r["subject_revision"] = case["artifacts"][b["subject"].as_str().unwrap_or("")]["revision"].clone();
+        }
         let forced_result = forced.filter(|_| code == "0").map(|(r, l)| {
             log = l.to_vec();
             json!(r)
@@ -1557,6 +1614,8 @@ fn step(
                 "discarded",
                 json!({"action": chosen, "reason": "an observing action changed an artifact"}),
             )?;
+        } else if refused.is_some() {
+            // Refused by its postcondition: no record, the writer is sent back (own_refusal).
         } else if let Some(result) = result.filter(|_| !kinds.is_empty()) {
             let subject = b["subject"].as_str().ok_or("binding names no subject")?;
             let seq = events(dir).len();
@@ -1613,6 +1672,9 @@ fn step(
     }
     if let Some(why) = not_called {
         finished["not_called"] = json!(why);
+    }
+    if let Some(r) = refused {
+        finished["refused"] = r;
     }
     event(dir, at, "action_finished", finished)?;
     commit(dir, at, &case_after, &moved)?;

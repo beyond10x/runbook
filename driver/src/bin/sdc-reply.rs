@@ -15,6 +15,9 @@
 //!   sdc-reply implement-pack --tree <dir> [--note <text>]
 //!   sdc-reply schema --cwd <call dir> --case-dir <case> --type implement
 //!   sdc-reply rule-approval --request <approval request file> --ends <rule-ends.json>
+//!   sdc-reply coverage [--work <work>] [--case-dir <case>] [--story <story>] [--schema]
+//!   sdc-reply check-coverage [--work <work>] [--case-dir <case>] [--story <story>] --tree <tree> [--reply <file>] [--shape]
+//!   sdc-reply coverage-stub [--work <work>] [--case-dir <case>] [--story <story>] --tree <tree>
 //!
 //! change.implement as one request (`SDC_IMPLEMENT_MODE=request`, sdc-reply/implement.rs,
 //! docs/driver.md "Implement as one request"): `implement-run` assembles the node's whole input
@@ -30,6 +33,18 @@
 //! request and re-reads the evidence on disk. Prints `{take: false, covered, why}` (exit 0) or
 //! `{take: true, rule, decision}`: the decision line for decisions.jsonl, citing the evidence ids.
 //! An action with no rule prints `covered: false`; exit 64 only when an input is unreadable.
+//!
+//! change.implement (story:implement-cites-requirements): besides its change, the implementer
+//! replies with a coverage document, per requirement the story carries (review_scope's story
+//! requirements) `built` with the file and line that builds it and a test, or `not_built` with a
+//! reason. `coverage --schema` prints its reply schema; `check-coverage --shape` checks a reply
+//! against it (llm-node.sh asks again with the reason, at most twice); llm-node.sh puts a valid one
+//! at `impl/.sdc/coverage.json`. Without `--shape`, `check-coverage` is the implement binding's
+//! `postcondition`, run by sdc-drive right after the writer: exit 1 refuses the revision, naming
+//! the requirement ids (missing, named twice, not built, a file not in the tree, a line outside
+//! its file, a test the test sources lack); nothing is recorded and the writer is sent back.
+//! `coverage-stub` writes the stub implementer's document. review-inputs copies the document to
+//! the review's `in/coverage.json`.
 //!
 //! `adapters`: the adapter of every node class whose reply is a data document made under a
 //! response schema (`schema_reply` in tools/node-classes.json: review), and whether it can take a
@@ -135,6 +150,32 @@ enum Cmd {
     /// Whether an approval request is taken by `rule:autopilot` (its program checks passed on the
     /// exact revision) instead of the decider model; prints `{take, why | decision, rule}`.
     RuleApproval { #[arg(long)] request: PathBuf, #[arg(long)] ends: PathBuf },
+    /// change.implement's coverage document: `--shape` checks a reply against the schema (exit 0
+    /// fits, 2 not: stderr says why); without it, the document in the tree (or `--reply`) against
+    /// the change tree: exit 0 complete, 1 refused (stdout names the requirement ids), 2 when it
+    /// cannot check. `--case-dir` and `--story` default to the driver's SDC_CASE_DIR and SDC_CASE.
+    CheckCoverage {
+        #[arg(long)] work: Option<PathBuf>,
+        #[arg(long)] case_dir: Option<PathBuf>,
+        #[arg(long)] story: Option<String>,
+        #[arg(long)] tree: PathBuf,
+        #[arg(long)] reply: Option<PathBuf>,
+        #[arg(long)] shape: bool,
+    },
+    /// The requirements the story carries, `[{id, text}]`, and with `--schema` the coverage schema.
+    Coverage {
+        #[arg(long)] work: Option<PathBuf>,
+        #[arg(long)] case_dir: Option<PathBuf>,
+        #[arg(long)] story: Option<String>,
+        #[arg(long)] schema: bool,
+    },
+    /// The stub implementer's coverage document for a tree (no model).
+    CoverageStub {
+        #[arg(long)] work: Option<PathBuf>,
+        #[arg(long)] case_dir: Option<PathBuf>,
+        #[arg(long)] story: Option<String>,
+        #[arg(long)] tree: PathBuf,
+    },
 }
 
 /// The principal of an approval taken by the rule.
@@ -970,18 +1011,22 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// The session review's inputs (SDC_REVIEW_MODE=session, the default), as before
-/// story:review-minimal-facts: written into `<cwd>/in/` and returned. The story, its
-/// acceptance lines (the summary line and the lines of an `## Acceptance` section), the
-/// requirements it delivers and those no story covers, the covered commands' IR entries, the
-/// change tree, its diff against the mainline (empty for the first story), the gate and test logs.
-fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
-    let work = case_dir.join("work");
-    let in_dir = cwd.join("in");
+/// A story's scope in the case's `work/`: its file, its acceptance lines, the commands it covers,
+/// the requirements it delivers (`mine`) and those no story of the plan covers.
+struct Scope {
+    rel: String,
+    text: String,
+    cov: Vec<String>,
+    acceptance: Vec<Value>,
+    mine: Vec<Value>,
+    uncovered: Vec<Value>,
+    traces: Value,
+    ir: Value,
+}
+
+fn scope_of(work: &Path, story: &str) -> Result<Scope, String> {
     let rel = format!("aep/story/{story}.md");
     let text = fs::read_to_string(work.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
-    fs::create_dir_all(in_dir.join("aep/story")).map_err(|e| e.to_string())?;
-    fs::write(in_dir.join(&rel), &text).map_err(|e| e.to_string())?;
     let (sl, summary) = story_summary(&text).ok_or(format!("{rel} has no summary"))?;
     let cov = covers(&summary);
     let mut acceptance = vec![json!({"cite": format!("{rel}:{sl}"), "text": summary})];
@@ -1000,6 +1045,20 @@ fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Val
     let traces = read_json(&work.join("spec/traces.json"))["traces"].clone();
     let ir = read_json(&work.join(".sdc/gate/ir.json"));
     let (mine, uncovered) = review_scope(&reqs, &traces, &ir["commands"], &cov, &all_cov);
+    Ok(Scope { rel, text, cov, acceptance, mine, uncovered, traces, ir })
+}
+
+/// The session review's inputs (SDC_REVIEW_MODE=session, the default), as before
+/// story:review-minimal-facts: written into `<cwd>/in/` and returned. The story, its
+/// acceptance lines (the summary line and the lines of an `## Acceptance` section), the
+/// requirements it delivers and those no story covers, the covered commands' IR entries, the
+/// change tree, its diff against the mainline (empty for the first story), the gate and test logs.
+fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
+    let work = case_dir.join("work");
+    let in_dir = cwd.join("in");
+    let Scope { rel, text, cov, acceptance, mine, uncovered, traces, ir } = scope_of(&work, story)?;
+    fs::create_dir_all(in_dir.join("aep/story")).map_err(|e| e.to_string())?;
+    fs::write(in_dir.join(&rel), &text).map_err(|e| e.to_string())?;
     let commands: Map<String, Value> = cov.iter().map(|c| (c.clone(), ir["commands"][c].clone())).collect();
     let w = |name: &str, v: &Value| fs::write(in_dir.join(name), serde_json::to_string_pretty(v).unwrap_or_default()).map_err(|e| e.to_string());
     w("scope.json", &json!({"story": story, "covers": cov, "acceptance": acceptance, "requirements": mine,
@@ -1007,6 +1066,12 @@ fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Val
     w("uncovered.json", &json!({"about": "requirements no story of the plan covers: outside this story", "requirements": uncovered}))?;
     w("commands.json", &Value::Object(commands))?;
     copy_tree(&work.join("impl"), &in_dir.join("impl")).map_err(|e| format!("impl: {e}"))?;
+    // The implementer's coverage document, read-only: where it says each requirement is built.
+    let coverage = work.join("impl").join(COVERAGE);
+    let has_coverage = coverage.is_file();
+    if has_coverage {
+        fs::copy(&coverage, in_dir.join("coverage.json")).map_err(|e| format!("coverage: {e}"))?;
+    }
     let base = work.join("mainline");
     let empty = cwd.join("base-empty");
     let base = if base.is_dir() { base } else { fs::create_dir_all(&empty).map_err(|e| e.to_string())?; empty };
@@ -1031,7 +1096,7 @@ fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Val
     let changed: Vec<&str> = diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)).collect();
     Ok(json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
         "uncovered": uncovered.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), "changed_files": changed,
-        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
+        "gate": gate.is_some(), "coverage": has_coverage, "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
 }
 
 /// Write the review's inputs into `<cwd>/in/` and return what was written. `review.md` is the
@@ -1219,6 +1284,307 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
         "revision": case["artifacts"]["change"]["revision"], "principal": principal, "reasons": reasons,
         "notes": notes, "citations": citations, "count": count, "summary": reply["summary"]})))
 }
+
+// --- change.implement's requirement coverage (story:implement-cites-requirements) ---------------
+
+/// Where llm-node.sh puts the implementer's coverage document: inside the change tree, so it is
+/// part of the revision it describes (`.sdc/` is left out of the review's copy and diff).
+const COVERAGE: &str = ".sdc/coverage.json";
+
+/// The requirement ids the story carries: the requirements review_scope gives the story.
+fn story_requirements(work: &Path, story: &str) -> Result<Vec<Value>, String> {
+    Ok(scope_of(work, story)?.mine)
+}
+
+/// The reply schema of change.implement's coverage document: one entry per requirement of the
+/// story, `built` with at least one place and a test, or `not_built` with a reason.
+fn coverage_schema(ids: &[String]) -> Value {
+    let id = if ids.is_empty() { json!({"type": "string"}) } else { json!({"type": "string", "enum": ids}) };
+    let built = reply_schema(vec![
+        ("id", id.clone()),
+        ("status", json!({"type": "string", "enum": ["built"]})),
+        ("at", json!({"type": "array", "minItems": 1, "items": reply_schema(vec![
+            ("file", json!({"type": "string", "minLength": 1})),
+            ("line", json!({"type": "integer", "minimum": 1})),
+        ])})),
+        ("test", json!({"type": "string", "minLength": 1})),
+    ]);
+    let not_built = reply_schema(vec![
+        ("id", id),
+        ("status", json!({"type": "string", "enum": ["not_built"]})),
+        ("reason", json!({"type": "string", "minLength": 1})),
+    ]);
+    let mut list = json!({"type": "array", "items": {"anyOf": [built, not_built]}});
+    if ids.is_empty() {
+        list["maxItems"] = json!(0);
+    }
+    reply_schema(vec![("requirements", list)])
+}
+
+/// The coverage document checked by program against coverage_schema: why it does not fit, empty
+/// when it does.
+fn coverage_shape(doc: &Value, ids: &[String]) -> Vec<String> {
+    let mut why = Vec::new();
+    let Some(top) = doc.as_object() else { return vec!["the coverage document is not a JSON object".into()] };
+    for k in top.keys().filter(|k| *k != "requirements") {
+        why.push(format!("unknown key {k} (only `requirements`)"));
+    }
+    let Some(list) = top.get("requirements").and_then(|v| v.as_array()) else {
+        why.push("`requirements` is missing or not a list".into());
+        return why;
+    };
+    for (i, e) in list.iter().enumerate() {
+        let n = i + 1;
+        let Some(o) = e.as_object() else { why.push(format!("entry {n} is not an object")); continue };
+        let id = o.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let what = format!("entry {n} ({})", if id.is_empty() { "no id" } else { id });
+        if !ids.iter().any(|x| x == id) {
+            why.push(format!("{what}: {id} is not a requirement of this story ({})", if ids.is_empty() { "none".into() } else { ids.join(", ") }));
+        }
+        let text = |k: &str| o.get(k).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty());
+        let keys: &[&str] = match o.get("status").and_then(|v| v.as_str()) {
+            Some("built") => {
+                match o.get("at").and_then(|v| v.as_array()) {
+                    Some(at) if !at.is_empty() => {
+                        for (j, a) in at.iter().enumerate() {
+                            let ok = a.as_object().is_some_and(|m| m.len() == 2
+                                && m.get("file").and_then(|f| f.as_str()).is_some_and(|f| !f.is_empty())
+                                && m.get("line").and_then(|l| l.as_u64()).is_some_and(|l| l >= 1));
+                            if !ok {
+                                why.push(format!("{what}: at[{j}] must be {{file, line}} with a file name and a line of at least 1"));
+                            }
+                        }
+                    }
+                    _ => why.push(format!("{what}: built needs `at`, a list of at least one {{file, line}}")),
+                }
+                if text("test").is_none() {
+                    why.push(format!("{what}: built needs `test`, the name of a test that exercises it"));
+                }
+                &["id", "status", "at", "test"]
+            }
+            Some("not_built") => {
+                if text("reason").is_none() {
+                    why.push(format!("{what}: not_built needs `reason`, one sentence"));
+                }
+                &["id", "status", "reason"]
+            }
+            _ => {
+                why.push(format!("{what}: status must be built or not_built"));
+                continue;
+            }
+        };
+        for k in o.keys().filter(|k| !keys.contains(&k.as_str())) {
+            why.push(format!("{what}: unknown key {k} for status {}", o["status"].as_str().unwrap_or("")));
+        }
+    }
+    why
+}
+
+/// The `.rs` files of a tree, relative to it, outside `target/` and `.sdc/`.
+fn rust_sources(tree: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let Ok(rd) = fs::read_dir(tree.join(&rel)) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            if name == "target" || name == ".sdc" {
+                continue;
+            }
+            let r = rel.join(&name);
+            if e.path().is_dir() {
+                stack.push(r)
+            } else if r.extension().is_some_and(|x| x == "rs") {
+                out.push(r.to_string_lossy().into_owned())
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// The names of the functions marked `#[test]` in the tree's Rust sources: a `fn <name>` after a
+/// line holding `#[test]` with only attributes, comments or blank lines between.
+fn test_names(tree: &Path) -> BTreeSet<String> {
+    let fn_re = regex::Regex::new(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)").unwrap();
+    let mut names = BTreeSet::new();
+    for f in rust_sources(tree) {
+        let text = fs::read_to_string(tree.join(&f)).unwrap_or_default();
+        let mut marked = false;
+        for line in text.lines() {
+            let t = line.trim();
+            if let Some(c) = fn_re.captures(t) {
+                if marked || t.contains("#[test]") {
+                    names.insert(c[1].to_string());
+                }
+                marked = false;
+            } else if t.contains("#[test]") {
+                marked = true;
+            } else if !(t.is_empty() || t.starts_with("#[") || t.starts_with("//")) {
+                marked = false;
+            }
+        }
+    }
+    names
+}
+
+/// The coverage document checked against the change tree: (requirement id, fault) for every id of
+/// the story that is missing, named more than once or `not_built`, every cited file that is not in
+/// the tree, every cited line outside its file and every named test the test sources lack; and
+/// every id the story does not carry. Empty when the coverage is complete.
+fn check_coverage(tree: &Path, doc: &Value, ids: &[String]) -> Vec<(String, String)> {
+    let entries: Vec<&Value> = doc["requirements"].as_array().into_iter().flatten().collect();
+    let tests = test_names(tree);
+    let mut faults = Vec::new();
+    for id in ids {
+        let mine: Vec<&&Value> = entries.iter().filter(|e| e["id"] == id.as_str()).collect();
+        let e = match mine.len() {
+            0 => { faults.push((id.clone(), "missing: the coverage document does not name it".into())); continue }
+            1 => mine[0],
+            n => { faults.push((id.clone(), format!("named {n} times: name it exactly once"))); continue }
+        };
+        if e["status"] != "built" {
+            let reason = e["reason"].as_str().map(str::trim).filter(|r| !r.is_empty()).unwrap_or("no reason given");
+            faults.push((id.clone(), format!("not built: {reason}")));
+            continue;
+        }
+        let at = e["at"].as_array().cloned().unwrap_or_default();
+        if at.is_empty() {
+            faults.push((id.clone(), "built, but cites no file and line".into()));
+        }
+        for a in &at {
+            let raw = a["file"].as_str().unwrap_or("");
+            let file = raw.strip_prefix("impl/").unwrap_or(raw);
+            let line = a["line"].as_u64().unwrap_or(0);
+            let p = Path::new(file);
+            if file.is_empty() || p.is_absolute() || p.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+                faults.push((id.clone(), format!("{raw}:{line}: not a path inside the change tree")));
+                continue;
+            }
+            if !tree.join(p).is_file() {
+                faults.push((id.clone(), format!("{file}:{line}: no file {file} in the change tree")));
+                continue;
+            }
+            let n = fs::read_to_string(tree.join(p)).map(|t| t.lines().count()).unwrap_or(0);
+            if line < 1 || line as usize > n {
+                faults.push((id.clone(), format!("{file}:{line} is outside {file} ({n} lines)")));
+            }
+        }
+        let test = e["test"].as_str().unwrap_or("").trim();
+        let name = test.rsplit("::").next().unwrap_or(test).trim_end_matches("()");
+        if !tests.contains(name) {
+            faults.push((id.clone(), format!("test {test}: no #[test] function of that name in the test sources")));
+        }
+    }
+    for e in &entries {
+        let id = e["id"].as_str().unwrap_or("");
+        if !ids.iter().any(|x| x == id) {
+            faults.push((id.to_string(), format!("{id} is not a requirement of this story ({})", if ids.is_empty() { "none".into() } else { ids.join(", ") })));
+        }
+    }
+    faults
+}
+
+/// The refusal as the step's log: one line per fault, the refused ids last (the line
+/// `writer_spent` and the next run's in/feedback.md show).
+fn refusal_text(story: &str, faults: &[(String, String)]) -> String {
+    let mut ids: Vec<&str> = Vec::new();
+    for (id, _) in faults {
+        if id != "document" && !ids.contains(&id.as_str()) {
+            ids.push(id);
+        }
+    }
+    let mut s = format!("requirement coverage of story {story} refused: the change was not handed to tests.run\n");
+    for (id, f) in faults {
+        s.push_str(&format!("- {id}: {f}\n"));
+    }
+    s.push_str("Build every requirement the story carries, cite the file and line that builds it and a #[test] that exercises it, in out/coverage.json.\n");
+    s.push_str(&format!("refused requirements: {}\n", ids.join(" ")));
+    s
+}
+
+/// The stub implementer's coverage document (no model): every requirement built at the first line
+/// of the first Rust source, exercised by the first test; with no test in the tree, not built.
+fn coverage_stub(tree: &Path, ids: &[String]) -> Value {
+    let srcs = rust_sources(tree);
+    let file = srcs.iter().find(|f| f.starts_with("src/")).or(srcs.first()).cloned()
+        .or_else(|| walk(tree).into_iter().find(|f| !f.starts_with(".sdc/") && !f.starts_with("target/")));
+    let test = test_names_in_order(tree).into_iter().next();
+    let reqs: Vec<Value> = ids.iter().map(|id| match (&file, &test) {
+        (Some(f), Some(t)) => json!({"id": id, "status": "built", "at": [{"file": f, "line": 1}], "test": t}),
+        _ => json!({"id": id, "status": "not_built", "reason": "the stub tree has no test"}),
+    }).collect();
+    json!({"requirements": reqs})
+}
+
+/// The test names in source order (files sorted), for the stub document.
+fn test_names_in_order(tree: &Path) -> Vec<String> {
+    let all = test_names(tree);
+    let fn_re = regex::Regex::new(r"\bfn\s+([A-Za-z_][A-Za-z0-9_]*)").unwrap();
+    let mut out = Vec::new();
+    for f in rust_sources(tree) {
+        for c in fn_re.captures_iter(&fs::read_to_string(tree.join(&f)).unwrap_or_default()) {
+            if all.contains(&c[1]) && !out.contains(&c[1].to_string()) {
+                out.push(c[1].to_string());
+            }
+        }
+    }
+    out
+}
+
+/// The story of the driver's case (`SDC_CASE`, `<root>.<epic>.<story>`) when none is given.
+fn story_arg(story: Option<String>) -> Result<String, String> {
+    story.or_else(|| std::env::var("SDC_CASE").ok().and_then(|c| c.split('.').nth(2).map(String::from)))
+        .filter(|s| !s.is_empty()).ok_or("no --story and no story in SDC_CASE".into())
+}
+
+/// The case's `work/`: `--work` (llm-node.sh passes its own), else `<case dir>/work`.
+fn work_arg(work: Option<PathBuf>, case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    match work {
+        Some(w) => Ok(w),
+        None => case_dir_arg(case_dir).map(|d| d.join("work")),
+    }
+}
+
+fn case_dir_arg(case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    case_dir.or_else(|| std::env::var("SDC_CASE_DIR").ok().map(PathBuf::from)).ok_or("no --case-dir and no SDC_CASE_DIR".into())
+}
+
+/// `check-coverage`: exit 0 complete, 1 refused (stdout names the ids), 2 when it cannot check.
+fn run_check_coverage(work: Option<PathBuf>, case_dir: Option<PathBuf>, story: Option<String>, tree: &Path, reply: Option<PathBuf>, shape: bool) -> Result<u8, String> {
+    let story = story_arg(story)?;
+    let reqs = story_requirements(&work_arg(work, case_dir)?, &story)?;
+    let ids: Vec<String> = reqs.iter().filter_map(|r| r["id"].as_str().map(String::from)).collect();
+    let file = reply.unwrap_or(tree.join(COVERAGE));
+    let doc = read_json(&file);
+    if shape {
+        let why = coverage_shape(&doc, &ids);
+        if why.is_empty() {
+            return Ok(0);
+        }
+        let name = file.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let what = if doc.is_null() { format!("no readable coverage document ({name}: the structured reply, else out/coverage.json)") } else { why.join("; ") };
+        eprintln!("invalid coverage reply: {what}");
+        return Ok(2);
+    }
+    let faults = if doc.is_null() {
+        ids.iter().map(|id| (id.clone(), format!("no coverage document at impl/{COVERAGE}"))).collect()
+    } else {
+        let mut f: Vec<(String, String)> = coverage_shape(&doc, &ids).into_iter().map(|w| ("document".to_string(), w)).collect();
+        f.extend(check_coverage(tree, &doc, &ids));
+        f
+    };
+    if faults.is_empty() {
+        let tests: BTreeSet<&str> = doc["requirements"].as_array().into_iter().flatten().filter_map(|e| e["test"].as_str()).collect();
+        println!("requirement coverage of story {story}: {} built and cited ({}), tests {}", ids.len(),
+            if ids.is_empty() { "the story carries no requirement".into() } else { ids.join(" ") },
+            if tests.is_empty() { "none".into() } else { tests.into_iter().collect::<Vec<_>>().join(" ") });
+        return Ok(0);
+    }
+    print!("{}", refusal_text(&story, &faults));
+    Ok(1)
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.cmd {
@@ -1298,6 +1664,41 @@ fn main() -> ExitCode {
             }
             println!("{}", rule_approval(&req, &ends));
             ExitCode::SUCCESS
+        }
+        Cmd::CheckCoverage { work, case_dir, story, tree, reply, shape } => match run_check_coverage(work, case_dir, story, &tree, reply, shape) {
+            Ok(c) => ExitCode::from(c),
+            Err(e) => {
+                eprintln!("sdc-reply check-coverage: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Cmd::Coverage { work, case_dir, story, schema } => {
+            let reqs = story_arg(story).and_then(|s| work_arg(work, case_dir).and_then(|d| story_requirements(&d, &s)));
+            match reqs {
+                Ok(r) => {
+                    let ids: Vec<String> = r.iter().filter_map(|x| x["id"].as_str().map(String::from)).collect();
+                    let list: Vec<Value> = r.iter().map(|x| json!({"id": x["id"], "text": x["text"]})).collect();
+                    println!("{}", if schema { coverage_schema(&ids) } else { Value::Array(list) });
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("sdc-reply coverage: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        Cmd::CoverageStub { work, case_dir, story, tree } => {
+            match story_arg(story).and_then(|s| work_arg(work, case_dir).and_then(|d| story_requirements(&d, &s))) {
+                Ok(r) => {
+                    let ids: Vec<String> = r.iter().filter_map(|x| x["id"].as_str().map(String::from)).collect();
+                    println!("{}", coverage_stub(&tree, &ids));
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("sdc-reply coverage-stub: {e}");
+                    ExitCode::from(2)
+                }
+            }
         }
         Cmd::CheckReview { cwd, case_dir, reply, principal } => {
             let r = read_json(&reply);
@@ -1484,6 +1885,114 @@ mod tests {
         assert!(check(json!({"decision": "rejected", "findings": []})).contains("names no violation"));
         assert!(check(json!({"decision": "maybe", "findings": []})).contains("neither approved nor rejected"));
         assert!(check(Value::Null).contains("neither approved nor rejected"));
+    }
+
+    /// A change tree: src/lib.rs (4 lines), tests/billing.rs with two #[test] functions and one
+    /// helper, a test module in src/lib.rs, and target/ (never read).
+    fn tree(name: &str) -> PathBuf {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-scratch/coverage").join(name);
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::create_dir_all(root.join("target/debug")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn add() {}\npub fn send() {}\n#[cfg(test)]\nmod t { #[test]\n fn unit_add() {} }\n").unwrap();
+        fs::write(root.join("tests/billing.rs"), "fn helper() {}\n\n#[test]\nfn create_invoice() {}\n\n// covers SendEmail\n#[test]\n#[allow(unused)]\npub fn send_email() { helper() }\n").unwrap();
+        fs::write(root.join("target/debug/x.rs"), "#[test]\nfn in_target() {}\n").unwrap();
+        root
+    }
+
+    fn built(id: &str, file: &str, line: u64, test: &str) -> Value {
+        json!({"id": id, "status": "built", "at": [{"file": file, "line": line}], "test": test})
+    }
+
+    fn reqs(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_names_are_the_functions_marked_test() {
+        let t = tree("names");
+        let names = test_names(&t);
+        assert_eq!(names.into_iter().collect::<Vec<_>>(), vec!["create_invoice", "send_email", "unit_add"]);
+    }
+
+    #[test]
+    fn complete_coverage_passes() {
+        let t = tree("complete");
+        let doc = json!({"requirements": [built("r1", "src/lib.rs", 1, "create_invoice"), built("r2", "impl/src/lib.rs", 2, "tests::send_email")]});
+        assert_eq!(coverage_shape(&doc, &reqs(&["r1", "r2"])), Vec::<String>::new());
+        assert_eq!(check_coverage(&t, &doc, &reqs(&["r1", "r2"])), Vec::<(String, String)>::new());
+    }
+
+    #[test]
+    fn not_built_and_missing_ids_are_refused_by_id() {
+        let t = tree("refused");
+        let doc = json!({"requirements": [built("r1", "src/lib.rs", 1, "create_invoice"),
+            {"id": "r2", "status": "not_built", "reason": "no offline page yet"}]});
+        let faults = check_coverage(&t, &doc, &reqs(&["r1", "r2", "r3"]));
+        assert_eq!(faults, vec![("r2".to_string(), "not built: no offline page yet".to_string()),
+            ("r3".to_string(), "missing: the coverage document does not name it".to_string())]);
+        let msg = refusal_text("invoices", &faults);
+        assert!(msg.ends_with("refused requirements: r2 r3\n"), "{msg}");
+    }
+
+    #[test]
+    fn a_cited_line_outside_its_file_or_a_missing_file_is_refused() {
+        let t = tree("lines");
+        let doc = json!({"requirements": [built("r1", "src/lib.rs", 99, "create_invoice"), built("r2", "src/sync.rs", 1, "send_email"),
+            built("r3", "../outside.rs", 1, "send_email")]});
+        let faults = check_coverage(&t, &doc, &reqs(&["r1", "r2", "r3"]));
+        assert_eq!(faults[0], ("r1".to_string(), "src/lib.rs:99 is outside src/lib.rs (5 lines)".to_string()));
+        assert_eq!(faults[1], ("r2".to_string(), "src/sync.rs:1: no file src/sync.rs in the change tree".to_string()));
+        assert_eq!(faults[2].0, "r3");
+        assert_eq!(faults.len(), 3);
+    }
+
+    #[test]
+    fn a_named_test_that_does_not_exist_is_refused() {
+        let t = tree("tests");
+        // helper is a function but no test; in_target lies under target/.
+        let doc = json!({"requirements": [built("r1", "src/lib.rs", 1, "helper"), built("r2", "src/lib.rs", 1, "in_target")]});
+        let faults = check_coverage(&t, &doc, &reqs(&["r1", "r2"]));
+        assert_eq!(faults, vec![("r1".to_string(), "test helper: no #[test] function of that name in the test sources".to_string()),
+            ("r2".to_string(), "test in_target: no #[test] function of that name in the test sources".to_string())]);
+    }
+
+    #[test]
+    fn an_id_named_twice_is_refused() {
+        let t = tree("twice");
+        let doc = json!({"requirements": [built("r1", "src/lib.rs", 1, "create_invoice"), built("r1", "src/lib.rs", 2, "send_email")]});
+        assert_eq!(check_coverage(&t, &doc, &reqs(&["r1"])), vec![("r1".to_string(), "named 2 times: name it exactly once".to_string())]);
+    }
+
+    #[test]
+    fn the_shape_follows_the_schema() {
+        let ids = reqs(&["r1", "r2"]);
+        let schema = coverage_schema(&ids);
+        assert_eq!(schema["required"], json!(["requirements"]));
+        assert_eq!(schema["properties"]["requirements"]["items"]["anyOf"].as_array().unwrap().len(), 2);
+        let shape = |v: Value| coverage_shape(&v, &ids).join("; ");
+        assert!(shape(Value::Null).contains("not a JSON object"));
+        assert!(shape(json!({"requirements": [], "extra": 1})).contains("unknown key extra"));
+        assert!(shape(json!({"requirements": [{"id": "r9", "status": "built", "at": [{"file": "a", "line": 1}], "test": "t"}]})).contains("r9 is not a requirement of this story"));
+        assert!(shape(json!({"requirements": [{"id": "r1", "status": "built", "at": [], "test": "t"}]})).contains("at least one"));
+        assert!(shape(json!({"requirements": [{"id": "r1", "status": "built", "at": [{"file": "a", "line": 0}], "test": "t"}]})).contains("line"));
+        assert!(shape(json!({"requirements": [{"id": "r1", "status": "built", "at": [{"file": "a", "line": 1}], "test": ""}]})).contains("test"));
+        assert!(shape(json!({"requirements": [{"id": "r1", "status": "not_built", "reason": " "}]})).contains("reason"));
+        assert!(shape(json!({"requirements": [{"id": "r1", "status": "maybe"}]})).contains("status"));
+        assert_eq!(shape(json!({"requirements": [{"id": "r1", "status": "not_built", "reason": "later"}]})), "");
+    }
+
+    #[test]
+    fn the_stub_document_cites_the_first_source_line_and_test() {
+        let t = tree("stub");
+        let doc = coverage_stub(&t, &reqs(&["r1", "r2"]));
+        assert_eq!(doc["requirements"][0], built("r1", "src/lib.rs", 1, "unit_add"));
+        assert_eq!(check_coverage(&t, &doc, &reqs(&["r1", "r2"])), Vec::<(String, String)>::new());
+        // A tree without a test: every requirement not built.
+        fs::remove_dir_all(t.join("tests")).unwrap();
+        fs::write(t.join("src/lib.rs"), "pub fn add() {}\n").unwrap();
+        assert_eq!(coverage_stub(&t, &reqs(&["r1"]))["requirements"][0]["status"], "not_built");
     }
 
     #[test]

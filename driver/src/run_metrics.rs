@@ -149,6 +149,8 @@ struct Take {
     exit: String,
     not_called: bool,
     principal: String,
+    /// The kind of the run's own postcondition that refused it (`refused.kind` of `action_finished`).
+    refused: Option<String>,
     evidence: Vec<(String, String)>,
     t_start: Option<i64>,
     t_end: Option<i64>,
@@ -241,6 +243,7 @@ fn load_case(dir: &Path, malformed: &mut usize) -> Res<Case> {
                     exit: String::new(),
                     not_called: false,
                     principal: String::new(),
+                    refused: None,
                     evidence: vec![],
                     t_start: times[i],
                     t_end: None,
@@ -256,6 +259,7 @@ fn load_case(dir: &Path, malformed: &mut usize) -> Res<Case> {
                 t.end_idx = Some(i);
                 t.exit = js(&e["exit"]);
                 t.not_called = e["not_called"].is_string();
+                t.refused = e["refused"]["kind"].as_str().map(String::from);
                 t.principal = js(&e["principal"]);
                 t.t_end = times[i];
                 for id in e["evidence"].as_array().into_iter().flatten().map(js) {
@@ -332,7 +336,10 @@ impl Case {
             let prev_end = self.takes[p].end_idx.unwrap_or(self.takes[p].start_idx);
             let mut causes = vec![];
             for kind in self.takes[k].retry_of.clone() {
-                if let Some((from, result, by_decision)) = self.latest_of_kind(&kind, start) {
+                // Sent back by its own postcondition (the previous take was refused): `<kind>:refused`.
+                if self.takes[p].refused.as_deref() == Some(kind.as_str()) {
+                    causes.push(Cause { label: format!("{kind}:refused"), from: None, kind: "check" });
+                } else if let Some((from, result, by_decision)) = self.latest_of_kind(&kind, start) {
                     let approval = by_decision || kind.ends_with("_approval");
                     causes.push(Cause { label: format!("{from}:{result}"), from: Some(from), kind: if approval { "approval" } else { "check" } });
                 } else {
