@@ -7,7 +7,7 @@ produced. The operator, 2026-11-21: every approval or decision "should always co
 recommendation", based on a vision, a previous decision, a PRD or a story.
 
 Specification: `ess/` (domain `sdc.decision`, entity `DecisionRequest`). Grounding check:
-`tools/decision-grounds.sh`. A decider record turned into a request: `tools/decision-from-record.sh`.
+`tools/decision-grounds.sh`. A decider record turned into a request: `tools/decision-from-record.sh`. A scope-changing question: `sdc-decision-request`.
 Examples: `decision/examples/`.
 
 ## What exists already
@@ -313,3 +313,40 @@ maps action → artifact through the bindings file. A pending recommendation is 
 4. The entity itself (`sdc/ess/domains/decision.yaml`, commands `Request`, `Recommend`, `Decide`,
    `TakeRecommendation`, `RecordProduced`, `Escalate`, `Supersede`, `Expire`) as the contract,
    moved into Loom's ESS when it is taken.
+
+## A question as a decision request
+
+`sdc-decision-request <case dir> <question id>` (`driver/src/bin/sdc-decision-request.rs`) prints
+one JSON request for a scope-changing question of `<case dir>/work/questions.yaml`. A program
+builds it from `questions.yaml`, `dissection.yaml`, `idea.yaml` and `case.json`; no LLM writes any
+of it. Same case, same bytes (no clock; keys print sorted). Tested on a trial-2 intake fixture in
+`driver/tests/decision_request.rs`, fixture `driver/tests/fixtures/decision-request/`.
+
+- Output: `request` (the `DecisionRequest` fields, `ess/domains/decision.yaml:221-262`), plus three
+  lines that are not contract fields (`.engineering/planning/epic/decisions-a-person-can-take-cold.md`,
+  "Ambiguities"): `about` (the dissection item and words that raised it), `context`
+  ("<run>, <idea>, <stage>": the directory above `store`, the idea text cut at 160 characters, the
+  case's protocol without `sdc.`) and `what_happens_next` (always the last key).
+- The question needs `scope_changing: true`, `excerpt`, `default_reason` and a `consequences`
+  list with `does` and `cost` for every option (`story:interview-question-context`). Otherwise exit
+  2 and stderr names what is missing. The recorded trial-2 questions lack these keys
+  (`runs/trial-2-train/store/IDEA-1/work/questions.yaml:1-36`), so the fixture adds them by hand;
+  the interview prompt does not write them yet.
+- Options: letters A, B, C in order; `does` and `cost` from `consequences`; `consequence.answer` is
+  the option's text, `produces: artifact_revision`, `admits: [scope.answer]`
+  (`ess/domains/decision.yaml:86-105`).
+- Unblocks: kind `question`, action and capability `scope.answer`, the action the run takes after
+  the answer (`docs/trial-2.md:168-185`; `driver/examples/sdc/tools/sdc-tool.sh:286-298`).
+- Recommendation: the question's default, strength `weak`, proposed by `rule`, one ground of source
+  `idea` citing the question's dissection item as `work/dissection.yaml:<first line>-<last line>`
+  with `default_reason` as its `how`. The tool runs `tools/decision-grounds.sh` on it
+  (`tools/decision-grounds.sh:2-9`) and writes back its digest and report. With no such item in
+  `dissection.yaml`, or a refused check, the request carries no recommendation and
+  `no_recommendation_reason` says why. `SDC_DECISION_GROUNDS` overrides the script's path.
+- Who decides: `--level` (default A0), `--holder` (person), `--eligible` (operator; the first is
+  `addressed_to`), `--opened-at` (default `1970-01-01T00:00:00Z`, a placeholder: the opener stamps
+  the real instant). The driver sets these from the run.
+- Shape check: the test generates the JSON Schemas of `ess/` with `ess generate --path ess --kind
+  schema --schema-id-base https://sdc.invalid/`, gives the closed `DecisionRequest` schema the one
+  `schema` selector property that `ess generate schema validate` needs, and validates `request`;
+  it checks that a bad `state` and a missing `options` are refused. There is no separate script.
