@@ -622,25 +622,6 @@ if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <
 else
   echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, the settings do not name A5, or work/aep has a human: actor or no agent: one)"
 fi
-# decider-input: the autopilot run's decider records (runs/trial-3-haiku-5's close and its
-# release.publish). The close reads published/README.md and no aep/ file; a tree input keeps its
-# Cargo.lock; a prompt with aep/ inputs says their status and revision say nothing about approval;
-# every prompt (the decider is final) says a decider's answer is the product owner's own and offers
-# no escalation to a person.
-dr=$s/runs/autopilot/decider
-close_d=$(find "$dr" -maxdepth 1 -type d -name '*-close' 2>/dev/null | sort | tail -n 1)
-lock_d=$(grep -l '"path": "impl"' "$dr"/*/decide-request.json 2>/dev/null | head -n 1)
-lock_d=${lock_d%/decide-request.json}
-aep_d=$(find "$dr" -maxdepth 1 -type d -name '*-roadmap.approve' 2>/dev/null | head -n 1)
-if [[ -n $close_d && -f $close_d/cwd/in/published/README.md && ! -e $close_d/cwd/in/aep ]] &&
-   [[ -n $lock_d && -f $lock_d/cwd/in/impl/Cargo.lock ]] &&
-   [[ -n $aep_d ]] && grep -q 'belong to the planning tool' "$aep_d/prompt.md" &&
-   ! grep -q 'Escalate to a person' "$dr"/*/prompt.md &&
-   [[ -z $(grep -L "is the product owner's own decision" "$dr"/*/prompt.md) ]]; then
-  echo "decider-input: checks pass (close reads published/README.md, no aep/; impl/Cargo.lock copied; aep status note; decider answers binding, no escalation to a person)"
-else
-  echo "decider-input: FAILED (close ${close_d:-none}, Cargo.lock ${lock_d:-none}, roadmap ${aep_d:-none}: an input or a prompt line is wrong)"
-fi
 trial autopilot-person SDC_DECIDER=person
 code=$?
 (( code == 64 )) && [[ ! -d $s/runs/autopilot-person/store ]] &&
@@ -996,6 +977,26 @@ if (( code == 6 )) && [[ ! -f $r/status.json ]] && [[ -n $(find "$r/decider" -mi
   echo "autopilot-close-a3: checks pass (A3: the decider is asked for the close, rejects, the run stops unclosed)"
 else
   echo "autopilot-close-a3: FAILED (exit $code)"
+fi
+# decider-input: the decider records of runs/trial-3-haiku-5's close and its release.publish. The
+# close reads published/README.md and no aep/ file: read from autopilot-close-a3, where the decider
+# is asked for the close (under A5 rule:autopilot closes and no close record exists, D140; D161).
+# On the autopilot run: a tree input keeps its Cargo.lock; a prompt with aep/ inputs says their
+# status and revision say nothing about approval; every prompt (the decider is final) says a
+# decider's answer is the product owner's own and offers no escalation to a person.
+dr=$s/runs/autopilot/decider
+close_d=$(find "$s/runs/autopilot-close-a3/decider" -maxdepth 1 -type d -name '*-close' 2>/dev/null | sort | tail -n 1)
+lock_d=$(grep -l '"path": "impl"' "$dr"/*/decide-request.json 2>/dev/null | head -n 1)
+lock_d=${lock_d%/decide-request.json}
+aep_d=$(find "$dr" -maxdepth 1 -type d -name '*-roadmap.approve' 2>/dev/null | head -n 1)
+if [[ -n $close_d && -f $close_d/cwd/in/published/README.md && ! -e $close_d/cwd/in/aep ]] &&
+   [[ -n $lock_d && -f $lock_d/cwd/in/impl/Cargo.lock ]] &&
+   [[ -n $aep_d ]] && grep -q 'belong to the planning tool' "$aep_d/prompt.md" &&
+   ! grep -q 'Escalate to a person' "$dr"/*/prompt.md &&
+   [[ -z $(grep -L "is the product owner's own decision" "$dr"/*/prompt.md) ]]; then
+  echo "decider-input: checks pass (close reads published/README.md, no aep/; impl/Cargo.lock copied; aep status note; decider answers binding, no escalation to a person)"
+else
+  echo "decider-input: FAILED (close ${close_d:-none}, Cargo.lock ${lock_d:-none}, roadmap ${aep_d:-none}: an input or a prompt line is wrong)"
 fi
 targs=(--autopilot)
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
