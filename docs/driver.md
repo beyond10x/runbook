@@ -552,7 +552,12 @@ unchanged.
 **Requirement coverage** (2026-11-21, `story:implement-cites-requirements`). In the nine runs of
 `baseline-0.1.0` the review sent the build back 10 times, 4 of them for an offline requirement the
 story covers that was not built (`experiments/baseline-0.1.0/losses.md`, on `exp/improve-1`). Such
-a gap is now sent back by a program before `tests.run` and the review:
+a gap is sent back by a program before `tests.run` and the review. All of it is behind the run
+switch `SDC_IMPLEMENT_COVERAGE=on` (default `off`, recorded as `implement_coverage` in
+`run-settings.jsonl`; `docs/improving.md`, "Run switches"), for the session implementer only:
+off, `change.implement` asks for no coverage document, the postcondition names the switch
+(`"switch": "SDC_IMPLEMENT_COVERAGE"`, skipped unless it is `on`), and the review gets no
+`in/coverage.json`, as on main (cycle `implement-coverage-default`). On:
 
 - Reply. `change.implement` replies, besides its change, with a coverage document: per requirement
   the story carries (the review's story requirements, `sdc-reply coverage`, given to the node as
@@ -565,7 +570,7 @@ a gap is now sent back by a program before `tests.run` and the review:
   invalid: exit 2 with `coverage_invalid` in the step log, nothing applied, fed back by R9. A
   valid reply goes to `impl/.sdc/coverage.json`, inside the revision it describes (`.sdc/` is left
   out of the review's copy and diff).
-- Check. The binding's `postcondition` `{argv, kind: requirement_coverage, timeout_s}` is run by
+- Check. The binding's `postcondition` `{argv, kind: requirement_coverage, timeout_s, switch}` is run by
   `sdc-drive` right after a run of the writer that exited 0 and was called, before anything else:
   `sdc-reply check-coverage --tree impl` (`SDC_CASE_DIR`, `SDC_CASE`). It refuses (exit 1) when an
   id of the story is missing, named twice or `not_built`, a cited file is not in the tree, a cited

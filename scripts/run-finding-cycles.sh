@@ -168,7 +168,7 @@ expected+=(implement-request-build implement-request-tests-rework implement-requ
   implement-request-invalid-named implement-request-path-escape)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
-  replay-recording-clean rule-approvals-default review-mode-default)
+  replay-recording-clean rule-approvals-default review-mode-default implement-coverage-default)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -1996,14 +1996,15 @@ fi
 # change.implement on the fixture adapter (llm-node.sh's model path: schema, shape check, apply)
 # replies with the coverage documents of SDC_COVERAGE_REPLIES, one round per call; the tree is
 # fixtures/impl (src/lib.rs 79 lines; tests create_invoice ... send_email); the story carries r1
-# and r2. The binding's postcondition (sdc-reply check-coverage) runs right after each run.
+# and r2. The binding's postcondition (sdc-reply check-coverage) runs right after each run. Every
+# coverage cycle sets SDC_IMPLEMENT_COVERAGE=on (off by default: implement-coverage-default).
 cov_doc() { # <r2 entry>: r1 built and cited, then r2 as given
   jq -cn --argjson r2 "$1" '{requirements: [{id: "r1", status: "built", at: [{file: "src/lib.rs", line: 1}], test: "create_invoice"}, $r2]}'; }
 cov_good=$(cov_doc '{"id": "r2", "status": "built", "at": [{"file": "src/lib.rs", "line": 2}], "test": "send_email"}')
 cov_notbuilt=$(cov_doc '{"id": "r2", "status": "not_built", "reason": "fixture: the email is not sent yet"}')
 cov_outside=$(cov_doc '{"id": "r2", "status": "built", "at": [{"file": "src/lib.rs", "line": 999}], "test": "send_email"}')
 cov_notest=$(cov_doc '{"id": "r2", "status": "built", "at": [{"file": "src/lib.rs", "line": 2}], "test": "email_is_sent"}')
-cov_env=(SDC_LLM_NODES=change.implement SDC_LLM_ADAPTER="$fixture")
+cov_env=(SDC_IMPLEMENT_COVERAGE=on SDC_LLM_NODES=change.implement SDC_LLM_ADAPTER="$fixture")
 cov_rounds() { jq -cn --args '{rounds: [$ARGS.positional[] | fromjson]}' "$@"; }
 # impl_takes <story dir>: change.implement's finished runs as {exit, refused kind, evidence count},
 # and whether tests.run ran between a refused run and the next implement run.
@@ -2016,7 +2017,7 @@ cov_feedback() { jq -rs '[.[] | select(.action == "change.implement") | .record]
 # coverage-complete: every requirement built and cited. Passes when the run closes, the one
 # implement run recorded its change with no refusal, its log names the passing postcondition, and
 # the review (fixture adapter, approving) got the document as in/coverage.json among its inputs.
-trial coverage-complete SDC_LLM_NODES="change.implement change.review" SDC_LLM_ADAPTER="$fixture" \
+trial coverage-complete SDC_IMPLEMENT_COVERAGE=on SDC_LLM_NODES="change.implement change.review" SDC_LLM_ADAPTER="$fixture" \
   SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_good")"
 code=$?
 st=$(rr_story coverage-complete)
@@ -2408,6 +2409,24 @@ if sw_main && jq -se 'last.review_mode == "session"' "$sw/run-settings.jsonl" >/
   echo "review-mode-default: checks pass (SDC_REVIEW_MODE unset: session; $(wc -w <<< "$sw_reviews") reviews read the tree with Glob, Read and Grep, as main's recording)"
 else
   echo "review-mode-default: FAILED (run exit $sw_code; calls $(sw_calls); review calls: $(jq -sc '[.[] | select(.action == "change.review") | {allowed_operations, max_turns, input_bytes}]' "$sw/llm-calls.jsonl" 2>/dev/null | cut -c1-200))"
+fi
+# implement-coverage-default: SDC_IMPLEMENT_COVERAGE unset is off: change.implement is asked for no
+# coverage document, no postcondition runs and nothing is refused by one, the tree carries no
+# .sdc/coverage.json and the review gets no in/coverage.json, as on main.
+sw_impl=$(ls -d "$sw"/llm/*-change.implement 2>/dev/null)
+no_coverage() { # no call dir of change.implement or change.review holds a coverage input
+  local d
+  [[ -n $sw_impl ]] || return 1
+  for d in $sw_impl; do [[ ! -e $d/cwd/in/story-requirements.json && ! -e $d/coverage-schema.json ]] || return 1; done
+  for d in $sw_reviews; do [[ ! -e $d/cwd/in/coverage.json ]] || return 1; done
+}
+if sw_main && jq -se 'last.implement_coverage == "off"' "$sw/run-settings.jsonl" >/dev/null && no_coverage &&
+   [[ -z $(find "$sw/store" -path '*/impl/.sdc/coverage.json' 2>/dev/null) ]] &&
+   ! cat "$sw"/store/IDEA-1/children/*/children/*/events.jsonl | jq -se 'any(.[]; .refused != null)' >/dev/null &&
+   ! grep -rqs 'sdc-drive: postcondition' "$sw"/store/IDEA-1/children/*/children/*/blobs/; then
+  echo "implement-coverage-default: checks pass (SDC_IMPLEMENT_COVERAGE unset: off; no coverage document, no postcondition, no refusal, as main's recording)"
+else
+  echo "implement-coverage-default: FAILED (run exit $sw_code; calls $(sw_calls); coverage files: $(find "$sw/store" -path '*/impl/.sdc/coverage.json' 2>/dev/null | wc -l))"
 fi
 # replay-reject-stop: merge.approve's recorded approve replaced by a reject: the rejection is
 # recorded and change.implement is sent back with it, a call the source never made

@@ -54,6 +54,24 @@ dont collect big conversations, figure out where we can use cheeper models".
    fails until the ledger and the image match the records. Commit them with the release.
 9. The new release is the next baseline: its tree is new, so step 1 runs again.
 
+## Run switches
+
+A change in what a run does is measured before it becomes the default (the operator's standing
+rule). Such a change merges behind a switch that is off by default; the experiment record turns it
+on in its variant (`settings`, a launch setting of `sdc-experiment`, `LAUNCH` in
+`driver/src/bin/sdc-experiment.rs`), and `run-settings.jsonl` records it per run. A switch becomes
+the default only after its record's verdict held (step 6). With every switch at its default a run
+does what main did before these changes: the `<switch>-default` cycles read one re-drive of the
+committed stub recording (run `switches-default`) with every call recorded, none diverged and no
+prompt digest changed (`scripts/run-finding-cycles.sh`).
+
+| Switch | Values (default first) | Setting | Turns on | Record | Cycles (default; on) |
+|---|---|---|---|---|---|
+| `SDC_IMPLEMENT_MODE` | `session`, `request` | `implement_mode` | `change.implement` as one structured request (`story:implement-one-request`) | `implement-one-request`, `implement-one-request-strong` | `implement-request-*` |
+| `SDC_RULE_APPROVALS` | `off`, `on` | `rule_approvals` | under A5, context, roadmap and release approvals taken by `rule:autopilot` on their program checks (`story:decider-program-approvals`) | `decider-program-approvals`, `decider-program-approvals-mixed` | `rule-approvals-default`; `rule-approvals*` |
+| `SDC_REVIEW_MODE` | `session`, `facts` | `review_mode` | `change.review` as one request on one document of facts, no tools (`story:review-minimal-facts`) | `review-minimal-facts` | `review-mode-default`; `review-minimal-input`, `review-real-path-facts` |
+| `SDC_IMPLEMENT_COVERAGE` | `off`, `on` | `implement_coverage` | `change.implement` cites each requirement, refused by program before `tests.run` (`story:implement-cites-requirements`) | `implement-cites-requirements` | `implement-coverage-default`; `coverage-*` |
+
 ## What the 0.1.0 baseline says
 
 From the nine runs of `experiments/baseline-0.1.0`, counted in `experiments/baseline-0.1.0/losses.md`:

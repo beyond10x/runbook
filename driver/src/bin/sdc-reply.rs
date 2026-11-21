@@ -1094,9 +1094,15 @@ fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Val
     fs::write(in_dir.join("gate.txt"), gate.clone().unwrap_or("no gate run recorded on this specification revision\n".into()))
         .map_err(|e| e.to_string())?;
     let changed: Vec<&str> = diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)).collect();
-    Ok(json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
+    let mut out = json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
         "uncovered": uncovered.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), "changed_files": changed,
-        "gate": gate.is_some(), "coverage": has_coverage, "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
+        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }});
+    // `coverage` only when the tree carries the document (SDC_IMPLEMENT_COVERAGE=on): without it
+    // the output is main's.
+    if has_coverage {
+        out["coverage"] = json!(true);
+    }
+    Ok(out)
 }
 
 /// Write the review's inputs into `<cwd>/in/` and return what was written. `review.md` is the

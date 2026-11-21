@@ -26,6 +26,7 @@ fixed:
 variants:
 - id: strong
   settings:
+    implement_coverage: on
     models.writer.model: claude-sonnet-5-5
     models.implement.model: claude-sonnet-5-5
     models.review.model: claude-sonnet-5-5
@@ -34,6 +35,7 @@ variants:
   runs: []
 - id: mixed
   settings:
+    implement_coverage: on
     models.writer.model: claude-sonnet-5-5
     models.implement.model: claude-sonnet-5-5
     models.review.model: claude-sonnet-5-5

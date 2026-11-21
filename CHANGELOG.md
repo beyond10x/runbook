@@ -29,19 +29,25 @@ The crates are `publish = false`; releases are source releases at bare-version t
 - Experiment records `implement-one-request` (mixed) and `implement-one-request-strong`, session
   against request, three runs each, registered before any run.
 - Approvals by program (`story:decider-program-approvals`), behind the run switch
-  `SDC_RULE_APPROVALS=on|off` (default `off`, so a default run asks the decider as before): under A5, `context.approve`,
-  `roadmap.approve` and `release.publish` are taken by `rule:autopilot`, with no decider call, when
-  the program check guarding each (`context.check`, `roadmap.validate`; `spec.gate`,
-  `release.build`, `acceptance.run`) recorded a passing result for the exact revision approved;
-  otherwise the decider is asked. The mapping is `driver/examples/sdc/rule-ends.json`
-  (`approvals.*.by_rule`), checked by `sdc-check-routes` (finding `rule-guard`);
-  `vision.approve` has no program check and is left out. The switch is recorded in
-  `run-settings.jsonl` (`rule_approvals`); the records `decider-program-approvals{,-mixed}` set it
-  per variant. Not measured: no experiment has tested this change; cycle `rule-approvals-default`
-  re-drives main's stub recording with the switch unset (same calls, prompts and actions). The decision record names
-  the rule, the check and the evidence ids. `sdc-run-metrics` counts these as `decisions_by_rule`,
+  `SDC_RULE_APPROVALS=on|off` (default `off`, so a default run asks the decider as before): under
+  A5, `context.approve`, `roadmap.approve` and `release.publish` are taken by `rule:autopilot`,
+  with no decider call, when the program check guarding each (`context.check`,
+  `roadmap.validate`; `spec.gate`, `release.build`, `acceptance.run`) recorded a passing result
+  for the exact revision approved; otherwise the decider is asked. The mapping is
+  `driver/examples/sdc/rule-ends.json` (`approvals.*.by_rule`), checked by `sdc-check-routes`
+  (finding `rule-guard`); `vision.approve` has no program check and is left out. The switch is
+  recorded in `run-settings.jsonl` (`rule_approvals`); the records
+  `decider-program-approvals{,-mixed}` set it per variant. Not measured: no experiment has tested
+  this change; cycle `rule-approvals-default` re-drives main's stub recording with the switch
+  unset (same calls, prompts and actions). The decision record names the rule, the check and the
+  evidence ids. `sdc-run-metrics` counts these as `decisions_by_rule`,
   not decider calls, and reports `decider_s`. New `sdc-reply rule-approval`; cycles
   `rule-approvals*`; experiment record `experiments/decider-program-approvals.yaml`.
+- `docs/improving.md`, "Run switches": the four switches (`SDC_IMPLEMENT_MODE`,
+  `SDC_RULE_APPROVALS`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE`), their defaults, settings,
+  records and cycles. A change in what a run does merges off by default until its record holds.
+  Cycles `rule-approvals-default`, `review-mode-default` and `implement-coverage-default` re-drive
+  main's stub recording once with every switch at its default (run `switches-default`).
 
 ### Changed
 
@@ -60,8 +66,10 @@ The crates are `publish = false`; releases are source releases at bare-version t
   replay whether the decisions hold (`docs/driver.md`, "Facts review"). Not measured: no experiment
   has tested this change; cycle `review-mode-default` re-drives main's stub recording with the
   switch unset.
-- `change.implement` cites its requirements (`story:implement-cites-requirements`): besides its
-  change it replies with a coverage document checked against a response schema (per requirement
+- `change.implement` cites its requirements (`story:implement-cites-requirements`), behind the
+  run switch `SDC_IMPLEMENT_COVERAGE=on|off` (default `off`, main's implement step; recorded as
+  `implement_coverage` in `run-settings.jsonl`, a launch setting of `sdc-experiment`; a binding's
+  `postcondition` may name a `switch` it runs under). With `on`, besides its change it replies with a coverage document checked against a response schema (per requirement
   of the story, `built` with file, line and a test, or `not_built` with a reason), and the
   binding's new `postcondition`, `sdc-reply check-coverage`, run by `sdc-drive` right after the
   implement step, refuses the revision before `tests.run` when a requirement is missing, not
@@ -69,9 +77,10 @@ The crates are `publish = false`; releases are source releases at bare-version t
   refusal names the requirement ids, reaches the next implement run as `in/feedback.md`, counts
   under its own retry kind `requirement_coverage` against `max_runs`, and shows in
   `sdc-run-metrics` as `requirement_coverage:refused`. The review gets the document as
-  `in/coverage.json`. No protocol rule changed (`docs/driver.md`, "Requirement coverage").
+  `in/coverage.json`. Off, no coverage document is asked for or checked. No protocol rule changed (`docs/driver.md`, "Requirement coverage").
   Not measured: no experiment has tested this change; `experiments/implement-cites-requirements.yaml`
-  is registered and not launched.
+  (both variants set `implement_coverage: on`) is registered and not launched; cycle
+  `implement-coverage-default` re-drives main's stub recording with the switch unset.
 
 ## [0.2.0] - 2026-11-21
 

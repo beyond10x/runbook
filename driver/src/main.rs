@@ -564,6 +564,13 @@ fn retry_records<'a>(b: &Value, current: &[&'a Value]) -> Vec<&'a Value> {
         .collect()
 }
 
+/// Whether a binding's `postcondition` runs: always, unless it names a `switch`, an environment
+/// variable that must be `on` (a change merged off by default until its experiment holds,
+/// docs/improving.md "Run switches"; change.implement's coverage: SDC_IMPLEMENT_COVERAGE).
+fn postcondition_runs(post: &Value, env: &dyn Fn(&str) -> Option<String>) -> bool {
+    post["switch"].as_str().is_none_or(|k| env(k).as_deref() == Some("on"))
+}
+
 /// The writer's own last run, refused by its binding's `postcondition` at the subject's current
 /// revision, as a record that sends the writer back like a failed check: {kind, result `refused`,
 /// subject, action, exit, log}. A program check run by the driver right after the writer
@@ -1572,11 +1579,13 @@ fn step(
             let _ = fs::remove_file(&not_called_file);
             not_called = (code == "0").then_some(why.trim().to_string());
         }
-        // The binding's `postcondition` {argv, kind, timeout_s}: a program check of what the writer
+        // The binding's `postcondition` {argv, kind, timeout_s, switch}: a program check of what the writer
         // left, run right after a run that did something (exit 0, called). Exit 0: the step goes
         // on; 1: the run is refused, nothing is recorded, and the writer is sent back with the
         // check's output as a failed check of `kind` (own_refusal); anything else: a program error.
-        if let Some(post) = b.get("postcondition").filter(|p| p.is_object() && code == "0" && not_called.is_none()) {
+        // A postcondition that names a `switch` runs only when that variable is `on` (postcondition_runs).
+        if let Some(post) = b.get("postcondition").filter(|p| p.is_object() && code == "0" && not_called.is_none()
+            && postcondition_runs(p, &|k| std::env::var(k).ok())) {
             let pargv: Vec<String> = serde_json::from_value(post["argv"].clone()).map_err(|e| format!("postcondition argv: {e}"))?;
             let kind = post["kind"].as_str().ok_or("postcondition names no kind")?;
             let (pcode, pout) = run_tool(dir, &pargv, &env, post["timeout_s"].as_u64().unwrap_or(120))?;
@@ -2056,5 +2065,23 @@ fn main() -> ExitCode {
             eprintln!("sdc-drive: {e}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A binding's `postcondition` that names a `switch` runs only when that variable is `on`; one
+    /// without a switch always runs (SDC_IMPLEMENT_COVERAGE, docs/improving.md "Run switches").
+    #[test]
+    fn a_postcondition_behind_a_switch_runs_only_when_it_is_on() {
+        let post = json!({"argv": ["check"], "kind": "requirement_coverage", "switch": "SDC_IMPLEMENT_COVERAGE"});
+        let env = |v: Option<&'static str>| move |k: &str| (k == "SDC_IMPLEMENT_COVERAGE").then_some(v).flatten().map(String::from);
+        assert!(!postcondition_runs(&post, &env(None)));
+        assert!(!postcondition_runs(&post, &env(Some("off"))));
+        assert!(!postcondition_runs(&post, &env(Some(""))));
+        assert!(postcondition_runs(&post, &env(Some("on"))));
+        assert!(postcondition_runs(&json!({"argv": ["check"], "kind": "k"}), &env(None)));
     }
 }

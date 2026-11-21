@@ -68,7 +68,8 @@
         "impl"
       ],
       "kind": "requirement_coverage",
-      "timeout_s": 120
+      "timeout_s": 120,
+      "switch": "SDC_IMPLEMENT_COVERAGE"
     }
   },
   "tests.run": {

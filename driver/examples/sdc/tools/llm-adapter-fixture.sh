@@ -22,7 +22,7 @@
 # with no finding.
 # change.implement in request mode (SDC_IMPLEMENT_MODE=request) gets a reply in the record's
 # structured-output.json: SDC_IMPLEMENT_REPLIES, else the stub tree packed (see below).
-# change.implement's coverage reply goes to out/coverage.json: SDC_COVERAGE_REPLIES, `{"rounds":
+# change.implement's coverage reply (SDC_IMPLEMENT_COVERAGE=on) goes to out/coverage.json: SDC_COVERAGE_REPLIES, `{"rounds":
 # [...]}` taken by the request's `attempt` (the node's n-th call record, the last round after
 # that), each round a reply or a list by `coverage_attempt`; else the tree fixture's
 # .sdc/coverage.json; else the stub document (sdc-reply coverage-stub).
@@ -133,8 +133,9 @@ w=$PWD
 mkdir -p "$w/.sdc"
 (cd "$cwd" && SDC_STUB_COUNTER="$w/.sdc" "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" "out/${a[2]}") || exit 1
 # change.implement's coverage reply: the tree fixture's own .sdc/coverage.json (moved out of the
-# tree, as a model writes it), else the stub document (sdc-reply coverage-stub).
-if [[ $node == change.implement ]]; then
+# tree, as a model writes it), else the stub document (sdc-reply coverage-stub). Only with
+# SDC_IMPLEMENT_COVERAGE=on; off, the default, the implementer writes its tree alone, as on main.
+if [[ $node == change.implement && ${SDC_IMPLEMENT_COVERAGE:-off} == on ]]; then
   rm -f "$cwd/out/coverage.json"
   if [[ -n ${SDC_COVERAGE_REPLIES:-} ]]; then
     jq -n --argjson r "$SDC_COVERAGE_REPLIES" --argjson a "$(jq '.attempt // 1' "$1")" --argjson n "$(jq '.coverage_attempt // 1' "$1")" '

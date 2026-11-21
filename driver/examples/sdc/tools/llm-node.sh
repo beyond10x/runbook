@@ -93,13 +93,19 @@ work=$PWD
 # change.implement replies, besides its change, with a coverage document (sdc-reply coverage):
 # per requirement of the story, built with the lines and a test, or not_built with a reason. It
 # goes to impl/.sdc/coverage.json; the binding's postcondition (sdc-reply check-coverage) checks it.
-if [[ $node == change.implement ]]; then
+# Only with SDC_IMPLEMENT_COVERAGE=on and the session implementer (docs/improving.md, "Run
+# switches"); off, the default, change.implement is main's.
+coverage=${SDC_IMPLEMENT_COVERAGE:-off}
+[[ $coverage == @(on|off) ]] ||
+  { echo "llm-node: $node could not run: SDC_IMPLEMENT_COVERAGE=$coverage is neither on nor off" >&2; exit 126; }
+[[ $node == change.implement && $implement_mode == session ]] || coverage=off
+if [[ $coverage == on ]]; then
   reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
 fi
 # The stub implementer's coverage document, unless the stub tree carries one (a fixture's own).
 coverage_stub() {
-  [[ $node == change.implement && -d $work/impl && ! -f $work/impl/.sdc/coverage.json ]] || return 0
+  [[ $coverage == on && -d $work/impl && ! -f $work/impl/.sdc/coverage.json ]] || return 0
   mkdir -p "$work/impl/.sdc" && "$reply_bin" coverage-stub --work "$work" --tree "$work/impl" > "$work/impl/.sdc/coverage.json"
 }
 
@@ -436,8 +442,10 @@ out/impl/ (it holds the current implementation, if any: extend it, keep what ear
   (commit a Cargo.lock: with no dependencies it holds only the package itself).
 - out/impl/README.md: how to run it and how it maps to the specification's commands.
 You cannot run commands: write code that passes its own tests."
-  # The coverage document (story:implement-cites-requirements): the story's requirements and the
-  # reply schema by program; the reply is checked against it below and asked again at most twice.
+  # The coverage document (story:implement-cites-requirements, SDC_IMPLEMENT_COVERAGE=on): the
+  # story's requirements and the reply schema by program; the reply is checked against it below and
+  # asked again at most twice.
+  if [[ $coverage == on ]]; then
   "$reply_bin" coverage --work "$work" > "$cwd/in/story-requirements.json" 2> "$rec/coverage-check.err" &&
     "$reply_bin" coverage --work "$work" --schema > "$rec/coverage-schema.json" 2>> "$rec/coverage-check.err" ||
     { echo "llm-node: $node could not run: no story requirements: $(cat "$rec/coverage-check.err")" >&2; exit 126; }
@@ -454,6 +462,7 @@ Coverage. Besides the files, write out/coverage.json, one JSON object with one k
 A program checks it before any test runs: an id that is missing, named twice or not_built, a file
 that is not in out/impl/, a line outside its file, or a test name no #[test] function has sends
 the change back to you. Schema: $(jq -c . "$rec/coverage-schema.json")"
+  fi
   fi ;;
 change.review)
   # The review (story:review-node-is-a-model): nothing is written; the reply is the decision, under
@@ -498,14 +507,19 @@ the reply otherwise. Judge from the review input only; you cannot run anything."
       "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
       "in/tests.txt (the conformance run that passed on this revision)"
       "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
-    [[ $(jq -r '.coverage // false' "$rec/review-inputs.json") == true ]] &&
+    # The implementer's coverage document, when its tree carries one (SDC_IMPLEMENT_COVERAGE=on):
+    # one more input and one more sentence; without it the review is main's.
+    cov_line=""
+    if [[ $(jq -r '.coverage // false' "$rec/review-inputs.json") == true ]]; then
       inputs+=("in/coverage.json (read-only: the implementer's own statement, per requirement, of the lines of in/impl/ that build it and the test that exercises it; a program checked that the lines and tests exist, not that they build the requirement)")
+      cov_line="
+in/coverage.json says where the implementer built each requirement: read those lines first instead
+of searching, and judge whether they build it."
+    fi
     task="Review the change of story '$story' as a reviewer independent of its implementer: does the
 change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?
 in/uncovered.json lists requirements no story of the plan covers: they are outside this story, so do
-not reject for them; name one you see missing as a finding of kind \`outside\`.
-in/coverage.json, when it is there, says where the implementer built each requirement: read those
-lines first instead of searching, and judge whether they build it.
+not reject for them; name one you see missing as a finding of kind \`outside\`.$cov_line
 Reply with the JSON object of the response schema:
 - decision: approved, or rejected when the change fails a requirement, acceptance line or command of
   this story
@@ -658,7 +672,7 @@ prompt=$rec/prompt.md
       echo
     fi
     echo "Reply with the JSON object only."
-  elif [[ $node == change.implement ]]; then
+  elif [[ $coverage == on ]]; then
     if [[ -n $rejection ]]; then
       echo "When the files and out/coverage.json are written, reply with one line per rejection reason (as above), then the word: done."
     else
@@ -782,7 +796,7 @@ while :; do
   "$adapter_bin" "$rec/request.json" > "$rec/response.json"
   acode=$?
   [[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
-  [[ $node == change.implement && $acode == 0 && $adapter != dry ]] || break
+  [[ $coverage == on && $acode == 0 && $adapter != dry ]] || break
   coverage_reply=$rec/structured-output.json
   [[ -s $coverage_reply ]] || coverage_reply=$cwd/out/coverage.json
   "$reply_bin" check-coverage --shape --work "$work" --tree "$cwd/out/impl" --reply "$coverage_reply" 2> "$rec/coverage-check.err" && break
@@ -857,7 +871,13 @@ apply() {
       [[ -f $f ]] || return 1
       cp "$f" "$work/bug-dissection.json" ;;
     change.implement)
-      # The tree, then the checked coverage document inside it (part of the revision it describes).
+      # The tree, then the checked coverage document inside it (part of the revision it describes);
+      # with the switch off (or in request mode), the tree alone, as every other output.
+      if [[ $coverage != on ]]; then
+        [[ -e $cwd/out/$out ]] || return 1
+        rm -rf "${work:?}/$out" && mkdir -p "$(dirname "$work/$out")" && cp -r "$cwd/out/$out" "$work/$out"
+        return
+      fi
       [[ -d $cwd/out/impl ]] || return 1
       rm -rf "${work:?}/impl" && cp -r "$cwd/out/impl" "$work/impl" && mkdir -p "$work/impl/.sdc" &&
         jq . "$coverage_reply" > "$work/impl/.sdc/coverage.json" ;;
