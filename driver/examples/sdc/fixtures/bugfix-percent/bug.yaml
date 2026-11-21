@@ -1,0 +1,6 @@
+title: 100 percent is refused
+text: >-
+  percent::is_valid(100) returns false and percent::bar(100, 10) returns None, so a finished task
+  cannot be shown. Expected: 100 is a valid percentage (0 to 100, both included), and bar(100, 10)
+  returns Some("##########").
+story: story:percent-hundred

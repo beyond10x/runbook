@@ -1,0 +1,60 @@
+format: protocol/1
+
+protocol:
+  id: sdc.probe.bugfix-parent
+  revision: 1
+  description: >-
+    Probe, not part of the family: the smallest parent that opens sdc.bugfix as a child case for a
+    defect it has written down (docs/bugfix.md, "As a child case"), with Canon 0.9.0's child cases.
+    It stands in for sdc.story after a rejected merge or sdc.epic after a rejected release, which
+    stay unchanged until the children form can be scoped to the current revision.
+
+artifacts:
+  report:
+    description: the defect the parent hands to the child (bug.yaml)
+  change:
+    description: the code tree the child fixes (impl/)
+
+evidence_kinds:
+  case_outcome:
+    description: >-
+      the outcome of the bug-fix child: fixed, not_reproduced or not_fixed, open while it runs
+  bugfix_opened:
+    description: the bug-fix child was opened for the current report
+
+claims:
+  bugfix.opened:
+    description: a bug-fix child was opened for the current report
+    true_when:
+      evidence:
+        kind: bugfix_opened
+        subject: report
+  bugfix.fixed:
+    description: every bug-fix child ended fixed
+    true_when:
+      children:
+        in: [fixed]
+
+actions:
+  bugfix.open:
+    description: open one sdc.bugfix child for the current report
+    effect: write
+    precondition:
+      claim: bugfix.opened
+      is: unknown
+    case_open:
+      protocol: sdc.bugfix
+      subject: report
+    may_produce:
+      - evidence: bugfix_opened
+
+outcomes:
+  passed:
+    description: the defect is fixed by the child
+    requires:
+      claim: bugfix.fixed
+  not_fixed:
+    description: the child ended without a fix
+    requires:
+      claim: bugfix.fixed
+      is: "false"

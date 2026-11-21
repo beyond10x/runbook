@@ -1,0 +1,9 @@
+version: '3'
+
+tasks:
+  check:
+    cmds:
+      - cargo build --offline
+      - cargo test --offline
+      - cargo clippy --offline --all-targets -- -D warnings
+      - cargo fmt --check

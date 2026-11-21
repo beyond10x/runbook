@@ -108,23 +108,76 @@ Command: `scripts/run-trial.sh bugfix-1 --bugfix driver/examples/sdc/fixtures/bu
 - The fix is one line: `total / per_page` became `total.div_ceil(per_page)`. All four gate checks
   passed, and the story went `active -> implemented` by `agent:story.update`.
 
-## As a child case
+Why there are two `dissection.check` records and two `repro.run` records although no writer ran
+twice: the first of each is about an artifact that did not exist yet. The fixed policy takes
+observations before writes (`driver/src/main.rs`, `useful()`). At the opening, `dissection.check` is
+admissible (`dissection.checked` is unknown), so it ran first, against `none`: `e0004`, `invalid`,
+"no bug-dissection.json". Then `bug.dissect` wrote the document, and `e0013` checked the new
+revision: `valid`. Likewise, once the dissection was valid, `repro.run` ran before `test.reproduce`,
+against repro `none`: `e0017`, `not_red`, "no repro/repro.json". That check makes no cargo run. After
+the test was written, `e0026` was red. A record about `none` sends no writer back (`retry_when`
+skips it: `driver/src/main.rs`, `retry_records`), so no LLM call is spent on it. Removing these
+records would take an evidence kind per writer (a "written" record, 4 times the states each) or a
+precondition on the presence of an artifact, which Canon has no form for.
+
+## As a child case (design, 2026-11-21)
+
+The operator: "Break it down, make it composable." The fix loop of
+`story:release-rejection-plans-fix-stories` (a rejected release plans fix work) and a failed
+acceptance or a rejected merge in `sdc.story` are where a parent would open `sdc.bugfix` for one
+defect it has written down.
 
 Nothing in the bindings or tools assumes the case is the root. Every path is relative to the case's
-`work/`. No tool reads the case id. The story step works whether the story exists or not. To open it
-as a child with Canon's child cases, a parent (an epic, or `sdc.story` for a bug found in review)
-needs:
+`work/`. No tool reads the case id. `story.update` creates the story only when no parent handed it
+in. The unchanged code the red is observed against is `bug.yaml` `base` (default `mainline/`). A
+parent whose change is still open names a copy of its code at the opening, because `repro-install`
+resets `impl/` to the base plus the test.
 
-- an action with `case_open` and the binding `child: {protocol: ".../sdc-bugfix.protocol.yaml",
-  bindings: ".../sdc-bugfix.bindings.json", name: "<bug>"}` (`docs/driver.md`, "Child cases");
-- in the shared `work/`: `bug.yaml` (with `story: story:<name>`), `impl/` and `mainline/`, and
-  optionally `aep/` with the story. Today the parent writes `bug.yaml` before the opening. Two bugs
-  at once need a per-child `work/` (`epic:concurrent-child-cases`);
-- a `children` claim that lists the outcome `fixed`.
+What a parent needs:
 
-It reads back: the `case_outcome` record (`fixed`, `not_reproduced` or `not_fixed`), `impl/` at the
-fixed revision (the parent's `change` moves with it), and the story at `implemented`.
+- an action with `case_open: {protocol: sdc.bugfix, subject: <artifact>}` and the binding
+  `child: {name, protocol: .../sdc-bugfix.protocol.yaml, bindings: .../sdc-bugfix.bindings.json}`
+  (`docs/driver.md`, "Child cases"). The child's `work/` is a link to the parent's, so the parent
+  writes `bug.yaml` (report, `story`, `base`) and the base copy before it opens the child;
+- a `children` claim that lists `fixed`, and an `case_outcome` evidence kind.
 
-Not in this revision, for the state count: the report is not an upstream of the dissection (a revised
-report does not invalidate it), and `repro` is not an upstream with invalidation of the fix records.
-Each would cost 4 to 16 times (`docs/protocol-notes.md:354-356`).
+What it reads back: the `case_outcome` record (`fixed`, `not_reproduced` or `not_fixed`), `impl/` at
+the fixed revision (the parent's `change` moves, so its records about the old revision drop out by
+revision binding and its checks run again), and the story at `implemented`.
+
+Probe, run with stubs: `protocol/draft/bugfix-parent.protocol.yaml` (144 states, 0 findings) with
+`driver/examples/sdc/draft/bugfix-parent.bindings.json`. Run it with `sdc-drive init`, then
+`sdc-bugfix seed --from driver/examples/sdc/fixtures/bugfix-pager` in its `work/`, then
+`sdc-drive run`. The parent opened `PARENT-1.bug`, the driver drove the child depth first to `fixed`
+and closed it, and the parent's record `case_outcome` (`result: fixed`, `child_case: PARENT-1.bug`)
+made it terminable with `passed`. `close` and `replay` returned 0 for both cases.
+
+What Canon 0.9.0 allows today:
+
+- One bug-fix child per parent, read by `{children: {in: [fixed]}}`. The form reads every child of
+  the case alike, of every revision (`../canon/crates/canon/src/model/predicate.rs:52-59`). So a child
+  that ends `not_fixed` makes the claim false for good, and a second attempt cannot make it true:
+  there is no retry loop.
+- The cost is 8 × 9 = 72 per listed outcome (`docs/protocol-notes.md:354-366`; the probe has 2 × 72).
+  `sdc.story` (49,152 states) cannot take a `children` claim at all within the 65,536 bound.
+  `sdc.epic` (36,864) already lists `passed` for its story and release children. A bug-fix child
+  fits there only if its success outcome is named `passed` (a second listed outcome costs 16 × 17),
+  and every failed fix then sinks `children.passed` for the epic.
+
+What needs the unreleased form `{children: {in: [fixed], subject: <s>, revision: current}}` (Canon
+`story:child-outcome-subject`, after `story:child-outcome-revision`; `docs/orchestration.md:236-247`):
+
+- the loop: after a `not_fixed` child, or a new rejection, the parent's subject (the report, or
+  the rejection record) moves to a new revision. Only the children opened at the current revision
+  count, so the old failure no longer counts and a new child is opened. Then it is bounded by the
+  parent's own run cap;
+- several bug-fix children beside story and release children, without one child's outcome reaching
+  into another family's claim (`subject`);
+- `sdc.story` as a parent at all. That still also needs a slice-wise state bound
+  (`story:canon-slice-bound-uptake`), or the defect loop placed in the epic.
+
+`sdc.story` and `sdc.epic` are unchanged in this revision. Also not in this revision, for the state
+count: the report is not an upstream of the dissection (a revised report does not invalidate it),
+and `repro` is not an upstream with invalidation of the fix records. Each would cost 4 to 16 times
+(`docs/protocol-notes.md:354-356`).
+
