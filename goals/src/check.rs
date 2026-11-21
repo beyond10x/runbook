@@ -452,6 +452,8 @@ pub struct Refusal {
 pub struct Grounded<'a> {
     pub entry: Option<&'a Entry>,
     pub refusals: Vec<Refusal>,
+    /// The cited revision differs from the current one: a note, never a refusal.
+    pub revision_moved: bool,
 }
 
 /// Parses `goals@<revision>#<entry id>` into (revision, id).
@@ -461,10 +463,11 @@ pub fn parse_cite(cite: &str) -> Option<(&str, &str)> {
     (!rev.is_empty() && split_id(id).is_some()).then_some((rev, id))
 }
 
-/// Checks one goals ground (docs/requester.md § 2, decision 3): the cited revision is the current
-/// one, the entry exists in the given layers, its digest is the cited one (when one is cited), it
-/// is inside its validity window at `at`, and no entry of a lower layer that applies at `at`
-/// overrides it. Every failing check is one refusal; `report` must have no findings.
+/// Checks one goals ground (docs/requester.md § 2, decision 3): the entry exists in the given
+/// (current) layers, its digest is the cited one (when one is cited), it is inside its validity
+/// window at `at`, and no entry of a lower layer that applies at `at` overrides it. Every failing
+/// check is one refusal; `report` must have no findings. The ground rests on the entry, not on
+/// the document: a cited revision other than `current` is only noted (`revision_moved`).
 pub fn ground<'a>(
     report: &'a Report,
     revision: &str,
@@ -475,12 +478,6 @@ pub fn ground<'a>(
 ) -> Grounded<'a> {
     let mut refusals = Vec::new();
     let mut no = |code, message| refusals.push(Refusal { code, message });
-    if revision != current {
-        no(
-            "not_current",
-            format!("goals@{revision} is not the current revision ({current})"),
-        );
-    }
     let entry = report.entries.iter().find(|e| e.id == id);
     match entry {
         None => no(
@@ -514,7 +511,11 @@ pub fn ground<'a>(
             }
         }
     }
-    Grounded { entry, refusals }
+    Grounded {
+        entry,
+        refusals,
+        revision_moved: revision != current,
+    }
 }
 
 /// The entry with this id as parsed, without any validation.

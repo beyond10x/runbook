@@ -49,9 +49,10 @@ enum Cmd {
         files: Vec<PathBuf>,
     },
     /// Check one ground that cites a goals entry, `goals@<revision>#<entry id>`, against the
-    /// given layers: the revision is current, the entry exists, its digest is the cited one, it
-    /// is inside its validity window at the instant and no applying lower-layer entry overrides
-    /// it. Prints a JSON report; each refusal also goes to stderr as `<cite>: <code>: <message>`.
+    /// given (current) layers: the entry exists, its digest is the cited one, it is inside its
+    /// validity window at the instant and no applying lower-layer entry overrides it. A cited
+    /// revision other than --current is a note (`revision_moved`), not a refusal. Prints a JSON
+    /// report; each refusal also goes to stderr as `<cite>: <code>: <message>`.
     /// Exit 0 the ground holds, 1 refused, 2 usage or unreadable file.
     Ground {
         /// YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ; no clock is read.
@@ -60,7 +61,8 @@ enum Cmd {
         /// goals@<revision>#<entry id>
         #[arg(long, value_parser = parse_cite)]
         cite: String,
-        /// The current revision of the goals artifact (the case snapshot's).
+        /// The current revision of the goals artifact (the case snapshot's); a cited revision
+        /// that differs is reported as the note `revision_moved`.
         #[arg(long)]
         current: String,
         /// The entry digest the ground carries, sha256:<hex>; absent: not compared.
@@ -109,9 +111,9 @@ fn run_ground(
     };
     let (revision, id) = check::parse_cite(cite).expect("validated by clap");
     let report = check::check(&docs);
-    let (entry, refusals) = if report.findings.is_empty() {
+    let (entry, refusals, moved) = if report.findings.is_empty() {
         let g = check::ground(&report, revision, current, id, digest, at);
-        (g.entry, g.refusals)
+        (g.entry, g.refusals, g.revision_moved)
     } else {
         let f = &report.findings[0];
         let message = format!(
@@ -128,11 +130,22 @@ fn run_ground(
                 code: "invalid_goals",
                 message,
             }],
+            revision != current,
         )
     };
     for r in &refusals {
         eprintln!("{cite}: {}: {}", r.code, r.message);
     }
+    let notes: Vec<Value> = if moved {
+        vec![json!({
+            "code": "revision_moved",
+            "cited": revision,
+            "current": current,
+            "message": format!("{id} is cited at goals@{revision}; the current revision is {current} and the entry is checked there"),
+        })]
+    } else {
+        Vec::new()
+    };
     let out = json!({
         "cite": cite,
         "revision": revision,
@@ -144,6 +157,7 @@ fn run_ground(
         "layer": entry.map(|e| e.layer),
         "file": entry.map(|e| e.file.as_str()),
         "refusals": refusals.iter().map(|r| json!({"code": r.code, "message": r.message})).collect::<Vec<_>>(),
+        "notes": notes,
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
     ExitCode::from(u8::from(!refusals.is_empty()))
