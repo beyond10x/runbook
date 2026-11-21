@@ -8,6 +8,7 @@ import {nowState, renderNow, activePhases, graphLive, renderChanges, renderDiff,
 import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
+import {setRunSettings, autopilot, standIn} from './principal.js';
 
 const q0 = new URLSearchParams(location.search);
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
@@ -49,11 +50,13 @@ async function loadTree(only) {
   for (const c of t.cases) S.cases.set(c.rel, c);
   for (const k of Array.from(S.cases.keys())) if (!t.present.includes(k)) S.cases.delete(k);
 }
-async function loadRun() { S.run = await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; }
+async function loadRun() { S.run = await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
 async function loadFacts() { S.facts = await api(`/api/workfacts?source=${S.src}`).catch(() => ({files: []})); }
-const serverNow = () => Date.now() + S.offset;
+// the page's clock: the server's, or the stop of a run stopped on purpose (every clock stands there)
+const stopAt = () => { const t = Date.parse(S.run?.stopped?.at); return isNaN(t) ? null : t; };
+const serverNow = () => stopAt() ?? Date.now() + S.offset;
 async function loadInbox() { S.inbox = await api(`/api/inbox?source=${S.src}`).catch(() => S.inbox); }
 
 function pickFollow() {
@@ -81,7 +84,13 @@ const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; 
 
 function render() {
   const src = S.sources[S.src];
-  patch($('#source'), S.sources.map((s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${s.exists ? '' : ' · waiting'}</option>`).join(''));
+  patch($('#source'), S.sources.map((s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${s.stopped ? ' · stopped' : s.exists ? '' : ' · waiting'}</option>`).join(''));
+  // who this run is: an end-to-end test with a stand-in, autopilot; the graph legend follows
+  const set = S.run?.settings;
+  patch($('#runmark'), [standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
+  const lg = $('#lg-person');
+  const lgText = autopilot(set) ? 'decider (on the operator’s behalf)' : 'person';
+  if (lg && lg.textContent !== lgText) lg.innerHTML = `<i class="lg c-person"></i>${lgText}`;
   $('#follow').checked = S.follow;
   $('#reads').checked = S.showReads;
   const live = $('#live');
@@ -116,7 +125,8 @@ function render() {
   else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items)); }
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
-  patch($('#kpis'), renderKpis(S.kpis, now));
+  // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
+  patch($('#kpis'), renderKpis(S.kpis, now) + (standIn(S.run?.settings) ? '<span class="k-standin" data-key="kstand" title="run-settings.jsonl: stand_in true. A stand-in took the person’s part; these values do not count as an evaluation.">not eval numbers</span>' : ''));
   S.feed = feedItems(cases, S.liveData, S.inbox?.history, S.facts);
   patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present));
   patch($('#tree'), renderTree(cases, ns, now));
@@ -150,8 +160,12 @@ function render() {
 }
 
 function renderTree(cases, st, now) {
-  const run = new Map(st.running.map((r) => [r.c, r]));
-  return cases.map((x) => {
+  // a run stopped on purpose: said above the tree, on the case it stopped in, and nothing spins
+  const stop = st.stopped;
+  const run = new Map(stop ? [] : st.running.map((r) => [r.c, r]));
+  const stopCase = stop ? cases.find((c) => c.id === stop.case) || cases.find((c) => !c.parent) : null;
+  const head = stop ? `<div class="tree-stop" data-key="tstop" title="${esc(stop.reason || '')}"><i></i>Run stopped by ${esc(stop.by || 'not recorded')} at ${esc(new Date(stop.t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}))}</div>` : '';
+  return head + cases.map((x) => {
     const st = caseState(x);
     const e = evalAt(x, null);
     const claims = Object.values(e?.claims || {});
@@ -159,7 +173,7 @@ function renderTree(cases, st, now) {
     const name = x.parent ? x.id.slice(x.parent.length + 1) : x.id;
     const guides = Array.from({length: x.depth}, (_, i) => `<span class="guide" style="left:${16 + i * 16}px"></span>`).join('');
     return `<div data-key="c:${esc(x.rel)}" class="case${x.rel === S.sel ? ' sel' : ''}" data-case="${esc(x.rel)}" style="padding-left:${16 + x.depth * 16}px">${guides}
-      <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
+      <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
       <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span><span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span></div></div>`;
   }).join('');
 }
@@ -193,7 +207,8 @@ function renderDecisions() {
   const tag = S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads';
   if ($('#tagline').textContent !== tag) $('#tagline').textContent = tag;
   const btn = $('#decbtn');
-  btn.classList.toggle('has', n > 0);
+  btn.classList.toggle('has', n > 0 && !S.inbox.stopped);
+  btn.classList.toggle('stopped', !!S.inbox.stopped);
   btn.classList.toggle('on', S.drawer);
   patch($('#deccount'), String(n));
   document.body.classList.toggle('drawer-open', S.drawer);
@@ -482,6 +497,8 @@ function connect() {
     S.proc.running = false; S.proc.exit = d.exit;
     pending.full = true; drain();
   });
+  // a run that appeared under --runs, or a run stopped or resumed: the store selector follows
+  es.addEventListener('sources', async () => { S.sources = await api('/api/sources').catch(() => S.sources); schedule(); });
   es.addEventListener('act', (m) => { if (JSON.parse(m.data).source === S.src) { pending.run = true; drain(); } });
 }
 

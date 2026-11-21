@@ -1,6 +1,7 @@
 // Derivations over the stored data. Nothing here re-implements Canon: every status shown comes
 // from a stored canon-decision/1 (evaluations/NNNN.json); this module only finds which one applies
 // at an event, joins evidence ids to records and events, and counts.
+import {principalOf, autopilot, runSettings} from './principal.js';
 
 export const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent', 'terminable'];
 
@@ -21,9 +22,9 @@ export function actorOf(c, action) {
   if (decl && /\bLLM\b/.test(decl.description || '')) return {kind: 'llm', why: 'IR description names an LLM'};
   return {kind: 'program', why: `program \`${(b.argv || []).slice(1).join(' ') || '(driver)'}\`; result from its exit code`};
 }
-// A principal named decider:<model> or decider:<rule> is an agent deciding in a person's place.
-export const principalKind = (p) => (!p ? null : /^decider:/.test(p) ? 'decider' : 'person');
-export const ACTOR_LABEL = {llm: 'LLM', person: 'person', decider: 'decider', driver: 'driver', program: 'program', review: 'review', unbound: 'unbound'};
+// Who a principal is (web/principal.js): person, decider, rule, legacy, agent; null when none.
+export const principalKind = (p) => { const k = principalOf(p).kind; return k === 'none' ? null : k; };
+export const ACTOR_LABEL = {llm: 'LLM', person: 'person', decider: 'decider', rule: 'rule', legacy: 'recorded as human', agent: 'agent', none: 'not recorded', driver: 'driver', program: 'program', review: 'review', unbound: 'unbound'};
 
 // ---- events, evaluations, time ------------------------------------------------------------------
 export function seqOfEvidence(id) { const m = /^e(\d+)-/.exec(id || ''); return m ? Number(m[1]) : null; }
@@ -48,7 +49,7 @@ export function caseState(c) {
     const e = ev[i];
     if (e.event === 'evaluated' || e.event === 'revised') continue;
     if (VERDICTS.includes(e.event)) {
-      const label = {awaiting_authority: 'awaiting authority', awaiting_person: 'awaiting a person', stuck: 'stuck', terminable: 'terminable', step_budget_spent: 'step budget spent', llm_budget_spent: 'LLM budget spent', wall_time_spent: 'wall time spent'}[e.event];
+      const label = {awaiting_authority: 'awaiting authority', awaiting_person: autopilot(runSettings()) ? 'awaiting a decision' : 'awaiting a person', stuck: 'stuck', terminable: 'terminable', step_budget_spent: 'step budget spent', llm_budget_spent: 'LLM budget spent', wall_time_spent: 'wall time spent'}[e.event];
       return {state: e.event, label, next: e.next, at: e.at};
     }
     if (e.event === 'action_started') return {state: 'running', label: `running ${e.action}`, action: e.action};
@@ -63,11 +64,11 @@ export function describeEvent(e) {
     case 'revised': return `revised ${Object.entries(e.artifacts || {}).map(([a, r]) => `${a} → ${r}`).join(', ')} (case ${e.case_revision})`;
     case 'evaluated': return `Canon evaluated → ${e.file}`;
     case 'action_started': return `started ${e.action}${e.llm ? ' (LLM)' : ''}${e.copy ? ' (copy)' : ''}${e.retry_of?.length ? ` retry of ${e.retry_of.join(',')}` : ''}`;
-    case 'action_finished': return `finished ${e.action}: exit ${e.exit}${e.principal ? ` by ${e.principal}` : ''}${e.evidence?.length ? ` → ${e.evidence.join(', ')}` : ', no evidence'}`;
+    case 'action_finished': return `finished ${e.action}: exit ${e.exit}${e.principal ? ` by ${principalOf(e.principal).label}` : ''}${e.evidence?.length ? ` → ${e.evidence.join(', ')}` : ', no evidence'}`;
     case 'discarded': return `DISCARDED ${e.action}: ${e.reason}`;
     case 'child_opened': return `opened child ${e.child_case} (${e.protocol})`;
     case 'child_closed': return `child ${e.child_case} ended ${e.outcome}`;
-    case 'authority_recorded': return `${e.principal} ${e.decision} ${e.capability}`;
+    case 'authority_recorded': return `${principalOf(e.principal).label} ${e.decision} ${e.capability}`;
     case 'terminated': return `terminated: ${e.outcome}`;
     default: return e.event.replace(/_/g, ' ') + (e.next?.length ? ` (next: ${e.next.map((n) => n?.action || n).join(', ')})` : '');
   }
@@ -163,7 +164,7 @@ export function caseMetrics(c, meta) {
     reviewActions: actors.filter((k) => k === 'review').length,
     steps: finished.length,
     llmSteps: finished.filter((e) => kindOf(e.action) === 'llm').length,
-    personSteps: finished.filter((e) => principalKind(e.principal) === 'person').length, deciderSteps: finished.filter((e) => principalKind(e.principal) === 'decider').length,
+    personSteps: finished.filter((e) => principalKind(e.principal) === 'person').length, deciderSteps: finished.filter((e) => ['decider', 'rule'].includes(principalKind(e.principal))).length,
     failedSteps: finished.filter((e) => e.exit !== '0' && e.exit !== 0).length,
     approvals: ev.filter((e) => e.event === 'authority_recorded').length,
     waits: ev.filter((e) => e.event === 'awaiting_authority' || e.event === 'awaiting_person').length,
