@@ -322,7 +322,8 @@ had switched on at `max-width: 900px`, so any narrow desktop window got the phon
 - In a desktop window below 1000 px the layout is the one of 1366 px with narrower Now band columns
   (the Just finished list 200 px, 184 px when the run waits or stopped), so a card shows its action,
   executor, model and holder whole; the run's state text breaks a long name inside its column
-  instead of running under the cards; the live pill's time and a stub run's header mark give way
+  instead of running under the cards and, in the desktop layout at any width, ends after 12 lines
+  with an ellipsis, the whole text in its title (a stop's reason kept the band 800 px tall); the live pill's time and a stub run's header mark give way
   with an ellipsis and a title, and the store select is as wide as its choice.
 - The phone sizes are measured as phones (touch and a coarse pointer: `isMobile`, `hasTouch`), in
   the loop, `test/mobile.spec.mjs` and `test/stub-runs.spec.mjs`, which also checks the tile.

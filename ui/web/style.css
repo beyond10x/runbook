@@ -954,8 +954,10 @@ button.fd-s:focus-visible, .fd-list:focus-visible, #tree:focus-visible { outline
 .now-s.m-stopped i { margin-top: 4px; border-radius: 2px; background: var(--text-2); }
 @media (max-width: 1400px) { #now.m-stopped { grid-template-columns: 140px minmax(0, 1fr) 270px; } }
 @media (max-width: 1000px) { #now.m-waiting, #now.m-stuck, #now.m-closed, #now.m-stalled, #now.m-stopped { grid-template-columns: 140px minmax(0, 1fr) 184px; } }
-/* a long name in the run's state (a revision id, a rule's reason) breaks inside its column instead of running under the cards */
+/* a long state (a stop's reason, a revision id) breaks inside its column instead of running under the cards, and in the
+   desktop layout ends after 12 lines with an ellipsis (the whole text is the title), so the band keeps its height */
 .now-s { overflow-wrap: anywhere; }
+:where(html:not(.phone)) .now-st { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 12; overflow: hidden; }
 .nc.idle.k-stopped { background: linear-gradient(180deg, rgba(180, 188, 203, .06), transparent 70%), var(--surface); border-color: var(--line-3); }
 .nc-was { cursor: pointer; }
 .nc-was .nc-why { color: var(--text-2); }
