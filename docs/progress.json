@@ -1148,9 +1148,69 @@
         "rate": null,
         "small_n": true
       },
-      "tree": null,
-      "tree_note": "not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)",
+      "tree": "d79975dd70dcbdca1b8820b2bdb2774b28e76028",
+      "tree_note": "tag 0.1.1 at main d79975d: 0.1.0 (4468bfd) with the batch-9 merges below, recorded replay reverted (7c5dd5e), and the baseline of 0.1.0 (c798d1a)",
       "version": "0.1.1"
+    },
+    {
+      "changes": [
+        {
+          "commit": "66e5935",
+          "effect": "none",
+          "experiment": null,
+          "line": "corrections to 0.1.0: the decider costs of trial 3 (haiku-7 1.03 USD, not 1.00)"
+        },
+        {
+          "commit": "8a96b50",
+          "effect": "none",
+          "experiment": null,
+          "line": "recorded replay re-drives a recorded run with its recorded model replies (sdc-replay)"
+        },
+        {
+          "commit": "f717443",
+          "effect": "none",
+          "experiment": null,
+          "line": "a re-driven run has run.unstick off unless the source called it"
+        },
+        {
+          "commit": "9e0492f",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-run-timeline, the timeline of one run"
+        },
+        {
+          "commit": "1109656",
+          "effect": "none",
+          "experiment": null,
+          "line": "the root protocol's description says software delivery cycle; no rule changed"
+        },
+        {
+          "commit": "20fa990",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the LLM decider is decider:model (D149); one rework cap, recorded in run-settings and read by driver and rework prompt (D184)"
+        }
+      ],
+      "date": "2026-11-21",
+      "experiments": [],
+      "id": "0.1.2",
+      "kind": "release",
+      "label": "0.1.2",
+      "limits": [
+        "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.",
+        "A check of the delivered product against its specification is in work and not in this release."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": null,
+      "tree_note": "not tagged yet; prepared on main after the batch-10 merges below, on top of 0.1.1 (d79975d)",
+      "version": "0.1.2"
     }
   ],
   "format": "sdc.progress/1",
@@ -1444,7 +1504,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "26d7e19619d3e8553a33ec949078a51852b765306d0ca533a2d3183d85de0370"
+      "sha256": "65ace860a7016c86094b7f24f0674261e554aee90e3c584fbc0564ae613f44ed"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",

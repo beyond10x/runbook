@@ -12,8 +12,9 @@ state. Decisions that belong to a person stop the run and print the command that
 
 ## State
 
-A prototype; no interface is stable. The latest release is 0.1.1 (2026-11-21), after the first, 0.1.0;
-both are source releases at bare-version tags: see [CHANGELOG.md](CHANGELOG.md), [docs/releases/0.1.1.md](docs/releases/0.1.1.md),
+A prototype; no interface is stable. The latest release is 0.1.2 (2026-11-21), after 0.1.1 and the
+first, 0.1.0; all are source releases at bare-version tags: see [CHANGELOG.md](CHANGELOG.md),
+[docs/releases/0.1.2.md](docs/releases/0.1.2.md), [docs/releases/0.1.1.md](docs/releases/0.1.1.md),
 [docs/releases/0.1.0.md](docs/releases/0.1.0.md) and [docs/releasing.md](docs/releasing.md).
 
 - Trial 1 (`docs/trial-1.md`): a to-do list idea run with a real LLM; round 1 stopped, as

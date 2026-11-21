@@ -200,7 +200,7 @@ as auto-approval and interruption data from Claude Code sessions. It is a lead f
 
 ### 2.1 Levels
 
-The decider is the LLM decider of `tools/decider.sh` (`SDC_DECIDER=haiku`). A rule is a program
+The decider is the LLM decider of `tools/decider.sh` (`SDC_DECIDER=model`, principal `decider:model` whatever the model; `haiku` is its old name, D149). A rule is a program
 that decides deterministically from evidence.
 
 | Level | Name | Adapts | Departs | One line |
@@ -446,7 +446,7 @@ Mapping to today's switches:
 | Level | Switches |
 |---|---|
 | A0 | `SDC_DECIDER=person` |
-| A5 | `SDC_DECIDER=haiku SDC_DECIDER_ESCALATE=final`; built 2026-11-21 as `SDC_AUTONOMY=A5` or `scripts/run-trial.sh … --autopilot`: refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
+| A5 | `SDC_DECIDER=model SDC_DECIDER_ESCALATE=final`; built 2026-11-21 as `SDC_AUTONOMY=A5` or `scripts/run-trial.sh … --autopilot`: refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
 | A1 to A4 | need per-class routing in `run-trial.sh`, which today sends every decision type to one decider: route by the action's class and record the holder per decision *(not built: `SDC_AUTONOMY=A1`..`A4` is recorded and the run behaves as `SDC_DECIDER` says)* |
 
 `SDC_AUTONOMY=A3` is the environment form. The level, where it came from (`SDC_AUTONOMY`,
@@ -463,9 +463,10 @@ written into each `run-settings.jsonl` line.
   is recorded with its reasons and citations; the action that writes the rejected artifact
   (`change.implement` for `merge.approve`; `context.default`, `vision.write` and `roadmap.write`
   for the direction approvals) runs again with the reasons in its inputs (`in/rejection.json`),
-  its checks run again on the new revision, and the approval is asked again. At most 2 rejections
-  per approval per case: the third stops the run by `rule:autopilot` with cause `rework_spent`,
-  naming the approval and the three reasons. A rejected `release.publish` (the capability
+  its checks run again on the new revision, and the approval is asked again. At most 2 rejections (the rework cap, D184:
+  `SDC_MAX_REJECTIONS` when set, else `rework_limit` of rule-ends.json; recorded in run-settings.jsonl) are reworked
+  per approval per case: the next one (by default the third) stops the run by `rule:autopilot` with cause `rework_spent`,
+  naming the approval and every reason. A rejected `release.publish` (the capability
   `release.approve`, no writer) ends the tree instead: the release is withheld, the epic ends
   `not_released`, the root `not_delivered`, and the run is closed, not stopped (`docs/driver.md`,
   "A refused release"). A reject that has neither a writer nor such an end stops with

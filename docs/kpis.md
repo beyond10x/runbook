@@ -115,7 +115,7 @@ source, direction, gate, target}}` *(inferred format)*. SDC's:
 
 Who took each decision that waits on a person (approvals, scope-changing questions, the root's
 close). `SDC_DECIDER` in `scripts/run-trial.sh`; principal `decider:approve` or `decider:reject`
-is a rule, `decider:haiku` an LLM decider, any other principal a person.
+is a rule, `decider:model` (`decider:haiku` in runs before D149) an LLM decider, any other principal a person.
 
 | id | KPI | formula | source | dir | gate |
 |---|---|---|---|---|---|

@@ -1,0 +1,4672 @@
+{
+  "end": {
+    "delivered": true,
+    "outcome": "operating",
+    "state": "closed"
+  },
+  "format": "sdc.run-timeline/1",
+  "kind": "sdc",
+  "notes": [
+    "model and decider spans carry the session totals of llm-calls.jsonl and decisions.jsonl; per-request output tokens are not recorded correctly by the stream (it holds the count at the start of each response), so they are not split per request"
+  ],
+  "run": "trial-0.1.0-mixed-1",
+  "settings": {
+    "adapter": "metaharness",
+    "adapters": {
+      "review": "claude-cli"
+    },
+    "autonomy": "A5",
+    "decider": {
+      "escalate": "final",
+      "kind": "haiku",
+      "model": "claude-haiku-5-5"
+    },
+    "efforts": {
+      "decider": "xhigh",
+      "implement": "high",
+      "other": "high",
+      "requester": "xhigh",
+      "review": "high",
+      "writer": "high"
+    },
+    "max_llm_calls": 150,
+    "max_wall_seconds": 5400,
+    "models": {
+      "decider": "claude-haiku-5-5",
+      "implement": "claude-sonnet-5-5",
+      "other": "claude-haiku-5-5",
+      "review": "claude-sonnet-5-5",
+      "writer": "claude-sonnet-5-5"
+    }
+  },
+  "spans": [
+    {
+      "action": null,
+      "case": null,
+      "cause": "between rounds",
+      "lane": "idle",
+      "t0_s": 0.0,
+      "t1_s": 0.057
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 0.057,
+      "t1_s": 0.085
+    },
+    {
+      "action": "intake.open",
+      "case": "IDEA-1",
+      "cause": {
+        "claims": [
+          {
+            "claim": "intake.opened",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-intake.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 0.085,
+      "t1_s": 0.093
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 0.093,
+      "t1_s": 0.113
+    },
+    {
+      "action": "dissection.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "dissection.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-dissection.check"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 0.113,
+      "t1_s": 0.216
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 0.216,
+      "t1_s": 0.232
+    },
+    {
+      "action": "idea.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "idea.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "evidence": [
+        "e0008-idea.check"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 0.232,
+      "t1_s": 0.333
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 0.333,
+      "t1_s": 0.347
+    },
+    {
+      "action": "questions.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "interview.checked",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 10
+      },
+      "evidence": [
+        "e0012-questions.check.questions_shape",
+        "e0012-questions.check.questions_settled"
+      ],
+      "exit": "2",
+      "lane": "program",
+      "t0_s": 0.347,
+      "t1_s": 0.448
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 0.448,
+      "t1_s": 0.464
+    },
+    {
+      "action": "requirements.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 14
+      },
+      "evidence": [
+        "e0016-requirements.check"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 0.464,
+      "t1_s": 0.565
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 0.565,
+      "t1_s": 0.591
+    },
+    {
+      "action": "idea.dissect",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "dissection.valid",
+            "evidence": [
+              "e0004-dissection.check"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "idea.shaped",
+            "evidence": [
+              "e0008-idea.check"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 18
+      },
+      "class": "other",
+      "cost_usd": 0.00278249,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 0.591,
+      "t1_s": 11.873,
+      "tokens": {
+        "cache_read": 55519,
+        "cache_write": 6696,
+        "input": 6,
+        "output": 1775
+      },
+      "tool_calls": {
+        "Read": 1,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 11.873,
+      "t1_s": 11.91
+    },
+    {
+      "action": "dissection.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "dissection.checked",
+            "evidence": [
+              "e0004-dissection.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 23
+      },
+      "evidence": [
+        "e0025-dissection.check"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 11.91,
+      "t1_s": 12.012
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 12.012,
+      "t1_s": 12.036
+    },
+    {
+      "action": "questions.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "interview.checked",
+            "evidence": [
+              "e0012-questions.check.questions_settled"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 27
+      },
+      "evidence": [
+        "e0029-questions.check.questions_shape",
+        "e0029-questions.check.questions_settled"
+      ],
+      "exit": "2",
+      "lane": "program",
+      "t0_s": 12.036,
+      "t1_s": 12.137
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 12.137,
+      "t1_s": 12.155
+    },
+    {
+      "action": "questions.write",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "questions.shaped",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "dissection.valid",
+            "evidence": [
+              "e0004-dissection.check",
+              "e0025-dissection.check"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 31
+      },
+      "class": "other",
+      "cost_usd": 0.0043386,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 12.155,
+      "t1_s": 30.972,
+      "tokens": {
+        "cache_read": 56940,
+        "cache_write": 9528,
+        "input": 6,
+        "output": 3726
+      },
+      "tool_calls": {
+        "Read": 2,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 30.972,
+      "t1_s": 30.991
+    },
+    {
+      "action": "questions.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "interview.checked",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.checked",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 36
+      },
+      "evidence": [
+        "e0038-questions.check.questions_shape",
+        "e0038-questions.check.questions_settled"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 30.991,
+      "t1_s": 31.093
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 31.093,
+      "t1_s": 31.117
+    },
+    {
+      "action": "requirements.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.checked",
+            "evidence": [
+              "e0016-requirements.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 40
+      },
+      "evidence": [
+        "e0042-requirements.check"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 31.117,
+      "t1_s": 31.243
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 31.243,
+      "t1_s": 31.281
+    },
+    {
+      "action": "questions.answer",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "questions.shaped",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape",
+              "e0038-questions.check.questions_shape"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 44
+      },
+      "class": "other",
+      "cost_usd": 0.00261329,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 31.281,
+      "t1_s": 37.886,
+      "tokens": {
+        "cache_read": 57139,
+        "cache_write": 8099,
+        "input": 6,
+        "output": 843
+      },
+      "tool_calls": {
+        "Read": 4
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 37.886,
+      "t1_s": 37.967
+    },
+    {
+      "action": "scope.answer",
+      "adapter": "claude-cli",
+      "api_requests": 5,
+      "asked": "question/scope_changing_answer",
+      "case": "IDEA-1.intake",
+      "cause": null,
+      "cost_usd": 0.00543823,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 37.967,
+      "t1_s": 58.678,
+      "tokens": {
+        "cache_read": 40043,
+        "cache_write": 13654,
+        "input": 10,
+        "output": 4612
+      },
+      "tool_calls": {
+        "Read": 5,
+        "StructuredOutput": 2,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "between rounds",
+      "lane": "idle",
+      "t0_s": 58.678,
+      "t1_s": 58.785
+    },
+    {
+      "action": "scope.answer",
+      "adapter": "claude-cli",
+      "api_requests": 5,
+      "asked": "question/scope_changing_answer",
+      "case": "IDEA-1.intake",
+      "cause": null,
+      "cost_usd": 0.00726659,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 58.785,
+      "t1_s": 96.393,
+      "tokens": {
+        "cache_read": 53309,
+        "cache_write": 11969,
+        "input": 12,
+        "output": 8677
+      },
+      "tool_calls": {
+        "Read": 5,
+        "StructuredOutput": 2,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "between rounds",
+      "lane": "idle",
+      "t0_s": 96.393,
+      "t1_s": 96.471
+    },
+    {
+      "action": "scope.answer",
+      "adapter": "claude-cli",
+      "api_requests": 7,
+      "asked": "question/scope_changing_answer",
+      "case": "IDEA-1.intake",
+      "cause": null,
+      "cost_usd": 0.00797543,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 96.471,
+      "t1_s": 134.754,
+      "tokens": {
+        "cache_read": 84643,
+        "cache_write": 13137,
+        "input": 16,
+        "output": 9000
+      },
+      "tool_calls": {
+        "Read": 6,
+        "StructuredOutput": 2,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 134.754,
+      "t1_s": 134.804
+    },
+    {
+      "action": "scope.answer",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "capabilities": [
+          "scope.answer"
+        ],
+        "claims": [
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.shaped",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape",
+              "e0038-questions.check.questions_shape"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "dissection.valid",
+            "evidence": [
+              "e0004-dissection.check",
+              "e0025-dissection.check"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 52
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 134.804,
+      "t1_s": 134.905
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 134.905,
+      "t1_s": 134.942
+    },
+    {
+      "action": "questions.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "interview.checked",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.checked",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape",
+              "e0038-questions.check.questions_shape"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 56
+      },
+      "evidence": [
+        "e0058-questions.check.questions_shape",
+        "e0058-questions.check.questions_settled"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 134.942,
+      "t1_s": 135.044
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 135.044,
+      "t1_s": 135.068
+    },
+    {
+      "action": "requirements.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.checked",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 60
+      },
+      "evidence": [
+        "e0062-requirements.check"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 135.068,
+      "t1_s": 135.17
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 135.17,
+      "t1_s": 135.198
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "requirements.valid",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 64
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 135.198,
+      "t1_s": 135.299
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 135.299,
+      "t1_s": 135.323
+    },
+    {
+      "action": "requirements.normalise",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.valid",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 68
+      },
+      "class": "other",
+      "cost_usd": 0.007784290000000001,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 135.323,
+      "t1_s": 172.153,
+      "tokens": {
+        "cache_read": 58459,
+        "cache_write": 15438,
+        "input": 6,
+        "output": 8223
+      },
+      "tool_calls": {
+        "Read": 4,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 172.153,
+      "t1_s": 172.177
+    },
+    {
+      "action": "requirements.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.checked",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 73
+      },
+      "evidence": [
+        "e0075-requirements.check"
+      ],
+      "exit": "5",
+      "lane": "program",
+      "t0_s": 172.177,
+      "t1_s": 172.279
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 172.279,
+      "t1_s": 172.303
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "requirements.valid",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check",
+              "e0075-requirements.check"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 77
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 172.303,
+      "t1_s": 172.505
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 172.505,
+      "t1_s": 172.537
+    },
+    {
+      "action": "questions.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "interview.checked",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.checked",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape",
+              "e0038-questions.check.questions_shape",
+              "e0058-questions.check.questions_shape"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 82
+      },
+      "evidence": [
+        "e0084-questions.check.questions_shape",
+        "e0084-questions.check.questions_settled"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 172.537,
+      "t1_s": 172.64
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 172.64,
+      "t1_s": 172.668
+    },
+    {
+      "action": "requirements.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.checked",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check",
+              "e0075-requirements.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 86
+      },
+      "evidence": [
+        "e0088-requirements.check"
+      ],
+      "exit": "5",
+      "lane": "program",
+      "t0_s": 172.668,
+      "t1_s": 172.77
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 172.77,
+      "t1_s": 172.797
+    },
+    {
+      "action": "requirements.normalise",
+      "adapter": null,
+      "api_requests": null,
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.valid",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check",
+              "e0075-requirements.check",
+              "e0088-requirements.check"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled",
+              "e0084-questions.check.questions_settled"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 90
+      },
+      "class": null,
+      "cost_usd": null,
+      "effort": null,
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": null,
+      "not_called": true,
+      "sessions": 0,
+      "t0_s": 172.797,
+      "t1_s": 172.898,
+      "tokens": null,
+      "tool_calls": null,
+      "tool_calls_denied": null
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 172.898,
+      "t1_s": 173.057
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "between rounds",
+      "lane": "idle",
+      "t0_s": 173.057,
+      "t1_s": 173.089
+    },
+    {
+      "action": "amend.upstream",
+      "adapter": "claude-cli",
+      "api_requests": 4,
+      "asked": "finding/finding",
+      "case": "IDEA-1.intake",
+      "cause": null,
+      "cost_usd": 0.0064662,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 173.089,
+      "t1_s": 197.469,
+      "tokens": {
+        "cache_read": 35430,
+        "cache_write": 16627,
+        "input": 10,
+        "output": 5571
+      },
+      "tool_calls": {
+        "Read": 7,
+        "StructuredOutput": 1,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 197.469,
+      "t1_s": 197.52
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "questions.settled",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled",
+              "e0084-questions.check.questions_settled"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "requirements.valid",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check",
+              "e0075-requirements.check",
+              "e0088-requirements.check"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 97
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 197.52,
+      "t1_s": 197.623
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 197.623,
+      "t1_s": 197.652
+    },
+    {
+      "action": "questions.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "interview.checked",
+            "evidence": [
+              "e0012-questions.check.questions_settled",
+              "e0029-questions.check.questions_settled",
+              "e0038-questions.check.questions_settled",
+              "e0058-questions.check.questions_settled",
+              "e0084-questions.check.questions_settled"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "questions.checked",
+            "evidence": [
+              "e0012-questions.check.questions_shape",
+              "e0029-questions.check.questions_shape",
+              "e0038-questions.check.questions_shape",
+              "e0058-questions.check.questions_shape",
+              "e0084-questions.check.questions_shape"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 102
+      },
+      "evidence": [
+        "e0104-questions.check.questions_shape",
+        "e0104-questions.check.questions_settled"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 197.652,
+      "t1_s": 197.754
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 197.754,
+      "t1_s": 197.781
+    },
+    {
+      "action": "requirements.check",
+      "case": "IDEA-1.intake",
+      "cause": {
+        "claims": [
+          {
+            "claim": "requirements.checked",
+            "evidence": [
+              "e0016-requirements.check",
+              "e0042-requirements.check",
+              "e0062-requirements.check",
+              "e0075-requirements.check",
+              "e0088-requirements.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 106
+      },
+      "evidence": [
+        "e0108-requirements.check"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 197.781,
+      "t1_s": 197.883
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 197.883,
+      "t1_s": 197.933
+    },
+    {
+      "action": "direction.open",
+      "case": "IDEA-1",
+      "cause": {
+        "claims": [
+          {
+            "claim": "children.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "direction.opened",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "intake.opened",
+            "evidence": [
+              "e0004-intake.open"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 9
+      },
+      "evidence": [
+        "e0011-direction.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 197.933,
+      "t1_s": 197.939
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 197.939,
+      "t1_s": 197.952
+    },
+    {
+      "action": "context.check",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-context.check"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 197.952,
+      "t1_s": 198.053
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 198.053,
+      "t1_s": 198.068
+    },
+    {
+      "action": "roadmap.validate",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "evidence": [
+        "e0008-roadmap.validate"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 198.068,
+      "t1_s": 198.169
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 198.169,
+      "t1_s": 198.186
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 10
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 198.186,
+      "t1_s": 198.287
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 198.287,
+      "t1_s": 198.304
+    },
+    {
+      "action": "context.default",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "context.approved",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 14
+      },
+      "class": "other",
+      "cost_usd": 0.00446729,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 198.304,
+      "t1_s": 217.419,
+      "tokens": {
+        "cache_read": 58009,
+        "cache_write": 10458,
+        "input": 6,
+        "output": 3590
+      },
+      "tool_calls": {
+        "Read": 3,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 217.419,
+      "t1_s": 217.437
+    },
+    {
+      "action": "context.check",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.checked",
+            "evidence": [
+              "e0004-context.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 19
+      },
+      "evidence": [
+        "e0021-context.check"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 217.437,
+      "t1_s": 217.538
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 217.538,
+      "t1_s": 217.619
+    },
+    {
+      "action": "context.approve",
+      "adapter": "claude-cli",
+      "api_requests": 7,
+      "asked": "approval/approval",
+      "case": "IDEA-1.direction",
+      "cause": null,
+      "cost_usd": 0.00871596,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 217.619,
+      "t1_s": 251.396,
+      "tokens": {
+        "cache_read": 89436,
+        "cache_write": 19985,
+        "input": 16,
+        "output": 7646
+      },
+      "tool_calls": {
+        "Read": 8,
+        "StructuredOutput": 2,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 251.396,
+      "t1_s": 251.429
+    },
+    {
+      "action": "context.approve",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "capabilities": [
+          "owner.approve"
+        ],
+        "claims": [
+          {
+            "claim": "context.decided",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 26
+      },
+      "evidence": [
+        "e0028-context.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 251.429,
+      "t1_s": 251.531
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 251.531,
+      "t1_s": 251.557
+    },
+    {
+      "action": "vision.write",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "vision.approved",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "context.approved",
+            "evidence": [
+              "e0028-context.approve"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 30
+      },
+      "class": "other",
+      "cost_usd": 0.00665516,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 251.557,
+      "t1_s": 285.184,
+      "tokens": {
+        "cache_read": 59896,
+        "cache_write": 13103,
+        "input": 6,
+        "output": 6870
+      },
+      "tool_calls": {
+        "Read": 4,
+        "Write": 3
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 285.184,
+      "t1_s": 285.202
+    },
+    {
+      "action": "context.check",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.checked",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 35
+      },
+      "evidence": [
+        "e0037-context.check"
+      ],
+      "exit": "5",
+      "lane": "program",
+      "t0_s": 285.202,
+      "t1_s": 285.304
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 285.304,
+      "t1_s": 285.323
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check",
+              "e0037-context.check"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 39
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 285.323,
+      "t1_s": 285.425
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 285.425,
+      "t1_s": 285.446
+    },
+    {
+      "action": "context.check",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "context.checked",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check",
+              "e0037-context.check"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 44
+      },
+      "evidence": [
+        "e0046-context.check"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 285.446,
+      "t1_s": 285.548
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 285.548,
+      "t1_s": 285.569
+    },
+    {
+      "action": "vision.write",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "vision.approved",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "context.approved",
+            "evidence": [
+              "e0028-context.approve"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check",
+              "e0037-context.check",
+              "e0046-context.check"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 48
+      },
+      "class": "other",
+      "cost_usd": 0.0035247100000000003,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 285.569,
+      "t1_s": 298.58,
+      "tokens": {
+        "cache_read": 60441,
+        "cache_write": 8896,
+        "input": 6,
+        "output": 2281
+      },
+      "tool_calls": {
+        "Read": 4,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 298.58,
+      "t1_s": 298.668
+    },
+    {
+      "action": "vision.approve",
+      "adapter": "claude-cli",
+      "api_requests": 5,
+      "asked": "approval/approval",
+      "case": "IDEA-1.direction",
+      "cause": null,
+      "cost_usd": 0.00912449,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 298.668,
+      "t1_s": 333.711,
+      "tokens": {
+        "cache_read": 60479,
+        "cache_write": 21641,
+        "input": 10,
+        "output": 8381
+      },
+      "tool_calls": {
+        "Read": 8,
+        "StructuredOutput": 2,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 333.711,
+      "t1_s": 333.741
+    },
+    {
+      "action": "vision.approve",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "capabilities": [
+          "owner.approve"
+        ],
+        "claims": [
+          {
+            "claim": "context.approved",
+            "evidence": [
+              "e0028-context.approve"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check",
+              "e0037-context.check",
+              "e0046-context.check"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "vision.decided",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 55
+      },
+      "evidence": [
+        "e0057-vision.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 333.741,
+      "t1_s": 333.843
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 333.843,
+      "t1_s": 333.874
+    },
+    {
+      "action": "roadmap.write",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check",
+              "e0037-context.check",
+              "e0046-context.check"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "vision.approved",
+            "evidence": [
+              "e0057-vision.approve"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 59
+      },
+      "class": "other",
+      "cost_usd": 0.00395423,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-haiku-5-5",
+      "sessions": 1,
+      "t0_s": 333.874,
+      "t1_s": 345.787,
+      "tokens": {
+        "cache_read": 60173,
+        "cache_write": 11102,
+        "input": 6,
+        "output": 2263
+      },
+      "tool_calls": {
+        "Read": 5,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 345.787,
+      "t1_s": 345.808
+    },
+    {
+      "action": "roadmap.validate",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.checked",
+            "evidence": [
+              "e0008-roadmap.validate"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 64
+      },
+      "evidence": [
+        "e0066-roadmap.validate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 345.808,
+      "t1_s": 345.91
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 345.91,
+      "t1_s": 345.995
+    },
+    {
+      "action": "roadmap.approve",
+      "adapter": "claude-cli",
+      "api_requests": 6,
+      "asked": "approval/approval",
+      "case": "IDEA-1.direction",
+      "cause": null,
+      "cost_usd": 0.01032267,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 345.995,
+      "t1_s": 384.877,
+      "tokens": {
+        "cache_read": 84897,
+        "cache_write": 23489,
+        "input": 14,
+        "output": 9549
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Read": 10,
+        "StructuredOutput": 2,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 384.877,
+      "t1_s": 384.918
+    },
+    {
+      "action": "roadmap.approve",
+      "case": "IDEA-1.direction",
+      "cause": {
+        "capabilities": [
+          "owner.approve"
+        ],
+        "claims": [
+          {
+            "claim": "context.valid",
+            "evidence": [
+              "e0004-context.check",
+              "e0021-context.check",
+              "e0037-context.check",
+              "e0046-context.check"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "roadmap.decided",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.valid",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "vision.approved",
+            "evidence": [
+              "e0057-vision.approve"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 70
+      },
+      "evidence": [
+        "e0072-roadmap.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 384.918,
+      "t1_s": 385.02
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 385.02,
+      "t1_s": 385.077
+    },
+    {
+      "action": "roadmap.read",
+      "case": "IDEA-1",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.copied",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 17
+      },
+      "evidence": [
+        "e0072-roadmap.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 385.077,
+      "t1_s": 385.078
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 385.078,
+      "t1_s": 385.196
+    },
+    {
+      "action": "epics.open",
+      "case": "IDEA-1",
+      "cause": {
+        "claims": [
+          {
+            "claim": "children.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "direction.opened",
+            "evidence": [
+              "e0011-direction.open"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "epics.opened",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 21
+      },
+      "evidence": [
+        "e0023-epics.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 385.196,
+      "t1_s": 385.204
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 385.204,
+      "t1_s": 385.246
+    },
+    {
+      "action": "roadmap.read",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.copied",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0072-roadmap.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 385.225,
+      "t1_s": 385.225
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "evidence": [
+        "e0008-spec.gate"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 385.246,
+      "t1_s": 385.347
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 385.347,
+      "t1_s": 385.366
+    },
+    {
+      "action": "spec.open",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.opened",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 10
+      },
+      "evidence": [
+        "e0012-spec.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 385.366,
+      "t1_s": 385.374
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 385.374,
+      "t1_s": 385.525
+    },
+    {
+      "action": "roadmap.read",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.copied",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0072-roadmap.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 385.4,
+      "t1_s": 385.4
+    },
+    {
+      "action": "spec.author",
+      "adapter": "metaharness",
+      "api_requests": 4,
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "class": "writer",
+      "cost_usd": 0.232116,
+      "effort": "high",
+      "evidence": [
+        "e0008-spec.author"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 385.525,
+      "t1_s": 456.894,
+      "tokens": {
+        "cache_read": 91880,
+        "cache_write": 29338,
+        "input": 8,
+        "output": 10556
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Read": 11,
+        "Write": 7
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 456.894,
+      "t1_s": 456.914
+    },
+    {
+      "action": "spec.scan",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.scanned",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.sourced",
+            "evidence": [
+              "e0008-spec.author"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 11
+      },
+      "evidence": [
+        "e0013-spec.scan"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 456.914,
+      "t1_s": 457.016
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.016,
+      "t1_s": 457.035
+    },
+    {
+      "action": "spec.validate",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.sourced",
+            "evidence": [
+              "e0008-spec.author"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "spec.validated",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 15
+      },
+      "evidence": [
+        "e0017-spec.validate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.035,
+      "t1_s": 457.136
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.136,
+      "t1_s": 457.156
+    },
+    {
+      "action": "spec.compile",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.compile_run",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.valid",
+            "evidence": [
+              "e0017-spec.validate"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 19
+      },
+      "evidence": [
+        "e0021-spec.compile"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.156,
+      "t1_s": 457.258
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.258,
+      "t1_s": 457.279
+    },
+    {
+      "action": "spec.synthesize",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.compiled",
+            "evidence": [
+              "e0021-spec.compile"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "spec.synthesis_run",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 23
+      },
+      "evidence": [
+        "e0025-spec.synthesize"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.279,
+      "t1_s": 457.381
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.381,
+      "t1_s": 457.402
+    },
+    {
+      "action": "spec.review",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.complete",
+            "evidence": [
+              "e0013-spec.scan",
+              "e0017-spec.validate",
+              "e0021-spec.compile",
+              "e0025-spec.synthesize"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "spec.reviewed",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 27
+      },
+      "evidence": [
+        "e0029-spec.review"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.402,
+      "t1_s": 457.503
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.503,
+      "t1_s": 457.525
+    },
+    {
+      "action": "spec.trace",
+      "case": "IDEA-1.todo.spec",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.trace_run",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "spec.valid",
+            "evidence": [
+              "e0017-spec.validate"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 31
+      },
+      "evidence": [
+        "e0033-spec.trace"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.525,
+      "t1_s": 457.626
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.626,
+      "t1_s": 457.669
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [
+              "e0008-spec.gate"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 18
+      },
+      "evidence": [
+        "e0020-spec.gate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.669,
+      "t1_s": 457.771
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.771,
+      "t1_s": 457.787
+    },
+    {
+      "action": "plan.open",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "children.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.opened",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "spec.opened",
+            "evidence": [
+              "e0012-spec.open"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 22
+      },
+      "evidence": [
+        "e0024-plan.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.787,
+      "t1_s": 457.795
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.795,
+      "t1_s": 457.83
+    },
+    {
+      "action": "roadmap.read",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "roadmap.copied",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0072-roadmap.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.813,
+      "t1_s": 457.813
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "evidence": [
+        "e0008-spec.gate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 457.83,
+      "t1_s": 457.932
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 457.932,
+      "t1_s": 457.948
+    },
+    {
+      "action": "plan.cover",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.cover_checked",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 10
+      },
+      "evidence": [
+        "e0012-plan.cover"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 457.948,
+      "t1_s": 458.05
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 458.05,
+      "t1_s": 458.067
+    },
+    {
+      "action": "plan.scope",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.scope_checked",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 14
+      },
+      "evidence": [
+        "e0016-plan.scope"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 458.067,
+      "t1_s": 458.169
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 458.169,
+      "t1_s": 458.186
+    },
+    {
+      "action": "plan.status",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.status_read",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 18
+      },
+      "evidence": [
+        "e0020-plan.status"
+      ],
+      "exit": "1",
+      "lane": "program",
+      "t0_s": 458.186,
+      "t1_s": 458.288
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 458.288,
+      "t1_s": 458.305
+    },
+    {
+      "action": "plan.validate",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.validated",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 22
+      },
+      "evidence": [
+        "e0024-plan.validate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 458.305,
+      "t1_s": 458.407
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 458.407,
+      "t1_s": 458.428
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "plan.covers_spec",
+            "evidence": [
+              "e0012-plan.cover"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 26
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 458.428,
+      "t1_s": 458.529
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 458.529,
+      "t1_s": 458.55
+    },
+    {
+      "action": "plan.decompose",
+      "adapter": "metaharness",
+      "api_requests": 3,
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "plan.active",
+            "evidence": [
+              "e0020-plan.status"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "plan.covers_spec",
+            "evidence": [
+              "e0012-plan.cover"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "plan.scoped",
+            "evidence": [
+              "e0016-plan.scope"
+            ],
+            "value": "false"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 30,
+        "retry_of": [
+          "decomposition_coverage",
+          "stories_scoped",
+          "story_states"
+        ]
+      },
+      "class": "writer",
+      "cost_usd": 0.0439259,
+      "effort": "high",
+      "evidence": [],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 458.55,
+      "t1_s": 468.059,
+      "tokens": {
+        "cache_read": 57899,
+        "cache_write": 7141,
+        "input": 6,
+        "output": 956
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Read": 4,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.059,
+      "t1_s": 468.079
+    },
+    {
+      "action": "plan.cover",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.cover_checked",
+            "evidence": [
+              "e0012-plan.cover"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 35
+      },
+      "evidence": [
+        "e0037-plan.cover"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 468.079,
+      "t1_s": 468.181
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.181,
+      "t1_s": 468.202
+    },
+    {
+      "action": "plan.scope",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.scope_checked",
+            "evidence": [
+              "e0016-plan.scope"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 39
+      },
+      "evidence": [
+        "e0041-plan.scope"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 468.202,
+      "t1_s": 468.304
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.304,
+      "t1_s": 468.326
+    },
+    {
+      "action": "plan.status",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.status_read",
+            "evidence": [
+              "e0020-plan.status"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 43
+      },
+      "evidence": [
+        "e0045-plan.status"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 468.326,
+      "t1_s": 468.429
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.429,
+      "t1_s": 468.449
+    },
+    {
+      "action": "plan.validate",
+      "case": "IDEA-1.todo.plan",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.validated",
+            "evidence": [
+              "e0024-plan.validate"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 47
+      },
+      "evidence": [
+        "e0049-plan.validate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 468.449,
+      "t1_s": 468.552
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.552,
+      "t1_s": 468.696
+    },
+    {
+      "action": "stories.open",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "children.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "plan.opened",
+            "evidence": [
+              "e0024-plan.open"
+            ],
+            "value": "true"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "stories.opened",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 29
+      },
+      "evidence": [
+        "e0031-stories.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 468.696,
+      "t1_s": 468.713
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.713,
+      "t1_s": 468.731
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-spec.gate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 468.731,
+      "t1_s": 468.833
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 468.833,
+      "t1_s": 468.855
+    },
+    {
+      "action": "change.implement",
+      "adapter": "metaharness",
+      "api_requests": 5,
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "class": "implement",
+      "cost_usd": 0.1926554,
+      "effort": "high",
+      "evidence": [
+        "e0008-change.implement"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 468.855,
+      "t1_s": 524.499,
+      "tokens": {
+        "cache_read": 117674,
+        "cache_write": 21502,
+        "input": 10,
+        "output": 9486
+      },
+      "tool_calls": {
+        "Edit": 2,
+        "Glob": 1,
+        "Read": 9,
+        "Write": 6
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 524.499,
+      "t1_s": 524.515
+    },
+    {
+      "action": "tests.run",
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.run_recorded",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 11
+      },
+      "evidence": [
+        "e0013-tests.run"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 524.515,
+      "t1_s": 525.218
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 525.218,
+      "t1_s": 525.238
+    },
+    {
+      "action": "change.review",
+      "adapter": "claude-cli",
+      "api_requests": 4,
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.review_recorded",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 15
+      },
+      "class": "review",
+      "cost_usd": 0.0983774,
+      "effort": "high",
+      "evidence": [
+        "e0017-change.review"
+      ],
+      "exit": "1",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 525.238,
+      "t1_s": 545.554,
+      "tokens": {
+        "cache_read": 29954,
+        "cache_write": 17753,
+        "input": 10,
+        "output": 2435
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Read": 9,
+        "StructuredOutput": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 545.554,
+      "t1_s": 545.575
+    },
+    {
+      "action": "change.implement",
+      "adapter": "metaharness",
+      "api_requests": 12,
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 19,
+        "retry_of": [
+          "code_review"
+        ]
+      },
+      "class": "implement",
+      "cost_usd": 0.4305727,
+      "effort": "high",
+      "evidence": [
+        "e0021-change.implement"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 545.575,
+      "t1_s": 684.196,
+      "tokens": {
+        "cache_read": 470147,
+        "cache_write": 41050,
+        "input": 24,
+        "output": 21931
+      },
+      "tool_calls": {
+        "Bash": 1,
+        "Edit": 6,
+        "Glob": 1,
+        "Read": 10,
+        "Write": 1
+      },
+      "tool_calls_denied": 1
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 684.196,
+      "t1_s": 684.219
+    },
+    {
+      "action": "tests.run",
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.run_recorded",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 24
+      },
+      "evidence": [
+        "e0026-tests.run"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 684.219,
+      "t1_s": 685.122
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 685.122,
+      "t1_s": 685.146
+    },
+    {
+      "action": "change.review",
+      "adapter": "claude-cli",
+      "api_requests": 3,
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.review_recorded",
+            "evidence": [
+              "e0017-change.review"
+            ],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run",
+              "e0026-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 28
+      },
+      "class": "review",
+      "cost_usd": 0.0994205,
+      "effort": "high",
+      "evidence": [
+        "e0030-change.review"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 685.146,
+      "t1_s": 696.458,
+      "tokens": {
+        "cache_read": 18425,
+        "cache_write": 21039,
+        "input": 6,
+        "output": 1341
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Read": 9,
+        "StructuredOutput": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 696.458,
+      "t1_s": 696.546
+    },
+    {
+      "action": "merge.approve",
+      "adapter": "claude-cli",
+      "api_requests": 5,
+      "asked": "approval/approval",
+      "case": "IDEA-1.todo.access",
+      "cause": null,
+      "cost_usd": 0.02328939,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 696.546,
+      "t1_s": 795.713,
+      "tokens": {
+        "cache_read": 70219,
+        "cache_write": 54456,
+        "input": 10,
+        "output": 23390
+      },
+      "tool_calls": {
+        "Glob": 2,
+        "Read": 17,
+        "StructuredOutput": 2,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 795.713,
+      "t1_s": 795.743
+    },
+    {
+      "action": "merge.approve",
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "capabilities": [
+          "change.merge"
+        ],
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.reviewed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "merge.decided",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run",
+              "e0026-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 35
+      },
+      "evidence": [
+        "e0037-merge.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 795.743,
+      "t1_s": 795.846
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 795.846,
+      "t1_s": 795.872
+    },
+    {
+      "action": "change.merge",
+      "case": "IDEA-1.todo.access",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.reviewed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "merge.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run",
+              "e0026-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 39
+      },
+      "evidence": [
+        "e0041-change.merge"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 795.872,
+      "t1_s": 795.976
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 795.976,
+      "t1_s": 796.025
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo.list",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-spec.gate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 796.025,
+      "t1_s": 796.128
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 796.128,
+      "t1_s": 796.149
+    },
+    {
+      "action": "change.implement",
+      "adapter": "metaharness",
+      "api_requests": 6,
+      "case": "IDEA-1.todo.list",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "class": "implement",
+      "cost_usd": 0.2048232,
+      "effort": "high",
+      "evidence": [
+        "e0008-change.implement"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 796.149,
+      "t1_s": 831.683,
+      "tokens": {
+        "cache_read": 143152,
+        "cache_write": 32656,
+        "input": 12,
+        "output": 5986
+      },
+      "tool_calls": {
+        "Bash": 1,
+        "Edit": 2,
+        "Glob": 1,
+        "Read": 12,
+        "Write": 1
+      },
+      "tool_calls_denied": 1
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 831.683,
+      "t1_s": 831.7
+    },
+    {
+      "action": "tests.run",
+      "case": "IDEA-1.todo.list",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.run_recorded",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 11
+      },
+      "evidence": [
+        "e0013-tests.run"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 831.7,
+      "t1_s": 832.704
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 832.704,
+      "t1_s": 832.725
+    },
+    {
+      "action": "change.review",
+      "adapter": "claude-cli",
+      "api_requests": 4,
+      "case": "IDEA-1.todo.list",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.review_recorded",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 15
+      },
+      "class": "review",
+      "cost_usd": 0.1459149,
+      "effort": "high",
+      "evidence": [
+        "e0017-change.review"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 832.725,
+      "t1_s": 849.743,
+      "tokens": {
+        "cache_read": 45469,
+        "cache_write": 30693,
+        "input": 8,
+        "output": 1858
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Grep": 1,
+        "Read": 9,
+        "StructuredOutput": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 849.743,
+      "t1_s": 849.828
+    },
+    {
+      "action": "merge.approve",
+      "adapter": "claude-cli",
+      "api_requests": 6,
+      "asked": "approval/approval",
+      "case": "IDEA-1.todo.list",
+      "cause": null,
+      "cost_usd": 0.03086054,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 849.828,
+      "t1_s": 984.149,
+      "tokens": {
+        "cache_read": 140184,
+        "cache_write": 66685,
+        "input": 12,
+        "output": 32241
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Read": 18,
+        "StructuredOutput": 1,
+        "Write": 2
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 984.149,
+      "t1_s": 984.181
+    },
+    {
+      "action": "merge.approve",
+      "case": "IDEA-1.todo.list",
+      "cause": {
+        "capabilities": [
+          "change.merge"
+        ],
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.reviewed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "merge.decided",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 22
+      },
+      "evidence": [
+        "e0024-merge.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 984.181,
+      "t1_s": 984.284
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 984.284,
+      "t1_s": 984.309
+    },
+    {
+      "action": "change.merge",
+      "case": "IDEA-1.todo.list",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.reviewed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "merge.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 26
+      },
+      "evidence": [
+        "e0028-change.merge"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 984.309,
+      "t1_s": 984.412
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 984.412,
+      "t1_s": 984.455
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-spec.gate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 984.455,
+      "t1_s": 984.558
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 984.558,
+      "t1_s": 984.58
+    },
+    {
+      "action": "change.implement",
+      "adapter": "metaharness",
+      "api_requests": 11,
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "class": "implement",
+      "cost_usd": 0.5916427,
+      "effort": "high",
+      "evidence": [
+        "e0008-change.implement"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 984.58,
+      "t1_s": 1171.755,
+      "tokens": {
+        "cache_read": 501907,
+        "cache_write": 61207,
+        "input": 22,
+        "output": 29658
+      },
+      "tool_calls": {
+        "Bash": 1,
+        "Edit": 10,
+        "Glob": 1,
+        "Read": 12,
+        "Write": 3
+      },
+      "tool_calls_denied": 1
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1171.755,
+      "t1_s": 1171.775
+    },
+    {
+      "action": "tests.run",
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.run_recorded",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 11
+      },
+      "evidence": [
+        "e0013-tests.run"
+      ],
+      "exit": "5",
+      "lane": "program",
+      "t0_s": 1171.775,
+      "t1_s": 1171.879
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1171.879,
+      "t1_s": 1171.901
+    },
+    {
+      "action": "amend.upstream",
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "false"
+          }
+        ],
+        "decision_seq": 15
+      },
+      "evidence": [],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1171.901,
+      "t1_s": 1172.105
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1172.105,
+      "t1_s": 1172.13
+    },
+    {
+      "action": "change.implement",
+      "adapter": null,
+      "api_requests": null,
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 20
+      },
+      "class": null,
+      "cost_usd": null,
+      "effort": null,
+      "evidence": [
+        "e0022-change.implement"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": null,
+      "not_called": true,
+      "sessions": 0,
+      "t0_s": 1172.13,
+      "t1_s": 1172.234,
+      "tokens": null,
+      "tool_calls": null,
+      "tool_calls_denied": null
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1172.234,
+      "t1_s": 1172.256
+    },
+    {
+      "action": "tests.run",
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.run_recorded",
+            "evidence": [
+              "e0013-tests.run"
+            ],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 25
+      },
+      "evidence": [
+        "e0027-tests.run"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1172.256,
+      "t1_s": 1173.461
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1173.461,
+      "t1_s": 1173.488
+    },
+    {
+      "action": "change.review",
+      "adapter": "claude-cli",
+      "api_requests": 5,
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.review_recorded",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run",
+              "e0027-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 29
+      },
+      "class": "review",
+      "cost_usd": 0.2445587,
+      "effort": "high",
+      "evidence": [
+        "e0031-change.review"
+      ],
+      "exit": "0",
+      "lane": "model",
+      "model": "claude-sonnet-5-5",
+      "sessions": 1,
+      "t0_s": 1173.488,
+      "t1_s": 1204.518,
+      "tokens": {
+        "cache_read": 100747,
+        "cache_write": 49571,
+        "input": 10,
+        "output": 3618
+      },
+      "tool_calls": {
+        "Glob": 1,
+        "Grep": 1,
+        "Read": 11,
+        "StructuredOutput": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1204.518,
+      "t1_s": 1204.599
+    },
+    {
+      "action": "merge.approve",
+      "adapter": "claude-cli",
+      "api_requests": 6,
+      "asked": "approval/approval",
+      "case": "IDEA-1.todo.sync",
+      "cause": null,
+      "cost_usd": 0.03842393,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 1204.599,
+      "t1_s": 1379.544,
+      "tokens": {
+        "cache_read": 136543,
+        "cache_write": 88754,
+        "input": 12,
+        "output": 38613
+      },
+      "tool_calls": {
+        "Glob": 2,
+        "Read": 20,
+        "StructuredOutput": 1,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1379.544,
+      "t1_s": 1379.578
+    },
+    {
+      "action": "merge.approve",
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "capabilities": [
+          "change.merge"
+        ],
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.reviewed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "merge.decided",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run",
+              "e0027-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 36
+      },
+      "evidence": [
+        "e0038-merge.approve"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "principal": "decider:haiku",
+      "t0_s": 1379.578,
+      "t1_s": 1379.683
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1379.683,
+      "t1_s": 1379.715
+    },
+    {
+      "action": "change.merge",
+      "case": "IDEA-1.todo.sync",
+      "cause": {
+        "claims": [
+          {
+            "claim": "change.built",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "change.reviewed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "merge.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "tests.pass",
+            "evidence": [
+              "e0013-tests.run",
+              "e0027-tests.run"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 40
+      },
+      "evidence": [
+        "e0042-change.merge"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1379.715,
+      "t1_s": 1379.819
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1379.819,
+      "t1_s": 1379.869
+    },
+    {
+      "action": "release.open",
+      "case": "IDEA-1.todo",
+      "cause": {
+        "claims": [
+          {
+            "claim": "children.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "release.opened",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.approved",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "stories.opened",
+            "evidence": [
+              "e0031-stories.open"
+            ],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 42
+      },
+      "evidence": [
+        "e0044-release.open"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1379.869,
+      "t1_s": 1379.874
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1379.874,
+      "t1_s": 1379.89
+    },
+    {
+      "action": "spec.gate",
+      "case": "IDEA-1.todo.release",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.checked",
+            "evidence": [],
+            "value": "unknown"
+          }
+        ],
+        "decision_seq": 2
+      },
+      "evidence": [
+        "e0004-spec.gate"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1379.89,
+      "t1_s": 1379.991
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1379.991,
+      "t1_s": 1380.003
+    },
+    {
+      "action": "release.build",
+      "case": "IDEA-1.todo.release",
+      "cause": {
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 6
+      },
+      "evidence": [
+        "e0008-release.build"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1380.003,
+      "t1_s": 1380.106
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1380.106,
+      "t1_s": 1380.125
+    },
+    {
+      "action": "acceptance.run",
+      "case": "IDEA-1.todo.release",
+      "cause": {
+        "claims": [
+          {
+            "claim": "release.acceptance_run",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "release.built",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 11
+      },
+      "evidence": [
+        "e0013-acceptance.run"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1380.125,
+      "t1_s": 1380.729
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1380.729,
+      "t1_s": 1380.81
+    },
+    {
+      "action": "release.publish",
+      "adapter": "claude-cli",
+      "api_requests": 8,
+      "asked": "approval/approval",
+      "case": "IDEA-1.todo.release",
+      "cause": null,
+      "cost_usd": 0.0287913,
+      "decision": "approve",
+      "effort": "xhigh",
+      "lane": "decider",
+      "model": "claude-haiku-5-5",
+      "t0_s": 1380.81,
+      "t1_s": 1479.645,
+      "tokens": {
+        "cache_read": 276110,
+        "cache_write": 72487,
+        "input": 18,
+        "output": 23062
+      },
+      "tool_calls": {
+        "Glob": 2,
+        "Read": 21,
+        "StructuredOutput": 2,
+        "Write": 1
+      },
+      "tool_calls_denied": 0
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1479.645,
+      "t1_s": 1479.691
+    },
+    {
+      "action": "release.publish",
+      "case": "IDEA-1.todo.release",
+      "cause": {
+        "capabilities": [
+          "release.approve"
+        ],
+        "claims": [
+          {
+            "claim": "gate.passed",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "release.accepted",
+            "evidence": [],
+            "value": "true"
+          },
+          {
+            "claim": "release.built",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 19
+      },
+      "evidence": [
+        "e0021-release.publish"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1479.691,
+      "t1_s": 1479.794
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1479.794,
+      "t1_s": 1479.814
+    },
+    {
+      "action": "release.observe",
+      "case": "IDEA-1.todo.release",
+      "cause": {
+        "claims": [
+          {
+            "claim": "release.observed",
+            "evidence": [],
+            "value": "unknown"
+          },
+          {
+            "claim": "release.published",
+            "evidence": [],
+            "value": "true"
+          }
+        ],
+        "decision_seq": 23
+      },
+      "evidence": [
+        "e0025-release.observe"
+      ],
+      "exit": "0",
+      "lane": "program",
+      "t0_s": 1479.814,
+      "t1_s": 1479.917
+    },
+    {
+      "action": null,
+      "case": null,
+      "cause": "driver",
+      "lane": "idle",
+      "t0_s": 1479.917,
+      "t1_s": 1480.013
+    },
+    {
+      "action": "terminated:operating",
+      "case": "IDEA-1",
+      "cause": null,
+      "lane": "rule",
+      "principal": "rule:autopilot",
+      "t0_s": 1480.013,
+      "t1_s": 1480.013
+    }
+  ],
+  "totals": {
+    "api_requests": 145,
+    "api_requests_unrecorded_spans": 0,
+    "cost_source": "sum of model and decider spans",
+    "cost_usd": 2.496802,
+    "decider_calls": 11,
+    "decider_s": 735.952,
+    "idle_by_cause": {
+      "between rounds": 0.274,
+      "driver": 3.716
+    },
+    "idle_s": 3.99,
+    "model_s": 728.933,
+    "model_sessions": 18,
+    "model_tool_calls": 193,
+    "model_tool_calls_by_name": {
+      "Bash": 3,
+      "Edit": 20,
+      "Glob": 10,
+      "Grep": 2,
+      "Read": 123,
+      "StructuredOutput": 4,
+      "Write": 31
+    },
+    "model_tool_calls_denied": 3,
+    "overlap_s": 0.0,
+    "program_s": 11.138,
+    "program_steps": 79,
+    "rule_s": 0.0,
+    "rule_steps": 1,
+    "tokens": {
+      "cache_read": 3115123,
+      "cache_write": 798154,
+      "input": 304,
+      "output": 288138
+    },
+    "tool_s": 0.0,
+    "waiting_on_person_s": 0.0,
+    "wall_s": 1480.013
+  },
+  "tree": [
+    {
+      "case": "IDEA-1",
+      "outcome": "operating",
+      "parent": null,
+      "stage": "idea"
+    },
+    {
+      "case": "IDEA-1.direction",
+      "outcome": "passed",
+      "parent": "IDEA-1",
+      "stage": "direction"
+    },
+    {
+      "case": "IDEA-1.intake",
+      "outcome": "passed",
+      "parent": "IDEA-1",
+      "stage": "intake"
+    },
+    {
+      "case": "IDEA-1.todo",
+      "outcome": "passed",
+      "parent": "IDEA-1",
+      "stage": "epic"
+    },
+    {
+      "case": "IDEA-1.todo.access",
+      "outcome": "passed",
+      "parent": "IDEA-1.todo",
+      "stage": "story"
+    },
+    {
+      "case": "IDEA-1.todo.list",
+      "outcome": "passed",
+      "parent": "IDEA-1.todo",
+      "stage": "story"
+    },
+    {
+      "case": "IDEA-1.todo.plan",
+      "outcome": "passed",
+      "parent": "IDEA-1.todo",
+      "stage": "plan"
+    },
+    {
+      "case": "IDEA-1.todo.release",
+      "outcome": "passed",
+      "parent": "IDEA-1.todo",
+      "stage": "release"
+    },
+    {
+      "case": "IDEA-1.todo.spec",
+      "outcome": "passed",
+      "parent": "IDEA-1.todo",
+      "stage": "spec"
+    },
+    {
+      "case": "IDEA-1.todo.sync",
+      "outcome": "passed",
+      "parent": "IDEA-1.todo",
+      "stage": "story"
+    }
+  ]
+}

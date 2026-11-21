@@ -52,7 +52,7 @@ types:
     kind: newtype
     of: String
     naming:
-      summary: "Who decides: a person's name (operator), decider:<kind> (decider:haiku, decider:approve, decider:reject), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1)."
+      summary: "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1)."
 
   - name: sdc.decision.OptionLetter
     kind: newtype
@@ -310,7 +310,7 @@ actors:
   - name: sdc.decision.Decider
     naming:
       display: Decider
-      summary: "decider:<kind> (approve, reject, haiku): decides within its autonomy level or escalates. Its recommendation reaches the request only through the driver's Recommend after the grounding check."
+      summary: "decider:<kind> (approve, reject, model): decides within its autonomy level or escalates. Its recommendation reaches the request only through the driver's Recommend after the grounding check."
     may:
       - sdc.decision.Decide
       - sdc.decision.TakeRecommendation

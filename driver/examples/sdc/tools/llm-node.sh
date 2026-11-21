@@ -24,6 +24,8 @@
 #                    unset: the class's default_efforts in tools/node-classes.json, always passed (request.json `effort`)
 #   SDC_LLM_RECORD   where each call's record goes (default work/.sdc/llm); one NNN-<action>/ per call
 #   SDC_LLM_LOG      JSON lines, one per call (default $SDC_LLM_RECORD/calls.jsonl)
+#   SDC_RUN_SETTINGS the run's run-settings.jsonl (scripts/run-trial.sh): the rework prompt names its
+#                    recorded rework cap (`rework_limit.value`, D184); unset: rule-ends.json's rework_limit
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -520,11 +522,16 @@ if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
   fi
 fi
 if [[ -n $rejection ]]; then
+  # The rework cap (D184): the value scripts/run-trial.sh recorded for this leg in
+  # run-settings.jsonl (SDC_RUN_SETTINGS), the one the driver enforces; outside a run, the
+  # default of rule-ends.json.
+  rework_limit=$(jq -rs 'last.rework_limit.value // empty' "${SDC_RUN_SETTINGS:-/dev/null}" 2>/dev/null)
+  [[ -n $rework_limit ]] || rework_limit=$(jq -r .rework_limit "$here/../rule-ends.json")
   cp "$rejection" "$cwd/in/rejection.json"
   inputs+=("in/rejection.json (the approval \`$(jq -r .approval "$rejection")\` of your previous output, revision $(jq -r .revision "$rejection"), was rejected by $(jq -r .principal "$rejection"): its reasons and what they cite)")
   task="$task
 
-Rework. Your previous output was rejected at \`$(jq -r .approval "$rejection")\` (rejection $(jq -r .count "$rejection") of at most 2).
+Rework. Your previous output was rejected at \`$(jq -r .approval "$rejection")\` (rejection $(jq -r .count "$rejection") of at most $rework_limit).
 Address every reason in in/rejection.json; change only what a reason asks for. In your final reply,
 before the word done, write one line per reason: its number, then where you addressed it as
 <file>:<line> (or <file>:<first>-<last>), then what you changed."
@@ -609,7 +616,7 @@ if [[ $node == change.review ]]; then
     [[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
     if [[ $acode != 0 ]]; then
       code=2
-      [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]] && code=75
+      [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == @(api_error|recording_diverged) ]] && code=75
       echo "the review call failed (adapter exit $acode)" > "$rec/review-check.err"
       break
     fi
@@ -717,6 +724,11 @@ elif [[ $acode == 0 ]]; then
   # Why it was not applied goes into the step's log, which the next run reads (R9 above).
   [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
   [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1
+elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == recording_diverged ]]; then
+  # A re-driven run (sdc-replay) whose recording diverged under the policy stop: exit 75, the driver
+  # records nothing and stops; scripts/run-trial.sh ends the run with cause recording_diverged.
+  echo "llm-node: $node not re-driven: the recording diverged ($(jq -r '.replay.difference // "" | if type == "array" then join("; ") else . end' "$rec/response.json"))"
+  code=75
 elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]]; then
   # The model's API refused or broke off (a 429, an overload): the node could not run, which
   # says nothing about its subject. Exit 75: sdc-drive records nothing, counts no run and stops;
