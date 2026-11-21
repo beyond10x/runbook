@@ -20,7 +20,7 @@ scope:
   path: driver/src/main.rs
 - confidence: inferred
   path: experiments
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T12:38:21Z", actor: "human:operator", revision: 6, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -51,3 +51,12 @@ so the writer was sent back with nothing but a line of the build pool. The expec
 
 An experiment record with this hypothesis and at least 3 runs per variant reaches a verdict by
 `sdc-experiment report`, and the ledger lists it whatever the verdict.
+
+## Parked by the 0.1.0 baseline
+
+Parked (2026-11-21), not dropped. In the nine runs of `experiments/baseline-0.1.0` every content
+refusal (92: `spec.validate` 12, `spec.synthesize` 2, `spec.trace` 15, `tests.run` 27,
+`context.check` 14, `requirements.check` 12, `change.review` 10) carried its own text, so the
+loss this story addresses there is 0 USD and 0 s (`experiments/baseline-0.1.0/losses.md`). Route
+R13 of 0.1.1 (`97024ce`) already feeds a failed check's output to the writer. It comes back when a
+run shows a writer sent back by a check with no output.

@@ -11,7 +11,7 @@ tags:
 relations:
 - decomposes: initiative:roadmap
 - informed_by: story:workflow-metrics
-revision: 2
+revision: 3
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T12:38:19Z", actor: "human:operator", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -34,18 +34,38 @@ pre-release trees and all registered retrospectively; no figure of the ledger de
 
 ## Scope
 
-The candidates, in this order (each a story of this epic):
+The candidates, in this order (each a story of this epic). Order rule, from the 0.1.0 baseline
+(`experiments/baseline-0.1.0/losses.md`): first what needs no new code (a setting, then an existing
+branch), then new code; within each group, a stop of the Haiku setting before money and time, then
+the larger loss the change could at most remove in the nine baseline runs.
 
 1. `story:improvement-baseline`: baseline on the first release with the launcher and the hermetic
-   decider adapter.
-2. `story:implement-runs-tree-check`: the implementing node may run the tree's own check.
-3. `story:silent-check-output-to-writer`: no check fails without output of its own.
-4. `story:build-constraints-every-stage`: build constraints known to every stage; superseded
-   answers.
-5. `story:merge-rework-budget-ends-by-rule`: a third merge rejection ends by rule.
-6. `story:cycle-ends-at-delivered`: the cycle ends at `delivered`.
-7. `story:intake-on-sonnet`: intake nodes on Sonnet against Haiku, a settings experiment.
-8. `story:effort-levels-per-class`: effort levels per class (`experiments/effort-implement-levels.yaml`).
+   decider adapter (done: `experiments/baseline-0.1.0`).
+2. `story:effort-levels-per-class`: effort levels per class, first the decider
+   (`experiments/effort-decider-mixed.yaml`): the Haiku decider spent 717, 952 and 693 s per mixed
+   run, 45 to 48 % of wall time; then the implement class (`experiments/effort-implement-levels.yaml`).
+3. `story:build-constraints-every-stage`: build constraints known to every stage; superseded
+   answers (branch `fix/superseded-answers`, on 0.1.2 as `fix/superseded-answers-0.1.2`): haiku-1's
+   stop, 1.220 USD and 976 s of implement reruns in IDEA-1.list.shared.
+4. `story:cycle-ends-at-delivered`: the cycle ends at `delivered` (branch
+   `proto/cycle-ends-delivered`): the release stage is one decision, 0.158 to 0.195 USD (strong) or
+   about 96 s (mixed) per run.
+5. `story:default-answers-within-build-constraints`: a non-interactive default passes the same
+   `answer_fault` check as a decider's answer (haiku-1's q9, which no decider saw).
+6. `story:spec-author-format-on-system-source`: the `spec.author` prompt says that `format:` is
+   read only on the source that declares the system (haiku-3's stop; 5 of 12 `spec.validate`
+   refusals were a format version).
+7. `story:implement-cites-requirements`: the implementing node names, per requirement of its
+   story, the file and line that builds it, checked by program before `tests.run`: the review
+   rejection loop, 5.25 USD and 1,873 s over the nine runs, the largest loss.
+8. `story:implement-runs-tree-check`: the implementing node may run the tree's own check: one
+   `tests.run:failed` in nine runs, 0.319 USD and 242 s.
+
+Parked, about zero loss in the 0.1.0 baseline (each story says why):
+
+- `story:silent-check-output-to-writer`: every content refusal of the nine runs had its own text.
+- `story:merge-rework-budget-ends-by-rule`: no run had more than one merge rejection.
+- `story:intake-on-sonnet`: one intake model rerun (`questions.write`, 15 s) and no stop in intake.
 
 ## Out of Scope
 

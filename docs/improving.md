@@ -33,6 +33,20 @@ candidates are the stories of `epic:improvement-loop` (`aep plan artifact list`)
    fails until the ledger and the image match the records. Commit them with the release.
 9. The new release is the next baseline: its tree is new, so step 1 runs again.
 
+## What the 0.1.0 baseline says
+
+From the nine runs of `experiments/baseline-0.1.0`, counted in `experiments/baseline-0.1.0/losses.md`:
+
+- Reruns took 25 % of the strong setting's cost (4.29 of 17.13 USD), 31 % of mixed (2.78 of 8.93) and 57 % of Haiku (1.50 of 2.64).
+- The largest loss is the review sending the build back: 10 rejections, 5.25 USD and 1,873 s; 4 of them an offline requirement not built.
+- The Haiku decider is 6 to 7 % of a mixed run's cost but 45 to 48 % of its wall time (717, 952, 693 s); at effort `xhigh` it thinks 20k to 35k tokens per merge approval.
+- The Opus decider is 33 to 37 % of a strong run's cost (1.82 to 2.08 USD).
+- Of 92 content refusals, 5 named an exact fix a program could apply, all a format version; haiku-3 stopped after applying it to a domain file.
+- haiku-1's Postgres default (q9) was accepted by the non-interactive rule, not by the decider.
+- Stories 3, 5 and 7 of `epic:improvement-loop` address about zero loss in these runs; they are parked.
+
+Ranking rule: first what needs no new code (a setting, then an existing branch), then new code; within each group, a stop of the Haiku setting before money and time, then the larger loss the change could at most remove in the baseline runs.
+
 ## Versioning
 
 - **Patch** (`0.1.x`): a fix of a defect, a tool, a check, documentation, a measurement.
