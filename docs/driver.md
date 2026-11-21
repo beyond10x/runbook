@@ -803,6 +803,11 @@ A changed effort is a changed request and diverges: a recording made before effo
 Recordings are re-packed after a change to the request shape; `fixtures/recorded/stub` was
 re-packed on the 0.1.1 tree (14 calls: the close is taken by `rule:autopilot`, not the decider).
 
+A re-driven run sets `SDC_UNSTICK=off` unless the source has `run.unstick` calls: a replay
+reproduces the source's calls, and a node the source never called has no recorded reply.
+`run-settings.jsonl` records it as `replay.unstick` (`on`, `why`). To try `run.unstick` on a
+recording without such a call: `--set unstick=on --on-divergence live`.
+
 ## Action-to-tool bindings
 
 One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direction`,

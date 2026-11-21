@@ -1863,13 +1863,15 @@ else
 fi
 # replay-reject-nearest: as above under --on-divergence nearest: the rework reuses the
 # implementer's recorded reply, which writes the same revision, so it is sent back until its
-# max_runs: writer_spent, the reused calls counted and labelled.
+# max_runs: writer_spent, the reused calls counted and labelled. run.unstick stays off: the
+# recording has no run.unstick call, so run-settings records replay.unstick off and nothing diverges.
 redrive replay-reject-nearest --inject 'reject@merge.approve#1=the change misses a refusal' --on-divergence nearest
 code=$?
 r=$s/runs/replay-reject-nearest
 if (( code == 4 )) &&
    jq -e '.cause == "writer_spent" and .replay.calls.reused >= 1 and .replay.calls.diverged == 0
      and .replay.label == "re-driven: with reused replies"' "$r/run-stopped.json" >/dev/null &&
+   jq -se 'last | .unstick.on == false and .replay.unstick.on == false' "$r/run-settings.jsonl" >/dev/null &&
    jq -se '[.[] | select(.action == "change.implement") | .replay.mode] | .[0] == "recorded" and (.[1:] | length > 0 and all(. == "reused"))' "$r/llm-calls.jsonl" >/dev/null; then
   echo "replay-reject-nearest: checks pass (the rework reused the recorded reply, writer_spent, reused calls labelled)"
 else
