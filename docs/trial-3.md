@@ -7,17 +7,17 @@ web app for me and my partner that also works on the train without a connection"
 (`scripts/run-trial.sh --autopilot`, autonomy A5, decider final: the decider cannot hand a decision to a person).
 The two small-idea runs are in their own section.
 
-Written 2026-11-21, 11:20 UTC; section 9 updated at 11:23 UTC. Sources are the run directories under `runs/` (git-ignored; a run is
+Written 2026-11-21, 11:20 UTC; section 9 updated at 11:23 UTC and 11:47 UTC, section 10 added at 11:47 UTC. Sources are the run directories under `runs/` (git-ignored; a run is
 named by its directory), the fix commits of `git log main`, and the trial runner's notes (cited as
 *runner's notes*). Lines marked *(inferred)* were not observed.
 
 ## 1. Result
 
-- Pass (a fresh run that closes `operating` by itself: exit 0, no stop record, no reopen, no forced step, replay matching, 0 s waiting on a person): 5 of the 8 runs of the batch tree (`acd6f12`); 0 of the 9 runs of attempts 1 to 5 on earlier trees (section 4).
-- By setting, batch: Sonnet work + Opus decider 2 of 2; all Haiku 1 of 2; Sonnet writer, implement, review + Haiku rest ("mixed") 1 of 2; all Opus work 1 of 1; all Sonnet work with Haiku decider 0 of 1 (stopped).
-- Cost and wall time of the passes: `strong-1` $2.93, 473 s; `strong-2` $3.00, 454 s; `haiku-7` $1.00, 2709 s; `mixed-6` $1.86, 2295 s; `opus-1` $5.09, 1662 s (section 3).
-- All 5 passes: 0 s waiting on a person, 0 person decisions, replay 10 of 10, closed by `rule:autopilot`, no stop record, one `run-settings.jsonl` line (no reopen). The 3 other closes were `not_delivered`, 0 s waiting, replay matching (section 5).
-- Not shown: that any product works. No oracle check ran on any trial-3 product (section 7), and no review model made a call in any batch run (section 3). The story asks for Sonnet on reviews: that has not happened in any passing run, because the review was a stub in all 5 and the three runs from `main` that called a review model stopped at it (section 9). With 1 or 2 runs per setting, no difference between settings is established.
+- Pass (a fresh run that closes `operating` by itself: exit 0, no stop record, no reopen, no forced step, replay matching, 0 s waiting on a person): 6 runs. 5 of the 8 runs of the batch tree `acd6f12` (review stage a stub), 1 run on `trial/main-2` at `1001970` (`strong-6`, the first with a review model; section 10; 3 more runs there had not ended at 11:47Z). 0 of the 9 runs of attempts 1 to 5 and 0 of the 4 runs on `trial/main-1` (section 9).
+- By setting, runs that ended: Sonnet work + Opus decider 3 of 5 (`strong-1`, `strong-2`, `strong-6` passed; `strong-3`, `strong-4` stopped at the first review call on `main-1`); all Haiku 1 of 3 (`haiku-6` not delivered, `haiku-7` pass, `haiku-8` stopped); mixed 1 of 3 (`mixed-5` not delivered, `mixed-6` pass, `mixed-7` stopped at the review call); all Opus work 1 of 1; all Sonnet work with Haiku decider 0 of 1 (stopped).
+- Cost and wall time of the passes: `strong-1` $2.93, 473 s; `strong-2` $3.00, 454 s; `haiku-7` $1.00, 2709 s; `mixed-6` $1.86, 2295 s; `opus-1` $5.09, 1662 s; `strong-6` $4.06, 677 s (sections 3 and 10).
+- All 6 passes: 0 s waiting on a person, 0 person decisions, replay 10 of 10, closed by `rule:autopilot`, no stop record, one `run-settings.jsonl` line (no reopen). The 3 other closes were `not_delivered`, 0 s waiting, replay matching (section 5). The two runs the story's comparison rests on: the all-Haiku pass `haiku-7` and the review-node pass `strong-6` (Sonnet for specification, plan, implementation and reviews, Opus decider); `strong-6` is the only pass in which a review model made a call (5 calls, 2 rejections reworked).
+- Not shown: that any product works. No oracle check ran on any trial-3 product (section 7). With 1 or 2 runs per setting, no difference between settings is established at these sample sizes.
 
 ## 2. Settings and trees
 
@@ -47,7 +47,8 @@ implement = `change.implement`; review = `spec.review`, `change.review`; other =
 | 4 | `haiku-4`, `mixed-3` | `trial/3b` at main `753210d` | runner's notes, attempt 4 |
 | 5 | `haiku-5`, `mixed-4` | `trial/3b` at `ea2f111` (= main `32265be` + `073c173`); reopens at `acd6f12` (`haiku-5`) and `3663770` (`mixed-4`) | runner's notes, attempt 5 |
 | batch | `mixed-5` (start 10:16Z), `strong-1`, `strong-2`, `haiku-6`, `haiku-7`, `mixed-6`, `sonnet-1`, `opus-1`, `small-haiku-1`, `small-sonnet-1` (start 10:26Z to 10:27Z) | `trial/3b` at `acd6f12` (= `ea2f111` + `102ce99` + `83d3cbf`) | runner's notes, attempt 5; `mixed-5` started on `3663770` and its binaries were rebuilt at `acd6f12` in its round 1 |
-| main | `strong-3`, `strong-4`, `mixed-7`, `haiku-8` (start 11:06Z) | `main` at `8db4b93`, branch `trial/main-1` | `git log trial/main-1`; section 9 (3 stopped, 1 running) |
+| main-1 | `strong-3`, `strong-4`, `mixed-7`, `haiku-8` (start 11:06Z) | `main` at `8db4b93`, branch `trial/main-1` | `git log trial/main-1`; section 9 |
+| main-2 | `strong-5`, `strong-6`, `mixed-8`, `haiku-9` (start 11:33:50Z to 11:34:09Z); reopens of `strong-3`, `strong-4`, `mixed-7` (11:34:13Z) | `trial/main-2` at `1001970` (`main` `8db4b93` + `fix/review-reply` `49b0a87`) | `git log trial/main-2`; `run-settings.jsonl`; section 10 |
 
 ## 3. The comparison
 
@@ -98,7 +99,7 @@ All Haiku against Sonnet for the specification, plan and implementation (`llm-ca
 | `opus-1` (Opus) | 1, 0.448 | 1, 0.094 | 3, 3.652 | 0 |
 
 - Per call (table cost over calls): `spec.author` Haiku $0.020 and $0.023, Sonnet $0.12 to $0.19, Opus $0.45; `change.implement` Haiku $0.056 and $0.10, Sonnet $0.15 to $0.24, Opus $1.22. Not a paired measurement: the runs wrote different code.
-- Review: no model made a review call in any of the 8 runs. The review stage of every batch run was the stub, so whether a Sonnet or an Opus review changes a result was not tried. The runs from `main` are the first with a review model; three of them stopped at its first call (section 9).
+- Review: no model made a review call in any of the 8 runs. The review stage of every batch run was the stub, so whether a Sonnet or an Opus review changes a result was not tried. The runs from `main` are the first with a review model: three stopped at its first call (section 9); `strong-6` on `trial/main-2` is the first pass with one (section 10).
 - Merge rejections that were reworked and then approved: `haiku-7` 1, `mixed-6` 2, `mixed-5` 2 (`decisions.jsonl`; the approval followed each time, then the release refusal in `mixed-5`). Each rejected the change against a requirement and cited a file line from the change (examples: `mixed-6`, offline copy not kept on the device and the server bound to 127.0.0.1 only; `haiku-7`, offline adds not synced).
 - Deciders: the Opus decider rejected nothing in `strong-1` and `strong-2` (11 decisions asked each, 0 rejections; `strong-3` and `strong-4` from `main` also 0 of 6, but stopped before a merge). `opus-1` used a Haiku decider (work on Opus) and also had 0 rejections of 11. The Haiku-decider runs that passed went through merge rejections with rework: `mixed-6` 2, `haiku-7` 1. In `strong-1` and `strong-2` every merge was approved at the first ask, with 3 `change.implement` calls (one per story). Whether that is the Opus decider or a Sonnet writer that needed no rework is not separable here: `sonnet-1` (Sonnet work, Haiku decider) never reached a merge.
 - The decider's principal is recorded as `decider:haiku` whatever model decided; the model is only in `decisions.jsonl` `model` (section 8).
@@ -192,20 +193,42 @@ The idea (`runs/trial-3-small-haiku-1/store/IDEA-1/work/idea.yaml`): a command-l
 - `small-haiku-1` cause: requirements chose Python where the build prompt demands Rust. The coordinator assigned the fix to `fix/superseded-answers` as a build-constraints file read by every stage; it is not in that branch's commits or in its worktree *(not observed)*.
 - The decider's budget of 20 calls was spent by one repeated finding twice (section 6); the main runs have 40.
 
-## 9. Runs from main with the review node
+## 9. Runs from main with the review node (`trial/main-1`)
 
-State at 2026-11-21 11:23 UTC. `main` at `8db4b93`, branch `trial/main-1`; the first runs with a real review model
+State at 2026-11-21 11:47 UTC. `main` at `8db4b93`, branch `trial/main-1`; the first runs with a review model
 (`change.review`, class REVIEW, `0a4b71b`; `e46c21f` puts it after the tests). Figures: `sdc-run-compare` over
-the four directories (`main.md`); work and decider calls and cost re-added from `llm-calls.jsonl` and `decisions.jsonl`.
+the four directories; work and decider calls and cost re-added from `llm-calls.jsonl` and `decisions.jsonl`.
+None of the four passed.
 
-| Run | Setting | State | Wall s | Work calls / $ | Decider calls / $ | Total $ | Asked / rejected |
+| Run | Setting | End | Wall s | Work calls / $ | Decider calls / $ | Total $ | Asked / rejected |
 |---|---|---|---|---|---|---|---|
-| `strong-3` | Sonnet work, Opus decider | stopped 11:12:15Z, `stuck` in `IDEA-1.todo.access` | 350 | 12 / 0.814 | 6 / 1.014 | 1.828 | 6 / 0 |
-| `strong-4` | same | stopped 11:12:15Z, `stuck` in `IDEA-1.todo.list` | 349 | 11 / 0.707 | 6 / 0.990 | 1.697 | 6 / 0 |
-| `mixed-7` | mixed | stopped 11:17:09Z, `stuck` in `IDEA-1.todo.access` | 643 | 14 / 0.627 | 8 / 0.082 | 0.709 | 8 / 0 |
-| `haiku-8` | all Haiku | not ended: running at 11:22Z (console written 11:22:12Z), round 8, `IDEA-1.list.access`, waiting for its decider | 947 so far | 11 / 0.109 | 10 / 0.108 | 0.217 | 10 / 0 |
+| `strong-3` | Sonnet work, Opus decider | stopped 11:12:15Z, `stuck` in `IDEA-1.todo.access`; reopened 11:34:13Z on `main-2`, stopped again 11:34:14Z, `review_invalid` | 350 first leg | 12 / 0.814 | 6 / 1.014 | 1.828 | 6 / 0 |
+| `strong-4` | same | stopped 11:12:15Z, `stuck` in `IDEA-1.todo.list`; reopened and stopped again as `strong-3` | 349 first leg | 11 / 0.707 | 6 / 0.990 | 1.697 | 6 / 0 |
+| `mixed-7` | mixed | stopped 11:17:09Z, `stuck` in `IDEA-1.todo.access`; reopened and stopped again 11:34:15Z, `review_invalid` | 643 first leg | 14 / 0.627 | 8 / 0.082 | 0.709 | 8 / 0 |
+| `haiku-8` | all Haiku | stopped 11:36:16Z, `writer_spent` in `IDEA-1.list.access` (`run-stopped.json` `cause`) | 1791 | 16 / 0.203 | 11 / 0.127 | 0.331 | 11 / 0 |
 
-- Three of the four stopped at their first `change.review` call; the cause is the same in each: the review call (Sonnet, read-only operations) exited 0 and the check refused it, "invalid review reply: no readable reply" at `out/review.json` after 3 attempts (`review-check.err` in each run's `llm/NNN-change.review/`; `llm-calls.jsonl` `applied_exit` 2). The review model cannot write `out/review.json` (the coordinator's reading; `out/` is empty in all three runs). The case then had no admissible and useful action: `stuck`, driver exit 4. No story of these runs was merged; waiting on a person 0 s (`sdc-finding-kpis` L7; `sdc-run-compare` prints 1 s for `strong-4` and `mixed-7`).
-- The fix is in work on branch `fix/review-reply` (at `8db4b93`, no commit of its own when written).
-- `haiku-8` has not ended. Its record is the state above. All Haiku has no review model (`review` null) *(inferred: whether its review step calls a model was not observed)*.
-- So the story's "Sonnet for ... reviews" has not happened in any passing run: no review model call exists in any of the 5 passes, and the three runs that called one stopped at it.
+- `strong-3`, `strong-4`, `mixed-7` stopped at their first `change.review` call: the review call (Sonnet, read-only operations) exited 0 and the check refused it, "invalid review reply: no readable reply" at `out/review.json` after 3 attempts (`review-check.err` in each run's `llm/NNN-change.review/`; `llm-calls.jsonl` `applied_exit` 2). The review model cannot write `out/review.json` (the coordinator's reading; `out/` is empty in all three runs). The case then had no admissible and useful action (`stuck`, driver exit 4). No story of these runs was merged. Fix: `49b0a87` on `fix/review-reply` (section 10).
+- The reopens of the three, on `trial/main-2`, ended in about 1 s with `review_invalid` naming the old call and no new LLM call: a reopen did not dispatch the review again. Fixed on `fix/review-reply` at `3cbda08` (a step that recorded nothing runs once more after a reopen; not on `trial/main-2` at `1001970`). The tool prints 1318 s, 1319 s and 1027 s waiting on a person for the three; that is the time stopped for a fix before the reopen (the `fix/attempt5-close` caveat of section 8); `sdc-finding-kpis` L7 also reads FAILED for them.
+- `haiku-8`: `tests.run` failed 3 times in `IDEA-1.list.access` and the writer's feedback held only the build pool's line, not the test output (the coordinator's reading: not verified here); the feedback defect is assigned on `audit/reject-routes`. All Haiku has no review model (`review` null).
+- Waiting on a person 0 s for `strong-3`, `strong-4`, `mixed-7`, `haiku-8` in their first legs (L7 0 before the reopen).
+
+## 10. Runs on `trial/main-2` (review model working)
+
+State at 2026-11-21 11:47 UTC. Tree: `trial/main-2` at `1001970` (`main` at `8db4b93` merged with `fix/review-reply` `49b0a87`: the review class runs on a schema adapter, and a run that cannot is refused). Figures: `sdc-run-compare --run strong-6=runs/trial-3-strong-6 --run strong-5=runs/trial-3-strong-5 --run mixed-8=runs/trial-3-mixed-8 --run haiku-9=runs/trial-3-haiku-9 ...` (the table is its `runs[].metrics`), and the review calls from `llm-calls.jsonl`.
+
+| Run | Setting | State | Wall s | Driver s | Wait s | Work calls / $ | Decider calls / $ | Total $ | Findings raised / late | Resolved: agent / decider / person | Rework | Asked / rejected | Replay |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `strong-6` | Sonnet work and review, Opus decider | closed `operating` 11:45:26Z | 677 | 514 | 0 | 21 / 2.085 | 11 / 1.970 | 4.055 | 2 / 2 | 2 / 0 / 0 | 18 | 11 / 0 | 10 of 10 |
+| `strong-5` | same | not ended: round 6, `IDEA-1.todo.sharing`, at the decider (console 11:46:47Z) | 797 so far | 650 | 0 | 20 / 2.454 | 9 / 1.620 | 4.074 | 3 / 3 | 3 / 0 / 0 | 17 | 9 / 0 | not recorded |
+| `mixed-8` | mixed (Sonnet writer, implement, review; Haiku rest and decider) | not ended: round 7, `IDEA-1.todo.access`, waiting for its decider (console 11:46:53Z) | 764 so far | 320 | 0 | 14 / 0.861 | 8 / 0.070 | 0.931 | 4 / 4 | 3 / 1 / 0 | 18 | 8 / 1 | not recorded |
+| `haiku-9` | all Haiku | not ended: round 6, `IDEA-1.direction`, at the decider (console 11:42:04Z) | 616 so far | 103 | 0 | 9 / 0.052 | 9 / 0.065 | 0.117 | 5 / 3 | 3 / 2 / 0 | 24 | 9 / 0 | not recorded |
+
+`strong-6` is the first pass with a review model, and the run that answers the story's "Sonnet for the specification, plan, implementation and reviews". Its decider was Opus (`run-settings.jsonl`: `decider.model` `claude-opus-5-5`), so it is the strong setting of section 3 with the review stub replaced; it does not isolate the review from the decider.
+
+- Closed `operating` by `rule:autopilot`, exit 0, no stop record, one `run-settings.jsonl` line (no reopen), replay 10 of 10, 0 s waiting on a person, 0 person decisions (`status.json`, `replay.json`, `sdc-finding-kpis` L7 0).
+- 21 work calls $2.085, of which 5 are `change.review` ($0.748): all Sonnet on `claude-cli`, `exit` 0. Decider: 11 Opus calls $1.970, 11 approvals, 0 rejections. Total $4.055.
+- The 5 reviews: `todo.offline` rejected (11:39:40Z: `impl/src/main.rs:14-21`, the list is never cached, no local copy or service worker, so offline viewing fails; violates r3 and `aep/story/offline.md:7`), approved on the second (11:40:43Z); `todo.sharing` approved (11:41:58Z); `todo.task` rejected (11:43:52Z: `impl/src/main.rs:7-30`, the UI never calls the task API, violates r5 and r1), approved on the second (11:44:33Z). A rejection is a valid reply (`applied_exit` 1).
+- Both rejections were reworked (`change.implement` 5 calls, against 3 stories) and then approved by the review and by `merge.approve` (`decisions.jsonl`: 3 approvals, at 11:41:20Z, 11:42:34Z, 11:45:07Z).
+- Against `strong-1` and `strong-2` (same setting, review a stub, 3 `change.implement` calls each, $2.93 and $3.00, 473 s and 454 s): `strong-6` cost $4.06 and took 677 s, the extra being the 5 reviews ($0.75) and 2 reworks. Whether a review rejected what the decider would have missed is not shown: the Opus decider approved every merge in all three runs, and the three runs wrote different code. The two review rejections cite lines of the change; I did not run the product (section 7).
+- Read the table with section 3's caveat: one run of this setting with a review model, one pass; no difference between settings is established at these sample sizes. The comparison the story asked for rests on two runs: the all-Haiku pass `haiku-7` (batch tree, no review model, section 3) and the review-node pass `strong-6` (this section, Opus decider).
+- `strong-5`, `mixed-8`, `haiku-9` have not ended; their rows are the state of their records at the time of writing. `mixed-8` has 2 reviews, both approvals, and 1 `merge.approve` rejection at `todo.access` (the share link bound to 127.0.0.1 only, `impl/README.md:11`). `strong-5` has 5 reviews so far (`llm-calls.jsonl` `applied_exit`: 3 rejections, 2 approvals; `todo.offline` rejected twice, then approved; `todo.sharing` rejected once, then approved). `haiku-9` has not reached a story.
