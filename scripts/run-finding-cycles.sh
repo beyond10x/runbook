@@ -94,6 +94,9 @@
 #                   changed the test refused then fixed; not_reproduced
 #   run-metrics     sdc-run-metrics on decider-rework's run: looping factor, the approval edge,
 #                   merge.approve's decisions, a clean close (docs/workflow-metrics.md)
+#   replay-unchanged, replay-reject-stop, replay-reject-nearest, replay-timeout, replay-live-dry,
+#   replay-check-fail, replay-recording-clean  the committed recording fixtures/recorded/stub
+#                   re-driven by scripts/run-trial.sh --recorded (sdc-replay; see each cycle)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>` and `pending: N (K still failing: ...)`; exits 1 when an expected cycle missed its
 # expectation (a pending one never fails the script).
@@ -140,6 +143,8 @@ expected+=(decider-question-reject rework-fresh-allowance spec-review-rework wri
   writer-sees-test-failure scope-unattributed-reject finding-refused-reask review-invalid-named)
 pending=(rework-spent-dropped rework-spent-abandoned)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
+expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
+  replay-recording-clean)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -1800,5 +1805,123 @@ grep -q 'the reproducing test was changed' "$s/runs/bugfix-edited-test/store/BUG
 bugfix_cycle bugfix-never-red never-red not_reproduced \
   '([.[] | select(.kind == "repro_run" and .result == "red")] | length) == 0 and ([.[] | select(.kind == "implementation_change")] | length) == 0' \
   "every test passes on the seed: not_reproduced, no fix written"
+# --- recorded replay (docs/driver.md, "Recorded replay"): scripts/run-trial.sh --recorded re-drives
+# the committed recording fixtures/recorded/stub with driver/src/bin/sdc-replay as the adapter of
+# every model and decider call, no LLM. The recording is a stub run through the fixture adapters,
+# packed: SDC_PRINCIPAL=agent:recorded-fixture SDC_LLM_ADAPTER=SDC_DECIDER_ADAPTER=<fixture adapter>
+# SDC_DECIDER=haiku SDC_LLM_NODES="idea.dissect questions.write questions.answer
+# requirements.normalise context.default spec.author plan.decompose change.implement change.review"
+# SDC_FIXTURE_STUB='{"plan.decompose": ["plan-stories.json", "stories.json"]}' run-trial.sh <run>
+# "<fixtures/idea.yaml text>" --autopilot, then sdc-replay pack <run> fixtures/recorded/stub.
+recording=$fx/recorded/stub
+story_case=IDEA-1.billing.invoices
+redrive() { # <name> [run-trial.sh replay arguments ...]
+  local name=$1; shift
+  rm -rf "$s/runs/$name"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 "$sdc/scripts/run-trial.sh" "$name" --autopilot --recorded "$recording" "$@" > "$s/$name.txt" 2>&1
+  local code=$?
+  echo "$name: exit $code ($(grep -v '^ ' "$s/$name.txt" | tail -n 1 | cut -c1-160))"
+  return $code
+}
+calls() { jq -c '.replay.calls' "$s/runs/$1/$2"; }
+impl_exits() { jq -sc '[.[] | select(.event == "action_finished" and .action == "change.implement") | .exit]' "$s/runs/$1/store/IDEA-1/children/IDEA-1.billing/children/$story_case/events.jsonl"; }
+replay_bin=$sdc/driver/target/debug/sdc-replay
+n_calls=$(jq '.calls | length' "$recording/recording.json")
+# replay-unchanged: the recording re-driven as it is: closed operating as the source, the same
+# actions per case (sdc-replay compare), every call recorded, none reused, live or diverged, no
+# paid call; each call line marked recorded on the virtual clock; the first line names both trees.
+redrive replay-unchanged
+code=$?
+r=$s/runs/replay-unchanged
+if (( code == 0 )) && "$replay_bin" compare "$r" > "$s/replay-unchanged.compare.json" &&
+   jq -e --argjson n "$n_calls" '.replay.label == "re-driven: recorded replies only" and .replay.calls.recorded == $n
+     and .replay.calls.reused == 0 and .replay.calls.live == 0 and .replay.calls.diverged == 0 and .replay.calls.paid == 0
+     and .state == "closed" and .outcome == "operating"' "$r/status.json" >/dev/null &&
+   jq -se 'all(.[]; .replay.mode == "recorded" and .replay.clock == "virtual")' "$r/llm-calls.jsonl" >/dev/null &&
+   jq -se 'all(.[]; .clock == "virtual" and .seconds == .real_seconds + .virtual_seconds)' "$r/rounds.jsonl" >/dev/null &&
+   head -n 1 "$r/console.txt" | grep -q '^re-drive of stub (recorded on tree [0-9a-f]\{12\}) on tree '; then
+  echo "replay-unchanged: checks pass (closed operating, same actions in every case, $n_calls calls recorded, 0 reused, live, diverged, paid)"
+else
+  echo "replay-unchanged: FAILED (run exit $code, or the actions, the end or the call counts differ: $(calls replay-unchanged status.json 2>/dev/null))"
+fi
+# replay-reject-stop: merge.approve's recorded approve replaced by a reject: the rejection is
+# recorded and change.implement is sent back with it, a call the source never made
+# (change.implement@1.2); under the default policy the run ends there, exit 9, cause
+# recording_diverged naming the place.
+redrive replay-reject-stop --inject 'reject@merge.approve#1=the change misses a refusal'
+code=$?
+r=$s/runs/replay-reject-stop
+if (( code == 9 )) &&
+   jq -e --arg c "$story_case" '.cause == "recording_diverged" and (.reason | test($c + "/change.implement@1.2"))
+     and .replay.calls.diverged == 1' "$r/run-stopped.json" >/dev/null &&
+   jq -se 'any(.[]; .action == "merge.approve" and .decision == "reject" and .reasons == ["the change misses a refusal"])' "$r/decisions.jsonl" >/dev/null; then
+  echo "replay-reject-stop: checks pass (reject recorded, rework asked a call the source never made, stopped recording_diverged)"
+else
+  echo "replay-reject-stop: FAILED (run exit $code, or no reject, or not stopped recording_diverged at change.implement@1.2)"
+fi
+# replay-reject-nearest: as above under --on-divergence nearest: the rework reuses the
+# implementer's recorded reply, which writes the same revision, so it is sent back until its
+# max_runs: writer_spent, the reused calls counted and labelled.
+redrive replay-reject-nearest --inject 'reject@merge.approve#1=the change misses a refusal' --on-divergence nearest
+code=$?
+r=$s/runs/replay-reject-nearest
+if (( code == 4 )) &&
+   jq -e '.cause == "writer_spent" and .replay.calls.reused >= 1 and .replay.calls.diverged == 0
+     and .replay.label == "re-driven: with reused replies"' "$r/run-stopped.json" >/dev/null &&
+   jq -se '[.[] | select(.action == "change.implement") | .replay.mode] | .[0] == "recorded" and (.[1:] | length > 0 and all(. == "reused"))' "$r/llm-calls.jsonl" >/dev/null; then
+  echo "replay-reject-nearest: checks pass (the rework reused the recorded reply, writer_spent, reused calls labelled)"
+else
+  echo "replay-reject-nearest: FAILED (run exit $code, or not writer_spent, or the reused calls not labelled)"
+fi
+# replay-timeout: the implementer's first call runs into its timeout on the virtual clock: the
+# driver records exit timeout ("virtual clock"), the writer's retry reuses the recorded reply
+# (nearest) and the run closes operating as the source did.
+redrive replay-timeout --inject "timeout@$story_case/change.implement#1" --on-divergence nearest
+code=$?
+r=$s/runs/replay-timeout
+if (( code == 0 )) && [[ $(impl_exits replay-timeout) == '["timeout","0"]' ]] &&
+   jq -e '.outcome == "operating" and .replay.calls.faults == 1 and .replay.calls.reused == 1' "$r/status.json" >/dev/null &&
+   grep -rqs 'killed after 1500 s (virtual clock' "$r/store/IDEA-1/children/IDEA-1.billing/children/$story_case/blobs"; then
+  echo "replay-timeout: checks pass (exit timeout on the virtual clock, the retry reused the recorded reply, closed operating)"
+else
+  echo "replay-timeout: FAILED (run exit $code, change.implement exits $(impl_exits replay-timeout 2>/dev/null))"
+fi
+# replay-live-dry: the reject again, under --on-divergence live with the dry adapter and a cap of
+# 1: the rework's call goes to the live adapter (printed as `would run: metaharness …`, nothing
+# called, nothing written), counted as live and unpaid; the next one ends the run, the cap spent.
+redrive replay-live-dry --inject reject@merge.approve#1 --on-divergence live --live-adapter dry --live-cap 1
+code=$?
+r=$s/runs/replay-live-dry
+if (( code == 9 )) &&
+   jq -e '.cause == "recording_diverged" and (.reason | test("live call cap is spent")) and .replay.calls.live == 1
+     and .replay.calls.paid == 0 and .replay.label == "re-driven: with live model calls"' "$r/run-stopped.json" >/dev/null &&
+   (( $(grep -c '^would run: metaharness' "$r/dry-commands.txt") == 1 )); then
+  echo "replay-live-dry: checks pass (1 live call through dry, unpaid, the next stopped at the cap)"
+else
+  echo "replay-live-dry: FAILED (run exit $code, or the live calls, the cap or the dry commands are wrong)"
+fi
+# replay-check-fail: tests.run's first run fails (the program runs, its run recorded as exit 1)
+# and change.implement's max_runs is 2: the writer is sent back with the failure, its reused reply
+# writes the same revision, and the run ends writer_spent at 2 runs; the condition is a run setting.
+redrive replay-check-fail --inject check-fail@tests.run#1 --set max_runs.implement=2 --on-divergence nearest
+code=$?
+r=$s/runs/replay-check-fail
+if (( code == 4 )) &&
+   jq -e '.cause == "writer_spent" and .replay.programs.check_fail == 1' "$r/run-stopped.json" >/dev/null &&
+   [[ $(impl_exits replay-check-fail) == '["0","0"]' ]] &&
+   jq -se 'last.replay.conditions["max_runs.implement"] == 2' "$r/run-settings.jsonl" >/dev/null &&
+   grep -q '(max_runs 2)' "$s/replay-check-fail.txt"; then
+  echo "replay-check-fail: checks pass (tests.run failed once by injection, writer_spent at max_runs 2, the condition recorded)"
+else
+  echo "replay-check-fail: FAILED (run exit $code, change.implement exits $(impl_exits replay-check-fail 2>/dev/null))"
+fi
+# replay-recording-clean: the committed recording holds no absolute path, no prompt and no
+# transcript, and names the tree it was recorded on.
+if jq -e '.format == "sdc.recording/1" and (.tree.commit | type) == "string" and (.calls | length) > 0' "$recording/recording.json" >/dev/null &&
+   ! grep -rqs '/home/' "$recording" && [[ -z $(find "$recording" \( -name prompt.md -o -name transcripts -o -name 'events.jsonl' -path '*/calls/*' \) -print) ]]; then
+  echo "replay-recording-clean: checks pass (no absolute path, prompt or transcript; tree $(jq -r .tree.commit "$recording/recording.json"))"
+else
+  echo "replay-recording-clean: FAILED"
+fi
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"
