@@ -2,7 +2,7 @@
 
 Written by `sdc-experiment report release-0.1.2` from `experiments/release-0.1.2.yaml` and the run summaries in `experiments/release-0.1.2/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
 
-- Kind: prospective; status: planned; created 2026-11-21.
+- Kind: prospective; status: complete; created 2026-11-21.
 - Purpose: Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
@@ -40,6 +40,15 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
+| release-0.1.2.strong.1 | strong | closed: operating | yes | 4.695 | 972 | 1.167 |  |
+| release-0.1.2.strong.2 | strong | closed: operating | yes | 4.816 | 1108 | 1.083 |  |
+| release-0.1.2.strong.3 | strong | closed: operating | yes | 4.46 | 886 | 1.167 |  |
+| release-0.1.2.mixed.1 | mixed | stopped: writer_spent in IDEA-1.sharedlist.list | no | 1.373 | 810 | 1.6 |  |
+| release-0.1.2.mixed.2 | mixed | closed: operating | yes | 3.035 | 1577 | 1.583 |  |
+| release-0.1.2.mixed.3 | mixed | closed: operating | yes | 2.523 | 1821 | 1.75 |  |
+| release-0.1.2.haiku.1 | haiku | stopped: writer_spent in IDEA-1.list.sync | no | 1.724 | 3278 | 1.583 |  |
+| release-0.1.2.haiku.2 | haiku | closed: operating | yes | 0.882 | 2832 | 1.818 |  |
+| release-0.1.2.haiku.3 | haiku | closed: operating | yes | 0.932 | 3231 | 1.545 |  |
 
 ## Per variant
 
@@ -47,34 +56,48 @@ Median [min, max] (n) over the ended runs.
 
 | | strong | mixed | haiku |
 |---|---|---|---|
-| runs listed | 0 | 0 | 0 |
-| ended | 0 | 0 | 0 |
-| clean passes | 0 | 0 | 0 |
-| `run.cost_usd` | - | - | - |
-| `run.llm_calls` | - | - | - |
-| `run.decider_calls` | - | - | - |
-| `run.wall_s` | - | - | - |
-| `run.driver_s` | - | - | - |
-| `run.real_takes` | - | - | - |
-| `run.rework_takes` | - | - | - |
-| `run.looping_factor` | - | - | - |
-| `run.first_pass_yield` | - | - | - |
-| `run.rework_cost_usd` | - | - | - |
-| `run.furthest_stage_index` | - | - | - |
-| `run.findings_raised` | - | - | - |
-| `run.waiting_on_person_s` | - | - | - |
-| `run.clean` | - | - | - |
+| runs listed | 3 | 3 | 3 |
+| ended | 3 | 3 | 3 |
+| clean passes | 3 | 2 | 2 |
+| `run.cost_usd` | 4.6952 [4.4604, 4.8158] (3) | 2.5232 [1.3728, 3.0348] (3) | 0.9317 [0.8816, 1.7237] (3) |
+| `run.llm_calls` | 18 [17, 19] (3) | 23 [16, 26] (3) | 25 [20, 25] (3) |
+| `run.decider_calls` | 13 [10, 13] (3) | 12 [8, 14] (3) | 22 [20, 22] (3) |
+| `run.wall_s` | 972 [886, 1108] (3) | 1577 [810, 1821] (3) | 3231 [2832, 3278] (3) |
+| `run.driver_s` | 711 [592, 887] (3) | 868 [537, 1013] (3) | 2153 [1808, 2399] (3) |
+| `run.real_takes` | 96 [93, 114] (3) | 111 [92, 124] (3) | 141 [139, 154] (3) |
+| `run.rework_takes` | 25 [24, 44] (3) | 44 [42, 56] (3) | 77 [74, 89] (3) |
+| `run.looping_factor` | 1.167 [1.083, 1.167] (3) | 1.6 [1.583, 1.75] (3) | 1.583 [1.545, 1.818] (3) |
+| `run.first_pass_yield` | 0.833 [0.833, 0.917] (3) | 0.7 [0.667, 0.75] (3) | 0.667 [0.636, 0.727] (3) |
+| `run.rework_cost_usd` | 0.5126 [0.4971, 0.572] (3) | 0.7165 [0.3056, 1.368] (3) | 0.3432 [0.1949, 0.7139] (3) |
+| `run.furthest_stage_index` | 7 [7, 7] (3) | 7 [6, 7] (3) | 7 [6, 7] (3) |
+| `run.findings_raised` | 4 [2, 5] (3) | 9 [7, 9] (3) | 24 [21, 26] (3) |
+| `run.waiting_on_person_s` | 0 [0, 0] (3) | 0 [0, 0] (3) | 0 [0, 0] (3) |
+| `run.clean` | 1 [1, 1] (3) | 1 [0, 1] (3) | 1 [0, 1] (3) |
 
 ## Loops
 
 Per variant, over the ended runs: of the writer and approval nodes taken again at least once, the three with the highest median looping factor; and the three edges with the highest loop cost.
 
-- strong (n 0):
-  - no node taken again, no edge
-- mixed (n 0):
-  - no node taken again, no edge
-- haiku (n 0):
-  - no node taken again, no edge
+- strong (n 3):
+  - `story/change.implement` (llm-writer): looping factor median 1.333 (max 1.667, n 3), rework takes 4, rework cost 0.968 USD
+  - `spec/spec.author` (llm-writer): looping factor median 1 (max 2, n 3), rework takes 1, rework cost 0.132 USD
+  - `story: change.review:rejected -> change.implement` (check): count 4 in 3 runs, loop cost 1.45 USD, loop driver 346 s
+  - `spec: finding@spec -> intake` (finding): count 2 in 1 runs, loop cost 0.132 USD, loop driver 18 s
+  - `story: finding@story -> intake` (finding): count 6 in 3 runs, loop cost 0 USD, loop driver 0 s
+- mixed (n 3):
+  - `direction/vision.write` (llm-writer): looping factor median 4 (max 6, n 3), rework takes 11, rework cost 0.048 USD
+  - `spec/spec.author` (llm-writer): looping factor median 2 (max 3, n 3), rework takes 3, rework cost 0.118 USD
+  - `story/change.implement` (llm-writer): looping factor median 1.667 (max 3, n 3), rework takes 6, rework cost 1.798 USD
+  - `story: change.review:rejected -> change.implement` (check): count 2 in 2 runs, loop cost 1.008 USD, loop driver 274 s
+  - `story: merge.approve:rejected -> change.implement` (approval): count 1 in 1 runs, loop cost 0.441 USD, loop driver 147 s
+  - `story: finding@story -> intake` (finding): count 4 in 2 runs, loop cost 0.371 USD, loop driver 62 s
+- haiku (n 3):
+  - `spec/spec.author` (llm-writer): looping factor median 3 (max 4, n 3), rework takes 7, rework cost 0.098 USD
+  - `direction/vision.write` (llm-writer): looping factor median 3 (max 3, n 3), rework takes 4, rework cost 0.017 USD
+  - `story/change.implement` (llm-writer): looping factor median 2.333 (max 2.5, n 3), rework takes 9, rework cost 1.051 USD
+  - `story: change.review:rejected -> change.implement` (check): count 7 in 3 runs, loop cost 1.052 USD, loop driver 1442 s
+  - `story: finding@story -> intake` (finding): count 32 in 3 runs, loop cost 0.159 USD, loop driver 223 s
+  - `spec: finding@spec -> intake` (finding): count 24 in 3 runs, loop cost 0.089 USD, loop driver 314 s
 
 ## Verdict
 

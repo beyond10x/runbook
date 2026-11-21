@@ -32,7 +32,7 @@ tasks:
       - npm ci
       - env -u SDC_SITE_FIXTURES npm run build
       - "! grep -rlq --include='*.html' data-sdc-fixture-build build"
-      - "! grep -rlq -e fixture-free-agent -e 'fixture: three releases' build"
+      - "! grep -rlq -e fixture-free-agent -e fixture-cost-target -e 'fixture: three releases' build"
       - SDC_SITE_FIXTURES=tests/fixtures/ledger npx docusaurus build --out-dir build-fixture
 
   docs:test:

@@ -1,6 +1,7 @@
 import {useState, type ReactNode} from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
+import useBrokenLinks from '@docusaurus/useBrokenLinks';
 import {Lanes, SpanDetail, StepList, Totals, dur, usd, LANES, type Timeline} from '../components/RunTimeline';
 import {stat} from '../components/evaluation';
 import FreeAgentComparison, {ResultLede, comparisonModel, type ConfRow, type RunRow, type SizeRow, type Tl} from '../components/FreeAgentComparison';
@@ -17,7 +18,7 @@ interface Props {
 }
 
 const CANON = 'https://github.com/beyond10x/canon/blob/8f1f4527439b813f4c0c0159c8b4ea7cd4131994';
-const SDC = 'https://github.com/beyond10x/sdc/blob/0.1.1';
+const SDC = 'https://github.com/beyond10x/runbook/blob/0.1.1';
 
 function Cite({base, path, lines, label}: {base: string; path: string; lines: string; label: string}): ReactNode {
   const [a, b] = lines.split('-');
@@ -116,6 +117,8 @@ export default function LlmIsNotTheRuntime({timelines}: Props): ReactNode {
   const sdc = all.filter((t) => t.kind === 'sdc' && t.end?.delivered);
   const free = all.filter((t) => t.kind === 'free-agent');
   const model = comparisonModel(all as Tl[], timelines.experiments, timelines.runs ?? [], timelines.conformance ?? [], timelines.sizes ?? []);
+  const links = useBrokenLinks();
+  if (model) links.collectAnchor('free-records-h');
   const [pick, setPick] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const t = sdc[pick] ?? null;
@@ -123,6 +126,10 @@ export default function LlmIsNotTheRuntime({timelines}: Props): ReactNode {
     <Layout title="The LLM is not the runtime" description="Canon decides what is legitimate; a program takes the step; a model executes one action. One run, step by step.">
       <main className="container sdc-page sdc-llm">
         {timelines.fixtures ? <p className="sdc-banner" role="note" data-sdc-fixture-build="true">Fixture build: the runs below come from <code>website/tests/fixtures</code>.</p> : null}
+        <nav className="sdc-crumbs" aria-label="How it works">
+          How it works: <Link to="/docs/">What Runbook is</Link> · <span aria-current="page">The LLM is not the runtime</span> ·{' '}
+          <Link to="/docs/flow">The flow</Link> · <Link to="/docs/context">Context</Link> · <Link to="/docs/built-on">Built on</Link>
+        </nav>
         <header className="sdc-head">
           <p className="b10x-kicker">Principle</p>
           <h1>The LLM is not the runtime</h1>

@@ -18,7 +18,7 @@ jobs:
     if: >-
       github.actor == 'b10x-bot[bot]'
       && github.triggering_actor == 'b10x-bot[bot]'
-      && github.repository == 'beyond10x/sdc'
+      && github.repository == 'beyond10x/runbook'
       && github.ref == 'refs/heads/main'
       && (github.event_name == 'workflow_dispatch'
         || (github.event.workflow_run.conclusion == 'success'
@@ -31,8 +31,8 @@ jobs:
       actions: read
     uses: beyond10x/website/.github/workflows/project-site.yml@c870d2c8fa1d62c15c066a9bc382015091575734
     with:
-      repository: sdc
+      repository: runbook
       control_sha: ${{ github.event.workflow_run.head_sha || github.sha }}
-      route_base: /sdc/
+      route_base: /runbook/
       build_workflow: pages.yml
       artifact: b10x-project-site

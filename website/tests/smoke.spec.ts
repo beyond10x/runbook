@@ -94,8 +94,52 @@ async function checkEvaluation(page: Page): Promise<void> {
     await expect(page.locator(`#${id}`)).toBeAttached();
   }
   const labels = await page.locator('#metric-cost .sdc-metric__release').allTextContents();
-  expect(labels[0]).toBe('0.1.0');
+  expect(labels).toEqual(['0.1.0', '0.1.2']);
+  await expect(page.locator('.sdc-metric__nodata')).toHaveCount(0);
+  await expect(page.locator('#no-runs')).toHaveText(/^No runs yet on: 0\.1\.1, 0\.1\.3, 0\.1\.4(, \d+\.\d+\.\d+)*\.$/);
   await expect(page.locator('#runs')).toBeAttached();
+  const runHeads = await page.locator('section[aria-labelledby="runs"] > section > h3').allTextContents();
+  expect(runHeads.map((h) => h.split(' ·')[0])).toEqual(['Release 0.1.2', 'Release 0.1.0']);
+  await expect(page.locator('#runs-none')).toHaveText(/^No runs yet on: 0\.1\.1, 0\.1\.3, 0\.1\.4(, \d+\.\d+\.\d+)*\.$/);
+
+  const order = await page.evaluate(() =>
+    ['#tiles', '#metric-clean-passes', '#metric-cost', '#more-metrics', '#stops', '#experiments', '#runs', '#method', '#limits'].map((s) => document.querySelector(s)!.getBoundingClientRect().top + window.scrollY),
+  );
+  expect(order, 'sections in the decided order').toEqual([...order].sort((a, b) => a - b));
+  const tilesTop = order[0];
+  expect(tilesTop, 'tiles in the first screen').toBeLessThan(page.viewportSize()!.height);
+  await expect(page.locator('#tile-clean')).toContainText('release 0.1.2');
+  await expect(page.locator('#tile-clean li')).toHaveText([/haiku\s*2 of 3/, /mixed\s*2 of 3/, /strong\s*3 of 3/]);
+  await expect(page.locator('#tile-cost')).toContainText('$4.70');
+  await expect(page.locator('#tile-wall')).toContainText('release 0.1.2');
+  await expect(page.locator('#tile-target .sdc-tile__big')).toHaveText('$0.47');
+  await expect(page.locator('#tile-target')).toContainText('to go');
+  await expect(page.locator('#tile-target')).toContainText('free-agent-0.1.0');
+  await expect(page.locator('#tile-quality')).toContainText('of 23');
+  await expect(page.locator('#tile-quality')).toContainText('release 0.1.0');
+  await expect(page.locator('#tile-conformance')).toContainText('lower bound');
+  await expect(page.locator('#tile-conformance')).toContainText('release 0.1.0');
+  const tileBoxes = await page.locator('.sdc-tile').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
+  const vw = page.viewportSize()!.width;
+  if (vw < 600) for (const w of tileBoxes) expect(w, 'two tiles per row at 390').toBeLessThan(vw / 2);
+
+  await expect(page.locator('#metric-cost .sdc-metric__key--target')).toContainText('target $0.47 per run');
+  await expect(page.locator('#metric-cost .sdc-metric__key--reference')).toContainText('free agent median $0.47 (free-agent-0.1.0, n = 3)');
+  await expect(page.locator('#metric-cost .sdc-metric__ref--target .sdc-metric__reflabel')).toHaveText('target');
+  await expect(page.locator('#metric-wall .sdc-metric__key--reference')).toContainText('free agent median 3 min');
+  await expect(page.locator('#metric-wall .sdc-metric__ref--reference .sdc-metric__reflabel')).toHaveText('free agent');
+  await expect(page.locator('#cost-split')).toContainText('release 0.1.2');
+  await expect(page.locator('#cost-split .sdc-split__row')).toHaveCount(3);
+  await expect(page.locator('#cost-split tbody tr').filter({hasText: 'decider'})).toHaveCount(1);
+  const split = (await page.locator('#cost-split svg[role="img"]').getAttribute('aria-label')) ?? '';
+  expect(split).toContain('Sonnet work, Opus decider, n 3: $4.66');
+
+  const exp = page.locator('section[aria-labelledby="experiments"] tbody tr');
+  expect(await exp.count()).toBeGreaterThanOrEqual(5);
+  await expect(exp.filter({hasText: 'free-agent-0.1.0'})).toContainText('contradicted');
+  await expect(exp.filter({hasText: 'build-constraints'})).toContainText('planned');
+  await expect(page.locator('[id="exp-free-agent-0.1.0"]')).toHaveCount(1);
+  for (const id of ['baseline-0.1.0', 'release-0.1.2', 'trial-3-attempts', 'undefined']) await expect(page.locator(`[id="exp-${id}"]`)).toHaveCount(0);
 }
 
 async function checkLlm(page: Page): Promise<void> {

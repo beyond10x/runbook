@@ -1,0 +1,1 @@
+release-0.1.2.mixed.3 (sdc): wall 1821.155 s, cost 2.523224 USD, tokens in 406 out 305462 cache-read 4212267 cache-write 974873; 98 program steps (240.445 s), 26 model sessions (769.709 s, 198 API requests incl. decider, 288 tool calls), 14 decider calls (802.963 s), 1 rule steps, idle 8.038 s (between rounds 0.337, driver 7.701), waiting on a person 0.0 s

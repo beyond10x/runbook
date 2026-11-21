@@ -7,22 +7,17 @@ const sidebars: SidebarsConfig = {
   docsSidebar: [
     {
       type: 'category',
-      label: 'Start',
+      label: 'How it works',
       collapsed: false,
-      items: [page('index', 'What it is'), link('/llm-is-not-the-runtime', 'The LLM is not the runtime'), page('run-it', 'Run it')],
+      items: [
+        page('index', 'What Runbook is'),
+        link('/llm-is-not-the-runtime', 'The LLM is not the runtime'),
+        page('flow', 'The flow'),
+        page('context', 'Context'),
+        page('built-on', 'Built on'),
+      ],
     },
-    {
-      type: 'category',
-      label: 'The cycle',
-      collapsed: false,
-      items: [page('flow', 'The flow'), link('/protocols', 'Protocol browser')],
-    },
-    {
-      type: 'category',
-      label: 'Context',
-      collapsed: false,
-      items: [page('built-on', 'What it is built on'), link('/evaluation', 'Evaluation')],
-    },
+    page('run-it', 'Run it'),
   ],
 };
 

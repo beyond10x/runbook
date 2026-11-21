@@ -1,8 +1,15 @@
-# SDC prototype
+# Runbook prototype
 
 ## What it is
 
-- A family of eight Canon `protocol/1` documents under `protocol/`, one case per stage, composed
+- Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides
+  the next step from recorded facts; a model carries out single steps. The product name is
+  Runbook (the operator, 2026-11-21: "Yes, runbook. Agentic runbook."); the repository is
+  `beyond10x/runbook` (stage 3); the code, binaries, environment names and format ids still carry
+  `sdc` until stage 2 of `story:project-rename`.
+- The software delivery cycle (SDC), the first runbook, takes an idea to a built, tested product.
+  Other runbooks are planned, not built: incident handling, investigations, ticket triage.
+- The SDC is a family of eight Canon `protocol/1` documents under `protocol/`, one case per stage, composed
   with child cases: idea, intake, direction, epic, spec, plan, story, release (`docs/protocol-notes.md:3-16`).
 - The stage is derived from facts (files in the repository, recorded run results), never from a
   stored phase; a passing ESS gate marks the spec complete (`docs/phases.md:3-6`, `:34-35`).
@@ -10,14 +17,14 @@
   bound to one admissible action, records `canon-evidence/1`, evaluates again (`docs/driver.md:3-6`).
 - An LLM is only ever one action's executor; its output is an artifact revision, never evidence
   and never the next state (`docs/driver.md:5-6`).
-- The SDC is an application on Loom; the driver's runtime parts are a temporary copy of what Loom
+- Runbook is an application on Loom; the driver's runtime parts are a temporary copy of what Loom
   must provide (`docs/layers.md:51`; `docs/driver.md:43-45`).
 
 ## Directory map
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
-- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess the SDC calls.
+- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess that Runbook calls.
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
 - `ui/` Node live view of a run (`ui/README.md`).
@@ -79,8 +86,8 @@
   the organization App's credentials. Every other GitHub write goes through
   `b10x-gates api` or `b10x-gates gh`.
 - No attribution lines. Every commit has a subject and a body.
-- Common Gates: hooks with `b10x-gates --repository beyond10x/sdc --policy ../gates-policy/policy.json
-  install`; before a push, `b10x-gates --repository beyond10x/sdc check --receipt <file>`. CI runs
+- Common Gates: hooks with `b10x-gates --repository beyond10x/runbook --policy ../gates-policy/policy.json
+  install`; before a push, `b10x-gates --repository beyond10x/runbook check --receipt <file>`. CI runs
   `.github/workflows/shared-gates.yml`, the reusable Gates workflow pinned by commit. Install and
   check need the repository enrolled in `gates-policy` (GitHub id and adoption baseline, the first
   commit).
@@ -92,7 +99,8 @@
 - The main session only orchestrates (plans, dispatches, verifies, reports): it writes no code, edits no file, runs no long build or test in the foreground and is never blocked on one.
 - Implementation, research, drafting, scoping and reviews run in subagents, model by difficulty: Opus for design, hard implementation and diagnosis; Sonnet for ordinary implementation and research; Haiku for sweeps and mechanical edits. No subagent runs on the main session's own model.
 - Epics and stories created in this store from the operator's requirements are accepted on creation (standing rule of 2026-11-21, `approval-record:operator-standing-acceptance-2026-11-21`): create them and move them to `proposed` in the same step. Upstream blockers stay blockers.
-- The project's name is postponed (`story:project-rename`).
+- The project's name is Runbook, decided on 2026-11-21; the rename runs in three stages
+  (`story:project-rename`).
 - Before working in another repository from this session, list the running sessions; when a session for that repository exists or appears, stop the own agent there at once with the stop tool, not with a message (a message waits behind the agent's running command), and hand the work to that session with the list of everything touched.
 
 ## Work order (the operator, 2026-11-21)

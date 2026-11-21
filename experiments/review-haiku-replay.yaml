@@ -29,7 +29,10 @@ variants:
 - id: haiku-review
   settings:
     models.review.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - review-haiku-replay-1
+  - review-haiku-replay-2
+  - review-haiku-replay-3
 runs_per_variant: 3
 pass_rule: clean-delivery
 decision_rule:

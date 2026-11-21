@@ -8,16 +8,16 @@ import {PRISM_ADDITIONAL_LANGUAGES} from '@beyond10x/docs-system/code';
 const siteDir = path.dirname(fileURLToPath(import.meta.url));
 
 const config: Config = {
-  title: 'SDC',
-  tagline: 'A software delivery cycle that runs on Canon protocols.',
+  title: 'Runbook',
+  tagline: 'Agentic runbooks: fixed, checked ways to handle a case.',
 
   future: {v4: true},
 
   url: 'https://beyond10x.github.io',
-  baseUrl: '/sdc/',
+  baseUrl: '/runbook/',
 
   organizationName: 'beyond10x',
-  projectName: 'sdc',
+  projectName: 'runbook',
   deploymentBranch: 'gh-pages',
   trailingSlash: false,
 
@@ -40,7 +40,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           routeBasePath: 'docs',
-          editUrl: 'https://github.com/beyond10x/sdc/tree/main/website/',
+          editUrl: 'https://github.com/beyond10x/runbook/tree/main/website/',
         },
         blog: false,
         theme: {customCss: './src/css/custom.css'},
@@ -51,16 +51,18 @@ const config: Config = {
   themeConfig: {
     prism: {additionalLanguages: [...PRISM_ADDITIONAL_LANGUAGES]},
     navbar: {
-      title: 'SDC',
+      title: 'Runbook',
       items: [
-        {to: '/docs/', label: 'What it is', position: 'left', activeBaseRegex: '^/sdc/docs/?$'},
-        {to: '/llm-is-not-the-runtime', label: 'The LLM is not the runtime', position: 'left'},
-        {to: '/docs/flow', label: 'The flow', position: 'left'},
-        {to: '/protocols', label: 'Protocols', position: 'left', activeBaseRegex: '^/sdc/protocols'},
-        {to: '/docs/built-on', label: 'Built on', position: 'left'},
-        {to: '/evaluation', label: 'Evaluation', position: 'left', activeBaseRegex: '^/sdc/evaluation'},
-        {to: '/docs/run-it', label: 'Run it', position: 'left'},
-        {href: 'https://github.com/beyond10x/sdc', label: 'GitHub', position: 'right'},
+        {
+          to: '/docs/',
+          label: 'How it works',
+          position: 'left',
+          activeBaseRegex: '/docs/?$|/docs/(flow|context|built-on)/?$|/llm-is-not-the-runtime',
+        },
+        {to: '/protocols', label: 'Protocols', position: 'left', activeBaseRegex: '/protocols'},
+        {to: '/evaluation', label: 'Evaluation', position: 'left', activeBaseRegex: '/evaluation'},
+        {to: '/docs/run-it', label: 'Run it', position: 'left', activeBaseRegex: '/docs/run-it'},
+        {href: 'https://github.com/beyond10x/runbook', position: 'right', className: 'sdc-navbar-github', 'aria-label': 'GitHub repository'},
       ],
     },
     footer: {
@@ -68,11 +70,12 @@ const config: Config = {
         {
           title: 'Documentation',
           items: [
-            {label: 'What it is', to: '/docs/'},
+            {label: 'What Runbook is', to: '/docs/'},
             {label: 'The LLM is not the runtime', to: '/llm-is-not-the-runtime'},
             {label: 'The flow', to: '/docs/flow'},
-            {label: 'Protocol browser', to: '/protocols'},
-            {label: 'What it is built on', to: '/docs/built-on'},
+            {label: 'Context', to: '/docs/context'},
+            {label: 'Built on', to: '/docs/built-on'},
+            {label: 'Protocols', to: '/protocols'},
             {label: 'Evaluation', to: '/evaluation'},
             {label: 'Run it', to: '/docs/run-it'},
           ],
@@ -80,17 +83,17 @@ const config: Config = {
         {
           title: 'Project',
           items: [
-            {label: 'Source', href: 'https://github.com/beyond10x/sdc'},
-            {label: 'Changelog', href: 'https://github.com/beyond10x/sdc/blob/main/CHANGELOG.md'},
+            {label: 'Source', href: 'https://github.com/beyond10x/runbook'},
+            {label: 'Changelog', href: 'https://github.com/beyond10x/runbook/blob/main/CHANGELOG.md'},
           ],
         },
       ],
-      copyright: 'A beyond10x prototype. SDC · Apache-2.0.',
+      copyright: 'A beyond10x prototype. Runbook · Apache-2.0.',
     },
   } satisfies Preset.ThemeConfig,
 };
 
-const site = withProductSite(config, {mark: 'Sd'});
+const site = withProductSite(config, {mark: 'Rb'});
 
 export default {
   ...site,
