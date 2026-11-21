@@ -67,13 +67,19 @@ enum Cmd {
         #[arg(long)] max_wall_seconds: Option<u64>,
     },
     /// Record an authority decision on a capability, taken by a named principal; with `--action`,
-    /// then take that action as the principal (a person's approval record).
+    /// then take that action as the principal (a person's approval record). `--result rejected
+    /// --reasons <file>` (with `--action`) records the approval with that result instead of the
+    /// one its binding maps the exit to; the result must be one of the binding's `results`, and
+    /// the reasons file (sdc.rejection/1) is the step's log blob, which a writer whose binding
+    /// names the kind in `retry_when` gets back in SDC_FEEDBACK.
     Approve {
         #[arg(long)] at: String,
         #[arg(long)] capability: String,
         #[arg(long)] principal: String,
         #[arg(long)] deny: bool,
         #[arg(long)] action: Option<String>,
+        #[arg(long, requires = "action", requires = "reasons")] result: Option<String>,
+        #[arg(long, requires = "result")] reasons: Option<PathBuf>,
     },
     /// Terminate the case through an outcome; Canon refuses one that is not legitimate.
     Close {
@@ -695,8 +701,11 @@ struct Limits {
     deadline: Option<std::time::Instant>,
 }
 
+/// `forced`: a person's approval recorded with a set result (`approve --result`) and the log the
+/// step keeps instead of the tool's output (the reasons).
+#[allow(clippy::too_many_arguments)]
 fn step(canon: &str, dir: &Path, at: &str, action: Option<&str>, args: &str, principal: Option<&str>,
-        limits: &Limits) -> R<(Value, u8)> {
+        forced: Option<(&str, &[u8])>, limits: &Limits) -> R<(Value, u8)> {
     let decision = evaluate(canon, dir, at)?;
     let pos = position(dir, &decision)?;
     let admissible: Vec<String> = serde_json::from_value(pos["admissible"].clone()).unwrap();
@@ -890,7 +899,8 @@ fn step(canon: &str, dir: &Path, at: &str, action: Option<&str>, args: &str, pri
         };
         // A tool cannot name a revision: what it left in `work/` is digested here.
         let (case, moved) = pending(dir)?;
-        let result = b["results"].get(&code).or_else(|| b["results"].get("*"));
+        let forced_result = forced.filter(|_| code == "0").map(|(r, l)| { log = l.to_vec(); json!(r) });
+        let result = forced_result.as_ref().or_else(|| b["results"].get(&code).or_else(|| b["results"].get("*")));
         if program_error(&json!(code)) {
             // A check that could not run is not an `invalid` result: no record (stop below).
         } else if !moved.is_empty() && decl["effect"] != "write" {
@@ -927,9 +937,13 @@ fn step(canon: &str, dir: &Path, at: &str, action: Option<&str>, args: &str, pri
     let case_after = snapshot.as_ref().map_or_else(|| read_json(&dir.join("case.json")), |(c, _)| Ok(c.clone()))?;
     let moved = snapshot.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
     let ids: Vec<&Value> = recorded.iter().map(|r| &r["id"]).collect();
-    event(dir, at, "action_finished", json!({"action": chosen, "exit": code, "log": blob,
+    let mut finished = json!({"action": chosen, "exit": code, "log": blob,
         "evidence": ids, "state_before": before, "case": sha(&json_bytes(&case_after)), "revises": moved,
-        "principal": principal}))?;
+        "principal": principal});
+    if let Some((r, _)) = forced {
+        finished["result"] = json!(r);
+    }
+    event(dir, at, "action_finished", finished)?;
     commit(dir, at, &case_after, &moved)?;
     if program_error(&json!(code)) {
         let tail: String = String::from_utf8_lossy(&log).lines().rev().find(|l| !l.trim().is_empty())
@@ -968,7 +982,7 @@ fn drive(canon: &str, dir: &Path, at: &str, budget: &mut u32, took: &mut Vec<Val
             return Ok((json!({"verdict": "wall_time_spent", "case_dir": dir}), 5));
         }
         *budget -= 1;
-        let (v, code) = step(canon, dir, at, None, "{}", None, limits)?;
+        let (v, code) = step(canon, dir, at, None, "{}", None, None, limits)?;
         if v.get("verdict").is_some() {
             return Ok((v, code));
         }
@@ -1004,7 +1018,7 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                     .unwrap_or(json!({"type": "object", "additionalProperties": false}))})).collect();
             Ok((json!(tools), 0))
         }
-        Cmd::Step { at, action, args } => step(canon, dir, at, action.as_deref(), args, None, &NO_LIMITS),
+        Cmd::Step { at, action, args } => step(canon, dir, at, action.as_deref(), args, None, None, &NO_LIMITS),
         Cmd::Run { at, max_steps, max_llm_calls, max_wall_seconds } => {
             let mut took = Vec::new();
             let mut budget = *max_steps;
@@ -1028,7 +1042,20 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                 "next": v.get("next").cloned().unwrap_or(json!([])), "llm_calls": llm_calls(dir),
                 "position": v["position"]}), code))
         }
-        Cmd::Approve { at, capability, principal, deny, action } => {
+        Cmd::Approve { at, capability, principal, deny, action, result, reasons } => {
+            // A set result is checked before anything is written: it must be one the action's
+            // binding can record, and the reasons must be readable.
+            let forced = match (result, reasons, action) {
+                (Some(r), Some(f), Some(a)) => {
+                    let b = &read_json(&dir.join("bindings.json"))?[a.as_str()];
+                    let known = b["results"].as_object().is_some_and(|m| m.values().any(|v| v == r.as_str()));
+                    if b["manual"] != true || !known {
+                        return Err(format!("`{a}` cannot record result `{r}`: its binding is not a manual approval whose `results` name it"));
+                    }
+                    Some((r.clone(), fs::read(f).map_err(|e| format!("{}: {e}", f.display()))?))
+                }
+                _ => None,
+            };
             let p = dir.join("authority.json");
             let mut list = read_json(&p)?;
             let decision = if *deny { "denied" } else { "granted" };
@@ -1047,7 +1074,8 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                 }
             }
             match action {
-                Some(a) => step(canon, dir, at, Some(a), "{}", Some(principal), &NO_LIMITS),
+                Some(a) => step(canon, dir, at, Some(a), "{}", Some(principal),
+                    forced.as_ref().map(|(r, l)| (r.as_str(), l.as_slice())), &NO_LIMITS),
                 None => Ok((position(dir, &evaluate(canon, dir, at)?)?, 0)),
             }
         }
