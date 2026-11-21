@@ -3907,8 +3907,8 @@
         "rate": null,
         "small_n": true
       },
-      "tree": null,
-      "tree_note": "not tagged yet; 0.2.0 (6cde564) with the fix e46a237 and its preparation on main",
+      "tree": "99f56179428ee272acb894535f852bca93275d56",
+      "tree_note": "tag 0.2.1 at main 99f5617: 0.2.0 (6cde564) with the fix e46a237, the record of 0.2.0 (60b8d3e) and the preparation",
       "version": "0.2.1"
     }
   ],
@@ -4312,6 +4312,130 @@
     },
     {
       "hypothesis": null,
+      "id": "implement-cites-requirements",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "tree",
+          "note": "the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef 3f3a577)."
+        },
+        {
+          "key": "unstick",
+          "note": "run.unstick is on under autopilot with an Opus model in both trees (scripts/run-trial.sh); an unstuck run is not a clean pass."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time, which no record pins; release-0.1.2 has the same confound."
+        },
+        {
+          "key": "adapter",
+          "note": "the implement node runs on metaharness, which has no response-schema option, so the coverage schema reaches it in the prompt and the reply is a file (out/coverage.json) checked by program; under claude-cli it would be schema-constrained."
+        }
+      ],
+      "primary": null,
+      "purpose": "Whether the coverage check of story:implement-cites-requirements lowers the review rejections per run against release 0.1.2 in the strong and mixed settings.",
+      "tree": "3f3a577",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "mixed",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": "With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the mixed setting.",
+      "id": "implement-one-request",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "adapter",
+          "note": "in request mode change.implement runs on claude-cli (sdc-reply adapters, SDC_IMPLEMENT_ADAPTER unset, adapter metaharness), in session mode on metaharness; the harness prefix each pays differs (claude -p with --tools \"\" offers no tool definitions)."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time, which no record pins."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "node.story/change.implement.cost_usd",
+        "min_effect": 0.25
+      },
+      "purpose": "Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the mixed setting; the strong setting is the sibling record implement-one-request-strong on the same tree.",
+      "tree": "ea5f0e0",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "session",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "request",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: session 0 and request 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": "With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the strong setting.",
+      "id": "implement-one-request-strong",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "adapter",
+          "note": "in request mode change.implement runs on claude-cli (sdc-reply adapters, SDC_IMPLEMENT_ADAPTER unset, adapter metaharness), in session mode on metaharness; the harness prefix each pays differs (claude -p with --tools \"\" offers no tool definitions)."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time, which no record pins."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "node.story/change.implement.cost_usd",
+        "min_effect": 0.25
+      },
+      "purpose": "Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the strong setting; the mixed setting is the sibling record implement-one-request on the same tree.",
+      "tree": "ea5f0e0",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "session",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "request",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: session 0 and request 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": null,
       "id": "review-haiku-replay",
       "kind": "prospective",
       "known_confounds": [
@@ -4337,35 +4461,6 @@
           "ended": 0,
           "id": "haiku-review",
           "listed": 3,
-          "primary": null
-        }
-      ],
-      "verdict": "planned, no run yet",
-      "why": "no hypothesis: the record describes its runs and decides nothing"
-    },
-    {
-      "hypothesis": null,
-      "id": "review-minimal-facts",
-      "kind": "prospective",
-      "known_confounds": [
-        {
-          "key": "tree",
-          "note": "the change must be built on the source runs' tree 72a3eef; a replay on a later tree diverges at other calls as well."
-        },
-        {
-          "key": "same-model",
-          "note": "Sonnet in both, so a differing decision is the inputs' doing or Sonnet's own variance; three replays of one source would separate the two, at three times the cost."
-        }
-      ],
-      "primary": null,
-      "purpose": "Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input.",
-      "tree": "",
-      "variants": [
-        {
-          "clean_passes": 0,
-          "ended": 0,
-          "id": "minimal-facts",
-          "listed": 0,
           "primary": null
         }
       ],
@@ -4553,7 +4648,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "5fdc9fe9a059e5053778150a6a77872ef866e53b5f5598e77c968b0f0477fe56"
+      "sha256": "bd85e9db992a352c758e4f8812b5e5cff7df2d5df5be77d316414778a1c996dc"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
@@ -4772,6 +4867,18 @@
       "sha256": "65471e5d5ed6fb9e9d2eb54258250073f7fc80f03e5c5953f0e2bd5295e35346"
     },
     {
+      "path": "experiments/implement-cites-requirements.yaml",
+      "sha256": "a3d2d1736aaa01cbb91b346d294e862cc418a6f90c5726d48669f0cb93c0ff9d"
+    },
+    {
+      "path": "experiments/implement-one-request-strong.yaml",
+      "sha256": "844a6b9ceff8be70c1d135c6aaef5d6be9ac79602ae278df82c95c4ee807ed53"
+    },
+    {
+      "path": "experiments/implement-one-request.yaml",
+      "sha256": "cfdfaeb973b38cac4a18b6ffa941889a5004877dacf0eff20bc42e21bed98e89"
+    },
+    {
       "path": "experiments/release-0.1.2.yaml",
       "sha256": "04e94752d01b60101d6fb1de915df6d40827dfd52cb2eb81e2b9f736ee1c0da7"
     },
@@ -4817,11 +4924,7 @@
     },
     {
       "path": "experiments/review-minimal-facts.yaml",
-      "sha256": "1b66a468450cbc44486a42a3512dfdf7a66d91d8063f809e59b0f66aa31df924"
-    },
-    {
-      "path": "experiments/review-minimal-facts.yaml",
-      "sha256": "86233ee86a2e438c08e4f0bdfd026b729ed29546ce5a1f9a5e9a8acc5bce1db3"
+      "sha256": "c7d259fa3e56b6adcc4d2092e08dc06bd8b5ba20465cb6f415a3d79d7c45cea0"
     },
     {
       "path": "experiments/small-idea-1.yaml",

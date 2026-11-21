@@ -340,8 +340,8 @@ entries:
   label: 0.2.1
   short: docs checks fixed
   date: 2026-11-21
-  tree: null
-  tree_note: not tagged yet; 0.2.0 (6cde564) with the fix e46a237 and its preparation on main
+  tree: 99f56179428ee272acb894535f852bca93275d56
+  tree_note: 'tag 0.2.1 at main 99f5617: 0.2.0 (6cde564) with the fix e46a237, the record of 0.2.0 (60b8d3e) and the preparation'
   experiments: []
   changes:
   - commit: e46a237
