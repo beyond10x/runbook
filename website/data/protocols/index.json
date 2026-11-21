@@ -673,11 +673,22 @@
   ],
   "release": {
     "date": "2026-11-21",
-    "notes": "docs/releases/0.2.0.md",
-    "tag": "0.2.0",
-    "version": "0.2.0"
+    "notes": "docs/releases/0.2.1.md",
+    "tag": "0.2.1",
+    "version": "0.2.1"
   },
   "releases": [
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "Every limit of 0.2.0 stands: three runs per setting and tree; the story's `tests.run` repeats the interpreted suite; the conformance observation is off by default; no run has used the 0.1.3, 0.1.4, 0.2.0 or 0.2.1 tree; the binaries, environment names and protocol ids still say `sdc`; the driver's runtime parts are a temporary copy of what the Loom runtime must provide.",
+        "Tag 0.2.0 keeps both defects; tags are not moved."
+      ],
+      "notes": "docs/releases/0.2.1.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.2.1/docs/releases/0.2.1.md",
+      "summary": "A patch release of 0.2.0, the same day. It fixes two defects of the 0.2.0 tree that only the documentation checks see. The driver, the protocols, the bindings, the tools and the run inspector are those of 0.2.0 except for the version number, so nothing a run does changes. A source release at tag `0.2.1`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits. Read `docs/releases/0.2.0.md` for the release this one repairs.",
+      "version": "0.2.1"
+    },
     {
       "date": "2026-11-21",
       "limits": [
@@ -776,7 +787,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "ae4fa899a76edf72a9659e46e6254bf5e77320b46ce5c598c94606d251161c6c"
+      "sha256": "bfc33da942f2c838532269a4c74cbddf260a81629e74f3bd2a77805d92a8f091"
     },
     {
       "path": "docs/check-output.txt",
@@ -805,6 +816,10 @@
     {
       "path": "docs/releases/0.2.0.md",
       "sha256": "6c68baed412e1fd5926049ec90145118c525aa66e361b8fc0c0de05fcee1ffbd"
+    },
+    {
+      "path": "docs/releases/0.2.1.md",
+      "sha256": "2cd139fd0bee25b41610fb898d79b73918022c2e85a2f53073042cf2bfaaeaf1"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

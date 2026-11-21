@@ -82,6 +82,26 @@ The crates are `publish = false`; releases are source releases at bare-version t
   (both variants set `implement_coverage: on`) is registered and not launched; cycle
   `implement-coverage-default` re-drives main's stub recording with the switch unset.
 
+## [0.2.1] - 2026-11-21
+
+A patch release of 0.2.0: two fixes of the documentation checks. The driver, protocols, bindings,
+tools and run inspector are unchanged apart from the version. The longer note is
+`docs/releases/0.2.1.md`.
+
+### Fixed
+
+- `website/tests/smoke.spec.ts` expected the evaluation page's list of releases without runs to be
+  exactly 0.1.1, 0.1.3 and 0.1.4, so the 0.2.0 entry made four smoke tests and `Documentation
+  validation` fail on the 0.2.0 tag commit. The assertion requires those three first and admits
+  later ones (`e46a237`). No run metric is affected.
+- `website/data/protocols/index.json` was stale on the 0.2.0 tree; it is written again with
+  `sdc-protocol-site write` (`e46a237`). No run metric is affected.
+
+### Changed
+
+- The approval record of 0.2.0 and the ledger tree of 0.2.0 (6cde564).
+- The three crates, their lock files and `ui/package.json` are at 0.2.1.
+
 ## [0.2.0] - 2026-11-21
 
 The product is named Runbook and the repository moves to `beyond10x/runbook`; the software delivery
