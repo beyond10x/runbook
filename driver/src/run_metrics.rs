@@ -1096,7 +1096,7 @@ pub fn load(dir: &Path) -> Res<J> {
     let mut run = run;
     let conf_fields = json!({
         "conformance": conformance.as_ref().map_or_else(|| "not observed".to_string(), conformance_figure),
-        "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_d": conf("d"), "conformance_u": conf("u"), "conformance_n": conf("n"),
+        "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_p": conf("p"), "conformance_d": conf("d"), "conformance_u": conf("u"), "conformance_n": conf("n"),
         "conformance_agreement": conf("agreement"), "conformance_tables": conf("tables_counted"),
         "conformance_result": conf("result"), "conformance_cause": conf("cause"), "conformance_measured": measured,
     });
@@ -1200,10 +1200,12 @@ fn opt(v: &J) -> String {
     if v.is_null() { "-".into() } else { js(v) }
 }
 
-/// The figure of one conformance record (`oracle.json` `conformance`, the same rule as
-/// `sdc-conform`): `k passed, f failed, d disputed, u not measurable of n; t tables agree on a of n`
-/// (`; 1 table` for one), with `, unknown: <cause>` for a measured unknown;
-/// `not measured (<cause>), n scenarios` when no table was counted.
+/// The figure of one conformance record (`oracle.json` `conformance`), the one text `sdc-conform`,
+/// run-metrics, run-compare and the progress ledger show (docs/conformance.md):
+/// `spec scenarios proven passed: k of n (lower bound); f failed[, of which p refused for a
+/// precondition the specification does not model][; d disputed]; u not measurable; tables agree on
+/// a of n` (`; 1 table` for one), ` (held)` only when k = n; `not measured (<cause>), n scenarios`
+/// when no table was counted. A run with no record is `not observed`, never 0.
 pub fn conformance_figure(c: &J) -> String {
     let cause = c["cause"].as_str().unwrap_or("no cause");
     let n = c["n"].as_u64();
@@ -1214,26 +1216,29 @@ pub fn conformance_figure(c: &J) -> String {
         };
     };
     let d = c["d"].as_u64().unwrap_or(0);
-    let mut text = format!("{k} passed, {f} failed, {d} disputed, {u} not measurable of {n}");
+    let p = c["p"].as_u64().unwrap_or(0);
+    let mut text = format!("spec scenarios proven passed: {k} of {n} (lower bound); {f} failed");
+    if p > 0 {
+        text.push_str(&format!(", of which {p} refused for a precondition the specification does not model"));
+    }
+    if d > 0 {
+        text.push_str(&format!("; {d} disputed"));
+    }
+    text.push_str(&format!("; {u} not measurable"));
     match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
         (Some(1), _) => text.push_str("; 1 table"),
-        (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),
+        (Some(_), Some(a)) => text.push_str(&format!("; tables agree on {a} of {n}")),
         _ => {}
     }
-    if c["result"] == "unknown" {
-        text.push_str(&format!(", unknown: {cause}"));
+    if k == n {
+        text.push_str(" (held)");
     }
     text
 }
 
-/// `k passed, f failed, d disputed, u not measurable of n (held|contradicted)`, an unknown's figure, or
-/// `not observed`.
+/// The conformance figure of a run's metrics, `not observed` when the run has none.
 pub fn conformance_text(m: &J) -> String {
-    let summary = m["conformance"].as_str().unwrap_or("not observed");
-    match m["conformance_result"].as_str() {
-        Some(r @ ("held" | "contradicted")) => format!("{summary} ({r})"),
-        _ => summary.to_string(),
-    }
+    m["conformance"].as_str().unwrap_or("not observed").to_string()
 }
 
 /// A short text form of one run's metrics.

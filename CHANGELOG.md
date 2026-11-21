@@ -14,7 +14,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
   run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
   `sdc-conform-adapter`, with route tables written after the run by the node `conformance.table`
   (read-only, response schema, program check, two retries) and writes `runs/<run>/oracle.json`:
-  `conformance: k passed, f failed, d disputed, u not measurable of n; t tables agree on a of n`.
+  `conformance: spec scenarios proven passed: k of n (lower bound); f failed; u not measurable;
+  tables agree on a of n`.
   The suite runs once per table (`--tables`, default 3); a scenario passes only when every counted
   table that reached it passed it, fails only when every one failed it, and is disputed when they
   disagree (cause `disputed` when nothing failed). Several statuses may mean one outcome
@@ -26,8 +27,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
   command's unknown-instance answer (ESS: not-found, else `wrong_state`), and 404 for an id it
   created never; a start value the README leaves to the operator can come from the scenario
   (`start.args`, `from_scenario`); a slot refused after its retry gets one more session (five per
-  slot). The figure is an instrument
-  study, not a ledger metric. A table whose run shows its own fault (a capture
+  slot). The figure goes into a release as an observation: `passed` is a lower bound, judged against
+  the run's own specification; nothing else is claimed. A table whose run shows its own fault (a capture
   that never appears, a request naming a value the scenario leaves out, 401 or 403) is refused and
   asked again once with that evidence. `held` only when k = n > 0 (u > 0 is never held); a run
   without a counted table is `unknown` with a named cause and prints no counts
@@ -36,12 +37,20 @@ The crates are `publish = false`; releases are source releases at bare-version t
   `not_reachable_over_the_interface`; `not_implemented` fails. The table can capture values the
   product prints at start (`captures`), send them in paths, headers and bodies, and bind them to a
   spec input (`bindings`). `scripts/run-trial.sh` runs it after a close (`SDC_CONFORMANCE=off`).
-  Observation only: no gate.
+  Observation only: no gate. A scenario one counted table saw fail and the others declared
+  unreachable counts failed. When every slot's table is refused only for the product's 401 or 403 in
+  the same scenarios, none of which had a success before its refusal (a sign-in the specification
+  does not model), those scenarios count failed with cause `precondition_not_in_spec`
+  ("f failed, of which p refused for a precondition the specification does not model").
+  `sdc-conform recompute` takes the figure again from stored table runs, `sdc-conform summary`
+  prints the sanitized summary the progress ledger reads from
+  `experiments/<id>/conformance/<run>.json`; the ledger shows conformance always (`not observed`
+  where a run has none), with the baseline-0.1.0 figures. One text form in oracle.json,
+  run-metrics, run-compare and the ledger. About 1 to 3 USD of node cost per observed product.
 - `driver/ess-pin.json`: ess 0.97.0 pinned by archive and binary sha256 per platform, resolved
   through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
 - The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in
-  `sdc-run-metrics`; a conformance column, line and per-run figure in the progress ledger only with
-  `sdc-experiment progress --with-conformance` (the committed `docs/progress.*` carry none).
+  `sdc-run-metrics`; a conformance column, line and per-run figure in the progress ledger.
 
 ## [0.1.3] - 2026-11-21
 

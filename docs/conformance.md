@@ -9,11 +9,23 @@ before it existed (`story:conformance-observe-after-close`). Gating is
 
 ```console
 $ driver/target/debug/sdc-conform observe runs/<run> [--tables 3] [--table <table.json>]
-conformance: 9 passed, 2 failed, 2 disputed, 4 not measurable of 17; 3 tables agree on 14 of 17
+conformance: spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 not measurable; tables agree on 16 of 17
 ```
 
 A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
 scenarios`. `scripts/run-trial.sh` calls it after every close (off with `SDC_CONFORMANCE=off`).
+Writing the tables costs about 1 to 3 USD of node cost per observed product (0.82 to 2.99 USD on
+the six 0.1.0 baseline products, below).
+
+## What the figure claims
+
+It judges the delivered product against **its own run's specification**: the contract the run
+wrote and then implemented. `passed` is a lower bound and nothing else is claimed: a scenario counts
+passed only when every counted table that reached it passed it, and what the tables could not reach
+stays outside k. `held` is said only when k = n. A run without an observation shows `not observed`,
+never 0. A specification that forgot something the product needs, such as a sign-in, is the
+workflow's fault upstream, and the figure shows it: the product refuses what the contract says
+succeeds, so it does not conform to that contract (`precondition_not_in_spec`, below).
 
 ## What it does
 
@@ -50,6 +62,11 @@ error):
 - **not measurable**: no counted table reached it;
 - **table agreement**: the scenarios with the same result under every counted table, of n.
 
+A failure is not hidden by an unreachable declaration: a scenario that failed under one counted
+table that reached it and that the other tables declared unreachable counts failed (it was reached
+and it failed; `strong-2`'s `PushChange/superseded`, under `failed`, `not_measurable`,
+`not_measurable`). Not measurable is only what no counted table reached.
+
 `held` only when every scenario passed (k = n > 0); `contradicted` when f > 0; otherwise `unknown`
 with cause `disputed` when d > 0, else `not_measurable`. With no counted table the run is
 `unknown` with the slots' most frequent cause, and k, f, d and u are null.
@@ -76,6 +93,19 @@ evidence as feedback (`retried_after_run`, `evidence`, every run under `runs`). 
 that retry, by the check or by its run, gets one more fresh session with the reasons
 (`one_more_session`); at most five node sessions per slot (three for the check, the retry, the one
 more). A table refused after that leaves the slot uncounted.
+
+**A precondition the specification does not model is a deviation, not a table fault.** When every
+slot ended refused after its retry with the product's 401 or 403 as its only fault, every slot's
+last run was refused in the same scenarios, none of those scenarios had a request answered with
+success before its refusal, and the product did answer some other request with success, then no
+command of those scenarios could satisfy the product: it wants something (a signed-in session)
+that only a request the scenarios never send provides. The slots count after all
+(`precondition_not_in_spec`: the ids per slot, the refusal kept under `refused_after_run`), and
+those scenarios count `failed` with cause `precondition_not_in_spec`, listed apart in the text: "f
+failed, of which p refused for a precondition the specification does not model". A product that
+accepts no request at all wants a key or token from outside the scenarios (a value it prints at
+start, a key in its README): that stays the table's fault (`table_error`). A refused scenario with
+a success before its refusal is a session the table did not carry: the table's fault too.
 
 **How a table could pass what the product fails**, and what the checker does about it:
 
@@ -193,14 +223,17 @@ a product that answers 404 for a removed or finished entity fails that scenario.
 
 ## oracle.json
 
-`sdc.oracle/1`: `checks` holds one entry `{id: conformance, result, k, f, d, u, n, agreement,
+`sdc.oracle/1`: `checks` holds one entry `{id: conformance, result, k, f, p, d, u, n, agreement,
 tables_counted, cause}` (the shape `sdc-run-compare`'s oracle check reads), `conformance` the
-record: `result`, `k`, `f`, `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `node_sessions`, `measured`,
+record: `result`, `k`, `f`, `p` (of f, refused for a precondition the specification does not
+model), `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `node_sessions`, `measured`,
 `summary`, `cause`, `why`, `table_cost_usd` (all slots), `tables` (per slot: source, model,
 effort, attempts, `cost_usd`, `retried_after_run`, `one_more_session`, `evidence`, `counted`, `cause`, `why`, the
 final run's `k`, `f`, `u`, `e` (errors), `unverified` (checks), `n`, `conformance_status`, `declared_missing`, `build`,
+`precondition_not_in_spec` and `refused_after_run` when that rule counted the slot,
 and `runs`, one record per table run), `scenarios` (id, status over the counted tables, `under`:
-the status per slot, null for an uncounted slot), `failed_checks` (scenario, about, code,
+the status per slot, null for an uncounted slot, `cause` `precondition_not_in_spec` where it
+applies), `recomputed` (after `sdc-conform recompute`), `failed_checks` (scenario, about, code,
 expected, observed, table) of the failed and disputed scenarios, `unverified_checks`
 (scenario, about, fields, table), `adapter_notes` (with table), `ess` (version,
 sha256, source), `suite` (sha256), `product` (tree, PROVENANCE), `limits`. k, f, d, u and
@@ -220,7 +253,7 @@ with a cause, never a pass:
 | `no_delivered_tree` | the root case has neither `work/published/` nor `work/release/` |
 | `table_missing` | no reply from the node, a model-less adapter (`stub`, `dry`), or an unreadable `--table` |
 | `table_refused` | the check refused the table (after two retries of the node, or on the retry after a run) |
-| `table_error` | the table's run showed its own fault (an unfillable request, 401 or 403), also after the retry |
+| `table_error` | the table's run showed its own fault (an unfillable request, 401 or 403), also after the retry, and the precondition rule above did not apply |
 | `capture_missing` | a capture did not appear on its stream within its timeout, also after the retry |
 | `product_build_failed` | `build.argv` exited non-zero or timed out (`SDC_CONFORMANCE_BUILD_TIMEOUT`, 900 s) |
 | `product_not_started` | the product did not answer `start.ready` in a scenario |
@@ -233,22 +266,35 @@ failed or is disputed, u > 0).
 
 ## Where the figure shows
 
-The figure is an instrument study, not a ledger metric: it goes into no release's ledger and no
-Evaluation chart until it is defined without a free choice by the measurer (state below).
+The figure goes into a release as an observation: what the remaining choice of the table node can
+do is bounded (below), so `passed` is published as a lower bound and nothing else is claimed. It
+gates nothing.
 
-One text form everywhere: `k passed, f failed, d disputed, u not measurable of n; t tables agree
-on a of n` (`; 1 table` for one), with `, unknown: <cause>` for a measured unknown; `not measured
-(<cause>), n scenarios` (or `not measured (<cause>)` when the suite was never counted) for a run
-with no counted table; `not observed` without `oracle.json`.
+One text form everywhere (`run_metrics::conformance_figure`): `spec scenarios proven passed: k of
+n (lower bound); f failed[, of which p refused for a precondition the specification does not
+model][; d disputed]; u not measurable; tables agree on a of n` (`; 1 table` for one), with
+` (held)` only when k = n; `not measured (<cause>), n scenarios` (or `not measured (<cause>)` when
+the suite was never counted) for a run with no counted table; `not observed` without
+`oracle.json`, never 0. Never a percentage without n.
 
-- `sdc-run-metrics`: `metrics.conformance` (that text), `conformance_k`, `_f`, `_d`, `_u`, `_n`,
-  `_agreement`, `_tables`, `_result`, `_cause`, `_measured`; the text form's line
-  `conformance: …` (with `(held)` or `(contradicted)`).
-- `sdc-run-compare`: the row `conformance`, from the same numbers.
-- The progress ledger only with `sdc-experiment progress --with-conformance` (off by default; the
-  committed `docs/progress.*` and `sdc-experiment check --all` are without it): per entry k, f, d,
-  u and n summed over the measured runs (held, contradicted, unknown), the agreement summed over
-  them, the observed runs with no figure by cause, per run its figure, and a summary column.
+- `sdc-run-metrics`: `metrics.conformance` (that text), `conformance_k`, `_f`, `_p`, `_d`, `_u`,
+  `_n`, `_agreement`, `_tables`, `_result`, `_cause`, `_measured`; the text form's line
+  `conformance: …`.
+- `sdc-run-compare`: the row `conformance`, the same text.
+- The progress ledger (`sdc-experiment progress`, always; `docs/progress.*` and `sdc-experiment
+  check --all` include it): per run the committed summary `experiments/<id>/conformance/<run>.json`
+  when there is one, else the run summary's `conformance_*` figures; per entry k, f, p, d, u and n
+  summed over the measured runs, the agreement summed over them, held runs, the observed runs with
+  no figure by cause, the runs not observed, and the node cost of the tables; per run its figure;
+  a summary column.
+- `sdc-conform summary <run>` prints that committed summary (`sdc.conformance-summary/1`): counts,
+  result and cause, scenario causes counted, table agreement, per slot its counts, end, sessions and
+  node cost, the ess version and the suite's sha256. No request, no response body, no `why`, no
+  scenario id: nothing the product or a model wrote.
+- `sdc-conform recompute <run>` takes the figure again from the table runs the run stored
+  (`conformance/table-<slot>/run-<n>/`: report, ess detail, adapter log, table) under the current
+  rules, with no node session, no build and no ess run; slots, sessions and costs stay those of
+  the stored record, which is kept under `recomputed.previous_summary`.
 
 ## The ess pin
 
@@ -271,7 +317,8 @@ sibling checkout (`scripts/check-protocols.sh`, `CANON_DIR`; `scripts/run-trial.
 - Each table is a model's reading of the product. Several tables make a disagreement visible
   (disputed) instead of resolving it; the open row of the table under "How a table could pass what
   the product fails" can still pass a scenario the product fails. The records are kept for review.
-- N tables cost N node sessions and N suite runs (plus one per retry).
+- N tables cost N node sessions and N suite runs (plus one per retry): about 1 to 3 USD of node
+  cost per observed product with three tables.
 - Only products with an HTTP JSON surface; a command-line product needs another adapter.
 - A capture reads only what the product prints. A value it mints and keeps to itself cannot be
   bound; the node declares what needs it `none`, and the kind decides whether its scenarios fail
@@ -281,21 +328,22 @@ sibling checkout (`scripts/check-protocols.sh`, `CANON_DIR`; `scripts/run-trial.
 
 Three tables per product, table node Sonnet at effort high, the four-count rule, the checks above,
 the adapter's unknown-instance reading, `start.args` and the one more session. Round cap 10 USD
-of node cost; spent 8.50 USD.
+of node cost; spent 8.50 USD. The figures below are `sdc-conform recompute` of those table runs
+under the precondition rule (no new node session); only `mixed-2` changed. Their sanitized
+summaries are `experiments/baseline-0.1.0/conformance/*.json`; the haiku runs were not observed.
 
-| run | passed / failed / disputed / not measurable of n | passed, failed, not measurable per table | node sessions | node cost |
+| run | figure | passed, failed, not measurable per table | node sessions | node cost |
 |---|---|---|---|---|
-| `strong-1` | 16 / 1 / 0 / 0 of 17 | 16 1 0 · 16 1 0 · 16 1 0 | 4 | 0.82 USD |
-| `strong-2` | 11 / 2 / 0 / 4 of 17 | 11 2 4 · 11 1 5 · 11 1 5 | 5 | 1.41 USD |
-| `strong-3` | 7 / 13 / 0 / 0 of 20 | 7 13 0 · 7 13 0 · 7 13 0 | 5 | 1.34 USD |
-| `mixed-1` | 6 / 5 / 0 / 8 of 19 | 6 5 8 · 6 5 8 · 6 5 8 | 4 | 0.89 USD |
-| `mixed-2` | not measured (`table_error`), 16 scenarios | 2 8 6 in each slot, refused after its run | 9 | 2.99 USD |
-| `mixed-3` | 11 / 2 / 0 / 1 of 14 | 11 2 1 · 11 2 1 · 11 2 1 | 6 | 1.05 USD |
+| `strong-1` | spec scenarios proven passed: 16 of 17 (lower bound); 1 failed; 0 not measurable; tables agree on 17 of 17 | 16 1 0 · 16 1 0 · 16 1 0 | 4 | 0.82 USD |
+| `strong-2` | spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 not measurable; tables agree on 16 of 17 | 11 2 4 · 11 1 5 · 11 1 5 | 5 | 1.41 USD |
+| `strong-3` | spec scenarios proven passed: 7 of 20 (lower bound); 13 failed; 0 not measurable; tables agree on 20 of 20 | 7 13 0 · 7 13 0 · 7 13 0 | 5 | 1.34 USD |
+| `mixed-1` | spec scenarios proven passed: 6 of 19 (lower bound); 5 failed; 8 not measurable; tables agree on 19 of 19 | 6 5 8 · 6 5 8 · 6 5 8 | 4 | 0.89 USD |
+| `mixed-2` | spec scenarios proven passed: 2 of 16 (lower bound); 8 failed, of which 8 refused for a precondition the specification does not model; 6 not measurable; tables agree on 16 of 16 | 2 8 6 · 2 8 6 · 2 8 6 | 9 | 2.99 USD |
+| `mixed-3` | spec scenarios proven passed: 11 of 14 (lower bound); 2 failed; 1 not measurable; tables agree on 14 of 14 | 11 2 1 · 11 2 1 · 11 2 1 | 6 | 1.05 USD |
 
 Node sessions are counted per product; the cap is five per slot (three for the check, the retry
-after a run, one more). The per-table passed counts are equal on every measured product. The
-three tables agree on every scenario of `strong-1`, `strong-3`, `mixed-1` and `mixed-3`, and on 16
-of 17 of `strong-2`.
+after a run, one more). The per-table passed counts are equal on every product. The three tables
+agree on every scenario of five products, and on 16 of 17 of `strong-2`.
 
 What the unknown-instance reading changed: the `wrong-state` scenarios that send an id no step
 created now pass where the product refuses it (404 "no such change"): three on `strong-1`, two on
@@ -312,19 +360,23 @@ the product: it answers 200 `sent` for a change id it never held.
   under one table and not measurable under the two that declared it unreachable), `mixed-1`
   (`ChangeOffline`, `KeepCopy`, `SendChanges`, and the views `OpenItems`, `DoneItems`, `CopyView`:
   8 scenarios), `mixed-3` (`SyncEdit/dropped`: 1).
-- **No sign-in a table can send** (`mixed-2`): the product refuses every list command 401
-  `NotSignedIn` until a partner signs in, and the scenarios of `AddItem`, `CompleteItem` and
-  `Items` never call `SignIn`. The partner ids now come from the scenario (`start.args`), so the
-  `SignIn` scenarios reach the product, but a session the specification does not model is an
-  ambient precondition (ESS `docs/design/outcome-shapes.md`, #152), not a table fault. The
-  instrument counts 401 as a table fault and so never counts a table for this product.
 - Routes, the status of each outcome, forced requests and view rows are still written by the node.
   On `strong-1` and `strong-3` no scenario rests on a `none`, a dispute or an unverified check,
   and three independent tables wrote the same results scenario for scenario.
 
-So the instrument is choice-free in that sense on two of the six products (`strong-1`,
-`strong-3`), not on five: the `none` kind decides results on `strong-2`, `mixed-1` and `mixed-3`,
-and `mixed-2` is not measured. The figure stays out of the ledger.
+What that choice can do is bounded: a `none` moves a scenario between failed and not measurable,
+never into passed, and a scenario one table saw fail is never counted passed. So k is a lower bound on every
+product, and the figure goes into the ledger as such.
+
+**`mixed-2` and the sign-in.** The product refuses every list command 401 `NotSignedIn` until a
+partner signs in, and the scenarios of `AddItem`, `CompleteItem`, `EditItem`, `Item` and
+`SendChange` never call `SignIn`; in all nine sessions of the three slots the first request of
+each of those 8 scenarios was refused, while `SignIn` itself was answered 200. A session the
+specification does not model is an ambient precondition (ESS `docs/design/outcome-shapes.md`,
+#152). It used to leave the product not measured; it now counts against the product: the
+specification is the contract, and a product that refuses what the contract says succeeds does not
+conform. The specification that forgot the sign-in is the workflow's fault upstream, which is what
+the figure shows.
 
 Earlier readings on the same copies, for comparison: before the unknown-instance reading
 `strong-1` was 13 / 4 / 0 / 0 and `strong-2` had two scenarios disputed on whether 404 is

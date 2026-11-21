@@ -1,6 +1,6 @@
 //! Test double for `sdc-conform` (driver/tests/conformance.rs), two roles in one binary.
 //!
-//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|gone|nostart|failbuild|token|token-silent|partner <code>]`
+//! Product: `conformance-stub-product <port> <data dir> [ok|deviate|gone|nostart|failbuild|token|token-silent|session|partner <code>]`
 //! serves the `chores` fixture specification (driver/tests/fixtures/conformance/spec) on 127.0.0.1
 //! over HTTP: `POST /chores {"title"}` 201, `POST /chores/<id>/finish [{"board":"down"}]` 200, 503
 //! or 409 `{"error","state"}`, `GET /boards/<code>` 200 `{"code"}`, `GET /chores/open`,
@@ -10,7 +10,9 @@
 //! fails); `nostart` exits at once; `failbuild` exits 1 (a build step that fails). `token` mints a
 //! token at start and prints `board token: <token>` on stdout; every route but `/health` then needs
 //! the header `x-token: <token>` (else 401) and `/boards/<code>` knows only the token (else 404).
-//! `token-silent` does the same without printing the token.
+//! `token-silent` does the same without printing the token. `session` answers every `/chores` route
+//! 401 `NotSignedIn` without the header `x-session`, which only `POST /sessions` hands out: a sign-in
+//! the fixture specification has no command for; `/boards` stays open.
 //!
 //! Table node: with `SDC_STUB_TABLE_NODE=<slot>[;<slot>...]`, each slot `<table.json>[,<table.json>...]`,
 //! called as an LLM adapter with one argument (the request file), it copies the table for the
@@ -112,7 +114,13 @@ fn main() {
                 continue;
             }
         }
+        let session = head.lines().any(|l| l.to_ascii_lowercase().starts_with("x-session:"));
+        if mode == "session" && parts.first() == Some(&"chores") && !session {
+            respond(&mut st, 401, &json!({"error": "NotSignedIn"}));
+            continue;
+        }
         match (method, parts.as_slice()) {
+            ("POST", ["sessions"]) if mode == "session" => respond(&mut st, 201, &json!({"session": "s1"})),
             ("GET", ["health"]) => respond(&mut st, 200, &json!({"ok": true})),
             ("GET", ["boards", code]) if mode == "partner" => match args.get(3) {
                 Some(b) if b == code => respond(&mut st, 200, &json!({"code": code})),

@@ -16,9 +16,10 @@
 //! runs `ess verify conform run --target process` with `sdc-conform-adapter` once per table. A
 //! table whose run shows its own fault (a capture that never appears, a request naming a value the
 //! scenario does not carry, 401 or 403 from the product) is refused and asked again once with that
-//! evidence. It writes `<run>/oracle.json` (`sdc.oracle/1`, one check `conformance`: k passed, f
-//! failed, d disputed, u not measurable of n scenarios over the counted tables, and how many scenarios
-//! ended the same under all of them; `held` only when k = n > 0), `<run>/conformance-detail.json` (every
+//! evidence. It writes `<run>/oracle.json` (`sdc.oracle/1`, one check `conformance`: spec
+//! scenarios proven passed k of n (a lower bound), failed f (p of them refused for a precondition the
+//! specification does not model), disputed d, not measurable u over the counted tables, and how many
+//! scenarios ended the same under all of them; `held` only when k = n > 0), `<run>/conformance-detail.json` (every
 //! table run's ess `--format json` output) and its working files under `<run>/conformance/`. An
 //! empty suite, a missing delivered tree, no counted table (missing, refused, product not built or
 //! not started) and a missing or mismatched ess are each `unknown` with a named cause and no counts,
@@ -45,9 +46,15 @@ use serde_json::{json, Value as J};
 #[allow(dead_code)]
 mod conformance;
 
+#[path = "../run_metrics.rs"]
+#[allow(dead_code)]
+mod run_metrics;
+
 use conformance::{check_table, declared_missing, needs_unreachable, not_reachable, read_json, resolve_ess, s, sha256_bytes, sha256_file, table_schema, Ess};
 
 const USAGE: &str = "usage: sdc-conform observe <run dir> [--tables <n>] [--table <table.json>] [--pin <ess-pin.json>] [--tools <dir>]
+       sdc-conform recompute <run dir> [--pin <ess-pin.json>]
+       sdc-conform summary <run dir>
        sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
        sdc-conform ess-path [--pin <ess-pin.json>]
        sdc-conform ess-install [--archive <file>] [--pin <ess-pin.json>]";
@@ -140,29 +147,9 @@ struct Obs {
     rec: J,
 }
 
-/// The figure of a conformance record: `k passed, f failed, d disputed, u not measurable of n; t tables agree
-/// on a of n` (`; 1 table` for one), with `, unknown: <cause>` for a measured unknown;
-/// `not measured (<cause>), n scenarios` when no table was counted.
+/// The figure of a conformance record (`run_metrics::conformance_figure`).
 fn figure(c: &J) -> String {
-    let cause = c["cause"].as_str().unwrap_or("no cause");
-    let n = c["n"].as_u64();
-    let (Some(k), Some(f), Some(u), Some(n)) = (c["k"].as_u64(), c["f"].as_u64(), c["u"].as_u64(), n) else {
-        return match n {
-            Some(n) => format!("not measured ({cause}), {n} scenarios"),
-            None => format!("not measured ({cause})"),
-        };
-    };
-    let d = c["d"].as_u64().unwrap_or(0);
-    let mut text = format!("{k} passed, {f} failed, {d} disputed, {u} not measurable of {n}");
-    match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
-        (Some(1), _) => text.push_str("; 1 table"),
-        (Some(t), Some(a)) => text.push_str(&format!("; {t} tables agree on {a} of {n}")),
-        _ => {}
-    }
-    if c["result"] == "unknown" {
-        text.push_str(&format!(", unknown: {cause}"));
-    }
-    text
+    run_metrics::conformance_figure(c)
 }
 
 impl Obs {
@@ -184,7 +171,7 @@ impl Obs {
         self.rec["limits"] = json!(LIMITS);
         let name = self.run.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
         let r = &self.rec;
-        let check = json!({"id": "conformance", "result": result, "k": r["k"], "f": r["f"], "d": r["d"], "u": r["u"], "n": r["n"],
+        let check = json!({"id": "conformance", "result": result, "k": r["k"], "f": r["f"], "p": r["p"], "d": r["d"], "u": r["u"], "n": r["n"],
             "agreement": r["agreement"], "tables_counted": r["tables_counted"], "cause": cause});
         let doc = json!({"format": "sdc.oracle/1", "run": name, "checks": [check], "conformance": self.rec});
         let p = self.run.join("oracle.json");
@@ -462,11 +449,42 @@ struct TableRun {
     detail: J,
     /// Checks of fields the table fills from the request's own input: `{scenario, about, fields}`.
     unverified: Vec<J>,
+    /// When the run's only fault is the product refusing 401/403: the refused scenarios, if none of
+    /// them had a request answered with success before its refusal and the product answered some
+    /// other request with success (`precondition_refusals`).
+    precondition: Option<std::collections::BTreeSet<String>>,
+}
+
+/// The scenarios the product refused 401/403 although nothing the scenario sent before had been
+/// answered with success, when the product answered some other request with success: a
+/// precondition (a sign-in) that no request of the scenario can meet. None when a refused scenario
+/// had a request answered 2xx before its refusal (a session the table did not carry) or the product
+/// accepted no request at all (a key the table did not send).
+fn precondition_refusals(events: &[J]) -> Option<std::collections::BTreeSet<String>> {
+    use std::collections::BTreeSet;
+    let (mut refused, mut ok_before, mut any_ok) = (BTreeSet::new(), BTreeSet::new(), false);
+    for e in events {
+        let sc = s(&e["scenario"]).to_string();
+        let status = e["status"].as_u64();
+        if e["event"] == "request" && matches!(status, Some(200..=299)) {
+            any_ok = true;
+            if !refused.contains(&sc) {
+                ok_before.insert(sc);
+            }
+        } else if (e["event"] == "unmapped_status" || e["event"] == "view_unreadable") && matches!(status, Some(401 | 403)) {
+            if ok_before.contains(&sc) {
+                return None;
+            }
+            refused.insert(sc);
+        }
+    }
+    (any_ok && !refused.is_empty()).then_some(refused)
 }
 
 /// What the adapter log shows as the table's own fault: a capture that never appeared, a request
 /// naming a value the scenario does not carry, the product refusing requests as unauthenticated.
-fn table_evidence(events: &[J], n: usize) -> (Vec<String>, &'static str) {
+/// The third value: the product's 401/403 refusals are the only fault shown.
+fn table_evidence(events: &[J], n: usize) -> (Vec<String>, &'static str, bool) {
     use std::collections::BTreeMap;
     let mut out = vec![];
     let mut caps: BTreeMap<String, (usize, String)> = BTreeMap::new();
@@ -496,7 +514,8 @@ fn table_evidence(events: &[J], n: usize) -> (Vec<String>, &'static str) {
             first["status"], auth.len(), about.join(", "), s(&first["body"])));
     }
     let kind = if caps.is_empty() { "table_error" } else { "capture_missing" };
-    (out, kind)
+    let auth_only = !auth.is_empty() && caps.is_empty() && unfillable.is_empty();
+    (out, kind, auth_only)
 }
 
 /// The checks of a table run that compare a field the table fills from the request's own input:
@@ -537,15 +556,20 @@ fn unverified_checks(table: &J, suite: &J, det: &J) -> Vec<J> {
     out
 }
 
+fn fail(mut t: TableRun, cause: &'static str, why: String) -> TableRun {
+    t.rec["cause"] = json!(cause);
+    t.rec["why"] = json!(why);
+    t.cause = Some((cause, why));
+    t
+}
+
+fn table_run(number: usize) -> TableRun {
+    TableRun { rec: json!({"run": number}), statuses: Default::default(), cause: None, evidence: vec![], kind: "table_error",
+        failed_checks: vec![], notes: vec![], detail: J::Null, unverified: vec![], precondition: None }
+}
+
 fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<(String, Built)>) -> TableRun {
-    let mut t = TableRun { rec: json!({"run": number}), statuses: Default::default(), cause: None, evidence: vec![], kind: "table_error",
-        failed_checks: vec![], notes: vec![], detail: J::Null, unverified: vec![] };
-    let fail = |mut t: TableRun, cause: &'static str, why: String| {
-        t.rec["cause"] = json!(cause);
-        t.rec["why"] = json!(why);
-        t.cause = Some((cause, why));
-        t
-    };
+    let mut t = table_run(number);
     if let Err(e) = fs::create_dir_all(dir) {
         return fail(t, "adapter_refused", e.to_string());
     }
@@ -592,8 +616,19 @@ fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<
     let limit = Duration::from_secs((n as u64 + 1) * (2 * timeout + 25) + 60);
     let (code, tail) = run_bounded(&mut cmd, limit, Some(&detail), &dir.join("ess-run.stderr"));
     t.rec["ess_exit"] = json!(code);
-    let Ok(rep) = read_json(&report) else {
+    if !report.is_file() {
         return fail(t, "adapter_refused", format!("ess exit {code:?}, no report: {tail}"));
+    }
+    evaluate(cx, table, dir, t)
+}
+
+/// The statuses, checks and faults of one table run from what it left in `dir`: `report.json`,
+/// `detail.json` and `adapter-log.jsonl` (also how `recompute` reads a stored run).
+fn evaluate(cx: &Env, table: &J, dir: &Path, mut t: TableRun) -> TableRun {
+    let (report, detail, log) = (dir.join("report.json"), dir.join("detail.json"), dir.join("adapter-log.jsonl"));
+    let n = cx.n;
+    let Ok(rep) = read_json(&report) else {
+        return fail(t, "adapter_refused", format!("{} cannot be read", report.display()));
     };
     let det = read_json(&detail).unwrap_or(J::Null);
     let mut ran: Vec<(String, String)> = det["scenarios"].as_array().into_iter().flatten().map(|sc| (s(&sc["scenario"]).to_string(), s(&sc["status"]).to_string())).collect();
@@ -658,15 +693,17 @@ fn run_table(cx: &Env, table: &J, dir: &Path, number: usize, products: &mut Vec<
     if total != n {
         return fail(t, "suite_mismatch", format!("ess ran {total} scenarios, the suite holds {n}"));
     }
-    let (evidence, kind) = table_evidence(&events, n);
+    let (evidence, kind, auth_only) = table_evidence(&events, n);
     t.rec["evidence"] = json!(evidence);
     t.evidence = evidence;
     t.kind = kind;
+    if auth_only {
+        t.precondition = precondition_refusals(&events);
+    }
     t
 }
 
 fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -> Result<J, String> {
-    use std::collections::BTreeMap;
     let run = fs::canonicalize(run).map_err(|e| format!("{}: {e}", run.display()))?;
     let out = run.join("conformance");
     if out.exists() {
@@ -734,6 +771,7 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
     let mut products: Vec<(String, Built)> = vec![];
     let mut recs: Vec<J> = vec![];
     let mut counted: Vec<(usize, TableRun)> = vec![];
+    let mut uncounted: Vec<(usize, TableRun)> = vec![];
     let mut details: Vec<J> = vec![];
     for slot in 1..=slots {
         let sdir = out.join(format!("table-{slot}"));
@@ -817,17 +855,60 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         rec["counted"] = json!(ended.is_none());
         rec["cause"] = json!(ended.as_ref().map(|x| x.0));
         rec["why"] = json!(ended.as_ref().map(|x| x.1.clone()));
-        if let (None, Some(r)) = (&ended, last) {
-            counted.push((slot, r));
+        match (ended.is_none(), last) {
+            (true, Some(r)) => counted.push((slot, r)),
+            (false, Some(r)) => uncounted.push((slot, r)),
+            _ => {}
         }
         recs.push(rec);
     }
     let total_cost: f64 = recs.iter().filter_map(|r| r["cost_usd"].as_f64()).sum();
     o.rec["node_sessions"] = json!(recs.iter().filter_map(|r| r["attempts"].as_u64()).sum::<u64>());
     o.rec["table_cost_usd"] = json!((total_cost * 1e6).round() / 1e6);
-    o.rec["tables"] = J::Array(recs.clone());
     let detail_doc = json!({"format": "sdc.conformance-detail/1", "runs": details});
     fs::write(run.join("conformance-detail.json"), serde_json::to_string_pretty(&detail_doc).unwrap_or_default() + "\n").map_err(|e| e.to_string())?;
+    conclude(o, &cx, slots, recs, counted, uncounted)
+}
+
+/// A slot whose every run the product answered only with 401/403 counts after all when every slot
+/// ended so after its retry and refused the same scenarios, none of which had a request answered
+/// with success before its refusal: the product refuses for a precondition (a sign-in) the
+/// specification does not model, which no table can meet. Those scenarios count failed with cause
+/// `precondition_not_in_spec` (docs/conformance.md). The ids, when the rule applies.
+fn precondition_not_in_spec(recs: &mut [J], counted: &mut Vec<(usize, TableRun)>, uncounted: Vec<(usize, TableRun)>) -> Option<Vec<String>> {
+    let sets: Vec<&std::collections::BTreeSet<String>> = uncounted.iter().filter_map(|(_, r)| r.precondition.as_ref()).collect();
+    let same_way = recs.iter().all(|r| r["retried_after_run"] == true && r["cause"] == "table_error" && s(&r["why"]).starts_with("refused after its run"));
+    if !counted.is_empty() || sets.is_empty() || sets.len() != recs.len() || !sets.windows(2).all(|w| w[0] == w[1]) || !same_way {
+        return None;
+    }
+    let ids: Vec<String> = sets[0].iter().cloned().collect();
+    for (slot, mut r) in uncounted {
+        for id in &ids {
+            r.statuses.insert(id.clone(), "failed".into());
+        }
+        let count = |st: &str| r.statuses.values().filter(|x| *x == st).count();
+        if let Some(rec) = recs.iter_mut().find(|x| x["slot"] == slot) {
+            rec["refused_after_run"] = json!({"cause": rec["cause"], "why": rec["why"]});
+            rec["counted"] = json!(true);
+            rec["cause"] = J::Null;
+            rec["why"] = J::Null;
+            rec["precondition_not_in_spec"] = json!(ids);
+            for (key, st) in [("k", "passed"), ("f", "failed"), ("u", "not_measurable"), ("e", "error")] {
+                rec[key] = json!(count(st));
+            }
+        }
+        counted.push((slot, r));
+    }
+    counted.sort_by_key(|(slot, _)| *slot);
+    Some(ids)
+}
+
+/// The figure over the slots: `oracle.json`.
+fn conclude(mut o: Obs, cx: &Env, slots: usize, mut recs: Vec<J>, mut counted: Vec<(usize, TableRun)>, uncounted: Vec<(usize, TableRun)>) -> Result<J, String> {
+    use std::collections::BTreeMap;
+    let n = cx.n;
+    let precondition = precondition_not_in_spec(&mut recs, &mut counted, uncounted).unwrap_or_default();
+    o.rec["tables"] = J::Array(recs.clone());
 
     if counted.is_empty() {
         // The most frequent cause of the slots, the earliest slot's on a tie.
@@ -854,7 +935,7 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
     // it, is disputed when they disagree, and is not measurable when none reached it.
     let ids: Vec<String> = cx.suite_doc["scenarios"].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
     let mut scenarios = vec![];
-    let (mut k, mut f, mut d, mut u, mut agree) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut k, mut f, mut d, mut u, mut agree, mut p) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     for id in &ids {
         let under: Vec<J> = (1..=slots).map(|slot| counted.iter().find(|(s, _)| *s == slot)
             .map_or(J::Null, |(_, r)| json!(r.statuses.get(id).cloned().unwrap_or_else(|| "error".into())))).collect();
@@ -874,7 +955,12 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         if got.windows(2).all(|w| w[0] == w[1]) {
             agree += 1;
         }
-        scenarios.push(json!({"id": id, "status": status, "under": under}));
+        let mut sc = json!({"id": id, "status": status, "under": under});
+        if status == "failed" && precondition.contains(id) {
+            sc["cause"] = json!("precondition_not_in_spec");
+            p += 1;
+        }
+        scenarios.push(sc);
     }
     let mut failed_checks = vec![];
     let mut notes = vec![];
@@ -902,6 +988,7 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
     o.rec["k"] = json!(k);
     o.rec["f"] = json!(f);
     o.rec["d"] = json!(d);
+    o.rec["p"] = json!(p);
     o.rec["u"] = json!(u);
     o.rec["agreement"] = json!(agree);
     o.rec["tables_counted"] = json!(counted.len());
@@ -919,6 +1006,104 @@ fn observe(run: &Path, table_file: Option<PathBuf>, tables: usize, pin: &Path) -
         return o.finish("unknown", Some("disputed"), Some(format!("{d} of {n} scenarios passed under one counted table and failed under another")));
     }
     o.finish("unknown", Some("not_measurable"), Some(format!("{u} of {n} scenarios passed and failed under no counted table: they need what the product's interface cannot reach, or ended error under every counted table")))
+}
+
+/// The sanitized summary of a run's observation (`sdc.conformance-summary/1`), what the progress
+/// ledger reads from `experiments/<id>/conformance/<run>.json`: counts, the cause, scenario causes
+/// counted, table agreement, per slot its counts, end and node cost. No request, no response, no
+/// `why`, no scenario id: nothing the product or a model wrote.
+fn summary(run: &Path) -> Result<J, String> {
+    let doc = read_json(&run.join("oracle.json"))?;
+    let c = &doc["conformance"];
+    if !c["result"].is_string() {
+        return Err("oracle.json holds no conformance record".into());
+    }
+    let mut causes: std::collections::BTreeMap<String, u64> = Default::default();
+    for sc in c["scenarios"].as_array().into_iter().flatten() {
+        if let Some(cause) = sc["cause"].as_str() {
+            *causes.entry(format!("{}:{cause}", s(&sc["status"]))).or_default() += 1;
+        }
+    }
+    let tables: Vec<J> = c["tables"].as_array().into_iter().flatten().map(|t| json!({
+        "slot": t["slot"], "counted": t["counted"], "cause": t["cause"], "k": t["k"], "f": t["f"], "u": t["u"], "e": t["e"],
+        "attempts": t["attempts"], "retried_after_run": t["retried_after_run"], "one_more_session": t["one_more_session"],
+        "precondition_not_in_spec": t["precondition_not_in_spec"].as_array().map(Vec::len), "cost_usd": t["cost_usd"]})).collect();
+    let name = run.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+    Ok(json!({"format": "sdc.conformance-summary/1", "run": name, "written_by": "sdc-conform summary",
+        "result": c["result"], "cause": c["cause"], "measured": c["measured"], "summary": c["summary"],
+        "k": c["k"], "f": c["f"], "p": c["p"], "d": c["d"], "u": c["u"], "n": c["n"],
+        "agreement": c["agreement"], "tables_counted": c["tables_counted"], "tables_written": c["tables_written"],
+        "scenario_causes": causes, "node_sessions": c["node_sessions"], "node_cost_usd": c["table_cost_usd"],
+        "ess": c["ess"]["version"], "suite_sha256": c["suite"]["sha256"], "recomputed": c["recomputed"].is_object(), "tables": tables}))
+}
+
+/// The figure of an observed run again from the table runs it stored (`conformance/table-<slot>/run-<n>/`),
+/// with no node session, no build and no ess run: the slots, sessions and costs of the stored
+/// `oracle.json`, each slot's last run evaluated by the current rules. A slot that ended on a
+/// refusal of its table, not on a run, keeps that end.
+fn recompute(run: &Path, pin: &Path) -> Result<J, String> {
+    let run = fs::canonicalize(run).map_err(|e| format!("{}: {e}", run.display()))?;
+    let old = read_json(&run.join("oracle.json"))?;
+    let prev = &old["conformance"];
+    let Some(old_tables) = prev["tables"].as_array().filter(|t| !t.is_empty()) else {
+        return Err("oracle.json records no table slot to recompute".into());
+    };
+    let out = run.join("conformance");
+    let ess = resolve_ess(pin).map_err(|(c, w)| format!("{c}: {w}"))?;
+    let suite = out.join("suite.json");
+    let suite_doc = read_json(&suite)?;
+    let n = suite_doc["scenarios"].as_object().map(|m| m.len()).unwrap_or(0);
+    let tree = run.join(s(&prev["product"]["tree"]));
+    let cx = Env { ess: &ess, run: run.clone(), out: out.clone(), suite, suite_doc, n, tree, ir_doc: read_json(&out.join("ir.json"))? };
+    let mut rec = json!({});
+    for key in ["events_checked_from", "ess", "n", "suite", "product", "tables_written", "node_sessions", "table_cost_usd"] {
+        rec[key] = prev[key].clone();
+    }
+    rec["recomputed"] = json!({"from": "the stored table runs", "node_sessions": 0, "previous_summary": prev["summary"]});
+    let o = Obs { run: run.clone(), rec };
+    let (mut recs, mut counted, mut uncounted) = (vec![], vec![], vec![]);
+    for old_rec in old_tables {
+        let mut rec = old_rec.clone();
+        let slot = rec["slot"].as_u64().unwrap_or(0) as usize;
+        let sdir = out.join(format!("table-{slot}"));
+        let last = fs::read_dir(&sdir).into_iter().flatten().flatten()
+            .filter_map(|e| e.file_name().to_string_lossy().strip_prefix("run-").and_then(|x| x.parse::<usize>().ok()))
+            .max();
+        let ended_on_refusal = s(&rec["why"]).starts_with("asked again after its run");
+        let (Some(number), false) = (last, ended_on_refusal) else {
+            recs.push(rec);
+            continue;
+        };
+        let dir = sdir.join(format!("run-{number}"));
+        let table = read_json(&dir.join("table.json"))?;
+        let mut r = evaluate(&cx, &table, &dir, table_run(number));
+        let last_old = rec["runs"].as_array().and_then(|x| x.last()).cloned().unwrap_or(J::Null);
+        for key in ["sha256", "build", "declared_missing", "ess_exit"] {
+            r.rec[key] = last_old[key].clone();
+        }
+        let ended = match (&r.cause, r.evidence.is_empty()) {
+            (Some((c, w)), _) => Some((*c, w.clone())),
+            (None, false) => Some((r.kind, format!("refused after its run: {}", r.evidence.join("; ")))),
+            (None, true) => None,
+        };
+        for key in ["k", "f", "u", "e", "n", "unverified", "conformance_status"] {
+            rec[key] = r.rec[key].clone();
+        }
+        if !r.evidence.is_empty() {
+            rec["evidence"] = json!(r.evidence);
+        }
+        rec["counted"] = json!(ended.is_none());
+        rec["cause"] = json!(ended.as_ref().map(|x| x.0));
+        rec["why"] = json!(ended.as_ref().map(|x| x.1.clone()));
+        if ended.is_none() {
+            counted.push((slot, r));
+        } else {
+            uncounted.push((slot, r));
+        }
+        recs.push(rec);
+    }
+    let slots = recs.len();
+    conclude(o, &cx, slots, recs, counted, uncounted)
 }
 
 fn ess_install(archive: Option<PathBuf>, pin_path: &Path) -> Result<String, String> {
@@ -990,6 +1175,26 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("recompute") if args.len() >= 2 && !args[1].starts_with("--") => match recompute(Path::new(&args[1]), &pin) {
+            Ok(doc) => {
+                println!("conformance: {}", s(&doc["conformance"]["summary"]));
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("sdc-conform: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Some("summary") if args.len() >= 2 && !args[1].starts_with("--") => match summary(Path::new(&args[1])) {
+            Ok(doc) => {
+                println!("{}", serde_json::to_string_pretty(&doc).unwrap_or_default());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("sdc-conform: {e}");
+                ExitCode::from(2)
+            }
+        },
         Some("check-table") => {
             let (Some(ir), Some(t), Some(tree)) = (arg(&args, "--ir"), arg(&args, "--table"), arg(&args, "--tree")) else {
                 eprintln!("{USAGE}");
