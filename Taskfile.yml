@@ -7,9 +7,9 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch and goals; bindings, fixture cases and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases and the planning store.
     cmds:
-      - for c in driver watch goals; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
