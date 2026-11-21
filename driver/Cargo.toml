@@ -24,6 +24,10 @@ path = "src/bin/sdc-decision-request.rs"
 name = "sdc-run-compare"
 path = "src/bin/sdc-run-compare.rs"
 
+[[bin]]
+name = "sdc-reply"
+path = "src/bin/sdc-reply.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"
