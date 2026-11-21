@@ -1,6 +1,7 @@
 import {useState, type ReactNode} from 'react';
 import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
+import useBrokenLinks from '@docusaurus/useBrokenLinks';
 import {Lanes, SpanDetail, StepList, Totals, dur, usd, LANES, type Timeline} from '../components/RunTimeline';
 import {stat} from '../components/evaluation';
 import FreeAgentComparison, {ResultLede, comparisonModel, type ConfRow, type RunRow, type SizeRow, type Tl} from '../components/FreeAgentComparison';
@@ -116,6 +117,8 @@ export default function LlmIsNotTheRuntime({timelines}: Props): ReactNode {
   const sdc = all.filter((t) => t.kind === 'sdc' && t.end?.delivered);
   const free = all.filter((t) => t.kind === 'free-agent');
   const model = comparisonModel(all as Tl[], timelines.experiments, timelines.runs ?? [], timelines.conformance ?? [], timelines.sizes ?? []);
+  const links = useBrokenLinks();
+  if (model) links.collectAnchor('free-records-h');
   const [pick, setPick] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
   const t = sdc[pick] ?? null;
