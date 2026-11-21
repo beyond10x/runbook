@@ -30,7 +30,7 @@ findings() {
   "$b" --rules "$here/tools/consistency-rules.json" "$@"
 }
 case $1 in
-  ess-gate|spec-validate|spec-compile|spec-synthesize|plan-cover|plan-cover-shape) need ess ;;
+  ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
   conform-run|story-tests|story-tests-run|impl-gate) need ess slot ;;
   stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status) need aep ;;
 esac
@@ -41,7 +41,15 @@ aep() { command aep "$@" --root .; }
 case $1 in
 # --- stub LLM executors: fixed drafts -------------------------------------------------------
 stub-file) f=$fx/$2; [[ -n ${SDC_STUB_FIXTURES:-} && -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2; cp "$f" "$3" ;;
-stub-tree) rm -rf "$3" && mkdir -p "$3" && cp -r "$fx/$2/." "$3/" ;;
+stub-tree)
+  # SDC_STUB_FIXTURES may hold the tree too: <name>.<n> on the n-th call (from 0), else <name>.
+  f=$fx/$2
+  if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
+    n=$(cat ".sdc/stub-tree.$2" 2>/dev/null || echo 0); echo $((n + 1)) > ".sdc/stub-tree.$2"
+    [[ -d $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
+    [[ -d $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
+  fi
+  rm -rf "$3" && mkdir -p "$3" && cp -r "$f/." "$3/" ;;
 stub-vision)
   [[ -f aep/vision/product.md ]] && exit 0
   aep plan artifact new vision product --store aep --title "Invoice billing" \
@@ -280,7 +288,8 @@ review-change) test -s impl/README.md ;;
 
 # --- the late-finding loop (docs/trial-2.md, "The late-finding loop") ------------------------
 # Each stage's check is its own check, then the finding gate: exit 1 when its own check fails,
-# 5 (result `finding`) while a finding is open or a consistency rule fires, 0 otherwise. The
+# 5 (result `finding`) while a finding is open, a consistency rule fires or (spec) a requirement
+# traces to no behaviour in the spec, 0 otherwise. The
 # story's conformance run checks the gate first, so no test runs while a finding is open.
 check-requirements|check-context|spec-trace|plan-cover)
   stage=$(case $1 in check-requirements) echo requirements ;; check-context) echo context ;;
@@ -288,7 +297,10 @@ check-requirements|check-context|spec-trace|plan-cover)
   "$here/tools/sdc-tool.sh" "$1-shape"; rc=$?
   passon $rc
   (( rc == 0 )) || exit 1
-  findings gate "$stage" || exit 5 ;;
+  # spec-trace: the gate also runs the requirement trace (sdc-findings `TRACES`), which needs ess.
+  findings gate "$stage"; rc=$?
+  passon $rc
+  (( rc == 0 )) || exit 5 ;;
 story-tests)
   findings gate story || exit 5
   "$here/tools/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;

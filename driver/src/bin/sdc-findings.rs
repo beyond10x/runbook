@@ -4,9 +4,12 @@
 //! ```text
 //! sdc-findings --rules <consistency-rules.json> consistency
 //!     print every consistency-rule hit; exit 0 none, 5 some
+//! sdc-findings --rules <…> trace
+//!     the requirement trace of spec/ (see `TRACES`): one line per requirement and the counts;
+//!     exit 0 every requirement traced or exempt, 5 a gap, 127 no `ess`
 //! sdc-findings --rules <…> gate <stage>
-//!     exit 5 while a finding is open or a rule hit is neither resolved nor dismissed, else 0
-//!     (folded into each stage check)
+//!     exit 5 while a finding is open or a rule hit (at the spec stage also a trace gap) is
+//!     neither resolved nor dismissed, else 0 (folded into each stage check)
 //! sdc-findings --rules <…> promote <node> <file>
 //!     check the findings a stage agent wrote (shape, citations) and add the valid ones to
 //!     findings.yaml as open; the invalid ones as rejected, with the reason; one that repeats a
@@ -405,7 +408,144 @@ fn scalar(v: &Value) -> String {
     }
 }
 
-fn blocking(w: &Work) -> R<Vec<String>> {
+/// The requirement trace of the spec stage (runs/trial-3-haiku-3: r3 cited the domain
+/// `todo.access`, which declared one actor and no command, and passed). The spec writer names, per
+/// requirement, the declarations that deliver it in `spec/traces.json`
+/// (`{"traces": {"r1": ["todo.task.AddTask", ...]}}`; JSON because `ess` reads every `.yaml` in the
+/// tree). Behaviour is what the conformance suite exercises: a command (its outcomes), a view (what
+/// is read), or an actor whose `may` names commands (who may act). A domain, an entity, an event, an
+/// error, a type or an actor that may take nothing carries no behaviour of its own. A requirement
+/// that is not behaviour says so in requirements.yaml: `behaviour: constraint` or `behaviour:
+/// dropped` with `behaviour_reason` (set upstream or by a scope decision on a trace finding, never
+/// by the spec writer).
+const TRACES: &str = "spec/traces.json";
+
+/// What the trace found: the gaps as program findings (`p-trace-<rid>`), one line per requirement,
+/// and the counts.
+struct Trace {
+    hits: Vec<Value>,
+    lines: Vec<String>,
+    summary: String,
+}
+
+fn trace_options(rid: &str) -> Vec<String> {
+    vec![
+        format!("specify {rid} in the spec: name in spec/traces.json the commands or views that deliver it"),
+        format!("{rid} is a constraint, not behaviour"),
+        format!("drop {rid} from this epic's scope"),
+    ]
+}
+
+/// The trace of every requirement against the compiled spec `ir` and the writer's `traces`
+/// document (None: no spec/traces.json; Err: it does not parse). Pure: no file is read.
+fn trace_of(req: &Value, ir: &serde_json::Value, traces: Option<Result<serde_json::Value, String>>) -> Trace {
+    let names = |k: &str| -> Vec<String> { ir[k].as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default() };
+    let (commands, views) = (names("commands"), names("views"));
+    let kind_of = |c: &str| -> String {
+        if commands.iter().any(|x| x == c) || views.iter().any(|x| x == c) {
+            return String::new();
+        }
+        if let Some(a) = ir["actors"].get(c) {
+            return if a["may"].as_array().is_some_and(|m| !m.is_empty()) { String::new() } else { format!("{c}, an actor that may take no command") };
+        }
+        if let Some(d) = ir["domains"].get(c) {
+            let own: Vec<String> = ["commands", "views"].iter()
+                .flat_map(|k| d[*k].as_array().cloned().unwrap_or_default())
+                .filter_map(|x| x.as_str().map(String::from)).collect();
+            return if own.is_empty() { format!("{c}, which declares no command") }
+                else { format!("{c}, a domain: name the ones that deliver it ({})", own.join(", ")) };
+        }
+        for (k, what) in [("entities", "an entity"), ("events", "an event"), ("errors", "an error"), ("types", "a type")] {
+            if ir[k].get(c).is_some() {
+                return format!("{c}, {what}");
+            }
+        }
+        format!("{c}, which the compiled spec does not declare")
+    };
+    let (mut hits, mut lines) = (Vec::new(), Vec::new());
+    let (mut traced, mut constraint, mut dropped) = (0, Vec::new(), Vec::new());
+    let doc = traces.as_ref().map(|t| t.as_ref().map(|d| &d["traces"]));
+    for r in seq(req, "requirements") {
+        let rid = st(r, "id");
+        if rid.is_empty() {
+            continue;
+        }
+        let reason = st(r, "behaviour_reason").trim().to_string();
+        let gap = match st(r, "behaviour") {
+            b @ ("constraint" | "dropped") if !reason.is_empty() => {
+                lines.push(format!("{rid}: {b}: {reason}"));
+                if b == "constraint" { constraint.push(rid.to_string()) } else { dropped.push(rid.to_string()) }
+                continue;
+            }
+            b @ ("constraint" | "dropped") => format!("{rid}: behaviour: {b} gives no behaviour_reason"),
+            _ => {
+                let (cites, source) = match doc {
+                    Some(Err(e)) => (vec![], format!("{TRACES} does not parse: {e}")),
+                    Some(Ok(t)) if t[rid].is_array() => (
+                        t[rid].as_array().unwrap().iter().filter_map(|x| x.as_str().map(String::from)).collect(), String::new()),
+                    _ => (strs(r, "spec_domains"), format!("no entry in {TRACES}")),
+                };
+                let kinds: Vec<String> = cites.iter().map(|c| kind_of(c)).collect();
+                let behaviour: Vec<&String> = cites.iter().zip(&kinds).filter(|(_, k)| k.is_empty()).map(|(c, _)| c).collect();
+                let unknown: Vec<&String> = kinds.iter().filter(|k| k.ends_with("does not declare")).collect();
+                let note = if source.is_empty() { String::new() } else { format!("; {source}") };
+                if !unknown.is_empty() {
+                    format!("{rid}: cites what the compiled spec does not declare ({}){note}",
+                        unknown.iter().map(|k| k.trim_end_matches(", which the compiled spec does not declare")).collect::<Vec<_>>().join(", "))
+                } else if behaviour.is_empty() {
+                    let what = if cites.is_empty() { "nothing".to_string() } else { kinds.join("; ") };
+                    format!("{rid}: traces to no behaviour (cites {what}){note}")
+                } else {
+                    lines.push(format!("{rid}: traced to {}", behaviour.iter().map(|c| c.as_str()).collect::<Vec<_>>().join(", ")));
+                    traced += 1;
+                    continue;
+                }
+            }
+        };
+        lines.push(gap.clone());
+        let opts = trace_options(rid);
+        let mut h = Mapping::new();
+        h.insert(s("id"), s(&format!("p-trace-{rid}")));
+        h.insert(s("type"), s("missing_decision"));
+        h.insert(s("raised_by"), s("program:trace"));
+        h.insert(s("cites"), sv(&[rid.to_string()]));
+        h.insert(s("says"), s(&gap));
+        h.insert(s("options"), sv(&opts));
+        h.insert(s("default"), s(&opts[0]));
+        h.insert(s("scope_changing"), Value::Bool(true));
+        h.insert(s("trace"), s(rid));
+        hits.push(Value::Mapping(h));
+    }
+    let list = |v: &[String]| if v.is_empty() { String::new() } else { format!(" ({})", v.join(", ")) };
+    let summary = format!("requirement trace: {} requirement(s): {traced} traced to behaviour, {} constraint{}, {} dropped{}, {} untraced",
+        traced + constraint.len() + dropped.len() + hits.len(), constraint.len(), list(&constraint), dropped.len(), list(&dropped), hits.len());
+    Trace { hits, lines, summary }
+}
+
+/// The trace of the spec in `work/`: compiles it with `ess` into `.sdc/trace-ir.json`. None when
+/// there is no spec or it does not compile (the stage's own checks report that).
+fn trace(w: &Work) -> R<Option<Trace>> {
+    if !Path::new("spec/system.yaml").exists() {
+        return Ok(None);
+    }
+    fs::create_dir_all(".sdc").map_err(|e| e.to_string())?;
+    let out = std::process::Command::new("ess").args(["specify", "compile", "--path", "spec", "--out", ".sdc/trace-ir.json"]).output();
+    let out = match out {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err("program error: ess is not on PATH: the requirement trace could not run".into()),
+        Err(e) => return Err(e.to_string()),
+    };
+    if !out.status.success() {
+        return Ok(None);
+    }
+    let ir: serde_json::Value = serde_json::from_str(&fs::read_to_string(".sdc/trace-ir.json").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    let traces = fs::read_to_string(TRACES).ok().map(|t| serde_json::from_str::<serde_json::Value>(&t).map_err(|e| e.to_string())
+        .and_then(|d| if d["traces"].is_object() { Ok(d) } else { Err("no object `traces`".into()) }));
+    Ok(Some(trace_of(&w.req, &ir, traces)))
+}
+
+fn blocking(w: &Work, stage: &str) -> R<Vec<String>> {
     let status = |id: &str| {
         w.findings()
             .iter()
@@ -421,6 +561,16 @@ fn blocking(w: &Work) -> R<Vec<String>> {
     for h in w.rule_hits()? {
         if matches!(status(st(&h, "id")).as_deref(), None | Some("resolved")) {
             out.push(format!("{} (rule hit): {}", st(&h, "id"), st(&h, "says")));
+        }
+    }
+    if stage == "spec" {
+        if let Some(t) = trace(w)? {
+            println!("finding gate ({stage}): {}", t.summary);
+            for h in &t.hits {
+                if matches!(status(st(h, "id")).as_deref(), None | Some("resolved")) {
+                    out.push(format!("{} (trace): {}", st(h, "id"), st(h, "says")));
+                }
+            }
         }
     }
     for fid in strs(&w.req, "open_findings") {
@@ -592,6 +742,18 @@ fn classify(w: &Work, f: &Value) -> (String, String, String) {
     let default = st(f, "default").to_string();
     let cites = strs(f, "cites");
     let sides = seq(f, "sides");
+    // A requirement the spec traces to no behaviour: the writer is sent back to specify it once
+    // (the agent's decision, which names the gap); if the gap stays, specifying it, calling it a
+    // constraint or dropping it is a scope decision. Never a default that lets it pass.
+    if f.get("trace").is_some() {
+        let rid = st(f, "trace");
+        return if f.get("attempts").and_then(Value::as_u64).unwrap_or(0) == 0 {
+            ("agent".into(), opt(0), format!("the spec writer is sent back to specify {rid} first"))
+        } else {
+            ("person".into(), opt(0), format!(
+                "the spec still traces {rid} to no behaviour after the writer was sent back: specify it, call it a constraint, or drop it from scope"))
+        };
+    }
     if st(f, "type") == "contradiction" && sides.len() == 2 {
         let side = |i: usize| -> Vec<String> {
             sides[i]
@@ -1009,6 +1171,34 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
             Some(_) => {}
         }
     }
+    // The requirement trace's gaps, as the rule hits: a new gap is opened, a resolved one that
+    // still holds is reopened (attempts + 1), with its current text.
+    let trace_hits = if stage == "spec" { trace(&w)?.map(|t| t.hits).unwrap_or_default() } else { vec![] };
+    for h in trace_hits {
+        let id = st(&h, "id").to_string();
+        match w.findings_mut().iter_mut().find(|f| st(f, "id") == id) {
+            None => {
+                let mut e = h.as_mapping().cloned().unwrap();
+                e.insert(s("stage"), s(stage));
+                e.insert(s("status"), s("open"));
+                w.findings_mut().push(Value::Mapping(e));
+                changed = true;
+            }
+            Some(f) if st(f, "status") == "resolved" => {
+                let attempts = f.get("attempts").and_then(Value::as_u64).unwrap_or(0) + 1;
+                f["status"] = s("open");
+                f["attempts"] = Value::from(attempts);
+                f["says"] = h["says"].clone();
+                for k in ["decision", "decided_by", "resolution"] {
+                    if let Some(m) = f.as_mapping_mut() {
+                        m.remove(k);
+                    }
+                }
+                changed = true;
+            }
+            Some(_) => {}
+        }
+    }
     let mut amended_all: Vec<String> = vec![];
     for i in 0..w.findings().len() {
         let f = w.findings()[i].clone();
@@ -1108,6 +1298,19 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
             changed = true;
             continue;
         }
+        // A scope decision on a trace finding that the requirement is a constraint, or dropped:
+        // recorded on the requirement, where the trace reads it.
+        if f.get("trace").is_some() {
+            let rid = st(&f, "trace").to_string();
+            let opts = trace_options(&rid);
+            let kind = if decision == opts[1] { "constraint" } else if decision == opts[2] { "dropped" } else { "" };
+            if !kind.is_empty() {
+                if let Some(r) = w.req_mut(&rid) {
+                    r["behaviour"] = s(kind);
+                    r["behaviour_reason"] = s(&format!("{decision} (finding {fid}, decided by {decided_by})"));
+                }
+            }
+        }
         let default_taken = decision == st(&f, "default");
         let mut res = Mapping::new();
         res.insert(s("amends"), sv(&amended));
@@ -1182,8 +1385,17 @@ fn run(args: &[String]) -> R<u8> {
             }
             Ok(if hits.is_empty() { 0 } else { 5 })
         }
+        [c] if c == "trace" => {
+            let w = Work::open(&rules)?;
+            let Some(t) = trace(&w)? else { return Err("no spec/system.yaml, or the spec does not compile".into()) };
+            for l in &t.lines {
+                println!("{l}");
+            }
+            println!("{}", t.summary);
+            Ok(if t.hits.is_empty() { 0 } else { 5 })
+        }
         [c, stage] if c == "gate" => {
-            let out = blocking(&Work::open(&rules)?)?;
+            let out = blocking(&Work::open(&rules)?, stage)?;
             for line in &out {
                 println!("finding gate ({stage}): {line}");
             }
@@ -1191,7 +1403,7 @@ fn run(args: &[String]) -> R<u8> {
         }
         [c, node, file] if c == "promote" => promote(&rules, node, file),
         [c, stage] if c == "amend" => amend(&rules, stage),
-        _ => Err("usage: sdc-findings --rules <file> consistency | gate <stage> | promote <node> <file> | amend <stage>".into()),
+        _ => Err("usage: sdc-findings --rules <file> consistency | trace | gate <stage> | promote <node> <file> | amend <stage>".into()),
     }
 }
 
@@ -1201,7 +1413,7 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
             eprintln!("sdc-findings: {e}");
-            ExitCode::from(if e.starts_with("usage") { 64 } else { 1 })
+            ExitCode::from(if e.starts_with("usage") { 64 } else if e.starts_with("program error") { 127 } else { 1 })
         }
     }
 }
@@ -1256,6 +1468,71 @@ mod tests {
     #[test]
     fn a_question_added_from_a_decider_decided_finding_carries_the_context_keys() {
         assert_context_keys("decider:claude");
+    }
+
+    /// runs/trial-3-haiku-3's spec shape: an access domain with one actor and no command, a task
+    /// domain with commands and a view.
+    fn trace_ir() -> serde_json::Value {
+        json!({
+            "commands": {"todo.task.AddTask": {}, "todo.sync.SyncChanges": {}},
+            "views": {"todo.task.SharedList": {}},
+            "actors": {"todo.access.Member": {"may": []}, "todo.task.Owner": {"may": ["todo.task.AddTask"]}},
+            "entities": {"todo.task.Task": {}},
+            "domains": {
+                "todo.access": {"commands": [], "views": [], "actors": ["todo.access.Member"]},
+                "todo.task": {"commands": ["todo.task.AddTask"], "views": ["todo.task.SharedList"]}}})
+    }
+
+    fn trace_req(extra: &str) -> Value {
+        serde_yaml::from_str(&format!("requirements:\n- id: r1\n  spec_domains: [todo.task]\n- id: r3\n  spec_domains: [todo.access]\n{extra}")).unwrap()
+    }
+
+    #[test]
+    fn a_requirement_citing_an_empty_domain_traces_to_no_behaviour() {
+        let t = trace_of(&trace_req(""), &trace_ir(), Some(Ok(json!({"traces": {"r1": ["todo.task.AddTask"], "r3": ["todo.access"]}}))));
+        assert_eq!(t.lines[1], "r3: traces to no behaviour (cites todo.access, which declares no command)");
+        assert_eq!(t.hits.len(), 1);
+        assert_eq!(t.hits[0]["id"].as_str(), Some("p-trace-r3"));
+        assert_eq!(t.lines[0], "r1: traced to todo.task.AddTask");
+    }
+
+    #[test]
+    fn domains_entities_and_actors_without_may_carry_no_behaviour() {
+        let traces = json!({"traces": {"r1": ["todo.task", "todo.task.Task"], "r3": ["todo.access.Member"]}});
+        let t = trace_of(&trace_req(""), &trace_ir(), Some(Ok(traces)));
+        assert!(t.lines[0].starts_with("r1: traces to no behaviour (cites todo.task, a domain: name the ones that deliver it (todo.task.AddTask, todo.task.SharedList); todo.task.Task, an entity)"), "{}", t.lines[0]);
+        assert_eq!(t.lines[1], "r3: traces to no behaviour (cites todo.access.Member, an actor that may take no command)");
+        let t = trace_of(&trace_req(""), &trace_ir(), Some(Ok(json!({"traces": {"r1": ["todo.task.Owner"], "r3": ["todo.task.SharedList"]}}))));
+        assert!(t.hits.is_empty(), "{:?}", t.lines);
+    }
+
+    #[test]
+    fn an_undeclared_citation_and_a_missing_traces_file_are_gaps() {
+        let t = trace_of(&trace_req(""), &trace_ir(), Some(Ok(json!({"traces": {"r1": ["todo.task.AddTask", "todo.access.SignIn"]}}))));
+        assert_eq!(t.lines[0], "r1: cites what the compiled spec does not declare (todo.access.SignIn)");
+        assert!(t.lines[1].ends_with("; no entry in spec/traces.json"), "{}", t.lines[1]);
+        let t = trace_of(&trace_req(""), &trace_ir(), None);
+        assert_eq!(t.hits.len(), 2);
+    }
+
+    #[test]
+    fn a_constraint_with_its_reason_passes_and_is_counted() {
+        let t = trace_of(&trace_req("- id: r6\n  behaviour: constraint\n  behaviour_reason: the licence, no behaviour\n"), &trace_ir(),
+            Some(Ok(json!({"traces": {"r1": ["todo.task.AddTask"], "r3": ["todo.sync.SyncChanges"]}}))));
+        assert!(t.hits.is_empty(), "{:?}", t.lines);
+        assert_eq!(t.summary, "requirement trace: 3 requirement(s): 2 traced to behaviour, 1 constraint (r6), 0 dropped, 0 untraced");
+        let t = trace_of(&trace_req("- id: r6\n  behaviour: constraint\n"), &trace_ir(),
+            Some(Ok(json!({"traces": {"r1": ["todo.task.AddTask"], "r3": ["todo.sync.SyncChanges"]}}))));
+        assert_eq!(t.lines[2], "r6: behaviour: constraint gives no behaviour_reason");
+    }
+
+    #[test]
+    fn a_trace_gap_is_the_agents_once_then_a_scope_decision() {
+        let w = work();
+        let mut h = trace_of(&trace_req(""), &trace_ir(), None).hits.remove(1);
+        assert_eq!(classify(&w, &h).0, "agent");
+        h["attempts"] = Value::from(1u64);
+        assert_eq!(classify(&w, &h).0, "person");
     }
 
     /// The raiser's own `excerpt`, `default_reason` and `consequences` are kept when it wrote them.

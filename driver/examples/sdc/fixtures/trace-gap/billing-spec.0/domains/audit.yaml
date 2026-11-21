@@ -1,0 +1,8 @@
+domain: billing.audit
+
+summary: Who reviews the invoices. One actor and no command, so nothing here delivers r3.
+
+actors:
+  - name: billing.audit.Auditor
+    naming:
+      display: Auditor

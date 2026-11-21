@@ -32,6 +32,9 @@
 #   spec-duplicate  spec.author raises the same finding twice: the repeat is not added
 #   spec-own-default spec.author (apply path) raises a new agent finding on every LLM call: the
 #                   amendment records its default, no LLM re-derivation, no writer_spent
+#   trace-gap       a requirement traced to a domain with no command: finding, writer sent back, traced
+#   trace-gap-drop  the writer never specifies it: a scope decision (the person drops it)
+#   trace-constraint a requirement marked a constraint with its reason passes and is counted
 # and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
@@ -72,7 +75,7 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
   scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent
-  story-late-person decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-reject principals models)
@@ -269,6 +272,46 @@ if (( code == 0 )) && jq -se '([.[] | select(.event == "writer_spent")] | length
   echo "spec-own-default: checks pass (the writer's own default re-derived without an LLM call; spec.author 2 runs, 1 call)"
 else
   echo "spec-own-default: FAILED (cycle exit $code, or writer_spent, or spec.author re-derived by the LLM)"
+fi
+# The requirement trace (runs/trial-3-haiku-3: r3 traced to a domain with one actor and no command).
+# tracelog <cycle>: every spec.trace log of the cycle's spec case, in order.
+tracelog() { local d=$s/store-$1/${spec%/events.jsonl}
+  jq -r 'select(.event == "action_finished" and .action == "spec.trace") | .log' "$d/events.jsonl" | while read -r b; do cat "$d/blobs/$b"; done; }
+# trace-gap: fixtures/trace-gap. The first spec traces r3 to billing.audit (an actor, no command):
+# the trace finding p-trace-r3, the writer sent back (the agent's decision names the gap), the
+# second spec traces r3 to two views. Passes when the cycle ends operating with that finding.
+cycle trace-gap SDC_STUB_FIXTURES="$fx/trace-gap"
+code=$?
+if (( code == 0 )) && yq -o=json "$s/store-trace-gap/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
+     | .status == "resolved" and .decided_by == "agent" and .says == "r3: traces to no behaviour (cites billing.audit, which declares no command)"' >/dev/null &&
+   jq -se '[.[] | select(.event == "action_finished" and .action == "spec.author")] | length == 2' "$s/store-trace-gap/$spec" >/dev/null &&
+   tracelog trace-gap | tail -n 1 | grep -q '3 traced to behaviour, 0 constraint, 0 dropped, 0 untraced'; then
+  echo "trace-gap: checks pass (r3 traced to no behaviour: finding, writer sent back, then traced)"
+else
+  echo "trace-gap: FAILED (cycle exit $code, or no p-trace-r3, or the writer was not sent back)"
+fi
+# trace-gap-drop: the writer never specifies r3 (fixtures/trace-gap-drop): after it was sent back
+# once the gap is a scope decision, not a default; the scripted person drops r3. Passes when the
+# cycle ends operating with p-trace-r3 decided by the person and r3 `behaviour: dropped`.
+cycle trace-gap-drop SDC_STUB_FIXTURES="$fx/trace-gap-drop" FINDING_DECISION=option:3
+code=$?
+if (( code == 0 )) && yq -o=json "$s/store-trace-gap-drop/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
+     | .status == "resolved" and .decided_by == "person:stand-in" and .decision == "drop r3 from this epic'"'"'s scope" and .attempts == 1' >/dev/null &&
+   yq -e '.requirements[] | select(.id == "r3") | .behaviour == "dropped"' "$s/store-trace-gap-drop/IDEA-1/work/requirements.yaml" >/dev/null &&
+   tracelog trace-gap-drop | tail -n 1 | grep -q '1 dropped (r3), 0 untraced'; then
+  echo "trace-gap-drop: checks pass (the gap went to a person after one send-back; r3 dropped by the person)"
+else
+  echo "trace-gap-drop: FAILED (cycle exit $code, or the gap was waved through, or r3 not dropped)"
+fi
+# trace-constraint: r3 is a retention constraint with its reason (fixtures/trace-constraint): it
+# passes the trace untraced and is counted. Passes when the cycle ends operating with no trace finding.
+cycle trace-constraint SDC_STUB_FIXTURES="$fx/trace-constraint"
+code=$?
+if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work/findings.yaml" 2>/dev/null &&
+   tracelog trace-constraint | grep -q '2 traced to behaviour, 1 constraint (r3), 0 dropped, 0 untraced'; then
+  echo "trace-constraint: checks pass (r3 a constraint with its reason: passes, counted)"
+else
+  echo "trace-constraint: FAILED (cycle exit $code, or the constraint was not counted)"
 fi
 
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the
