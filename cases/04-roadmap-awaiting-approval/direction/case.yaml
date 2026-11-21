@@ -5,6 +5,8 @@ revision: c5
 artifacts:
   requirements:
     revision: q1
+  goals:
+    revision: none
   context:
     revision: x1
   vision:

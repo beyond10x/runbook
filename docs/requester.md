@@ -91,10 +91,17 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
   the product layer is imported from approved `vision:*`, active `initiative:*` and
   `product-requirements:*` of the repository's AEP store, each `sources: [aep:<id>@<rev>]`; imports
   count as rank 1 (a proposed default) until a person approves the layer.
-- **How a run receives it**: `goals.yaml` in the root case's `work/`, declared as artifact `goals`
-  beside `idea` (`protocol/sdc.protocol.yaml:7-11`, `sdc.bindings.json:2-5`), copied into the intake
-  and direction children as `idea.yaml` is. Ground: source `goals`, citation `artifact_revision`
-  with an `entry` id; displayed `goals@<rev>#<id>`.
+- **How a run receives it**: `scripts/run-trial.sh --goals FILE` copies the file unchanged to the
+  root case's `work/goals.yaml` when the run starts (`run-trial.sh:41-55`, `:142`); a goals
+  document or the output of `sdc-goals resolve` both work. It is artifact `goals` beside `idea`
+  (`protocol/sdc.protocol.yaml:10`, `sdc.bindings.json:4`), and also of `sdc.intake` and
+  `sdc.direction` (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`, their bindings
+  `:4`). A child's `work/` is a link to its parent's (`driver/src/main.rs:506`), so intake and
+  direction read the same file, and each case records the same revision: `t` and the first 16 hex
+  digits of the file's sha256 (`main.rs:191-199`), `none` without `--goals`. No claim reads it and
+  no invalidation names it: a revised goals document makes no intake or direction record stale.
+  Ground: source `goals`, citation `artifact_revision` with an `entry` id; displayed
+  `goals@<rev>#<id>`.
 - **Invalidation**: an answer or decision carries the entry digest. If the entry's digest changed or
   the entry is gone, `questions.check` and `requirements.check` return `finding` (stale basis) and
   `amend.upstream` answers again (`trial-2.md:50-52`); open requests citing it are superseded and a
