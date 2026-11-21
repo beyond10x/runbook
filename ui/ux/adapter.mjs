@@ -30,15 +30,15 @@ export const viewports = {
 export const isPhone = (name) => [...viewports.gating, ...viewports.measured].some((v) => v.name === name && v.phone);
 // The UI ships one theme.
 export const themes = ['dark'];
-// Always visible (hard gate 2): the Now band with its run state, the KPI strip, the phase bar, the store
-// selector, the Decisions control.
-export const alwaysVisible = ['#now', '#now .now-s', '#kpis', '#phases', '#source', '#decbtn'];
+// Always visible (hard gate 2): the Now band with its run state, the KPI strip, the phase bar, the run
+// picker's button (D-009; it replaced the store select), the Decisions control.
+export const alwaysVisible = ['#now', '#now .now-s', '#kpis', '#phases', '#runpick', '#decbtn'];
 // The desktop layout from the top (hard gate 2, D-008): the KPI strip, then the Now band, then the
 // phase bar, each below the one before; and no KPI tile cut off by the window or by its strip.
 export const desktop = {order: ['header', '#kpis', '#now', '#phases'], whole: '#kpis .kt'};
 // Elements that scroll by design (hard gate 1 exceptions, recorded as decision D-001 in baseline.json):
-// the protocol graph pans, and long lists scroll inside their own box.
-export const scrollAllowed = ['#graph', '#tree', '.fd-list', '#panel', '#drawer', '#drawer *', '.dwrap .db', '.db', '.tl-ticks', '#modal pre', '.now-cards', '.chg-strip'];
+// the protocol graph pans, and long lists scroll inside their own box (the run picker's list: D-009).
+export const scrollAllowed = ['#graph', '#tree', '.fd-list', '#panel', '#drawer', '#drawer *', '.dwrap .db', '.db', '.tl-ticks', '#modal pre', '.now-cards', '.chg-strip', '#pk-list'];
 // The primary region: glance 1 when the control the user needs is inside it.
 export const primary = '#now';
 // Regions the contact sheet names.
@@ -64,6 +64,7 @@ export const phone = {
     rail: {open: async (page) => { const c = page.locator('#railbtn:visible, #tabs [data-tab="explain"]:visible').first(); await c.scrollIntoViewIfNeeded(); await c.click(); }, dialog: '#right', close: '#rpclose'},
     diff: {dialog: '#diffdlg[open]', close: '[data-fsclose], .dh-nav .ib'},
     drawer: {dialog: '#drawer', close: '#drclose'},
+    picker: {open: async (page) => { await page.locator('#runpick').click(); await page.locator('#pk-panel').waitFor({state: 'visible'}); }, dialog: '#pk-panel', close: '#pk-close'},
   },
   graph: '#graph',
   // the real recorded runs measured at phone sizes, each at its moments (skipped without runs/)
