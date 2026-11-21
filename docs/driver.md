@@ -346,6 +346,15 @@ What one call does (`llm-node.sh`):
 
 The driver then sees a new revision; only the bound programs produce evidence about it.
 
+**Model per node** (2026-11-21, `story:model-per-node-variable`). The model is a run setting, by
+node class (`tools/node-classes.json`): `SDC_LLM_MODEL_WRITER` (`spec.author`, `plan.decompose`),
+`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`spec.review`,
+`change.review`, program stubs today, so no call uses it yet), `SDC_LLM_MODEL_OTHER` (every other
+node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The decider:
+`SDC_LLM_MODEL_DECIDER`, else `SDC_DECIDER_MODEL`, else `claude-haiku-5-5` (`SDC_LLM_MODEL` does
+not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
+`models` per class (`model`, `source`, and per node).
+
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):

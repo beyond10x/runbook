@@ -45,6 +45,8 @@
 #   autopilot-stop  a stop that needs a person ends an autopilot run (exit 7, rule:autopilot)
 #   principals      the scripted person records person:stand-in (run labelled stand_in); a
 #                   decision with no principal is not applied
+#   models          three dry runs: binding models, SDC_LLM_MODEL, SDC_LLM_MODEL_<CLASS>; each call
+#                   and decider record names its model, run-settings.jsonl the model per class
 # Prints each run's exit code and its KPIs L1-L6.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
@@ -419,4 +421,42 @@ if yq -e '.findings[] | select(.decided_by != null) | .decided_by == "person:sta
   echo "principals: checks pass (person:stand-in on the person path, stand_in labelled; a decision with no principal refused)"
 else
   echo "principals: FAILED (amend said: $(tail -n 1 <<< "$out"))"
+fi
+# models: the model per LLM node is a run setting (tools/node-classes.json). Three dry runs with
+# the decider on the dry adapter (no call; each record names the model it would be called with):
+# no setting (every node its binding's llm.model, the decider claude-haiku-5-5); SDC_LLM_MODEL
+# for every node; one model per class (SDC_LLM_MODEL_WRITER, _IMPLEMENT, _REVIEW, _DECIDER,
+# _OTHER). Passes when every line of llm-calls.jsonl and decisions.jsonl names the expected model
+# and run-settings.jsonl records the effective model per class.
+dry() { # <name> [env ...]
+  local name=$1; shift
+  rm -rf "$s/runs/$name"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_DECIDER=haiku "$@" "$sdc/scripts/run-trial.sh" --dry "$name" > "$s/$name.txt" 2>&1
+}
+expect() { # <run> <jq program over {node, class} giving the expected model> <decider model>
+  local r=$s/runs/$1
+  jq -se --slurpfile c "$sdc/driver/examples/sdc/tools/node-classes.json" '
+    def class($n): [$c[0].classes | to_entries[] | select(.value | index($n)) | .key] | first // "other";
+    length > 0 and all(.[]; .model == ({node: .action, class: class(.action)} | '"$2"'))' "$r/llm-calls.jsonl" >/dev/null &&
+  jq -se --arg d "$3" 'length > 0 and all(.[]; .model == $d)' "$r/decisions.jsonl" >/dev/null
+}
+dry models-binding
+c1=$?
+dry models-all SDC_LLM_MODEL=model-all
+c2=$?
+dry models-class SDC_LLM_MODEL=model-all SDC_LLM_MODEL_WRITER=model-writer SDC_LLM_MODEL_IMPLEMENT=model-implement \
+  SDC_LLM_MODEL_REVIEW=model-review SDC_LLM_MODEL_DECIDER=model-decider SDC_LLM_MODEL_OTHER=model-other
+c3=$?
+binding=$(jq -s 'map(to_entries[] | select(.value.llm != null) | {(.key): .value.llm.model}) | add' "$sdc"/driver/examples/sdc/sdc-*.bindings.json)
+echo "models: dry exits $c1 $c2 $c3"
+if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
+   expect models-binding "$binding[.node]" claude-haiku-5-5 &&
+   expect models-all '"model-all"' claude-haiku-5-5 &&
+   expect models-class '{writer: "model-writer", implement: "model-implement", other: "model-other"}[.class]' model-decider &&
+   jq -se 'last.models | .writer.model == "model-writer" and .implement.model == "model-implement" and .review.model == "model-review"
+     and .decider.model == "model-decider" and .other.model == "model-other" and .writer.source == "SDC_LLM_MODEL_WRITER"' "$s/runs/models-class/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.models | .writer.source == "binding" and .writer.nodes["spec.author"] == "claude-haiku-5-5" and .decider.model == "claude-haiku-5-5"' "$s/runs/models-binding/run-settings.jsonl" >/dev/null; then
+  echo "models: checks pass (binding default, one model for all, one per class; each call names its model; run settings per class)"
+else
+  echo "models: FAILED"
 fi

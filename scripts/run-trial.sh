@@ -26,7 +26,11 @@
 # runs and started again on a resume; SDC_WATCH=0 skips it.
 #
 # Limits: SDC_MAX_LLM_CALLS (default 30, over the whole tree), SDC_MAX_WALL_SECONDS per run
-# (default 5400). Model: the bindings' `llm.model` (claude-haiku-5-5), or SDC_LLM_MODEL.
+# (default 5400). Model per node class (tools/node-classes.json): SDC_LLM_MODEL_WRITER (spec.author,
+# plan.decompose), SDC_LLM_MODEL_IMPLEMENT (change.implement), SDC_LLM_MODEL_REVIEW (spec.review,
+# change.review: no LLM yet), SDC_LLM_MODEL_OTHER (every other node), else SDC_LLM_MODEL for all
+# nodes, else each binding's `llm.model` (claude-haiku-5-5); the decider SDC_LLM_MODEL_DECIDER,
+# else SDC_DECIDER_MODEL. run-settings.jsonl `models` records the effective model per class.
 #
 # Decider (SDC_DECIDER): who takes the decisions that wait on a person: the pending approvals, the
 # open scope-changing interview questions, and closing the root.
@@ -229,8 +233,27 @@ exec > >(tee -a "$out/console.txt") 2>&1
 
 # Who holds the decisions in this leg, and its caps: one line per start or resume (the UI reads it).
 model=
-[[ $decider == haiku ]] && model=${SDC_DECIDER_MODEL:-claude-haiku-5-5}
+[[ $decider == haiku ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
+# The effective model per node class (tools/node-classes.json): SDC_LLM_MODEL_<CLASS>, else
+# SDC_LLM_MODEL, else each binding's llm.model (per node; `model` is null when they differ). The
+# decider: SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL, else claude-haiku-5-5.
+models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
+  --argjson b "$(jq -s 'map(to_entries[] | select(.value.llm != null) | {(.key): .value.llm.model}) | add' "$ex"/sdc-*.bindings.json)" \
+  --arg all "${SDC_LLM_MODEL:-}" --arg writer "${SDC_LLM_MODEL_WRITER:-}" --arg implement "${SDC_LLM_MODEL_IMPLEMENT:-}" \
+  --arg review "${SDC_LLM_MODEL_REVIEW:-}" --arg other "${SDC_LLM_MODEL_OTHER:-}" --arg dclass "${SDC_LLM_MODEL_DECIDER:-}" \
+  --arg dmodel "${SDC_DECIDER_MODEL:-}" '
+  {writer: $writer, implement: $implement, review: $review, other: $other} as $set
+  | ($c[0].classes | del(.decider) | to_entries | map(.key as $k
+      | (if $set[$k] != "" then {m: $set[$k], src: "SDC_LLM_MODEL_\($k | ascii_upcase)"}
+         elif $all != "" then {m: $all, src: "SDC_LLM_MODEL"} else {m: null, src: "binding"} end) as $e
+      | (.value | map({(.): ($e.m // $b[.])}) | add // {}) as $nodes
+      | {(.key): {model: ($e.m // ([$nodes[]] | unique | if length == 1 then .[0] else null end)), source: $e.src,
+          nodes: $nodes}}) | add)
+  + {decider: (if $dclass != "" then {model: $dclass, source: "SDC_LLM_MODEL_DECIDER"}
+      elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
+      else {model: "claude-haiku-5-5", source: "default"} end)}')
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
+  --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
   --arg stand "$stand_in" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
@@ -238,7 +261,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
   echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
 else

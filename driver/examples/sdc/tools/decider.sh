@@ -21,7 +21,7 @@
 # questions) and context fields it cites.
 #
 # haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
-# metaharness default, claude-cli, dry, or a path), model SDC_DECIDER_MODEL (default claude-haiku-5-5), at most
+# metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5), at most
 # SDC_DECIDER_MAX_TURNS (8) turns and SDC_DECIDER_MAX_BUDGET_USD (0.25). The LLM reads in/ and
 # writes out/decision.json; a program validates it, and an invalid or missing reply is `escalate`.
 # Under the dry adapter the command is printed, nothing is called, and the `approve` rule decides
@@ -281,7 +281,7 @@ prompt=$rec/prompt.md
   echo "When the file is written, reply with the single word: done."
 } > "$prompt"
 
-model=${SDC_DECIDER_MODEL:-claude-haiku-5-5}
+model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
 node=decide.$(r .action)
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
   --arg case "$(jq -r '.id // ""' "$(r .case_dir)/case.json" 2>/dev/null)" --arg case_dir "$(r .case_dir)" '{
