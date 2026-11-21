@@ -145,5 +145,17 @@
       "{dir}/tools/sdc-tool.sh",
       "findings-wait"
     ]
+  },
+  "rework.exhaust": {
+    "manual": true,
+    "argv": [
+      "true"
+    ],
+    "produces": "rework_budget",
+    "subject": "requirements",
+    "producer": "{principal}",
+    "results": {
+      "0": "exhausted"
+    }
   }
 }

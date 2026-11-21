@@ -74,6 +74,7 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `12-delivery/{built,accepted,failed}` | sdc.delivery | built: `acceptance.run` admissible; accepted: `passed` legitimate, no approval; failed: `not_accepted` legitimate, no action left |
 | `12-delivery/accepted/root` | sdc | every child passed: `delivered` legitimate |
 | `12-delivery/failed/{epic,root}` | sdc.epic, sdc | delivery `not_accepted`: epic `not_accepted`; the epic `not_accepted`: root `not_delivered` |
+| `13-rework-spent/{rejected,spent,spent/revised}` | sdc.story | a rejected merge: `change.implement` and `rework.exhaust` admissible; with the `rework_budget` record: `dropped` legitimate, `change.implement` blocked; at a new change revision the record still applies |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -207,6 +208,47 @@ were measured on sdc.release revision 4 (24,576 states); since D150 the standalo
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
 
+## A rework loop ends on a record (ruling D152, 2026-11-21)
+
+Every rework loop gets an exit that is a protocol fact. `protocol/1` cannot count records (no count
+predicate; `evidence` reads only the current revision), so the count stays in the driver and its
+verdict becomes a record: evidence kind `rework_budget`, result `exhausted`, about an artifact the
+rework does not revise, so a new revision of the reworked artifact does not set it aside. The
+ending outcome requires it, and the rework action's precondition excludes it.
+
+- **sdc.story (route R4), built.** `rework_budget` about `requirements`; claim `rework.spent`
+  (the kind without a result: one result is ever recorded, and the kind alone costs 2 values
+  instead of 4). `change.implement` needs `rework.spent` unknown; `dropped` requires
+  `rework.spent`. The record is produced by `rework.exhaust` (`requires: change.merge`, admissible
+  only directly after a rejected merge of the current change revision: `merge.decided` and
+  `merge.approved` `false`), bound `manual` with `results: {"0": "exhausted"}`. Canon 0.9.0 has no
+  `supplied_by` (unknown field), and a kind no action may produce is an `unproduced-evidence`
+  finding, so a manual action under the merge authority stands for "supplied by the rule
+  principal". Under autopilot `run-trial.sh`'s `rework` takes it on the third rejection as
+  `rule:autopilot` (`approve --capability change.merge --action rework.exhaust --result exhausted
+  --reasons <third rejection>`) instead of stopping with `rework_spent`; the story ends `dropped`,
+  the epic `not_delivered`, the root `not_delivered`, and the run closes. States: 49,152,
+  unchanged, because `dropped` no longer takes the decision `explicitly_dropped` (2 values): with
+  both the story has 98,304. Nobody took that decision (no tool does), and a person gives a story
+  up through the epic's `abandoned`. `canon simulate` (Canon a1a937e, read-only): 5 findings
+  before, 4 after; the cycle at a rejected merge under a granted `change.merge` is gone. Cases
+  `13-rework-spent/{rejected,spent,spent/revised}`; cycle `rework-spent-dropped`.
+- **sdc.direction (route R5), not built: the bound.** One more kind costs at least 2 values:
+  49,152 x 2 = 98,304 states (`context_approval` 4, `context_defaults` with upstream 16,
+  `roadmap_approval` with upstream 16, `roadmap_validation` 4, `vision_approval` 4, `owner.approve`
+  3). Nothing can go without losing a fact (the capability carries the approvals' authority). Canon
+  a1a937e (unreleased) checks the same document at 98,304 states with 0 findings, so Canon's
+  per-slice bound lifts it (`story:canon-slice-bound-uptake`). Until then the third rejection of
+  `context.approve`, `vision.approve` or `roadmap.approve` stops the run with `rework_spent` as
+  before (`run-trial.sh` finds no action producing `rework_budget` in that case). `canon
+  simulate`: 10 findings, unchanged.
+- **Writer run caps stay plain stops** (`writer_spent`). sdc.spec and sdc.plan sit at 65,536 and
+  sdc.intake and sdc.direction at 49,152, so none takes a kind. In sdc.story the record could end
+  the story after a spent `change.implement` too, but a spent writer is a defect of the writer or
+  of its inputs, which a stop names and a `dropped` would hide; and a manual action admissible
+  after a failed test would turn the case's `writer_spent` into `awaiting_person` (the driver's
+  verdict order).
+
 ## Every child outcome has a way on in the parent
 
 `children.passed` (`{children: {in: [passed]}}`) is `false` for good once any child ended with
@@ -299,8 +341,10 @@ for this section; c is fixed by the approval rule above.
     opens a new direction case with its own authority (`protocol/sdc.protocol.yaml:6`). A
     direction outcome of its own would need a decision, which doubles 49152 states past the bound
     (as intake's abandon did, limitation 1), so the root keeps that role.
-  - sdc.story, `change.merge` denied (1): `merge.approve` stays approval-required; the case ends
-    `dropped` on `explicitly_dropped`, and sdc.epic ends `not_delivered` (section above).
+  - sdc.story, `change.merge` denied (1): `merge.approve` stays approval-required. Since D152
+    `dropped` requires the rework budget record, not `explicitly_dropped`, and `rework.exhaust`
+    needs the same authority, so the story waits; the tree goes on through the epic's `abandoned`
+    decision.
   - sdc.release, `release.approve` denied (1): the case ends `withheld` on
     `explicitly_withheld`; since D150 that ends the standalone release only, no cycle case.
 - **sdc `{intake_opened, roadmap_approval}` stuck (e, false).** Not a protocol defect, no
@@ -349,6 +393,8 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.story | `code_review` | `change.review` | person or another agent, `independent_on: [different_principal]` |
 | sdc.story | `merge_approval` (approved, rejected) | `merge.approve`, `requires: change.merge` | person |
 | sdc.story | `merge_record` | `change.merge`, on `merge.approved` | version control |
+| sdc.story | `rework_budget` (exhausted) | `rework.exhaust`, `requires: change.merge`, after a rejected merge | the run's rule principal (`rule:autopilot`), on the driver's count |
+| sdc.story | `rework_budget` (exhausted) | `rework.exhaust`, `requires: change.merge`, after a rejected merge | the run's rule principal (`rule:autopilot`), on the driver's count |
 | sdc.delivery | `build_provenance` | `release.build` | build system |
 | sdc.delivery | `release_conformance` | `acceptance.run` | `ess verify conform run --target <release> --strict` |
 | sdc.release | `release_conformance` | `delivery.read` (copy) | runtime, copied from the delivered tree's sdc.delivery |

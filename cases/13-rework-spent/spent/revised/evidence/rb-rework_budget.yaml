@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: rb
+kind: rework_budget
+result: exhausted
+subject: requirements
+subject_revision: q1
+producer: rule:autopilot
+observed_at: 2026-11-20T09:45:00Z

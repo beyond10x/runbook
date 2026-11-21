@@ -575,6 +575,14 @@ rework() { # <request> <decider reply>
     end_cause=rework_spent
     end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
+    # D152: where the protocol records the spent rework (an action producing `rework_budget`), the
+    # cap is a record by rule:autopilot, and the case ends through the outcome that requires it.
+    local spend
+    spend=$(jq -r '[.actions | to_entries[] | select(any(.value.may_produce[]?; .evidence == "rework_budget")) | .key][0] // ""' "$cdir/ir.json")
+    if [[ -n $spend ]]; then
+      d "$cdir" approve --at "$(now)" --capability "$cap" --principal rule:autopilot --action "$spend" --result exhausted --reasons "$file"
+      [[ $code == 0 ]] && { end_cause="" end_reason="" end_note="$act rework spent: $(jq -r '.reasons[0] // ""' <<< "$reply")"; echo "  $spend recorded by rule:autopilot after three rejections of $act"; return 0; }
+    fi
     return 1
   fi
   kind=$(jq -r --arg a "$act" '.[$a].produces // ""' "$cdir/bindings.json")

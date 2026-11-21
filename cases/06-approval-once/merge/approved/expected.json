@@ -5,6 +5,7 @@
     "change.merge": "admissible",
     "change.review": "blocked",
     "merge.approve": "blocked",
+    "rework.exhaust": "blocked",
     "spec.gate": "blocked",
     "tests.run": "blocked"
   },
@@ -17,6 +18,7 @@
     "gate.passed": "true",
     "merge.approved": "true",
     "merge.decided": "true",
+    "rework.spent": "unknown",
     "tests.pass": "true",
     "tests.run_recorded": "true"
   },

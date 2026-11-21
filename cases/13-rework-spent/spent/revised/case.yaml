@@ -1,0 +1,16 @@
+format: canon-case/1
+id: STORY-13
+protocol: sdc.story
+revision: c2
+artifacts:
+  spec:
+    revision: s1
+  change:
+    revision: c2
+  findings:
+    revision: none
+  requirements:
+    revision: q1
+independence:
+  implementer-agent: []
+  reviewer-2: [different_principal]

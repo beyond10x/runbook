@@ -1,0 +1,525 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "change.implement": {
+      "reasons": [
+        {
+          "claim": "rework.spent",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "change.merge": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        },
+        {
+          "claim": "change.reviewed",
+          "value": "unknown"
+        },
+        {
+          "claim": "merge.approved",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "change.review": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "merge.approve": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        },
+        {
+          "claim": "change.reviewed",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "rework.exhaust": {
+      "reasons": [
+        {
+          "claim": "rework.spent",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.gate": {
+      "reasons": [
+        {
+          "claim": "gate.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "tests.run": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "STORY-13",
+  "claims": {
+    "change.built": {
+      "excluded_evidence": [
+        {
+          "evidence": "i1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "change.merged": {
+      "value": "unknown"
+    },
+    "change.review_recorded": {
+      "excluded_evidence": [
+        {
+          "evidence": "k1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "change.reviewed": {
+      "excluded_evidence": [
+        {
+          "evidence": "k1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "gate.checked": {
+      "value": "true"
+    },
+    "gate.passed": {
+      "value": "true"
+    },
+    "merge.approved": {
+      "excluded_evidence": [
+        {
+          "evidence": "mr",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "merge.decided": {
+      "excluded_evidence": [
+        {
+          "evidence": "mr",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "rework.spent": {
+      "value": "true"
+    },
+    "tests.pass": {
+      "excluded_evidence": [
+        {
+          "evidence": "t1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    },
+    "tests.run_recorded": {
+      "excluded_evidence": [
+        {
+          "evidence": "t1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "change.implement": {
+        "because": [
+          {
+            "claim": "rework.spent",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "change.merge": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          },
+          {
+            "claim": "change.reviewed",
+            "value": "unknown"
+          },
+          {
+            "claim": "merge.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "change.review": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "merge.approve": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          },
+          {
+            "claim": "change.reviewed",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "rework.exhaust": {
+        "because": [
+          {
+            "claim": "rework.spent",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.gate": {
+        "because": [
+          {
+            "claim": "gate.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "tests.run": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "change.built": {
+        "because": [
+          {
+            "evidence": "i1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "change.merged": {
+        "because": [
+          {
+            "kind": "merge_record",
+            "status": "absent",
+            "subject": "change"
+          }
+        ],
+        "value": "unknown"
+      },
+      "change.review_recorded": {
+        "because": [
+          {
+            "evidence": "k1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "change.reviewed": {
+        "because": [
+          {
+            "evidence": "k1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "gate.checked": {
+        "because": [
+          {
+            "evidence": "g1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "merge.approved": {
+        "because": [
+          {
+            "evidence": "mr",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "merge.decided": {
+        "because": [
+          {
+            "evidence": "mr",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "rework.spent": {
+        "because": [
+          {
+            "evidence": "rb",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "tests.pass": {
+        "because": [
+          {
+            "evidence": "t1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "tests.run_recorded": {
+        "because": [
+          {
+            "evidence": "t1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "authority": [
+        {
+          "capability": "change.merge",
+          "decision": "granted"
+        }
+      ],
+      "case": {
+        "artifacts": {
+          "change": {
+            "revision": "c2"
+          },
+          "findings": {
+            "revision": "none"
+          },
+          "requirements": {
+            "revision": "q1"
+          },
+          "spec": {
+            "revision": "s1"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "STORY-13",
+        "independence": {
+          "implementer-agent": [],
+          "reviewer-2": [
+            "different_principal"
+          ]
+        },
+        "protocol": "sdc.story",
+        "revision": "c2"
+      },
+      "evidence": [
+        "g1",
+        "i1",
+        "k1",
+        "mr",
+        "rb",
+        "t1"
+      ],
+      "protocol": "sdc.story",
+      "protocol_revision": 8,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "implementation.required": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "review.required": {
+        "because": [
+          {
+            "claim": "change.reviewed",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "tests.required": {
+        "because": [
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "passed": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          },
+          {
+            "claim": "change.merged",
+            "value": "unknown"
+          },
+          {
+            "claim": "change.reviewed",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "gate.required",
+      "status": "discharged"
+    },
+    {
+      "id": "implementation.required",
+      "status": "open"
+    },
+    {
+      "id": "review.required",
+      "status": "open"
+    },
+    {
+      "id": "tests.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "dropped": {
+      "status": "legitimate"
+    },
+    "passed": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        },
+        {
+          "claim": "change.merged",
+          "value": "unknown"
+        },
+        {
+          "claim": "change.reviewed",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.story",
+  "protocol_revision": 8
+}

@@ -92,12 +92,12 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   decider-escalate-nobest release-standalone decider-release-a3 requester-decider requester-no-ground principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
-# decider-rework-spent where merge.approve exists.
+# rework-spent-dropped where merge.approve exists.
 ctx_rework=no
 jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
-  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
+  expected+=(decider-rework rework-spent-dropped rework-not-called rework-pending-rejection)
 expected+=(decider-later-obligation replay-sibling writer-not-called decider-release-withheld)
 expected+=(cite-dark-spot cite-fault-sent-back)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
@@ -713,12 +713,14 @@ else
 fi
 fi
 # Rework of a rejected approval under autopilot (docs/autonomy-levels.md, "A rejected approval in
-# autopilot"). decider-rework and decider-rework-spent run where the story protocol has
+# autopilot"). decider-rework and rework-spent-dropped run where the story protocol has
 # merge.approve (merge_approval approved or rejected). decider-rework: merge.approve rejected once,
 # then approved: change.implement runs again with the rejection (SDC_FEEDBACK; the stub records it
 # in impl/.rework), the approval is asked again with prior_rejections, the run closes.
-# decider-rework-spent: rejected three times: stop by rule:autopilot, cause rework_spent, the three
-# reasons named. decider-rework-none: release.publish rejected; its approval is the capability
+# rework-spent-dropped (R4, D152): rejected three times: rule:autopilot records the rework budget
+# exhausted (rework.exhaust, rework_budget about the requirements, the third rejection as its log),
+# the story ends dropped, the epic not_delivered, the root not_delivered; closed, exit 0, no stop
+# record, replay matches. decider-rework-none: release.publish rejected; its approval is the capability
 # release.approve with no `rejected` result, so the rejection cannot be recorded: cause
 # rejected_without_rework_path, nothing recorded.
 if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
@@ -739,16 +741,22 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "decider-rework: FAILED (exit $code: $(jq -c '[.[] | .decision]' <<< "$a" 2>/dev/null))"
   fi
-  trial decider-rework-spent SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
+  trial rework-spent-dropped SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
   code=$?
-  r=$s/runs/decider-rework-spent
-  if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rework_spent"
-       and (.reason | test("^autopilot: merge.approve in IDEA-1[.][a-z]+[.][a-z]+: rework_spent") and test("1: .*2: .*3: ")
-         and (test("person") | not) and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
-     ! sed -n '/^round /,$p' "$s/decider-rework-spent.txt" | sed 's/awaiting_person//g' | grep -qi 'person'; then
-    echo "decider-rework-spent: checks pass (three rejections: rework_spent by rule:autopilot, the three reasons named)"
+  r=$s/runs/rework-spent-dropped
+  st=$(find "$r/store" -type d -name 'IDEA-1.*.invoices' | head -n 1)
+  ep=$(find "$r/store" -type d -name 'IDEA-1.billing' | head -n 1)
+  if (( code == 0 )) && [[ ! -f $r/run-stopped.json && -n $st ]] &&
+     jq -e '.state == "closed" and .outcome == "not_delivered" and .delivered == false and .closed_by == "rule:autopilot"' "$r/status.json" >/dev/null &&
+     [[ $(jq -s '[.[] | select(.kind == "merge_approval" and .result == "rejected")] | length' "$st"/evidence/*.json) == 3 ]] &&
+     jq -se '[.[] | select(.kind == "rework_budget")] | length == 1 and .[0].result == "exhausted" and .[0].producer == "rule:autopilot" and .[0].subject == "requirements"' "$st"/evidence/*.json >/dev/null &&
+     jq -e 'length == 0' "$st/decisions.json" >/dev/null &&
+     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["dropped"]' "$st/events.jsonl" >/dev/null &&
+     jq -se '[.[] | select(.event == "terminated") | .outcome] == ["not_delivered"]' "$ep/events.jsonl" >/dev/null &&
+     jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null; then
+    echo "rework-spent-dropped: checks pass (third rejection: rework_budget exhausted by rule:autopilot, story dropped, epic and root not_delivered; closed by rule:autopilot, replay matches)"
   else
-    echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+    echo "rework-spent-dropped: FAILED (exit $code, status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
   # rework-not-called: runs/trial-3-haiku-4's list story. change.implement on llm-node.sh's apply
   # path (fixture adapter); merge.approve rejected once, then approved. The rework (with the

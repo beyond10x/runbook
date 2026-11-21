@@ -33,6 +33,19 @@
     "merge.approve": {
       "status": "admissible"
     },
+    "rework.exhaust": {
+      "reasons": [
+        {
+          "claim": "merge.approved",
+          "value": "unknown"
+        },
+        {
+          "claim": "merge.decided",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "spec.gate": {
       "reasons": [
         {
@@ -108,6 +121,9 @@
       ],
       "value": "unknown"
     },
+    "rework.spent": {
+      "value": "unknown"
+    },
     "tests.pass": {
       "excluded_evidence": [
         {
@@ -152,6 +168,19 @@
           {
             "claim": "change.review_recorded",
             "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "rework.exhaust": {
+        "because": [
+          {
+            "claim": "merge.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "merge.decided",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -229,6 +258,16 @@
         ],
         "value": "unknown"
       },
+      "rework.spent": {
+        "because": [
+          {
+            "kind": "rework_budget",
+            "status": "absent",
+            "subject": "requirements"
+          }
+        ],
+        "value": "unknown"
+      },
       "tests.pass": {
         "because": [
           {
@@ -302,7 +341,7 @@
         "t2"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -312,8 +351,8 @@
       "dropped": {
         "because": [
           {
-            "decision": "explicitly_dropped",
-            "present": false
+            "claim": "rework.spent",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -352,8 +391,8 @@
     "dropped": {
       "reasons": [
         {
-          "decision": "explicitly_dropped",
-          "present": false
+          "claim": "rework.spent",
+          "value": "unknown"
         }
       ],
       "status": "blocked"
@@ -369,5 +408,5 @@
     }
   },
   "protocol": "sdc.story",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

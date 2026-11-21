@@ -39,6 +39,9 @@
       ],
       "status": "blocked"
     },
+    "rework.exhaust": {
+      "status": "admissible"
+    },
     "spec.gate": {
       "reasons": [
         {
@@ -83,6 +86,9 @@
     },
     "merge.decided": {
       "value": "true"
+    },
+    "rework.spent": {
+      "value": "unknown"
     },
     "tests.pass": {
       "value": "true"
@@ -195,6 +201,16 @@
         ],
         "value": "true"
       },
+      "rework.spent": {
+        "because": [
+          {
+            "kind": "rework_budget",
+            "status": "absent",
+            "subject": "requirements"
+          }
+        ],
+        "value": "unknown"
+      },
       "tests.pass": {
         "because": [
           {
@@ -255,7 +271,7 @@
         "t1"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -265,8 +281,8 @@
       "dropped": {
         "because": [
           {
-            "decision": "explicitly_dropped",
-            "present": false
+            "claim": "rework.spent",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -305,8 +321,8 @@
     "dropped": {
       "reasons": [
         {
-          "decision": "explicitly_dropped",
-          "present": false
+          "claim": "rework.spent",
+          "value": "unknown"
         }
       ],
       "status": "blocked"
@@ -322,5 +338,5 @@
     }
   },
   "protocol": "sdc.story",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

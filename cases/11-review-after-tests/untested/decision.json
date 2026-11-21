@@ -51,6 +51,19 @@
       ],
       "status": "blocked"
     },
+    "rework.exhaust": {
+      "reasons": [
+        {
+          "claim": "merge.approved",
+          "value": "unknown"
+        },
+        {
+          "claim": "merge.decided",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "spec.gate": {
       "reasons": [
         {
@@ -88,6 +101,9 @@
       "value": "unknown"
     },
     "merge.decided": {
+      "value": "unknown"
+    },
+    "rework.spent": {
       "value": "unknown"
     },
     "tests.pass": {
@@ -142,6 +158,19 @@
           },
           {
             "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "rework.exhaust": {
+        "because": [
+          {
+            "claim": "merge.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "merge.decided",
             "value": "unknown"
           }
         ],
@@ -217,6 +246,16 @@
         ],
         "value": "unknown"
       },
+      "rework.spent": {
+        "because": [
+          {
+            "kind": "rework_budget",
+            "status": "absent",
+            "subject": "requirements"
+          }
+        ],
+        "value": "unknown"
+      },
       "tests.pass": {
         "because": [
           {
@@ -270,7 +309,7 @@
         "i1"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -300,8 +339,8 @@
       "dropped": {
         "because": [
           {
-            "decision": "explicitly_dropped",
-            "present": false
+            "claim": "rework.spent",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -348,8 +387,8 @@
     "dropped": {
       "reasons": [
         {
-          "decision": "explicitly_dropped",
-          "present": false
+          "claim": "rework.spent",
+          "value": "unknown"
         }
       ],
       "status": "blocked"
@@ -373,5 +412,5 @@
     }
   },
   "protocol": "sdc.story",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

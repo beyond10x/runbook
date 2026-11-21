@@ -498,7 +498,13 @@ output every time, appends the rejection to the subject (`.rework` in a tree, a 
 Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
 adapter). The new revision leaves the record behind and the approval is asked again; the
 decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
-evidence and the event log). The third rejection stops the run with cause `rework_spent`; a
+evidence and the event log). The third rejection stops the run with cause `rework_spent`, except
+where the case's protocol has an action producing `rework_budget` (D152, `docs/protocol-notes.md`,
+"A rework loop ends on a record"; sdc.story's `rework.exhaust`): there `rework` records the
+budget exhausted as `rule:autopilot` (`approve --capability <the approval's> --action
+rework.exhaust --result exhausted --reasons <third rejection>`), the case ends through the outcome
+that requires it (`dropped`), the parents through theirs, and the run closes (cycle
+`rework-spent-dropped`); a
 rejection that cannot be recorded, or that sends no writer back, and has no end of its own (below)
 with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
 it was opened with, so a run started before a protocol change does not gain the new actions.

@@ -1,0 +1,35 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "change.implement": "blocked",
+    "change.merge": "blocked",
+    "change.review": "blocked",
+    "merge.approve": "blocked",
+    "rework.exhaust": "blocked",
+    "spec.gate": "blocked",
+    "tests.run": "blocked"
+  },
+  "claims": {
+    "change.built": "true",
+    "change.merged": "unknown",
+    "change.review_recorded": "true",
+    "change.reviewed": "true",
+    "gate.checked": "true",
+    "gate.passed": "true",
+    "merge.approved": "false",
+    "merge.decided": "true",
+    "rework.spent": "true",
+    "tests.pass": "true",
+    "tests.run_recorded": "true"
+  },
+  "obligations": {
+    "gate.required": "discharged",
+    "implementation.required": "discharged",
+    "review.required": "discharged",
+    "tests.required": "discharged"
+  },
+  "outcomes": {
+    "dropped": "legitimate",
+    "passed": "blocked"
+  }
+}

@@ -2,7 +2,7 @@ format: protocol/1
 
 protocol:
   id: sdc.story
-  revision: 7
+  revision: 8
   description: >-
     Deliver one AEP story of an approved ESS specification: implement it against the current
     specification revision, verify it with the ESS conformance run against the implementation,
@@ -13,8 +13,10 @@ protocol:
     behind, so they are taken again. The
     ESS gate must pass on the current specification revision before anything is implemented and
     for the story to be delivered. A revised specification invalidates the implementation record
-    and the conformance run observed against the earlier revision. The case ends passed (delivered), or
-    dropped on an explicit decision. Late findings (docs/trial-2.md, "The late-finding loop"): the conformance run also reads the open findings and is not passed while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the change is re-derived.
+    and the conformance run observed against the earlier revision. The case ends passed (merged), or
+    dropped once the merge rework is spent: after a third rejected merge the run's rule principal
+    records the rework budget exhausted (rework.exhaust, under the merge authority), which ends the
+    rework (change.implement is no longer admissible) and the case (ruling D152). Late findings (docs/trial-2.md, "The late-finding loop"): the conformance run also reads the open findings and is not passed while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the change is re-derived.
 
 independence_dimensions:
   different_principal:
@@ -53,6 +55,12 @@ evidence_kinds:
       reasons of a rejection are the step's log, handed to change.implement)
   merge_record:
     description: the record that a change revision was merged into the mainline
+  rework_budget:
+    description: >-
+      the verdict that the merge rework is spent: recorded with result exhausted by the run's rule
+      principal (rule:autopilot) after the third rejected merge, under the merge authority. It is
+      about the requirements list, which the rework does not revise, so a new change revision does
+      not set it aside. The count of rejections is the driver's (protocol/1 cannot count records)
 
 claims:
   gate.passed:
@@ -112,6 +120,12 @@ claims:
       evidence:
         kind: merge_record
         subject: change
+  rework.spent:
+    description: the merge rework budget of this story is recorded exhausted
+    true_when:
+      evidence:
+        kind: rework_budget
+        subject: requirements
   tests.run_recorded:
     description: >-
       a conformance run is recorded about the current change revision, against the current specification revision, whatever its result
@@ -164,7 +178,10 @@ actions:
       run, a rejected review or a rejected merge
     effect: write
     precondition:
-      claim: gate.passed
+      all:
+        - claim: gate.passed
+        - claim: rework.spent
+          is: unknown
     may_produce:
       - evidence: implementation_change
   tests.run:
@@ -226,6 +243,24 @@ actions:
         - claim: merge.approved
     may_produce:
       - evidence: merge_record
+  rework.exhaust:
+    description: >-
+      record the merge rework budget exhausted, directly after a rejected merge of the current
+      change revision, under the merge authority; taken by the run's rule principal when the driver's
+      count of rejected merges reached its cap (three), never by a model. Only while no such record
+      is current
+    effect: write
+    precondition:
+      all:
+        - claim: merge.decided
+        - claim: merge.approved
+          is: "false"
+        - claim: rework.spent
+          is: unknown
+    requires:
+      - capability: change.merge
+    may_produce:
+      - evidence: rework_budget
 
   amend.upstream:
     description: >-
@@ -253,9 +288,14 @@ outcomes:
         - claim: change.reviewed
         - claim: change.merged
   dropped:
-    description: the story was explicitly dropped
+    description: >-
+      the merge rework is spent: the rework budget is recorded exhausted after the third rejected
+      merge (D152). Legitimate without a person; the epic then ends not_delivered and the root
+      not_delivered. It replaces the decision explicitly_dropped, which nobody took and which the
+      record does not fit beside under the state bound (98,304 states with both); a person gives a
+      story up through the epic's abandoned decision
     requires:
-      decision: explicitly_dropped
+      claim: rework.spent
 
 invalidation:
   spec.revised:
