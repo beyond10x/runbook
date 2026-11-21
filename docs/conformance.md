@@ -72,8 +72,10 @@ found in the adapter's log, are:
   the product accepts (cause `table_error`).
 
 The run is then refused with that evidence and the node asked once more, in the same slot, with the
-evidence as feedback (`retried_after_run`, `evidence`, both runs under `runs`). A retried table
-that shows a fault again, or that the check refuses, leaves the slot uncounted.
+evidence as feedback (`retried_after_run`, `evidence`, every run under `runs`). A slot refused after
+that retry, by the check or by its run, gets one more fresh session with the reasons
+(`one_more_session`); at most five node sessions per slot (three for the check, the retry, the one
+more). A table refused after that leaves the slot uncounted.
 
 **How a table could pass what the product fails**, and what the checker does about it:
 
@@ -84,7 +86,7 @@ that shows a fault again, or that the check refuses, leaves the slot uncounted.
 | An event payload or error field written into the table as a literal | closed: the check refuses it |
 | An event payload or error field filled from the input: the check compares the scenario's input with itself | recorded: such a check is `unverified` (`unverified_checks`); a scenario whose every check is unverified counts not measurable |
 | `start.argv` starting something other than the product's normal start (a mock, a demo mode), or a header that switches the product into a test mode | closed as far as the tree says so: `start.from` cites the README or manifest line that states the start command, the check verifies the program and every literal argument are on the cited lines, and refuses an argument or header a README line describes as a test, demo or mock mode |
-| A status mapped to an outcome the product means otherwise (404 "not found" read as `wrong-state`) | allowed: several statuses may mean one outcome. Tables that read it differently make the scenario disputed |
+| A status mapped to an outcome the product means otherwise (404 "not found" read as `wrong-state`) | closed for an absent entity: the adapter, not the table, reads a refusal of an id the scenario never created as the command's unknown-instance answer, and never reads 404 for an id the scenario created as `wrong-state` (below); the check refuses 404 on a `wrong_state` outcome. Other statuses: several may mean one outcome, and tables that read one differently make the scenario disputed |
 | A view mapped to a route that returns more rows than the view holds (all items for "done items"): a "row present" check passes on rows the real view would not hold | open |
 
 ## The route table and the node that writes it
@@ -112,7 +114,13 @@ A table names:
   relative to the delivered tree or one of `cargo`, `go`, `node`, `npm`, `deno`, `java`, `dotnet`.
   `start.from`: `[{file, line}]`, the README or manifest (`Cargo.toml`, `package.json`, `go.mod`,
   `pyproject.toml`, `Procfile`, `Taskfile.yml`, `Makefile`, `deno.json`, `justfile`) of the
-  delivered tree and the 1-based lines that state this start command for normal use.
+  delivered tree and the 1-based lines that state this start command for normal use. `start.args`
+  (optional): where the README leaves a start value to the operator (`<partner-account-id>`) and
+  the specification has an input field for it, `{name, kind: from_scenario, field, nth,
+  when_absent}` fills `{arg.<name>}` in `start.argv`: the adapter reads the suite (`--suite`) and
+  starts the product per scenario with the `nth` (default 0) distinct literal value the scenario
+  sends in that field, else `when_absent`, which must be on the cited lines. No script, no write
+  into the product's data file.
 - `captures` (optional): values the product prints at start, each `{name, stream, regex,
   timeout_s}` with `stream` `stdout` or `stderr`, a regex with exactly one group and a timeout of
   1 to 120 s. `"{capture.<name>}"` reads one in paths, headers, bodies and templates.
@@ -167,13 +175,29 @@ publishes none an HTTP client can observe. Starts, captures, unmapped statuses, 
 unfillable requests (`request_unfillable`) and unfillable templates go to the table run's
 `adapter-log.jsonl` and, for the counted tables, `oracle.json` `conformance.adapter_notes`.
 
+**An absent entity is decided by the adapter, not the table.** ESS answers a command on an
+instance no record carries with the command's not-found outcome when it declares exactly one,
+otherwise with its `wrong_state` outcome (ESS 0.97.0
+`docs/design/typed-literals-and-unknown-instances.md`, § 2 "An unknown instance is answered with
+the command's `wrong_state` outcome" and § 2a "A declared not-found outcome comes first"; the
+error carries no field, "because an instance that does not exist is in none"). ESS does not call
+absence a state: the instance "is in none", and the rule is the unknown-instance answer. The
+adapter reads the compiled specification (`--ir`) for the input field that names the instance a
+command moves or updates, and remembers every value the events of the scenario carried (the
+identities the scenario created, as ess captures them). A refusal of a command on an id no event
+of the scenario carried, that is 404 or a status the table maps to that answer, is answered with
+that answer and the error by name with no fields (logged `unknown_instance`). A status the table
+maps to another outcome keeps that reading, because input guards answer first. For an id the
+scenario created, 404 is never `wrong_state`: the check refuses 404 on a `wrong_state` outcome, so
+a product that answers 404 for a removed or finished entity fails that scenario.
+
 ## oracle.json
 
 `sdc.oracle/1`: `checks` holds one entry `{id: conformance, result, k, f, d, u, n, agreement,
 tables_counted, cause}` (the shape `sdc-run-compare`'s oracle check reads), `conformance` the
-record: `result`, `k`, `f`, `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `measured`,
+record: `result`, `k`, `f`, `d`, `u`, `n`, `agreement`, `tables_written`, `tables_counted`, `node_sessions`, `measured`,
 `summary`, `cause`, `why`, `table_cost_usd` (all slots), `tables` (per slot: source, model,
-effort, attempts, `cost_usd`, `retried_after_run`, `evidence`, `counted`, `cause`, `why`, the
+effort, attempts, `cost_usd`, `retried_after_run`, `one_more_session`, `evidence`, `counted`, `cause`, `why`, the
 final run's `k`, `f`, `u`, `e` (errors), `unverified` (checks), `n`, `conformance_status`, `declared_missing`, `build`,
 and `runs`, one record per table run), `scenarios` (id, status over the counted tables, `under`:
 the status per slot, null for an uncounted slot), `failed_checks` (scenario, about, code,
@@ -255,67 +279,66 @@ sibling checkout (`scripts/check-protocols.sh`, `CANON_DIR`; `scripts/run-trial.
 
 ## State of the instrument (2026-11-21, on copies of the six 0.1.0 baseline runs in a scratch directory)
 
-Three tables per product, table node Sonnet at effort high, the four-count rule and the checks
-above (literals refused, `start.from`, test modes refused, several statuses per outcome).
+Three tables per product, table node Sonnet at effort high, the four-count rule, the checks above,
+the adapter's unknown-instance reading, `start.args` and the one more session. Round cap 10 USD
+of node cost; spent 8.50 USD.
 
-| run | passed / failed / disputed / not measurable of n | passed, failed, not measurable per table | counted | node cost |
+| run | passed / failed / disputed / not measurable of n | passed, failed, not measurable per table | node sessions | node cost |
 |---|---|---|---|---|
-| `strong-1` | 13 / 4 / 0 / 0 of 17 | 13 4 0 · 13 4 0 · 13 4 0 | 3 | 1.57 USD |
-| `strong-2` | 9 / 2 / 2 / 4 of 17 | 11 1 5 · 9 3 5 · 11 2 4 | 3 | 1.59 USD |
-| `strong-3` | 4 / 16 / 0 / 0 of 20 | 4 16 0 (slots 1 and 3: 4 13 0 with 3 errors, retried, then refused) | 1 | 1.27 USD |
-| `mixed-1` | 4 / 7 / 0 / 8 of 19 | 4 7 8 · 4 7 8 · 4 7 8 | 3 | 0.61 USD |
-| `mixed-2` | not measured (`table_refused`), 16 scenarios | 1 9 6 · 1 8 7 · 1 9 6, each refused after its run | 0 | 1.97 USD |
-| `mixed-3` | 9 / 4 / 0 / 1 of 14 | 9 4 1 · 9 4 1 · 9 4 1 | 3 | 1.63 USD |
+| `strong-1` | 16 / 1 / 0 / 0 of 17 | 16 1 0 · 16 1 0 · 16 1 0 | 4 | 0.82 USD |
+| `strong-2` | 11 / 2 / 0 / 4 of 17 | 11 2 4 · 11 1 5 · 11 1 5 | 5 | 1.41 USD |
+| `strong-3` | 7 / 13 / 0 / 0 of 20 | 7 13 0 · 7 13 0 · 7 13 0 | 5 | 1.34 USD |
+| `mixed-1` | 6 / 5 / 0 / 8 of 19 | 6 5 8 · 6 5 8 · 6 5 8 | 4 | 0.89 USD |
+| `mixed-2` | not measured (`table_error`), 16 scenarios | 2 8 6 in each slot, refused after its run | 9 | 2.99 USD |
+| `mixed-3` | 11 / 2 / 0 / 1 of 14 | 11 2 1 · 11 2 1 · 11 2 1 | 6 | 1.05 USD |
 
-Node cost 8.64 USD for these six. Getting there cost about 10 USD more in runs that were thrown
-away: the first launch showed `cargo run` starts that rustup could not run in the adapter's
-cleared environment, an error name written as a template because the prompt's "no literals" was
-read as covering it, and a `start.from` check that refused a value the README leaves to the
-operator (`<partner-account-id>`). Each was fixed (`cargo run` refused, the prompt says the error
-name is written as is, operator values of a cited usage line allowed) and the affected products
-observed again; the `strong-2` and `mixed-3` tables of the first launch pass the final check
-unchanged and are kept.
+Node sessions are counted per product; the cap is five per slot (three for the check, the retry
+after a run, one more). The per-table passed counts are equal on every measured product. The
+three tables agree on every scenario of `strong-1`, `strong-3`, `mixed-1` and `mixed-3`, and on 16
+of 17 of `strong-2`.
 
-Per-table passed counts differ by at most 2 on every product with more than one counted table
-(`strong-2`: 11, 9, 11). The spread that is left is the status question below: the two disputed
-`strong-2` scenarios are exactly the ones where two tables read 404 as `wrong-state` and one did
-not.
+What the unknown-instance reading changed: the `wrong-state` scenarios that send an id no step
+created now pass where the product refuses it (404 "no such change"): three on `strong-1`, two on
+`mixed-3`, and the same scenarios on `strong-3` and `mixed-1`. `strong-1`'s one failure left is
+`SendChange/unreachable`: the product checks existence before the forced connection loss and
+answers 404, where the suite expects `unreachable`. `strong-2`'s `PushChange/wrong-state` fails on
+the product: it answers 200 `sent` for a change id it never held.
 
-`mixed-2`: the product signs a partner in only with an account id fixed at its start, prints none,
-and the scenarios sign in with the spec's own ids, so no table can sign in and every list command
-answers 401. The round-1 table that got 7 / 2 / 7 started the product through a `node -e` script
-that wrote signed-in sessions into the data file and printed a partner id to capture: a start
-command no README states, now refused.
+**Choices the table node still makes that decide a result:**
 
-**A. Several statuses for one outcome.** Until this change the format allowed one integer per
-outcome and the prompt forbade reading 404 as `wrong-state`; all six first tables mapped
-`wrong-state` to 409 only, and the `strong-1` node wrote "Unknown ids answer 404, which the spec
-does not declare, so I did not map it to any outcome". The 404-against-`wrong-state` failures were
-our rule, not a finding about the products. Now `status` may be a list. With it allowed, the
-node still decides: on `strong-2` two of three tables mapped `[409, 404]`, one 409 only; on
-`strong-1`, `strong-3`, `mixed-1` and `mixed-3` every table kept 409 only ("A tick or remove of an
-unknown task answers 404, which I did not map to wrong-state"). Whether a product's 404 for an
-unknown id is `wrong-state` is a free choice of the measurer the instrument does not remove; it now
-shows as disputed when the tables differ, and not at all when they agree.
+- **`none` of kind `not_reachable_over_the_interface`**, the node's judgement that no HTTP client
+  can drive or read a command, outcome or view, which makes its scenarios not measurable:
+  `strong-2` (`QueueChange`, `PendingChanges`: 4 scenarios, and `PushChange/superseded`, failed
+  under one table and not measurable under the two that declared it unreachable), `mixed-1`
+  (`ChangeOffline`, `KeepCopy`, `SendChanges`, and the views `OpenItems`, `DoneItems`, `CopyView`:
+  8 scenarios), `mixed-3` (`SyncEdit/dropped`: 1).
+- **No sign-in a table can send** (`mixed-2`): the product refuses every list command 401
+  `NotSignedIn` until a partner signs in, and the scenarios of `AddItem`, `CompleteItem` and
+  `Items` never call `SignIn`. The partner ids now come from the scenario (`start.args`), so the
+  `SignIn` scenarios reach the product, but a session the specification does not model is an
+  ambient precondition (ESS `docs/design/outcome-shapes.md`, #152), not a table fault. The
+  instrument counts 401 as a table fault and so never counts a table for this product.
+- Routes, the status of each outcome, forced requests and view rows are still written by the node.
+  On `strong-1` and `strong-3` no scenario rests on a `none`, a dispute or an unverified check,
+  and three independent tables wrote the same results scenario for scenario.
 
-**B. Identifiers.** The adapter binds a created entity's id from the creating response: the table
-builds the creation event's payload from `{response.<id>}`, ess captures the instance from that
-event (`capture_instance`), and later steps send `{"kind": "instance"}` inputs, which carry the
-captured id. `strong-1`'s four failures are neither: each scenario creates nothing and sends the
-suite's literal id once. The request log (`adapter-log.jsonl`, `request`) of
-`todo.sync.SendChange/outcome/wrong-state` holds one request, `POST
-/api/changes/00000000-0000-4000-8000-9abf7a29ff89/send`, answered 404 `no such change: …`;
-`SendChange/unreachable` (after the forced connection loss), `TickTask/wrong-state` and
-`RemoveTask/wrong-state` are the same with their own ids. The suite holds the product to
-`wrong-state` for an id no step created; the product answers 404, and for `unreachable` it checks
-existence before the external call. No binding is missing.
+So the instrument is choice-free in that sense on two of the six products (`strong-1`,
+`strong-3`), not on five: the `none` kind decides results on `strong-2`, `mixed-1` and `mixed-3`,
+and `mixed-2` is not measured. The figure stays out of the ledger.
 
-**Defined without a free choice?** Not yet. What the measurer still chooses, through the node:
-which statuses mean an outcome (A); which outcomes are `none` and of which kind (the `strong-2` and
-`mixed-1` tables declare parts `not_reachable_over_the_interface`: 4 and 8 scenarios); and
-how an external outcome is forced (`strong-3` slots 1 and 3 gave neither a forced request nor a
-`none` on their retry and were refused). A view
-mapped to a route with more rows than the view holds stays open. The figure stays out of release
-0.1.2's ledger and the Evaluation charts.
+Earlier readings on the same copies, for comparison: before the unknown-instance reading
+`strong-1` was 13 / 4 / 0 / 0 and `strong-2` had two scenarios disputed on whether 404 is
+`wrong-state`. Before `start.from`, `mixed-2`'s round-1 table got 7 / 2 / 7 by starting the product
+through a `node -e` script that wrote signed-in sessions into the data file.
+
+**Questions answered on the way.** A (several statuses for one outcome): the format allowed one
+status per outcome and the prompt forbade reading 404 as `wrong-state`, so the 404 failures of the
+first figures were our rule. Several statuses may now mean one outcome, and 404 for an absent
+entity is the adapter's decision, not the table's. B (identifiers): the adapter binds a created
+entity's id from the creating response (the creation event built from `{response.<id>}`, which
+ess captures). `strong-1`'s four first failures sent the suite's literal id of an instance no step
+created: the request log of `SendChange/outcome/wrong-state` holds one request, `POST
+/api/changes/00000000-0000-4000-8000-9abf7a29ff89/send`, answered 404 `no such change`. No binding
+was missing.
 
 - Tests (`driver/tests/conformance.rs`) need the pinned ess installed.
