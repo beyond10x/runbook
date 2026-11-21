@@ -436,62 +436,7 @@
       "arrival": 1,
       "attempt": 1,
       "case": "IDEA-1.direction",
-      "id": "decider/001-context.approve",
-      "inputs": {
-        "in/checks.json": "aad492c1d6ed2849e72f059e98816b79a24182998a915fe771bcd4dfb45f6cab",
-        "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
-        "in/decision.json": "7e4b0ed6c22caa6163fd92d2da4a3356eff61359d24b513ba49528ce75ed45cc",
-        "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
-        "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
-        "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2",
-        "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0"
-      },
-      "kind": "decider",
-      "matched_event": true,
-      "name": "context.approve",
-      "node": "decide.context.approve",
-      "ordinal": 1,
-      "ordinal_run": 1,
-      "out": "calls/010/out",
-      "prompt": "38d76c850563c630ecd2f5f518672e12de284482a2f8b9fcbf992a78464b97e8",
-      "request": {
-        "case": "IDEA-1.direction",
-        "effort": "xhigh",
-        "max_budget_usd": 0.25,
-        "max_turns": 8,
-        "model": "claude-haiku-5-5",
-        "node": "decide.context.approve",
-        "operations": [
-          "dir.list",
-          "file.read",
-          "file.write"
-        ]
-      },
-      "response": {
-        "adapter": "fixture",
-        "cost_usd": 0,
-        "duration_ms": 0,
-        "exit": 0,
-        "model": "claude-haiku-5-5",
-        "num_turns": 0,
-        "schema_constrained": false,
-        "schema_note": "not constrained: a scripted reply, no model",
-        "usage": null
-      },
-      "revisions": {
-        "context": "taee57460908c89e2",
-        "questions": "td238b798e35ca7d0",
-        "requirements": "te23630e115159d67"
-      },
-      "structured": null,
-      "try": 1,
-      "virtual_ms": 0
-    },
-    {
-      "arrival": 1,
-      "attempt": 1,
-      "case": "IDEA-1.direction",
-      "id": "decider/002-vision.approve",
+      "id": "decider/001-vision.approve",
       "inputs": {
         "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
         "in/checks.json": "f9716e6b12cc77081b68ffec5ce265e91e58ff7ce0d0876fe14dde85887221ea",
@@ -508,7 +453,7 @@
       "node": "decide.vision.approve",
       "ordinal": 1,
       "ordinal_run": 1,
-      "out": "calls/011/out",
+      "out": "calls/010/out",
       "prompt": "0ef93574f5060b4216eea96a86d1106b1e48a0ba69352dd5617ea5ac5cb11ec9",
       "request": {
         "case": "IDEA-1.direction",
@@ -547,68 +492,8 @@
     {
       "arrival": 1,
       "attempt": 1,
-      "case": "IDEA-1.direction",
-      "id": "decider/003-roadmap.approve",
-      "inputs": {
-        "in/aep/epic/billing.md": "ecbf48b38de10f9d13f78f1cc68867cb6600e4f94e861d219d43ca533ceec758",
-        "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
-        "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
-        "in/checks.json": "98509b015f08630a1d9d2cd272c25f58c1ddbab5dd789bd88379f0832f0a1b4c",
-        "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
-        "in/decision.json": "e5e16b6e403cec473a77ef651d9c6c36b4cb330b1faebbfe5aafd681fb1a202c",
-        "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
-        "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
-        "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2",
-        "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0"
-      },
-      "kind": "decider",
-      "matched_event": true,
-      "name": "roadmap.approve",
-      "node": "decide.roadmap.approve",
-      "ordinal": 1,
-      "ordinal_run": 1,
-      "out": "calls/012/out",
-      "prompt": "6438738aa77535999812300a1b92b0659706f13a7b7687448573ffc31d17d0c2",
-      "request": {
-        "case": "IDEA-1.direction",
-        "effort": "xhigh",
-        "max_budget_usd": 0.25,
-        "max_turns": 8,
-        "model": "claude-haiku-5-5",
-        "node": "decide.roadmap.approve",
-        "operations": [
-          "dir.list",
-          "file.read",
-          "file.write"
-        ]
-      },
-      "response": {
-        "adapter": "fixture",
-        "cost_usd": 0,
-        "duration_ms": 0,
-        "exit": 0,
-        "model": "claude-haiku-5-5",
-        "num_turns": 0,
-        "schema_constrained": false,
-        "schema_note": "not constrained: a scripted reply, no model",
-        "usage": null
-      },
-      "revisions": {
-        "context": "taee57460908c89e2",
-        "questions": "td238b798e35ca7d0",
-        "requirements": "te23630e115159d67",
-        "roadmap": "ta20bf9965fee8991",
-        "vision": "tbc0bad094dab2652"
-      },
-      "structured": null,
-      "try": 1,
-      "virtual_ms": 0
-    },
-    {
-      "arrival": 1,
-      "attempt": 1,
       "case": "IDEA-1.billing.invoices",
-      "id": "decider/004-merge.approve",
+      "id": "decider/002-merge.approve",
       "inputs": {
         "in/aep/epic/billing.md": "0dd064fa8339578220a7f72c5e86ca30ff690f2f9a0c6d4e5b243189bd04d669",
         "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
@@ -635,7 +520,7 @@
       "node": "decide.merge.approve",
       "ordinal": 1,
       "ordinal_run": 1,
-      "out": "calls/013/out",
+      "out": "calls/011/out",
       "prompt": "d21dbf4660f8b11fcb956422f68a467984c5a3450b0c9fff896a4c60d24ff78d",
       "request": {
         "case": "IDEA-1.billing.invoices",
@@ -668,74 +553,10 @@
       "structured": null,
       "try": 1,
       "virtual_ms": 0
-    },
-    {
-      "arrival": 1,
-      "attempt": 1,
-      "case": "IDEA-1.billing.release",
-      "id": "decider/005-release.publish",
-      "inputs": {
-        "in/aep/epic/billing.md": "0dd064fa8339578220a7f72c5e86ca30ff690f2f9a0c6d4e5b243189bd04d669",
-        "in/aep/initiative/roadmap.md": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582",
-        "in/aep/vision/product.md": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236",
-        "in/checks.json": "f99ad2aaa36db72961ef22b82d597640d5151af3cbe5f0a2be66079290e8aab0",
-        "in/context.yaml": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e",
-        "in/decision.json": "98cc69060d774eeb402ee8007a374437f6c5197831495d0ccb5970c5303b570a",
-        "in/dissection.yaml": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc",
-        "in/idea.yaml": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1",
-        "in/questions.yaml": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2",
-        "in/release/.derived-from": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3",
-        "in/release/Cargo.lock": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8",
-        "in/release/Cargo.toml": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a",
-        "in/release/PROVENANCE": "823c713f87d5c2892802e1eaedb23330deb037445bf9c4df11284e4ac85afa4d",
-        "in/release/README.md": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab",
-        "in/release/Taskfile.yml": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7",
-        "in/release/src/lib.rs": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b",
-        "in/release/tests/billing.rs": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714",
-        "in/requirements.yaml": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0"
-      },
-      "kind": "decider",
-      "matched_event": true,
-      "name": "release.publish",
-      "node": "decide.release.publish",
-      "ordinal": 1,
-      "ordinal_run": 1,
-      "out": "calls/014/out",
-      "prompt": "c9e1f59489b35cb1687d622b021afeda5e708dd9c1bb6de8a41a338e92df7dac",
-      "request": {
-        "case": "IDEA-1.billing.release",
-        "effort": "xhigh",
-        "max_budget_usd": 0.25,
-        "max_turns": 8,
-        "model": "claude-haiku-5-5",
-        "node": "decide.release.publish",
-        "operations": [
-          "dir.list",
-          "file.read",
-          "file.write"
-        ]
-      },
-      "response": {
-        "adapter": "fixture",
-        "cost_usd": 0,
-        "duration_ms": 0,
-        "exit": 0,
-        "model": "claude-haiku-5-5",
-        "num_turns": 0,
-        "schema_constrained": false,
-        "schema_note": "not constrained: a scripted reply, no model",
-        "usage": null
-      },
-      "revisions": {
-        "release": "t9f2fb3c002745832"
-      },
-      "structured": null,
-      "try": 1,
-      "virtual_ms": 0
     }
   ],
   "format": "sdc.recording/1",
-  "name": "stub",
+  "name": "pack-run",
   "principal": "agent:recorded-fixture",
   "settings": [
     {
@@ -751,12 +572,12 @@
           "source": "SDC_LLM_ADAPTER"
         }
       },
-      "at": "2026-11-21T13:42:03Z",
+      "at": "2026-11-21T18:13:30Z",
       "autonomy": "A5",
       "autonomy_source": "--autopilot",
       "decider": {
         "escalate": "final",
-        "kind": "haiku",
+        "kind": "model",
         "max_decider_calls": 20,
         "model": "claude-haiku-5-5"
       },
@@ -849,16 +670,21 @@
       "per_class_routing": null,
       "replay": null,
       "requester_decider": null,
+      "rework_limit": {
+        "source": "rule-ends.json",
+        "value": 2
+      },
+      "rule_approvals": "on",
       "stand_in": false,
       "stand_in_by": null,
       "tree": {
-        "commit": "26b8b85ee7b7",
+        "commit": "00133616607f",
         "dirty": false
       },
       "unstick": {
         "adapter": "<path>",
         "model": "claude-opus-5-5",
-        "on": true
+        "on": false
       }
     }
   ],
@@ -870,7 +696,7 @@
     "state": "closed"
   },
   "tree": {
-    "commit": "26b8b85ee7b7",
+    "commit": "00133616607f",
     "dirty": false
   }
 }

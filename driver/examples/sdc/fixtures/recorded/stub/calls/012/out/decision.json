@@ -1,9 +1,0 @@
-{
-  "decision": "approve",
-  "answer": null,
-  "reasons": [
-    "fixture decider: approve, the default where there is one"
-  ],
-  "cites": [],
-  "best": null
-}
