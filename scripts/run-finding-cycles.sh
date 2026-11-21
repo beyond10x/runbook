@@ -49,9 +49,11 @@
 #                   r3 a constraint, the earlier send-back answer superseded
 #   reopen-review-invalid a run stopped review_invalid, reopened on another review adapter: the
 #                   review runs again on the unchanged state, the run closes
-# and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
+# and, through scripts/run-trial.sh with SDC_DECIDER=model (some with haiku, its old name) on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
+#   decider-model-name  as above with SDC_DECIDER=haiku (the old name): the decider is decider:model
+#                   with its model id beside it (D149)
 #   decider-scope-final as above under SDC_DECIDER_ESCALATE=final: an escalated question takes
 #                   its default, escalation_suppressed recorded
 #   decider-finding a scope-changing spec finding decided by the decider (option 2); amended
@@ -117,7 +119,7 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
   scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent superseded-answer
   story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint trace-constraint-decided
-  review-reject-once review-invalid review-spent decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  review-reject-once review-invalid review-spent decider-scope-answer decider-model-name decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot decider-input trace-reraised decider-budget-reason autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models efforts
@@ -484,7 +486,7 @@ else
   echo "review-spent: FAILED (cycle exit $code, or the stop is not writer_spent sent back by change.review)"
 fi
 
-# --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the
+# --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=model, every node on its stub and the
 # decider on tools/llm-adapter-fixture.sh (scripted replies, SDC_DECIDER_REPLIES), no LLM ---------
 fixture=$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh
 targs=()
@@ -493,7 +495,7 @@ targs=()
 trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name>, with the arguments in targs
   local name=$1; shift
   rm -rf "$s/runs/$name"
-  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" SDC_UNSTICK=off "$@" \
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=model SDC_DECIDER_ADAPTER="$fixture" SDC_UNSTICK=off "$@" \
     "$sdc/scripts/run-trial.sh" "$name" "$(yq -r .text "$fx/idea.yaml")" "${targs[@]}" > "$s/$name.txt" 2>&1
   local code=$?
   echo "$name: exit $code ($(tail -n 1 "$s/$name.txt" | cut -c1-160))"
@@ -503,8 +505,8 @@ trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name
 # scope.answer (fixtures/scope-two); asked to approve scope.answer as a whole, the decider escalates
 # (the recorded reply: it read questions.settled false as a failed check). Each question goes to
 # the decider instead: q2 by its default, q3 with a free answer; the answers are written as a
-# person's are, scope.answer is taken as decider:haiku and intake closes. Passes when the run ends
-# 0, q2 and q3 carry decider:haiku (accepted, changed), decisions.jsonl has both as class
+# person's are, scope.answer is taken as decider:model and intake closes. Passes when the run ends
+# 0, q2 and q3 carry decider:model (accepted, changed), decisions.jsonl has both as class
 # scope_changing_answer, and the decider was shown questions.settled as settled by its decision.
 free="the billing clerk who issued it, as a copy"
 trial decider-scope-answer SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn --arg f "$free" '{
@@ -516,13 +518,38 @@ r=$s/runs/decider-scope-answer
 q=$r/store/IDEA-1/work/questions.yaml
 if (( code == 0 )) &&
    yq -o=json "$q" | jq -e --arg f "$free" '[.questions[] | select(
-     (.id == "q2" and .status == "accepted" and .answer == .default and .answered_by == "decider:haiku")
-     or (.id == "q3" and .status == "changed" and .answer == $f and .answered_by == "decider:haiku"))] | length == 2' >/dev/null &&
+     (.id == "q2" and .status == "accepted" and .answer == .default and .answered_by == "decider:model")
+     or (.id == "q3" and .status == "changed" and .answer == $f and .answered_by == "decider:model"))] | length == 2' >/dev/null &&
    jq -se '[.[] | select(.class == "scope_changing_answer" and .decision == "approve")] | map(.question) == ["q2", "q3"]' "$r/decisions.jsonl" >/dev/null &&
    jq -e '.claims["questions.settled"].settled_by_this_decision == true' "$(ls -d "$r"/decider/*-q2 | head -n 1)/cwd/in/checks.json" >/dev/null; then
-  echo "decider-scope-answer: checks pass (q2 default, q3 free answer, both decider:haiku; class scope_changing_answer; questions.settled marked)"
+  echo "decider-scope-answer: checks pass (q2 default, q3 free answer, both decider:model; class scope_changing_answer; questions.settled marked)"
 else
   echo "decider-scope-answer: FAILED (run exit $code, or the answers, their records or the claim marks are wrong)"
+fi
+# decider-model-name (D149): the strong runs of trial 3 named an Opus decider decider:haiku and
+# printed "decider haiku (claude-opus-5-5)". The LLM decider is decider:model whatever its model;
+# SDC_DECIDER=haiku is its old name. decider-scope-answer under SDC_DECIDER=haiku with the decider
+# model set to claude-opus-5-5. Passes when the run closes, the start line names "decider model
+# (claude-opus-5-5)" and no "decider haiku", run-settings.jsonl records kind model with that model,
+# every decisions.jsonl line and both answers carry decider:model, and each decision's log line
+# names "decider:model (claude-opus-5-5)".
+trial decider-model-name SDC_DECIDER=haiku SDC_LLM_MODEL_DECIDER=claude-opus-5-5 SDC_STUB_FIXTURES="$fx/scope-two" \
+  SDC_DECIDER_REPLIES="$(jq -cn --arg f "$free" '{
+  "scope.answer": {decision: "escalate", answer: null, best: null, cites: ["q2", "q3", "questions.settled"],
+    reasons: ["Questions q2 and q3 are scope-changing and still open."]},
+  q3: {decision: "approve", answer: $f, best: null, cites: ["d5", "d2"], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}}')"
+code=$?
+r=$s/runs/decider-model-name
+if (( code == 0 )) &&
+   grep -q '^started decider-model-name: .*decider model (claude-opus-5-5),' "$s/decider-model-name.txt" &&
+   ! grep -q 'decider haiku\|decider:haiku' "$s/decider-model-name.txt" &&
+   jq -se 'all(.decider.kind == "model" and .decider.model == "claude-opus-5-5")' "$r/run-settings.jsonl" >/dev/null &&
+   jq -se 'length >= 3 and all(.principal == "decider:model")' "$r/decisions.jsonl" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.scope_changing == true) | .answered_by] == ["decider:model", "decider:model"]' >/dev/null &&
+   grep -qF '  decider:model (claude-opus-5-5) approve IDEA-1.intake|scope.answer|q3|' "$s/decider-model-name.txt"; then
+  echo "decider-model-name: checks pass (SDC_DECIDER=haiku runs as decider:model (claude-opus-5-5): start line, run-settings, decisions, answers, log)"
+else
+  echo "decider-model-name: FAILED (run exit $code, or the decider is still named haiku somewhere, or the model id is missing)"
 fi
 # decider-scope-final: as decider-scope-answer under SDC_DECIDER_ESCALATE=final, the decider
 # escalating q3: no person is asked, q3 takes its default and escalation_suppressed is recorded.
@@ -533,7 +560,7 @@ code=$?
 r=$s/runs/decider-scope-final
 q=$r/store/IDEA-1/work/questions.yaml
 if (( code == 0 )) &&
-   yq -o=json "$q" | jq -e '.questions[] | select(.id == "q3") | .status == "accepted" and .answer == .default and .answered_by == "decider:haiku"' >/dev/null &&
+   yq -o=json "$q" | jq -e '.questions[] | select(.id == "q3") | .status == "accepted" and .answer == .default and .answered_by == "decider:model"' >/dev/null &&
    jq -se '[.[] | select(.question == "q3") | .decision] == ["escalation_suppressed", "approve"]' "$r/decisions.jsonl" >/dev/null; then
   echo "decider-scope-final: checks pass (q3 escalated, suppressed, its default taken)"
 else
@@ -542,8 +569,8 @@ fi
 # decider-finding: trial 2's f1/f9/f16 stops ("nothing for decider:haiku at amend.upstream"). The
 # spec stage's scope-changing finding (fixtures/finding-spec-person.yaml) is put to the decider as
 # a decision request; it picks option 2. Passes when the run ends 0, the finding is resolved with
-# that option and `decided_by: decider:haiku`, the amendment's question is answered by
-# decider:haiku, and decisions.jsonl records it with class finding.
+# that option and `decided_by: decider:model`, the amendment's question is answered by
+# decider:model, and decisions.jsonl records it with class finding.
 opt2="the customer and the billing clerk"
 trial decider-finding SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_DECIDER_REPLIES="$(jq -cn --arg o "$opt2" '{
   f1: {decision: "approve", answer: $o, best: null, cites: ["r2"], reasons: ["The clerk who issues an invoice is the one asked about it, so the clerk gets the email too."]}}')"
@@ -551,10 +578,10 @@ code=$?
 r=$s/runs/decider-finding
 f=$r/store/IDEA-1/work/findings.yaml
 if (( code == 0 )) &&
-   yq -o=json "$f" | jq -e --arg o "$opt2" '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == $o and .decided_by == "decider:haiku"' >/dev/null &&
-   yq -o=json "$(dirname "$f")/questions.yaml" | jq -e --arg o "$opt2" 'any(.questions[]; .item == "f1" and .answer == $o and .answered_by == "decider:haiku")' >/dev/null &&
+   yq -o=json "$f" | jq -e --arg o "$opt2" '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == $o and .decided_by == "decider:model"' >/dev/null &&
+   yq -o=json "$(dirname "$f")/questions.yaml" | jq -e --arg o "$opt2" 'any(.questions[]; .item == "f1" and .answer == $o and .answered_by == "decider:model")' >/dev/null &&
    jq -se '[.[] | select(.class == "finding")] | length == 1 and .[0].finding == "f1" and .[0].decision == "approve"' "$r/decisions.jsonl" >/dev/null; then
-  echo "decider-finding: checks pass (f1 option 2 by decider:haiku, amended, class finding)"
+  echo "decider-finding: checks pass (f1 option 2 by decider:model, amended, class finding)"
 else
   echo "decider-finding: FAILED (run exit $code, or f1 not decided by the decider, or not recorded)"
 fi
@@ -566,7 +593,7 @@ code=$?
 r=$s/runs/decider-finding-final
 f=$r/store/IDEA-1/work/findings.yaml
 if (( code == 0 )) &&
-   yq -o=json "$f" | jq -e '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == .default and .decided_by == "decider:haiku"' >/dev/null &&
+   yq -o=json "$f" | jq -e '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == .default and .decided_by == "decider:model"' >/dev/null &&
    jq -se '[.[] | select(.finding == "f1") | .decision] == ["escalation_suppressed", "approve"]' "$r/decisions.jsonl" >/dev/null; then
   echo "decider-finding-final: checks pass (f1 escalated, suppressed, its default taken)"
 else
@@ -582,7 +609,7 @@ r=$s/runs/decider-finding-refused
 f=$r/store/IDEA-1/work/findings.yaml
 if (( code == 3 )) &&
    yq -o=json "$f" | jq -e '.findings[] | select(.id == "p-offline-hosted-context.deployment")
-     | .status == "needs_person" and (.decision // "") == "" and .refused_decision.decided_by == "decider:haiku"
+     | .status == "needs_person" and (.decision // "") == "" and .refused_decision.decided_by == "decider:model"
        and (.refused_decision.why | test("q3"))' >/dev/null &&
    jq -se '[.[] | select(.class == "finding")] | length == 1' "$r/decisions.jsonl" >/dev/null &&
    [[ $(yq -r '.deployment.value' "$(dirname "$f")/context.yaml") == "a hosted web server reachable over the internet" ]]; then
@@ -632,7 +659,7 @@ fi
 r=$s/runs/decider-finding-refused
 SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_PRINCIPAL=agent:finding-cycles "$sdc/scripts/run-trial.sh" decider-finding-refused --stop "fixture: the finding waits for a person" > /dev/null 2>&1
 l7=$("$kpis" "$r" --json | jq -c .L7_waiting_on_person_seconds)
-if jq -e '.value >= 1 and .failure == true and .decider == "haiku"' <<< "$l7" >/dev/null &&
+if jq -e '.value >= 1 and .failure == true and .decider == "model"' <<< "$l7" >/dev/null &&
    grep -q '^L7_waiting_on_person_seconds: FAILED ' <<< "$("$kpis" "$r")"; then
   echo "run-stop-decider: checks pass (a decider's run waiting on a person: L7 $(jq .value <<< "$l7") s, reported FAILED)"
 else
@@ -659,8 +686,8 @@ people=$( { jq -r '.principal' "$r/decisions.jsonl"
             find "$r/store" -name events.jsonl -exec jq -r 'select(.event == "authority_recorded" or (.event == "action_finished" and .principal != null)) | .principal' {} +
           } | grep -Evc "$nonperson")
 if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <<< "$l7" >/dev/null &&
-   jq -se 'all(.autonomy == "A5" and .decider.escalate == "final" and .decider.kind == "haiku")' "$r/run-settings.jsonl" >/dev/null &&
-   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:haiku"' "$w/findings.yaml" >/dev/null &&
+   jq -se 'all(.autonomy == "A5" and .decider.escalate == "final" and .decider.kind == "model")' "$r/run-settings.jsonl" >/dev/null &&
+   yq -e '.findings[] | select(.id == "f1") | .decided_by == "decider:model"' "$w/findings.yaml" >/dev/null &&
    [[ -d $w/aep ]] && ! grep -rqs 'human:' "$w/aep" && grep -rqs 'actor: "agent:' "$w/aep"; then
   echo "autopilot: checks pass (closed; 0 person principals; L7 0; A5, escalate final; work/aep transitions by agent:, no human:)"
 else
@@ -678,7 +705,7 @@ trial trace-reraised SDC_STUB_FIXTURES="$fx/trace-gap-drop" SDC_DECIDER_REPLIES=
 code=$?
 r=$s/runs/trace-reraised
 if (( code == 7 )) && jq -e '.cause == "finding_reraised" and .by == "rule:autopilot"
-     and (.reason | test("finding_reraised: p-trace-r3 raised again after decider:haiku.s decision \"specify r3"))' "$r/run-stopped.json" >/dev/null &&
+     and (.reason | test("finding_reraised: p-trace-r3 raised again after decider:model.s decision \"specify r3"))' "$r/run-stopped.json" >/dev/null &&
    [[ $(jq -s '[.[] | select(.finding == "p-trace-r3" and .decision == "approve")] | length' "$r/decisions.jsonl") == 1 ]]; then
   echo "trace-reraised: checks pass (stopped finding_reraised on the second raise, naming p-trace-r3 and the decision; one decider call)"
 else
@@ -761,7 +788,7 @@ r=$s/runs/decider-invalid-scope
 a=$(jq -s '[.[] | select(.question == "q2")]' "$r/decisions.jsonl")
 if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "invalid_reply", "invalid_reply", "approve"]
      and .[3].fallback == "invalid_reply_default"' <<< "$a" >/dev/null &&
-   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q2") | .answer == .default and .answered_by == "decider:haiku"' >/dev/null; then
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q2") | .answer == .default and .answered_by == "decider:model"' >/dev/null; then
   echo "decider-invalid-scope: checks pass (3 invalid replies to q2, its default taken as invalid_reply_default)"
 else
   echo "decider-invalid-scope: FAILED (exit $code: $(jq -c '[.[] | {decision, fallback}]' <<< "$a" 2>/dev/null))"
@@ -999,7 +1026,7 @@ fi
 # citing q2 beside the dark spot d4 that q2 asks about (fixtures/cite-dark-spot) and raises a
 # scope-changing finding on r1 (fixtures/finding-intake-scope.yaml); the decider takes its default.
 # Passes when the citation is accepted at write time and the decision is applied (f1 resolved by
-# decider:haiku, no refused_decision) and the run closes (before: decision_not_takeable, exit 7).
+# decider:model, no refused_decision) and the run closes (before: decision_not_takeable, exit 7).
 intake=IDEA-1/children/IDEA-1.intake
 trial cite-dark-spot SDC_STUB_FIXTURES="$fx/cite-dark-spot" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml"
 code=$?
@@ -1007,7 +1034,7 @@ r=$s/runs/cite-dark-spot
 ci=$r/store/$intake
 if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
    yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.says | test("cancelled invoice is shown"))
-     | .status == "resolved" and .decided_by == "decider:haiku" and .refused_decision == null' >/dev/null &&
+     | .status == "resolved" and .decided_by == "decider:model" and .refused_decision == null' >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished" and .action == "requirements.check")] | last | .exit == "0"' "$ci/events.jsonl" >/dev/null &&
    ! grep -q ' cites ' <<< "$(jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log // empty' "$ci/events.jsonl" |
      xargs -I{} cat "$ci/blobs/{}" 2>/dev/null)"; then
@@ -1027,7 +1054,7 @@ r=$s/runs/cite-fault-sent-back
 ci=$r/store/$intake
 if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requirements.normalise in IDEA-1.intake"))' "$r/run-stopped.json" >/dev/null &&
    yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.says | test("cancelled invoice is shown"))
-     | .status == "resolved" and .decided_by == "decider:haiku" and .refused_decision == null' >/dev/null &&
+     | .status == "resolved" and .decided_by == "decider:model" and .refused_decision == null' >/dev/null &&
    jq -se '[.[] | select(.event == "writer_spent")] | last | .spent[0] | .action == "requirements.normalise" and .runs == 3
      and (.sent_back[0] | .by == "requirements.check" and (.line | test("r2 cites d3")))' "$ci/events.jsonl" >/dev/null &&
    jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log' "$ci/events.jsonl" | tail -n 1 |
@@ -1064,7 +1091,7 @@ trial autopilot-close-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson
 code=$?
 r=$s/runs/autopilot-close-a3
 if (( code == 6 )) && [[ ! -f $r/status.json ]] && [[ -n $(find "$r/decider" -mindepth 1 -maxdepth 1 -name '*-close' 2>/dev/null) ]] &&
-   jq -se 'any(.[]; .class == "close" and .decision == "reject" and .principal == "decider:haiku")' "$r/decisions.jsonl" >/dev/null &&
+   jq -se 'any(.[]; .class == "close" and .decision == "reject" and .principal == "decider:model")' "$r/decisions.jsonl" >/dev/null &&
    ! jq -e 'select(.event == "terminated")' "$r/store/IDEA-1/events.jsonl" >/dev/null 2>&1; then
   echo "autopilot-close-a3: checks pass (A3: the decider is asked for the close, rejects, the run stops unclosed)"
 else
@@ -1251,7 +1278,7 @@ fi
 # its refused_decision). Leg 1 under autopilot: the decider's option 2 on the spec finding f1 is
 # refused by the check (SDC_STUB_REFUSE_DECISION simulates the fault) -> decision_not_takeable,
 # exit 7. Leg 2, `--reopen` with the fault fixed (the variable unset): the stored decision is put
-# back and applied through the current check; f1 resolved with option 2 by decider:haiku, the run
+# back and applied through the current check; f1 resolved with option 2 by decider:model, the run
 # closes (exit 0), the first stop record kept as run-stopped.<at>.json.
 targs=(--autopilot)
 opt2="the customer and the billing clerk"
@@ -1267,7 +1294,7 @@ if (( code == 7 && reopen == 0 )) && [[ ! -e $r/run-stopped.json ]] && ls "$r"/r
    jq -e '.cause == "decision_not_takeable"' "$(ls "$r"/run-stopped.*.json | head -n 1)" >/dev/null &&
    grep -q '^# reopen: 1 refused decision(s) in .* put back for the current check' "$r/run.log" &&
    yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e --arg o "$opt2" '.findings[] | select(.id == "f1") | .status == "resolved"
-     and .decided_by == "decider:haiku" and .decision == $o and .refused_decision == null' >/dev/null &&
+     and .decided_by == "decider:model" and .decision == $o and .refused_decision == null' >/dev/null &&
    "$kpis" "$r" --json | jq -e '.stopped_for_fix.reopens == 1 and .clean_run.value == false
      and .L7_waiting_on_person_seconds.value == 0 and .L7_waiting_on_person_seconds.failure == false' >/dev/null; then
   echo "reopen-refused-decision: checks pass (refused, stopped; reopened with the check fixed: the decision applied, closed; KPIs: 1 reopen, not clean, L7 0)"
@@ -1338,7 +1365,7 @@ fi
 # are decided by decider:requester, whose record's in/ holds exactly request.json, the subject
 # (questions.yaml), the files the request's grounds cite (dissection.yaml), idea.yaml,
 # dissection.yaml, goals.yaml and decisions.json, and whose grounds the grounding check verified;
-# the merge goes to the delivering decider (decider:haiku). requester-no-ground: at A5, q3's reply
+# the merge goes to the delivering decider (decider:model). requester-no-ground: at A5, q3's reply
 # says no_ground_in_goals: its default is taken, marked so, as a suppressed escalation.
 t2=$fx/trial-2
 req_trial() { # <name> [env ...]
@@ -1362,8 +1389,8 @@ if (( code == 0 )) &&
    yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.id == "q1" or .id == "q3") | .answered_by] == ["decider:requester", "decider:requester"]' >/dev/null &&
    [[ -n $q1rec && "$(cd "$q1rec/cwd/in" && find . -type f | sort | tr '\n' ' ')" == "./decisions.json ./dissection.yaml ./goals.yaml ./idea.yaml ./questions.yaml ./request.json " ]] &&
    jq -e '.recommend.check_verdict == "verified"' "$q1rec/grounds-check.json" "$(ls -d "$r"/decider/*-q3 | head -n 1)/grounds-check.json" >/dev/null &&
-   jq -se '[.[] | select(.action == "merge.approve" or .action == "change.merge") | .principal + " " + .side] | length > 0 and all(. == "decider:haiku delivering")' "$r/decisions.jsonl" >/dev/null; then
-  echo "requester-decider: checks pass (q1, q3 by decider:requester on verified goals grounds, its in/ exactly the request, subject, cited files, idea, dissection, goals, decisions; merge by decider:haiku)"
+   jq -se '[.[] | select(.action == "merge.approve" or .action == "change.merge") | .principal + " " + .side] | length > 0 and all(. == "decider:model delivering")' "$r/decisions.jsonl" >/dev/null; then
+  echo "requester-decider: checks pass (q1, q3 by decider:requester on verified goals grounds, its in/ exactly the request, subject, cited files, idea, dissection, goals, decisions; merge by decider:model)"
 else
   echo "requester-decider: FAILED (exit $code: $(jq -sc '[.[] | {action, question, principal, side}]' "$r/decisions.jsonl" 2>/dev/null | cut -c1-300))"
 fi
@@ -1446,7 +1473,7 @@ rr_story() { find "$s/runs/$1/store" -type d -name 'IDEA-1.*.invoices' | head -n
 targs=(--autopilot)
 # decider-question-reject (R1): the decider replies `reject` to the scope-changing question q2. A
 # question has no rejection: the check refuses it with its reason, the decider is asked again and
-# answers. Passes when the run closes (exit 0) with q2 decided by decider:haiku after one refused
+# answers. Passes when the run closes (exit 0) with q2 decided by decider:model after one refused
 # reply. Before: exit 6, rejected_without_rework_path.
 trial decider-question-reject SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn '{q2: [
   {decision: "reject", answer: null, reasons: ["fixture: neither option fits"], cites: ["d4"], best: null},
@@ -1456,7 +1483,7 @@ r=$s/runs/decider-question-reject
 if (( code == 0 )) &&
    jq -se '[.[] | select(.question == "q2") | .decision] == ["invalid_reply", "approve"]
      and ([.[] | select(.question == "q2")][0].invalid_reason | test("a question is decided with approve"))' "$r/decisions.jsonl" >/dev/null &&
-   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q2") | .answered_by == "decider:haiku"' >/dev/null; then
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q2") | .answered_by == "decider:model"' >/dev/null; then
   echo "decider-question-reject: checks pass (a reject of a question refused with its reason, asked again, answered; closed)"
 else
   echo "decider-question-reject: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
@@ -1493,14 +1520,14 @@ fi
 # scope-unattributed-reject (R2): the interview's scope-changing answers q2 and q3 are
 # given but unattributed (answered_by non-interactive), none is open, so scope.answer goes to the
 # decider as an approval, which it rejects. Route: each unattributed answer is put to the decider
-# as a question (as R1). Passes when the run closes with q2 and q3 answered_by decider:haiku and no
+# as a question (as R1). Passes when the run closes with q2 and q3 answered_by decider:model and no
 # approval decision on scope.answer. Before: exit 6, rejected_without_rework_path.
 trial scope-unattributed-reject SDC_STUB_FIXTURES="$fx/scope-unattributed" \
   SDC_DECIDER_REPLIES='{"scope.answer": {"decision": "reject", "answer": null, "reasons": ["fixture: the answers were given by nobody who may give them"], "cites": ["d4"], "best": null}}'
 code=$?
 r=$s/runs/scope-unattributed-reject
 if (( code == 0 )) &&
-   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.scope_changing == true) | .answered_by] == ["decider:haiku", "decider:haiku"]' >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '[.questions[] | select(.scope_changing == true) | .answered_by] == ["decider:model", "decider:model"]' >/dev/null &&
    jq -se '[.[] | select(.type == "approval" and .action == "scope.answer")] | length == 0' "$r/decisions.jsonl" >/dev/null; then
   echo "scope-unattributed-reject: checks pass (unattributed answers put to the decider one by one; closed)"
 else

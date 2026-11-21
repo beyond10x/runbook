@@ -200,7 +200,7 @@ as auto-approval and interruption data from Claude Code sessions. It is a lead f
 
 ### 2.1 Levels
 
-The decider is the LLM decider of `tools/decider.sh` (`SDC_DECIDER=haiku`). A rule is a program
+The decider is the LLM decider of `tools/decider.sh` (`SDC_DECIDER=model`, principal `decider:model` whatever the model; `haiku` is its old name, D149). A rule is a program
 that decides deterministically from evidence.
 
 | Level | Name | Adapts | Departs | One line |
@@ -446,7 +446,7 @@ Mapping to today's switches:
 | Level | Switches |
 |---|---|
 | A0 | `SDC_DECIDER=person` |
-| A5 | `SDC_DECIDER=haiku SDC_DECIDER_ESCALATE=final`; built 2026-11-21 as `SDC_AUTONOMY=A5` or `scripts/run-trial.sh … --autopilot`: refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
+| A5 | `SDC_DECIDER=model SDC_DECIDER_ESCALATE=final`; built 2026-11-21 as `SDC_AUTONOMY=A5` or `scripts/run-trial.sh … --autopilot`: refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
 | A1 to A4 | need per-class routing in `run-trial.sh`, which today sends every decision type to one decider: route by the action's class and record the holder per decision *(not built: `SDC_AUTONOMY=A1`..`A4` is recorded and the run behaves as `SDC_DECIDER` says)* |
 
 `SDC_AUTONOMY=A3` is the environment form. The level, where it came from (`SDC_AUTONOMY`,

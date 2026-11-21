@@ -821,6 +821,13 @@ fn load_variants(r: &Y, exp: &Path) -> Result<Loaded, String> {
     Ok(out)
 }
 
+/// Two values of one setting name the same thing: `decider.kind` `haiku` is the old name of
+/// `model`, the LLM decider (D149), so records and runs from before and after read alike.
+fn same_setting(key: &str, a: &str, b: &str) -> bool {
+    let name = |v: &str| if key == "decider.kind" && v == "haiku" { "model".to_string() } else { v.to_string() };
+    name(a) == name(b)
+}
+
 /// Mismatches between a variant's settings (with `fixed`) and what each run recorded, read from
 /// its summary, else from its run directory under `runs_dir`.
 fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<String>) {
@@ -857,7 +864,7 @@ fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<S
                     continue;
                 }
                 let got = doc["settings"][k.as_str()].as_str().unwrap_or("not recorded").to_string();
-                if &got != x {
+                if !same_setting(k, &got, x) {
                     let line = format!("variant {:?}: run {} has {k} = {got}, the record says {x}", v.id, rr.run);
                     if confounds.contains(k) { notes.push(format!("{line} (a known confound)")) } else { problems.push(line) }
                 }

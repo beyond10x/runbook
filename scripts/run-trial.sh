@@ -55,9 +55,12 @@
 #   person (default)  stop and print the commands (exit 3), as before
 #   approve           rule: approve every approval, accept every question's default, close
 #   reject            rule: refuse; the refusal is recorded and the run stops (exit 6)
-#   haiku             tools/decider.sh: one bounded LLM call per decision (SDC_DECIDER_MODEL,
+#   model             tools/decider.sh: one bounded LLM call per decision (SDC_DECIDER_MODEL,
 #                     default claude-haiku-5-5, through SDC_LLM_ADAPTER); escalate or an invalid
-#                     reply stops for a person (exit 3) as today; reject stops (exit 6)
+#                     reply stops for a person (exit 3) as today; reject stops (exit 6). Principal
+#                     decider:model, whatever the model; the model id is in run-settings.jsonl and
+#                     on each decisions.jsonl line (D149). `haiku` is its old name, kept as an alias;
+#                     runs before D149 recorded decider:haiku.
 # SDC_DECIDER_ESCALATE=final (eval runs, no person at all): an escalate is recorded as
 # `escalation_suppressed` and the decider's `best` decision is taken; an invalid reply has no best
 # and counts as reject. SDC_MAX_DECIDER_CALLS (default 20) caps the LLM decider calls (exit 5).
@@ -76,7 +79,7 @@
 # 6 refused by the decider (rejected_without_rework_path), 7 autopilot ended at a stop no holder of the run can take, 8 the run is stopped
 # (or already stopped), 64 usage.
 #
-# Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (haiku unless
+# Run mode: SDC_AUTONOMY=A0..A5, or `--autopilot` (A5, the eval's mode): the decider (model unless
 # SDC_DECIDER names another; SDC_DECIDER=person is refused) takes every decision, is final, and no
 # stop waits on a person: one that would need a person ends the run (exit 7), and every run that
 # ends unclosed gets a stop record by rule:autopilot. A0 is SDC_DECIDER=person. A1 to A4 have no
@@ -128,6 +131,7 @@ log=$out/run.log
 max_llm=${SDC_MAX_LLM_CALLS:-30}
 max_wall=${SDC_MAX_WALL_SECONDS:-5400}
 decider=${SDC_DECIDER:-person}
+[[ $decider == haiku ]] && decider=model
 escalate_mode=${SDC_DECIDER_ESCALATE:-stop}
 max_decider=${SDC_MAX_DECIDER_CALLS:-20}
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -175,7 +179,7 @@ if [[ -f $stopped ]]; then
   done < <(find "$store" -name findings.yaml -path '*/work/*' -exec realpath {} + 2>/dev/null | sort -u)
 fi
 
-case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
+case $decider in person|approve|reject|model) ;; *) echo "SDC_DECIDER: person, approve, reject or model (haiku: its old name), not $decider"; exit 64 ;; esac
 
 # The reasoning effort per node class (SDC_LLM_EFFORT_<CLASS>, SDC_LLM_EFFORT): an unknown value is
 # refused here, before anything is created. The adapters' CLIs ignore one with a warning.
@@ -186,7 +190,7 @@ for v in SDC_LLM_EFFORT SDC_LLM_EFFORT_REQUESTER $(jq -r '.classes | keys[] | "S
 done
 
 # The run mode (docs/autonomy-levels.md § 3.3): SDC_AUTONOMY, or --autopilot for A5. A0 is the
-# person (SDC_DECIDER=person); A5 is autopilot: the decider (haiku unless SDC_DECIDER names another)
+# person (SDC_DECIDER=person); A5 is autopilot: the decider (model unless SDC_DECIDER names another)
 # holds every decision and is final (escalate final), and a stop that would need a person ends the
 # run (exit 7) with a stop record by rule:autopilot. A1 to A4 have no per-class routing yet: they
 # run as SDC_DECIDER says. Without a level it is derived: person A0, a final decider A5, a
@@ -196,11 +200,12 @@ autonomy_source=SDC_AUTONOMY
 [[ $autopilot == yes ]] && { [[ -z $autonomy || $autonomy == A5 ]] || { echo "--autopilot is A5, SDC_AUTONOMY says $autonomy"; exit 64; }; autonomy=A5 autonomy_source=--autopilot; }
 case $autonomy in
   A5)
-    [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (haiku, approve, reject) or leave it unset (haiku)"; exit 64; }
+    [[ ${SDC_DECIDER:-} != person ]] || { echo "autopilot (A5) has no person: SDC_DECIDER=person is refused; name a decider (model, approve, reject) or leave it unset (model)"; exit 64; }
     [[ ${SDC_DECIDER_ESCALATE:-final} == final ]] || { echo "autopilot (A5): the decider is final; SDC_DECIDER_ESCALATE=$SDC_DECIDER_ESCALATE is refused"; exit 64; }
     # The decider reads SDC_DECIDER_ESCALATE: under final its prompt asks for `best` and its check
     # refuses an escalate without one.
-    decider=${SDC_DECIDER:-haiku} escalate_mode=final
+    [[ -n ${SDC_DECIDER:-} ]] || decider=model
+    escalate_mode=final
     export SDC_DECIDER_ESCALATE=final ;;
   A0)
     [[ $decider == person ]] || { echo "A0: every decision is the person's; SDC_DECIDER=$decider is refused"; exit 64; } ;;
@@ -335,7 +340,7 @@ unstick_model=${SDC_LLM_MODEL_UNSTICK:-claude-opus-5-5}
 
 # Who holds the decisions in this leg, and its caps: one line per start or resume (the UI reads it).
 model=
-[[ $decider == haiku ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
+[[ $decider == model ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
 # The effective model per node class (tools/node-classes.json): SDC_LLM_MODEL_<CLASS>, else
 # SDC_LLM_MODEL, else each binding's llm.model (per node; `model` is null when they differ). The
 # decider: SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL, else claude-haiku-5-5.
@@ -690,13 +695,17 @@ decide() {
   [[ -n ${SDC_REQUESTER_DECIDER:-} && $side == requester ]] && decider=requester
   dec_principal=decider:$decider taker=decider:$decider
   local llm=no
-  [[ $decider == haiku || $decider == requester ]] && llm=yes
+  [[ $decider == model || $decider == requester ]] && llm=yes
+  # How the log names it: decider:model with the model id beside it (D149).
+  local who=decider:$decider
+  [[ $decider == model ]] && who+=" ($model)"
   req=$(jq -c --arg c "$cls" --arg s "$side" --arg a "$autonomy" --arg l "$out/decisions.jsonl" '. + {class: $c, side: $s,
     autonomy: (if $a == "" then null else $a end), decisions_log: $l}' <<< "$req")
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
-     jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
+     jq -e --arg k "$key" --arg p "decider:$decider" 'select((.principal == $p or ($p == "decider:model" and .principal == "decider:haiku"))
+       and .decision == "escalate"
        and ([.case, .action, (.question // .finding // ""), .revision] | join("|")) == $k)' "$out/decisions.jsonl" > /dev/null 2>&1; then
-    echo "  decider:$decider escalated $key before: a person decides"
+    echo "  $who escalated $key before: a person decides"
     return 0
   fi
   line() { # $1 decision, $2 extra object
@@ -732,7 +741,7 @@ decide() {
     why=$(jq -r '.invalid_reason // "invalid"' <<< "$reply")
     (( attempt <= 2 )) || break
     line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
-    echo "  decider:$decider reply refused by the check ($why): asked again ($attempt of 2 retries)"
+    echo "  $who reply refused by the check ($why): asked again ($attempt of 2 retries)"
     attempt=$((attempt + 1))
   done
   dec=$(jq -r .decision <<< "$reply")
@@ -780,7 +789,7 @@ decide() {
   else
     line "$dec" "$( (( attempt > 1 )) && jq -cn --argjson a "$attempt" '{attempts: $a}' || echo '{}')"
   fi
-  echo "  decider:$decider $dec $key$( [[ -n $ans ]] && echo " answer: $ans")${fallback:+ ($fallback)}: $(jq -r '.reasons | join(" ")' <<< "$reply")"
+  echo "  $who $dec $key$( [[ -n $ans ]] && echo " answer: $ans")${fallback:+ ($fallback)}: $(jq -r '.reasons | join(" ")' <<< "$reply")"
   case $dec in
     approve) ;;
     reject)

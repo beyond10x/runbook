@@ -429,8 +429,8 @@ sealed frame was accepted (`session.started`) and the run only failed at the API
 
 **Decider** (2026-11-21, `scripts/run-trial.sh`, `tools/decider.sh`; usage in `trial-1.md`,
 KPIs H1-H4 in `kpis.md` § 1d). The person's decisions (approvals, scope-changing questions, the
-root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `reject`, or `haiku`
-(one bounded call through the adapters above, `SDC_DECIDER_ADAPTER` else `SDC_LLM_ADAPTER`; the LLM
+root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `reject`, or `model`
+(`haiku` is its old name, an alias, and runs before D149 recorded `decider:haiku`; one bounded call through the adapters above, `SDC_DECIDER_ADAPTER` else `SDC_LLM_ADAPTER`; the LLM
 writes `out/decision.json` {decision, answer, reasons, cites, best}, a jq program validates it,
 invalid counts as escalate). The script, not the driver, applies a decision: `sdc-drive approve
 --principal decider:<kind>` (grant and approval record carry that principal) or `answered_by:
