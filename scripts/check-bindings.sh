@@ -6,7 +6,7 @@
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
 # (sdc-check-routes) against docs/reject-routes.md. Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
-# experiments/INDEX.md fails the script).
+# experiments/INDEX.md fails the script), and the documentation site data (`sdc-protocol-site check`).
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 fail=0
@@ -48,5 +48,15 @@ elif (cd "$sdc" && "$exp_bin" check --all --experiments experiments | sed "s/^/ 
   echo "pass experiments"
 else
   echo "FAIL experiments"; fail=1
+fi
+# The documentation site's protocol data (website/data/protocols/), written by
+# sdc-protocol-site from the protocols, the bindings and the pinned check and simulate output.
+site_bin=$sdc/driver/target/debug/sdc-protocol-site
+if [[ ! -x $site_bin ]]; then
+  echo "FAIL site data: no $site_bin; build the driver first (cargo build --bins in driver/)"; fail=1
+elif "$site_bin" check --root "$sdc" | sed "s/^/  /"; [[ ${PIPESTATUS[0]} -eq 0 ]]; then
+  echo "pass site data"
+else
+  echo "FAIL site data"; fail=1
 fi
 exit $fail

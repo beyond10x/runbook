@@ -1,0 +1,1047 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "dissect the bug report into the dissection document; while no valid dissection is recorded",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "other",
+        "program": "llm-node.sh bug.dissect",
+        "retry_when": [
+          "dissection_check"
+        ],
+        "timeout_s": 600
+      },
+      "name": "bug.dissect",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "any of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "check the current dissection; once per dissection revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix dissection-check",
+        "results": {
+          "*": "invalid",
+          "0": "valid"
+        }
+      },
+      "name": "dissection.check",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:dissection.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "dissection_check"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the reproducing test on the code tree; once per repro revision, once the dissection is valid",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix repro-run",
+        "results": {
+          "*": "not_red",
+          "0": "red"
+        }
+      },
+      "name": "repro.run",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "repro_run"
+      ],
+      "step": 1,
+      "waits_for": [
+        "dissection.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "write one test that reproduces the bug, into the code tree and the repro record, without changing any other file; once the dissection is valid and while no red is recorded",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "implement",
+        "program": "llm-node.sh test.reproduce",
+        "retry_when": [
+          "repro_run"
+        ],
+        "timeout_s": 900
+      },
+      "name": "test.reproduce",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:repro.red",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:repro.red",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [],
+      "step": 1,
+      "waits_for": [
+        "dissection.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "fix the code so the reproducing test passes, without changing that test; admissible only once the red is recorded; the writer again after a failed suite run or a failed gate",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "implement",
+        "producer": "llm-node",
+        "program": "llm-node.sh change.fix",
+        "results": {
+          "0": null
+        },
+        "retry_when": [
+          "gate_run",
+          "test_run"
+        ],
+        "timeout_s": 1500
+      },
+      "name": "change.fix",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:repro.red",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "implementation_change"
+      ],
+      "step": 2,
+      "waits_for": [
+        "repro.run"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the whole suite on the current fix revision; once per code revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix tests-run",
+        "results": {
+          "*": "failed",
+          "0": "passed"
+        }
+      },
+      "name": "tests.run",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.red",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.run_recorded",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "test_run"
+      ],
+      "step": 3,
+      "waits_for": [
+        "change.fix",
+        "repro.run"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "move the bug's story to implemented in the planning store (create it first when no parent handed it in), once the suite passes on the fix",
+      "effect": "write",
+      "executor": {
+        "kind": "program",
+        "max_runs": 2,
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix story-update",
+        "results": {
+          "0": null
+        }
+      },
+      "name": "story.update",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.red",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "story_record"
+      ],
+      "step": 4,
+      "waits_for": [
+        "change.fix",
+        "repro.run",
+        "tests.run"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the code tree's gate on the current fix revision, once the suite passes and the story is updated; once per code revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix gate-run",
+        "results": {
+          "*": "failed",
+          "0": "passed"
+        }
+      },
+      "name": "gate.run",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:story.updated",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "gate_run"
+      ],
+      "step": 5,
+      "waits_for": [
+        "change.fix",
+        "story.update",
+        "tests.run"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "the code tree; its revision is its content digest",
+      "name": "change"
+    },
+    {
+      "description": "the bug report dissected into a data document: observed, expected, where, how to reproduce",
+      "name": "dissection"
+    },
+    {
+      "description": "the bug report, the case's input (bug.yaml)",
+      "name": "report"
+    },
+    {
+      "description": "the reproducing test: one test file and the record naming its test id; written once the dissection is valid, kept as written by every later step",
+      "name": "repro"
+    },
+    {
+      "description": "the planning store holding the bug's story",
+      "name": "story"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-bugfix.bindings.json",
+  "check": {
+    "note": "no line for this protocol in the committed check output",
+    "source": "docs/check-output.txt",
+    "states": null
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "the current code revision is a fix written after the red record",
+      "name": "change.built",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:implementation_change",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a check is recorded about the current dissection, whatever its result",
+      "name": "dissection.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:dissection_check",
+          "suffix": "about dissection",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current dissection is valid",
+      "name": "dissection.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:dissection_check",
+          "suffix": "about dissection",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "a gate run is recorded about the current code revision, whatever its result",
+      "name": "gate.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:gate_run",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the gate passes on the current code revision",
+      "name": "gate.passed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:gate_run",
+          "suffix": "about change",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "a run of the current reproducing test is recorded, whatever its result",
+      "name": "repro.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:repro_run",
+          "suffix": "about repro",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current reproducing test was observed red on the unchanged code",
+      "name": "repro.red",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:repro_run",
+          "suffix": "about repro",
+          "text": "evidence = red:"
+        }
+      ]
+    },
+    {
+      "description": "the bug's story is implemented in the current planning store",
+      "name": "story.updated",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:story_record",
+          "suffix": "about story",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the reproducing test and the whole suite pass on the current code revision",
+      "name": "tests.pass",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:test_run",
+          "suffix": "about change",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "a suite run is recorded about the current code revision, whatever its result",
+      "name": "tests.run_recorded",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:test_run",
+          "suffix": "about change",
+          "text": "any evidence:"
+        }
+      ]
+    }
+  ],
+  "description": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes. One case, no child cases; its inputs are the bug report and the code tree in the case's work directory, so a parent can open it as a child. No approval in this revision: a merge approval is the next addition.",
+  "evidence": [
+    {
+      "description": "a program's check of the dissection against its schema and the code tree; valid or invalid",
+      "name": "dissection_check",
+      "produced_by": [
+        "dissection.check"
+      ]
+    },
+    {
+      "description": "the code tree's gate run by a program: build, test, lint with warnings as errors, format check; passed or failed",
+      "name": "gate_run",
+      "produced_by": [
+        "gate.run"
+      ]
+    },
+    {
+      "description": "the record that the fix moved the code tree to a new revision",
+      "name": "implementation_change",
+      "produced_by": [
+        "change.fix"
+      ]
+    },
+    {
+      "description": "a program runs the reproducing test on the code tree with the code otherwise unchanged; red when the test compiles and fails and every other test passes, not_red otherwise (it passes, it does not compile, another test fails, or the code was changed)",
+      "name": "repro_run",
+      "produced_by": [
+        "repro.run"
+      ]
+    },
+    {
+      "description": "the record that the bug's story was moved to implemented in the planning store",
+      "name": "story_record",
+      "produced_by": [
+        "story.update"
+      ]
+    },
+    {
+      "description": "a program runs the whole suite on a code revision; passed when the reproducing test is unchanged, reported ok under its test id, and nothing fails or is ignored",
+      "name": "test_run",
+      "produced_by": [
+        "tests.run"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:change.fix",
+        "kind": "produces",
+        "to": "evidence:implementation_change"
+      },
+      {
+        "from": "action:dissection.check",
+        "kind": "produces",
+        "to": "evidence:dissection_check"
+      },
+      {
+        "from": "action:gate.run",
+        "kind": "produces",
+        "to": "evidence:gate_run"
+      },
+      {
+        "from": "action:repro.run",
+        "kind": "produces",
+        "to": "evidence:repro_run"
+      },
+      {
+        "from": "action:story.update",
+        "kind": "produces",
+        "to": "evidence:story_record"
+      },
+      {
+        "from": "action:tests.run",
+        "kind": "produces",
+        "to": "evidence:test_run"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:gate.run"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:story.update"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "gates",
+        "to": "action:tests.run"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
+        "from": "claim:change.built",
+        "kind": "requires",
+        "to": "outcome:not_fixed"
+      },
+      {
+        "from": "claim:dissection.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:dissection.check"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:bug.dissect"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:bug.dissect"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "to": "action:repro.run"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "gates",
+        "to": "action:test.reproduce"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
+        "from": "claim:dissection.valid",
+        "kind": "requires",
+        "qualifier": "false",
+        "to": "outcome:not_reproduced"
+      },
+      {
+        "from": "claim:gate.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:gate.run"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "requires",
+        "qualifier": "false",
+        "to": "outcome:not_fixed"
+      },
+      {
+        "from": "claim:repro.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:repro.run"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "gates",
+        "to": "action:change.fix"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "gates",
+        "to": "action:story.update"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:test.reproduce"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:test.reproduce"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "gates",
+        "to": "action:tests.run"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "requires",
+        "to": "outcome:not_fixed"
+      },
+      {
+        "from": "claim:repro.red",
+        "kind": "requires",
+        "qualifier": "false",
+        "to": "outcome:not_reproduced"
+      },
+      {
+        "from": "claim:story.updated",
+        "kind": "gates",
+        "to": "action:gate.run"
+      },
+      {
+        "from": "claim:story.updated",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "gates",
+        "to": "action:gate.run"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "gates",
+        "to": "action:story.update"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "requires",
+        "to": "outcome:fixed"
+      },
+      {
+        "from": "claim:tests.pass",
+        "kind": "requires",
+        "qualifier": "false",
+        "to": "outcome:not_fixed"
+      },
+      {
+        "from": "claim:tests.run_recorded",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:tests.run"
+      },
+      {
+        "from": "evidence:dissection_check",
+        "kind": "establishes",
+        "to": "claim:dissection.checked"
+      },
+      {
+        "from": "evidence:dissection_check",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:dissection.valid"
+      },
+      {
+        "from": "evidence:gate_run",
+        "kind": "establishes",
+        "to": "claim:gate.checked"
+      },
+      {
+        "from": "evidence:gate_run",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:gate.passed"
+      },
+      {
+        "from": "evidence:implementation_change",
+        "kind": "establishes",
+        "to": "claim:change.built"
+      },
+      {
+        "from": "evidence:repro_run",
+        "kind": "establishes",
+        "to": "claim:repro.checked"
+      },
+      {
+        "from": "evidence:repro_run",
+        "kind": "establishes",
+        "qualifier": "red",
+        "to": "claim:repro.red"
+      },
+      {
+        "from": "evidence:story_record",
+        "kind": "establishes",
+        "to": "claim:story.updated"
+      },
+      {
+        "from": "evidence:test_run",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:tests.pass"
+      },
+      {
+        "from": "evidence:test_run",
+        "kind": "establishes",
+        "to": "claim:tests.run_recorded"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:bug.dissect",
+        "kind": "action",
+        "name": "bug.dissect"
+      },
+      {
+        "id": "action:change.fix",
+        "kind": "action",
+        "name": "change.fix"
+      },
+      {
+        "id": "action:dissection.check",
+        "kind": "action",
+        "name": "dissection.check"
+      },
+      {
+        "id": "action:gate.run",
+        "kind": "action",
+        "name": "gate.run"
+      },
+      {
+        "id": "action:repro.run",
+        "kind": "action",
+        "name": "repro.run"
+      },
+      {
+        "id": "action:story.update",
+        "kind": "action",
+        "name": "story.update"
+      },
+      {
+        "id": "action:test.reproduce",
+        "kind": "action",
+        "name": "test.reproduce"
+      },
+      {
+        "id": "action:tests.run",
+        "kind": "action",
+        "name": "tests.run"
+      },
+      {
+        "id": "evidence:dissection_check",
+        "kind": "evidence",
+        "name": "dissection_check"
+      },
+      {
+        "id": "evidence:gate_run",
+        "kind": "evidence",
+        "name": "gate_run"
+      },
+      {
+        "id": "evidence:implementation_change",
+        "kind": "evidence",
+        "name": "implementation_change"
+      },
+      {
+        "id": "evidence:repro_run",
+        "kind": "evidence",
+        "name": "repro_run"
+      },
+      {
+        "id": "evidence:story_record",
+        "kind": "evidence",
+        "name": "story_record"
+      },
+      {
+        "id": "evidence:test_run",
+        "kind": "evidence",
+        "name": "test_run"
+      },
+      {
+        "id": "claim:change.built",
+        "kind": "claim",
+        "name": "change.built"
+      },
+      {
+        "id": "claim:dissection.checked",
+        "kind": "claim",
+        "name": "dissection.checked"
+      },
+      {
+        "id": "claim:dissection.valid",
+        "kind": "claim",
+        "name": "dissection.valid"
+      },
+      {
+        "id": "claim:gate.checked",
+        "kind": "claim",
+        "name": "gate.checked"
+      },
+      {
+        "id": "claim:gate.passed",
+        "kind": "claim",
+        "name": "gate.passed"
+      },
+      {
+        "id": "claim:repro.checked",
+        "kind": "claim",
+        "name": "repro.checked"
+      },
+      {
+        "id": "claim:repro.red",
+        "kind": "claim",
+        "name": "repro.red"
+      },
+      {
+        "id": "claim:story.updated",
+        "kind": "claim",
+        "name": "story.updated"
+      },
+      {
+        "id": "claim:tests.pass",
+        "kind": "claim",
+        "name": "tests.pass"
+      },
+      {
+        "id": "claim:tests.run_recorded",
+        "kind": "claim",
+        "name": "tests.run_recorded"
+      },
+      {
+        "id": "outcome:fixed",
+        "kind": "outcome",
+        "name": "fixed"
+      },
+      {
+        "id": "outcome:not_fixed",
+        "kind": "outcome",
+        "name": "not_fixed"
+      },
+      {
+        "id": "outcome:not_reproduced",
+        "kind": "outcome",
+        "name": "not_reproduced"
+      }
+    ]
+  },
+  "id": "sdc.bugfix",
+  "invalidation": [],
+  "obligations": [],
+  "outcomes": [
+    {
+      "description": "the reproducing test was red on the unchanged code, the fix passes it and the whole suite, the story is implemented and the gate passes",
+      "name": "fixed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.red",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:tests.pass",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:story.updated",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        }
+      ]
+    },
+    {
+      "description": "the bug was reproduced, but the fix fails the suite or the gate (ends the case once the writer is spent)",
+      "name": "not_fixed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.red",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:change.built",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:tests.pass",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:gate.passed",
+          "text": "claim is false:"
+        }
+      ]
+    },
+    {
+      "description": "no valid dissection, or no test that is red on the unchanged code (ends the case once the writers are spent)",
+      "name": "not_reproduced",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "any of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.red",
+          "text": "claim is false:"
+        }
+      ]
+    }
+  ],
+  "parents": [],
+  "revision": 1,
+  "simulate": {
+    "by_outcome": {
+      "fixed": 1,
+      "not_fixed": 2,
+      "not_reproduced": 2
+    },
+    "canon": "2c7a1ea6",
+    "findings": 0,
+    "reachable": 11,
+    "revision": 1,
+    "source": "protocol/simulate/sdc-bugfix.txt",
+    "stuck_or_cycle": 0,
+    "terminable": 5
+  },
+  "source": {
+    "path": "protocol/sdc-bugfix.protocol.yaml",
+    "tag": "0.1.1",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.1/protocol/sdc-bugfix.protocol.yaml"
+  },
+  "stem": "sdc-bugfix",
+  "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes.",
+  "written_by": "sdc-protocol-site write"
+}

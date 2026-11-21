@@ -48,6 +48,10 @@ path = "src/bin/sdc-run-metrics.rs"
 name = "sdc-experiment"
 path = "src/bin/sdc-experiment.rs"
 
+[[bin]]
+name = "sdc-protocol-site"
+path = "src/bin/sdc-protocol-site.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

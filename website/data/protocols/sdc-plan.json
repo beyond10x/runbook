@@ -1,0 +1,1091 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "resolve the open findings while the coverage check is not covered: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the plan is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it",
+      "effect": "write",
+      "executor": {
+        "handoff": true,
+        "kind": "program",
+        "max_runs": 12,
+        "program": "sdc-tool.sh amend plan",
+        "timeout_s": 300
+      },
+      "name": "amend.upstream",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:plan.covers_spec",
+          "text": "claim is false:"
+        }
+      ],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with. Only while this case holds no roadmap approval record about the current roadmap revision: a second copy with another result would leave roadmap.approved unknown for good. A new roadmap revision sets the old record aside and makes it admissible again",
+      "effect": "read",
+      "executor": {
+        "from": "sdc.direction",
+        "kind": "copy",
+        "record": "roadmap_approval"
+      },
+      "name": "roadmap.read",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.copied",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "roadmap_approval"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the ESS gate over the current specification revision; only while no gate run is recorded about it (each observation of this protocol runs once per revision of what it reads: a second record with another result would leave its claim unknown for good)",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh ess-gate",
+        "results": {
+          "*": "failed",
+          "0": "passed"
+        }
+      },
+      "name": "spec.gate",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "ess_gate"
+      ],
+      "step": 1,
+      "waits_for": [
+        "roadmap.read"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "join the compiled commands and synthesized scenarios to the story bodies; only while no coverage check is recorded about the current plan revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh plan-cover",
+        "results": {
+          "*": "uncovered",
+          "0": "covered",
+          "5": "finding"
+        }
+      },
+      "name": "plan.cover",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.cover_checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "decomposition_coverage"
+      ],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "write one story per group of commands under the epic through `aep plan artifact new`, each with `## ESS first` and `## Acceptance`; moves the plan to a new revision; while the current plan does not cover the specification, or a check of it failed (invalid, unassessed scope, stories not active): a failed check is left only by a new plan revision, and this is the action that writes one",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 3,
+        "node_class": "writer",
+        "program": "llm-node.sh plan.decompose",
+        "retry_when": [
+          "decomposition_coverage",
+          "plan_validation",
+          "stories_scoped",
+          "story_states"
+        ],
+        "timeout_s": 900
+      },
+      "name": "plan.decompose",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "text": "any of"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:plan.covers_spec",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:plan.covers_spec",
+          "text": "claim is unknown:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:plan.valid",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:plan.scoped",
+          "text": "claim is false:"
+        },
+        {
+          "depth": 2,
+          "reference": "claim:plan.active",
+          "text": "claim is false:"
+        }
+      ],
+      "produces": [],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run aep plan artifact waves --kind story; only while no scope check is recorded about the current plan revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "aep",
+        "program": "sdc-tool.sh plan-scope",
+        "results": {
+          "*": "unassessed",
+          "0": "scoped"
+        }
+      },
+      "name": "plan.scope",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.scope_checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "stories_scoped"
+      ],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "read the AEP status of the epic and its stories; only while no status is recorded about the current plan revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "aep",
+        "program": "sdc-tool.sh plan-status",
+        "results": {
+          "*": "draft",
+          "0": "active"
+        }
+      },
+      "name": "plan.status",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.status_read",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "story_states"
+      ],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.gate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run aep plan artifact validate; only while no validation is recorded about the current plan revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "aep",
+        "program": "sdc-tool.sh plan-validate",
+        "results": {
+          "*": "invalid",
+          "0": "valid"
+        }
+      },
+      "name": "plan.validate",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.validated",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "plan_validation"
+      ],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.gate"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution",
+      "name": "findings"
+    },
+    {
+      "description": "the AEP epic and its stories; its revision is the planning store's commit",
+      "name": "plan"
+    },
+    {
+      "description": "the requirements list from sdc.intake, amended by resolved findings",
+      "name": "requirements"
+    },
+    {
+      "description": "the roadmap the epic belongs to",
+      "name": "roadmap"
+    },
+    {
+      "description": "the ESS specification; its revision is its spec digest",
+      "name": "spec"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-plan.bindings.json",
+  "check": {
+    "revision": 7,
+    "source": "docs/check-output.txt",
+    "states": 65536
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "an ESS gate run is recorded about the current specification revision, whatever its result",
+      "name": "gate.checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:ess_gate",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the ESS gate passes on the current specification revision",
+      "name": "gate.passed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:ess_gate",
+          "suffix": "about spec",
+          "text": "evidence = passed:"
+        }
+      ]
+    },
+    {
+      "description": "the epic and every story of the current plan are active in AEP",
+      "name": "plan.active",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:story_states",
+          "suffix": "about plan",
+          "text": "evidence = active:"
+        }
+      ]
+    },
+    {
+      "description": "a coverage check is recorded about the current plan revision, against the current specification revision, whatever its result",
+      "name": "plan.cover_checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:decomposition_coverage",
+          "suffix": "about plan",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current plan covers every command and scenario of the current specification",
+      "name": "plan.covers_spec",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:decomposition_coverage",
+          "suffix": "about plan",
+          "text": "evidence = covered:"
+        }
+      ]
+    },
+    {
+      "description": "a scope check is recorded about the current plan revision, whatever its result",
+      "name": "plan.scope_checked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:stories_scoped",
+          "suffix": "about plan",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "every story of the current plan declares the surfaces it lands on",
+      "name": "plan.scoped",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:stories_scoped",
+          "suffix": "about plan",
+          "text": "evidence = scoped:"
+        }
+      ]
+    },
+    {
+      "description": "the AEP status is recorded about the current plan revision, whatever its result",
+      "name": "plan.status_read",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:story_states",
+          "suffix": "about plan",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current plan validates, against the current specification revision",
+      "name": "plan.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:plan_validation",
+          "suffix": "about plan",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "a validation is recorded about the current plan revision, against the current specification revision, whatever its result",
+      "name": "plan.validated",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:plan_validation",
+          "suffix": "about plan",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current roadmap revision is approved",
+      "name": "roadmap.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_approval",
+          "suffix": "about roadmap",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "a roadmap approval record about the current roadmap revision is in this case, whatever its result",
+      "name": "roadmap.copied",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_approval",
+          "suffix": "about roadmap",
+          "text": "any evidence:"
+        }
+      ]
+    }
+  ],
+  "description": "Decompose the epic's complete ESS specification into AEP stories under the epic. The plan is the AEP planning store's epic and its stories; every result is a program's: `aep plan artifact validate`, the decomposition coverage check (every command of the compiled specification claimed by exactly one story, every synthesized scenario named by one), `aep plan artifact waves --kind story` and the AEP status of the epic and its stories. No plan evidence comes from an LLM. No action is admissible before the roadmap is approved or while the ESS gate does not pass on the current specification revision. A revised specification invalidates the validation and coverage records observed against the earlier revision. The case ends passed. Late findings (docs/trial-2.md, \"The late-finding loop\"): the coverage check also reads the open findings and is not covered while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the plan is re-derived.",
+  "evidence": [
+    {
+      "description": "every command of the compiled specification claimed by exactly one story and every synthesized scenario named by at least one; its result is covered, uncovered or finding (an open finding)",
+      "name": "decomposition_coverage",
+      "produced_by": [
+        "plan.cover"
+      ]
+    },
+    {
+      "description": "the ESS gate over a specification revision, the four checks run as one program; passed or failed",
+      "name": "ess_gate",
+      "produced_by": [
+        "spec.gate"
+      ]
+    },
+    {
+      "description": "the result of `aep plan artifact validate`, valid or invalid",
+      "name": "plan_validation",
+      "produced_by": [
+        "plan.validate"
+      ]
+    },
+    {
+      "description": "a person's approval of a roadmap revision; its result is approved",
+      "name": "roadmap_approval",
+      "produced_by": [
+        "roadmap.read"
+      ]
+    },
+    {
+      "description": "`aep plan artifact waves --kind story`; its result is scoped (0 unassessed) or unassessed",
+      "name": "stories_scoped",
+      "produced_by": [
+        "plan.scope"
+      ]
+    },
+    {
+      "description": "the AEP status of the epic and each of its stories, read by `aep plan artifact list`; its result is active when every one is active, otherwise the least advanced status (draft, proposed, rejected)",
+      "name": "story_states",
+      "produced_by": [
+        "plan.status"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:plan.cover",
+        "kind": "produces",
+        "to": "evidence:decomposition_coverage"
+      },
+      {
+        "from": "action:plan.scope",
+        "kind": "produces",
+        "to": "evidence:stories_scoped"
+      },
+      {
+        "from": "action:plan.status",
+        "kind": "produces",
+        "to": "evidence:story_states"
+      },
+      {
+        "from": "action:plan.validate",
+        "kind": "produces",
+        "to": "evidence:plan_validation"
+      },
+      {
+        "from": "action:roadmap.read",
+        "kind": "produces",
+        "to": "evidence:roadmap_approval"
+      },
+      {
+        "from": "action:spec.gate",
+        "kind": "produces",
+        "to": "evidence:ess_gate"
+      },
+      {
+        "from": "claim:gate.checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.gate"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:plan.cover"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:plan.scope"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:plan.status"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "gates",
+        "to": "action:plan.validate"
+      },
+      {
+        "from": "claim:gate.passed",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:plan.active",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:plan.active",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:plan.cover_checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:plan.cover"
+      },
+      {
+        "from": "claim:plan.covers_spec",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:amend.upstream"
+      },
+      {
+        "from": "claim:plan.covers_spec",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:plan.covers_spec",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:plan.covers_spec",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:plan.scope_checked",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:plan.scope"
+      },
+      {
+        "from": "claim:plan.scoped",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:plan.scoped",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:plan.status_read",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:plan.status"
+      },
+      {
+        "from": "claim:plan.valid",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:plan.valid",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:plan.validated",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:plan.validate"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:plan.cover"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:plan.decompose"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:plan.scope"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:plan.status"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:plan.validate"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.gate"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:roadmap.copied",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:roadmap.read"
+      },
+      {
+        "from": "evidence:decomposition_coverage",
+        "kind": "establishes",
+        "to": "claim:plan.cover_checked"
+      },
+      {
+        "from": "evidence:decomposition_coverage",
+        "kind": "establishes",
+        "qualifier": "covered",
+        "to": "claim:plan.covers_spec"
+      },
+      {
+        "from": "evidence:ess_gate",
+        "kind": "establishes",
+        "to": "claim:gate.checked"
+      },
+      {
+        "from": "evidence:ess_gate",
+        "kind": "establishes",
+        "qualifier": "passed",
+        "to": "claim:gate.passed"
+      },
+      {
+        "from": "evidence:plan_validation",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:plan.valid"
+      },
+      {
+        "from": "evidence:plan_validation",
+        "kind": "establishes",
+        "to": "claim:plan.validated"
+      },
+      {
+        "from": "evidence:roadmap_approval",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:roadmap.approved"
+      },
+      {
+        "from": "evidence:roadmap_approval",
+        "kind": "establishes",
+        "to": "claim:roadmap.copied"
+      },
+      {
+        "from": "evidence:stories_scoped",
+        "kind": "establishes",
+        "to": "claim:plan.scope_checked"
+      },
+      {
+        "from": "evidence:stories_scoped",
+        "kind": "establishes",
+        "qualifier": "scoped",
+        "to": "claim:plan.scoped"
+      },
+      {
+        "from": "evidence:story_states",
+        "kind": "establishes",
+        "qualifier": "active",
+        "to": "claim:plan.active"
+      },
+      {
+        "from": "evidence:story_states",
+        "kind": "establishes",
+        "to": "claim:plan.status_read"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:amend.upstream",
+        "kind": "action",
+        "name": "amend.upstream"
+      },
+      {
+        "id": "action:plan.cover",
+        "kind": "action",
+        "name": "plan.cover"
+      },
+      {
+        "id": "action:plan.decompose",
+        "kind": "action",
+        "name": "plan.decompose"
+      },
+      {
+        "id": "action:plan.scope",
+        "kind": "action",
+        "name": "plan.scope"
+      },
+      {
+        "id": "action:plan.status",
+        "kind": "action",
+        "name": "plan.status"
+      },
+      {
+        "id": "action:plan.validate",
+        "kind": "action",
+        "name": "plan.validate"
+      },
+      {
+        "id": "action:roadmap.read",
+        "kind": "action",
+        "name": "roadmap.read"
+      },
+      {
+        "id": "action:spec.gate",
+        "kind": "action",
+        "name": "spec.gate"
+      },
+      {
+        "id": "evidence:decomposition_coverage",
+        "kind": "evidence",
+        "name": "decomposition_coverage"
+      },
+      {
+        "id": "evidence:ess_gate",
+        "kind": "evidence",
+        "name": "ess_gate"
+      },
+      {
+        "id": "evidence:plan_validation",
+        "kind": "evidence",
+        "name": "plan_validation"
+      },
+      {
+        "id": "evidence:roadmap_approval",
+        "kind": "evidence",
+        "name": "roadmap_approval"
+      },
+      {
+        "id": "evidence:stories_scoped",
+        "kind": "evidence",
+        "name": "stories_scoped"
+      },
+      {
+        "id": "evidence:story_states",
+        "kind": "evidence",
+        "name": "story_states"
+      },
+      {
+        "id": "claim:gate.checked",
+        "kind": "claim",
+        "name": "gate.checked"
+      },
+      {
+        "id": "claim:gate.passed",
+        "kind": "claim",
+        "name": "gate.passed"
+      },
+      {
+        "id": "claim:plan.active",
+        "kind": "claim",
+        "name": "plan.active"
+      },
+      {
+        "id": "claim:plan.cover_checked",
+        "kind": "claim",
+        "name": "plan.cover_checked"
+      },
+      {
+        "id": "claim:plan.covers_spec",
+        "kind": "claim",
+        "name": "plan.covers_spec"
+      },
+      {
+        "id": "claim:plan.scope_checked",
+        "kind": "claim",
+        "name": "plan.scope_checked"
+      },
+      {
+        "id": "claim:plan.scoped",
+        "kind": "claim",
+        "name": "plan.scoped"
+      },
+      {
+        "id": "claim:plan.status_read",
+        "kind": "claim",
+        "name": "plan.status_read"
+      },
+      {
+        "id": "claim:plan.valid",
+        "kind": "claim",
+        "name": "plan.valid"
+      },
+      {
+        "id": "claim:plan.validated",
+        "kind": "claim",
+        "name": "plan.validated"
+      },
+      {
+        "id": "claim:roadmap.approved",
+        "kind": "claim",
+        "name": "roadmap.approved"
+      },
+      {
+        "id": "claim:roadmap.copied",
+        "kind": "claim",
+        "name": "roadmap.copied"
+      },
+      {
+        "id": "outcome:passed",
+        "kind": "outcome",
+        "name": "passed"
+      }
+    ]
+  },
+  "id": "sdc.plan",
+  "invalidation": [
+    {
+      "description": "a plan validation or coverage record observed against an earlier specification revision no longer applies",
+      "name": "spec.revised"
+    }
+  ],
+  "obligations": [
+    {
+      "description": "the epic and its stories are active",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:plan.active",
+          "text": "claim"
+        }
+      ],
+      "name": "activation.required"
+    },
+    {
+      "description": "the ESS gate passes on the current specification revision",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        }
+      ],
+      "name": "gate.required"
+    },
+    {
+      "description": "the plan validates and covers the specification",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.covers_spec",
+          "text": "claim"
+        }
+      ],
+      "name": "plan.required"
+    },
+    {
+      "description": "every story declares its scope",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:plan.scoped",
+          "text": "claim"
+        }
+      ],
+      "name": "scope.required"
+    }
+  ],
+  "outcomes": [
+    {
+      "description": "the roadmap is approved, the ESS gate passes, and the current plan validates, covers the specification, is scoped and active",
+      "name": "passed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:gate.passed",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.covers_spec",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.scoped",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:plan.active",
+          "text": "claim"
+        }
+      ]
+    }
+  ],
+  "parents": [
+    {
+      "action": "plan.open",
+      "protocol": "sdc.epic",
+      "stem": "sdc-epic"
+    }
+  ],
+  "revision": 7,
+  "simulate": {
+    "by_outcome": {
+      "passed": 1
+    },
+    "canon": "2c7a1ea6",
+    "findings": 17,
+    "reachable": 85,
+    "revision": 7,
+    "source": "protocol/simulate/sdc-plan.txt",
+    "stuck_or_cycle": 17,
+    "terminable": 1
+  },
+  "source": {
+    "path": "protocol/sdc-plan.protocol.yaml",
+    "tag": "0.1.1",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.1/protocol/sdc-plan.protocol.yaml"
+  },
+  "stem": "sdc-plan",
+  "summary": "Decompose the epic's complete ESS specification into AEP stories under the epic.",
+  "written_by": "sdc-protocol-site write"
+}

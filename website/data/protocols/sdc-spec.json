@@ -1,0 +1,1395 @@
+{
+  "actions": [
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "resolve the open findings while the trace check is not traced: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the specification is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it",
+      "effect": "write",
+      "executor": {
+        "handoff": true,
+        "kind": "program",
+        "max_runs": 12,
+        "program": "sdc-tool.sh amend spec",
+        "timeout_s": 300
+      },
+      "name": "amend.upstream",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:spec.traced",
+          "text": "claim is false:"
+        }
+      ],
+      "produces": [],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with. Only while this case holds no roadmap approval record about the current roadmap revision: a second copy with another result would leave roadmap.approved unknown for good. A new roadmap revision sets the old record aside and makes it admissible again",
+      "effect": "read",
+      "executor": {
+        "from": "sdc.direction",
+        "kind": "copy",
+        "record": "roadmap_approval"
+      },
+      "name": "roadmap.read",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.copied",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "roadmap_approval"
+      ],
+      "step": 0,
+      "waits_for": []
+    },
+    {
+      "arguments": [
+        "domain"
+      ],
+      "capabilities": [],
+      "description": "an LLM writes the specification from the requirements list (states, actions, events); moves the specification to a new revision, recorded with source authored",
+      "effect": "write",
+      "executor": {
+        "default_model": "claude-haiku-5-5",
+        "kind": "model",
+        "max_runs": 4,
+        "node_class": "writer",
+        "producer": "llm-node",
+        "program": "llm-node.sh spec.author",
+        "results": {
+          "0": "authored"
+        },
+        "retry_when": [
+          "open_markers",
+          "scope_trace",
+          "spec_compile",
+          "spec_review",
+          "spec_synthesis",
+          "spec_validation"
+        ],
+        "timeout_s": 1500
+      },
+      "name": "spec.author",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "spec_source"
+      ],
+      "step": 1,
+      "waits_for": [
+        "roadmap.read"
+      ]
+    },
+    {
+      "arguments": [
+        "from",
+        "origin"
+      ],
+      "capabilities": [],
+      "description": "derive the specification from an RFC, an OpenAPI document or an observed system (the ess:retrofitting skill); moves the specification to a new revision, recorded with source reconstructed",
+      "effect": "write",
+      "executor": {
+        "bound": false,
+        "kind": "person"
+      },
+      "name": "spec.reconstruct",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "spec_source"
+      ],
+      "step": 1,
+      "waits_for": [
+        "roadmap.read"
+      ]
+    },
+    {
+      "arguments": [
+        "origin"
+      ],
+      "capabilities": [],
+      "description": "take an existing specification from another repository or a public place; moves the specification to a new revision, recorded with source reused",
+      "effect": "write",
+      "executor": {
+        "bound": false,
+        "kind": "person"
+      },
+      "name": "spec.reuse",
+      "precondition": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        }
+      ],
+      "produces": [
+        "spec_source"
+      ],
+      "step": 1,
+      "waits_for": [
+        "roadmap.read"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "scan the specification for UNMAPPED markers; only while no scan is recorded about the current specification revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "grep",
+        "program": "sdc-tool.sh spec-scan",
+        "results": {
+          "*": "present",
+          "0": "none"
+        }
+      },
+      "name": "spec.scan",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.sourced",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.scanned",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "open_markers"
+      ],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.author",
+        "spec.reconstruct",
+        "spec.reuse"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run ess specify validate --strict-requires; only while no validation is recorded about the current specification revision (each observation of this protocol runs once per revision: a second record with another result would leave its claim unknown for good)",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh spec-validate",
+        "results": {
+          "*": "invalid",
+          "0": "valid"
+        }
+      },
+      "name": "spec.validate",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.sourced",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.validated",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "spec_validation"
+      ],
+      "step": 2,
+      "waits_for": [
+        "roadmap.read",
+        "spec.author",
+        "spec.reconstruct",
+        "spec.reuse"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run ess specify compile; only while no compile run is recorded about the current specification revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh spec-compile",
+        "results": {
+          "*": "refused",
+          "0": "compiled"
+        }
+      },
+      "name": "spec.compile",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.compile_run",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "spec_compile"
+      ],
+      "step": 3,
+      "waits_for": [
+        "roadmap.read",
+        "spec.validate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "join every change id the specification adds to the requirements list; only while no trace is recorded about the current specification revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-check",
+        "program": "sdc-tool.sh spec-trace",
+        "results": {
+          "*": "untraced",
+          "0": "traced",
+          "5": "finding"
+        }
+      },
+      "name": "spec.trace",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.trace_run",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "scope_trace"
+      ],
+      "step": 3,
+      "waits_for": [
+        "roadmap.read",
+        "spec.validate"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run ess verify conform synthesize; only while no synthesis is recorded about the current specification revision",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "ess",
+        "program": "sdc-tool.sh spec-synthesize",
+        "results": {
+          "*": "refused",
+          "0": "clean"
+        }
+      },
+      "name": "spec.synthesize",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.compiled",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.synthesis_run",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "spec_synthesis"
+      ],
+      "step": 4,
+      "waits_for": [
+        "roadmap.read",
+        "spec.compile"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "decision_class": {
+        "class": "spec_acceptance",
+        "side": "delivering",
+        "type": "review"
+      },
+      "description": "review the specification once it is complete; only while no review by a reviewer the case lists as another principal than its author is recorded about the current specification revision (the author's own review does not count and does not block)",
+      "effect": "read",
+      "executor": {
+        "independent": true,
+        "kind": "program",
+        "producer": "reviewer-stub",
+        "program": "sdc-tool.sh review-spec",
+        "results": {
+          "*": "rejected",
+          "0": "approved"
+        }
+      },
+      "name": "spec.review",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.complete",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.reviewed",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "spec_review"
+      ],
+      "step": 5,
+      "waits_for": [
+        "roadmap.read",
+        "spec.compile",
+        "spec.scan",
+        "spec.synthesize",
+        "spec.validate"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution",
+      "name": "findings"
+    },
+    {
+      "description": "the requirements list from sdc.intake, amended by resolved findings",
+      "name": "requirements"
+    },
+    {
+      "description": "the roadmap the epic belongs to",
+      "name": "roadmap"
+    },
+    {
+      "description": "the ESS specification tree; its revision is its spec digest",
+      "name": "spec"
+    }
+  ],
+  "bindings": "driver/examples/sdc/sdc-spec.bindings.json",
+  "check": {
+    "revision": 5,
+    "source": "docs/check-output.txt",
+    "states": 65536
+  },
+  "children": [],
+  "claims": [
+    {
+      "description": "the current roadmap revision is approved",
+      "name": "roadmap.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_approval",
+          "suffix": "about roadmap",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "a roadmap approval record about the current roadmap revision is in this case, whatever its result",
+      "name": "roadmap.copied",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:roadmap_approval",
+          "suffix": "about roadmap",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current specification revision is approved by a reviewer the case lists as another principal than its author",
+      "name": "spec.approved",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_review",
+          "suffix": "about spec, by a producer independent on different_principal",
+          "text": "evidence = approved:"
+        }
+      ]
+    },
+    {
+      "description": "a compile run is recorded about the current specification revision, whatever its result",
+      "name": "spec.compile_run",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_compile",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current specification revision compiles",
+      "name": "spec.compiled",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_compile",
+          "suffix": "about spec",
+          "text": "evidence = compiled:"
+        }
+      ]
+    },
+    {
+      "description": "the ESS gate passes at the current specification revision",
+      "name": "spec.complete",
+      "true_when": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.compiled",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.unmarked",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.synthesized",
+          "text": "claim"
+        }
+      ]
+    },
+    {
+      "description": "the current revision is sourced, complete, traced and independently approved",
+      "name": "spec.done",
+      "true_when": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.sourced",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.complete",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.traced",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.approved",
+          "text": "claim"
+        }
+      ]
+    },
+    {
+      "description": "a review by a reviewer the case lists as another principal than the author is recorded about the current specification revision, whatever its result",
+      "name": "spec.reviewed",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_review",
+          "suffix": "about spec, by a producer independent on different_principal",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a marker scan is recorded about the current specification revision, whatever its result",
+      "name": "spec.scanned",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:open_markers",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the current specification revision has a recorded source",
+      "name": "spec.sourced",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_source",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "a synthesis is recorded about the current specification revision, whatever its result",
+      "name": "spec.synthesis_run",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_synthesis",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "the conformance suite synthesizes from the current revision with 0 refusals",
+      "name": "spec.synthesized",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_synthesis",
+          "suffix": "about spec",
+          "text": "evidence = clean:"
+        }
+      ]
+    },
+    {
+      "description": "a trace is recorded about the current specification revision, whatever its result",
+      "name": "spec.trace_run",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:scope_trace",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
+      "description": "every change id the current revision adds cites a requirement",
+      "name": "spec.traced",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:scope_trace",
+          "suffix": "about spec",
+          "text": "evidence = traced:"
+        }
+      ]
+    },
+    {
+      "description": "the current specification revision holds no UNMAPPED marker",
+      "name": "spec.unmarked",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:open_markers",
+          "suffix": "about spec",
+          "text": "evidence = none:"
+        }
+      ]
+    },
+    {
+      "description": "the current specification revision validates with --strict-requires",
+      "name": "spec.valid",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_validation",
+          "suffix": "about spec",
+          "text": "evidence = valid:"
+        }
+      ]
+    },
+    {
+      "description": "a validation is recorded about the current specification revision, whatever its result",
+      "name": "spec.validated",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:spec_validation",
+          "suffix": "about spec",
+          "text": "any evidence:"
+        }
+      ]
+    }
+  ],
+  "description": "Get the epic's ESS specification to complete (docs/phases.md steps 8 and 9). The specification comes from one of three sources, recorded as evidence on it: authored from the requirements list, reused from another repository or a public place, or reconstructed from an RFC, an OpenAPI document or an observed system. All three converge on the same ESS gate. The specification is complete when the gate passes at its current revision: `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:` marker, `ess verify conform synthesize` with 0 refusals. Every added change id must trace to a requirement, and a reviewer other than its author must approve it. No action is admissible before the roadmap is approved. The case ends passed, or abandoned on an explicit decision. Late findings (docs/trial-2.md, \"The late-finding loop\"): the trace check also reads the open findings and is not traced while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the specification is re-derived.",
+  "evidence": [
+    {
+      "description": "`grep -rn 'UNMAPPED:' spec`; its result is none (grep exits 1) or present, the markers in the body",
+      "name": "open_markers",
+      "produced_by": [
+        "spec.scan"
+      ]
+    },
+    {
+      "description": "a person's approval of a roadmap revision; its result is approved",
+      "name": "roadmap_approval",
+      "produced_by": [
+        "roadmap.read"
+      ]
+    },
+    {
+      "description": "`ess verify diff` of the specification joined to the requirements list: every added change id cites a requirement; its result is traced, untraced or finding (an open finding)",
+      "name": "scope_trace",
+      "produced_by": [
+        "spec.trace"
+      ]
+    },
+    {
+      "description": "the result of `ess specify compile --path spec`, compiled or refused",
+      "name": "spec_compile",
+      "produced_by": [
+        "spec.compile"
+      ]
+    },
+    {
+      "description": "a review of the specification against the requirements; approved or rejected",
+      "name": "spec_review",
+      "produced_by": [
+        "spec.review"
+      ]
+    },
+    {
+      "description": "where the current specification revision came from; its result is authored, reused or reconstructed, and its body names the origin (repository, URL, RFC, OpenAPI document or system)",
+      "name": "spec_source",
+      "produced_by": [
+        "spec.author",
+        "spec.reconstruct",
+        "spec.reuse"
+      ]
+    },
+    {
+      "description": "`ess verify conform synthesize --path spec --suite-format 5`; its result is clean (0 refusals) or refused",
+      "name": "spec_synthesis",
+      "produced_by": [
+        "spec.synthesize"
+      ]
+    },
+    {
+      "description": "`ess specify validate --path spec --strict-requires`; its result is valid or invalid",
+      "name": "spec_validation",
+      "produced_by": [
+        "spec.validate"
+      ]
+    }
+  ],
+  "format": "sdc.protocol-site/1",
+  "graph": {
+    "edges": [
+      {
+        "from": "action:roadmap.read",
+        "kind": "produces",
+        "to": "evidence:roadmap_approval"
+      },
+      {
+        "from": "action:spec.author",
+        "kind": "produces",
+        "to": "evidence:spec_source"
+      },
+      {
+        "from": "action:spec.compile",
+        "kind": "produces",
+        "to": "evidence:spec_compile"
+      },
+      {
+        "from": "action:spec.reconstruct",
+        "kind": "produces",
+        "to": "evidence:spec_source"
+      },
+      {
+        "from": "action:spec.reuse",
+        "kind": "produces",
+        "to": "evidence:spec_source"
+      },
+      {
+        "from": "action:spec.review",
+        "kind": "produces",
+        "to": "evidence:spec_review"
+      },
+      {
+        "from": "action:spec.scan",
+        "kind": "produces",
+        "to": "evidence:open_markers"
+      },
+      {
+        "from": "action:spec.synthesize",
+        "kind": "produces",
+        "to": "evidence:spec_synthesis"
+      },
+      {
+        "from": "action:spec.trace",
+        "kind": "produces",
+        "to": "evidence:scope_trace"
+      },
+      {
+        "from": "action:spec.validate",
+        "kind": "produces",
+        "to": "evidence:spec_validation"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.author"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.compile"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.reconstruct"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.reuse"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.review"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.scan"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.synthesize"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.trace"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "gates",
+        "to": "action:spec.validate"
+      },
+      {
+        "from": "claim:roadmap.approved",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:roadmap.copied",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:roadmap.read"
+      },
+      {
+        "from": "claim:spec.approved",
+        "kind": "supports",
+        "to": "claim:spec.done"
+      },
+      {
+        "from": "claim:spec.compile_run",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.compile"
+      },
+      {
+        "from": "claim:spec.compiled",
+        "kind": "gates",
+        "to": "action:spec.synthesize"
+      },
+      {
+        "from": "claim:spec.compiled",
+        "kind": "supports",
+        "to": "claim:spec.complete"
+      },
+      {
+        "from": "claim:spec.complete",
+        "kind": "gates",
+        "to": "action:spec.review"
+      },
+      {
+        "from": "claim:spec.complete",
+        "kind": "supports",
+        "to": "claim:spec.done"
+      },
+      {
+        "from": "claim:spec.done",
+        "kind": "requires",
+        "to": "outcome:passed"
+      },
+      {
+        "from": "claim:spec.reviewed",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.review"
+      },
+      {
+        "from": "claim:spec.scanned",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.scan"
+      },
+      {
+        "from": "claim:spec.sourced",
+        "kind": "gates",
+        "to": "action:spec.scan"
+      },
+      {
+        "from": "claim:spec.sourced",
+        "kind": "gates",
+        "to": "action:spec.validate"
+      },
+      {
+        "from": "claim:spec.sourced",
+        "kind": "supports",
+        "to": "claim:spec.done"
+      },
+      {
+        "from": "claim:spec.synthesis_run",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.synthesize"
+      },
+      {
+        "from": "claim:spec.synthesized",
+        "kind": "supports",
+        "to": "claim:spec.complete"
+      },
+      {
+        "from": "claim:spec.trace_run",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.trace"
+      },
+      {
+        "from": "claim:spec.traced",
+        "kind": "gates",
+        "qualifier": "false",
+        "to": "action:amend.upstream"
+      },
+      {
+        "from": "claim:spec.traced",
+        "kind": "supports",
+        "to": "claim:spec.done"
+      },
+      {
+        "from": "claim:spec.unmarked",
+        "kind": "supports",
+        "to": "claim:spec.complete"
+      },
+      {
+        "from": "claim:spec.valid",
+        "kind": "gates",
+        "to": "action:spec.compile"
+      },
+      {
+        "from": "claim:spec.valid",
+        "kind": "gates",
+        "to": "action:spec.trace"
+      },
+      {
+        "from": "claim:spec.valid",
+        "kind": "supports",
+        "to": "claim:spec.complete"
+      },
+      {
+        "from": "claim:spec.validated",
+        "kind": "gates",
+        "qualifier": "unknown",
+        "to": "action:spec.validate"
+      },
+      {
+        "from": "decision:explicitly_abandoned",
+        "kind": "decides",
+        "to": "outcome:abandoned"
+      },
+      {
+        "from": "evidence:open_markers",
+        "kind": "establishes",
+        "to": "claim:spec.scanned"
+      },
+      {
+        "from": "evidence:open_markers",
+        "kind": "establishes",
+        "qualifier": "none",
+        "to": "claim:spec.unmarked"
+      },
+      {
+        "from": "evidence:roadmap_approval",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:roadmap.approved"
+      },
+      {
+        "from": "evidence:roadmap_approval",
+        "kind": "establishes",
+        "to": "claim:roadmap.copied"
+      },
+      {
+        "from": "evidence:scope_trace",
+        "kind": "establishes",
+        "to": "claim:spec.trace_run"
+      },
+      {
+        "from": "evidence:scope_trace",
+        "kind": "establishes",
+        "qualifier": "traced",
+        "to": "claim:spec.traced"
+      },
+      {
+        "from": "evidence:spec_compile",
+        "kind": "establishes",
+        "to": "claim:spec.compile_run"
+      },
+      {
+        "from": "evidence:spec_compile",
+        "kind": "establishes",
+        "qualifier": "compiled",
+        "to": "claim:spec.compiled"
+      },
+      {
+        "from": "evidence:spec_review",
+        "kind": "establishes",
+        "qualifier": "approved",
+        "to": "claim:spec.approved"
+      },
+      {
+        "from": "evidence:spec_review",
+        "kind": "establishes",
+        "to": "claim:spec.reviewed"
+      },
+      {
+        "from": "evidence:spec_source",
+        "kind": "establishes",
+        "to": "claim:spec.sourced"
+      },
+      {
+        "from": "evidence:spec_synthesis",
+        "kind": "establishes",
+        "to": "claim:spec.synthesis_run"
+      },
+      {
+        "from": "evidence:spec_synthesis",
+        "kind": "establishes",
+        "qualifier": "clean",
+        "to": "claim:spec.synthesized"
+      },
+      {
+        "from": "evidence:spec_validation",
+        "kind": "establishes",
+        "qualifier": "valid",
+        "to": "claim:spec.valid"
+      },
+      {
+        "from": "evidence:spec_validation",
+        "kind": "establishes",
+        "to": "claim:spec.validated"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "action:amend.upstream",
+        "kind": "action",
+        "name": "amend.upstream"
+      },
+      {
+        "id": "action:roadmap.read",
+        "kind": "action",
+        "name": "roadmap.read"
+      },
+      {
+        "id": "action:spec.author",
+        "kind": "action",
+        "name": "spec.author"
+      },
+      {
+        "id": "action:spec.compile",
+        "kind": "action",
+        "name": "spec.compile"
+      },
+      {
+        "id": "action:spec.reconstruct",
+        "kind": "action",
+        "name": "spec.reconstruct"
+      },
+      {
+        "id": "action:spec.reuse",
+        "kind": "action",
+        "name": "spec.reuse"
+      },
+      {
+        "id": "action:spec.review",
+        "kind": "action",
+        "name": "spec.review"
+      },
+      {
+        "id": "action:spec.scan",
+        "kind": "action",
+        "name": "spec.scan"
+      },
+      {
+        "id": "action:spec.synthesize",
+        "kind": "action",
+        "name": "spec.synthesize"
+      },
+      {
+        "id": "action:spec.trace",
+        "kind": "action",
+        "name": "spec.trace"
+      },
+      {
+        "id": "action:spec.validate",
+        "kind": "action",
+        "name": "spec.validate"
+      },
+      {
+        "id": "evidence:open_markers",
+        "kind": "evidence",
+        "name": "open_markers"
+      },
+      {
+        "id": "evidence:roadmap_approval",
+        "kind": "evidence",
+        "name": "roadmap_approval"
+      },
+      {
+        "id": "evidence:scope_trace",
+        "kind": "evidence",
+        "name": "scope_trace"
+      },
+      {
+        "id": "evidence:spec_compile",
+        "kind": "evidence",
+        "name": "spec_compile"
+      },
+      {
+        "id": "evidence:spec_review",
+        "kind": "evidence",
+        "name": "spec_review"
+      },
+      {
+        "id": "evidence:spec_source",
+        "kind": "evidence",
+        "name": "spec_source"
+      },
+      {
+        "id": "evidence:spec_synthesis",
+        "kind": "evidence",
+        "name": "spec_synthesis"
+      },
+      {
+        "id": "evidence:spec_validation",
+        "kind": "evidence",
+        "name": "spec_validation"
+      },
+      {
+        "id": "claim:roadmap.approved",
+        "kind": "claim",
+        "name": "roadmap.approved"
+      },
+      {
+        "id": "claim:roadmap.copied",
+        "kind": "claim",
+        "name": "roadmap.copied"
+      },
+      {
+        "id": "claim:spec.approved",
+        "kind": "claim",
+        "name": "spec.approved"
+      },
+      {
+        "id": "claim:spec.compile_run",
+        "kind": "claim",
+        "name": "spec.compile_run"
+      },
+      {
+        "id": "claim:spec.compiled",
+        "kind": "claim",
+        "name": "spec.compiled"
+      },
+      {
+        "id": "claim:spec.complete",
+        "kind": "claim",
+        "name": "spec.complete"
+      },
+      {
+        "id": "claim:spec.done",
+        "kind": "claim",
+        "name": "spec.done"
+      },
+      {
+        "id": "claim:spec.reviewed",
+        "kind": "claim",
+        "name": "spec.reviewed"
+      },
+      {
+        "id": "claim:spec.scanned",
+        "kind": "claim",
+        "name": "spec.scanned"
+      },
+      {
+        "id": "claim:spec.sourced",
+        "kind": "claim",
+        "name": "spec.sourced"
+      },
+      {
+        "id": "claim:spec.synthesis_run",
+        "kind": "claim",
+        "name": "spec.synthesis_run"
+      },
+      {
+        "id": "claim:spec.synthesized",
+        "kind": "claim",
+        "name": "spec.synthesized"
+      },
+      {
+        "id": "claim:spec.trace_run",
+        "kind": "claim",
+        "name": "spec.trace_run"
+      },
+      {
+        "id": "claim:spec.traced",
+        "kind": "claim",
+        "name": "spec.traced"
+      },
+      {
+        "id": "claim:spec.unmarked",
+        "kind": "claim",
+        "name": "spec.unmarked"
+      },
+      {
+        "id": "claim:spec.valid",
+        "kind": "claim",
+        "name": "spec.valid"
+      },
+      {
+        "id": "claim:spec.validated",
+        "kind": "claim",
+        "name": "spec.validated"
+      },
+      {
+        "id": "decision:explicitly_abandoned",
+        "kind": "decision",
+        "name": "explicitly_abandoned"
+      },
+      {
+        "id": "outcome:abandoned",
+        "kind": "outcome",
+        "name": "abandoned"
+      },
+      {
+        "id": "outcome:passed",
+        "kind": "outcome",
+        "name": "passed"
+      }
+    ]
+  },
+  "id": "sdc.spec",
+  "invalidation": [],
+  "obligations": [
+    {
+      "description": "the specification is complete",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:spec.complete",
+          "text": "claim"
+        }
+      ],
+      "name": "gate.required"
+    },
+    {
+      "description": "the specification is independently approved",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:spec.approved",
+          "text": "claim"
+        }
+      ],
+      "name": "review.required"
+    },
+    {
+      "description": "the roadmap is approved",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        }
+      ],
+      "name": "roadmap.required"
+    },
+    {
+      "description": "the current specification revision has a recorded source",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:spec.sourced",
+          "text": "claim"
+        }
+      ],
+      "name": "source.required"
+    },
+    {
+      "description": "the specification traces to the requirements",
+      "discharged_when": [
+        {
+          "depth": 0,
+          "reference": "claim:spec.traced",
+          "text": "claim"
+        }
+      ],
+      "name": "trace.required"
+    }
+  ],
+  "outcomes": [
+    {
+      "description": "the specification work was explicitly abandoned",
+      "name": "abandoned",
+      "requires": [
+        {
+          "depth": 0,
+          "reference": "decision:explicitly_abandoned",
+          "text": "decision taken:"
+        }
+      ]
+    },
+    {
+      "description": "the specification is sourced, complete, traced and independently approved",
+      "name": "passed",
+      "requires": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:roadmap.approved",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:spec.done",
+          "text": "claim"
+        }
+      ]
+    }
+  ],
+  "parents": [
+    {
+      "action": "spec.open",
+      "protocol": "sdc.epic",
+      "stem": "sdc-epic"
+    }
+  ],
+  "revision": 5,
+  "simulate": {
+    "by_outcome": {
+      "abandoned": 60,
+      "passed": 2
+    },
+    "canon": "2c7a1ea6",
+    "findings": 16,
+    "reachable": 120,
+    "revision": 5,
+    "source": "protocol/simulate/sdc-spec.txt",
+    "stuck_or_cycle": 16,
+    "terminable": 61
+  },
+  "source": {
+    "path": "protocol/sdc-spec.protocol.yaml",
+    "tag": "0.1.1",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.1/protocol/sdc-spec.protocol.yaml"
+  },
+  "stem": "sdc-spec",
+  "summary": "Get the epic's ESS specification to complete (docs/phases.md steps 8 and 9).",
+  "written_by": "sdc-protocol-site write"
+}
