@@ -483,12 +483,17 @@ verdict_end() { # <exit code>: end_cause, end_case, end_action and end_reason fr
   case $v in
     writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen"
       # change.implement in request mode whose last run's reply stayed invalid or incomplete
-      # (sdc-reply implement-run): that named cause, naming the call.
-      local cd line
-      cd=$(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null)
-      line=$(jq -rs '[.[] | select(.event == "action_finished" and .action == "change.implement")] | last | .log // empty' "$cd/events.jsonl" 2>/dev/null)
-      line=$([[ -n $line ]] && grep -v '^[[:space:]]*$' "$cd/blobs/$line" 2>/dev/null | tail -n 1)
-      if [[ $end_action == change.implement && $line =~ recorded\ nothing.*:\ (implement_reply_invalid|implement_reply_incomplete) ]]; then
+      # (sdc-reply implement-run): that named cause, naming the call. Every lookup may find
+      # nothing (another writer, no log): under set -e each one falls back to "" itself.
+      local cd="" line=""
+      if [[ $end_action == change.implement ]]; then
+        cd=$(jq -r '.case_dir // ""' <<< "$last" 2>/dev/null) || cd=""
+        line=$(jq -rs '[.[] | select(.event == "action_finished" and .action == "change.implement")] | last | .log // empty' "$cd/events.jsonl" 2>/dev/null) || line=""
+        if [[ -n $line ]]; then
+          line=$(grep -v '^[[:space:]]*$' "$cd/blobs/$line" 2>/dev/null | tail -n 1) || line=""
+        fi
+      fi
+      if [[ $line =~ recorded\ nothing.*:\ (implement_reply_invalid|implement_reply_incomplete) ]]; then
         end_cause=${BASH_REMATCH[1]}
         end_reason="change.implement in $end_case: $end_cause (${line#llm-node: }): it waits on a fix of the implement node or its adapter, then --reopen"
         end_reason=${end_reason:0:600}
