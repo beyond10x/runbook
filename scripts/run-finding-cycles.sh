@@ -1972,6 +1972,9 @@ bugfix_cycle bugfix-never-red never-red not_reproduced \
 # requirements.normalise context.default spec.author plan.decompose change.implement change.review"
 # SDC_FIXTURE_STUB='{"plan.decompose": ["plan-stories.json", "stories.json"]}' run-trial.sh <run>
 # "<fixtures/idea.yaml text>" --autopilot, then sdc-replay pack <run> fixtures/recorded/stub.
+# SDC_RULE_APPROVALS stays at its default (on): the recording holds no decider call for the
+# approvals the rule takes (context.approve, roadmap.approve, release.publish), and the redrives
+# below run with the rule on too.
 recording=$fx/recorded/stub
 story_case=IDEA-1.billing.invoices
 redrive() { # <name> [run-trial.sh replay arguments ...]
