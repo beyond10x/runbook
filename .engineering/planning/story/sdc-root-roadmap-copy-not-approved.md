@@ -11,6 +11,7 @@ tags:
 relations:
 - decomposes: epic:kernel-and-runtime-uptake
 - informed_by: story:simulate-as-a-protocol-gate
+- depends_on: story:protocols-declare-revises-and-authors
 scope:
 - confidence: inferred
   path: cases/12-root-roadmap-copy-not-approved
@@ -20,7 +21,7 @@ scope:
   path: protocol/compiled/sdc.ir.json
 - confidence: inferred
   path: protocol/sdc.protocol.yaml
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T09:20:28Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -74,6 +75,8 @@ artifact, so it reaches the state `docs/protocol-notes.md:241-242` classes as "a
 another case revises (a2): no change". This story asks for a protocol text under which the walk finds
 nothing, without removing that revision path.
 
+`docs/protocol-notes.md:241-242` classes this finding as a failed check only another case revises, which a real case leaves by revising the artifact and the walk does not model; Canon's revise step for a declared `revises` is `story:protocols-declare-revises-and-authors`.
+
 Candidate, *inferred* and not run: an outcome of the root legitimate when `roadmap.copied` is true and
 `roadmap.approved` is unknown, or a `roadmap.read` precondition that holds the copy back until
 `direction.opened` and `children.passed` (it is admissible from the empty case today, `:85-87`).
@@ -89,6 +92,7 @@ of another result is stated only in the action text (`:83`).
   states on revision 8 (`docs/check-output.txt:10`); a change that adds an evidence kind states the
   new count, which stays under the 65,536 bound.
 - Each new case under `cases/` is green in `scripts/evaluate-cases.sh`.
+- Alternatively to the first item: or the finding no longer prints once the protocol declares `revises` for the artifact and Canon's simulate walks the revise step.
 
 ## Scope
 
