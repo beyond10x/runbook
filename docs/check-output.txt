@@ -12,8 +12,8 @@ valid: protocol `sdc.release` revision 4
 checked: protocol `sdc.release` revision 4: 24576 states, 0 properties, 0 findings
 valid: protocol `sdc.spec` revision 5
 checked: protocol `sdc.spec` revision 5: 65536 states, 0 properties, 0 findings
-valid: protocol `sdc.story` revision 6
-checked: protocol `sdc.story` revision 6: 49152 states, 0 properties, 0 findings
+valid: protocol `sdc.story` revision 7
+checked: protocol `sdc.story` revision 7: 49152 states, 0 properties, 0 findings
 unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
 checked: protocol `sdc.spec` revision 5: 65536 states, 0 properties, 1 finding
 gate property holds: sdc-spec
@@ -24,7 +24,7 @@ unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no sta
 checked: protocol `sdc.epic` revision 5: 36864 states, 0 properties, 1 finding
 gate property holds: sdc-epic
 unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
-checked: protocol `sdc.story` revision 6: 49152 states, 0 properties, 1 finding
+checked: protocol `sdc.story` revision 7: 49152 states, 0 properties, 1 finding
 gate property holds: sdc-story
 unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
 checked: protocol `sdc.release` revision 4: 24576 states, 0 properties, 1 finding

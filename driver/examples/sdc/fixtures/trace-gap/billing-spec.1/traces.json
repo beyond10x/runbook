@@ -1,0 +1,17 @@
+{
+  "traces": {
+    "r1": [
+      "billing.invoice.CreateInvoice",
+      "billing.invoice.IssueInvoice",
+      "billing.invoice.PayInvoice",
+      "billing.invoice.CancelInvoice"
+    ],
+    "r2": [
+      "billing.email.SendEmail"
+    ],
+    "r3": [
+      "billing.invoice.InvoiceById",
+      "billing.invoice.OutstandingInvoices"
+    ]
+  }
+}
