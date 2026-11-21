@@ -681,7 +681,7 @@
     {
       "date": "2026-11-21",
       "limits": [
-        "No run has used this tree. The progress ledger's figures come from runs on earlier trees, and the baseline on a released tree (n of at least 3 per setting) is still to be run.",
+        "No run has used the 0.1.1 tree. The baseline of 0.1.0 is `experiments/baseline-0.1.0` (three runs per setting on the 0.1.0 tree `4468bfd`): 6 of 9 clean passes. Strong (Sonnet work, Opus decider) 3 of 3, median 5.50 USD and 1,247 s; mixed (Sonnet work, Haiku decider and other nodes) 3 of 3, median 2.55 USD and 1,489 s; Haiku 0 of 3, stopped `writer_spent` twice and `decision_not_takeable` once (`experiments/baseline-0.1.0/report.md`).",
         "Recorded replay (`feat/recorded-replay`) is not in this release: on the merged tree a re-driven run called `run.unstick`, which the recording never made, so `replay-reject-nearest` diverged; it was merged and reverted before the release and follows in a later one.",
         "Nobody started the delivered product.",
         "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
@@ -718,7 +718,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "304356a0d0adb6d65a6650f56204eceab737170925a2cee127b2bcef2629d2ea"
+      "sha256": "1ba6d0b62d01e0738f1f3d4ed005654fdce28adb20537212413c6070c30da8bd"
     },
     {
       "path": "docs/check-output.txt",
@@ -730,7 +730,7 @@
     },
     {
       "path": "docs/releases/0.1.1.md",
-      "sha256": "ca3e28b06dd86f947b7b98c342c20b32ffa13eff21bdd3327536159f1faa8212"
+      "sha256": "09a48d1ecbabd12810b13ab8790809921514dae2004af1e67f2e1e413f707fe0"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
