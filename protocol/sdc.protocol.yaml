@@ -1,12 +1,15 @@
 format: protocol/1
 protocol:
   id: sdc
-  revision: 4
+  revision: 5
   description: >-
     Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.
 artifacts:
   idea:
     description: the idea as the person gave it, from three words to a short paragraph
+  goals:
+    description: >-
+      goals.yaml, the requester's resolved goals document (sdc.goals/1, docs/requester.md section 2), given when the run starts; an input only: no claim reads it, so a revised goals document sets no record aside and reopens no child
   roadmap:
     description: the approved roadmap and the epics it names
 evidence_kinds:

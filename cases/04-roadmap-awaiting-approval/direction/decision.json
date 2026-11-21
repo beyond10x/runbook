@@ -204,6 +204,9 @@
           "findings": {
             "revision": "none"
           },
+          "goals": {
+            "revision": "none"
+          },
           "questions": {
             "revision": "a1"
           },
@@ -230,7 +233,7 @@
         "xa"
       ],
       "protocol": "sdc.direction",
-      "protocol_revision": 4,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -286,5 +289,5 @@
     }
   },
   "protocol": "sdc.direction",
-  "protocol_revision": 4
+  "protocol_revision": 5
 }

@@ -1,6 +1,7 @@
 {
   "$artifacts": {
     "idea": "idea.yaml",
+    "goals": "goals.yaml",
     "dissection": "dissection.yaml",
     "questions": "questions.yaml",
     "requirements": "requirements.yaml",

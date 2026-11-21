@@ -285,6 +285,9 @@
     "findings": {
       "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution"
     },
+    "goals": {
+      "description": "goals.yaml, the requester's resolved goals document from the root case (sdc.goals/1), read by the writers; an input only: no claim reads it and no invalidation names it, so a revised goals document makes no record of this case stale"
+    },
     "questions": {
       "description": "the interview from sdc.intake, amended by resolved findings"
     },
@@ -475,6 +478,6 @@
   "protocol": {
     "description": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every project context default (audience, source and target language, platform and operating systems, kind of thing, deployment and licence) is recorded as an assumption and checked; the context, the vision and the roadmap are each approved by a person. An approval is a record bound to the revision it approved, produced only by an action that needs the authority owner.approve. A revised requirements list invalidates the context check; a revised vision invalidates the roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or specifications happens before that. Late findings (docs/trial-2.md, \"The late-finding loop\"): the context check also runs the consistency rules of the context against the requirements list and reads the open findings, and is not valid while one is open; no vision or roadmap is written or approved then. amend.upstream resolves an open finding by amending the questions and the requirements list, which moves the requirements to a new revision, so the context check is observed again.",
     "id": "sdc.direction",
-    "revision": 4
+    "revision": 5
   }
 }
