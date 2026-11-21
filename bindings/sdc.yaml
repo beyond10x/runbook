@@ -37,7 +37,7 @@ actions:
       kind: open
       each: epics
       bindings: sdc-epic.yaml
-    arguments_from: [../driver/examples/sdc/tools/sdc-tool.sh, list-epics]
+    arguments_from: [tools/sdc-tool.sh, list-epics, --action, epics.open]
     evidence:
       - kind: epics_opened
         subject: roadmap

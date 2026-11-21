@@ -60,7 +60,7 @@ cwd=$rec/cwd
 case_dir=$(r .case_dir)
 work=$case_dir/work
 # What a reply may cite, its resolution and the reply schema: the driver crate's sdc-reply.
-reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+reply_bin=${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}
 need_reply() { [[ -x $reply_bin ]] || { echo "decider.sh: sdc-reply not found ($reply_bin)" >&2; exit 127; }; }
 
 # Validate the LLM's reply (out/decision.json) with a program and print the decider's reply:
@@ -261,7 +261,7 @@ requester_call() {
   local at_args=(); [[ -n $(jq -r '.opened_at // empty' <<< "$request") ]] || at_args=(--at "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
   # The verdict is read from stdout alone; stderr goes to its own file. Output that cannot be read
   # is a tool error (126), not a refusal of the decider's reply.
-  chk=$("$here/../../../../tools/decision-grounds.sh" "$prop" --case "$case_dir" "${at_args[@]}" 2>"$rec/grounds-check.stderr")
+  chk=$("$here/../../tools/decision-grounds.sh" "$prop" --case "$case_dir" "${at_args[@]}" 2>"$rec/grounds-check.stderr")
   gc=$?
   printf '%s\n' "$chk" > "$rec/grounds-check.json"
   if (( gc != 0 && gc != 1 )) || ! jq -e 'type == "object"' <<< "$chk" >/dev/null 2>&1; then

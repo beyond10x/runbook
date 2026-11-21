@@ -216,7 +216,7 @@ cycle finding-program SDC_STUB_FIXTURES="$fx/storage-conflict"
 # after scope.answer.
 answer="the billing clerk or the customer, before it is paid"
 cycle scope-changed SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
-  SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh" \
+  SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh" \
   SCOPE_ANSWERS="$(jq -cn --arg a "$answer" '{q2: $a}')"
 code=$?
 ev=$s/runs/scope-changed/events/IDEA-1.intake.jsonl
@@ -241,7 +241,7 @@ fi
 # and the interview keeps q2 and the decision (option 3), both person:stand-in.
 decision="the customer asks, the billing clerk cancels"
 cycle intake-decision SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
-  SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh" \
+  SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh" \
   SCOPE_ANSWERS="$(jq -cn --arg a "$answer" '{q2: $a}')" SCOPE_RESUME_FIRST=1 NO_YQ_STEP=questions.check \
   SDC_STUB_FINDINGS="$fx/finding-intake-person.yaml" FINDING_DECISION=option:3
 code=$?
@@ -296,7 +296,7 @@ fi
 p=$s/in-project; rm -rf "$p"; mkdir -p "$p/.engineering" "$p/runs"
 cp "$sdc/.engineering/project.yaml" "$p/.engineering/"
 env RUNS="$p/runs" SDC_LLM_NODES=plan.decompose \
-  SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh" \
+  SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh" \
   SDC_FIXTURE_STUB='{"plan.decompose":["plan-stories.json","stories.json"]}' \
   "$sdc/scripts/run-full-cycle.sh" plan-in-project "$p/store" > "$s/plan-in-project.txt" 2>&1
 code=$?
@@ -382,7 +382,7 @@ fi
 # Passes when the cycle ends operating, no writer_spent, spec.author run twice with one LLM call:
 # the amendment only records the default its tree follows, so it is not re-derived by the LLM.
 cycle spec-own-default SDC_STUB_FINDINGS="$fx/finding-spec-rounds.yaml" SDC_LLM_NODES=spec.author \
-  SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh"
+  SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh"
 code=$?
 if (( code == 0 )) && jq -se '([.[] | select(.event == "writer_spent")] | length) == 0
      and ([.[] | select(.event == "action_finished" and .action == "spec.author")] | length) == 2' "$s/store-spec-own-default/$spec" >/dev/null &&
@@ -458,7 +458,7 @@ reviews() { local d=$s/store-$1/${story%/events.jsonl}
   for e in "$d"/evidence/*.json; do jq -c --slurpfile ev <(jq -c 'select(.event == "action_finished")' "$d/events.jsonl") '
     select(.kind == "code_review") | .id as $id | {result, producer,
       log: ([$ev[] | select(.evidence | index($id)) | .log] | first)}' "$e"; done | jq -s .; }
-review_env=(SDC_LLM_NODES=change.review SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh")
+review_env=(SDC_LLM_NODES=change.review SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh")
 rej='{"decision": "rejected", "summary": "fixture: the README does not say how to run it", "findings": [{"kind": "violation", "at": "impl/README.md:1", "violates": "r1", "says": "fixture: the README names no command to run the service"}]}'
 app='{"decision": "approved", "summary": "fixture: the rework addresses the finding", "findings": []}'
 # review-reject-once: rejected once with a finding citing impl/README.md:1 and r1, then approved.
@@ -564,7 +564,7 @@ fi
 
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=model, every node on its stub and the
 # decider on tools/llm-adapter-fixture.sh (scripted replies, SDC_DECIDER_REPLIES), no LLM ---------
-fixture=$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh
+fixture=$sdc/bindings/tools/llm-adapter-fixture.sh
 targs=()
 # run.unstick is off unless a cycle turns it on (SDC_UNSTICK=on): the stops these cycles assert
 # are today's. SDC_RULE_APPROVALS is off by default (on only in the rule-approvals cycles); the
@@ -1052,7 +1052,7 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     sed -i '1s/ resolved .*$/ resolved /' "$p/work/impl/.derived-from"
     out=$(cd "$p/work" && env -u SDC_FEEDBACK -u SDC_NOT_CALLED -u SDC_STUB_FINDINGS SDC_CASE_DIR="$p/case" SDC_CASE="$(jq -r .id "$st/case.json")" \
       SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODE="$(jq -c '."change.implement".llm' "$st/bindings.json")" SDC_LLM_RECORD="$p/llm" \
-      "$sdc/driver/examples/sdc/tools/llm-node.sh" change.implement 2>&1)
+      "$sdc/bindings/tools/llm-node.sh" change.implement 2>&1)
     pc=$?
   fi
   if [[ -n $st ]] && (( pc == 0 )) && ! grep -q 'not called' <<< "$out" &&
@@ -1640,11 +1640,11 @@ f=$s/store-finding-person/IDEA-1/work/findings.yaml
 p=$s/principals; rm -rf "$p"; cp -r "$s/store-finding-person-stop/IDEA-1/work/." "$p/" 2>/dev/null || cp -rL "$s/store-finding-person-stop/IDEA-1/work" "$p"
 fid=$(yq -r '.findings[] | select(.status == "needs_person") | .id' "$p/findings.yaml" | head -n 1)
 FID=$fid yq -i '(.findings[] | select(.id == strenv(FID))) |= (.decision = .options[1])' "$p/findings.yaml"
-out=$(cd "$p" && "$sdc/driver/target/debug/sdc-findings" --rules "$sdc/driver/examples/sdc/tools/consistency-rules.json" amend spec 2>&1)
+out=$(cd "$p" && "$sdc/driver/target/debug/sdc-findings" --rules "$sdc/bindings/tools/consistency-rules.json" amend spec 2>&1)
 if yq -e '.findings[] | select(.decided_by != null) | .decided_by == "person:stand-in"' "$f" >/dev/null &&
    jq -se 'any(.stand_in == true and .stand_in_by == "scripts/run-full-cycle.sh")' "$s/runs/finding-person/run-settings.jsonl" >/dev/null &&
    [[ $out == *"no principal"* ]] && FID=$fid yq -e '.findings[] | select(.id == strenv(FID)) | .status == "needs_person" and .decided_by == null' "$p/findings.yaml" >/dev/null &&
-   (cd "$p" && "$sdc/driver/examples/sdc/tools/sdc-tool.sh" findings-wait) && ! grep -rq 'human' "$p/questions.yaml"; then
+   (cd "$p" && "$sdc/bindings/tools/sdc-tool.sh" findings-wait) && ! grep -rq 'human' "$p/questions.yaml"; then
   echo "principals: checks pass (person:stand-in on the person path, stand_in labelled; a decision with no principal refused)"
 else
   echo "principals: FAILED (amend said: $(tail -n 1 <<< "$out"))"
@@ -1662,7 +1662,7 @@ dry() { # <name> [env ...]
 }
 expect() { # <run> <jq program over {node, class} giving the expected model> <decider model>
   local r=$s/runs/$1
-  jq -se --slurpfile c "$sdc/driver/examples/sdc/tools/node-classes.json" '
+  jq -se --slurpfile c "$sdc/bindings/tools/node-classes.json" '
     def class($n): [$c[0].classes | to_entries[] | select(.value | index($n)) | .key] | first // "other";
     length > 0 and all(.[]; .model == ({node: .action, class: class(.action)} | '"$2"'))' "$r/llm-calls.jsonl" >/dev/null &&
   jq -se --arg d "$3" 'length > 0 and all(.[]; .model == $d)' "$r/decisions.jsonl" >/dev/null
@@ -1755,8 +1755,8 @@ fi
 sg=$s/spec-interp-gate
 rm -rf "$sg" && mkdir -p "$sg/bad" "$sg/clean"
 cp -r "$fx/spec-interp-unsupported/billing-spec.0" "$sg/bad/spec" && cp -r "$fx/billing-spec" "$sg/clean/spec"
-(cd "$sg/bad" && "$sdc/driver/examples/sdc/tools/sdc-tool.sh" ess-gate > "$sg/bad.txt" 2>&1); bad=$?
-(cd "$sg/clean" && "$sdc/driver/examples/sdc/tools/sdc-tool.sh" ess-gate > "$sg/clean.txt" 2>&1); clean=$?
+(cd "$sg/bad" && "$sdc/bindings/tools/sdc-tool.sh" ess-gate > "$sg/bad.txt" 2>&1); bad=$?
+(cd "$sg/clean" && "$sdc/bindings/tools/sdc-tool.sh" ess-gate > "$sg/clean.txt" 2>&1); clean=$?
 cycle spec-interp-unsupported SDC_STUB_FIXTURES="$fx/spec-interp-unsupported" SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=spec.author
 code=$?
 sid="unsupported billing.email.RequestRename/outcome/requested: ESS-CF-TARGET: cannot expose interpreted binding: binding command has an unmet outcome obligation"
@@ -2200,7 +2200,7 @@ fi
 # config home holding the login copy, CLAUDE_CODE_EFFORT_LEVEL unset, the home removed after).
 eexpect() { # <run> <jq program over {node, class} giving the expected effort> <decider effort>
   local r=$s/runs/$1
-  jq -se --slurpfile c "$sdc/driver/examples/sdc/tools/node-classes.json" '
+  jq -se --slurpfile c "$sdc/bindings/tools/node-classes.json" '
     def class($n): [$c[0].classes | to_entries[] | select(.value | index($n)) | .key] | first // "other";
     length > 0 and all(.[]; .effort == ({node: .action, class: class(.action)} | '"$2"'))' "$r/llm-calls.jsonl" >/dev/null &&
   jq -se --arg d "$3" 'length > 0 and all(.[]; .effort == $d)' "$r/decisions.jsonl" >/dev/null
@@ -2230,7 +2230,7 @@ chmod +x "$h/claude"; echo '{}' > "$h/login.json"; echo go > "$h/prompt.md"
 jq -n --arg p "$h/prompt.md" --arg cwd "$h/cwd" --arg rec "$h/rec" '{model: "m", effort: "high", prompt_file: $p, cwd: $cwd,
   operations: ["dir.list", "file.read"], max_turns: 1, max_budget_usd: 1, record_dir: $rec, node: "n", attempt: 1}' > "$h/req.json"
 env -u ANTHROPIC_API_KEY CLAUDE="$h/claude" FAKE_OUT="$h" SDC_CLAUDE_CREDENTIALS="$h/login.json" CLAUDE_CODE_EFFORT_LEVEL=low \
-  "$sdc/driver/examples/sdc/tools/llm-adapter-claude-cli.sh" "$h/req.json" > "$h/resp.json" 2>/dev/null
+  "$sdc/bindings/tools/llm-adapter-claude-cli.sh" "$h/req.json" > "$h/resp.json" 2>/dev/null
 e5=$?
 hermetic() {
   jq -Rse 'split("\u0000") as $a | ($a | index("--setting-sources")) as $i | $a[$i + 1] == "" and ($a | index("--strict-mcp-config")) != null

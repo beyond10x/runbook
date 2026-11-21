@@ -9,7 +9,7 @@ Addition (the operator, 2026-11-21): eval runs always run at the highest level, 
 decision (§ 3.4).
 
 Read on 2026-11-21: `sdc/docs/{driver,kpis,layers,trial-1,eval-design}.md`,
-`sdc/scripts/run-trial.sh`, `sdc/driver/examples/sdc/tools/{decider.sh,sdc-tool.sh}`, the eight
+`sdc/scripts/run-trial.sh`, `sdc/bindings/tools/{decider.sh,sdc-tool.sh}`, the eight
 `sdc/protocol/*.protocol.yaml` (authority lines), `research/literature/papers/{2609.00252,
 2611.06946,2611.10058,2609.24234}.md`, `research/literature/DISTILLATION.md`, and the web sources
 in § 1. Searched without hits for a levels scale: `swarm/`, `agency/`,

@@ -11,7 +11,7 @@ actions:
   - action: spec.gate
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+      argv: [tools/sdc-tool.sh, ess-gate, --action, spec.gate]
     timeout_seconds: 1800
     evidence:
       - kind: ess_gate
@@ -22,7 +22,7 @@ actions:
   - action: change.implement
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, change.implement]
+      argv: [tools/llm-node.sh, change.implement, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --stub, stub-tree, impl, impl]
     budget: {max_runs: 3}
     timeout_seconds: 1500
     retry_when:
@@ -39,7 +39,7 @@ actions:
   - action: tests.run
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, story-tests, impl]
+      argv: [tools/sdc-tool.sh, story-tests, impl, --action, tests.run]
     timeout_seconds: 1800
     evidence:
       - kind: conformance_run
@@ -51,7 +51,7 @@ actions:
   - action: change.review
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, change.review]
+      argv: [tools/llm-node.sh, change.review, --model, claude-haiku-5-5, --max-turns, "30", --max-budget-usd, "1", --operations, "dir.list,file.read,search", --stub, review-change]
     budget: {max_runs: 3}
     timeout_seconds: 900
     evidence:
@@ -73,7 +73,7 @@ actions:
   - action: change.merge
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, merge]
+      argv: [tools/sdc-tool.sh, merge, --action, change.merge]
     evidence:
       - kind: merge_record
         subject: change
@@ -83,7 +83,7 @@ actions:
   - action: amend.upstream
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, amend, story]
+      argv: [tools/sdc-tool.sh, amend, story, --action, amend.upstream]
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

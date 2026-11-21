@@ -12,7 +12,7 @@ actions:
   - action: spec.gate
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+      argv: [tools/sdc-tool.sh, ess-gate, --action, spec.gate]
     timeout_seconds: 1800
     evidence:
       - kind: ess_gate
@@ -47,7 +47,7 @@ actions:
       kind: open
       each: stories
       bindings: sdc-story.yaml
-    arguments_from: [../driver/examples/sdc/tools/sdc-tool.sh, list-stories]
+    arguments_from: [tools/sdc-tool.sh, list-stories, --action, stories.open]
     evidence:
       - kind: stories_opened
         subject: epic

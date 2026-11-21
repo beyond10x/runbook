@@ -4,7 +4,8 @@
 # artifact is declared, a `child` binding is on a `case_open` action, and every action that may
 # produce evidence or opens a case is bound or is a person's (unbound) action; and its
 # bindings/<protocol>.yaml (loom.bindings/1) binds the same actions, less those in
-# bindings/PENDING.md, and no action the protocol does not declare. Run
+# bindings/PENDING.md, and no action the protocol does not declare, and names each program as
+# bindings/tools/<file> (no `..`) or a bare name from PATH. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
 # (sdc-check-routes) against docs/reject-routes.md. Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
@@ -43,6 +44,19 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
         findings+=${findings:+$'\n'}"action $a is bound in the JSON file, not in bindings/$name.yaml, and has no line in bindings/PENDING.md"
     done
     findings+=$(jq -r --slurpfile ir "$ir" '.[] | select($ir[0].actions[.] == null) | "\nbindings/'"$name"'.yaml binds undeclared action \(.)"' <<< "$ya")
+    # A bindings file reaches no program outside its own directory (docs/loom-bindings.md, "Tool
+    # changes for Loom's program contract"): no argv or arguments_from entry holds a `..` segment,
+    # and every program named with a `/` is tools/<file> beside the file, executable. A program
+    # named without a `/` comes from PATH.
+    acts=$(yq -o=json '.actions' "$y")
+    findings+=$(jq -r '.[] | .action as $a | ((.executor.argv // []), (.arguments_from // []))[]
+      | select(test("(^|/)\\.\\.(/|$)")) | "\nbindings/'"$name"'.yaml \($a) names \(.): a path with .."' <<< "$acts")
+    while IFS=$'\t' read -r a m p; do
+      [[ $p == */* ]] || continue
+      [[ $p =~ ^tools/[^/]+$ && -f $sdc/bindings/$p && -x $sdc/bindings/$p ]] ||
+        findings+=$'\n'"bindings/$name.yaml $a $m names $p: not an executable bindings/tools/<file>"
+    done < <(jq -r '.[] | .action as $a | (["executor.argv[0]", .executor.argv[0]?], ["arguments_from[0]", .arguments_from[0]?])
+      | select(.[1] != null) | [$a, .[0], .[1]] | @tsv' <<< "$acts")
     findings=${findings#$'\n'}
   fi
   if [[ -n $findings ]]; then

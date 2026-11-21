@@ -1738,7 +1738,7 @@ mod tests {
 
     #[test]
     fn the_review_runs_on_claude_cli_when_the_writers_run_on_metaharness() {
-        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools");
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../bindings/tools");
         let (v, refused) = adapters(&tools, &env_of(&[("SDC_LLM_ADAPTER", "metaharness")]));
         assert_eq!((v["review"]["adapter"].as_str(), v["review"]["json_schema"].as_bool()), (Some("claude-cli"), Some(true)));
         assert!(refused.is_empty());
@@ -1749,7 +1749,7 @@ mod tests {
 
     #[test]
     fn a_schema_class_on_an_adapter_without_a_schema_is_refused() {
-        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools");
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../bindings/tools");
         let (v, refused) = adapters(&tools, &env_of(&[("SDC_REVIEW_ADAPTER", "metaharness")]));
         assert_eq!(v["review"]["json_schema"], false);
         assert_eq!(refused.len(), 1);
@@ -1760,7 +1760,7 @@ mod tests {
 
     #[test]
     fn request_mode_puts_change_implement_on_a_schema_adapter() {
-        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/sdc/tools");
+        let tools = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../bindings/tools");
         // Session mode (unset or `session`): no implement entry, the adapters line as before.
         assert!(adapters(&tools, &env_of(&[("SDC_LLM_ADAPTER", "metaharness")])).0.get("implement").is_none());
         assert!(adapters(&tools, &env_of(&[("SDC_IMPLEMENT_MODE", "session")])).0.get("implement").is_none());

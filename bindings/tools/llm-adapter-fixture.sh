@@ -87,7 +87,7 @@ if [[ $node == requester.* ]]; then
 fi
 if [[ $node == change.review ]]; then
   mkdir -p "$cwd/out"
-  p=$("${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" rejections --case-dir "$(jq -r .case_dir "$1")" --action change.review | jq length)
+  p=$("${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}" rejections --case-dir "$(jq -r .case_dir "$1")" --action change.review | jq length)
   jq -n --argjson r "${SDC_REVIEW_REPLIES:-"{}"}" --argjson p "${p:-0}" --argjson n "$(jq '.review_attempt // 1' "$1")" '
     ($r.rounds // [] | .[$p] // last) | if type == "array" then (.[$n - 1] // last) else . end
     // {decision: "approved", summary: "fixture review: approved", findings: []}' > "$cwd/out/review.json" || exit 1
@@ -112,7 +112,7 @@ if [[ $node == change.implement && $(jq -r '.implement_mode // ""' "$1") == requ
     w=$PWD
     mkdir -p "$w/.sdc"
     (cd "$rec" && SDC_STUB_COUNTER="$w/.sdc" "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" stub-tree) || exit 1
-    "${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" implement-pack --tree "$rec/stub-tree" --note "fixture: the stub tree" \
+    "${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}" implement-pack --tree "$rec/stub-tree" --note "fixture: the stub tree" \
       > "$rec/structured-output.json" || exit 1
   else
     printf '%s\n' "$r" > "$rec/structured-output.json"
@@ -142,7 +142,7 @@ if [[ $node == change.implement && ${SDC_IMPLEMENT_COVERAGE:-off} == on ]]; then
       ($r.rounds // [] | .[$a - 1] // last) | if type == "array" then (.[$n - 1] // last) else . end' > "$cwd/out/coverage.json" || exit 1
     rm -f "$cwd/out/impl/.sdc/coverage.json"
   elif [[ -f $cwd/out/impl/.sdc/coverage.json ]]; then mv "$cwd/out/impl/.sdc/coverage.json" "$cwd/out/coverage.json"
-  else "${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" coverage-stub --work "$w" --tree "$cwd/out/impl" > "$cwd/out/coverage.json" || exit 1; fi
+  else "${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}" coverage-stub --work "$w" --tree "$cwd/out/impl" > "$cwd/out/coverage.json" || exit 1; fi
 fi
 jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
   num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'

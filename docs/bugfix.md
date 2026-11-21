@@ -287,7 +287,7 @@ writes `work/checks.yaml` and:
 The story is created in `work/aep/` and moved to `active`, as in the other form. From there the run
 is the same as from a seed directory.
 
-Prompts (`driver/examples/sdc/tools/llm-node.sh`): when `bug.yaml` carries `ticket`, `change.fix`
+Prompts (`bindings/tools/llm-node.sh`): when `bug.yaml` carries `ticket`, `change.fix`
 loses "Standard library only", and `test.reproduce` and `change.fix` end with the ticket's
 constraints. A run without a ticket keeps its prompts byte for byte
 (`driver/tests/bugfix_prompt.rs` against `driver/tests/fixtures/bugfix-prompt/`). The code writers

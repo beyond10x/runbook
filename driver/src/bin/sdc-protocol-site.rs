@@ -33,6 +33,8 @@ const OUT_DIR: &str = "website/data/protocols";
 const REPOSITORY: &str = "beyond10x/runbook";
 const BASE_URL: &str = "/runbook/";
 const BINDINGS_DIR: &str = "driver/examples/sdc";
+/// The tools the bindings run, and the node classes beside them.
+const TOOLS_DIR: &str = "bindings/tools";
 const CHECK_OUTPUT: &str = "docs/check-output.txt";
 
 // ---- predicates --------------------------------------------------------------------------------
@@ -467,7 +469,7 @@ struct Context {
 }
 
 fn load_context(root: &Path) -> Result<Context, String> {
-    let nc = read_json(&root.join(BINDINGS_DIR).join("tools/node-classes.json"))?;
+    let nc = read_json(&root.join(TOOLS_DIR).join("node-classes.json"))?;
     let mut node_classes = BTreeMap::new();
     for (class, actions) in nc["classes"].as_object().into_iter().flatten() {
         for a in actions.as_array().into_iter().flatten().filter_map(J::as_str) {
@@ -494,7 +496,7 @@ fn program(argv: &J) -> String {
         .into_iter()
         .flatten()
         .filter_map(J::as_str)
-        .map(|a| a.strip_prefix("{dir}/tools/").or_else(|| a.strip_prefix("{dir}/")).unwrap_or(a).to_string())
+        .map(|a| a.strip_prefix("{dir}/../../../bindings/tools/").or_else(|| a.strip_prefix("{dir}/")).unwrap_or(a).to_string())
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -749,7 +751,7 @@ fn load(root: &Path) -> Result<Inputs, String> {
             }
         }
     }
-    for rel in [format!("{BINDINGS_DIR}/tools/node-classes.json"), format!("{BINDINGS_DIR}/decision-classes.json")] {
+    for rel in [format!("{TOOLS_DIR}/node-classes.json"), format!("{BINDINGS_DIR}/decision-classes.json")] {
         read(root, &rel, &mut sources)?;
     }
     let ctx = load_context(root)?;
@@ -1168,7 +1170,7 @@ outcomes:
     const CHILD: &str = "format: protocol/1\nprotocol:\n  id: demo.child\n  revision: 1\n  description: The child.\nactions:\n  work.do:\n    description: do it\n    effect: write\n    may_produce:\n      - evidence: work\nevidence_kinds:\n  work:\n    description: work\nclaims:\n  done:\n    description: done\n    true_when:\n      evidence:\n        kind: work\noutcomes:\n  passed:\n    description: done\n    requires:\n      claim: done\n";
 
     const BINDINGS: &str = r#"{"$independence": {"reviewer": ["different_principal"]},
-      "thing.check": {"argv": ["{dir}/tools/sdc-tool.sh", "thing-check"], "produces": "thing_check", "producer": "tool", "results": {"0": "valid", "*": "invalid"}},
+      "thing.check": {"argv": ["{dir}/../../../bindings/tools/sdc-tool.sh", "thing-check"], "produces": "thing_check", "producer": "tool", "results": {"0": "valid", "*": "invalid"}},
       "child.open": {"child": {"name": "child", "protocol": "x", "bindings": "y"}}}"#;
 
     const NODE_CLASSES: &str = r#"{"classes": {"writer": ["thing.write"]}}"#;
@@ -1187,7 +1189,7 @@ outcomes:
             ("protocol/demo.protocol.yaml", FIXTURE),
             ("protocol/demo-child.protocol.yaml", CHILD),
             ("driver/examples/sdc/demo.bindings.json", BINDINGS),
-            ("driver/examples/sdc/tools/node-classes.json", NODE_CLASSES),
+            ("bindings/tools/node-classes.json", NODE_CLASSES),
             ("driver/examples/sdc/decision-classes.json", DECISION_CLASSES),
             ("docs/check-output.txt", "checked: protocol `demo` revision 3: 96 states, 0 properties, 0 findings\nchecked: protocol `demo` revision 3: 96 states, 0 properties, 1 finding\nchecked: protocol `demo.child` revision 0: 4 states, 0 properties, 0 findings\n"),
             ("protocol/simulate/demo.txt", "stuck-state: x\nsimulated: protocol `demo` revision 3: 12 reachable states, 4 terminable (outcome `abandoned` 3, outcome `passed` 1), 2 findings (3 stuck or cycle states)\n"),
@@ -1314,7 +1316,7 @@ outcomes:
         let ctx = Context { node_classes: [("w".to_string(), "writer".to_string())].into(), decision_classes: BTreeMap::new() };
         let p = parse_protocol("demo", "x", FIXTURE).unwrap();
         let a = Action { name: "w".into(), description: String::new(), effect: "write".into(), precondition: None, capabilities: vec![], produces: vec![], opens: None, arguments: vec![] };
-        let b = json!({"$independence": {"llm-review": []}, "w": {"argv": ["{dir}/tools/llm-node.sh", "w"], "llm": {"model": "m", "operations": ["file.read"]}, "producer": "llm-review", "max_runs": 3}});
+        let b = json!({"$independence": {"llm-review": []}, "w": {"argv": ["{dir}/../../../bindings/tools/llm-node.sh", "w"], "llm": {"model": "m", "operations": ["file.read"]}, "producer": "llm-review", "max_runs": 3}});
         assert_eq!(
             executor(&p, &a, Some(&b), &ctx),
             json!({"kind": "model", "program": "llm-node.sh w", "node_class": "writer", "default_model": "m", "operations": ["file.read"], "producer": "llm-review", "independent": true, "max_runs": 3})

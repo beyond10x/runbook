@@ -12,7 +12,7 @@
   },
   "spec.gate": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "ess-gate"
     ],
     "produces": "ess_gate",
@@ -25,7 +25,7 @@
   },
   "change.implement": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "change.implement"
     ],
     "produces": "implementation_change",
@@ -74,7 +74,7 @@
   },
   "tests.run": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "story-tests",
       "impl"
     ],
@@ -92,7 +92,7 @@
   },
   "change.review": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "change.review"
     ],
     "produces": "code_review",
@@ -133,7 +133,7 @@
   },
   "change.merge": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "merge"
     ],
     "produces": "merge_record",
@@ -145,7 +145,7 @@
   },
   "amend.upstream": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "amend",
       "story"
     ],
@@ -153,7 +153,7 @@
     "timeout_s": 300,
     "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
     "handoff_when": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "findings-wait"
     ]
   }

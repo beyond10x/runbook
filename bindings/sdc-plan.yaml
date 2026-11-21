@@ -15,7 +15,7 @@ actions:
   - action: spec.gate
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+      argv: [tools/sdc-tool.sh, ess-gate, --action, spec.gate]
     timeout_seconds: 1800
     evidence:
       - kind: ess_gate
@@ -26,7 +26,7 @@ actions:
   - action: plan.decompose
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, plan.decompose]
+      argv: [tools/llm-node.sh, plan.decompose, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --stub, stub-decompose]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -37,7 +37,7 @@ actions:
   - action: plan.validate
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-validate]
+      argv: [tools/sdc-tool.sh, plan-validate, --action, plan.validate]
     evidence:
       - kind: plan_validation
         subject: plan
@@ -48,7 +48,7 @@ actions:
   - action: plan.cover
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-cover]
+      argv: [tools/sdc-tool.sh, plan-cover, --action, plan.cover]
     timeout_seconds: 1800
     evidence:
       - kind: decomposition_coverage
@@ -60,7 +60,7 @@ actions:
   - action: plan.scope
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-scope]
+      argv: [tools/sdc-tool.sh, plan-scope, --action, plan.scope]
     evidence:
       - kind: stories_scoped
         subject: plan
@@ -70,7 +70,7 @@ actions:
   - action: plan.status
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-status]
+      argv: [tools/sdc-tool.sh, plan-status, --action, plan.status]
     evidence:
       - kind: story_states
         subject: plan
@@ -80,7 +80,7 @@ actions:
   - action: amend.upstream
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, amend, plan]
+      argv: [tools/sdc-tool.sh, amend, plan, --action, amend.upstream]
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

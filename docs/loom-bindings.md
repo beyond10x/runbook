@@ -2,8 +2,10 @@
 
 Step 1 of the move of Runbook onto Loom (`story:loom-bindings-files`): the nine bindings files of
 `driver/examples/sdc/*.bindings.json` written again in Loom's `loom.bindings/1`, one file per
-protocol under `bindings/`. The JSON files stay as they are: `sdc-drive` still runs from them, and
-the documentation site's data is still made from them. The YAML files are not run by anything yet.
+protocol under `bindings/`. The JSON files stay: `sdc-drive` still runs from them, and the
+documentation site's data is still made from them. The YAML files are not run by anything yet.
+Step 2 (`story:loom-tools-program-contract`) moved the tools both formats call to
+`bindings/tools/` and gave them Loom's program contract beside the driver's ("Tool changes").
 
 The format is the one Loom's loader reads at Loom commit `8a8fad3b` (`../loom`,
 `crates/loom-bindings/src/decode.rs`, `crates/loom-bindings/src/load.rs`,
@@ -45,11 +47,11 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `manual: true` | `executor: {kind: person, principal: person:owner}` | 10 |
 | `manual: true` with `argv: ["true"]` | dropped: `true` does nothing; a `person` executor runs no program | 11 |
 | `"6": "rejected"` on a manual binding | pending (`bindings/PENDING.md`) | 12 |
-| `{dir}/tools/<tool>` | `../driver/examples/sdc/tools/<tool>`, relative to `bindings/`; the base is pending (G1) | 13 |
+| `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. Loom's head reads a relative program path from the workspace root; the base is pending (G1) | 13 |
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
 | `handoff_when` | pending | 17 |
-| `llm: {model, max_turns, max_budget_usd, stub, operations}` | pending: a `program` executor takes no agent member; the agent text is in `bindings/PENDING.md` | 18-22 |
+| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `tools/llm-node.sh` since step 2: `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
 | `timeout_s` | `timeout_seconds` (see "Timeouts") | 25 |
@@ -76,10 +78,10 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 
 | Value | Bindings | Why |
 |---|---|---|
-| 1800 | `spec.gate` (epic, plan, story, release) | `ess-gate`: compile, synthesis, interpreted suite (`driver/examples/sdc/tools/sdc-tool.sh:191-196`) |
-| 1800 | story `tests.run` | `story-tests`: conformance run and `slot task check` (`sdc-tool.sh:207-246`, `:380-382`) |
-| 1800 | release `acceptance.run` | `conform-run release` (`sdc-tool.sh:207-233`) |
-| 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:198`, `:200`, `:340-346`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
+| 1800 | `spec.gate` (epic, plan, story, release) | `ess-gate`: compile, synthesis, interpreted suite (`bindings/tools/sdc-tool.sh:239-244`) |
+| 1800 | story `tests.run` | `story-tests`: conformance run and `slot task check` (`sdc-tool.sh:255-294`, `:428-430`) |
+| 1800 | release `acceptance.run` | `conform-run release` (`sdc-tool.sh:255-281`) |
+| 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:246`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
 | 1800 | bugfix `repro.run`, `tests.run`, `gate.run` | `cargo` builds and tests (`driver/src/bin/sdc-bugfix.rs:609-613`) |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
@@ -122,7 +124,16 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
 - `scripts/check-bindings.sh` (CI, `task check`): for each JSON file, its `bindings/<name>.yaml`
   exists, binds every action the JSON binds or `bindings/PENDING.md` has a line
   `` - `<name>.bindings.json:<line>` `<action>` ``, and binds no action the compiled protocol
-  (`protocol/compiled/<name>.ir.json`) does not declare. Plain text with `jq` and `yq`.
+  (`protocol/compiled/<name>.ir.json`) does not declare. Since step 2 also: no `executor.argv`
+  or `arguments_from` entry holds a `..` segment, and every program named with a `/` is
+  `tools/<file>`, an executable file under `bindings/tools/`; a program without a `/` comes from
+  `PATH`. Plain text with `jq` and `yq`.
+- The tools' Loom mode: `driver/tests/questions_check.rs`, module `loom_mode`, runs a check
+  (`check-questions`, `check-requirements`), `list-stories`, an agent node on the stub and on dry
+  (`idea.dissect`, `spec.author`) and a retried writer (`questions.write` with
+  `LOOM_RETRY_FEEDBACK`) twice: in driver mode and under Loom's contract (an empty environment but
+  `PATH` and `LOOM_CASE`, the arguments on standard input, a fresh workspace), and compares exit
+  code, output and the files written.
 - The load check, with Loom's own loader, outside this repository (no Rust of Runbook's): a scratch
   binary crate that depends on `b10x-loom-bindings` by path in an export of Loom at `8a8fad3b`
   (`git -C ../loom archive 8a8fad3b Cargo.toml Cargo.lock crates generated protocols`, Loom's
@@ -131,66 +142,100 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
   `b10x_loom_bindings::decode` on `bindings/<name>.yaml` and
   `b10x_loom_bindings::check(&document, "<name>@1", &protocol)`, and prints `ok` or the refusal.
   Build it through `slot` (`cargo build --release`; a cold build took 184 s, 44 s of it queued).
-  On 2026-11-21 all nine files printed `ok`. Loom's `b10x-loom bindings check <file> --protocol
+  On 2026-11-21 all nine files printed `ok`, at `8a8fad3b` and, after step 2, at Loom's
+  integration head `882c1866` (which has no `resolve_programs`, so only the load is checked). Loom's `b10x-loom bindings check <file> --protocol
   <name@major>` (N2, wave 7) replaces it; `b10x-loom` 0.4.0 has no such command.
 
 ## Tool changes for Loom's program contract
 
-Step 2, not done here. Under Loom a bound program gets its arguments as one JSON object on
-standard input, `PATH` alone in its environment, the case id as `LOOM_CASE`, retry feedback as the
-blob `LOOM_RETRY_FEEDBACK` names (`loom.retry-feedback/1`), and its start directory at the
-workspace root; its result is read through the binding's result table. No variable names the case
-store. Each read of a variable the driver sets (`driver/src/main.rs:1479-1514`) or the run sets
-(`scripts/run-trial.sh`) changes as below.
+Step 2 (`story:loom-tools-program-contract`). The tools moved from `driver/examples/sdc/tools/` to
+`bindings/tools/`, beside the files that name them: `bindings/*.yaml` names each as
+`tools/<file>`, and `driver/examples/sdc/*.bindings.json` as `{dir}/../../../bindings/tools/<file>`.
+Each tool has two modes. With `LOOM_CASE` unset it runs as before, for `sdc-drive`. With
+`LOOM_CASE` set it reads Loom's program contract: the arguments as one JSON object on standard
+input, the case id from `LOOM_CASE`, retry feedback from the `loom.retry-feedback/1` document that
+`LOOM_RETRY_FEEDBACK` names, the start directory at the workspace root, and everything the driver
+gave in a variable as an argv entry of the binding (`sdc-tool.sh <sub> ... --action <id>`;
+`llm-node.sh <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] --stub
+<argv>`). The tools map these inputs onto the driver's variables and export them, so the programs
+they start (`sdc-findings`, `sdc-bugfix`, `sdc-reply`, the adapters) run unchanged. The driver
+crate's programs come from `PATH`, else from `driver/target/debug/` of this checkout, found from
+the tool's own directory; never from `HOME`. A bad argv entry exits 64.
 
-`driver/examples/sdc/tools/sdc-tool.sh`
+Status per read: done, or pending with the Loom story in `bindings/PENDING.md` ("Tool environment
+under Loom"); a pending read takes the driver's default under Loom. Lines are of the moved files.
 
-| Line | Reads | Under Loom |
-|---|---|---|
-| 27-28 | `SDC_FINDINGS`, else `$HOME/beyond10x/sdc/...` | `sdc-findings` on `PATH`, or its path relative to the tool (`$here`); no `HOME` |
-| 33 | `SDC_BUGFIX` | `sdc-bugfix` on `PATH`, or relative to `$here` |
-| 77 | `SDC_ACTION` (the `aep` executor `agent:<action>`) | the action as an argv entry of the binding (`sdc-tool.sh <sub> --action <id>`) |
-| 78 | `SDC_PRINCIPAL` (`AEP_ACTOR`) | a literal of the binding (`story:bound-program-declares-its-environment`, wave 9) or argv |
-| 88-94 | `SDC_STUB_FIXTURES` (`stub-file`) | the fixture directory as argv of the stub overlay's binding; later N3 |
-| 91, 103 | `SDC_STUB_COUNTER` | argv of the stub overlay's binding (default `.sdc`) |
-| 102-106 | `SDC_STUB_FIXTURES` (`stub-tree`) | as for `stub-file` |
-| 213, 224 | `SDC_ACTION` (report file name) | the action as argv |
-| 258, 266 | `SDC_CASE` (`impl-gate`: the story id) | `LOOM_CASE` |
-| 330 | `SDC_CASE` (`list-stories`: the epic, read under `set -u`) | `LOOM_CASE`, given to `arguments_from` too |
-| 402 | `$2`, the `{principal}` argument (`scope-answer`) | argv from G2 |
+`bindings/tools/sdc-tool.sh`
 
-`driver/examples/sdc/tools/llm-node.sh`
+| Line | Reads | Under Loom | Status |
+|---|---|---|---|
+| 19-39 | standard input | read and dropped: every subcommand takes its arguments from argv | done |
+| 69-77 | `SDC_FINDINGS`, else `$HOME/beyond10x/sdc/...` | `sdc-findings` on `PATH`, else relative to the tool; no `HOME` | done |
+| 79-83 | `SDC_BUGFIX` | `sdc-bugfix` the same way | done |
+| 125 | `SDC_ACTION` (the `aep` executor `agent:<action>`) | `--action <id>`, in every `sdc-tool.sh` argv of `bindings/*.yaml` | done |
+| 126 | `SDC_PRINCIPAL` (`AEP_ACTOR`) | `--principal <principal>` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` (wave 9) or G2 |
+| 132-145 | `SDC_STUB_FIXTURES` (`stub-file`) | `--stub-fixtures <dir>` is taken | pending: N3 (the stub overlay's binding states it) |
+| 139, 151 | `SDC_STUB_COUNTER` | `--stub-counter <dir>` is taken (default `.sdc`) | pending: N3 |
+| 146-156 | `SDC_STUB_FIXTURES` (`stub-tree`) | as for `stub-file` | pending: N3 |
+| 261, 272 | `SDC_ACTION` (report file name) | `--action` | done |
+| 306, 314 | `SDC_CASE` (`impl-gate`: the story id) | `LOOM_CASE` | done |
+| 378 | `SDC_CASE` (`list-stories`: the epic) | `LOOM_CASE`, given to `arguments_from` too | done |
+| 441-453 | `$2`, the `{principal}` argument (`scope-answer`) | argv from G2 | pending: G2 (wave 3) |
 
-| Line | Reads | Under Loom |
-|---|---|---|
-| 36 | `SDC_NOT_CALLED` (the not-called file) | exit with the binding's not-called code (G1) |
-| 48 | `SDC_PRINCIPAL` | literal or argv, as in `sdc-tool.sh` |
-| 56, 140-141, 190, 494-500 | `SDC_FEEDBACK` (failing records and their logs) | `LOOM_RETRY_FEEDBACK` |
-| 59, 75-77, 566 | `SDC_LLM_NODE` (the binding's `llm` object: model, stub, operations) | argv of the binding (`llm-node.sh <action> --stub ... --model ...`) until the `agent` executor |
-| 60 | `SDC_LLM_ADAPTER` | argv of the binding (the stub overlay names `stub`); later the engine file (N9) |
-| 65, 402 | `SDC_REPLY` | `sdc-reply` on `PATH`, or relative to `$here` |
-| 70 | `SDC_LLM_NODES` | argv or the engine file (N9) |
-| 104-105 | `SDC_STUB_FINDINGS` | argv of the stub overlay's binding; later N3 |
-| 124-125 | `SDC_FINDINGS`, else `$HOME/...` | as in `sdc-tool.sh` |
-| 152-154 | `SDC_CASE_DIR` (`events.jsonl`: the last rejection) | `LOOM_RETRY_FEEDBACK`, which holds the rejected record |
-| 170, 404 | `SDC_CASE_DIR` (`bindings.json`: the subject's path) | the path as argv, or read from `bindings/<protocol>.yaml` `artifacts` |
-| 211, 591 | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | argv; later Loom's run log (`agent-node-run-records`) |
-| 229-230, 571, 582 | `SDC_CASE` (epic and story ids) | `LOOM_CASE` |
-| 350 | `SDC_ARGS` (`spec.author`'s `domain`) | standard input |
-| 528 | `SDC_RUN_SETTINGS` | argv; later the engine file (N9) |
-| 565-568 | `SDC_LLM_MODEL[_<CLASS>]`, `SDC_LLM_EFFORT[_<CLASS>]` | argv; later the engine file (N9) |
-| 571 | `SDC_CASE_DIR` (in the request record) | dropped: no store-directory variable |
-| 628 | `SDC_REVIEW_RETRIES` | argv |
+`bindings/tools/llm-node.sh`
 
-`driver/src/bin/*.rs` called by a binding (through `sdc-tool.sh`)
+| Line | Reads | Under Loom | Status |
+|---|---|---|---|
+| 53-57, 477 | `SDC_ARGS` (`spec.author`'s `domain`) | standard input, one JSON object (empty input is `{}`) | done |
+| 70-77, 124, 802 | `SDC_LLM_NODE` (the binding's `llm` object) | `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--stub <argv>` | done, until the `agent` executor (`story:bound-agent-node`) |
+| 78, 130, 151, 168, 556 | `SDC_REPLY` | `sdc-reply` on `PATH`, else relative to the tool | done |
+| 84-97, 121, 249-250, 709-715 | `SDC_FEEDBACK` (failing records and their logs) | `LOOM_RETRY_FEEDBACK`, written in the driver's form to `work/.sdc/loom-feedback/<digest>/`: each record's kind, result, subject and log tail | done; the records name no action and no exit, so `in/feedback.md` reads `(from ?, exit ?)` |
+| 99-101 | `SDC_NOT_CALLED` (the not-called file) | the reason on standard output, exit 0, as in the driver | pending: G1 (`exits.not_called`) |
+| 113 | `SDC_PRINCIPAL` | `--principal` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` or G2 |
+| 80, 125 | `SDC_LLM_ADAPTER` | `--adapter` is taken; the YAML names none, so the stub runs | pending: N3, N9 |
+| 139-168 | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | the defaults | pending: N9 |
+| 156 | `SDC_LLM_NODES` | the default: every node on the adapter | pending: N9 |
+| 205-209 | `SDC_STUB_FINDINGS` | the default: none | pending: N3 |
+| 228-234 | `SDC_FINDINGS`, else `$HOME/...` | as in `sdc-tool.sh` | done |
+| 261-270 | `SDC_CASE_DIR` (`events.jsonl`: a rejection no longer current) | does not run: `LOOM_RETRY_FEEDBACK` holds only records about the current revision | pending: `story:bound-agent-node` |
+| 280-288 | `SDC_CASE_DIR` (`bindings.json`: the rejected subject's path) | `artifacts` of the `bindings/*.yaml` file that binds the rejecting approval | done |
+| 329, 838 | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | the default `work/.sdc/llm/` | pending: `story:agent-node-run-records` |
+| 347-348, 807, 825 | `SDC_CASE` (epic and story ids) | `LOOM_CASE` | done |
+| 558, 807, 1008 | `SDC_CASE_DIR` (`change.review` inputs, the request record, implement request mode) | the directory above the workspace | pending: `story:bound-agent-node` |
+| 743 | `SDC_RUN_SETTINGS` | the default: no rework limit | pending: N9 |
+| 801-804 | `SDC_LLM_MODEL[_<CLASS>]`, `SDC_LLM_EFFORT[_<CLASS>]` | the binding's `--model`; the class's default effort | pending: N9 |
+| 875 | `SDC_REVIEW_RETRIES` | the default 2 | pending: N9 |
 
-| Line | Reads | Under Loom |
-|---|---|---|
-| `sdc-bugfix.rs:416`, `:456` | `SDC_ACTION` (`story.update`'s `aep` actor) | the action as argv |
-| `sdc-bugfix.rs:599` | `PATH` | unchanged: Loom gives `PATH` |
-| `sdc-findings.rs:1435` | `SDC_STUB_REFUSE_DECISION` (stub cycles) | argv of the stub overlay's binding |
-| `sdc-findings.rs:1552` | `SDC_CONSISTENCY_RULES` | unchanged: `sdc-tool.sh` passes `--rules` (`sdc-tool.sh:29`) |
-| `sdc-reply.rs:709` | `SDC_<CLASS>_ADAPTER` (`adapters`, from `llm-node.sh:67` for `change.review`) | argv; later the engine file (N9) |
+`driver/src/bin/*.rs` called through the tools
+
+| Line | Reads | Under Loom | Status |
+|---|---|---|---|
+| `sdc-bugfix.rs:746`, `:786` | `SDC_ACTION` (`story.update`'s `aep` actor) | exported by `sdc-tool.sh` from `--action` | done |
+| `sdc-bugfix.rs:1382` | `PATH` | unchanged: Loom gives `PATH` | done |
+| `sdc-findings.rs:1435` | `SDC_STUB_REFUSE_DECISION` (stub cycles) | the default: none | pending: N3 |
+| `sdc-findings.rs:1552` | `SDC_CONSISTENCY_RULES` | unchanged: both tools pass `--rules` | done |
+| `sdc-reply.rs:310-314` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `llm-node.sh` exports `--adapter`; the class adapters take their defaults | pending: N9 |
 
 `HOME` is also read by `cargo`, `slot` and `aep` that the tools start; under `PATH` alone they
 need `story:bound-program-declares-its-environment` (wave 9) or `--confinement local`.
+
+### Where Loom's head differs from this contract
+
+Read at Loom's integration head `882c1866` (`wave/2026-11-21-w7`) and the branches named.
+
+- `LOOM_CASE` (`story:bound-program-case-id`) and `LOOM_RETRY_FEEDBACK`
+  (`story:bound-program-retry-records`) are on Loom's branches `impl/bound-program-case-id` and
+  `impl/bound-program-retry-records`, not in the head. At the head a program gets `PATH` alone.
+- The head has no `program_root` and no `resolve_programs`: a relative program path is a workspace
+  path, so `tools/sdc-tool.sh` is looked for in the workspace. G1 (`story:bound-program-contract`,
+  draft) resolves it beside the bindings file. No Loom ref has a reserved-action-id check.
+- A retry record names its evidence id, kind, subject, subject revision, result, producer, time
+  and blob; not the action that produced it nor its exit. A log is the last 60 lines, at most
+  64 KiB (`llm-node.sh` quotes the last 80 lines of a driver log). Only records about the subject's
+  current revision are given; the variable is unset when there are none and never set for
+  `arguments_from`.
+- A child case id is `<parent id>.<name>`, as in the driver. Loom names a repeated child
+  `<id>.2`; the tools cut the epic and the story from the second and third dot-separated fields,
+  so a story under a repeated epic would read `2` as its story.
+- At the head a step that placed an artifact at a path takes the content digest of that path as
+  the artifact's revision (`impl/bound-artifact-revisions`, merged); the tools need no change for it.

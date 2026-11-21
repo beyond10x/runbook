@@ -31,7 +31,7 @@ const call = (extra) => JSON.stringify({action: 'idea.dissect', case: 'IDEA-1.in
 const RUNS = {
   'real-new': {files: {'run-settings.jsonl': settings('metaharness')}, ago: 5},
   'real-old': {files: {'llm-calls.jsonl': call({adapter: 'metaharness', cost_usd: 0.0025})}, ago: 50},
-  'stub-new': {files: {'run-settings.jsonl': settings('/x/driver/examples/sdc/tools/llm-adapter-fixture.sh')}, ago: 1},
+  'stub-new': {files: {'run-settings.jsonl': settings('/x/bindings/tools/llm-adapter-fixture.sh')}, ago: 1},
   'dry-old': {files: {'llm-calls.jsonl': call({adapter: 'dry', dry: true})}, ago: 90},
 };
 

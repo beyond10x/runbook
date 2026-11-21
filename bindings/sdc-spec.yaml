@@ -16,8 +16,8 @@ actions:
   - action: spec.author
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/llm-node.sh, spec.author]
-    arguments_from: [../driver/examples/sdc/tools/sdc-tool.sh, spec-domain]
+      argv: [tools/llm-node.sh, spec.author, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --stub, stub-tree, billing-spec, spec]
+    arguments_from: [tools/sdc-tool.sh, spec-domain, --action, spec.author]
     budget: {max_runs: 4}
     timeout_seconds: 1500
     retry_when:
@@ -36,7 +36,7 @@ actions:
   - action: spec.validate
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, spec-validate]
+      argv: [tools/sdc-tool.sh, spec-validate, --action, spec.validate]
     evidence:
       - kind: spec_validation
         subject: spec
@@ -46,7 +46,7 @@ actions:
   - action: spec.compile
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, spec-compile]
+      argv: [tools/sdc-tool.sh, spec-compile, --action, spec.compile]
     timeout_seconds: 1800
     evidence:
       - kind: spec_compile
@@ -57,7 +57,7 @@ actions:
   - action: spec.scan
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, spec-scan]
+      argv: [tools/sdc-tool.sh, spec-scan, --action, spec.scan]
     evidence:
       - kind: open_markers
         subject: spec
@@ -67,7 +67,7 @@ actions:
   - action: spec.synthesize
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, spec-synthesize]
+      argv: [tools/sdc-tool.sh, spec-synthesize, --action, spec.synthesize]
     timeout_seconds: 1800
     evidence:
       - kind: spec_synthesis
@@ -78,7 +78,7 @@ actions:
   - action: spec.trace
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, spec-trace]
+      argv: [tools/sdc-tool.sh, spec-trace, --action, spec.trace]
     timeout_seconds: 1800
     evidence:
       - kind: scope_trace
@@ -89,7 +89,7 @@ actions:
   - action: spec.review
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, review-spec]
+      argv: [tools/sdc-tool.sh, review-spec, --action, spec.review]
     evidence:
       - kind: spec_review
         subject: spec
@@ -99,7 +99,7 @@ actions:
   - action: amend.upstream
     executor:
       kind: program
-      argv: [../driver/examples/sdc/tools/sdc-tool.sh, amend, spec]
+      argv: [tools/sdc-tool.sh, amend, spec, --action, amend.upstream]
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

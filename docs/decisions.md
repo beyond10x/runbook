@@ -27,7 +27,7 @@ Examples: `decision/examples/`.
 | `beyond10x/decider` (private) | learns which decisions a small model can take; its decision record is one choice in a session | not this: it consumes decisions |
 | SDC `docs/autonomy-levels.md` | levels A0 to A5 (`:36-42`, `:205-213`), a holder per decision class (`:229-257`), escalation mode (`:385-387`), eval runs at A5 (`:454-459`) | the record of one decision |
 | SDC `questions.yaml` (`runs/trial-todo-1/store/IDEA-1/work/questions.yaml:1-10`) | question, options, default, answer, `answered_by` | grounds; the default has no reason |
-| SDC `decider.sh` (`driver/examples/sdc/tools/decider.sh:50-75`, `:119-133`, `:179`) | a reply with `reasons` and `cites` (item ids, checked to exist); since `:119-133` the decider sees only the claims of the action's precondition (approval) or the outcome's condition (close) | citations to a line or a revision; the claims it reads are not citable |
+| SDC `decider.sh` (`bindings/tools/decider.sh:50-75`, `:119-133`, `:179`) | a reply with `reasons` and `cites` (item ids, checked to exist); since `:119-133` the decider sees only the claims of the action's precondition (approval) or the outcome's condition (close) | citations to a line or a revision; the claims it reads are not citable |
 | SDC `runs/trial-todo-1/decisions.jsonl` and `decider/NNN-*/` | 5 real decider decisions (below), written by `run-trial.sh:135-185` | the request; options; a case revision for a close |
 
 ## The entity
@@ -374,7 +374,7 @@ of it. Same case, same bytes (no clock; keys print sorted). Tested on a trial-2 
   the option's text, `produces: artifact_revision`, `admits: [scope.answer]`
   (`ess/domains/decision.yaml:86-105`).
 - Unblocks: kind `question`, action and capability `scope.answer`, the action the run takes after
-  the answer (`docs/trial-2.md:168-185`; `driver/examples/sdc/tools/sdc-tool.sh:286-298`).
+  the answer (`docs/trial-2.md:168-185`; `bindings/tools/sdc-tool.sh:286-298`).
 - Recommendation: the question's default, strength `weak`, proposed by `rule`, one ground of source
   `idea` citing the question's dissection item as `work/dissection.yaml:<first line>-<last line>`
   with `default_reason` as its `how`. The tool runs `tools/decision-grounds.sh` on it

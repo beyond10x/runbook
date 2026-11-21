@@ -73,9 +73,9 @@ const fn program(bin: &'static str) -> Kind {
 
 #[rustfmt::skip]
 const SPECS: &[Spec] = &[
-    Spec { name: "assets", kind: Kind::Assets, needs: RUN_UI, by: "every runbook: protocol/, scripts/, driver/examples/sdc/, ui/", hint: "set RUNBOOK_HOME, install them at <prefix>/share/runbook, or run inside a checkout" },
+    Spec { name: "assets", kind: Kind::Assets, needs: RUN_UI, by: "every runbook: protocol/, scripts/, driver/examples/sdc/, bindings/tools/, ui/", hint: "set RUNBOOK_HOME, install them at <prefix>/share/runbook, or run inside a checkout" },
     Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: sdc-drive compiles and evaluates the protocols (driver/src/main.rs:29,409,863)", hint: "build the sibling checkout ../canon (cargo build), put canon on PATH, or set CANON=<binary> or CANON_DIR=<checkout>" },
-    Spec { name: "bash", kind: program("bash"), needs: RUN, by: "every runbook: the bindings' tools are bash scripts (driver/examples/sdc/tools)", hint: SHELL_TOOLS },
+    Spec { name: "bash", kind: program("bash"), needs: RUN, by: "every runbook: the bindings' tools are bash scripts (bindings/tools)", hint: SHELL_TOOLS },
     Spec { name: "jq", kind: program("jq"), needs: RUN_UI, by: "every runbook and the ui (sdc-tool.sh:23, llm-node.sh:36, decider.sh:39)", hint: SHELL_TOOLS },
     Spec { name: "yq", kind: Kind::Yq, needs: RUN_UI, by: "every runbook and the ui, the Go yq v4 (sdc-tool.sh:23, llm-node.sh:36, decider.sh:39, ui/decisions.mjs:52)", hint: "install the Go yq v4 (its --version prints v4.x), not the Python yq" },
     Spec { name: "git", kind: program("git"), needs: RUN, by: "every runbook: run records name the commit; sdc-replay and sdc-experiment use git", hint: SHELL_TOOLS },

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Adversarial scripted executors for sdc-drive (docs/eval-design.md § 4). Each subcommand stands
 # in for an LLM node that misbehaves in one fixed way. Run by sdc-drive with cwd = the case tree's
-# work/ directory, exactly as driver/examples/sdc/tools/sdc-tool.sh is. No model is called.
+# work/ directory, exactly as bindings/tools/sdc-tool.sh is. No model is called.
 set -uo pipefail
 
 case $1 in

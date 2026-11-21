@@ -5,7 +5,7 @@
   },
   "spec.gate": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "ess-gate"
     ],
     "produces": "ess_gate",
@@ -18,7 +18,7 @@
   },
   "release.build": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "release-build"
     ],
     "produces": "build_provenance",
@@ -30,7 +30,7 @@
   },
   "acceptance.run": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "conform-run",
       "release"
     ],
@@ -47,7 +47,7 @@
   },
   "release.publish": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "publish"
     ],
     "produces": "release_record",
@@ -59,7 +59,7 @@
   },
   "release.observe": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "observe"
     ],
     "produces": "health_observation",
