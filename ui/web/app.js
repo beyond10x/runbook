@@ -575,17 +575,19 @@ let resizeT = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => S.fit && render(), 120); });
 
 // ---- live: coalesce change bursts into one fetch and one frame --------------------------------------
-const pending = {cases: new Set(), run: false, full: false, live: false};
+const pending = {cases: new Set(), run: false, full: false, live: false, sources: false};
 let inflight = false;
 async function drain() {
   if (inflight) return;
   inflight = true;
   try {
-    while (pending.full || pending.cases.size || pending.run || pending.live) {
+    while (pending.full || pending.cases.size || pending.run || pending.live || pending.sources) {
       const full = pending.full || !S.cases.size;
       const cases = Array.from(pending.cases);
-      const run = pending.run, live = pending.live || full;
-      pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false;
+      const run = pending.run, live = pending.live || full, srcs = pending.sources || full;
+      pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false; pending.sources = false;
+      // the run list (states, rows) with the rest, so one render shows both
+      if (srcs) S.sources = await api('/api/sources').catch(() => S.sources);
       if (full || cases.length) await loadTree(full ? null : cases);
       if (run) await loadRun();
       if (live) await loadLive();
@@ -630,8 +632,8 @@ function connect() {
     S.proc.running = false; S.proc.exit = d.exit;
     pending.full = true; drain();
   });
-  // a run that appeared under --runs, or a run stopped or resumed: the store selector follows
-  es.addEventListener('sources', async () => { S.sources = await api('/api/sources').catch(() => S.sources); schedule(); });
+  // a run that appeared under --runs, a run stopped or resumed, or one that started or ended: the run picker follows
+  es.addEventListener('sources', () => { pending.sources = true; drain(); });
   es.addEventListener('act', (m) => { if (JSON.parse(m.data).source === S.src) { pending.run = true; drain(); } });
 }
 
