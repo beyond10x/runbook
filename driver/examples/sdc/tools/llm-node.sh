@@ -370,7 +370,7 @@ change.review)
   inputs+=("in/aep/story/$story.md (the story)" "in/scope.json (the commands it covers, its acceptance lines, the requirements it delivers)"
     "in/commands.json (those commands in the compiled specification)" "in/impl/ (the change tree)"
     "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
-    "in/tests.txt (the conformance run on this revision$(jq -r 'if .tests then "" else ": no test run yet" end' "$rec/review-inputs.json"))"
+    "in/tests.txt (the conformance run that passed on this revision)"
     "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
   task="Review the change of story '$story' as a reviewer independent of its implementer: does the
 change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?

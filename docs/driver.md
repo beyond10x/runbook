@@ -422,7 +422,9 @@ built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary
 view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`
 (requirements no story covers: findings of kind `outside`, never a reason to reject), the covered
 commands' IR entries, the change tree, its diff against `mainline/` (empty for the first story),
-and the gate and conformance logs of the current revisions. The reply is constrained by
+the gate log, and the log of the conformance run that passed on the revision under review (sdc.story
+revision 7 admits `change.review` only after `tests.pass`; without that log the node records
+nothing). The reply is constrained by
 `sdc-reply schema --type review` (claude-cli `--json-schema`): `decision` approved or rejected,
 `findings` each `{kind, at: impl/<path>:<line>, violates, says}`, `summary`. `sdc-reply
 check-review` checks it: every `at` a line of the change tree, every `violates` in the story's set

@@ -441,16 +441,18 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
     fs::write(in_dir.join("change.diff"), &diff).map_err(|e| e.to_string())?;
     let case = read_json(&case_dir.join("case.json"));
     let rev = |a: &str| case["artifacts"][a]["revision"].as_str().unwrap_or("none").to_string();
-    let tests = record_log(case_dir, "conformance_run", &rev("change"));
+    // sdc.story (revision 7) admits change.review only once the conformance run passed at the
+    // revision under review, so its log is always there; without it the review has no input.
+    let tests = record_log(case_dir, "conformance_run", &rev("change")).ok_or(format!(
+        "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", rev("change")))?;
     let gate = record_log(case_dir, "ess_gate", &rev("spec"));
-    fs::write(in_dir.join("tests.txt"), tests.clone().unwrap_or("no test run yet: change.review runs before tests.run on this change revision\n".into()))
-        .map_err(|e| e.to_string())?;
+    fs::write(in_dir.join("tests.txt"), &tests).map_err(|e| e.to_string())?;
     fs::write(in_dir.join("gate.txt"), gate.clone().unwrap_or("no gate run recorded on this specification revision\n".into()))
         .map_err(|e| e.to_string())?;
     let changed: Vec<&str> = diff.lines().filter_map(|l| l.strip_prefix("+++ impl/")).map(|l| l.split('\t').next().unwrap_or(l)).collect();
     Ok(json!({"story": story, "covers": cov, "requirements": mine.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(),
         "uncovered": uncovered.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), "changed_files": changed,
-        "tests": tests.is_some(), "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
+        "gate": gate.is_some(), "base": if base.ends_with("mainline") { "mainline" } else { "empty" }}))
 }
 
 /// What a review finding may name as violated (`violation`: the story's requirements, acceptance
