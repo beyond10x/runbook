@@ -1,0 +1,161 @@
+format: sdc.checks-detect/1
+languages:
+- name: rust
+  markers:
+  - file: Cargo.toml
+  checks:
+    test: [cargo, test, --offline, --no-fail-fast]
+    repro: [cargo, test, --offline, --test, "{stem}", --, --exact, "{test}"]
+    gate:
+    - name: build
+      argv: [cargo, build, --offline]
+    - name: test
+      argv: [cargo, test, --offline]
+    - name: clippy
+      argv: [cargo, clippy, --offline, --all-targets, --, -D, warnings]
+    - name: fmt
+      argv: [cargo, fmt, --check]
+    test_file: '^tests/[a-z][a-z0-9_]*\.rs$'
+    test_name: '^[a-z_][a-z0-9_]*$'
+    test_def: '#\[test\]\s*(#\[[^\]]*\]\s*)*fn\s+{test}\s*\('
+    test_forbid: '#\[(ignore|should_panic)'
+    red:
+      exit: [101]
+      output: '^test {test} \.\.\. FAILED'
+    green:
+      exit: [0]
+      output: '^test {test} \.\.\. ok'
+    suite:
+      exit: [0]
+      refuse: '^test .+ \.\.\. (FAILED|ignored)'
+- name: go
+  markers:
+  - file: go.mod
+  checks:
+    test: [go, test, -count=1, ./...]
+    repro: [go, test, -count=1, -v, -run, "^{test}$", "./{dir}"]
+    gate:
+    - name: build
+      argv: [go, build, ./...]
+    - name: vet
+      argv: [go, vet, ./...]
+    - name: test
+      argv: [go, test, -count=1, ./...]
+    test_file: '^([a-z0-9_]+/)*[a-z0-9_]+_test\.go$'
+    test_name: '^Test[A-Za-z0-9_]*$'
+    test_def: 'func\s+{test}\s*\(\s*\w+\s+\*testing\.T\s*\)'
+    test_forbid: '\bt\.Skip'
+    red:
+      exit: [1]
+      output: '^\s*--- FAIL: {test} \('
+    green:
+      exit: [0]
+      output: '^\s*--- PASS: {test} \('
+- name: javascript-node-test
+  markers:
+  - file: package.json
+    contains: '"test"\s*:\s*"node --test'
+  checks:
+    test: [node, --test, --test-reporter=tap]
+    repro: [node, --test, --test-reporter=tap, "{file}"]
+    gate:
+    - name: test
+      argv: [node, --test, --test-reporter=tap]
+    test_file: '^test/[a-z][a-z0-9_-]*\.test\.(c|m)?js$'
+    test_name: '^[A-Za-z0-9_][A-Za-z0-9_ -]*$'
+    test_forbid: '\.(skip|todo)\(|\{\s*(skip|todo)\s*:'
+    red:
+      exit: [1]
+      output: '^not ok \d+ - {test}$'
+    green:
+      exit: [0]
+      output: '^ok \d+ - {test}$'
+    suite:
+      exit: [0]
+      refuse: '^# (fail|cancelled|skipped|todo) [1-9]'
+- name: javascript-npm
+  markers:
+  - file: package.json
+  checks:
+    test: [npm, test]
+    repro: [npm, test, --, "{file}"]
+    gate:
+    - name: test
+      argv: [npm, test]
+    test_file: '^(test|tests|__tests__)/[A-Za-z0-9_][A-Za-z0-9_.-]*\.(test|spec)\.(c|m)?(j|t)s$'
+    test_name: '^[A-Za-z0-9_][A-Za-z0-9_ -]*$'
+- name: python-pytest
+  markers:
+  - file: pyproject.toml
+  - file: pytest.ini
+  checks:
+    test: [python3, -m, pytest, -q]
+    repro: [python3, -m, pytest, -v, "{file}::{test}"]
+    gate:
+    - name: test
+      argv: [python3, -m, pytest, -q]
+    test_file: '^tests?/([a-z0-9_]+/)*test_[a-z0-9_]+\.py$'
+    test_name: '^test_[A-Za-z0-9_]*$'
+    test_def: 'def\s+{test}\s*\('
+    test_forbid: '@pytest\.mark\.(skip|xfail)|pytest\.skip\('
+    red:
+      exit: [1]
+      output: '{file}::{test} FAILED'
+    green:
+      exit: [0]
+      output: '{file}::{test} PASSED'
+- name: java-maven
+  markers:
+  - file: pom.xml
+  checks:
+    test: [mvn, -o, -q, test]
+    repro: [mvn, -o, test, "-Dtest={stem}#{test}"]
+    gate:
+    - name: verify
+      argv: [mvn, -o, -q, verify]
+    test_file: '^src/test/java/([A-Za-z0-9_]+/)*[A-Z][A-Za-z0-9_]*Test\.java$'
+    test_name: '^[a-z][A-Za-z0-9_]*$'
+    test_forbid: '@(Disabled|Ignore)\b'
+    red:
+      exit: [1]
+      output: '{stem}\.{test}'
+- name: java-gradle-wrapper
+  markers:
+  - file: gradlew
+  checks:
+    test: [./gradlew, --offline, test]
+    repro: [./gradlew, --offline, test, --tests, "*{stem}.{test}"]
+    gate:
+    - name: check
+      argv: [./gradlew, --offline, check]
+    test_file: '^src/test/(java|kotlin)/([A-Za-z0-9_]+/)*[A-Z][A-Za-z0-9_]*Test\.(java|kt)$'
+    test_name: '^[a-z][A-Za-z0-9_]*$'
+    test_forbid: '@(Disabled|Ignore)\b'
+    red:
+      exit: [1]
+      output: '{stem} > {test}\(?\)? FAILED'
+- name: java-gradle
+  markers:
+  - file: build.gradle
+  - file: build.gradle.kts
+  checks:
+    test: [gradle, --offline, test]
+    repro: [gradle, --offline, test, --tests, "*{stem}.{test}"]
+    gate:
+    - name: check
+      argv: [gradle, --offline, check]
+    test_file: '^src/test/(java|kotlin)/([A-Za-z0-9_]+/)*[A-Z][A-Za-z0-9_]*Test\.(java|kt)$'
+    test_name: '^[a-z][A-Za-z0-9_]*$'
+    test_forbid: '@(Disabled|Ignore)\b'
+    red:
+      exit: [1]
+      output: '{stem} > {test}\(?\)? FAILED'
+- name: make
+  markers:
+  - file: Makefile
+    contains: '^test\s*:'
+  checks:
+    test: [make, test]
+    repro: [make, test]
+    gate: []
+    test_file: '^(test|tests)/[A-Za-z0-9_][A-Za-z0-9_.-]*$'

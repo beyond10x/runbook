@@ -7,6 +7,18 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- The bug-fix runbook starts from a ticket document (`sdc.ticket/1`) on a clean git worktree:
+  `sdc-bugfix seed --ticket <file> [--repo <worktree>]`, `scripts/run-trial.sh --bugfix-ticket`
+  (`story:ticket-input-and-repo-seed`).
+- The bug-fix runbook works on a repository of any language. Its suite, single-test and gate
+  commands are the case's `checks.yaml` (`sdc.checks/1`), from `seed --checks`, the repository's
+  `.runbook/checks.yaml`, or the marker-file table `driver/examples/sdc/checks-detect.yaml`; with
+  none, the seed fails naming `--checks`. Tested: Rust (unchanged), JavaScript with `node --test`,
+  and a supplied `checks.yaml`; the Go, Python, Java, npm and make rows are not tested. The writers'
+  prompts quote `checks.yaml` and name no language (`story:bugfix-any-language`).
+
 ## [0.2.1] - 2026-11-21
 
 A patch release of 0.2.0: two fixes of the documentation checks. The driver, protocols, bindings,

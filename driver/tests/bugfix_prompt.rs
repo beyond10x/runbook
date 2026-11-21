@@ -31,17 +31,26 @@ fn copy_dir(from: &Path, to: &Path) {
 /// A case's work/ as it stands before `change.fix` on the pager seed, with `bug_yaml` as the
 /// report; each node's prompt.md.
 fn prompts(name: &str, bug_yaml: &str) -> Vec<(String, String)> {
-    let fx = manifest().join("examples/sdc/fixtures/bugfix-pager");
+    prompts_of("bugfix-pager", "crate", name, bug_yaml)
+}
+
+/// The same on the fixture `fixture` whose code tree is `<fixture>/<tree>`. No checks.yaml is in
+/// work/: the programs take what the seed would have found (the detection table).
+fn prompts_of(fixture: &str, tree: &str, name: &str, bug_yaml: &str) -> Vec<(String, String)> {
+    let fx = manifest().join("examples/sdc/fixtures").join(fixture);
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("bugfix-prompt").join(name);
     let _ = fs::remove_dir_all(&dir);
+    let repro: serde_json::Value = serde_json::from_str(&fs::read_to_string(fx.join("stub-repro/repro.json")).unwrap()).unwrap();
+    let file = repro["file"].as_str().unwrap();
     let mut out = Vec::new();
     for node in NODES {
         let work = dir.join(node);
-        copy_dir(&fx.join("crate"), &work.join("mainline"));
-        copy_dir(&fx.join("crate"), &work.join("impl"));
+        copy_dir(&fx.join(tree), &work.join("mainline"));
+        copy_dir(&fx.join(tree), &work.join("impl"));
         copy_dir(&fx.join("stub-repro"), &work.join("repro"));
-        fs::create_dir_all(work.join("impl/tests")).unwrap();
-        fs::copy(fx.join("stub-repro/last_page.rs"), work.join("impl/tests/last_page.rs")).unwrap();
+        let to = work.join("impl").join(file);
+        fs::create_dir_all(to.parent().unwrap()).unwrap();
+        fs::copy(fx.join("stub-repro").join(Path::new(file).file_name().unwrap()), to).unwrap();
         fs::copy(fx.join("stub-dissection.json"), work.join("bug-dissection.json")).unwrap();
         fs::write(work.join("bug.yaml"), bug_yaml).unwrap();
         let mut c = Command::new("bash");
@@ -96,4 +105,22 @@ constraints:
         assert!(t.contains("Constraints of the ticket (in/bug.yaml `constraints`), each one binding:\n- Keep the public API of the crate unchanged.\n- Add no dependency.\n"), "{node}: {t}");
     }
     assert!(!get("bug.dissect").contains("Constraints of the ticket"));
+}
+
+#[test]
+fn a_javascript_case_s_prompts_quote_its_checks_and_name_no_rust_tool() {
+    let bug = fs::read_to_string(manifest().join("examples/sdc/fixtures/bugfix-js/bug.yaml")).unwrap();
+    let p = prompts_of("bugfix-js", "repo", "js", &bug);
+    let get = |n: &str| p.iter().find(|(k, _)| k == n).map(|(_, t)| t.clone()).unwrap();
+    for (node, text) in &p {
+        for word in ["Rust", "cargo", "crate", "#[test]", "src/lib.rs", "rustfmt"] {
+            assert!(!text.contains(word), "{node} names {word}: {text}");
+        }
+    }
+    let repro = get("test.reproduce");
+    assert!(repro.contains(r"^test/[a-z][a-z0-9_-]*\.test\.(c|m)?js$") && repro.contains("- in/checks.yaml\n"), "{repro}");
+    assert!(repro.contains("`node --test --test-reporter=tap {file}`"), "{repro}");
+    let fix = get("change.fix");
+    assert!(fix.contains("  - test: `node --test --test-reporter=tap`\n"), "{fix}");
+    assert!(fix.contains("in/impl/test/last_page.test.js") || fix.contains("out/impl/test/last_page.test.js"), "{fix}");
 }

@@ -3,16 +3,18 @@
 //!
 //!   sdc-bugfix schema dissection|repro   the JSON schema of an LLM data document
 //!   sdc-bugfix schema ticket             the JSON schema of the ticket document sdc.ticket/1
+//!   sdc-bugfix checks                    the case's commands (checks.yaml, sdc.checks/1) as they will run
 //!   sdc-bugfix dissection-check          bug-dissection.json against its schema and impl/: exit 0 valid, 1 invalid
 //!   sdc-bugfix repro-install             impl/ := mainline/ plus the reproducing test of repro/
 //!   sdc-bugfix repro-run                 exit 0 red, 1 not red (the reason on stdout)
 //!   sdc-bugfix tests-run                 exit 0 passed, 1 failed
-//!   sdc-bugfix gate-run                  build, test, clippy -D warnings, fmt --check: exit 0 passed, 1 failed
+//!   sdc-bugfix gate-run                  every gate command of checks.yaml: exit 0 passed, 1 failed
 //!   sdc-bugfix story-update              the bug's story (bug.yaml `story`) to implemented through aep
-//!   sdc-bugfix seed --from <dir> [--text <report>] [--story <id>]
-//!                                        a new case's work/: mainline/ and impl/ from the crate, bug.yaml,
-//!                                        the story created and moved to active (what a parent hands in)
-//!   sdc-bugfix seed --ticket <file> [--repo <worktree>]
+//!   sdc-bugfix seed --from <dir> [--text <report>] [--story <id>] [--checks <file>]
+//!                                        a new case's work/: mainline/ and impl/ from the code tree
+//!                                        (<dir>, <dir>/crate or <dir>/repo), checks.yaml, bug.yaml, the
+//!                                        story created and moved to active (what a parent hands in)
+//!   sdc-bugfix seed --ticket <file> [--repo <worktree>] [--checks <file>]
 //!                                        the same from a ticket (sdc.ticket/1) on a clean git worktree
 //!                                        at the ticket's base commit: mainline/ and impl/ are exactly
 //!                                        what `git ls-files` lists, bug.yaml is written from the
@@ -20,9 +22,13 @@
 //!
 //! Artifacts (driver/examples/sdc/sdc-bugfix.bindings.json): bug.yaml (report), bug-dissection.json
 //! (dissection), repro/ (repro: repro.json `{file, test}` and the test file), impl/ (change), aep/
-//! (story). mainline/ (or bug.yaml `base`) is the unchanged code the red is observed against. Every cargo run is made in a
-//! copy of impl/ under .sdc/bugfix/ (nothing is written into an artifact) through `slot` when it is
-//! on PATH. A program that is missing exits 127 (sdc-drive records nothing), never a check result.
+//! (story). mainline/ (or bug.yaml `base`) is the unchanged code the red is observed against. The
+//! commands are the case's checks.yaml (seed: `--checks`, else the repository's
+//! .runbook/checks.yaml, else the detection table examples/sdc/checks-detect.yaml). Every command
+//! runs as an argv, never through a shell, in a copy of impl/ (or of the base) under .sdc/bugfix/
+//! (nothing is written into an artifact), through `slot` when it is on PATH. A program that is
+//! missing exits 127 (sdc-drive records nothing), never a check result; so does an unusable
+//! checks.yaml (126).
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -34,11 +40,9 @@ const DISSECTION: &str = "bug-dissection.json";
 const FIELDS: [(&str, &str); 4] = [
     ("observed", "what happens, as the report states it: inputs and the wrong result"),
     ("expected", "what should happen instead, for the same inputs"),
-    ("where", "the file of the code tree the bug is in, relative to the tree, optionally with :<line> (src/lib.rs:9)"),
+    ("where", "the file of the code tree the bug is in, relative to the tree, optionally with :<line> (path/to/file:9)"),
     ("reproduce", "how to reproduce it: the call or command and its inputs"),
 ];
-const FILE_RE: &str = r"^tests/[a-z][a-z0-9_]*\.rs$";
-const TEST_RE: &str = r"^[a-z_][a-z0-9_]*$";
 
 type R<T> = Result<T, String>;
 
@@ -46,6 +50,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let r = match args.first().map(String::as_str) {
         Some("schema") => schema(args.get(1).map(String::as_str).unwrap_or("")),
+        Some("checks") => show_checks(),
         Some("dissection-check") => dissection_check(),
         Some("repro-install") => repro_install(),
         Some("repro-run") => repro_run(),
@@ -53,13 +58,16 @@ fn main() -> ExitCode {
         Some("gate-run") => gate_run(),
         Some("story-update") => story_update(),
         Some("seed") => seed(&args[1..]),
-        _ => Err("usage: sdc-bugfix schema|dissection-check|repro-install|repro-run|tests-run|gate-run|story-update|seed".into()),
+        _ => Err("usage: sdc-bugfix schema|checks|dissection-check|repro-install|repro-run|tests-run|gate-run|story-update|seed".into()),
     };
     match r {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
             eprintln!("sdc-bugfix: {e}");
-            ExitCode::from(if e.contains("not on PATH") { 127 } else { 2 })
+            // A missing program (127) or commands that cannot run (126) are program errors: sdc-drive
+            // records nothing. The seed's refusals are 2.
+            let seed = args.first().is_some_and(|a| a == "seed");
+            ExitCode::from(if e.contains("not on PATH") { 127 } else if e.starts_with(CHECKS) && !seed { 126 } else { 2 })
         }
     }
 }
@@ -75,18 +83,24 @@ fn dissection_schema() -> Value {
         "required": FIELDS.iter().map(|(k, _)| k).collect::<Vec<_>>(), "properties": props})
 }
 
-fn repro_schema() -> Value {
+/// The repro record's schema under the case's commands: the test file and name patterns of
+/// checks.yaml.
+fn repro_schema(ck: &Checks) -> Value {
     json!({"type": "object", "additionalProperties": false, "required": ["file", "test"], "properties": {
-        "file": {"type": "string", "pattern": FILE_RE,
-            "description": "the new integration test file, relative to the code tree (tests/<name>.rs)"},
-        "test": {"type": "string", "pattern": TEST_RE,
-            "description": "the name of the one #[test] function in that file that reproduces the bug"}}})
+        "file": {"type": "string", "pattern": ck.test_file,
+            "description": "the new test file, relative to the code tree (checks.yaml test_file)"},
+        "test": {"type": "string", "pattern": ck.test_name,
+            "description": "the name of the one test in that file that reproduces the bug"}}})
 }
 
 fn schema(which: &str) -> R<u8> {
     let s = match which {
         "dissection" => dissection_schema(),
-        "repro" => repro_schema(),
+        // Outside a case (no checks.yaml, no base), the Rust row of the detection table.
+        "repro" => repro_schema(&match load_checks() {
+            Ok((ck, _)) => ck,
+            Err(_) => detect_rows()?.into_iter().find(|r| r.name == "rust").ok_or("the detection table has no rust row")?.checks,
+        }),
         "ticket" => ticket_schema(),
         _ => return Err("schema dissection|repro|ticket".into()),
     };
@@ -161,14 +175,24 @@ struct Repro {
 }
 
 impl Repro {
+    /// The test file's name in repro/ (the file without its directories).
     fn base(&self) -> &str {
         self.file.rsplit('/').next().unwrap()
     }
+
+    /// The placeholders of checks.yaml: `{file}`, `{dir}` (`.` at the root), `{stem}` (the file
+    /// name without its last extension), `{test}`.
+    fn vars(&self) -> [(&'static str, String); 4] {
+        let p = Path::new(&self.file);
+        let dir = p.parent().map(|d| d.to_string_lossy().into_owned()).filter(|d| !d.is_empty()).unwrap_or_else(|| ".".into());
+        let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        [("{file}", self.file.clone()), ("{dir}", dir), ("{stem}", stem), ("{test}", self.test.clone())]
+    }
 }
 
-/// repro/repro.json against its schema, its test file present and holding the named #[test], and
-/// the file new to the code tree.
-fn read_repro() -> Result<Repro, String> {
+/// repro/repro.json against its schema, its test file present and holding the named test, and the
+/// file new to the code tree; the file and name patterns are the case's (checks.yaml).
+fn read_repro(ck: &Checks) -> Result<Repro, String> {
     let t = fs::read_to_string("repro/repro.json").map_err(|_| "no repro/repro.json".to_string())?;
     let v: Value = serde_json::from_str(&t).map_err(|e| format!("repro/repro.json is not JSON: {e}"))?;
     let o = v.as_object().ok_or("repro/repro.json is not an object")?;
@@ -177,21 +201,26 @@ fn read_repro() -> Result<Repro, String> {
     }
     let file = o.get("file").and_then(Value::as_str).unwrap_or("").to_string();
     let test = o.get("test").and_then(Value::as_str).unwrap_or("").to_string();
-    if !Regex::new(FILE_RE).unwrap().is_match(&file) {
-        return Err(format!("repro/repro.json: file `{file}` is not tests/<name>.rs"));
+    // Inside the tree whatever the pattern says.
+    let outside = file.starts_with('/') || file.split('/').any(|c| c.is_empty() || c == "." || c == "..");
+    if outside || !Regex::new(&ck.test_file).unwrap().is_match(&file) {
+        return Err(format!("repro/repro.json: file `{file}` does not match checks.yaml test_file {}", ck.test_file));
     }
-    if !Regex::new(TEST_RE).unwrap().is_match(&test) {
-        return Err(format!("repro/repro.json: test `{test}` is not a function name"));
+    if !Regex::new(&ck.test_name).unwrap().is_match(&test) {
+        return Err(format!("repro/repro.json: test `{test}` does not match checks.yaml test_name {}", ck.test_name));
     }
     let r = Repro { file, test };
     let src = fs::read_to_string(Path::new("repro").join(r.base()))
         .map_err(|_| format!("repro/{} (the test file repro.json names) is missing", r.base()))?;
-    let def = Regex::new(&format!(r"#\[test\]\s*(#\[[^\]]*\]\s*)*fn\s+{}\s*\(", regex::escape(&r.test))).unwrap();
-    if !def.is_match(&src) {
-        return Err(format!("repro/{} has no #[test] fn {}()", r.base(), r.test));
+    match &ck.test_def {
+        Some(d) if !Regex::new(&subst_re(d, &r)).unwrap().is_match(&src) => {
+            return Err(format!("repro/{} does not define test {} (checks.yaml test_def {d})", r.base(), r.test));
+        }
+        None if !src.contains(&r.test) => return Err(format!("repro/{} does not name test {}", r.base(), r.test)),
+        _ => {}
     }
-    if Regex::new(r"#\[(ignore|should_panic)").unwrap().is_match(&src) {
-        return Err(format!("repro/{} uses #[ignore] or #[should_panic]", r.base()));
+    if let Some(f) = ck.test_forbid.as_deref().filter(|f| Regex::new(f).unwrap().is_match(&src)) {
+        return Err(format!("repro/{} skips, ignores or expects the failure of a test (checks.yaml test_forbid {f})", r.base()));
     }
     if base().join(&r.file).exists() {
         return Err(format!("{} exists in the unchanged code: the reproducing test is a new file", r.file));
@@ -200,10 +229,11 @@ fn read_repro() -> Result<Repro, String> {
 }
 
 fn repro_install() -> R<u8> {
+    let ck = load_checks()?.0;
     reset_dir(Path::new("impl"))?;
     let b = base();
     copy_tree(&b, Path::new("impl"))?;
-    match read_repro() {
+    match read_repro(&ck) {
         Ok(r) => {
             let to = Path::new("impl").join(&r.file);
             fs::create_dir_all(to.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -227,8 +257,23 @@ fn test_unchanged(r: &Repro) -> Option<String> {
     }
 }
 
+/// The output of a failed run, its last 40 lines, for the writer that is sent back.
+fn print_tail(out: &str) {
+    for l in tail(out, 40) {
+        println!("  | {l}");
+    }
+}
+
+/// Red: the reproducing test alone (checks.yaml `repro`) fails as a test on the unchanged code
+/// with the test (the `red` rule; without one, any exit but 0), and the whole suite (`test`) on
+/// the unchanged code without the test passes (the `suite` rule; without one, exit 0). The second
+/// run is what tells "the test fails" from "the code fails" for every language: a failure that the
+/// suite shows without the test was not caused by the test. The test's status is taken from its own
+/// run because, through `slot`, stdout and stderr reach the log as two streams, so a full run cannot
+/// say which target a line belongs to (`runs/bugfix-tally-sonnet`).
 fn repro_run() -> R<u8> {
-    let r = match read_repro() {
+    let ck = load_checks()?.0;
+    let r = match read_repro(&ck) {
         Ok(r) => r,
         Err(e) => {
             println!("repro: not red: {e}");
@@ -244,50 +289,40 @@ fn repro_run() -> R<u8> {
         println!("repro: not red: the code is changed, not only the test added: {}", diff.join(", "));
         return Ok(1);
     }
-    let run = suite()?;
-    print!("{}", run.summary());
-    if let Some(e) = &run.compile_error {
-        println!("repro: not red: the code tree with the test does not compile: {e}");
+    let tree = copy_of_impl()?;
+    let argv = ck.repro_argv(&r);
+    let (code, out) = run(&tree, &argv, &ck)?;
+    let verdict = if code == 0 {
+        Some(format!("test {} passes on the unchanged code: it does not reproduce the bug (`{}` exit 0)", r.test, argv.join(" ")))
+    } else if !rule_holds(ck.red.as_ref(), false, code, &out, Some(&r)) {
+        Some(format!("test {} did not fail as a test (`{}` exit {code}, red rule {}): it does not build or load, it did not \
+            run, or the command failed", r.test, argv.join(" "), describe(ck.red.as_ref())))
+    } else {
+        None
+    };
+    if let Some(v) = verdict {
+        println!("repro: not red: {v}");
+        print_tail(&out);
         return Ok(1);
     }
-    let own_run = own_run(&r)?;
-    let own: Vec<&Entry> = own_run.entries.iter().filter(|e| e.is(&r)).collect();
-    // In the full run the reproducing test, failing, is the one entry that may fail.
-    let mut skipped = false;
-    let others: Vec<&Entry> = run
-        .entries
-        .iter()
-        .filter(|e| e.status != "ok")
-        .filter(|e| !(e.is(&r) && e.status == "FAILED" && !std::mem::replace(&mut skipped, true)))
-        .collect();
-    let verdict = match own.as_slice() {
-        [] => Some(format!("test {} in {} did not run", r.test, r.file)),
-        [e] if e.status == "ok" => Some(format!("test {} passes on the unchanged code: it does not reproduce the bug", r.test)),
-        [e] if e.status != "FAILED" => Some(format!("test {} is {}", r.test, e.status)),
-        [_] => None,
-        _ => Some(format!("test {} ran more than once", r.test)),
-    };
-    let verdict = verdict.or_else(|| {
-        (!others.is_empty()).then(|| {
-            format!("other tests do not pass on the unchanged code: {}",
-                others.iter().map(|e| format!("{} {}", e.name, e.status)).collect::<Vec<_>>().join(", "))
-        })
-    });
-    match verdict {
-        Some(v) => {
-            println!("repro: not red: {v}");
-            Ok(1)
-        }
-        None => {
-            println!("repro: red: test {} ({}) fails on the unchanged code, the other {} tests pass",
-                r.test, r.file, run.entries.len() - 1);
-            Ok(0)
-        }
+    let base = copy_of_base()?;
+    let (scode, sout) = run(&base, &ck.test, &ck)?;
+    if !rule_holds(ck.suite.as_ref(), true, scode, &sout, None) {
+        println!("repro: not red: other tests do not pass on the unchanged code: `{}` without the test exits {scode} \
+            (suite rule {})", ck.test.join(" "), describe(ck.suite.as_ref()));
+        print_tail(&sout);
+        return Ok(1);
     }
+    println!("repro: red: test {} ({}) fails on the unchanged code (`{}` exit {code}), the suite without it passes (`{}`)",
+        r.test, r.file, argv.join(" "), ck.test.join(" "));
+    Ok(0)
 }
 
+/// Passed: the reproducing test is byte for byte as written, its own run passes (the `green` rule;
+/// without one, exit 0) and the whole suite passes (the `suite` rule; without one, exit 0).
 fn tests_run() -> R<u8> {
-    let r = match read_repro() {
+    let ck = load_checks()?.0;
+    let r = match read_repro(&ck) {
         Ok(r) => r,
         Err(e) => {
             println!("tests: FAILED {e}");
@@ -298,123 +333,411 @@ fn tests_run() -> R<u8> {
         println!("tests: FAILED refused: {e}; the fix may not change the reproducing test");
         return Ok(1);
     }
-    let run = suite()?;
-    print!("{}", run.summary());
-    if let Some(e) = &run.compile_error {
-        println!("tests: FAILED the code tree does not compile: {e}");
+    let tree = copy_of_impl()?;
+    let (scode, sout) = run(&tree, &ck.test, &ck)?;
+    let argv = ck.repro_argv(&r);
+    let (code, out) = run(&tree, &argv, &ck)?;
+    if !rule_holds(ck.green.as_ref(), true, code, &out, Some(&r)) {
+        println!("tests: FAILED test {} ({}) does not pass: `{}` exit {code} (green rule {})", r.test, r.file,
+            argv.join(" "), describe(ck.green.as_ref()));
+        print_tail(&out);
         return Ok(1);
     }
-    let own_run = own_run(&r)?;
-    let own = own_run.entries.iter().filter(|e| e.is(&r)).collect::<Vec<_>>();
-    let bad: Vec<String> = run.entries.iter().filter(|e| e.status != "ok").map(|e| format!("{} {}", e.name, e.status)).collect();
-    if own.len() != 1 || own[0].status != "ok" {
-        println!("tests: FAILED test {} ({}) does not pass: {}", r.test, r.file,
-            own.first().map(|e| e.status.as_str()).unwrap_or("did not run"));
+    if !rule_holds(ck.suite.as_ref(), true, scode, &sout, None) {
+        println!("tests: FAILED not every test passes: `{}` exit {scode} (suite rule {})", ck.test.join(" "),
+            describe(ck.suite.as_ref()));
+        print_tail(&sout);
         return Ok(1);
     }
-    if !bad.is_empty() || run.exit != 0 {
-        println!("tests: FAILED not every test passes (cargo exit {}): {}", run.exit, bad.join(", "));
-        return Ok(1);
-    }
-    println!("tests: passed: test {} ({}) ok, {} tests ok, 0 failed, 0 ignored", r.test, r.file, run.entries.len());
+    println!("tests: passed: test {} ({}) ok, the whole suite passes (`{}`)", r.test, r.file, ck.test.join(" "));
     Ok(0)
 }
 
+/// Every gate command of checks.yaml, in order, each must exit 0; every one runs, so the log names
+/// all that fail.
 fn gate_run() -> R<u8> {
+    let ck = load_checks()?.0;
     let tree = copy_of_impl()?;
-    let steps: [(&str, &[&str]); 4] = [
-        ("build", &["build", "--offline"]),
-        ("test", &["test", "--offline"]),
-        ("clippy", &["clippy", "--offline", "--all-targets", "--", "-D", "warnings"]),
-        ("fmt", &["fmt", "--check"]),
-    ];
     let mut ok = true;
-    for (name, args) in steps {
-        let (code, out) = cargo(&tree, args)?;
+    for (name, argv) in &ck.gate {
+        let (code, out) = run(&tree, argv, &ck)?;
         if code == 0 {
-            println!("gate: ok     {name}: cargo {}", args.join(" "));
+            println!("gate: ok     {name}: {}", argv.join(" "));
         } else {
             ok = false;
-            println!("gate: FAILED {name}: cargo {} exit {code}", args.join(" "));
-            for l in tail(&out, 40) {
-                println!("  | {l}");
-            }
+            println!("gate: FAILED {name}: {} exit {code}", argv.join(" "));
+            print_tail(&out);
         }
+    }
+    if ck.gate.is_empty() {
+        println!("gate: ok     checks.yaml has no gate command");
     }
     Ok(if ok { 0 } else { 1 })
 }
 
-// --- cargo test output ---------------------------------------------------------------------------
+// --- the commands of a case (sdc.checks/1) -----------------------------------------------------
+//
+// docs/bugfix.md, "The commands of a case". The case's checks.yaml says how its code tree is tested:
+// nothing of a language is code here. It comes, at seed time, from `--checks`, else from the
+// repository's own .runbook/checks.yaml, else from the detection table, a data file shipped beside
+// the bindings (examples/sdc/checks-detect.yaml; compiled in, SDC_CHECKS_DETECT names another).
 
-struct Entry {
-    section: String,
+const CHECKS: &str = "checks.yaml";
+const CHECKS_FORMAT: &str = "sdc.checks/1";
+const REPO_CHECKS: &str = ".runbook/checks.yaml";
+const DETECT_FORMAT: &str = "sdc.checks-detect/1";
+const DETECT_TABLE: &str = include_str!("../../examples/sdc/checks-detect.yaml");
+const CHECKS_KEYS: [&str; 12] =
+    ["format", "test", "repro", "gate", "test_file", "test_name", "test_def", "test_forbid", "env", "red", "green", "suite"];
+const CHECKS_REQUIRED: [&str; 4] = ["test", "repro", "test_file", "format"];
+const DEFAULT_TEST_NAME: &str = r"^[A-Za-z_][A-Za-z0-9_]*$";
+const ENV_RE: &str = r"^[A-Za-z_][A-Za-z0-9_]*$";
+
+/// When a run counts: its exit code is one of `exit` (absent: 0 for a pass, any but 0 for a
+/// failure), its output matches `output` and does not match `refuse`. The patterns are multi-line
+/// (`^` and `$` match at each line); `{test}`, `{file}`, `{dir}`, `{stem}` stand for the test.
+#[derive(Clone, Debug, PartialEq)]
+struct Rule {
+    exit: Option<Vec<i32>>,
+    output: Option<String>,
+    refuse: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct Checks {
+    test: Vec<String>,
+    repro: Vec<String>,
+    gate: Vec<(String, Vec<String>)>,
+    test_file: String,
+    test_name: String,
+    test_def: Option<String>,
+    test_forbid: Option<String>,
+    env: Vec<(String, String)>,
+    red: Option<Rule>,
+    green: Option<Rule>,
+    suite: Option<Rule>,
+}
+
+impl Checks {
+    fn repro_argv(&self, r: &Repro) -> Vec<String> {
+        self.repro.iter().map(|a| subst(a, r)).collect()
+    }
+}
+
+fn subst(s: &str, r: &Repro) -> String {
+    r.vars().iter().fold(s.to_string(), |s, (k, v)| s.replace(k, v))
+}
+
+fn subst_re(s: &str, r: &Repro) -> String {
+    r.vars().iter().fold(s.to_string(), |s, (k, v)| s.replace(k, &regex::escape(v)))
+}
+
+fn multiline(p: &str) -> String {
+    format!("(?m){p}")
+}
+
+/// A run under a rule (`pass`: a pass, else a failure); no rule is the exit code alone.
+fn rule_holds(rule: Option<&Rule>, pass: bool, code: i32, out: &str, r: Option<&Repro>) -> bool {
+    let fill = |p: &str| r.map_or(p.to_string(), |r| subst_re(p, r));
+    let matches = |p: &str| Regex::new(&multiline(&fill(p))).is_ok_and(|re| re.is_match(out));
+    let exit_ok = match rule.and_then(|r| r.exit.as_ref()) {
+        Some(codes) => codes.contains(&code),
+        None => (code == 0) == pass,
+    };
+    exit_ok
+        && rule.and_then(|r| r.output.as_deref()).is_none_or(matches)
+        && !rule.and_then(|r| r.refuse.as_deref()).is_some_and(matches)
+}
+
+fn describe(rule: Option<&Rule>) -> String {
+    let Some(r) = rule else { return "none".into() };
+    let mut parts = Vec::new();
+    if let Some(e) = &r.exit {
+        parts.push(format!("exit {}", e.iter().map(i32::to_string).collect::<Vec<_>>().join("|")));
+    }
+    if let Some(o) = &r.output {
+        parts.push(format!("output {o}"));
+    }
+    if let Some(o) = &r.refuse {
+        parts.push(format!("refuse {o}"));
+    }
+    parts.join(", ")
+}
+
+/// An argv: a non-empty list of non-empty strings.
+fn argv_of(m: &Ym, k: &str, at: &str, errs: &mut Vec<String>) -> Option<Vec<String>> {
+    strings(m, k, at, true, errs)
+}
+
+fn regex_in(m: &Ym, k: &str, at: &str, anchored: bool, errs: &mut Vec<String>) -> Option<String> {
+    let s = string(m, k, at, errs)?;
+    // `{test}` and the others stand for literal text; check the pattern with a stand-in.
+    let probe = ["{file}", "{dir}", "{stem}", "{test}"].iter().fold(s.clone(), |p, v| p.replace(v, "x"));
+    if let Err(e) = Regex::new(&probe) {
+        errs.push(format!("{at}.{k} is not a regular expression: {}", e.to_string().lines().last().unwrap_or("")));
+        return None;
+    }
+    if anchored && !(s.starts_with('^') && s.ends_with('$')) {
+        errs.push(format!("{at}.{k} must match the whole value: begin with ^ and end with $"));
+        return None;
+    }
+    Some(s)
+}
+
+fn rule_in(m: &Ym, k: &str, at: &str, errs: &mut Vec<String>) -> Option<Rule> {
+    let at = format!("{at}.{k}");
+    let r = mapping_of(m.get(k)?, &at, &["exit", "output", "refuse"], &[], CHECKS_FORMAT, errs)?;
+    let exit = r.get("exit").and_then(|e| {
+        let codes: Option<Vec<i32>> =
+            e.as_sequence().and_then(|s| s.iter().map(|c| c.as_i64().and_then(|c| i32::try_from(c).ok())).collect());
+        if codes.as_ref().is_none_or(Vec::is_empty) {
+            errs.push(format!("{at}.exit is not a non-empty list of exit codes"));
+        }
+        codes
+    });
+    let output = r.get("output").and_then(|_| regex_in(r, "output", &at, false, errs));
+    let refuse = r.get("refuse").and_then(|_| regex_in(r, "refuse", &at, false, errs));
+    Some(Rule { exit, output, refuse })
+}
+
+/// sdc.checks/1, or every way it misses the format, one line each. `with_format`: a document
+/// (`format` required); a row of the detection table carries none.
+fn checks_from(v: &serde_yaml::Value, at: &str, with_format: bool) -> Result<Checks, Vec<String>> {
+    let mut errs = Vec::new();
+    let required: Vec<&str> = CHECKS_REQUIRED.iter().copied().filter(|k| with_format || *k != "format").collect();
+    let Some(m) = mapping_of(v, at, &CHECKS_KEYS, &required, CHECKS_FORMAT, &mut errs) else { return Err(errs) };
+    if let Some(f) = m.get("format") {
+        if f.as_str() != Some(CHECKS_FORMAT) {
+            errs.push(format!("{at}.format is not {CHECKS_FORMAT}"));
+        }
+    }
+    let test = argv_of(m, "test", at, &mut errs);
+    let repro = argv_of(m, "repro", at, &mut errs);
+    let mut gate = Vec::new();
+    if let Some(g) = m.get("gate") {
+        match g.as_sequence() {
+            None => errs.push(format!("{at}.gate is not a list")),
+            Some(seq) => {
+                for (i, s) in seq.iter().enumerate() {
+                    let at = format!("{at}.gate[{i}]");
+                    let Some(s) = mapping_of(s, &at, &["name", "argv"], &["name", "argv"], CHECKS_FORMAT, &mut errs) else { continue };
+                    if let (Some(name), Some(argv)) = (string(s, "name", &at, &mut errs), argv_of(s, "argv", &at, &mut errs)) {
+                        if gate.iter().any(|(n, _): &(String, Vec<String>)| *n == name) {
+                            errs.push(format!("{at}.name {name} is not unique"));
+                        }
+                        gate.push((name, argv));
+                    }
+                }
+            }
+        }
+    }
+    let test_file = regex_in(m, "test_file", at, true, &mut errs);
+    let test_name = match m.get("test_name") {
+        Some(_) => regex_in(m, "test_name", at, true, &mut errs),
+        None => Some(DEFAULT_TEST_NAME.to_string()),
+    };
+    let test_def = m.get("test_def").and_then(|_| regex_in(m, "test_def", at, false, &mut errs));
+    let test_forbid = m.get("test_forbid").and_then(|_| regex_in(m, "test_forbid", at, false, &mut errs));
+    let mut env = Vec::new();
+    if let Some(e) = m.get("env") {
+        match e.as_mapping() {
+            None => errs.push(format!("{at}.env is not a mapping")),
+            Some(e) => {
+                let name = Regex::new(ENV_RE).unwrap();
+                for (k, v) in e {
+                    match (k.as_str(), v.as_str()) {
+                        (Some(k), Some(v)) if name.is_match(k) => env.push((k.to_string(), v.to_string())),
+                        _ => errs.push(format!("{at}.env: every entry is NAME: \"string\"")),
+                    }
+                }
+            }
+        }
+    }
+    let red = rule_in(m, "red", at, &mut errs);
+    let green = rule_in(m, "green", at, &mut errs);
+    let suite = rule_in(m, "suite", at, &mut errs);
+    if !errs.is_empty() {
+        return Err(errs);
+    }
+    match (test, repro, test_file, test_name) {
+        (Some(test), Some(repro), Some(test_file), Some(test_name)) => {
+            Ok(Checks { test, repro, gate, test_file, test_name, test_def, test_forbid, env, red, green, suite })
+        }
+        _ => Err(vec![format!("{at}: incomplete")]),
+    }
+}
+
+fn checks_parse(doc: &str, at: &str) -> Result<Checks, Vec<String>> {
+    let v: serde_yaml::Value = serde_yaml::from_str(doc).map_err(|e| vec![format!("{at} is not YAML: {e}")])?;
+    checks_from(&v, at, true)
+}
+
+fn checks_yaml(ck: &Checks) -> serde_yaml::Value {
+    use serde_yaml::Value as Y;
+    let seq = |v: &[String]| Y::Sequence(v.iter().cloned().map(Y::String).collect());
+    let rule = |r: &Rule| {
+        let mut m = Ym::new();
+        if let Some(e) = &r.exit {
+            m.insert("exit".into(), Y::Sequence(e.iter().map(|c| Y::Number((*c).into())).collect()));
+        }
+        if let Some(o) = &r.output {
+            m.insert("output".into(), Y::String(o.clone()));
+        }
+        if let Some(o) = &r.refuse {
+            m.insert("refuse".into(), Y::String(o.clone()));
+        }
+        Y::Mapping(m)
+    };
+    let mut m = Ym::new();
+    m.insert("format".into(), Y::String(CHECKS_FORMAT.into()));
+    m.insert("test".into(), seq(&ck.test));
+    m.insert("repro".into(), seq(&ck.repro));
+    let gate = ck.gate.iter().map(|(n, a)| {
+        let mut s = Ym::new();
+        s.insert("name".into(), Y::String(n.clone()));
+        s.insert("argv".into(), seq(a));
+        Y::Mapping(s)
+    });
+    m.insert("gate".into(), Y::Sequence(gate.collect()));
+    m.insert("test_file".into(), Y::String(ck.test_file.clone()));
+    m.insert("test_name".into(), Y::String(ck.test_name.clone()));
+    for (k, v) in [("test_def", &ck.test_def), ("test_forbid", &ck.test_forbid)] {
+        if let Some(v) = v {
+            m.insert(k.into(), Y::String(v.clone()));
+        }
+    }
+    if !ck.env.is_empty() {
+        m.insert("env".into(), Y::Mapping(ck.env.iter().map(|(k, v)| (Y::String(k.clone()), Y::String(v.clone()))).collect()));
+    }
+    for (k, r) in [("red", &ck.red), ("green", &ck.green), ("suite", &ck.suite)] {
+        if let Some(r) = r {
+            m.insert(k.into(), rule(r));
+        }
+    }
+    Y::Mapping(m)
+}
+
+struct Marker {
+    file: String,
+    contains: Option<String>,
+}
+
+struct DetectRow {
     name: String,
-    status: String,
+    markers: Vec<Marker>,
+    checks: Checks,
 }
 
-impl Entry {
-    /// By name only: which target an entry of the full run belongs to cannot be told (see
-    /// `own_run`); the reproducing test's own run holds only its target.
-    fn is(&self, r: &Repro) -> bool {
-        self.name == r.test
+/// The detection table: SDC_CHECKS_DETECT, else the one compiled in from
+/// examples/sdc/checks-detect.yaml.
+fn detect_rows() -> R<Vec<DetectRow>> {
+    let (doc, at) = match std::env::var("SDC_CHECKS_DETECT") {
+        Ok(f) => (fs::read_to_string(&f).map_err(|e| format!("SDC_CHECKS_DETECT {f}: {e}"))?, f),
+        Err(_) => (DETECT_TABLE.to_string(), "examples/sdc/checks-detect.yaml".to_string()),
+    };
+    detect_parse(&doc).map_err(|errs| format!("the detection table {at} is not {DETECT_FORMAT}:\n  {}", errs.join("\n  ")))
+}
+
+fn detect_parse(doc: &str) -> Result<Vec<DetectRow>, Vec<String>> {
+    let v: serde_yaml::Value = serde_yaml::from_str(doc).map_err(|e| vec![format!("not YAML: {e}")])?;
+    let mut errs = Vec::new();
+    let Some(m) = mapping_of(&v, "table", &["format", "languages"], &["format", "languages"], DETECT_FORMAT, &mut errs) else {
+        return Err(errs);
+    };
+    if m.get("format").and_then(|f| f.as_str()) != Some(DETECT_FORMAT) {
+        errs.push(format!("table.format is not {DETECT_FORMAT}"));
     }
-}
-
-struct Run {
-    exit: i32,
-    entries: Vec<Entry>,
-    compile_error: Option<String>,
-}
-
-impl Run {
-    fn summary(&self) -> String {
-        let mut s = String::new();
-        for e in &self.entries {
-            s.push_str(&format!("  | {} :: {} ... {}\n", e.section, e.name, e.status));
+    let mut rows = Vec::new();
+    for (i, row) in m.get("languages").and_then(|l| l.as_sequence()).into_iter().flatten().enumerate() {
+        let at = format!("table.languages[{i}]");
+        let Some(r) = mapping_of(row, &at, &["name", "markers", "checks"], &["name", "markers", "checks"], DETECT_FORMAT, &mut errs)
+        else {
+            continue;
+        };
+        let name = string(r, "name", &at, &mut errs);
+        let mut markers = Vec::new();
+        for (j, mk) in r.get("markers").and_then(|l| l.as_sequence()).into_iter().flatten().enumerate() {
+            let at = format!("{at}.markers[{j}]");
+            let Some(mk) = mapping_of(mk, &at, &["file", "contains"], &["file"], DETECT_FORMAT, &mut errs) else { continue };
+            if let Some(file) = string(mk, "file", &at, &mut errs) {
+                let contains = mk.get("contains").and_then(|_| regex_in(mk, "contains", &at, false, &mut errs));
+                markers.push(Marker { file, contains });
+            }
         }
-        s
-    }
-}
-
-/// Parse `cargo test` output: `Running <target>` and `Doc-tests <crate>` open a section (for the
-/// log only: the order of the two streams is not kept through `slot`), `test <name> ... <status>` is one entry.
-fn parse(out: &str, exit: i32) -> Run {
-    let test = Regex::new(r"^test (.+?) \.\.\. (ok|FAILED|ignored)\b").unwrap();
-    let mut section = String::new();
-    let mut entries = Vec::new();
-    for l in out.lines() {
-        let t = l.trim_start();
-        if let Some(s) = t.strip_prefix("Running ") {
-            section = s.split(" (").next().unwrap_or(s).to_string();
-        } else if t.starts_with("Doc-tests ") {
-            section = t.to_string();
-        } else if let Some(c) = test.captures(l) {
-            entries.push(Entry { section: section.clone(), name: c[1].to_string(), status: c[2].to_string() });
+        if markers.is_empty() {
+            errs.push(format!("{at}.markers is not a non-empty list"));
+        }
+        match (name, checks_from(&r["checks"], &format!("{at}.checks"), false)) {
+            (Some(name), Ok(checks)) => rows.push(DetectRow { name, markers, checks }),
+            (_, Err(e)) => errs.extend(e),
+            _ => {}
         }
     }
-    let compile_error = out
-        .lines()
-        .find(|l| l.starts_with("error[") || l.starts_with("error: could not compile"))
-        .filter(|_| exit != 0)
-        .map(|l| l.to_string());
-    Run { exit, entries, compile_error }
+    if rows.is_empty() && errs.is_empty() {
+        errs.push("table.languages is empty".into());
+    }
+    if errs.is_empty() {
+        Ok(rows)
+    } else {
+        Err(errs)
+    }
 }
 
-fn suite() -> R<Run> {
-    let tree = copy_of_impl()?;
-    let (code, out) = cargo(&tree, &["test", "--offline", "--no-fail-fast"])?;
-    Ok(parse(&out, code))
+/// The case's commands for the code tree `tree`, and where they came from: `arg` (`--checks`), else
+/// the tree's .runbook/checks.yaml, else the first row of the detection table one of whose markers
+/// is at the tree's root. `tracked`, when given, is the list of files a marker must be in (a seed
+/// from a git worktree takes only what git tracks). Nothing found: an error that names `--checks`.
+fn resolve_checks(tree: &Path, arg: Option<&Path>, tracked: Option<&[String]>) -> R<(Checks, String)> {
+    let has = |f: &str| tree.join(f).is_file() && tracked.is_none_or(|t| t.iter().any(|x| x == f));
+    let parse = |doc: &str, at: &str| checks_parse(doc, at).map_err(|e| format!("{at} is not {CHECKS_FORMAT}:\n  {}", e.join("\n  ")));
+    if let Some(f) = arg {
+        let doc = fs::read_to_string(f).map_err(|e| format!("--checks {}: {e}", f.display()))?;
+        return Ok((parse(&doc, &f.display().to_string())?, "--checks".into()));
+    }
+    if has(REPO_CHECKS) {
+        let doc = fs::read_to_string(tree.join(REPO_CHECKS)).map_err(|e| format!("{REPO_CHECKS}: {e}"))?;
+        return Ok((parse(&doc, REPO_CHECKS)?, REPO_CHECKS.into()));
+    }
+    let rows = detect_rows()?;
+    for row in &rows {
+        for mk in &row.markers {
+            let hit = has(&mk.file)
+                && mk.contains.as_ref().is_none_or(|c| {
+                    let text = fs::read_to_string(tree.join(&mk.file)).unwrap_or_default();
+                    Regex::new(&multiline(c)).is_ok_and(|re| re.is_match(&text))
+                });
+            if hit {
+                return Ok((row.checks.clone(), format!("detected {} ({})", row.name, mk.file)));
+            }
+        }
+    }
+    let mut markers: Vec<&str> = rows.iter().flat_map(|r| r.markers.iter().map(|m| m.file.as_str())).collect();
+    markers.dedup();
+    Err(format!("{}: no commands to test it with: no --checks <file>, no {REPO_CHECKS} in it, and none of the detection \
+        table's markers at its root ({}). Pass the commands with --checks <file> ({CHECKS_FORMAT}, docs/bugfix.md); the \
+        seed does not guess", tree.display(), markers.join(", ")))
 }
 
-/// The reproducing test alone, in the copy `suite` made: `cargo test --test <name> -- --exact
-/// <test>`, so its entry belongs to its file by construction. The full run cannot tell: through
-/// `slot`, stdout and stderr reach the log as two streams, and a `Running <target>` line may land
-/// after the tests it opened (`runs/bugfix-tally-sonnet`: the green test read as "did not run").
-fn own_run(r: &Repro) -> R<Run> {
-    let tree = fs::canonicalize(".sdc/bugfix/tree").map_err(|e| e.to_string())?;
-    let stem = r.base().trim_end_matches(".rs").to_string();
-    let (code, out) = cargo(&tree, &["test", "--offline", "--test", &stem, "--", "--exact", &r.test])?;
-    Ok(parse(&out, code))
+/// The case's commands: work/checks.yaml, written by the seed. A case without one (a parent that
+/// handed in its work/ before checks.yaml existed) takes what the seed would have found for the
+/// base: the base's .runbook/checks.yaml, else the detection table.
+fn load_checks() -> R<(Checks, String)> {
+    match fs::read_to_string(CHECKS) {
+        Ok(doc) => checks_parse(&doc, CHECKS)
+            .map(|c| (c, CHECKS.to_string()))
+            .map_err(|e| format!("{CHECKS} is not {CHECKS_FORMAT}:\n  {}", e.join("\n  "))),
+        Err(_) => resolve_checks(&base(), None, None).map_err(|e| format!("{CHECKS}: none in the case, and {e}")),
+    }
+}
+
+fn show_checks() -> R<u8> {
+    let (ck, _) = load_checks()?;
+    print!("{}", serde_yaml::to_string(&checks_yaml(&ck)).unwrap());
+    Ok(0)
+}
+
+fn write_checks(ck: &Checks) -> R<()> {
+    fs::write(CHECKS, serde_yaml::to_string(&checks_yaml(ck)).unwrap()).map_err(|e| format!("{CHECKS}: {e}"))
 }
 
 // --- the planning store ----------------------------------------------------------------------------
@@ -502,6 +825,7 @@ fn seed(args: &[String]) -> R<u8> {
     let mut story = None;
     let mut ticket = None;
     let mut repo = None;
+    let mut checks = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -510,6 +834,7 @@ fn seed(args: &[String]) -> R<u8> {
             "--story" => story = it.next().cloned(),
             "--ticket" => ticket = it.next().cloned(),
             "--repo" => repo = it.next().cloned(),
+            "--checks" => checks = Some(PathBuf::from(it.next().ok_or("seed: --checks <file>")?)),
             _ => return Err(format!("seed: unknown argument {a}")),
         }
     }
@@ -517,20 +842,22 @@ fn seed(args: &[String]) -> R<u8> {
         if from.is_some() || text.is_some() || story.is_some() {
             return Err("seed --ticket <file> [--repo <worktree>]: --from, --text and --story go with the other form".into());
         }
-        return seed_ticket(Path::new(&t), repo.as_deref().map(Path::new));
+        return seed_ticket(Path::new(&t), repo.as_deref().map(Path::new), checks.as_deref());
     }
     if repo.is_some() {
         return Err("seed: --repo goes with --ticket <file>".into());
     }
-    let from = PathBuf::from(from.ok_or("seed --from <crate or fixture dir>")?);
-    let krate = if from.join("Cargo.toml").is_file() { from.clone() } else { from.join("crate") };
-    if !krate.join("Cargo.toml").is_file() {
-        return Err(format!("{}: no Cargo.toml, nor crate/Cargo.toml", from.display()));
+    let from = PathBuf::from(from.ok_or("seed --from <code tree or fixture dir>")?);
+    if !from.is_dir() {
+        return Err(format!("{} is not a directory", from.display()));
     }
-    for d in ["mainline", "impl"] {
-        reset_dir(Path::new(d))?;
-        copy_tree(&krate, Path::new(d))?;
-    }
+    // A fixture directory holds its code tree in crate/ or repo/, beside bug.yaml and its stubs.
+    let tree = if from.join("Cargo.toml").is_file() {
+        from.clone()
+    } else {
+        ["crate", "repo"].iter().map(|d| from.join(d)).find(|d| d.is_dir()).unwrap_or_else(|| from.clone())
+    };
+    let (ck, source) = resolve_checks(&tree, checks.as_deref(), None)?;
     let mut rep: serde_yaml::Value = match &text {
         Some(t) => serde_yaml::to_value(serde_json::json!({"text": t})).unwrap(),
         None => {
@@ -539,13 +866,18 @@ fn seed(args: &[String]) -> R<u8> {
             serde_yaml::from_str(&t).map_err(|e| format!("{}: {e}", f.display()))?
         }
     };
+    for d in ["mainline", "impl"] {
+        reset_dir(Path::new(d))?;
+        copy_tree(&tree, Path::new(d))?;
+    }
+    write_checks(&ck)?;
     if let Some(s) = story {
         rep["story"] = serde_yaml::Value::String(s);
     } else if rep.get("story").is_none() {
         rep["story"] = serde_yaml::Value::String("story:bug".into());
     }
     fs::write("bug.yaml", serde_yaml::to_string(&rep).unwrap()).map_err(|e| e.to_string())?;
-    println!("seed: mainline/ and impl/ from {}, bug.yaml", krate.display());
+    println!("seed: mainline/ and impl/ from {}, checks.yaml from {source}, bug.yaml", tree.display());
     std::env::set_var("SDC_ACTION", "bugfix.seed");
     story_to(&rep, "active")
 }
@@ -637,8 +969,14 @@ fn ticket_schema() -> Value {
 
 type Ym = serde_yaml::Mapping;
 
-/// A mapping with only `allowed` keys and every `required` one; each miss one line in `errs`.
+/// A mapping of sdc.ticket/1 with only `allowed` keys and every `required` one; each miss one line
+/// in `errs`.
 fn mapping<'a>(v: &'a serde_yaml::Value, at: &str, allowed: &[&str], required: &[&str], errs: &mut Vec<String>) -> Option<&'a Ym> {
+    mapping_of(v, at, allowed, required, TICKET_FORMAT, errs)
+}
+
+/// A mapping of the format `fmt` with only `allowed` keys and every `required` one.
+fn mapping_of<'a>(v: &'a serde_yaml::Value, at: &str, allowed: &[&str], required: &[&str], fmt: &str, errs: &mut Vec<String>) -> Option<&'a Ym> {
     let Some(m) = v.as_mapping() else {
         errs.push(format!("{at} is not a mapping"));
         return None;
@@ -646,7 +984,7 @@ fn mapping<'a>(v: &'a serde_yaml::Value, at: &str, allowed: &[&str], required: &
     for k in m.keys() {
         match k.as_str() {
             Some(k) if allowed.contains(&k) => {}
-            Some(k) => errs.push(format!("{at}: key `{k}` is not in {TICKET_FORMAT} (keys: {})", allowed.join(", "))),
+            Some(k) => errs.push(format!("{at}: key `{k}` is not in {fmt} (keys: {})", allowed.join(", "))),
             None => errs.push(format!("{at}: a key is not a string")),
         }
     }
@@ -876,8 +1214,8 @@ fn git(repo: &Path, args: &[&str]) -> R<String> {
 }
 
 /// The files `git ls-files` lists in the ticket's repository and their bytes, after its checks: the
-/// top of a git worktree, no change to a tracked file, HEAD at `repository.base.commit`, a
-/// `Cargo.toml` at the root, no submodule or symlink, within the size cap.
+/// top of a git worktree, no change to a tracked file, HEAD at `repository.base.commit`, no
+/// submodule or symlink, within the size cap.
 fn repo_files(repo: &Path, t: &Ticket, caps: &Caps) -> R<(Vec<String>, u64)> {
     let canon = fs::canonicalize(repo).map_err(|e| format!("repository {}: {e}", repo.display()))?;
     let top = git(&canon, &["rev-parse", "--show-toplevel"])?;
@@ -904,10 +1242,6 @@ fn repo_files(repo: &Path, t: &Ticket, caps: &Caps) -> R<(Vec<String>, u64)> {
         }
     }
     files.dedup();
-    if !files.iter().any(|f| f == "Cargo.toml") {
-        return Err(format!("repository {} has no Cargo.toml at its root: sdc-bugfix takes a Rust repository built with \
-            cargo only today, with Cargo.toml at the root (other languages are a later story)", repo.display()));
-    }
     if files.len() as u64 > caps.files {
         return Err(format!("repository {}: {} files, above the cap of {} (SDC_SEED_MAX_FILES): every model call copies \
             the tree in and out", repo.display(), files.len(), caps.files));
@@ -936,7 +1270,7 @@ fn copy_listed(repo: &Path, files: &[String], to: &Path) -> R<()> {
     Ok(())
 }
 
-fn seed_ticket(file: &Path, repo_arg: Option<&Path>) -> R<u8> {
+fn seed_ticket(file: &Path, repo_arg: Option<&Path>, checks_arg: Option<&Path>) -> R<u8> {
     let doc = fs::read_to_string(file).map_err(|e| format!("ticket {}: {e}", file.display()))?;
     let t = ticket_parse(&doc).map_err(|errs| format!("ticket {} is not {TICKET_FORMAT}:\n  {}", file.display(), errs.join("\n  ")))?;
     ticket_runnable(&t)?;
@@ -950,19 +1284,21 @@ fn seed_ticket(file: &Path, repo_arg: Option<&Path>) -> R<u8> {
         }
     }
     let (files, bytes) = repo_files(&repo, &t, &seed_caps()?)?;
+    let (ck, source) = resolve_checks(&repo, checks_arg, Some(&files))?;
+    let rep = ticket_report(&t)?;
     for d in ["mainline", "impl"] {
         copy_listed(&repo, &files, Path::new(d))?;
     }
-    let rep = ticket_report(&t)?;
+    write_checks(&ck)?;
     fs::write("bug.yaml", serde_yaml::to_string(&rep).unwrap()).map_err(|e| e.to_string())?;
     let record = json!({"format": "sdc.bugfix-seed/1", "ticket": {"id": t.id, "kind": t.kind, "branch": t.branch},
         "repository": {"path": fs::canonicalize(&repo).map_err(|e| e.to_string())?, "remote": t.remote,
             "base": {"ref": t.base_ref, "commit": t.base_commit}},
-        "files": files.len(), "bytes": bytes});
+        "files": files.len(), "bytes": bytes, "checks": source});
     fs::create_dir_all(".sdc").map_err(|e| e.to_string())?;
     fs::write(".sdc/seed.json", serde_json::to_string_pretty(&record).unwrap() + "\n").map_err(|e| e.to_string())?;
     println!("seed: mainline/ and impl/ from {} at {} ({} files, {bytes} bytes, as git ls-files lists them), \
-        bug.yaml from the ticket, .sdc/seed.json", repo.display(), t.base_commit, files.len());
+        checks.yaml from {source}, bug.yaml from the ticket, .sdc/seed.json", repo.display(), t.base_commit, files.len());
     std::env::set_var("SDC_ACTION", "bugfix.seed");
     story_to(&rep, "active")
 }
@@ -1025,42 +1361,64 @@ fn tree_diff(a: &Path, b: &Path, except: &str) -> R<Vec<String>> {
     Ok(all.into_iter().filter(|f| fs::read(a.join(f)).ok() != fs::read(b.join(f)).ok()).collect())
 }
 
-fn copy_of_impl() -> R<PathBuf> {
-    let tree = PathBuf::from(".sdc/bugfix/tree");
+/// `from` copied to .sdc/bugfix/<name>, the directory a command runs in.
+fn copy_to(from: &Path, name: &str) -> R<PathBuf> {
+    let tree = Path::new(".sdc/bugfix").join(name);
     reset_dir(&tree)?;
-    copy_tree(Path::new("impl"), &tree)?;
+    copy_tree(from, &tree)?;
     fs::canonicalize(&tree).map_err(|e| e.to_string())
+}
+
+fn copy_of_impl() -> R<PathBuf> {
+    copy_to(Path::new("impl"), "tree")
+}
+
+/// The unchanged code without the reproducing test (bug.yaml `base`, else mainline/).
+fn copy_of_base() -> R<PathBuf> {
+    copy_to(&base(), "base")
 }
 
 fn on_path(p: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|ps| std::env::split_paths(&ps).any(|d| d.join(p).is_file()))
 }
 
-/// `cargo <args>` in `dir`, through `slot` when it is on PATH, the target directory beside the
-/// copy; stdout and stderr into one log file.
-fn cargo(dir: &Path, args: &[&str]) -> R<(i32, String)> {
-    if !on_path("cargo") {
-        return Err("cargo is not on PATH".into());
-    }
+/// `argv` in `dir`, as an argv (never through a shell), through `slot` when it is on PATH, with
+/// checks.yaml's `env` and cargo's target directory beside the copy; stdout and stderr into one log
+/// file. A program with a `/` is a path in `dir` (or absolute); one without is looked up on PATH.
+fn run(dir: &Path, argv: &[String], ck: &Checks) -> R<(i32, String)> {
+    let prog = argv.first().ok_or("an empty argv")?;
+    let path = if prog.contains('/') {
+        let p = dir.join(prog);
+        if !p.is_file() {
+            return Err(format!("{prog} is not on PATH, nor a file of the code tree"));
+        }
+        p.into_os_string().into_string().map_err(|_| format!("{prog}: not a UTF-8 path"))?
+    } else {
+        if !on_path(prog) {
+            return Err(format!("{prog} is not on PATH"));
+        }
+        prog.clone()
+    };
     let mut c = if on_path("slot") {
         let mut c = Command::new("slot");
-        c.arg("cargo");
+        c.arg(&path);
         c
     } else {
-        Command::new("cargo")
+        Command::new(&path)
     };
-    let log = dir.parent().unwrap().join("cargo.log");
+    let log = dir.parent().unwrap().join("run.log");
     let f = fs::File::create(&log).map_err(|e| e.to_string())?;
     let target = dir.parent().unwrap().join("target");
     let st = c
-        .args(args)
+        .args(&argv[1..])
         .current_dir(dir)
+        .envs(ck.env.iter().map(|(k, v)| (k, v)))
         .env("CARGO_TARGET_DIR", &target)
         .stdin(Stdio::null())
         .stdout(f.try_clone().map_err(|e| e.to_string())?)
         .stderr(f)
         .status()
-        .map_err(|e| format!("cargo could not start: {e}"))?;
+        .map_err(|e| format!("{prog} could not start: {e}"))?;
     let out = fs::read_to_string(&log).unwrap_or_default();
     Ok((st.code().unwrap_or(1), out))
 }
@@ -1092,24 +1450,90 @@ error: test failed, to rerun pass `--test last_page`
    Doc-tests pager
 ";
 
+    fn rust() -> Checks {
+        detect_rows().unwrap().into_iter().find(|r| r.name == "rust").unwrap().checks
+    }
+
+    fn pager_repro() -> Repro {
+        Repro { file: "tests/last_page.rs".into(), test: "last_partial_page_is_shown".into() }
+    }
+
     #[test]
     fn parse_attributes_tests_to_their_target() {
-        let r = parse(OUT, 101);
-        assert!(r.compile_error.is_none());
-        assert_eq!(r.entries.len(), 3);
-        let repro = Repro { file: "tests/last_page.rs".into(), test: "last_partial_page_is_shown".into() };
-        let own: Vec<&Entry> = r.entries.iter().filter(|e| e.is(&repro)).collect();
-        assert_eq!(own.len(), 1);
-        assert_eq!(own[0].status, "FAILED");
-        assert!(r.entries.iter().filter(|e| !e.is(&repro)).all(|e| e.status == "ok"));
+        let ck = rust();
+        let r = pager_repro();
+        assert!(rule_holds(ck.red.as_ref(), false, 101, OUT, Some(&r)), "the reproducing test's own FAILED line");
+        let other = Repro { test: "full_pages".into(), ..pager_repro() };
+        assert!(!rule_holds(ck.red.as_ref(), false, 101, OUT, Some(&other)), "full_pages is ok");
+        assert!(!rule_holds(ck.green.as_ref(), true, 101, OUT, Some(&r)));
+        assert!(!rule_holds(ck.suite.as_ref(), true, 101, OUT, None));
+        let green = OUT.replace("shown ... FAILED", "shown ... ok");
+        assert!(rule_holds(ck.green.as_ref(), true, 0, &green, Some(&r)));
+        assert!(!rule_holds(ck.suite.as_ref(), true, 0, &green.replace("no_items ... ok", "no_items ... ignored"), None));
+        assert_eq!(ck.repro_argv(&r).join(" "), "cargo test --offline --test last_page -- --exact last_partial_page_is_shown");
     }
 
     #[test]
     fn parse_finds_a_compile_error() {
         let out = "   Compiling pager v0.1.0\nerror[E0425]: cannot find function `nope`\nerror: could not compile `pager`\n";
-        let r = parse(out, 101);
-        assert!(r.compile_error.is_some());
-        assert!(r.entries.is_empty());
+        assert!(!rule_holds(rust().red.as_ref(), false, 101, out, Some(&pager_repro())), "a compile error is not red");
+        let none = "running 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out\n";
+        assert!(!rule_holds(rust().green.as_ref(), true, 0, none, Some(&pager_repro())), "no such test is not green");
+    }
+
+    #[test]
+    fn the_detection_table_is_valid_and_rust_keeps_todays_commands() {
+        let rows = detect_rows().unwrap();
+        let names: Vec<&str> = rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names[0], "rust");
+        for want in ["go", "javascript-node-test", "javascript-npm", "python-pytest", "java-maven", "java-gradle", "make"] {
+            assert!(names.contains(&want), "{want} in {names:?}");
+        }
+        let ck = rust();
+        assert_eq!(ck.test, ["cargo", "test", "--offline", "--no-fail-fast"]);
+        let gate: Vec<String> = ck.gate.iter().map(|(n, a)| format!("{n}: {}", a.join(" "))).collect();
+        assert_eq!(gate, ["build: cargo build --offline", "test: cargo test --offline",
+            "clippy: cargo clippy --offline --all-targets -- -D warnings", "fmt: cargo fmt --check"]);
+        assert_eq!((ck.test_file.as_str(), ck.test_name.as_str()), (r"^tests/[a-z][a-z0-9_]*\.rs$", "^[a-z_][a-z0-9_]*$"));
+        // checks.yaml as written reads back the same.
+        let doc = serde_yaml::to_string(&checks_yaml(&ck)).unwrap();
+        assert_eq!(checks_parse(&doc, "checks.yaml").unwrap(), ck);
+    }
+
+    #[test]
+    fn every_refusal_of_the_checks_format_is_named() {
+        let ok = "format: sdc.checks/1\ntest: [./t]\nrepro: [./t, \"{file}\"]\ntest_file: '^tests/[a-z]+$'\n";
+        assert!(checks_parse(ok, "c").is_ok());
+        let cases: Vec<(String, &str)> = vec![
+            (format!("{ok}shell: sh\n"), "c: key `shell` is not in sdc.checks/1"),
+            (ok.replace("format: sdc.checks/1\n", ""), "c: required key missing: format"),
+            (ok.replace("sdc.checks/1", "sdc.checks/2"), "c.format is not sdc.checks/1"),
+            (ok.replace("repro: [./t, \"{file}\"]", "repro: []"), "c.repro is empty"),
+            (ok.replace("'^tests/[a-z]+$'", "'tests/'"), "c.test_file must match the whole value"),
+            (ok.replace("'^tests/[a-z]+$'", "'^tests/[a-z+$'"), "c.test_file is not a regular expression"),
+            (format!("{ok}gate:\n- name: a\n  argv: [x]\n- name: a\n  argv: [y]\n"), "c.gate[1].name a is not unique"),
+            (format!("{ok}gate:\n- name: a\n"), "c.gate[0]: required key missing: argv"),
+            (format!("{ok}red: {{exit: []}}\n"), "c.red.exit is not a non-empty list"),
+            (format!("{ok}env: {{A: 1}}\n"), "c.env: every entry is NAME"),
+        ];
+        for (doc, want) in cases {
+            let e = checks_parse(&doc, "c").err().unwrap_or_default();
+            assert!(e.iter().any(|e| e.contains(want)), "want `{want}`, got {e:?}");
+        }
+    }
+
+    #[test]
+    fn a_tree_with_no_marker_and_no_checks_is_refused_naming_the_flag() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("target/sdc-bugfix-nomarker-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("main.c"), "int main(void) { return 0; }\n").unwrap();
+        let e = resolve_checks(&dir, None, None).unwrap_err();
+        assert!(e.contains("--checks <file>") && e.contains("Cargo.toml, go.mod, package.json") && e.contains("does not guess"), "{e}");
+        // A marker git does not track does not count.
+        fs::write(dir.join("Cargo.toml"), "").unwrap();
+        assert!(resolve_checks(&dir, None, Some(&["main.c".to_string()])).is_err());
+        assert_eq!(resolve_checks(&dir, None, None).unwrap().1, "detected rust (Cargo.toml)");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1134,7 +1558,8 @@ error: test failed, to rerun pass `--test last_page`
     #[test]
     fn schemas_name_every_field() {
         assert_eq!(dissection_schema()["required"].as_array().unwrap().len(), 4);
-        assert_eq!(repro_schema()["required"], json!(["file", "test"]));
+        assert_eq!(repro_schema(&rust())["required"], json!(["file", "test"]));
+        assert_eq!(repro_schema(&rust())["properties"]["file"]["pattern"], r"^tests/[a-z][a-z0-9_]*\.rs$");
         assert_eq!(ticket_schema()["required"], json!(TICKET_REQUIRED));
         assert_eq!(ticket_schema()["properties"].as_object().unwrap().len(), TICKET_KEYS.len());
     }
@@ -1323,11 +1748,12 @@ branch: fix/pager-7
     }
 
     #[test]
-    fn a_repository_without_cargo_toml_is_refused_naming_the_limit() {
+    fn a_repository_without_cargo_toml_is_taken_and_its_commands_are_looked_up() {
         let (dir, head) = fixture_repo("nocargo", false);
         let t = ticket_parse(&ticket_doc(&head)).unwrap();
-        let e = repo_files(&dir, &t, &CAPS).unwrap_err();
-        assert!(e.contains("no Cargo.toml at its root") && e.contains("other languages are a later story"), "{e}");
+        let (files, _) = repo_files(&dir, &t, &CAPS).unwrap();
+        let e = resolve_checks(&dir, None, Some(&files)).unwrap_err();
+        assert!(e.contains("--checks <file>"), "{e}");
         fs::remove_dir_all(&dir).unwrap();
     }
 

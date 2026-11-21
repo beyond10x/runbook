@@ -1,0 +1,5 @@
+title: total drops the last number
+text: >-
+  bin/total 2 3 prints 2, not 5: the last number given is never added. Expected: the sum of every
+  number given.
+story: story:total-last-number

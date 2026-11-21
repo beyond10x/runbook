@@ -1,0 +1,3 @@
+#!/bin/sh
+# run-one <test file>: run one test file; its exit status is the result.
+exec sh "$1"

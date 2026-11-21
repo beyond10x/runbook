@@ -451,7 +451,8 @@ ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
 [[ -z ${SDC_REPLAY:-} ]] || jq -r .first_line "$SDC_REPLAY"
 if [[ $leg == started ]]; then
-  echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
+  # A ticket's text never reaches the console (docs/bugfix.md, "From a ticket"): its id stands for it.
+  echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '(select(has("ticket")) | "bug: ticket " + .ticket.id) // "bug: " + .text' "$root/work/bug.yaml")"
 else
   echo "resuming $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
 fi

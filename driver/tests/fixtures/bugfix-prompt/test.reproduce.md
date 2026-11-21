@@ -6,17 +6,22 @@ Inputs:
 - in/bug.yaml
 - in/bug-dissection.json
 - in/impl
+- in/checks.yaml
 
 Task:
-Write ONE Rust integration test that reproduces the bug in in/bug.yaml, as dissected in
-in/bug-dissection.json, for the crate in in/impl/ (do not change in/impl/). Write two files:
-- out/repro/<name>.rs: a new integration test file (<name> lower case, letters, digits and _;
-  not a file that exists in in/impl/tests/), using the crate's public API, with exactly one
-  #[test] function. It asserts the expected behaviour, so it FAILS on the current code because of
-  the bug, and will pass once the bug is fixed. No #[ignore], no #[should_panic]. It must compile
-  against the current code: call only functions that exist.
-- out/repro/repro.json: {"file": "tests/<name>.rs", "test": "<the #[test] function's name>"}
-A program then runs the whole suite on the unchanged code: your test must fail, every other test
-must pass. You cannot run commands.
+Write ONE test that reproduces the bug in in/bug.yaml, as dissected in
+in/bug-dissection.json, for the code in in/impl/ (do not change in/impl/), in the language and
+with the test framework that code already uses. Write two files:
+- out/repro/<file name>: a new test file. Its path in the code tree must match
+  ^tests/[a-z][a-z0-9_]*\.rs$ (in/checks.yaml `test_file`), and no file of in/impl/ has that path. It uses the
+  code's public interface and holds exactly one test, whose name matches ^[a-z_][a-z0-9_]*$. It
+  asserts the expected behaviour, so it FAILS on the current code because of the bug, and will
+  pass once the bug is fixed. Do not skip or ignore it, and do not mark it as expected to fail.
+  It must build and load against the current code: call only what exists.
+- out/repro/repro.json: {"file": "<the test file's path in the code tree>", "test": "<the test's name>"}
+A program then runs your test alone on the unchanged code with `cargo test --offline --test {stem} -- --exact {test}`
+(in/checks.yaml `repro`; {file} and {test} are your repro.json, {stem} the file name without its
+extension, {dir} its directory): your test must fail. It runs the whole suite without your test
+with `cargo test --offline --no-fail-fast`: every other test must pass. You cannot run commands.
 
 When the files are written, reply with the single word: done.

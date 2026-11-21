@@ -1,0 +1,5 @@
+title: Pagination drops the last page
+text: >-
+  With 11 items and 5 items per page, pageCount(11, 5) returns 2 and page(items, 3, 5) returns an
+  empty list, so item 11 is never shown. Expected: 3 pages, the third holding item 11.
+story: story:pager-js-last-page

@@ -7,16 +7,21 @@ Inputs:
 - in/bug-dissection.json
 - in/repro
 - in/impl
+- in/checks.yaml
 
 Task:
 Fix the bug in in/bug.yaml (dissected in in/bug-dissection.json) in out/impl/, a copy of the
-crate. The test last_partial_page_is_shown in out/impl/tests/last_page.rs
+code tree. The test last_partial_page_is_shown in out/impl/tests/last_page.rs
 reproduces the bug: it fails now and must pass after your fix.
 - Do not change out/impl/tests/last_page.rs in any way: a program compares it byte for byte and refuses
   the fix otherwise. Do not delete, weaken or ignore any test.
 - Change as little as the fix needs; keep the public API. Standard library only.
-- The whole suite must pass, and the crate must pass `cargo clippy --all-targets -- -D warnings`
-  and `cargo fmt --check` (rustfmt's default style).
-You cannot run commands: write code that passes the tests.
+- The whole suite must pass (`cargo test --offline --no-fail-fast`, in/checks.yaml `test`), and so must
+  every gate command of in/checks.yaml `gate`:
+  - build: `cargo build --offline`
+  - test: `cargo test --offline`
+  - clippy: `cargo clippy --offline --all-targets -- -D warnings`
+  - fmt: `cargo fmt --check`
+You cannot run commands: write code that passes the tests and the gate.
 
 When the files are written, reply with the single word: done.

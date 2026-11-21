@@ -48,4 +48,10 @@ run the tests, update the story, run the gate
 ([`docs/releases/0.1.0.md:13`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/releases/0.1.0.md#L13)). No protocol opens it
 yet; a run starts it with `scripts/run-trial.sh <run> --bugfix <seed dir>`.
 
+It is not bound to one language. The commands that run the tests, one reproducing test and the gate
+are data of the case (`checks.yaml`): supplied with `--checks`, carried by the repository as
+`.runbook/checks.yaml`, or detected from marker files. Tested are Rust, JavaScript with `node --test`,
+and any repository with a supplied `checks.yaml`. Detection for Go, Python and Java exists and is not
+tested yet.
+
 <ActionFlow id="sdc.bugfix" />

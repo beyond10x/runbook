@@ -1,0 +1,8 @@
+#!/bin/sh
+# total: print the sum of the whole numbers given as arguments.
+sum=0
+while [ $# -gt 1 ]; do
+  sum=$((sum + $1))
+  shift
+done
+echo "$sum"
