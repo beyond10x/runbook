@@ -21,7 +21,7 @@ scope:
   path: protocol/compiled/sdc.ir.json
 - confidence: inferred
   path: protocol/sdc.protocol.yaml
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T09:20:28Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -105,3 +105,23 @@ of another result is stated only in the action text (`:83`).
 
 - Whether the root ends on this state without a person or waits for a revised roadmap; a protocol
   outcome ends the case in the driver (*inferred*, not checked), so the choice is the operator's.
+
+## Current figures (Canon a1a937ec on dfe4a3f)
+
+Canon commit `a1a937ec` (branch `wave/2026-11-20`, unreleased) on SDC `main` at `dfe4a3f`, `sdc`
+revision 8 (`docs/simulate-findings.md`, stuck state 1):
+
+```
+simulated: protocol `sdc` revision 8: 78 reachable states, 54 terminable (outcome `abandoned` 39, outcome `not_delivered` 16, outcome `operating` 8, outcome `refused` 6), 10 waiting on supplied evidence, a child outcome or expiry, 1 finding (1 stuck or cycle state)
+```
+
+The finding above is the only one left, and it now prints without "3 other stuck states contain
+it". Verdict: `left by revision`.
+
+- A copy that is not `approved` is set aside by the direction case's next roadmap revision. All
+  cases read the same `aep/initiative/roadmap.md` digest.
+- The printed state needs the direction case to pass at the same roadmap revision it rejected.
+  Only a vision revision re-opens that decision (`protocol/sdc-direction.protocol.yaml:319-324`).
+  With the roadmap rejected, no direction action can revise the vision (`:218-231`, `:289-299`),
+  so only an outside edit of the vision reaches it.
+- No trial-3 run has a roadmap rejection.

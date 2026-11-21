@@ -23,7 +23,7 @@ scope:
   path: protocol/compiled/sdc-epic.ir.json
 - confidence: inferred
   path: protocol/sdc-epic.protocol.yaml
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T09:20:29Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -117,3 +117,30 @@ claim's value for a record of another result is stated only in the action texts 
   specification; a protocol outcome ends the case in the driver (*inferred*, not checked), so the
   choice is the operator's. If an outcome is chosen it also ends the root `not_delivered`
   (`protocol/sdc.protocol.yaml:167-177`).
+
+## Current figures (Canon a1a937ec on dfe4a3f)
+
+Canon commit `a1a937ec` (branch `wave/2026-11-20`, unreleased) on SDC `main` at `dfe4a3f`,
+`sdc.epic` revision 5 (`docs/simulate-findings.md`, stuck states 2 and 3):
+
+```
+simulated: protocol `sdc.epic` revision 5: 122 reachable states, 91 terminable (outcome `abandoned` 61, outcome `not_delivered` 18, outcome `not_released` 26, outcome `passed` 16), 15 waiting on supplied evidence, a child outcome or expiry, 2 findings (2 stuck or cycle states)
+```
+
+Both findings above still print with the same text. The verdicts change from "a2, left by a
+revision another case writes":
+
+- Roadmap copy `{roadmap_approval}`: `left by revision`, and a real run does not reach it. The epic
+  opens only on the root's `roadmap.approved` (`protocol/sdc.protocol.yaml:123`), and the copy
+  takes the latest record at the current revision (`driver/src/main.rs:474-492`). All 16 epic
+  copies in `runs/trial-3-*` are `approved`.
+- Gate record with the spec child `passed`: `left only by a decision` (`abandoned`). Once the spec
+  child has ended, nothing revises the specification.
+  - A real run reaches it when the gate program fails on the revision its spec case passed. It
+    runs the same four commands (`driver/examples/sdc/tools/sdc-tool.sh:143-149` against
+    `:150-155`), and every non-zero exit except 126, 127 and 75 records `failed`
+    (`driver/examples/sdc/sdc-epic.bindings.json:22`). So a crash, a timeout, or a newer `ess`.
+  - The 16 `failed` epic gate records in `runs/trial-3-*` are all at spec revision `none`, set
+    aside by the spec child's first revision, which is not this state.
+  - The same cause in `sdc.plan` is `story:sdc-plan-gate-not-passed-has-no-outcome`, whose
+    candidate is an outcome on `gate.passed` `false`.
