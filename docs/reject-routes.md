@@ -81,7 +81,29 @@ Now the failure reaches the next run (`llm-node.sh:412-426`, `:538`).
 | R7 | one cap shared by different checks (`spec.author`, `plan.decompose`, `change.implement`) | `writer_spent` | runs are counted per retry kind, each with its existing cap, plus a backstop over all kinds of `max(8, max_runs)` runs per arrival, so the 12 runs of `amend.upstream` stay allowed (`main.rs` `useful`). The stop `writer_spent` names the kind that ran out (`kind` in the spent entry and the message) | `implement-percause` | fixed |
 | R8 | `spec.review` rejected | `stuck` | `spec.author` gets `retry_when` `spec_review: [rejected]`; the stub reviewer rejects a tree that holds `.review-reject` (`sdc-tool.sh:294`) | `spec-review-rework` | fixed |
 | R9 | a writer's own apply error | rerun blind, then `writer_spent` | the failed run's own log is fed back as `in/feedback.md` (`llm-node.sh`, which also prints why its output was not applied into the step log). A rejection whose log is not an `sdc.rejection/1` document, such as a stub reviewer's, now reaches the writer in `in/feedback.md` too | `writer-own-error` | fixed |
+| R13 | a failed program check sent back to its writer (runs/trial-3-haiku-8) | the step log was the check's stdout followed by its stderr, so it ended with the build pool's `slot: job … ran 1s` line. `log_line` reported that line in `writer_spent`, and `impl-gate` showed no panic message | each command in `conform-run` writes its stderr with its stdout and the `slot: job` lines are dropped. A failed command is named (`conform-run: FAILED \`task check\` in impl (exit 101)`). `story-tests-run` ends with each failed step's last 30 lines under a heading that names the step. `impl-gate` shows a panic with its message. `in/feedback.md` holds the last 80 lines without `slot: job` lines and the check's exit. A check that wrote nothing is said so in words. `log_line` skips `slot: job` lines | `writer-sees-test-failure` | fixed |
 | — | `change.review`: 3 invalid replies | `stuck` | a stop with a named cause that names `change.review` | `review-invalid-named` | pending (needs `impl/review-node`) |
+
+### What a failed check hands its writer (R13)
+
+These are the program checks whose result is named in a `retry_when`:
+
+- Wrapper line last, fixed: `tests.run` (`story-tests`, `conformance_run`).
+- A verdict or count read from stdout and stderr mixed, fixed. `impl-gate`'s test count is now
+  read from stdout only. `decider.sh`'s grounding verdict is read from stdout only. Output that
+  cannot be read exits 126, a tool error, and is never sent back to the writer
+  (`driver/tests/impl_gate.rs`).
+- The check's own output, with no wrapper: `spec.validate`, `spec.compile`, `spec.synthesize`,
+  `spec.scan`, `roadmap.validate` and `plan.validate` (ess, aep or grep output).
+- No output of their own when they fail:
+  - `dissection.check`;
+  - `questions.check` (exits 1 and 3; exit 2 names missing keys only);
+  - the shape step of `requirements.check`, `context.check`, `spec.trace` and `plan.cover`;
+  - `plan.scope` and `plan.status`, which print only `false`;
+  - the stub reviewers `spec.review` and `change.review`.
+
+  Their writer now reads "The check wrote no output of its own". Naming the failed condition in
+  each of these checks is not done.
 
 ## Pending cycles
 

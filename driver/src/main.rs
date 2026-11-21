@@ -578,10 +578,12 @@ fn last_arrival(evs: &[Value], ir: &Value) -> usize {
         .unwrap_or(0)
 }
 
-/// The last non-empty line of an event's log blob.
+/// The last non-empty line of an event's log blob that is not the build pool's own `slot: job`
+/// line (runs/trial-3-haiku-8 reported "slot: job 20238 ... ran 1s" as what a test run said).
 fn log_line(dir: &Path, e: &Value) -> String {
     e["log"].as_str().and_then(|l| fs::read(dir.join("blobs").join(l)).ok())
-        .map(|b| String::from_utf8_lossy(&b).lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string())
+        .map(|b| String::from_utf8_lossy(&b).lines().rev()
+            .find(|l| !l.trim().is_empty() && !l.starts_with("slot: job ")).unwrap_or("").to_string())
         .unwrap_or_default()
 }
 
@@ -1391,7 +1393,7 @@ fn step(
         let feedback: Vec<Value> = retry_records(b, &current).into_iter().map(|r| {
             let by = finished.iter().find(|e| e["evidence"].as_array().is_some_and(|ids| ids.contains(&r["id"])));
             json!({"kind": r["kind"], "result": r["result"], "subject": r["subject"], "action": by.map(|e| e["action"].clone()),
-                "log": by.and_then(|e| e["log"].as_str()).map(|l| dir.join("blobs").join(l))})
+                "exit": by.map(|e| e["exit"].clone()), "log": by.and_then(|e| e["log"].as_str()).map(|l| dir.join("blobs").join(l))})
         }).collect();
         let mut env = vec![
             ("SDC_ACTION", chosen.clone()),

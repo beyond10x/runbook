@@ -401,9 +401,14 @@ feedback=""
 if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection" 'any(.[]; .result != "rejected" or (.log // "") != $rej)' "$SDC_FEEDBACK" > /dev/null; then
   {
     echo "# Checks that failed on the current revision of your output"
-    jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej) | "\(.kind) = \(.result) (from \(.action // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
+    # The check's own output: the last 80 lines of its log without the build pool's `slot: job`
+    # lines, which only say how long the check waited (runs/trial-3-haiku-8). A check that wrote
+    # nothing is said so in words.
+    jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej) | "\(.kind) = \(.result) (from \(.action // "?"), exit \(.exit // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
       echo; echo "## ${line%%: *}"; log=${line#*: }
-      [[ -f $log ]] && { echo '```'; tail -n 60 "$log"; echo '```'; }
+      own=$([[ -f $log ]] && grep -v '^slot: job ' "$log" | tail -n 80)
+      if [[ -n ${own//[[:space:]]/} ]]; then echo '```'; echo "$own"; echo '```'
+      else echo "The check wrote no output of its own: only its result above says what failed."; fi
     done
   } > "$cwd/in/feedback.md"
   inputs+=("in/feedback.md (why the previous attempt was sent back: fix exactly that)")
@@ -418,7 +423,7 @@ if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
   if [[ -n $own && -f $cd_/blobs/${own#* } ]]; then
     { [[ -s $cwd/in/feedback.md ]] && echo
       echo "# Your previous run of $node failed (exit ${own%% *}): nothing of it was applied"
-      echo; echo '```'; tail -n 60 "$cd_/blobs/${own#* }"; echo '```'; } >> "$cwd/in/feedback.md"
+      echo; echo '```'; grep -v '^slot: job ' "$cd_/blobs/${own#* }" | tail -n 80; echo '```'; } >> "$cwd/in/feedback.md"
     [[ $feedback == yes ]] || inputs+=("in/feedback.md (why your previous run was not applied: fix exactly that)")
     feedback=yes
   fi
