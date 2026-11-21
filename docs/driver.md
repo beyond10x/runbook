@@ -595,7 +595,7 @@ terminable child with one legitimate outcome in its round. Below A5 the decider 
 
 **Approvals by program** (`story:decider-program-approvals`, 2026-11-21). The decider's baseline
 stopped nothing on these approvals (25 of 25 approved), each of them guarded by a check that is a
-program. Under A5, `context.approve`, `roadmap.approve` and `release.publish` are taken by
+program. With `SDC_RULE_APPROVALS=on` (off by default), under A5, `context.approve`, `roadmap.approve` and `release.publish` are taken by
 `rule:autopilot`, with no decider call, when the program check guarding each recorded a passing
 result for the exact revision being approved; otherwise the decider is asked as before. The
 mapping is data, `driver/examples/sdc/rule-ends.json` (`approvals.<action>.by_rule`: the claim and
@@ -625,13 +625,14 @@ the full record under `rule` (rule, approval, each check with its evidence id, k
 subject and revision); the evidence's producer is `rule:autopilot`. The request and result are
 kept under `<run>/rule-approvals/`, never under `decider/`.
 
-`SDC_RULE_APPROVALS=off` restores today's behaviour (every approval asked of the decider); the
-setting is `rule_approvals` (`on`|`off`) in `run-settings.jsonl`, and an experiment record varies
-it (`LAUNCH`). Below A5 the rule is never consulted. `sdc-run-metrics` counts a rule's approval as
+The rule is off by default until the experiment `decider-program-approvals` holds
+(`docs/improving.md`, "Run switches"): unset or `SDC_RULE_APPROVALS=off`, every approval is asked of
+the decider as before; `SDC_RULE_APPROVALS=on` turns the rule on. The setting is `rule_approvals`
+(`on`|`off`) in `run-settings.jsonl`, and an experiment record varies it (`LAUNCH`). Below A5 the rule is never consulted. `sdc-run-metrics` counts a rule's approval as
 a decision by rule (`decisions.by_class.*.by_rule`, run `decisions_by_rule`), not as a decider call
 (`decider_calls`, `decider_cost_usd`, new `decider_s`). Cycles: `rule-approvals`,
 `rule-approvals-check-failed`, `rule-approvals-revision-changed`, `rule-approvals-off`,
-`rule-approvals-a3` (`scripts/run-finding-cycles.sh`).
+`rule-approvals-a3`, `rule-approvals-default` (`scripts/run-finding-cycles.sh`).
 
 **Keep-going** (D142, 2026-11-21, trial and eval runs only: `scripts/run-trial.sh <run>
 --autopilot --keep-going`; refused without `--autopilot`). Where autopilot stops with a cause,

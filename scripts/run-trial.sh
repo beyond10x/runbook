@@ -172,9 +172,10 @@ else rework_cap=$(jq -r .rework_limit "$ex/rule-ends.json") rework_cap_source=ru
 [[ $rework_cap =~ ^[0-9]+$ ]] || { echo "$rework_cap_source: the rework cap is a whole number of reworks (0 or more), not '$rework_cap'"; exit 64; }
 # Approvals by rule (docs/driver.md "Approvals by program"): under A5 an approval whose program
 # check recorded a passing result for the exact revision is taken by rule:autopilot, no decider
-# call. SDC_RULE_APPROVALS=off restores every such approval to the decider; run-settings.jsonl
-# records `rule_approvals`. Below A5 it has no effect.
-rule_approvals=${SDC_RULE_APPROVALS:-on}
+# call. Off by default until experiment decider-program-approvals holds (docs/improving.md, "Run
+# switches"): SDC_RULE_APPROVALS=on turns it on; run-settings.jsonl records `rule_approvals`. Below
+# A5 it has no effect.
+rule_approvals=${SDC_RULE_APPROVALS:-off}
 [[ $rule_approvals == on || $rule_approvals == off ]] || { echo "SDC_RULE_APPROVALS: on or off, not '$rule_approvals'"; exit 64; }
 now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

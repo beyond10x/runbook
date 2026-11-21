@@ -157,7 +157,7 @@ expected+=(implement-request-build implement-request-tests-rework implement-requ
   implement-request-invalid-named implement-request-path-escape)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
-  replay-recording-clean)
+  replay-recording-clean rule-approvals-default)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -507,8 +507,9 @@ fi
 fixture=$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh
 targs=()
 # run.unstick is off unless a cycle turns it on (SDC_UNSTICK=on): the stops these cycles assert
-# are today's. SDC_RULE_APPROVALS is the product's default (on at A5); only the cycles that assert a
-# decider call on context.approve, roadmap.approve or release.publish set it off: autopilot (its
+# are today's. SDC_RULE_APPROVALS is off by default (on only in the rule-approvals cycles); the
+# cycles that assert a decider call on context.approve, roadmap.approve or release.publish also set
+# it off explicitly, so they hold whatever the default: autopilot (its
 # release.publish and roadmap.approve requests feed decider-later-obligation and decider-input),
 # decider-cite-address, decider-cite-retry, decider-invalid-approval, decider-escalate-nobest,
 # decider-reject, decider-rework-context, decider-rework-model, decider-release-withheld and
@@ -2132,9 +2133,8 @@ bugfix_cycle bugfix-never-red never-red not_reproduced \
 # requirements.normalise context.default spec.author plan.decompose change.implement change.review"
 # SDC_FIXTURE_STUB='{"plan.decompose": ["plan-stories.json", "stories.json"]}' run-trial.sh <run>
 # "<fixtures/idea.yaml text>" --autopilot, then sdc-replay pack <run> fixtures/recorded/stub.
-# SDC_RULE_APPROVALS stays at its default (on): the recording holds no decider call for the
-# approvals the rule takes (context.approve, roadmap.approve, release.publish), and the redrives
-# below run with the rule on too.
+# Every run switch stays at its default (off): the recording is main's run, with the decider asked
+# for context.approve, roadmap.approve and release.publish, and the redrives below run the same.
 recording=$fx/recorded/stub
 story_case=IDEA-1.billing.invoices
 redrive() { # <name> [run-trial.sh replay arguments ...]
@@ -2165,6 +2165,32 @@ if (( code == 0 )) && "$replay_bin" compare "$r" > "$s/replay-unchanged.compare.
   echo "replay-unchanged: checks pass (closed operating, same actions in every case, $n_calls calls recorded, 0 reused, live, diverged, paid)"
 else
   echo "replay-unchanged: FAILED (run exit $code, or the actions, the end or the call counts differ: $(calls replay-unchanged status.json 2>/dev/null))"
+fi
+# --- run switches at their defaults (docs/improving.md, "Run switches"): a change in what a run
+# does merges behind a switch that is off until its experiment holds. The committed recording is a
+# stub run of main's tree before these changes; re-driven with every switch at its default, each
+# call is recorded (same node, case, inputs and request fields), none diverged, reused or live, no
+# prompt digest changed and every case took the same actions (sdc-replay compare). Each
+# <switch>-default cycle reads this one run and adds what its own change would leave behind.
+redrive switches-default
+sw_code=$?
+sw=$s/runs/switches-default
+sw_main() { # the default run is main's run: same calls, prompts and actions as the recording
+  (( sw_code == 0 )) && "$replay_bin" compare "$sw" > "$s/switches-default.compare.json" &&
+    jq -e --argjson n "$n_calls" '.replay.calls.recorded == $n and .replay.calls.diverged == 0 and .replay.calls.reused == 0
+      and .replay.calls.live == 0 and .replay.calls.prompt_changed == 0 and .state == "closed" and .outcome == "operating"' "$sw/status.json" >/dev/null
+}
+sw_calls() { jq -c '.replay.calls' "$sw/status.json" 2>/dev/null; }
+# rule-approvals-default: SDC_RULE_APPROVALS unset is off: no rule request, no rule line; the
+# decider is asked for context.approve, roadmap.approve and release.publish as on main.
+if sw_main && [[ ! -d $sw/rule-approvals ]] && jq -se 'all(.rule_approvals == "off")' "$sw/run-settings.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.principal == "rule:autopilot" and (.action | IN("context.approve", "roadmap.approve", "release.publish")))]
+     | length == 0' "$sw/decisions.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.action | IN("context.approve", "roadmap.approve", "release.publish")) | .principal]
+     | length >= 3 and all(startswith("decider:"))' "$sw/decisions.jsonl" >/dev/null; then
+  echo "rule-approvals-default: checks pass (SDC_RULE_APPROVALS unset: off; $n_calls calls as main's recording, no prompt changed, the decider asked for context, roadmap and release)"
+else
+  echo "rule-approvals-default: FAILED (run exit $sw_code; calls $(sw_calls); rule requests: $(ls "$sw/rule-approvals" 2>/dev/null | wc -l))"
 fi
 # replay-reject-stop: merge.approve's recorded approve replaced by a reject: the rejection is
 # recorded and change.implement is sent back with it, a call the source never made
