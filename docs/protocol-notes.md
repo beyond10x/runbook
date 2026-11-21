@@ -220,6 +220,8 @@ and direction passed, the epic `not_released`: `not_delivered` legitimate).
 Canon's classification of the findings on f364b6b (classes a1, a2, a3, c, d, e) is the reference
 for this section; c is fixed by the approval rule above.
 
+The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/simulate-findings.md`.
+
 - **A failed plan check (a3, fixed).** `plan.decompose` was guarded on coverage only, so with the
   plan covered but invalid, its scope unassessed or its stories not active, no action could
   revise the plan. It is now also admissible on `plan.valid`, `plan.scoped` or `plan.active`
