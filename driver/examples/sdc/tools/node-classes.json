@@ -5,6 +5,7 @@
     "implement": ["change.implement"],
     "review": ["spec.review", "change.review"],
     "decider": [],
+    "unstick": ["run.unstick"],
     "other": ["idea.dissect", "questions.write", "questions.answer", "requirements.normalise",
               "context.default", "vision.write", "roadmap.write"]
   }

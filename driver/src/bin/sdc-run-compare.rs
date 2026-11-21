@@ -424,14 +424,25 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
     let defects = jsonl_opt(&dir.join("defects.jsonl"))?;
     let forced = defects.iter().flatten().filter(|d| d["forced"] == json!(true)).count();
     metrics.push(("forced continuations".into(), defects.as_ref().map_or(Cell::Missing, |_| int(forced))));
+    // Unstick (D147): the moves run.unstick took (stop is none), each a diagnosed defect.
+    let unstuck = defects.iter().flatten().filter(|d| d["unstuck"] == json!(true)).count();
+    metrics.push(("unstuck".into(), defects.as_ref().map_or(Cell::Missing, |_| int(unstuck))));
     metrics.push(("reopens".into(), int(reopened_names.len())));
-    metrics.push(("clean run".into(), text(if forced == 0 && reopened_names.is_empty() { "yes" } else { "no" }.to_string())));
+    metrics.push(("clean run".into(), text(if forced == 0 && unstuck == 0 && reopened_names.is_empty() { "yes" } else { "no" }.to_string())));
     metrics.push(("defects".into(), text(defects.as_ref().map_or(NOT_RECORDED.to_string(), |d| {
         if d.is_empty() {
             return "none".to_string();
         }
-        d.iter().map(|x| format!("{} at {} in {} ({})", js(&x["cause"]), js(&x["action"]), js(&x["case"]),
-            if x["forced"] == json!(true) { "forced" } else { "stops" })).collect::<Vec<_>>().join("; ")
+        d.iter().map(|x| {
+            let how = if x["forced"] == json!(true) {
+                "forced".to_string()
+            } else if x["unstuck"] == json!(true) {
+                format!("unstuck: {}, {}: {}", js(&x["move"]), js(&x["defect_class"]), js(&x["diagnosis"]))
+            } else {
+                "stops".to_string()
+            };
+            format!("{} at {} in {} ({how})", js(&x["cause"]), js(&x["action"]), js(&x["case"]))
+        }).collect::<Vec<_>>().join("; ")
     }))));
 
     let recorded = calls.is_some();

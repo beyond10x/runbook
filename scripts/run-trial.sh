@@ -20,6 +20,8 @@
 #                                               forced continuation is taken by rule:keep-going;
 #                                               at most 12 per run, each cause at a case and
 #                                               action once (see keep_going_force)
+# Under --autopilot, before a stop that is no cap, run.unstick picks a legal move (D147, see
+# unstick(); SDC_UNSTICK=off turns it off, SDC_LLM_MODEL_UNSTICK, SDC_UNSTICK_ADAPTER).
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -272,6 +274,16 @@ fi
 
 exec > >(tee -a "$out/console.txt") 2>&1
 
+# run.unstick (D147, below at unstick()): on under autopilot unless SDC_UNSTICK=off or its adapter
+# (SDC_UNSTICK_ADAPTER, else the decider's, else SDC_LLM_ADAPTER) calls no model (stub, dry).
+unstick_on=no
+unstick_adapter=${SDC_UNSTICK_ADAPTER:-${SDC_DECIDER_ADAPTER:-$SDC_LLM_ADAPTER}}
+if [[ $autonomy == A5 && ${SDC_UNSTICK:-on} != off ]]; then
+  case $unstick_adapter in stub|dry) ;; *) unstick_on=yes ;; esac
+fi
+case $unstick_adapter in metaharness|claude-cli|dry) unstick_adapter_bin=$ex/tools/llm-adapter-$unstick_adapter.sh ;; *) unstick_adapter_bin=$unstick_adapter ;; esac
+unstick_model=${SDC_LLM_MODEL_UNSTICK:-claude-opus-5-5}
+
 # Who holds the decisions in this leg, and its caps: one line per start or resume (the UI reads it).
 model=
 [[ $decider == haiku ]] && model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
@@ -282,9 +294,9 @@ models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
   --argjson b "$(jq -s 'map(to_entries[] | select(.value.llm != null) | {(.key): .value.llm.model}) | add' "$ex"/sdc-*.bindings.json)" \
   --arg all "${SDC_LLM_MODEL:-}" --arg writer "${SDC_LLM_MODEL_WRITER:-}" --arg implement "${SDC_LLM_MODEL_IMPLEMENT:-}" \
   --arg review "${SDC_LLM_MODEL_REVIEW:-}" --arg other "${SDC_LLM_MODEL_OTHER:-}" --arg dclass "${SDC_LLM_MODEL_DECIDER:-}" \
-  --arg dmodel "${SDC_DECIDER_MODEL:-}" '
+  --arg dmodel "${SDC_DECIDER_MODEL:-}" --arg umodel "$unstick_model" '
   {writer: $writer, implement: $implement, review: $review, other: $other} as $set
-  | ($c[0].classes | del(.decider) | to_entries | map(.key as $k
+  | ($c[0].classes | del(.decider, .unstick) | to_entries | map(.key as $k
       | (if $set[$k] != "" then {m: $set[$k], src: "SDC_LLM_MODEL_\($k | ascii_upcase)"}
          elif $all != "" then {m: $all, src: "SDC_LLM_MODEL"} else {m: null, src: "binding"} end) as $e
       | (.value | map({(.): ($e.m // $b[.])}) | add // {}) as $nodes
@@ -292,21 +304,26 @@ models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
           nodes: $nodes}}) | add)
   + {decider: (if $dclass != "" then {model: $dclass, source: "SDC_LLM_MODEL_DECIDER"}
       elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
-      else {model: "claude-haiku-5-5", source: "default"} end)}')
+      else {model: "claude-haiku-5-5", source: "default"} end)}
+  + {unstick: {model: $umodel, source: (if $ENV.SDC_LLM_MODEL_UNSTICK // "" != "" then "SDC_LLM_MODEL_UNSTICK" else "default" end)}}')
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
   --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" --arg kg "$keep_going" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+  --arg stand "$stand_in" --arg kg "$keep_going" --arg uon "$unstick_on" --arg uad "$unstick_adapter" --arg umodel "$unstick_model" \
+  '{format: "sdc.run-settings/1", at: $at, leg: $leg,
     autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc, keep_going: ($kg == "yes"),
+    unstick: {on: ($uon == "yes"), adapter: $uad, model: $umodel},
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
     llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+ustart=""
+[[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
 if [[ $leg == started ]]; then
-  echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
+  echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
 else
-  echo "resuming $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
+  echo "resuming $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
 fi
 
 save() {
@@ -380,6 +397,124 @@ keep_going_force() {
   defect "$1" "$2" "$3" "$4" "${5:-null}" true "$6"
   echo "  keep-going: $1 at $3 in $2: $6 (rule:keep-going, forced $(forced_count) of $max_forced)"
 }
+
+# Unstick (D147). Under autopilot, before a stop for any cause but a cap or a crashed tool, the
+# node run.unstick (class unstick, SDC_LLM_MODEL_UNSTICK, default claude-opus-5-5) chooses one of
+# the legal moves a program lists for the stopped state (driver/src/bin/sdc-unstick.rs: rerun a
+# writer, re-ask a decision, take a default, approve, end through a decision-only outcome, stop),
+# with a diagnosis of what is missing. The move is carried out through sdc-drive commands as
+# agent:unstick; each use is a line in defects.jsonl (unstick: true, the move, diagnosis,
+# defect_class). At most 6 moves per run, each cause at a case and action once: then
+# unstick_spent. Off with SDC_UNSTICK=off, and where the adapter has no model (stub, dry). An
+# invalid reply after 2 retries falls back to keep-going when it is on, else the stop. Whether it
+# is on, its adapter and model are set before run-settings.jsonl (`unstick`).
+unstick_bin=${SDC_UNSTICK_BIN:-$sdc/driver/target/debug/sdc-unstick}
+max_unstuck=6
+unstick_kind="" unstick_answer="" unstick_tried="" rejection_recorded="" round_last=null
+unstuck_count() { jq -s '[.[] | select(.unstuck == true)] | length' "$defects" 2>/dev/null || echo 0; }
+# unstick <cause> <case> <action key> <reason> <kind> <request JSON|null> <case dir>: 0 when a move
+# other than stop was chosen (unstick_kind and unstick_answer say which; rerun, reask and end are
+# carried out here, approve and default by the caller); 1 when the run stops.
+unstick() {
+  local cause=$1 ucase=$2 uact=$3 why=$4 ukind=$5 ureq=${6:-null} udir=$7 n rec attempt=1 invalid="" res mv tgt cap
+  unstick_kind="" unstick_answer=""
+  [[ $unstick_on == yes ]] || return 1
+  unstick_tried=yes
+  if jq -e --arg c "$cause" --arg k "$ucase" --arg a "$uact" 'select(.unstuck == true and .cause == $c and .case == $k and .action == $a)' "$defects" > /dev/null 2>&1; then
+    end_cause=unstick_spent end_reason="unstick_spent: $cause at $uact in $ucase was unstuck once before; this stop: $why"
+    return 1
+  fi
+  if (( $(unstuck_count) >= max_unstuck )); then
+    end_cause=unstick_spent end_reason="unstick_spent: $max_unstuck moves of run.unstick taken; this stop: $cause: $why"
+    return 1
+  fi
+  n=$(( $(find "$out/unstick" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
+  rec=$out/unstick/$(printf '%03d' "$n")-$cause
+  mkdir -p "$rec"
+  jq -n --arg c "$cause" --arg why "$why" --arg k "$ucase" --arg d "$udir" --arg a "$uact" --arg kind "$ukind" --argjson req "$ureq" \
+    --argjson rr "$([[ $rejection_recorded == yes ]] && echo true || echo false)" --argjson pos "$(jq -c '.position // null' <<< "$round_last" 2>/dev/null || echo null)" \
+    '{cause: $c, reason: $why, case: $k, case_dir: $d, action: $a, kind: $kind, request: $req, rejection_recorded: $rr, position: $pos}' > "$rec/stop.json"
+  "$canon" evaluate --ir "$udir/ir.json" --case "$udir/case.json" --evidence "$udir/evidence" --authority "$udir/authority.json" \
+    --decisions "$udir/decisions.json" --at "$(now)" > "$rec/decision.json" 2>/dev/null || echo null > "$rec/decision.json"
+  "$unstick_bin" moves --stop "$rec/stop.json" > "$rec/moves.json" || return 1
+  while :; do
+    "$unstick_bin" prompt --stop "$rec/stop.json" --moves "$rec/moves.json" --decision "$rec/decision.json" --record "$rec" \
+      --attempt "$attempt" --invalid "$invalid" || return 1
+    rm -f "$rec/cwd/out/unstick.json" "$rec/structured-output.json"
+    jq -n --argjson attempt "$attempt" --arg model "$unstick_model" --arg rec "$rec" --arg case "$ucase" --arg case_dir "$udir" '{
+      model: $model, prompt_file: ($rec + "/prompt.md"), cwd: ($rec + "/cwd"), record_dir: $rec, node: "run.unstick",
+      attempt: $attempt, json_schema: ($rec + "/reply-schema.json"), case: $case, case_dir: $case_dir,
+      operations: ["dir.list", "file.read", "file.write"],
+      max_turns: ($ENV.SDC_UNSTICK_MAX_TURNS // "12" | tonumber),
+      max_budget_usd: ($ENV.SDC_UNSTICK_MAX_BUDGET_USD // "1.00" | tonumber)}' > "$rec/request.json"
+    "$unstick_adapter_bin" "$rec/request.json" > "$rec/response.json" 2> "$rec/stderr.txt"
+    [[ -s $rec/structured-output.json ]] && cp "$rec/structured-output.json" "$rec/cwd/out/unstick.json"
+    res=$("$unstick_bin" validate --moves "$rec/moves.json" --reply "$rec/cwd/out/unstick.json") || res='{"valid": false, "why": "sdc-unstick validate failed"}'
+    [[ $(jq -r .valid <<< "$res") == true ]] && break
+    invalid=$(jq -r '.why // "invalid"' <<< "$res")
+    if (( attempt > 2 )); then
+      jq --argjson a "$attempt" '. + {attempts: $a}' <<< "$res" > "$rec/result.json"
+      echo "  run.unstick: reply refused by the check after 2 retries ($invalid): no move"
+      defect_line "$cause" "$ucase" "$uact" "$why" "$res" "run.unstick: invalid reply after 2 retries: $invalid" \
+        "$(jq -cn --arg rec "${rec#"$out"/}" --argjson a "$attempt" --arg why "$invalid" '{unstick: true, unstuck: false, move: null,
+          invalid: $why, attempts: $a, record: $rec}')"
+      return 1
+    fi
+    echo "  run.unstick: reply refused by the check ($invalid): asked again ($attempt of 2 retries)"
+    attempt=$((attempt + 1))
+  done
+  jq --argjson a "$attempt" '. + {attempts: $a}' <<< "$res" > "$rec/result.json"
+  mv=$(jq -c .move <<< "$res") tgt=$(jq -r '.move.target // ""' <<< "$res") cap=$(jq -r '.move.capability // ""' <<< "$res")
+  unstick_kind=$(jq -r .kind <<< "$mv") unstick_answer=$(jq -r '.answer // ""' <<< "$mv")
+  echo "  run.unstick: $(jq -r .id <<< "$mv") ($(jq -r .defect_class <<< "$res")): $(jq -r .diagnosis <<< "$res")"
+  local line
+  line=$(jq -c --arg rec "${rec#"$out"/}" '{unstick: true, unstuck: (.move.kind != "stop"), move: .move.id, diagnosis, defect_class,
+    reasons, attempts, record: $rec}' "$rec/result.json")
+  if [[ $unstick_kind == stop ]]; then
+    defect_line "$cause" "$ucase" "$uact" "$why" "$res" "run.unstick chose stop" "$line"
+    return 1
+  fi
+  case $unstick_kind in
+    rerun_writer)
+      d "$udir" allow --at "$(now)" --action "$tgt" --principal agent:unstick ;;
+    reask)
+      mkdir -p "$out/unstick-notes"
+      jq -r .diagnosis "$rec/result.json" > "$out/unstick-notes/$ucase.$tgt"
+      code=0
+      if [[ $ukind == finding ]]; then
+        yq -i "(.findings[] | select(.id == \"$tgt\")) |= del(.refused_decision)" "$udir/work/findings.yaml" || code=1
+      fi ;;
+    end)
+      # The refusal as the protocol represents it: the capability denied when it was never
+      # decided; else the decider's rejection recorded (if it was not) as the case's last step.
+      if ! jq -e --arg c "$cap" 'any(.[]; .capability == $c)' "$udir/authority.json" > /dev/null 2>&1; then
+        d "$udir" approve --at "$(now)" --capability "$cap" --principal agent:unstick --deny
+      elif [[ $rejection_recorded != yes ]]; then
+        d "$udir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$(jq -r .action <<< "$ureq")" \
+          --result rejected --reasons "${rework_file:-$rec/result.json}"
+      else
+        code=0
+      fi
+      [[ $code == 0 ]] && d "$udir" decide --at "$(now)" --decision "$(jq -r '.move.decision' <<< "$res")" --outcome "$tgt" \
+        --principal agent:unstick --after-denial "$cap" --reasons "$rec/result.json"
+      [[ $code == 0 ]] && d "$udir" close --at "$(now)" --outcome "$tgt" --principal agent:unstick ;;
+    *) code=0 ;;
+  esac
+  if [[ $code != 0 ]]; then
+    end_reason="$why; run.unstick chose $(jq -r .id <<< "$mv"), which sdc-drive refused: $(tail -n 1 <<< "$last" | cut -c1-200)"
+    defect_line "$cause" "$ucase" "$uact" "$why" "$res" "refused by sdc-drive" "$(jq -c '.unstuck = false' <<< "$line")"
+    return 1
+  fi
+  defect_line "$cause" "$ucase" "$uact" "$why" "$res" "$(jq -r .says <<< "$mv")" "$line"
+  return 0
+}
+# A defect line with extra fields (unstick's): <cause> <case> <action> <reason> <decision> <continuation> <extra JSON>
+defect_line() {
+  defect "$1" "$2" "$3" "$4" "$5" false "$6"
+  local t
+  t=$(mktemp "$out/.defects.XXXXXX")
+  { head -n -1 "$defects"; tail -n 1 "$defects" | jq -c --argjson x "$7" '. + $x + (if $x.unstuck then {principal: "agent:unstick"} else {} end)'; } > "$t" && mv "$t" "$defects"
+}
 trap 'rc=$?; autopilot_end "$rc"; save; watch_stop' EXIT
 
 dry_lines() { { wc -l < "${SDC_LLM_DRY_LOG:-/dev/null}"; } 2>/dev/null || echo 0; }
@@ -394,13 +529,20 @@ finish() { # <outcome> [principal that closed it]
   if [[ -n ${2:-} ]]; then d "$root" close --at "$(now)" --outcome "$1" --principal "$2"; else d "$root" close --at "$(now)" --outcome "$1"; fi
   # A keep-going run says how many continuations were forced: it is evidence for defects, never a
   # clean end-to-end pass.
-  local forced=""
+  # So does a run that run.unstick moved on: it closed unattended, its diagnoses are defects.
+  local forced="" unstuck="" tag=""
   [[ $keep_going == yes || -s $defects ]] && forced=$(forced_count)
-  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2}${forced:+ (forced $forced)} (exit $code)"
+  [[ $unstick_on == yes || -s $defects ]] && unstuck=$(unstuck_count)
+  [[ $keep_going != yes && $forced == 0 ]] && forced=""
+  [[ $unstick_on != yes && $unstuck == 0 ]] && unstuck=""
+  [[ -n $forced ]] && tag="forced $forced"
+  [[ -n $unstuck ]] && tag="${tag:+$tag, }unstuck $unstuck"
+  echo "closed IDEA-1: $(jq -c '.terminated' <<< "$last")${end_note:+ ($end_note)}${2:+ by $2}${tag:+ ($tag)} (exit $code)"
   [[ $code == 0 ]] || exit 4
-  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" --arg by "${2:-}" --arg forced "$forced" '{format: "sdc.run-status/1", at: $at, state: "closed",
+  jq -n --arg at "$(now)" --arg o "$1" --arg note "$end_note" --arg by "${2:-}" --arg forced "$forced" --arg unstuck "$unstuck" '{format: "sdc.run-status/1", at: $at, state: "closed",
     outcome: $o, delivered: ($o == "operating"), note: (if $note == "" then null else $note end),
-    closed_by: (if $by == "" then null else $by end)} + (if $forced == "" then {} else {forced: ($forced | tonumber)} end)' > "$out/status.json"
+    closed_by: (if $by == "" then null else $by end)} + (if $forced == "" then {} else {forced: ($forced | tonumber)} end)
+    + (if $unstuck == "" then {} else {unstuck: ($unstuck | tonumber)} end)' > "$out/status.json"
   "$canon" evaluate --ir "$root/ir.json" --case "$root/case.json" --evidence "$root/evidence" \
     --authority "$root/authority.json" --decisions "$root/decisions.json" --at "$(now)" > "$out/decision.json"
   d "$root" replay
@@ -413,7 +555,13 @@ waiting() {
   if [[ $autonomy == A5 ]]; then
     end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "$last")
     end_action=$(jq -r '.next[0].action // ""' <<< "$last")
-    if [[ $end_cause != keep_going_spent ]]; then
+    # A handoff with nothing for the decider: run.unstick, unless it was asked about this stop.
+    if [[ -z $unstick_tried && -z $end_cause ]] &&
+       unstick decision_not_takeable "$end_case" "$end_action" "$end_action in $end_case: decision_not_takeable: ${wait_why:-the decider of this run cannot take it}" \
+         handoff null "$(jq -r '.case_dir // ""' <<< "$last")"; then
+      return 0
+    fi
+    if [[ $end_cause != keep_going_spent && $end_cause != unstick_spent ]]; then
       end_cause=decision_not_takeable
       end_reason="$end_action in $end_case: decision_not_takeable: ${wait_why:-the decider of this run cannot take it}; it waits on a fix of that decision path, then --reopen"
     fi
@@ -436,7 +584,13 @@ waiting() {
 # (rejected_on_checks). A reject at an approval: under A5 reworked by its writer (rework), else ended
 # by the protocol's end for a refusal (withhold), else the run ends rejected_without_rework_path.
 decide() {
-  local req=$1 key rec n reply before attempt=1 why="" kind fallback=""
+  local req=$1 key rec n reply before attempt=1 why="" kind fallback="" note
+  # A re-ask by run.unstick carries its diagnosis as the request's note, once.
+  note=$out/unstick-notes/$(jq -r '(.case_dir | split("/") | last) + "." + (.question.id // .finding.id // .action)' <<< "$req")
+  if [[ -f $note ]]; then
+    req=$(jq -c --rawfile n "$note" '.note = ($n | rtrimstr("\n"))' <<< "$req")
+    rm -f "$note"
+  fi
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
   kind=$(jq -r .type <<< "$req")
   dec="" ans="" taker="decider:$decider"
@@ -541,16 +695,32 @@ decide() {
         end_reason="$end_action in $end_case: decider:$decider rejected $(jq -r '.subject // "it"' <<< "$req") $(jq -r '.revision // ""' <<< "$req") ($(jq -r '.reasons | join(" ")' <<< "$reply")); rejected_without_rework_path: ${rework_gap:-the protocol has no action that reworks a rejected revision with the reasons}; it waits on that protocol path"
         [[ $autonomy == A5 ]] || end_reason+=", or on a person's edit of work/$(jq -r '.path // ""' <<< "$req") and a resume"
       fi
-      # Keep-going: the approval or close is taken by rule:keep-going; a question or a finding
-      # takes its default (none: nothing to take without inventing it, the run stops).
-      local dflt=""
-      [[ $kind == question || $kind == finding ]] && dflt=$(jq -r ".${kind}.default // \"\"" <<< "$req")
-      if [[ $end_cause != keep_going_spent ]] && [[ $kind != question && $kind != finding || -n $dflt ]] &&
-         keep_going_force "$end_cause" "$end_case" "$end_action$( [[ $kind == question || $kind == finding ]] && jq -r '" " + (.question.id // .finding.id)' <<< "$req")" \
-           "$end_reason" "$reply" "$( [[ -n $dflt ]] && echo "the default taken: $dflt" || echo "approved")"; then
-        end_cause="" end_reason="" rework_gap="" rework_file="" dec=approve ans=$dflt taker=rule:keep-going
+      local item=""
+      [[ $kind == question || $kind == finding ]] && item=" $(jq -r '.question.id // .finding.id' <<< "$req")"
+      # run.unstick first: approve and default are taken here as agent:unstick; a rerun, a re-ask or
+      # an end it carried out goes on in the next round.
+      if unstick "$end_cause" "$end_case" "$end_action$item" "$end_reason" "$kind" "$req" "$(jq -r .case_dir <<< "$req")"; then
+        end_cause="" end_reason="" rework_gap="" rework_file="" rejection_deferred=""
+        case $unstick_kind in
+          approve) dec=approve ans="" taker=agent:unstick ;;
+          default) dec=approve ans=$unstick_answer taker=agent:unstick ;;
+          *) dec="" reworked=yes ;;
+        esac
         return 0
       fi
+      # Keep-going: the approval or close is taken by rule:keep-going; a question or a finding
+      # takes its default (none: nothing to take without inventing it, the run stops). An approval
+      # whose rejection is recorded is settled and cannot be taken: it stops.
+      local dflt=""
+      [[ $kind == question || $kind == finding ]] && dflt=$(jq -r ".${kind}.default // \"\"" <<< "$req")
+      if [[ $end_cause != keep_going_spent && $end_cause != unstick_spent ]] && [[ $kind != question && $kind != finding || -n $dflt ]] &&
+         [[ $kind != approval || $rejection_recorded != yes ]] &&
+         keep_going_force "$end_cause" "$end_case" "$end_action$( [[ $kind == question || $kind == finding ]] && jq -r '" " + (.question.id // .finding.id)' <<< "$req")" \
+           "$end_reason" "$reply" "$( [[ -n $dflt ]] && echo "the default taken: $dflt" || echo "approved")"; then
+        end_cause="" end_reason="" rework_gap="" rework_file="" rejection_deferred="" dec=approve ans=$dflt taker=rule:keep-going
+        return 0
+      fi
+      record_deferred
       echo "$end_reason"
       exit 6 ;;
     *) dec="" ;;
@@ -582,7 +752,16 @@ checks_failing() {
 # goes on; else sets end_cause and end_reason: rework_spent on the third rejection (the approval
 # and the three reasons), rejected_without_rework_path when the approval cannot record a
 # rejection or no writer is sent back by it (rework_gap says which).
-reworked="" rework_gap="" taker=""
+reworked="" rework_gap="" taker="" rejection_deferred=""
+# The third rejection rework() left unrecorded, recorded as the decider's when the run stops.
+record_deferred() {
+  local cdir cap act
+  [[ -n $rejection_deferred && -n $rework_file ]] || return 0
+  read -r cdir cap act <<< "$rejection_deferred"
+  rejection_deferred=""
+  d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act" --result rejected --reasons "$rework_file"
+  echo "  recorded the rejection of $act as decider:$decider before the stop: exit $code"
+}
 rework() { # <request> <decider reply>
   local req=$1 reply=$2 cdir act cap subj rev file prior n kind writers rec
   cdir=$(jq -r .case_dir <<< "$req") act=$(jq -r .action <<< "$req") cap=$(jq -r .capability <<< "$req")
@@ -596,10 +775,12 @@ rework() { # <request> <decider reply>
     --argjson r "$reply" --argjson n "$n" '{format: "sdc.rejection/1", approval: $a, case: $c, subject: $s, revision: $rev,
       principal: $p, at: $at, reasons: $r.reasons, citations: ($r.citations // [($r.cites // [])[] | {cite: .}]),
       decision_record: $r.record, count: $n}' > "$file"
-  rework_file=$file
-  # Keep-going: the third rejection is not recorded in the case (a recorded rejection settles the
-  # approval, and rule:keep-going could no longer take it); it is in defects.jsonl.
-  if (( n > 2 )) && [[ $keep_going == yes ]]; then
+  rework_file=$file rejection_recorded="" rejection_deferred=""
+  # Keep-going and unstick: the third rejection is not recorded in the case yet (a recorded
+  # rejection settles the approval, and neither could take it then); a run that stops anyway
+  # records it before the stop (record_deferred).
+  if (( n > 2 )) && [[ $keep_going == yes || $unstick_on == yes ]]; then
+    rejection_deferred="$cdir $cap $act"
     end_cause=rework_spent
     end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
       '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
@@ -610,6 +791,7 @@ rework() { # <request> <decider reply>
     rework_gap="\`$act\` cannot record a rejected result ($(tail -n 1 <<< "$last" | sed 's/^sdc-drive: //'))"
     return 1
   fi
+  rejection_recorded=yes
   echo "  recorded the rejection of $act at $rev as decider:$decider (rejection $n; at most 2 are reworked)"
   if (( n > 2 )); then
     end_cause=rework_spent
@@ -672,6 +854,7 @@ answer_questions() {
     decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson q "$q" --argjson pos "$pos" \
       '{type: "question", case_dir: $c, action: $a, capability: "scope.answer", subject: "questions",
         path: "questions.yaml", revision: $rev, question: $q, outcome: null, position: $pos}')"
+    [[ $reworked == yes ]] && { reworked=""; continue; }
     [[ -n $dec ]] || return 1
     st=changed
     [[ $ans == "$(jq -r .default <<< "$q")" ]] && st=accepted
@@ -696,6 +879,16 @@ decide_findings() {
     fid=$(jq -r .id <<< "$f")
     if jq -e '.refused_decision' <<< "$f" > /dev/null; then
       wait_why="$fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f"))"
+      # run.unstick first: the default as agent:unstick, or the decider asked again (done there).
+      if unstick decision_not_takeable "${cdir##*/}" "$act $fid" "$act in ${cdir##*/}: decision_not_takeable: $wait_why" finding \
+           "$(jq -cn --arg c "$cdir" --arg a "$act" --argjson f "$f" '{type: "finding", case_dir: $c, action: $a, capability: null, finding: $f}')" "$cdir"; then
+        if [[ $unstick_kind == default ]]; then
+          ANS=$unstick_answer yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"agent:unstick\"
+            | del(.refused_decision))" "$ff"
+        fi
+        continue
+      fi
+      [[ $end_cause == unstick_spent ]] && return 1
       # Keep-going: the finding's default, taken by rule:keep-going and applied by amend.upstream
       # through the same check; a default that check refused already (rule:keep-going's own) stops.
       local dflt
@@ -713,6 +906,7 @@ decide_findings() {
     decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg rev "$rev" --argjson f "$f" --argjson pos "$pos" \
       '{type: "finding", case_dir: $c, action: $a, capability: null, subject: "findings",
         path: "findings.yaml", revision: $rev, question: null, finding: $f, outcome: null, position: $pos}')"
+    [[ $reworked == yes ]] && { reworked=""; continue; }
     [[ -n $dec ]] || return 1
     ANS=$ans yq -i "(.findings[] | select(.id == \"$fid\")) |= (.decision = strenv(ANS) | .decided_by = \"$taker\")" "$ff"
   done
@@ -778,6 +972,7 @@ for round in $(seq 1 40); do
   dry_before=$(dry_lines)
   t0=$(date +%s) s0=$(now)
   d "$root" run --at "$s0" --max-llm-calls "$max_llm" --max-wall-seconds "$max_wall"
+  round_last=$last unstick_tried=""
   verdict=$(jq -r '.verdict // "error"' <<< "$last" 2>/dev/null || echo error)
   # One line per round for the KPI L2 (autonomous run time between human interventions).
   jq -cn --arg s "$s0" --arg e "$(now)" --argjson t0 "$t0" --argjson t1 "$(date +%s)" --arg v "$verdict" \
@@ -827,9 +1022,20 @@ for round in $(seq 1 40); do
       [[ $code == 0 ]] || exit 1 ;;
     *)
       jq -r '.message // .' <<< "$last" 2>/dev/null || echo "$last"
+      # run.unstick first, for any verdict but a cap (*_budget_spent, wall_time_spent) or an error.
+      if [[ $verdict == writer_spent || $verdict == writer_not_called || $verdict == stuck ]]; then
+        verdict_end 4
+        wdir=$(jq -r '.case_dir // ""' <<< "$last")
+        ukind=stuck
+        [[ $verdict == writer_* ]] && ukind=writer
+        if [[ -n $wdir ]] && unstick "$end_cause" "$end_case" "$end_action" "$end_reason" "$ukind" null "$wdir"; then
+          end_cause="" end_reason="" end_case="" end_action=""; continue
+        fi
+        last=$round_last
+      fi
       # Keep-going: a spent or not-called writer gets one more allowance of its max_runs
       # (`sdc-drive allow`); its failing check records are fed back as on any retry.
-      if [[ $verdict == writer_spent || $verdict == writer_not_called ]] && [[ $keep_going == yes ]]; then
+      if [[ $verdict == writer_spent || $verdict == writer_not_called ]] && [[ $keep_going == yes && $end_cause != unstick_spent ]]; then
         verdict_end 4
         wdir=$(jq -r '.case_dir // ""' <<< "$last")
         if [[ -n $end_action && -n $wdir ]] &&

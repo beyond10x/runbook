@@ -245,7 +245,15 @@ fn main() -> ExitCode {
         "seconds": fixes.iter().filter_map(|f| f["seconds"].as_i64()).sum::<i64>(),
         "stops": reopens.iter().map(|s| json!({"at": s["at"], "by": s["by"], "cause": s["cause"], "case": s["case"]})).collect::<Vec<_>>(),
         "gaps": fixes})));
-    k.push(("clean_run", json!({"value": forced == 0 && reopens.is_empty(), "forced": forced, "reopens": reopens.len()})));
+    // Unstick (D147): the moves of run.unstick other than stop, each with its diagnosis. A run
+    // it moved on closed unattended, not clean: each diagnosis is a defect to fix.
+    let unstick: Vec<&J> = defects.iter().filter(|d| d["unstick"] == json!(true)).collect();
+    let unstuck = unstick.iter().filter(|d| d["unstuck"] == json!(true)).count();
+    k.push(("unstuck", json!({"value": unstuck, "diagnoses": unstick.iter().map(|d| json!({
+        "cause": d["cause"], "case": d["case"], "action": d["action"], "move": d["move"], "unstuck": d["unstuck"],
+        "defect_class": d["defect_class"], "diagnosis": d["diagnosis"]})).collect::<Vec<_>>()})));
+    k.push(("clean_run", json!({"value": forced == 0 && unstuck == 0 && reopens.is_empty(), "forced": forced,
+        "unstuck": unstuck, "reopens": reopens.len()})));
 
     // L3 defaults accepted without change.
     let res: Vec<&Value> = fd

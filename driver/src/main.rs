@@ -112,8 +112,10 @@ enum Cmd {
     /// revision) for an outcome that requires that decision alone. Canon admits such a decision
     /// from any principal in any state, so the driver admits it only directly after the case's
     /// last step denied `--after-denial` (`approve --deny`): a refused release is withheld
-    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied). The reasons file
-    /// is the decision's log blob. Refused before anything is written otherwise.
+    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied); or directly
+    /// after it recorded a `rejected` result of an action that requires that capability (a story
+    /// dropped after its merge was rejected, `change.merge`). The reasons file is the decision's
+    /// log blob. Refused before anything is written otherwise.
     Decide {
         #[arg(long)]
         at: String,
@@ -1801,14 +1803,20 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                 return Err(format!("`{decision}` is already recorded in this case"));
             }
             let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated");
+            let requires = |a: &Value| {
+                ir["actions"][a.as_str().unwrap_or("")]["requires"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|c| c["capability"] == after_denial.as_str()))
+            };
             let denied = last.as_ref().is_some_and(|e| {
-                e["event"] == "authority_recorded"
+                (e["event"] == "authority_recorded"
                     && e["capability"] == after_denial.as_str()
-                    && e["decision"] == "denied"
+                    && e["decision"] == "denied")
+                    || (e["event"] == "action_finished" && e["result"] == "rejected" && requires(&e["action"]))
             });
             if !denied {
                 return Err(format!(
-                    "`{decision}` is taken only directly after `{after_denial}` was denied in this case; its last step is {}",
+                    "`{decision}` is taken only directly after `{after_denial}` was denied, or an action requiring it recorded `rejected`, in this case; its last step is {}",
                     last.map(|e| match e["action"].as_str() {
                         Some(a) => format!("{} {a}", e["event"].as_str().unwrap_or("?")),
                         None => e["event"].as_str().unwrap_or("?").to_string(),

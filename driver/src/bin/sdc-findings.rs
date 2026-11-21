@@ -53,10 +53,11 @@ fn is_open(s: &str) -> bool {
     s == "open" || s == "needs_person"
 }
 
-/// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it, or keep-going's
-/// forced default (`rule:keep-going`, D142): taken in a decider's place and checked as its are.
+/// A decider's principal (`decider:<kind>`), as scripts/run-trial.sh writes it, keep-going's
+/// forced default (`rule:keep-going`, D142) or run.unstick's (`agent:unstick`, D147): taken in a
+/// decider's place and checked as its are.
 fn is_decider(principal: &str) -> bool {
-    principal == "rule:keep-going"
+    matches!(principal, "rule:keep-going" | "agent:unstick")
         || principal
             .strip_prefix("decider:")
             .is_some_and(|k| !k.is_empty())

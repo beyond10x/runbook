@@ -15,6 +15,9 @@
 # (`prior_rejections`), each round a reply or a list by attempt. The response names the model the
 # request named.
 #
+# run.unstick (scripts/run-trial.sh) gets out/unstick.json from SDC_UNSTICK_REPLIES (JSON {cause:
+# reply}, "*" for any cause; a list by attempt); without one, the move `stop`.
+#
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
 for p in jq; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-fixture.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
@@ -39,6 +42,16 @@ if [[ $node == decide.* ]]; then
         then (capture("^(?<a>[a-z_]+)@\\{rev\\}(?<rest>.*)$") | "\(.a)@\($rev[.a] // "none")\(.rest)") else . end) else . end' \
     "$cwd/out/decision.json" > "$cwd/out/decision.json.tmp" 2>/dev/null && mv "$cwd/out/decision.json.tmp" "$cwd/out/decision.json"
   rm -f "$cwd/out/decision.json.tmp"
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
+if [[ $node == run.unstick ]]; then
+  mkdir -p "$cwd/out"
+  jq --argjson r "${SDC_UNSTICK_REPLIES:-"{}"}" --argjson n "$(jq '.attempt // 1' "$1")" '($r[.cause] // $r["*"]
+    | if type == "array" then (.[$n - 1] // last) else . end)
+    // {move: "stop", diagnosis: "fixture run.unstick: no scripted reply, the run stops as it would have.",
+      defect_class: "other", reasons: ["no scripted reply"]}' "$cwd/in/stop.json" > "$cwd/out/unstick.json" || exit 1
   jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
     cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
   exit 0

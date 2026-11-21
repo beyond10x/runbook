@@ -222,7 +222,7 @@ prior='[]'
 jq --argjson item "$item" --argjson touches "$touches" --argjson cit "$citable" --argjson prior "$prior" '{type, case: (.case_dir | split("/") | last), action, capability,
   subject, artifact_path: .path, revision, question, item: $item, idea_excerpt: ($item.span // null),
   finding: (.finding // null), touches: $touches, outcome, citable_artifacts: $cit.artifacts,
-  prior_rejections: $prior}' <<< "$req" > "$cwd/in/decision.json"
+  prior_rejections: $prior} + (if .note then {note: .note} else {} end)' <<< "$req" > "$cwd/in/decision.json"
 # The reply schema (sdc-reply schema): decision, answer and cites as enums of what is admissible.
 schema_args=(--type "$type")
 [[ $final == yes ]] && schema_args+=(--final)
@@ -264,6 +264,12 @@ if [[ $(jq length <<< "$prior") -gt 0 ]]; then
 This approval was rejected before, at an earlier revision, and the writer has reworked it since
 (\`prior_rejections\` in in/decision.json: each rejection's revision and reasons). Check whether the
 current revision addresses each of those reasons; a reason still not addressed is a reason to reject."
+fi
+# Asked again by run.unstick (scripts/run-trial.sh): its diagnosis of why the run stopped here.
+if [[ $(r '.note // ""') != "" ]]; then
+  what="$what
+You are asked again: the run stopped at this decision, and a reviewer of the stop wrote (\`note\`
+in in/decision.json): $(r .note)"
 fi
 
 prompt=$rec/prompt.md

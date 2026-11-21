@@ -46,9 +46,10 @@ All paths are relative to the run directory.
 | oracle check | `oracle.json` (or `store/oracle.json`), the oracle file of `docs/eval-design.md` (oracle file): `held`, `contradicted` or `unknown` per check | `none` when absent; `held (n of n checks)`; else the worst result and the three counts (`:460`). No run writes this file yet: `eval/oracle-spec.sh` prints one line for a spec directory, and trial 3 must save its result as `oracle.json` *(inferred)* |
 | replay | `replay.json` (`scripts/run-trial.sh:160`) | `<n> of <m> cases match` (state and decision both match the log) or `not recorded` (`:483`). The tool never runs `sdc-drive replay` (it needs Canon; no library call exists) |
 | forced continuations | `defects.jsonl` (`sdc.run-defect/1`, keep-going, `docs/driver.md`) | lines with `forced: true`; `not recorded` without the file. A run with one forced is not a clean run |
+| unstuck | `defects.jsonl` (run.unstick, `docs/driver.md` "Unstick") | lines with `unstuck: true`; `not recorded` without the file. A run with one closed unattended, not clean |
 | reopens | `run-stopped.<at>.json` files (a stop record a later leg reopened) | their number; a run with one is not a clean run |
-| clean run | `defects.jsonl`, `run-stopped.<at>.json` | `yes` only with no forced continuation and no reopen |
-| defects | `defects.jsonl` | `<cause> at <action> in <case> (forced or stops)` per line, `none` for an empty file |
+| clean run | `defects.jsonl`, `run-stopped.<at>.json` | `yes` only with no forced continuation, no unstick move and no reopen |
+| defects | `defects.jsonl` | `<cause> at <action> in <case> (forced, stops, or unstuck: <move>, <defect class>: <diagnosis>)` per line, `none` for an empty file |
 | setting | last line of `run-settings.jsonl` (`sdc.run-settings/1`) | `autonomy`, `stand-in`, decider kind and model, and `models` / `model` as written when present (the per-step model setting of `story:model-per-node-variable`, shape not yet fixed) (`:490`) |
 
 A person is a principal that is not empty, `decider:*`, `rule:*`, `program*`, `dry-run*`, `agent*`,
