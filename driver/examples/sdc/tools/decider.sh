@@ -206,9 +206,14 @@ fi
 # What the reply may cite (sdc-reply citable): the artifacts in in/ at their revisions, and one
 # example of each citation form from these inputs.
 citable=$("$reply_bin" citable --cwd "$cwd" --case-dir "$case_dir")
-jq --argjson item "$item" --argjson touches "$touches" --argjson cit "$citable" '{type, case: (.case_dir | split("/") | last), action, capability,
+# An approval rejected before (sdc-reply rejections: the case's rejected records of this action,
+# with their reasons): the decider checks the new revision against them.
+prior='[]'
+[[ $type == approval ]] && prior=$("$reply_bin" rejections --case-dir "$case_dir" --action "$(r .action)")
+jq --argjson item "$item" --argjson touches "$touches" --argjson cit "$citable" --argjson prior "$prior" '{type, case: (.case_dir | split("/") | last), action, capability,
   subject, artifact_path: .path, revision, question, item: $item, idea_excerpt: ($item.span // null),
-  finding: (.finding // null), touches: $touches, outcome, citable_artifacts: $cit.artifacts}' <<< "$req" > "$cwd/in/decision.json"
+  finding: (.finding // null), touches: $touches, outcome, citable_artifacts: $cit.artifacts,
+  prior_rejections: $prior}' <<< "$req" > "$cwd/in/decision.json"
 # The reply schema (sdc-reply schema): decision, answer and cites as enums of what is admissible.
 schema_args=(--type "$type")
 [[ $final == yes ]] && schema_args+=(--final)
@@ -245,6 +250,12 @@ checks the amendment and refuses one that does; then a person decides." ;;
 obligation is discharged and the checks in in/checks.json hold; reject when the result does not
 meet the requirements." ;;
 esac
+if [[ $(jq length <<< "$prior") -gt 0 ]]; then
+  what="$what
+This approval was rejected before, at an earlier revision, and the writer has reworked it since
+(\`prior_rejections\` in in/decision.json: each rejection's revision and reasons). Check whether the
+current revision addresses each of those reasons; a reason still not addressed is a reason to reject."
+fi
 
 prompt=$rec/prompt.md
 {

@@ -11,7 +11,9 @@
 # out/decision.json: SDC_DECIDER_REPLIES (JSON {key: reply}) by key, the request's question id,
 # finding id or action (in/decision.json); without one, approve, with a question's or a finding's
 # default as the answer; a list of replies is taken by the request's `attempt` (the n-th, else the
-# last). The response names the model the request named.
+# last); `{"rounds": [...]}` is taken by the number of the approval's earlier rejections
+# (`prior_rejections`), each round a reply or a list by attempt. The response names the model the
+# request named.
 #
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
@@ -24,7 +26,9 @@ if [[ $node == decide.* ]]; then
   mkdir -p "$cwd/out"
   # A list of replies for one key is taken by attempt (the decider's retries): the n-th, else the last.
   jq --argjson r "${SDC_DECIDER_REPLIES:-"{}"}" --argjson n "$(jq '.attempt // 1' "$1")" '(.question.id // .finding.id // .action) as $k
-    | ($r[$k] | if type == "array" then (.[$n - 1] // last) else . end)
+    | (.prior_rejections // [] | length) as $p
+    | ($r[$k] | if type == "object" and has("rounds") then (.rounds[$p] // (.rounds | last)) else . end
+      | if type == "array" then (.[$n - 1] // last) else . end)
       // {decision: "approve", answer: (if .type == "question" then .question.default
         elif .type == "finding" then .finding.default else null end),
       reasons: ["fixture decider: approve, the default where there is one"], cites: [], best: null}' \

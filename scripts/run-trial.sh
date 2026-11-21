@@ -82,6 +82,7 @@ name=${pos[0]:?usage: run-trial.sh [--dry] <name> [idea text] | <name> --stop "<
 idea_text=${pos[1]:-}
 canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
+reply_bin=${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}
 ex=$sdc/driver/examples/sdc
 out=${SDC_RUNS_DIR:-$sdc/runs}/$name
 store=$out/store
@@ -280,7 +281,7 @@ save() {
 # Autopilot (A5): no stop waits on a person. A run that ends anywhere but closed (a stop that would
 # need a person, a cap, stuck, a refusal) is stopped with a record by rule:autopilot.
 # The record names the step (action, case as a run-relative id), the cause (end_cause, also the
-# record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path,
+# record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path, rework_spent,
 # decider_budget_spent, decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
 # driver's verdicts (stuck, writer_spent, llm_budget_spent, step_budget_spent, wall_time_spent).
@@ -292,9 +293,9 @@ autopilot_end() {
     v=$(jq -r '.verdict // "error"' <<< "${last:-null}" 2>/dev/null || echo error)
     end_cause=$v
     end_case=$(jq -r '(.case_dir // "") | split("/") | last' <<< "${last:-null}" 2>/dev/null)
-    end_action=$(jq -r '.spent[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
+    end_action=$(jq -r '(.spent // .position.spent // [])[0].action // .action // .next[0].action // ""' <<< "${last:-null}" 2>/dev/null)
     case $v in
-      writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '.spent[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
+      writer_spent) end_reason="$end_action in $end_case: writer_spent ($(jq -r '(.spent // .position.spent // [])[0] | "\(.runs) runs, last exit \(.last_exit)"' <<< "$last")): it waits on a code fix of the writer, then --reopen" ;;
       stuck) end_reason="${end_case:-the run}: stuck, no action is admissible and useful: it waits on a code or protocol fix, then --reopen" ;;
       *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
       *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
@@ -438,9 +439,16 @@ decide() {
   case $dec in
     approve) ;;
     reject)
-      end_cause=rejected_without_rework_path end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
-      end_reason="$end_action in $end_case: decider:$decider rejected $(jq -r '.subject // "it"' <<< "$req") $(jq -r '.revision // ""' <<< "$req") ($(jq -r '.reasons | join(" ")' <<< "$reply")); rejected_without_rework_path: the protocol has no action that reworks a rejected revision with the reasons; it waits on that protocol path"
-      [[ $autonomy == A5 ]] || end_reason+=", or on a person's edit of work/$(jq -r '.path // ""' <<< "$req") and a resume"
+      end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
+      # Autopilot: a rejected approval is reworked (rework below), not an end.
+      if [[ $autonomy == A5 && $kind == approval ]]; then
+        rework "$req" "$reply" && { dec="" reworked=yes; return 0; }
+      fi
+      if [[ -z $end_cause ]]; then
+        end_cause=rejected_without_rework_path
+        end_reason="$end_action in $end_case: decider:$decider rejected $(jq -r '.subject // "it"' <<< "$req") $(jq -r '.revision // ""' <<< "$req") ($(jq -r '.reasons | join(" ")' <<< "$reply")); rejected_without_rework_path: ${rework_gap:-the protocol has no action that reworks a rejected revision with the reasons}; it waits on that protocol path"
+        [[ $autonomy == A5 ]] || end_reason+=", or on a person's edit of work/$(jq -r '.path // ""' <<< "$req") and a resume"
+      fi
       echo "$end_reason"
       exit 6 ;;
     *) dec="" ;;
@@ -461,6 +469,52 @@ checks_failing() {
        | unique) as $reads
     | [($reads[] | . as $c | ($q.position.claims[$c].value // "unknown") | select(. != "true") | "\($c) is \(.)"),
        (if $q.type == "close" then ($q.position.open_obligations[]? | "obligation \(.) open") else empty end)]' <<< "$req"
+}
+
+# Autopilot rework of a rejected approval (docs/autonomy-levels.md, "A rejected approval in
+# autopilot"). The rejection (sdc.rejection/1: approval, revision, reasons, citations) is written
+# beside the decider record and recorded in the case with `approve --result rejected --reasons`;
+# the writer whose binding names the approval's kind in `retry_when` is then useful and gets it as
+# in/rejection.json, its checks run on the new revision and the approval is asked again. The count
+# is the case's rejected records of the approval (sdc-reply rejections). Returns 0 when the run
+# goes on; else sets end_cause and end_reason: rework_spent on the third rejection (the approval
+# and the three reasons), rejected_without_rework_path when the approval cannot record a
+# rejection or no writer is sent back by it (rework_gap says which).
+reworked="" rework_gap=""
+rework() { # <request> <decider reply>
+  local req=$1 reply=$2 cdir act cap subj rev file prior n kind writers rec
+  cdir=$(jq -r .case_dir <<< "$req") act=$(jq -r .action <<< "$req") cap=$(jq -r .capability <<< "$req")
+  subj=$(jq -r '.subject // ""' <<< "$req") rev=$(jq -r '.revision // ""' <<< "$req")
+  prior=$("$reply_bin" rejections --case-dir "$cdir" --action "$act")
+  n=$(( $(jq length <<< "$prior") + 1 ))
+  rec=$(jq -r '.record // empty' <<< "$reply")
+  file=${rec:-$out}/rejection.json
+  [[ -n $rec ]] || file=$out/rejection-$(date +%s%N).json
+  jq -n --arg a "$act" --arg c "${cdir##*/}" --arg s "$subj" --arg rev "$rev" --arg p "decider:$decider" --arg at "$(now)" \
+    --argjson r "$reply" --argjson n "$n" '{format: "sdc.rejection/1", approval: $a, case: $c, subject: $s, revision: $rev,
+      principal: $p, at: $at, reasons: $r.reasons, citations: ($r.citations // [($r.cites // [])[] | {cite: .}]),
+      decision_record: $r.record, count: $n}' > "$file"
+  d "$cdir" approve --at "$(now)" --capability "$cap" --principal "decider:$decider" --action "$act" --result rejected --reasons "$file"
+  if [[ $code != 0 ]]; then
+    rework_gap="\`$act\` cannot record a rejected result ($(tail -n 1 <<< "$last" | sed 's/^sdc-drive: //'))"
+    return 1
+  fi
+  echo "  recorded the rejection of $act at $rev as decider:$decider (rejection $n; at most 2 are reworked)"
+  if (( n > 2 )); then
+    end_cause=rework_spent
+    end_reason="$act in ${cdir##*/}: rework_spent: decider:$decider rejected $subj three times: $(jq -r --argjson cur "$(jq -c '.reasons' "$file")" \
+      '[(.[] | .reasons), $cur] | to_entries | map("\(.key + 1): \(.value | join(" "))") | join("; ")' <<< "$prior"); it waits on a fix of the writer or of the reasons, then --reopen"
+    return 1
+  fi
+  kind=$(jq -r --arg a "$act" '.[$a].produces // ""' "$cdir/bindings.json")
+  writers=$(jq -r --arg k "$kind" --argjson u "$(jq -c '.position.useful // []' <<< "$last")" \
+    '[to_entries[] | select((.value.retry_when[$k]? // []) | index("rejected")) | .key] as $w | [$u[] | select(IN($w[]))] | join(" ")' "$cdir/bindings.json")
+  if [[ -z $writers ]]; then
+    rework_gap="the rejection is recorded, but no writer action is admissible and sent back by a rejected \`$kind\`"
+    return 1
+  fi
+  echo "  rework: $writers runs again with the rejection's reasons (in/rejection.json), then $act is asked again"
+  return 0
 }
 
 # The open scope-changing questions of the interview in case $1, one decider decision each (action
@@ -552,6 +606,8 @@ decide_all() {
       decide "$(jq -cn --arg c "$cdir" --arg a "$act" --arg cap "$cap" --arg s "$subj" --arg p "$path" --arg rev "$rev" \
         --argjson pos "$pos" '{type: "approval", case_dir: $c, action: $a, capability: $cap, subject: $s,
           path: $p, revision: $rev, question: null, outcome: null, position: $pos}')"
+      # A reworked rejection: the writer runs in the next round, the approval is asked again after it.
+      [[ $reworked == yes ]] && { reworked=""; return 0; }
       [[ -n $dec ]] || return 1
     fi
     taken[$key]=1

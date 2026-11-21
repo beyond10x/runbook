@@ -408,9 +408,27 @@ its default (`fallback: invalid_reply_default`); an approval is approved when ev
 precondition is true (`approved_on_checks`), a close when its outcome's claims are true and no
 obligation is open, else rejected with the failing checks (`rejected_on_checks`). `--autopilot`
 exports `SDC_DECIDER_ESCALATE=final`, so the decider is asked for `best` and an escalate without
-it is invalid. A reject ends the
-run with exit 6, `rejected_without_rework_path`: no protocol approval has a result other than
-`approved`, so none has an action that reworks a rejected revision with the reasons.
+it is invalid.
+
+**A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
+writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
+revision, principal, reasons, citations, count) and records it: `sdc-drive approve … --action
+<approval> --result rejected --reasons <file>` writes the plain `canon-evidence/1` record with
+result `rejected` (refused unless the action's binding is a manual approval whose `results` name
+`rejected`) and keeps the file as the step's log blob. A writer whose binding names the approval's
+kind in `retry_when` (`"retry_when": {"merge_approval": ["rejected"]}`) is then useful while the
+rejected record is about the current revision; the driver passes the record in SDC_FEEDBACK, and
+`llm-node.sh` gives the writer the blob as `in/rejection.json` with a prompt to address each reason
+and cite it back. A model writer writes the artifact itself; only the stub, which writes the same
+output every time, appends the rejection to the subject (`.rework` in a tree, a comment in a YAML or
+Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
+adapter). The new revision leaves the record behind and the approval is asked again; the
+decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
+evidence and the event log). The third rejection stops the run with cause `rework_spent`; a
+rejection that cannot be recorded, or that sends no writer back, with
+`rejected_without_rework_path` (exit 6), as `release.publish` does: its approval is a capability
+with no `rejected` result. An open case keeps the `ir.json` and `bindings.json` it
+was opened with, so a run started before a protocol change does not gain the new actions.
 
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
@@ -421,7 +439,7 @@ or null>"}` (`by` from `SDC_PRINCIPAL`, required), and a `# stopped at … by �
 on. `sdc-finding-kpis` reports the time the run waited on a person as L7 (`kpis.md` § 4), with the
 stops that caused it, up to the stop record's instant; with a decider set (A3 and up) a value
 above 0 is printed as `FAILED`. Under `--autopilot` a stop the decider cannot take is written by
-`rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`,
+`rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`, `rework_spent`,
 `decider_budget_spent`, `writer_spent`, `stuck`, …) and a reason that names the action, the cause,
 the case and the fix it waits on; the interval before a `rule:` stop is not counted in L7.
 
