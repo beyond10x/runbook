@@ -144,8 +144,12 @@ function render() {
     const host = $('#graph');
     const live = graphLive(ns, c);
     const probe = renderGraph(host, c, ev, {zoom: S.zoom, selected: S.node, showReads: S.showReads, atSeq: S.atSeq, revisions: c._revisions, live, now});
-    const z = S.fit ? Math.min(1.15, Math.max(0.75, (host.clientWidth - 24) / probe.width)) : S.zoom;
+    // on a phone the graph keeps a readable scale (labels 12 px and more) and scrolls in its own box
+    const z = S.fit ? (PHONE.matches ? 1.3 : Math.min(1.15, Math.max(0.75, (host.clientWidth - 24) / probe.width))) : S.zoom;
     if (z !== S.zoom) { S.zoom = z; renderGraph(host, c, ev, {zoom: z, selected: S.node, showReads: S.showReads, atSeq: S.atSeq, revisions: c._revisions, live, now}); }
+    const hint = $('#ghint');
+    const wide = PHONE.matches && host.scrollWidth > host.clientWidth + 1;
+    if (hint.hidden === wide) hint.hidden = !wide;
   } else $('#graph').innerHTML = '<p class="muted pad">no ir.json in this case</p>';
   patch($('#timeline'), renderTimeline(c, at, last));
   document.documentElement.classList.toggle('rp-open', S.panel);

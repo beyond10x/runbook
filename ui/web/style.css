@@ -1066,3 +1066,17 @@ tr.fail td b { color: #ff9a9e; }
   .tiles { grid-template-columns: 1fr 1fr; }
   .cols2 { grid-template-columns: 1fr; }
 }
+/* C3 the case graph scrolls in its own box at a readable scale, with a visible hint, never clipped */
+@media (max-width: 900px) {
+  #center { display: block; }
+  .gbar { padding: 10px 12px; gap: 8px; }
+  #graph { height: 62vh; scroll-margin-top: 150px; }
+  .ghint:not([hidden]) { display: block; margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-2); background: var(--bg-2); }
+  #timeline { padding: 10px 12px; overflow-x: clip; }
+  .tl-head { flex-wrap: wrap; row-gap: 6px; }
+  .tl-cur { flex: 1 1 100%; order: 2; flex-wrap: wrap; white-space: normal; }
+  .tl-cur > span:last-child { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  .tl-track { height: 44px; }
+  .tl-foot { flex-wrap: wrap; }
+  .tl-legend { flex-wrap: wrap; overflow: visible; white-space: normal; }
+}
