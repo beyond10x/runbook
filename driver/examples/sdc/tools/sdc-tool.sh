@@ -49,9 +49,11 @@ case $1 in
 stub-file) f=$fx/$2; [[ -n ${SDC_STUB_FIXTURES:-} && -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2; cp "$f" "$3" ;;
 stub-tree)
   # SDC_STUB_FIXTURES may hold the tree too: <name>.<n> on the n-th call (from 0), else <name>.
+  # The count is kept in SDC_STUB_COUNTER (default .sdc; the fixture adapter names work/.sdc).
   f=$fx/$2
   if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
-    n=$(cat ".sdc/stub-tree.$2" 2>/dev/null || echo 0); echo $((n + 1)) > ".sdc/stub-tree.$2"
+    c=${SDC_STUB_COUNTER:-.sdc}/stub-tree.$2
+    n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
     [[ -d $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
     [[ -d $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
   fi

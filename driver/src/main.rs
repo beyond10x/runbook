@@ -591,7 +591,7 @@ fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, evs: &[Va
     let line = last.map(|e| log_line(dir, e)).unwrap_or_default();
     let mut sent_back = Vec::new();
     let after: Vec<&Value> = evs.iter().skip(since).filter(|e| e["event"] == "action_finished" && !program_error(&e["exit"])).collect();
-    for (i, run) in after.iter().enumerate().filter(|(_, e)| e["action"] == a) {
+    for (i, run) in after.iter().enumerate().filter(|(_, e)| e["action"] == a && !e["not_called"].is_string()) {
         let by = after[i + 1..].iter().take_while(|e| e["action"] != a).find(|e| e["exit"] != "0");
         sent_back.push(json!({"run_seq": run["seq"], "by": by.map(|e| e["action"].clone()),
             "exit": by.map(|e| e["exit"].clone()), "line": by.map(|e| log_line(dir, e))}));
@@ -621,8 +621,12 @@ fn sent_back_text(s: &Value) -> String {
 ///   (`last_arrival`) count, so a person's decision or an outside revision gives the writers a
 ///   fresh allowance. A writer that would be useful but has none left is returned as spent.
 ///
-/// A run that ended in a program error (exit 126/127) never counts.
-fn useful(dir: &Path, d: &Value) -> R<(Vec<String>, Vec<String>, Vec<Value>)> {
+/// A run that ended in a program error (exit 126/127) never counts, nor one that ended
+/// `not_called` (the tool did nothing: `llm-node.sh`'s "not called" exits, runs/trial-3-haiku-4).
+/// A writer whose last run was `not_called` at this very snapshot is returned apart: running it
+/// again would do nothing again.
+type Useful = (Vec<String>, Vec<String>, Vec<Value>, Vec<Value>);
+fn useful(dir: &Path, d: &Value) -> R<Useful> {
     let ir = read_json(&dir.join("ir.json"))?;
     let bindings = read_json(&dir.join("bindings.json"))?;
     let case_bytes = fs::read(dir.join("case.json")).map_err(|e| e.to_string())?;
@@ -639,6 +643,7 @@ fn useful(dir: &Path, d: &Value) -> R<(Vec<String>, Vec<String>, Vec<Value>)> {
     let mut auto = Vec::new();
     let mut manual = Vec::new();
     let mut spent = Vec::new();
+    let mut not_called = Vec::new();
     for a in with_status(&d["actions"], "admissible") {
         let b = &bindings[a.as_str()];
         if b.is_null() {
@@ -673,6 +678,15 @@ fn useful(dir: &Path, d: &Value) -> R<(Vec<String>, Vec<String>, Vec<Value>)> {
         if !is_useful {
             continue;
         }
+        // A writer whose run ended without doing anything (`not_called`, see the step) as the
+        // case's last step, at this snapshot, would see the same inputs and end the same way
+        // again: not useful. After any other step (a check that failed since) it is.
+        if let Some(e) = finished.last().filter(|e| {
+            ran(e) && e["not_called"].is_string() && e["case"] == snapshot.as_str()
+        }) {
+            not_called.push(json!({"action": a, "run_seq": e["seq"], "reason": e["not_called"]}));
+            continue;
+        }
         if writer {
             let runs = evs[since..]
                 .iter()
@@ -680,6 +694,7 @@ fn useful(dir: &Path, d: &Value) -> R<(Vec<String>, Vec<String>, Vec<Value>)> {
                     e["event"] == "action_finished"
                         && e["action"] == a.as_str()
                         && !program_error(&e["exit"])
+                        && !e["not_called"].is_string()
                 })
                 .count() as u64;
             let max = b["max_runs"].as_u64().unwrap_or(8);
@@ -701,6 +716,7 @@ fn useful(dir: &Path, d: &Value) -> R<(Vec<String>, Vec<String>, Vec<Value>)> {
         auto.into_iter().map(|(_, a)| a).collect(),
         manual.into_iter().map(|(_, a)| a).collect(),
         spent,
+        not_called,
     ))
 }
 
@@ -715,12 +731,12 @@ fn position(dir: &Path, d: &Value) -> R<Value> {
                 .collect()
         })
         .unwrap_or_default();
-    let (auto, manual, spent) = useful(dir, d)?;
+    let (auto, manual, spent, not_called) = useful(dir, d)?;
     let case = read_json(&dir.join("case.json"))?;
     Ok(
         json!({"case": case["id"], "state": state_digest(dir)?, "claims": d["claims"], "open_obligations": open,
         "admissible": with_status(&d["actions"], "admissible"), "useful": auto, "awaiting_person": manual,
-        "spent": spent,
+        "spent": spent, "not_called": not_called,
         "approval_required": with_status(&d["actions"], "approval-required"),
         "legitimate_outcomes": with_status(&d["outcomes"], "legitimate")}),
     )
@@ -1133,7 +1149,9 @@ fn step(
                 next = kept;
                 // A spent writer that waits for a person's decision (an arrival gives it a fresh
                 // allowance): a due handoff stands even while its action is not admissible.
-                if !pos["spent"].as_array().unwrap().is_empty() {
+                if !pos["spent"].as_array().unwrap().is_empty()
+                    || !pos["not_called"].as_array().unwrap().is_empty()
+                {
                     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
                     for (a, b) in bindings.as_object().into_iter().flatten() {
                         let (Some(h), Some(argv)) =
@@ -1163,10 +1181,20 @@ fn step(
                     ("terminable", 0)
                 } else if nonempty("awaiting_person") || handoff {
                     ("awaiting_person", 3)
-                } else if nonempty("spent") && nonempty("approval_required") {
+                } else if (nonempty("spent") || nonempty("not_called")) && nonempty("approval_required") {
                     // A person's pending approval may be what the spent writer waits for
                     // (`scope.answer` after `questions.answer` refused a changed answer).
                     ("awaiting_authority", 3)
+                } else if nonempty("not_called") {
+                    // The writer would be useful but declines to do anything at this snapshot,
+                    // and nothing else can move the case: its own stop, not three empty runs
+                    // into writer_spent (runs/trial-3-haiku-4).
+                    let s = &pos["not_called"][0];
+                    event(dir, at, "writer_not_called", json!({"state": pos["state"], "not_called": pos["not_called"]}))?;
+                    let message = format!("writer `{}` is not called at {} and nothing else is useful: run {} ended: {}",
+                        s["action"].as_str().unwrap_or(""), dir.display(), s["run_seq"], s["reason"].as_str().unwrap_or(""));
+                    return Ok((json!({"verdict": "writer_not_called", "case_dir": dir, "not_called": pos["not_called"],
+                        "message": message, "next": next, "position": pos, "explanation": decision["explanation"]}), 4));
                 } else if nonempty("spent") {
                     // A writer with nothing left is the stop (a handoff with nothing to decide was
                     // dropped above).
@@ -1291,6 +1319,7 @@ fn step(
     // What the step leaves for the end: the new snapshot, written after evidence and
     // `action_finished`, so a crash never leaves a moved revision without its step's record.
     let mut snapshot: Option<(Value, Map<String, Value>)> = None;
+    let mut not_called: Option<String> = None;
     if b.get("copy").is_some() {
         // TEMPORARY (Loom, boundary.md row 28): copy a record from another case of the tree.
         // Kept as given, except `upstream_revisions` entries for artifacts this protocol does not
@@ -1360,6 +1389,11 @@ fn step(
         if is_llm {
             env.push(("SDC_LLM_NODE", b["llm"].to_string()));
         }
+        // A tool that exits 0 having done nothing (llm-node.sh: "<node> not called: ...") writes
+        // why to this file; the run is then recorded `not_called` and not counted (`useful`).
+        let not_called_file = fs::canonicalize(dir).unwrap_or(dir.to_path_buf()).join(".not-called");
+        let _ = fs::remove_file(&not_called_file);
+        env.push(("SDC_NOT_CALLED", not_called_file.to_string_lossy().into_owned()));
         if !feedback.is_empty() {
             let bytes = json_bytes(&json!(feedback));
             let p = dir.join("blobs").join(sha(&bytes));
@@ -1382,6 +1416,10 @@ fn step(
             log = out;
             code
         };
+        if let Ok(why) = fs::read_to_string(&not_called_file) {
+            let _ = fs::remove_file(&not_called_file);
+            not_called = (code == "0").then_some(why.trim().to_string());
+        }
         // A tool cannot name a revision: what it left in `work/` is digested here.
         let (case, moved) = pending(dir)?;
         let forced_result = forced.filter(|_| code == "0").map(|(r, l)| {
@@ -1454,6 +1492,9 @@ fn step(
         "principal": principal});
     if let Some((r, _)) = forced {
         finished["result"] = json!(r);
+    }
+    if let Some(why) = not_called {
+        finished["not_called"] = json!(why);
     }
     event(dir, at, "action_finished", finished)?;
     commit(dir, at, &case_after, &moved)?;
@@ -1610,7 +1651,7 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                     }
                     m
                 }
-                Some("writer_spent") => v["message"].as_str().unwrap_or("writer_spent").to_string(),
+                Some(w @ ("writer_spent" | "writer_not_called")) => v["message"].as_str().unwrap_or(w).to_string(),
                 Some(v) => v.to_string(),
                 None => String::new(),
             };
