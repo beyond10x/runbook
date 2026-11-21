@@ -21,6 +21,9 @@
 //! sdc-findings --rules <…> check-requirements
 //!     the requirements' citation rule (`citation_fault`) and the run's build constraints
 //!     (`constraint_fault`, work/build-constraints.yaml, D154), one line per fault; exit 0 none, 1 some
+//! sdc-findings --rules <…> check-answer <text>
+//!     a decider's answer against the build constraints' `ruled_out` list (`answer_fault`): exit 0
+//!     within them, 1 and the reason when it names a ruled-out language, runtime or dependency
 //! ```
 //!
 //! `findings.yaml`: `{findings: [{id, type, stage, raised_by, cites, says, options, default,
@@ -1199,6 +1202,35 @@ fn constraint_fault(w: &Work, r: &Value) -> Option<String> {
     None
 }
 
+/// D154: why a decider's answer (`text`) breaks the build constraints `bc`, or None: it names an
+/// entry of their closed list `ruled_out` (a language, a runtime or a dependency), exactly as
+/// written there and as a whole word (no letter, digit or `_` on either side).
+/// runs/trial-3-small-haiku-1: f9 was decided "Implement in Python 3 with the standard library
+/// only" by a decider that was never shown the constraints. tools/decider.sh refuses such a reply
+/// and asks again.
+fn answer_fault(bc: &Value, text: &str) -> Option<String> {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let named: Vec<String> = strs(bc, "ruled_out")
+        .into_iter()
+        .filter(|n| {
+            !n.is_empty()
+                && text.match_indices(n.as_str()).any(|(i, m)| {
+                    !text[..i].chars().next_back().is_some_and(word) && !text[i + m.len()..].chars().next().is_some_and(word)
+                })
+        })
+        .collect();
+    if named.is_empty() {
+        return None;
+    }
+    let deps = strs(bc, "dependencies");
+    Some(format!(
+        "the answer names {}, which the build constraints of this run (build-constraints.yaml: language {}, dependencies: {}) rule out: choose an answer within them; a requirement against them is changed, not kept",
+        named.join(", "),
+        st(bc, "language"),
+        if deps.is_empty() { "none".to_string() } else { deps.join(", ") }
+    ))
+}
+
 /// `sdc-findings check-requirements`: the requirements' shape at write time (requirements.check):
 /// at least one requirement, each with an id, the citation rule (`citation_fault`) and the build
 /// constraints (`constraint_fault`, D154). One line per fault; exit 0 none, 1 some.
@@ -1653,7 +1685,14 @@ fn run(args: &[String]) -> R<u8> {
         [c, node, file] if c == "promote" => promote(&rules, node, file),
         [c, stage] if c == "amend" => amend(&rules, stage),
         [c] if c == "check-requirements" => Ok(check_requirements(&Work::open(&rules)?)),
-        _ => Err("usage: sdc-findings --rules <file> consistency | trace | gate <stage> | promote <node> <file> | amend <stage> | check-requirements".into()),
+        [c, text] if c == "check-answer" => Ok(match answer_fault(&load("build-constraints.yaml"), text) {
+            Some(why) => {
+                println!("{why}");
+                1
+            }
+            None => 0,
+        }),
+        _ => Err("usage: sdc-findings --rules <file> consistency | trace | gate <stage> | promote <node> <file> | amend <stage> | check-requirements | check-answer <text>".into()),
     }
 }
 
@@ -2002,5 +2041,20 @@ mod tests {
         assert!(reraised_of(&w, &interview).is_none());
         w.question_mut("q17").unwrap()["status"] = s("superseded");
         assert!(reraised_of(&w, &f11).is_none());
+    }
+
+    /// runs/trial-3-small-haiku-1 f9: the decider's "Python 3" names a ruled-out language; the
+    /// option within the constraints, and a word that only contains a listed name, pass.
+    #[test]
+    fn a_decider_answer_naming_a_ruled_out_language_is_refused() {
+        let bc: Value = serde_yaml::from_str("language: Rust\ndependencies: []\nruled_out: [Python, Postgres, C#, Node.js]\n").unwrap();
+        let why = answer_fault(&bc, "Implement in Python 3 with the standard library only, as r5 and the context state").unwrap();
+        assert!(why.contains("names Python") && why.contains("language Rust, dependencies: none"), "{why}");
+        assert!(answer_fault(&bc, "Implement in Rust with the standard library only, as this task instructs").is_none());
+        assert!(answer_fault(&bc, "keep the list in Postgres.").unwrap().contains("Postgres"));
+        assert!(answer_fault(&bc, "a C# service").unwrap().contains("C#"));
+        assert!(answer_fault(&bc, "use Node.js").is_some());
+        assert!(answer_fault(&bc, "PostgresLike store, Pythonic names").is_none());
+        assert!(answer_fault(&Value::Mapping(Mapping::new()), "Python").is_none());
     }
 }

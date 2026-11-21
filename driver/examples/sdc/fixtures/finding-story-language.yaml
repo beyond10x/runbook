@@ -1,0 +1,11 @@
+node: change.implement
+findings:
+  - key: story-language
+    type: contradiction
+    cites: [r1, context.platform]
+    says: r1 and the context describe a Python 3 tool run from a shell, but this build is Rust with the standard library only.
+    options:
+      - Implement in Rust with the standard library only, as the build constraints fix it
+      - Implement in Python 3 with the standard library only, as r1 and the context state
+    default: Implement in Rust with the standard library only, as the build constraints fix it
+    scope_changing: true

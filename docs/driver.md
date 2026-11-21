@@ -432,6 +432,30 @@ of "escalate to a person" it says that no person can be asked: write `escalate`,
 what cannot be told, and give `best`. Cycle `decider-input` checks the records of the `autopilot`
 cycle.
 
+**The build constraints** (D154, 2026-11-21, `runs/trial-3-small-haiku-1`: r5 said Python 3, the
+builder was told Rust, and the decider decided f9 "Python 3" without being shown either). One data
+file of the run, `driver/examples/sdc/build-constraints.yaml` (`sdc.build-constraints/1`:
+`language`, `edition`, `dependencies`, `ruled_out`, `text`) or `SDC_BUILD_CONSTRAINTS`, copied to
+`work/build-constraints.yaml` when a run starts. The writers from `idea.dissect` to
+`change.implement` read it (`docs/trial-2.md`, Limits), and so does every decider call but the
+close: a scope question, a finding, an approval of the context, the spec or a merge. The decider's
+prompt says that the constraints are fixed, that an option contradicting them cannot be chosen, and
+that a finding reporting a requirement against them is decided by changing the requirement. The
+program check of a decider reply (`decider.sh` `validate`, `sdc-findings check-answer`) refuses an
+answer to a question or a finding that names an entry of `ruled_out`, exactly as written there and
+as a whole word; the decider is asked again with the reason, as for any invalid reply (two retries,
+then the fallback). `requirements.check` holds each requirement's declared `language` and
+`dependencies` to the file. Cycles `lang-constraint` and `decider-constraints`.
+Limits:
+- A requirement that names a language or a dependency only in its text, without declaring
+  `language` or `dependencies`, passes `requirements.check`: only the declared fields are read.
+- A decider answer is checked against the `ruled_out` list only: a language or dependency not on
+  the list passes, and an answer that names a listed entry to reject it ("not Python") is refused.
+- D141 can supersede an answer that still holds: a contradiction finding that cites an answer for
+  another reason supersedes it when its decision differs (`runs/trial-3-mixed-3`: f5, about offline
+  editing, cites q5, about when the list is cached; q5 would be superseded by f5's q8). The story
+  `contradiction-supersedes-only-what-it-replaces` proposes the narrower rule.
+
 **Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
 decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
 question and finding ids, `context.<key>`, the claims in `in/checks.json`), artifact revisions with

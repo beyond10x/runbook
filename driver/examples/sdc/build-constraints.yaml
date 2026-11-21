@@ -2,6 +2,36 @@ format: sdc.build-constraints/1
 language: Rust
 edition: "2021"
 dependencies: []
+ruled_out:
+  - Python
+  - JavaScript
+  - TypeScript
+  - Node.js
+  - Deno
+  - Java
+  - Kotlin
+  - Scala
+  - Ruby
+  - PHP
+  - Perl
+  - Elixir
+  - Haskell
+  - Swift
+  - C#
+  - .NET
+  - PostgreSQL
+  - Postgres
+  - MySQL
+  - MariaDB
+  - SQLite
+  - Redis
+  - MongoDB
+  - Kafka
+  - RabbitMQ
+  - tokio
+  - serde
+  - npm
+  - pip
 text: |-
   - Rust, edition 2021, standard library only: no dependencies in Cargo.toml (there is no network).
   - A service is a daemon binary that serves its web UI and a JSON API with std::net::TcpListener,

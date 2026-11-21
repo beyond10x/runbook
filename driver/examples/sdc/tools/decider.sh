@@ -18,7 +18,9 @@
 # A finding (type finding, amend.upstream's handoff) is decided with `approve` and an `answer`: one
 # of its options, or, when it is not a rule's contradiction (no `sides`), an answer of its own; or
 # `escalate`. Its in/decision.json adds `touches`: the requirements, prior decisions (answered
-# questions) and context fields it cites.
+# questions) and context fields it cites. Every decision but the close reads work/build-constraints.yaml
+# (D154); an answer to a question or a finding that names an entry of its `ruled_out` list is an
+# invalid reply (sdc-findings check-answer), asked again as any invalid reply is.
 #
 # haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
 # metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5), at most
@@ -99,6 +101,14 @@ validate() {
         elif ($type | IN("question", "finding") | not) and $a != null then "answer is only for a question or a finding"
         else "" end end' "$out" 2>&1) || why="validator error: $why"
   fi
+  # D154: an answer naming what the run's build constraints rule out (sdc-findings check-answer,
+  # their `ruled_out` list) is refused, so the decider is asked again with the reason.
+  if [[ -z $why && ($type == question || $type == finding) && -f $work/build-constraints.yaml ]]; then
+    local a fb=${SDC_FINDINGS:-$here/../../../target/debug/sdc-findings}
+    [[ -x $fb ]] || { echo "decider.sh: sdc-findings not found ($fb)" >&2; exit 127; }
+    a=$(jq -r --arg type "$type" '[.answer, (if $type == "finding" then .best else null end)] | map(strings) | join("\n")' "$out")
+    [[ -n $a ]] && why=$(cd "$work" && "$fb" --rules "$here/consistency-rules.json" check-answer "$a")
+  fi
   if [[ -n $why ]]; then
     jq -cn --arg why "$why" --argjson m "$meta" '{decision: "escalate", answer: null, best: null,
       reasons: ["invalid decider reply: " + $why], cites: [], valid: false, invalid_reason: $why} + $m'
@@ -151,6 +161,10 @@ input() {
   inputs+=("in/$p")
 }
 input idea.yaml; input dissection.yaml; input questions.yaml; input requirements.yaml; input context.yaml
+# The run's build constraints (D154), for every decision but the close: a scope question, a finding,
+# an approval of the context, the spec or a merge can each take what the build cannot use
+# (runs/trial-3-small-haiku-1: f9 was decided "Python 3" by a decider never shown them).
+[[ $type != close ]] && input build-constraints.yaml
 # A close judges the result, not the plan: the published README instead of aep/ (runs/trial-3-haiku-5:
 # the close read the roadmap's aep `status: draft` as a disagreement with roadmap.approved).
 if [[ $type == close ]]; then
@@ -294,6 +308,8 @@ prompt=$rec/prompt.md
     echo "\`met_after_this_action\` in in/checks.json lists what can only be met by a step after $(r .action): not a condition of this decision, never a reason to reject it."
   [[ -e $cwd/in/aep ]] &&
     echo "\`status\` and \`revision\` in the front matter of in/aep/ files belong to the planning tool and say nothing about approval: an approval is its claim in in/checks.json."
+  [[ -e $cwd/in/build-constraints.yaml ]] &&
+    echo "The build constraints of this run (in/build-constraints.yaml) are fixed: an option that contradicts them cannot be chosen, and a finding that reports a requirement against them is decided by changing the requirement. A program refuses an answer that names a language, runtime or dependency of their \`ruled_out\` list."
   echo
   if [[ $final == yes ]]; then
     case $type in

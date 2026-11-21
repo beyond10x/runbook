@@ -252,7 +252,7 @@ unchanged.
   decided "Python 3" again).
 - The build constraints are one data file of the run (D154, the operator, 2026-11-21,
   `runs/trial-3-small-haiku-1`): `driver/examples/sdc/build-constraints.yaml`
-  (`sdc.build-constraints/1`: `language`, `edition`, `dependencies`, `text`), or
+  (`sdc.build-constraints/1`: `language`, `edition`, `dependencies`, `ruled_out`, `text`), or
   `SDC_BUILD_CONSTRAINTS`, copied to `work/build-constraints.yaml` when `run-trial.sh` or
   `run-full-cycle.sh` starts a run (run-settings.jsonl `build_constraints`). It is an input of
   idea.dissect, questions.write, questions.answer, requirements.normalise, context.default,
@@ -412,6 +412,7 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `decider-scope-final` (added 2026-11-21, as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating q3) | 0 | q3 `escalation_suppressed`, its default taken. Before: exit 6 (the escalated approval had no `best`, counted as reject) |
 | `decider-finding` (added 2026-11-21, `story:decider-finding-decision`: `fixtures/finding-spec-person.yaml` under the decider) | 0 | f1 (scope-changing) goes to the decider as a finding request; it answers option 2; f1 resolved with `decided_by: decider:haiku`, the amendment's question `answered_by: decider:haiku`, class `finding` in `decisions.jsonl`; closed, replay 8 of 8. Before: exit 3, "nothing for decider:haiku at amend.upstream" |
 | `decider-finding-final` (as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating with no `best`) | 0 | `escalation_suppressed`, f1's default taken. Before: exit 3 |
+| `decider-constraints` (added 2026-11-21, D154, `runs/trial-3-small-haiku-1`'s f9: `SDC_STUB_FINDINGS=fixtures/finding-story-language.yaml`, the decider first answers the Python option, then the Rust one) | 0 | the first reply is `invalid_reply` ("the answer names Python, which the build constraints of this run … rule out"), the decider is asked again with that reason and f1 is resolved with the Rust option by decider:haiku; the decider's input holds `build-constraints.yaml` and its prompt the constraints sentence. Before: f1 resolved "Implement in Python 3 …" |
 | `decider-finding-refused` (`fixtures/offline-decision` under the decider) | 3 | the decider takes the default the agent's check already refused; the same check refuses the decider's amendment (it states against decision q3): reverted, `refused_decision` kept, the decider not asked again, a person decides. Before: exit 3 with no decider request and no `refused_decision` |
 | `run-stop` (added 2026-11-21: `scripts/run-trial.sh <run> --stop`, `--reopen`; KPI L7) | 3, then 0, 8, 3 | the run stops at `context.approve` (exit 3); `--stop` writes `run-stopped.json` (`awaiting_authority`, `IDEA-1.direction`) and a `run.log` line, the event logs unchanged; a resume is refused (exit 8); L7 2 s, the stop `until: stopped`; `--reopen` renames the record and the run stops again at the same place (exit 3). Before: `--stop` was taken as idea text and the run resumed (exit 3), no record, L7 absent |
 | `run-stop-decider` (`decider-finding-refused`'s run, stopped) | — | L7 above 0 with `decider: haiku`: `failure: true`, printed `FAILED`. Before: L7 absent |

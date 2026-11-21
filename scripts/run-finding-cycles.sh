@@ -46,6 +46,7 @@
 #                   its default, escalation_suppressed recorded
 #   decider-finding a scope-changing spec finding decided by the decider (option 2); amended
 #   decider-finding-final the decider escalates the finding under final: its default taken
+#   decider-constraints  D154: a decider answer naming a ruled-out language refused, asked again
 #   decider-finding-refused the decider's amendment contradicts decision q3: refused, reverted,
 #                   a person decides (exit 3)
 #   run-stop        a waiting run is stopped (--stop), a resume refused, --reopen goes on; L7
@@ -87,7 +88,7 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
   scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent superseded-answer
-  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint trace-constraint-decided decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint trace-constraint-decided decider-scope-answer decider-scope-final decider-finding decider-finding-final decider-constraints
   decider-finding-refused run-stop run-stop-decider autopilot decider-input trace-reraised decider-budget-reason autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 principals models)
@@ -460,6 +461,32 @@ if (( code == 0 )) &&
   echo "decider-finding-final: checks pass (f1 escalated, suppressed, its default taken)"
 else
   echo "decider-finding-final: FAILED (run exit $code, or f1 not at its default, or no escalation_suppressed)"
+fi
+# decider-constraints: runs/trial-3-small-haiku-1's f9 (D154). change.implement raises a
+# scope-changing contradiction, r1 and the context (Python 3) against the build (Rust)
+# (fixtures/finding-story-language.yaml). The decider first answers the Python option, which the
+# program check refuses because it names Python from the constraints' ruled_out list; asked again,
+# it answers the Rust option. Passes when the run ends 0, f1 is resolved with the Rust option by
+# decider:haiku, the first reply is recorded invalid with that reason, the second request carries
+# it, and the decider's prompt lists in/build-constraints.yaml with the constraints sentence.
+py="Implement in Python 3 with the standard library only, as r1 and the context state"
+rs="Implement in Rust with the standard library only, as the build constraints fix it"
+trial decider-constraints SDC_STUB_FINDINGS="$fx/finding-story-language.yaml" SDC_DECIDER_REPLIES="$(jq -cn --arg p "$py" --arg r "$rs" '{
+  f1: [{decision: "approve", answer: $p, best: null, cites: ["r1"], reasons: ["r1 and the context name Python 3."]},
+       {decision: "approve", answer: $r, best: null, cites: ["r1"], reasons: ["The build constraints fix Rust; r1 is changed."]}]}')"
+code=$?
+r=$s/runs/decider-constraints
+dd=$(find "$r/decider" -maxdepth 1 -type d -name "*-f1" 2>/dev/null | sort)
+d1=$(head -n 1 <<< "$dd") d2=$(sed -n 2p <<< "$dd")
+if (( code == 0 )) &&
+   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e --arg a "$rs" '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == $a and .decided_by == "decider:haiku"' >/dev/null &&
+   [[ -n $d1 && -n $d2 ]] &&
+   jq -se '[.[] | select(.finding == "f1") | .decision] == ["invalid_reply", "approve"] and (.[] | select(.finding == "f1" and .decision == "invalid_reply") | .invalid_reason | test("names Python, which the build constraints of this run"))' "$r/decisions.jsonl" >/dev/null &&
+   jq -e '.retry.attempt == 2 and (.retry.invalid_reason | test("names Python"))' "$d2/decide-request.json" >/dev/null &&
+   [[ -f $d1/cwd/in/build-constraints.yaml ]] && grep -q 'The build constraints of this run (in/build-constraints.yaml) are fixed' "$d1/prompt.md"; then
+  echo "decider-constraints: checks pass (Python refused by the constraints check, asked again, f1 decided in Rust)"
+else
+  echo "decider-constraints: FAILED (exit $code, decider records: $(tr '\n' ' ' <<< "$dd"))"
 fi
 # decider-finding-refused: fixtures/offline-decision. The agent's amendment contradicted decision
 # q3 and went to a person; the decider then takes the same option (its default), which the same
