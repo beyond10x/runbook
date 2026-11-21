@@ -33,15 +33,33 @@ argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
   --tools "$tools" --setting-sources "" --strict-mcp-config --disable-slash-commands
   --permission-mode acceptEdits --output-format stream-json --verbose --no-session-persistence)
 [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
+# change.implement in request mode (request `implement_mode` request, docs/driver.md "Implement as
+# one request"): no tool at all (`--tools ""`), the prompt on stdin (its inlined files can pass the
+# 128 KiB limit of one argv string), and the output limit from `max_output_tokens`.
+stdin=/dev/null
+extra_env=()
+if [[ $(r '.implement_mode // ""') == request ]]; then
+  argv=("${CLAUDE:-claude}" -p --model "$(r .model)" --max-turns "$(r .max_turns)" --max-budget-usd "$(r .max_budget_usd)"
+    --tools "" --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill" --setting-sources "" --strict-mcp-config
+    --disable-slash-commands --output-format stream-json --verbose --no-session-persistence)
+  [[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
+  stdin=$(r .prompt_file)
+  [[ -n $(r '.max_output_tokens // ""') ]] && extra_env=(CLAUDE_CODE_MAX_OUTPUT_TOKENS="$(r .max_output_tokens)")
+fi
 # A request with `json_schema` (a schema file): `--json-schema`, the CLI validates the reply against
 # it and re-prompts on a mismatch; the reply is the final result's `structured_output`, written to
 # <record>/structured-output.json.
 schema=$(r '.json_schema // ""')
 [[ -n $schema && -s $schema ]] && argv+=(--json-schema "$(jq -c . "$schema")")
-printf '%s\0' "${argv[@]}" | jq -Rs 'split("\u0000") | .[0:2] + ["<prompt_file>"] + .[3:-1]
-  | map(if startswith("{") then "<json_schema>" else . end)' > "$rec/argv.json"
+if [[ $stdin == /dev/null ]]; then
+  printf '%s\0' "${argv[@]}" | jq -Rs 'split("\u0000") | .[0:2] + ["<prompt_file>"] + .[3:-1]
+    | map(if startswith("{") then "<json_schema>" else . end)' > "$rec/argv.json"
+else
+  printf '%s\0' "${argv[@]}" | jq -Rs 'split("\u0000") | .[:-1] | map(if startswith("{") then "<json_schema>" else . end)
+    + ["< <prompt_file>"]' > "$rec/argv.json"
+fi
 start=$(date +%s%3N)
-(cd "$(r .cwd)" && env -u CLAUDE_CODE_EFFORT_LEVEL CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < /dev/null > "$rec/events.jsonl" 2> "$rec/stderr.txt")
+(cd "$(r .cwd)" && env -u CLAUDE_CODE_EFFORT_LEVEL "${extra_env[@]}" CLAUDE_CONFIG_DIR="$home" CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 "${argv[@]}" < "$stdin" > "$rec/events.jsonl" 2> "$rec/stderr.txt")
 code=$?
 end=$(date +%s%3N)
 constrained=false

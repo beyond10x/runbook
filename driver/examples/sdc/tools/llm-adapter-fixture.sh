@@ -20,6 +20,8 @@
 # taken by the number of the case's earlier rejected reviews (sdc-reply rejections), the last round
 # after that, each round a reply or a list by the request's `review_attempt`; without one, approved
 # with no finding.
+# change.implement in request mode (SDC_IMPLEMENT_MODE=request) gets a reply in the record's
+# structured-output.json: SDC_IMPLEMENT_REPLIES, else the stub tree packed (see below).
 # run.unstick (scripts/run-trial.sh) gets out/unstick.json from SDC_UNSTICK_REPLIES (JSON {cause:
 # reply}, "*" for any cause; a list by attempt); without one, the move `stop`.
 #
@@ -90,6 +92,31 @@ if [[ $node == change.review ]]; then
   exit 0
 fi
 cfg=${SDC_LLM_NODE:-'{}'}
+# change.implement in request mode (request `implement_mode` request): the reply goes to
+# <record_dir>/structured-output.json, where claude-cli writes a structured reply.
+# SDC_IMPLEMENT_REPLIES (JSON {"rounds": [...]}): the round of the request's `attempt` (the n-th
+# change.implement call), the last round after that; a round is a reply or a list by
+# `reply_attempt` (the k-th request of the call). "stub", and no scripted reply, is the node's stub
+# tree (stub-tree, SDC_STUB_FIXTURES as for the stub) packed as a reply by sdc-reply implement-pack.
+if [[ $node == change.implement && $(jq -r '.implement_mode // ""' "$1") == request ]]; then
+  rec=$(jq -r .record_dir "$1")
+  mkdir -p "$rec"
+  r=$(jq -cn --argjson r "${SDC_IMPLEMENT_REPLIES:-"{}"}" --argjson n "$(jq '.attempt // 1' "$1")" --argjson k "$(jq '.reply_attempt // 1' "$1")" '
+    ($r.rounds // [] | .[$n - 1] // last) | if type == "array" then (.[$k - 1] // last) else . end // "stub"') || exit 1
+  if [[ $r == '"stub"' ]]; then
+    mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
+    w=$PWD
+    mkdir -p "$w/.sdc"
+    (cd "$rec" && SDC_STUB_COUNTER="$w/.sdc" "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" stub-tree) || exit 1
+    "${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" implement-pack --tree "$rec/stub-tree" --note "fixture: the stub tree" \
+      > "$rec/structured-output.json" || exit 1
+  else
+    printf '%s\n' "$r" > "$rec/structured-output.json"
+  fi
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
+    num_turns: 1, usage: null, tool_calls: [], offered_tools: [], schema_constrained: true, node: $node}'
+  exit 0
+fi
 mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
 o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
 [[ -n $o ]] && mapfile -t a < <(jq -r 'if length == 3 then .[] else ("stub-file", .[]) end' <<< "$o")

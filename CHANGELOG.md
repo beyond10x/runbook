@@ -7,6 +7,28 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- `change.implement` as one request (`story:implement-one-request`), behind the run setting
+  `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
+  `run-settings.jsonl`, a launch setting of `sdc-experiment`). `sdc-reply implement-run` assembles
+  the node's whole input (the story, its requirements and acceptance lines, only its commands and
+  views from the compiled IR with what they name, the build constraints, the product tree by rule
+  up to 64,000 bytes with the rest listed by path and size, findings, and on a rework the failed
+  checks and the rejection), asks once with no tool, checks the reply's envelope against
+  `sdc-reply schema --type implement` and every path against the product tree, retries an invalid
+  reply at most twice (`implement_reply_invalid`), continues by rule for paths the reply left
+  `remaining` (at most two, `implement_reply_incomplete`), and writes the files into the revision.
+  The call's `llm-calls.jsonl` line carries `requests`, `continuations` and `reply_retries`. Request
+  mode runs on a schema adapter (`SDC_IMPLEMENT_ADAPTER`, else claude-cli under metaharness;
+  metaharness is refused at start). `docs/driver.md`, "Implement as one request".
+- `docs/driver.md`: the list of free-form exceptions to the response-schema rule; request mode's
+  envelope is schema-checked and its file contents are free text.
+- Cycles `implement-request-build`, `-tests-rework`, `-review-rework`, `-invalid-retry`,
+  `-invalid-named`, `-path-escape` (fixture adapter, `SDC_IMPLEMENT_REPLIES`).
+- Experiment records `implement-one-request` (mixed) and `implement-one-request-strong`, session
+  against request, three runs each, registered before any run.
+
 ## [0.2.0] - 2026-11-21
 
 The product is named Runbook and the repository moves to `beyond10x/runbook`; the software delivery

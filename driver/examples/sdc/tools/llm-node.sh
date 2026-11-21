@@ -67,6 +67,20 @@ if [[ $node == change.review ]]; then
   res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.review.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
     { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
 fi
+# change.implement as one request (SDC_IMPLEMENT_MODE=request; docs/driver.md "Implement as one
+# request"): no tool, the input assembled and the reply checked and written by sdc-reply
+# implement-run, on the implement class's schema adapter (sdc-reply adapters: SDC_IMPLEMENT_ADAPTER,
+# else as the review's). session, the default, is the session below.
+implement_mode=${SDC_IMPLEMENT_MODE:-session}
+[[ $implement_mode == @(session|request) ]] ||
+  { echo "llm-node: $node could not run: SDC_IMPLEMENT_MODE=$implement_mode is neither session nor request" >&2; exit 126; }
+[[ $node == change.implement ]] || implement_mode=session
+if [[ $implement_mode == request ]]; then
+  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
+  res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.implement.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
+    { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
+fi
 [[ -n ${SDC_LLM_NODES:-} && " $SDC_LLM_NODES " != *" $node "* ]] && adapter=stub
 work=$PWD
 
@@ -377,6 +391,11 @@ plan.decompose)
 \"summary\": \"<one sentence, then: covers <command> <command> ...>\"}]}.
 Every line of in/commands.txt must appear, spelled exactly, in the summary of exactly one story." ;;
 change.implement)
+  if [[ $implement_mode == request ]]; then
+    # Nothing to read and no operation: sdc-reply implement-run assembles the input from the case
+    # and writes the reply's files into out/impl/ (a copy of impl/); apply copies it back.
+    seed impl; out=impl; ops='[]'; task=""
+  else
   input requirements.yaml; input context.yaml; input spec; input "aep/story/$story.md"; input impl; seed impl
   out=impl
   task="Implement story '$story' (in/aep/story/$story.md) of the specification in in/spec/, in
@@ -395,7 +414,8 @@ out/impl/ (it holds the current implementation, if any: extend it, keep what ear
 - out/impl/Taskfile.yml: version: '3', with a task \`check\` that runs \`cargo test --locked\`
   (commit a Cargo.lock: with no dependencies it holds only the package itself).
 - out/impl/README.md: how to run it and how it maps to the specification's commands.
-You cannot run commands: write code that passes its own tests." ;;
+You cannot run commands: write code that passes its own tests."
+  fi ;;
 change.review)
   # The review (story:review-node-is-a-model): nothing is written; the reply is the decision, under
   # a response schema, and a program checks it (sdc-reply check-review, below). Inputs by program.
@@ -467,7 +487,8 @@ You cannot run commands: write code that passes the tests." ;;
 *) echo "llm-node: no agent node $node" >&2; exit 64 ;;
 esac
 
-if [[ $raises == yes ]]; then
+# (Request mode: sdc-reply implement-run inlines findings.yaml and asks for findings in the reply.)
+if [[ $raises == yes && $implement_mode == session ]]; then
   [[ -f $work/findings.yaml ]] && input findings.yaml
   task="$task
 
@@ -538,7 +559,9 @@ before the word done, write one line per reason: its number, then where you addr
 fi
 
 prompt=$rec/prompt.md
-{
+# Request mode: sdc-reply implement-run writes prompt.md (the whole input); in/ only carries
+# feedback.md and rejection.json to it.
+[[ $implement_mode == request ]] || {
   echo "You are one step (\`$node\`) of a governed software delivery cycle. Work only in the current"
   echo "directory. Read the inputs under in/; write only under out/. You have no shell: no command"
   echo "runs. Programs check what you write afterwards; your words decide nothing."
@@ -576,6 +599,10 @@ jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$r
 # A data-document node passes its schema (an adapter that has a response-schema option uses it).
 [[ -n ${node_schema:-} ]] && jq --arg s "$node_schema" '. + {json_schema: $s}' "$rec/request.json" > "$rec/request.json.tmp" &&
   mv "$rec/request.json.tmp" "$rec/request.json"
+# Request mode: no operation, a turn cap for the CLI's own schema re-prompt, the output limit, and
+# the mode (claude-cli passes the prompt on stdin; the fixture adapter answers with a reply).
+[[ $implement_mode == request ]] && jq '. + {implement_mode: "request", operations: [], max_turns: 3, max_output_tokens: 32000}' \
+  "$rec/request.json" > "$rec/request.json.tmp" && mv "$rec/request.json.tmp" "$rec/request.json"
 
 # One line per call, for the run log and the viewer.
 log_call() {
@@ -588,7 +615,10 @@ log_call() {
      exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
      cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,
      offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false),
-     record: $rec}' >> "${SDC_LLM_LOG:-$rec_root/calls.jsonl}"
+     record: $rec}
+    + if $res[0].implement_mode then {implement_mode: $res[0].implement_mode, requests: $res[0].requests,
+        continuations: $res[0].continuations, reply_retries: $res[0].reply_retries, cause: $res[0].cause} else {} end' \
+    >> "${SDC_LLM_LOG:-$rec_root/calls.jsonl}"
 }
 
 # change.review: the reply (the adapter's structured output, else out/review.json) is checked by a
@@ -644,10 +674,13 @@ if [[ $node == change.review ]]; then
   exit $code
 fi
 
-started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-"$adapter_bin" "$rec/request.json" > "$rec/response.json"
-acode=$?
-[[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
+# (Request mode makes its requests below, after apply is defined.)
+if [[ $implement_mode == session ]]; then
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  "$adapter_bin" "$rec/request.json" > "$rec/response.json"
+  acode=$?
+  [[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
+fi
 
 # Apply: copy back only the declared output, through a program where the store is AEP's.
 apply() {
@@ -715,6 +748,41 @@ apply() {
       rm -rf "${work:?}/$out" && mkdir -p "$(dirname "$work/$out")" && cp -r "$cwd/out/$out" "$work/$out" ;;
   esac
 }
+
+# change.implement in request mode: sdc-reply implement-run makes the call's requests (one as a
+# rule; at most two retries of an invalid reply, at most two continuations by rule), writes the
+# reply's files into out/impl/ and the summed response.json; apply copies out/impl/ to impl/.
+# Exit 2: the reply stayed invalid (implement_reply_invalid) or incomplete, nothing written; 75 as
+# below. Dry assembles the prompt, then runs the stub.
+if [[ $implement_mode == request ]]; then
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  case_dir=${SDC_CASE_DIR:-$work/..}
+  irun=("$reply_bin" implement-run --rec "$rec" --cwd "$cwd" --case-dir "$case_dir" --story "$story")
+  [[ -n $rejection ]] && irun+=(--rework-limit "$rework_limit")
+  if [[ $adapter == dry ]]; then
+    "${irun[@]}" --assemble-only > "$rec/implement-run.out" 2>&1
+    "$adapter_bin" "$rec/request.json" > "$rec/response.json" 2>> "$rec/adapter-stderr.txt"; acode=$?
+    run_stub > "$rec/apply.log" 2>&1; code=$?
+    [[ $code == 0 ]] && post "" >> "$rec/apply.log" 2>&1
+    log_call
+    exit $code
+  fi
+  "${irun[@]}" --adapter "$adapter_bin" > "$rec/implement-run.out" 2>> "$rec/adapter-stderr.txt"
+  code=$?
+  acode=$code
+  [[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
+  case $code in
+    0)
+      cat "$rec/implement-run.out"
+      apply > "$rec/apply.log" 2>&1; code=$?
+      [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
+      [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1 ;;
+    75) echo "llm-node: $node could not run: $(cat "$rec/implement-run.out"); nothing applied, resume later" ;;
+    *) echo "llm-node: $node recorded nothing (call llm/$(basename "$rec"), adapter $adapter): $(cat "$rec/implement-run.out")" ;;
+  esac
+  log_call
+  exit $code
+fi
 
 if [[ $adapter == dry ]]; then
   run_stub; code=$?

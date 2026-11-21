@@ -99,6 +99,11 @@
 #                   changed the test refused then fixed; not_reproduced
 #   run-metrics     sdc-run-metrics on decider-rework's run: looping factor, the approval edge,
 #                   merge.approve's decisions, a clean close (docs/workflow-metrics.md)
+#   implement-request-build, -tests-rework, -review-rework, -invalid-retry, -invalid-named,
+#   -path-escape   change.implement as one request (SDC_IMPLEMENT_MODE=request, fixture adapter):
+#                   first build, rework after a failed test and after a review rejection, an invalid
+#                   reply retried, an invalid reply three times (implement_reply_invalid), a path
+#                   escape refused
 #   replay-unchanged, replay-reject-stop, replay-reject-nearest, replay-timeout, replay-live-dry,
 #   replay-check-fail, replay-recording-clean  the committed recording fixtures/recorded/stub
 #                   re-driven by scripts/run-trial.sh --recorded (sdc-replay; see each cycle)
@@ -147,6 +152,8 @@ expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 expected+=(decider-question-reject rework-fresh-allowance spec-review-rework spec-interp-unsupported writer-own-error implement-percause
   writer-sees-test-failure scope-unattributed-reject finding-refused-reask review-invalid-named)
 pending=(rework-spent-dropped rework-spent-abandoned)
+expected+=(implement-request-build implement-request-tests-rework implement-request-review-rework implement-request-invalid-retry
+  implement-request-invalid-named implement-request-path-escape)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
   replay-recording-clean)
@@ -1722,6 +1729,108 @@ if (( code == 0 )) && [[ -n $second ]] &&
   echo "writer-sees-test-failure: checks pass (the failing test's message reached the next writer run; closed)"
 else
   echo "writer-sees-test-failure: FAILED (exit $code, second call ${second:-none}, feedback without the test's message)"
+fi
+# --- change.implement as one request (SDC_IMPLEMENT_MODE=request, docs/driver.md "Implement as one
+# request"): change.implement on the fixture adapter, which answers each request with the stub tree
+# packed as a reply (sdc-reply implement-pack) or a scripted reply (SDC_IMPLEMENT_REPLIES); every
+# other node on its stub. sdc-reply implement-run assembles the input, checks the reply, writes it.
+req_env=(SDC_IMPLEMENT_MODE=request SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.implement)
+icalls() { jq -cs '[.[] | select(.action == "change.implement")]' "$s/runs/$1/llm-calls.jsonl" 2>/dev/null || echo '[]'; }
+iwork() { echo "$s/runs/$1/store/IDEA-1/work"; }
+# implement-request-build: the first build in one request. Passes when the run closes with one
+# change.implement call of one request (no retry, no continuation), offered no operation, its prompt
+# saying there is nothing to read, its record holding the reply schema and the input manifest (a
+# first story on an empty tree), and the stub tree written into work/impl through the reply.
+trial implement-request-build "${req_env[@]}"
+code=$?
+c=$(icalls implement-request-build)
+rec=$(jq -r '.[0].record // empty' <<< "$c")
+if (( code == 0 )) && jq -e 'length == 1 and .[0].implement_mode == "request" and .[0].requests == 1 and .[0].reply_retries == 0
+     and .[0].continuations == 0 and .[0].allowed_operations == [] and .[0].applied_exit == 0' <<< "$c" >/dev/null &&
+   [[ -n $rec ]] && grep -q 'you have no tools, nothing to read' "$rec/prompt.md" &&
+   jq -e '.required == ["files", "note", "findings", "remaining"]' "$rec/reply-schema.json" >/dev/null &&
+   jq -e '.tree.first_story == true and .commands != []' "$rec/implement-inputs.json" >/dev/null &&
+   cmp -s "$fx/impl/src/lib.rs" "$(iwork implement-request-build)/impl/src/lib.rs"; then
+  echo "implement-request-build: checks pass (one request, no operation offered, the reply written into impl/; closed)"
+else
+  echo "implement-request-build: FAILED (exit $code, calls $(jq -c 'map({implement_mode, requests, reply_retries, applied_exit})' <<< "$c" | cut -c1-200))"
+fi
+# implement-request-tests-rework: the first reply's tree fails tests.run (fixtures/test-failure).
+# Passes when the run closes with two change.implement calls of one request each, the second
+# prompt holding the failing test's message (no `slot: job` line) and the current text of the tree.
+trial implement-request-tests-rework "${req_env[@]}" SDC_STUB_FIXTURES="$fx/test-failure"
+code=$?
+c=$(icalls implement-request-tests-rework)
+rec=$(jq -r '.[1].record // empty' <<< "$c")
+if (( code == 0 )) && jq -e 'length == 2 and all(.requests == 1)' <<< "$c" >/dev/null && [[ -n $rec ]] &&
+   grep -q 'fixture-failure: the second email of an account counts 2' "$rec/prompt.md" && ! grep -q '^slot: job ' "$rec/prompt.md" &&
+   grep -q '^### impl/tests/billing.rs' "$rec/prompt.md"; then
+  echo "implement-request-tests-rework: checks pass (the failing test and the current files in the second request; closed)"
+else
+  echo "implement-request-tests-rework: FAILED (exit $code, calls $(jq -c 'map({requests, applied_exit})' <<< "$c"))"
+fi
+# implement-request-review-rework: change.review (fixture) rejects once with the README finding; the
+# second implement reply replaces README.md. Passes when the run closes with two change.implement
+# calls of one request each, the second prompt holding the rejection's reason and the current
+# README, and work/impl/README.md the reworked text.
+rw='{"files": [{"path": "README.md", "content": "# billing\n\nRun the service: cargo run -- 8080 billing.json\nRun the tests: task check\n"}], "note": "1. README.md:3 names the command that runs it", "findings": [], "remaining": []}'
+irej='{"decision": "rejected", "summary": "fixture: the README does not say how to run it", "findings": [{"kind": "violation", "at": "impl/README.md:1", "violates": "r1", "says": "fixture: the README names no command to run the service"}]}'
+iapp='{"decision": "approved", "summary": "fixture: the rework addresses the finding", "findings": []}'
+trial implement-request-review-rework "${req_env[@]}" SDC_LLM_NODES="change.implement change.review" \
+  SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$irej" --argjson a "$iapp" '{rounds: [$j, $a]}')" \
+  SDC_IMPLEMENT_REPLIES="$(jq -cn --argjson r "$rw" '{rounds: ["stub", $r]}')"
+code=$?
+c=$(icalls implement-request-review-rework)
+rec=$(jq -r '.[1].record // empty' <<< "$c")
+if (( code == 0 )) && jq -e 'length == 2 and all(.requests == 1)' <<< "$c" >/dev/null && [[ -n $rec ]] &&
+   grep -q '^## Rework' "$rec/prompt.md" && grep -q 'fixture: the README names no command to run the service' "$rec/prompt.md" &&
+   grep -q '^### impl/README.md' "$rec/prompt.md" && grep -q 'cargo run -- 8080' "$(iwork implement-request-review-rework)/impl/README.md"; then
+  echo "implement-request-review-rework: checks pass (the rejection and the current README in the second request, README replaced; closed)"
+else
+  echo "implement-request-review-rework: FAILED (exit $code, calls $(jq -c 'map({requests, applied_exit})' <<< "$c"))"
+fi
+# implement-request-invalid-retry: the first reply has no file; the second is the stub tree. Passes
+# when the run closes with one change.implement call of two requests, one retry, the second request
+# holding the check's error.
+trial implement-request-invalid-retry "${req_env[@]}" \
+  SDC_IMPLEMENT_REPLIES='{"rounds": [[{"files": [], "note": "", "findings": [], "remaining": []}, "stub"]]}'
+code=$?
+c=$(icalls implement-request-invalid-retry)
+rec=$(jq -r '.[0].record // empty' <<< "$c")
+if (( code == 0 )) && jq -e 'length == 1 and .[0].requests == 2 and .[0].reply_retries == 1' <<< "$c" >/dev/null && [[ -n $rec ]] &&
+   grep -q 'The program check refused it: `files` is empty' "$rec/req-2/prompt.md"; then
+  echo "implement-request-invalid-retry: checks pass (an empty reply refused, retried with the error, accepted; closed)"
+else
+  echo "implement-request-invalid-retry: FAILED (exit $code, calls $(jq -c 'map({requests, reply_retries})' <<< "$c"))"
+fi
+# implement-request-invalid-named: every reply lacks a file's content. Passes when each
+# change.implement call made three requests (two retries) and ended implement_reply_invalid,
+# nothing was written into work/impl, and the run stopped with cause implement_reply_invalid.
+trial implement-request-invalid-named "${req_env[@]}" \
+  SDC_IMPLEMENT_REPLIES='{"rounds": [[{"files": [{"path": "src/lib.rs"}], "note": "x", "findings": [], "remaining": []}]]}'
+code=$?
+c=$(icalls implement-request-invalid-named)
+if (( code != 0 )) && jq -e 'length >= 1 and all(.requests == 3 and .reply_retries == 2 and .cause == "implement_reply_invalid")' <<< "$c" >/dev/null &&
+   [[ ! -e $(iwork implement-request-invalid-named)/impl/src/lib.rs ]] &&
+   jq -e '.cause == "implement_reply_invalid"' "$s/runs/implement-request-invalid-named/run-stopped.json" >/dev/null; then
+  echo "implement-request-invalid-named: checks pass (three requests per call, nothing written, stopped implement_reply_invalid)"
+else
+  echo "implement-request-invalid-named: FAILED (exit $code, calls $(jq -c 'map({requests, reply_retries, cause})' <<< "$c"), stop $(jq -c '{cause}' "$s/runs/implement-request-invalid-named/run-stopped.json" 2>/dev/null))"
+fi
+# implement-request-path-escape: the first reply writes ../escape.rs; the second is the stub tree.
+# Passes when nothing named escape.rs exists outside impl/ (call dir or work/), the second request
+# holds the refusal naming the path, and the run closes.
+trial implement-request-path-escape "${req_env[@]}" \
+  SDC_IMPLEMENT_REPLIES='{"rounds": [[{"files": [{"path": "../escape.rs", "content": "fn main() {}\n"}], "note": "", "findings": [], "remaining": []}, "stub"]]}'
+code=$?
+c=$(icalls implement-request-path-escape)
+rec=$(jq -r '.[0].record // empty' <<< "$c")
+if (( code == 0 )) && [[ -n $rec ]] && jq -e '.[0].requests == 2' <<< "$c" >/dev/null &&
+   grep -qF 'path "../escape.rs": leaves the product tree' "$rec/req-2/prompt.md" &&
+   [[ -z $(find "$rec" "$(iwork implement-request-path-escape)" -name escape.rs 2>/dev/null) ]]; then
+  echo "implement-request-path-escape: checks pass (../escape.rs refused, nothing written outside impl/; closed)"
+else
+  echo "implement-request-path-escape: FAILED (exit $code, calls $(jq -c 'map({requests, reply_retries})' <<< "$c"))"
 fi
 targs=()
 # The review on the adapter path a real run takes (runs/trial-3-strong-3 and -4 stopped stuck at
