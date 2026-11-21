@@ -375,7 +375,7 @@ const STATUSES: [&str; 4] = ["planned", "running", "complete", "abandoned"];
 /// The one pass rule: the run closed, delivered, and needed no reopen, forced step or unstick.
 const PASS_RULE: &str = "clean-delivery";
 /// The settings a prospective record may set and the environment variable each one becomes.
-const LAUNCH: [(&str, &str); 28] = [
+const LAUNCH: [(&str, &str); 29] = [
     ("models.writer.model", "SDC_LLM_MODEL_WRITER"),
     ("models.implement.model", "SDC_LLM_MODEL_IMPLEMENT"),
     ("models.review.model", "SDC_LLM_MODEL_REVIEW"),
@@ -396,6 +396,7 @@ const LAUNCH: [(&str, &str); 28] = [
     ("max_llm_calls", "SDC_MAX_LLM_CALLS"),
     ("max_wall_seconds", "SDC_MAX_WALL_SECONDS"),
     ("autonomy", "SDC_AUTONOMY"),
+    ("conformance", "SDC_CONFORMANCE"),
     ("flags.dry", ""),
     ("flags.recorded", ""),
     ("free.model", ""),
@@ -2389,6 +2390,16 @@ targets:
         let keys: Vec<&String> = j.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["experiment", "format", "input_sha256", "ordinal", "retrospective", "run", "settings_sha256", "started_at", "tree_commit", "variant"]);
         assert_eq!(j["settings_sha256"].as_str().unwrap().len(), 64);
+    }
+
+    #[test]
+    fn a_record_turns_the_conformance_observation_on_explicitly() {
+        let base = |_: &str| None;
+        let off = launch_env(&BTreeMap::new(), Path::new("/r"), "agent:x", &base);
+        assert!(!off.iter().any(|(k, _)| k == "SDC_CONFORMANCE"));
+        let on = BTreeMap::from([("conformance".to_string(), "observe".to_string())]);
+        let env = launch_env(&on, Path::new("/r"), "agent:x", &base);
+        assert!(env.iter().any(|(k, v)| k == "SDC_CONFORMANCE" && v == "observe"));
     }
 
     #[test]

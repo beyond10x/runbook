@@ -13,7 +13,7 @@ conformance: spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 n
 ```
 
 A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
-scenarios`. `scripts/run-trial.sh` calls it after every close (off with `SDC_CONFORMANCE=off`; skipped on a recorded
+scenarios`. `scripts/run-trial.sh` calls it after a close when `SDC_CONFORMANCE=observe` (off by default since 0.1.4, for its cost; an experiment record turns it on with the launch setting `conformance: observe`; skipped on a recorded
 re-drive, whose recording holds no table call).
 Writing the tables costs about 1 to 3 USD of node cost per observed product (0.82 to 2.99 USD on
 the six 0.1.0 baseline products, below).

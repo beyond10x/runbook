@@ -83,6 +83,7 @@
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
 #   autopilot-close, autopilot-close-a3   runs/trial-3-haiku-5: the close in autopilot (D140)
+#   conformance-default-off  no conformance observation after close unless SDC_CONFORMANCE=observe
 #   review-no-rework-prompt  after a merge.approve rejection the review gets no rejection as rework (D138)
 #   rework-cap      one rework cap (D184): rule-ends.json rework_limit, SDC_MAX_REJECTIONS over it,
 #                   recorded in run-settings.jsonl and read by the driver and the rework prompt
@@ -139,7 +140,7 @@ yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/n
   expected+=(decider-rework decider-rework-spent rework-cap rework-not-called rework-pending-rejection review-no-rework-prompt
     keep-going-three keep-going-off unstick-end run-metrics)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
-expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 keep-going-repeat reopen-refused-decision)
+expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 conformance-default-off keep-going-repeat reopen-refused-decision)
 expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
@@ -1133,6 +1134,23 @@ if (( code == 6 )) && [[ ! -f $r/status.json ]] && [[ -n $(find "$r/decider" -mi
   echo "autopilot-close-a3: checks pass (A3: the decider is asked for the close, rejects, the run stops unclosed)"
 else
   echo "autopilot-close-a3: FAILED (exit $code)"
+fi
+# conformance-default-off: the conformance observation after close costs model calls, so it is off
+# by default (0.1.4). autopilot-close closed without SDC_CONFORMANCE: it says so and wrote no
+# oracle.json. The same close with SDC_CONFORMANCE=observe calls SDC_CONFORM_BIN (here a stub that
+# records its arguments) as `observe <run>`.
+printf '#!/usr/bin/env bash\necho "$@" > "$2/conform-called"\n' > "$s/conform-stub"; chmod +x "$s/conform-stub"
+targs=(--autopilot)
+trial conformance-observe SDC_CONFORMANCE=observe SDC_CONFORM_BIN="$s/conform-stub" SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$crej" '{close: $j}')"
+code=$?
+targs=()
+r=$s/runs/conformance-observe
+if grep -q '^conformance: not observed (off by default; SDC_CONFORMANCE=observe turns it on)$' "$s/autopilot-close.txt" &&
+   [[ ! -e $s/runs/autopilot-close/oracle.json ]] && (( code == 0 )) &&
+   [[ $(cat "$r/conform-called" 2>/dev/null) == "observe $r" ]] && ! grep -q '^conformance: not observed' "$s/conformance-observe.txt"; then
+  echo "conformance-default-off: checks pass (no observation by default; SDC_CONFORMANCE=observe calls sdc-conform observe <run>)"
+else
+  echo "conformance-default-off: FAILED (exit $code; default line: $(grep -c '^conformance: not observed (off by default' "$s/autopilot-close.txt"), called: $(cat "$r/conform-called" 2>/dev/null))"
 fi
 # decider-input: the decider records of runs/trial-3-haiku-5's close and its release.publish. The
 # close reads published/README.md and no aep/ file: read from autopilot-close-a3, where the decider

@@ -36,7 +36,7 @@ The crates are `publish = false`; releases are source releases at bare-version t
   measurable when it needs what the table declares `none` of kind
   `not_reachable_over_the_interface`; `not_implemented` fails. The table can capture values the
   product prints at start (`captures`), send them in paths, headers and bodies, and bind them to a
-  spec input (`bindings`). `scripts/run-trial.sh` runs it after a close (`SDC_CONFORMANCE=off`).
+  spec input (`bindings`). `scripts/run-trial.sh` runs it after a close when `SDC_CONFORMANCE=observe`.
   Observation only: no gate. A scenario one counted table saw fail and the others declared
   unreachable counts failed. When every slot's table is refused only for the product's 401 or 403 in
   the same scenarios, none of which had a success before its refusal (a sign-in the specification

@@ -36,7 +36,8 @@
 #                                               docs/driver.md "Recorded replay"); exit 9 when the
 #                                               recording diverged under the policy stop
 # After a close, `sdc-conform observe` holds the delivered product to its spec's suite and writes
-# oracle.json (docs/conformance.md; SDC_CONFORMANCE=off turns it off, SDC_LLM_MODEL_CONFORMANCE).
+# oracle.json (docs/conformance.md; off by default, SDC_CONFORMANCE=observe turns it on,
+# SDC_LLM_MODEL_CONFORMANCE).
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -687,12 +688,16 @@ finish() { # <outcome> [principal that closed it]
   echo "$last" > "$out/replay.json"
   echo "replay exit $code: $(jq -c 'map({case, state_matches_log, decision_matches_log})' "$out/replay.json")"
   # The conformance observation after close (docs/conformance.md): the delivered product held to
-  # the suite of the run's spec, written to oracle.json; it decides nothing. Off with
-  # SDC_CONFORMANCE=off. A recorded re-drive skips it: its adapter answers only the recorded calls,
-  # and the recording holds no conformance.table call, so every table would be a divergence.
+  # the suite of the run's spec, written to oracle.json; it decides nothing. Off by default, since
+  # it costs model calls (about 1 to 3 USD a run); SDC_CONFORMANCE=observe turns it on, and an
+  # experiment record sets that explicitly. A recorded re-drive skips it: its adapter answers only
+  # the recorded calls, and the recording holds no conformance.table call, so every table would be
+  # a divergence.
   if [[ -n $replay_env ]]; then
     echo "conformance: not observed (a recorded re-drive; observe the source run instead)"
-  elif [[ ${SDC_CONFORMANCE:-on} != off ]]; then
+  elif [[ ${SDC_CONFORMANCE:-off} != observe ]]; then
+    echo "conformance: not observed (off by default; SDC_CONFORMANCE=observe turns it on)"
+  else
     local conform=${SDC_CONFORM_BIN:-$sdc/driver/target/debug/sdc-conform}
     if [[ -x $conform ]]; then
       "$conform" observe "$out" || echo "conformance: not observed (sdc-conform exit $?)"
