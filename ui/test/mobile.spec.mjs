@@ -1,5 +1,5 @@
 // The phone findings of round R-03 (ux/findings/UXF-016 to UXF-026), one test each, at the gating phone
-// size 390x844 (decision D-005). Self-contained: one server of its own on port 7532
+// size 390x844 (decision D-006). Self-contained: one server of its own on port 7532
 // (SDC_UI_MOBILE_PORT) over runs played by test/fixture-run.mjs into SDC_UI_FIXTURE_DIR (default
 // test/fixtures/runs)/mobile-runs: person (waiting on a person, writable), stopped (stopped on purpose,
 // a failed waiting KPI) and decider (a decider deciding, with file changes). They play from the

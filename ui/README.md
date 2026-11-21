@@ -254,7 +254,7 @@ end), and 3 more truncated elements at 1366x768 (and in
 closed at 1600x1000) from the longer principal labels and stop marks of the same change. Round
 files are written with repository-relative paths.
 
-### Phone sizes (decision D-005)
+### Phone sizes (decision D-006)
 
 The operator, 2026-11-21 ("mobile view looks pretty unusable atm"), set the adapter's values for a
 phone (`ux/adapter.mjs` `phone` and `policy`), applied at the gating phone size 390x844 and reported

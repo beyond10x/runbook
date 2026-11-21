@@ -39,7 +39,7 @@ export const regions = {now: '#now', kpis: '#kpis', phases: '#phases', tree: '#t
 // The guidance cue: the Now band's waiting state and its decision control.
 export const cue = {card: '#now .nc.wait', control: {role: 'button', name: 'Decide'}};
 
-// Phone sizes (decision D-005 in ui/README.md): vertical page scroll is allowed, horizontal page scroll
+// Phone sizes (decision D-006 in ui/README.md): vertical page scroll is allowed, horizontal page scroll
 // is not. Always visible at every state change, scrolled or not: the run's state, the Now band's current
 // step and the open-decision indicator (each a list: the first one rendered stands for it, so a page
 // without the status bar is measured by what it shows instead). The KPI strip within one scroll screen;

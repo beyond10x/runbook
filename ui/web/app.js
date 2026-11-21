@@ -11,7 +11,7 @@ import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 
 const q0 = new URLSearchParams(location.search);
-// a phone (decision D-005): the panel is a sheet, so it does not open by itself on load
+// a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
 const PHONE = matchMedia('(max-width: 900px)');
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,

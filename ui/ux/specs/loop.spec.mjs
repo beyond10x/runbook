@@ -62,7 +62,7 @@ for (const s of scenarios) {
 
     // ---- L3, first part: the screen-only user reads the truth while it is the truth ---------------
     const u = {actions: 0, looks: [], steers: 0, fixes: []};
-    // at a phone size the page scrolls vertically (D-005): what is below the fold is scrolled to, at
+    // at a phone size the page scrolls vertically (D-006): what is below the fold is scrolled to, at
     // the cost of a glance 3 (not in view), and is then read or used where it is
     const pol = policy(vp);
     const scrollTo = async (loc) => { if (!pol.pageScrollY || !(await loc.count())) return false; await loc.first().scrollIntoViewIfNeeded().catch(() => null); return true; };

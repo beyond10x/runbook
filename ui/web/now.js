@@ -533,7 +533,7 @@ export function renderNow(st, now, items = []) {
     <div class="now-cards n${st.mode === 'stopped' ? 1 : Math.min(3, st.running.length + st.gone.length + st.waiting.length || 1)}" data-key="cards">${cards}</div>${trail(st, now)}`;
 }
 
-// The phone status bar (decision D-005): the run's state in the band's words and its current step,
+// The phone status bar (decision D-006): the run's state in the band's words and its current step,
 // always in view while the page scrolls. Plain text; the Now band below says the rest.
 export function nowBar(st) {
   const {head} = nowSay(st);

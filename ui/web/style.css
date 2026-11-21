@@ -980,7 +980,7 @@ tr.fail td b { color: #ff9a9e; }
 .badge-h.b-legacy, .badge-h.b-agent, .badge-h.b-none { color: var(--text-2); background: var(--surface-2); border: 1px dashed var(--line-3); }
 .fd-w.w-legacy, .fd-w.w-none { color: var(--text-3); font-style: italic; }
 
-/* R-03 change set (ux/rounds/R-03/triage.md): phone sizes, decision D-005. Nothing here applies above
+/* R-03 change set (ux/rounds/R-03/triage.md): phone sizes, decision D-006. Nothing here applies above
    900 px wide: the desktop viewports keep their layout. */
 #nowbar, #railbtn, .ghint { display: none; }
 /* C1 one column: the page scrolls down, never sideways; a sticky header holds the store, Follow and

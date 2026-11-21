@@ -1,4 +1,4 @@
-// The layout contract at phone sizes (decision D-005, ux/adapter.mjs `phone`): at every key moment of
+// The layout contract at phone sizes (decision D-006, ux/adapter.mjs `phone`): at every key moment of
 // every hermetic scenario and of the real recorded runs, the measured facts of ux/core/phone.mjs. At
 // the gating phone size (390x844) each is a hard gate; at the measured-only sizes it is reported.
 // Metrics go to ux/out/metrics-<viewport>.jsonl (keys phone.*), the facts to
