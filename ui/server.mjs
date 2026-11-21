@@ -19,6 +19,12 @@ import {fileURLToPath} from 'node:url';
 import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
+import {installClock, readGate} from './vclock.mjs';
+
+// the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
+const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
+if (CLOCK) installClock(CLOCK);
+let clockAt = null;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sdc = path.resolve(here, '..');
@@ -547,7 +553,12 @@ const HOME = process.env.HOME || '/nonexistent';
 // a worktree whose runs/ links to another checkout's runs/ has that checkout as a second root
 const roots = (() => { try { const r = path.dirname(fs.realpathSync(path.join(sdc, 'runs'))); return r !== sdc ? [sdc, r] : [sdc]; } catch { return [sdc]; } })();
 const rootRel = (s, r) => s.split(r + '/').join('').split(r).join('.').split(path.dirname(r) + '/').join('../');
-const shownPaths = (s) => roots.reduce(rootRel, s)
+// every directory the server was given (--runs DIR, the run directory of each store argument) shows by
+// the name of its parent: <runs>/<run>/..., wherever the checkout or the run lives
+const givenDirs = () => [...new Set([...runsDirs.map((d) => path.join(d, 'x')), ...sources.map(runDirOf)].map((d) => path.dirname(d)))]
+  .filter((d) => d !== path.dirname(d)).sort((x, y) => y.length - x.length);
+const givenRel = (s, d) => s.split(d + '/').join(path.basename(d) + '/');
+const shownPaths = (s) => givenDirs().reduce(givenRel, roots.reduce(rootRel, s))
   .split(HOME + '/').join('~/').split(HOME).join('~').replace(/\/home\/[^/\s"'<>\\]+/g, '~');
 function push(name, data) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;
@@ -589,6 +600,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (p === '/api/sources') return send(res, 200, sources.map(sourceRow));
+  if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
   if (p === '/api/tree') {
@@ -645,7 +657,8 @@ const server = http.createServer((req, res) => {
 });
 
 tick();
-setInterval(tick, 700);
+if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
+else setInterval(tick, 700);
 setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 15000);
 server.listen(port, host, () => {
   console.log(`sdc-ui on http://${host}:${port}/`);
