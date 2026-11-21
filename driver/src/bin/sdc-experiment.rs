@@ -1972,8 +1972,14 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         let argv = if free { free_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) } else { launch_argv(&build, &p.name, &input, &p.variant.settings, &runs_dir) };
         // run-trial.sh writes events/ once the run directory is fresh; sdc-free-agent writes free-agent.json.
         let marker = if free { dir.join("free-agent.json") } else { dir.join("events") };
+        // A free run's home holds a copy of the login: the unit removes it on every stop, also when
+        // the launcher is killed or crashes and runs no destructor.
+        let stop_post: Vec<String> =
+            if free { vec![format!("--property=ExecStopPost=/usr/bin/rm -rf -- {}", dir.join("home").display())] } else { vec![] };
         let st = Command::new("systemd-run")
-            .args(["--user", "--quiet", "--unit", &p.unit, "--description"])
+            .args(["--user", "--quiet", "--unit", &p.unit])
+            .args(&stop_post)
+            .arg("--description")
             .arg(format!("sdc experiment {id}: run {}", p.name))
             .arg(format!("--working-directory={}", build.display()))
             .args(["/usr/bin/env", "-i"])

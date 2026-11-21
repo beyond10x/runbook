@@ -545,3 +545,42 @@ fn a_free_agent_run_is_reported_in_the_metric_shape_once_its_outcome_is_measured
     assert_eq!(m["settings"]["free.max_usd"], "25");
     assert_eq!(m["metrics"]["tokens"]["cache_creation"], 5400);
 }
+
+#[test]
+fn a_product_tree_is_sized_by_its_tests_its_product_lines_and_whether_its_readme_says_how_to_start_it() {
+    let p = scratch("size").join("product");
+    fs::create_dir_all(p.join("src")).unwrap();
+    fs::create_dir_all(p.join("tests")).unwrap();
+    fs::create_dir_all(p.join("target/debug")).unwrap();
+    fs::write(p.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    fs::write(
+        p.join("src/lib.rs"),
+        "// a comment\n\npub fn add(a: u32, b: u32) -> u32 {\n    a + b\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn adds() {\n        assert_eq!(add(1, 2), 3);\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(p.join("src/main.rs"), "fn main() {\n    println!(\"{}\", demo::add(1, 1));\n}\n").unwrap();
+    fs::write(p.join("tests/api.rs"), "#[test]\nfn one() {\n    assert!(true);\n}\n\n#[test]\nfn two() {}\n").unwrap();
+    fs::write(p.join("target/debug/junk.rs"), "#[test]\nfn not_counted() {}\n").unwrap();
+    fs::write(p.join("src/index.html"), "<html>\n\n<body></body>\n</html>\n").unwrap();
+    fs::write(p.join("src/sw.js"), "self.addEventListener('fetch', () => {});\n").unwrap();
+    fs::write(p.join("target/debug/x.js"), "not counted\n").unwrap();
+    fs::write(p.join("README.md"), "# Demo\n\n## Run\n\n    cargo run --locked -- 8080\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-free-agent")).arg("size").arg(&p).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["format"], "sdc.product-size/1");
+    assert_eq!(v["rust_files"], 3);
+    assert_eq!(v["tests"], 3);
+    // lib.rs outside its test module: 3 lines (the comment and blank lines do not count); main.rs: 3.
+    assert_eq!(v["product_lines"], 6);
+    // lib.rs's test module (8 lines, from #[cfg(test)] to its closing brace) and tests/api.rs (6).
+    assert_eq!(v["test_lines"], 14);
+    // Web assets kept beside the Rust (a product may embed them in Rust strings instead).
+    assert_eq!(v["asset_lines"], 4);
+    assert_eq!(v["readme"], true);
+    assert_eq!(v["readme_says_how_to_start"], true);
+    fs::write(p.join("README.md"), "# Demo\n\nA demo.\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-free-agent")).arg("size").arg(&p).output().unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["readme_says_how_to_start"], false);
+}

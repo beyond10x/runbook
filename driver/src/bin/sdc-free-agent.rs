@@ -213,12 +213,12 @@ fn session_bwrap(l: &Layout) -> Vec<String> {
 }
 
 /// The confinement of one cargo job (run by slot): the same view, no network, no login, writable
-/// only `rw`, the cargo home and the home without its config directory.
+/// only `rw` and the cargo home; the session's home is an empty tmpfs (it may already be removed).
 fn job_bwrap(l: &Layout, rw: &[PathBuf], cwd: &Path, args: &[String]) -> Vec<String> {
     let mut a = vec![s(&l.bwrap)];
     a.extend(base_view(l));
     a.push("--unshare-net".into());
-    a.extend(["--bind".into(), s(&l.home), s(&l.home), "--tmpfs".into(), s(&l.home.join(".claude"))]);
+    a.extend(["--tmpfs".into(), s(&l.home)]);
     for d in rw {
         a.extend(["--bind".into(), s(d), s(d)]);
     }
@@ -450,12 +450,14 @@ fn job(args: &[String]) -> Result<ExitCode, String> {
 
 // ---- run ---------------------------------------------------------------------------------------
 
-/// Removes the copied login when the run ends, whatever the end.
+/// Removes the session's home, with the copied login in it, when the launcher ends on its own
+/// path (completed, capped, failed, an error or a panic). A launcher killed by a signal runs no
+/// destructor: sdc-experiment's unit removes the home in its ExecStopPost.
 struct Login(PathBuf);
 
 impl Drop for Login {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
@@ -579,7 +581,7 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     fs::write(l.work.join("in/idea.yaml"), &idea_doc).map_err(|e| e.to_string())?;
     copy_dir(&example, &l.work.join("in/example-spec"), &[])?;
     let creds = a.credentials.clone().unwrap_or_else(|| PathBuf::from(&home_env).join(".claude/.credentials.json"));
-    let login = Login(l.home.join(".claude/.credentials.json"));
+    let login = Login(l.home.clone());
     fs::copy(&creds, &login.0).map_err(|e| format!("cannot copy the login {}: {e}", creds.display()))?;
     fs::set_permissions(&login.0, fs::Permissions::from_mode(0o600)).map_err(|e| e.to_string())?;
     write_json(&l.run.join("confinement.json"), &l.json())?;
@@ -668,6 +670,90 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+// ---- size --------------------------------------------------------------------------------------
+
+fn files_with(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    entries.sort();
+    for p in entries {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        if p.is_dir() {
+            if name != "target" && !name.starts_with('.') {
+                files_with(&p, exts, out);
+            }
+        } else if exts.iter().any(|e| name.ends_with(e)) {
+            out.push(p);
+        }
+    }
+}
+
+/// The size of a product tree, by program and the same for both runners: `#[test]` functions,
+/// non-blank non-comment lines of Rust outside tests (a `tests/` directory and `#[cfg(test)]`
+/// items, ended by brace count) and in tests, and whether a README says how to start it (it
+/// names `cargo run`, `task run` or a binary under `target/`). `target/` and dot directories are
+/// skipped.
+fn product_size(dir: &Path) -> J {
+    let mut files = vec![];
+    files_with(dir, &[".rs"], &mut files);
+    let mut assets = vec![];
+    files_with(dir, &[".html", ".js", ".css"], &mut assets);
+    let asset_lines: usize = assets.iter().map(|f| fs::read_to_string(f).unwrap_or_default().lines().filter(|x| !x.trim().is_empty()).count()).sum();
+    let (mut tests, mut product, mut test_lines) = (0u64, 0u64, 0u64);
+    for f in &files {
+        let rel = f.strip_prefix(dir).unwrap_or(f);
+        let test_file = rel.components().any(|c| c.as_os_str() == "tests");
+        let text = fs::read_to_string(f).unwrap_or_default();
+        let (mut in_test, mut depth, mut opened) = (false, 0i64, false);
+        for line in text.lines() {
+            let t = line.trim();
+            if t.is_empty() || t.starts_with("//") {
+                continue;
+            }
+            if t.starts_with("#[test]") {
+                tests += 1;
+            }
+            if !in_test && t.starts_with("#[cfg(test)]") {
+                in_test = true;
+                depth = 0;
+                opened = false;
+            }
+            if test_file || in_test {
+                test_lines += 1;
+            } else {
+                product += 1;
+            }
+            if in_test {
+                depth += t.matches('{').count() as i64 - t.matches('}').count() as i64;
+                opened |= t.contains('{');
+                if (opened && depth <= 0) || (!opened && !t.starts_with("#[") && t.ends_with(';')) {
+                    in_test = false;
+                }
+            }
+        }
+    }
+    let readme = fs::read_dir(dir).ok().and_then(|rd| {
+        rd.filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_file() && p.file_name().is_some_and(|n| n.to_string_lossy().to_lowercase().starts_with("readme")))
+            .min()
+    });
+    let text = readme.as_ref().and_then(|p| fs::read_to_string(p).ok()).unwrap_or_default();
+    let starts = ["cargo run", "task run", "target/release/", "target/debug/"].iter().any(|k| text.contains(k));
+    json!({
+        "format": "sdc.product-size/1",
+        "rust_files": files.len(), "tests": tests, "product_lines": product, "test_lines": test_lines, "asset_lines": asset_lines,
+        "readme": readme.is_some(), "readme_says_how_to_start": readme.is_some() && starts,
+        "rule": "tests: #[test] attributes; product_lines and test_lines: non-blank lines not starting with // in .rs files, test lines being those in a tests/ directory or in a #[cfg(test)] item (ended by brace count); asset_lines: non-blank lines of .html, .js and .css files; readme_says_how_to_start: a README at the root naming cargo run, task run, target/release/ or target/debug/; target/ and dot directories skipped",
+    })
+}
+
+fn size(args: &[String]) -> Result<ExitCode, String> {
+    let [dir] = args else { return Err("size needs one product directory".into()) };
+    let dir = canon(Path::new(dir))?;
+    println!("{}", serde_json::to_string_pretty(&product_size(&dir)).map_err(|e| e.to_string())?);
+    Ok(ExitCode::SUCCESS)
+}
+
 // ---- measure -----------------------------------------------------------------------------------
 
 fn nonempty(p: &Path) -> bool {
@@ -688,7 +774,9 @@ fn pooled_cargo(l: &Layout, dir: &Path, args: &[&str]) -> (Option<i32>, String) 
 fn measure(args: &[String]) -> Result<ExitCode, String> {
     let [run] = args else { return Err("measure needs one run directory".into()) };
     let run = canon(Path::new(run))?;
-    let l = Layout::load(&run)?;
+    let mut l = Layout::load(&run)?;
+    // The jobs run this binary's confinement, not the launcher's recorded in confinement.json.
+    l.me = std::env::current_exe().map_err(|e| e.to_string())?;
     let meta = read_json(&run.join("free-agent.json"))?;
     if meta["end"] == "running" {
         return Err("the run has not ended".into());
@@ -751,6 +839,7 @@ fn measure(args: &[String]) -> Result<ExitCode, String> {
         "builds": builds, "build_exit": build_exit,
         "tests_pass": tests_pass, "test_exit": test_exit, "tests_passed": passed, "tests_failed": failed,
         "conformance": "not measured",
+        "size": if d["impl"] { product_size(&w.join("impl")) } else { J::Null },
         "delivered": delivered,
         "rule": "delivered: ended by itself (not capped, no error), requirements, spec, plan with at least one covers line, impl and review present, ess specify validate --strict-requires passes, cargo build --locked and cargo test --locked of a copy pass with at least one test and none failed",
     });
@@ -771,6 +860,7 @@ fn main() -> ExitCode {
         Some("run") => run(&args[1..]),
         Some("measure") => measure(&args[1..]),
         Some("job") => job(&args[1..]),
+        Some("size") => size(&args[1..]),
         _ => {
             eprintln!("{USAGE}");
             return ExitCode::from(64);
