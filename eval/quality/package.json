@@ -1,0 +1,10 @@
+{
+  "name": "sdc-eval-quality",
+  "version": "0.1.3",
+  "private": true,
+  "type": "module",
+  "description": "Blinded browser rubric for delivered products of the to-do idea",
+  "devDependencies": {
+    "playwright": "1.65.0"
+  }
+}

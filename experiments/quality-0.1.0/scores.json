@@ -1,0 +1,1615 @@
+{
+  "format": "sdc.quality-scores/1",
+  "rubric": "rubric.md",
+  "n": 23,
+  "key": {
+    "p1": "trial-0.1.0-mixed-3",
+    "p2": "trial-0.1.0-mixed-2",
+    "p3": "free-agent-0.1.0-sonnet-1",
+    "p4": "trial-0.1.0-strong-3",
+    "p5": "free-agent-0.1.0-sonnet-3",
+    "p6": "trial-0.1.0-mixed-1",
+    "p7": "free-agent-0.1.0-sonnet-2",
+    "p8": "trial-0.1.0-strong-2",
+    "p9": "trial-0.1.0-strong-1"
+  },
+  "sides": {
+    "SDC mixed": {
+      "runs": [
+        "trial-0.1.0-mixed-3=p1",
+        "trial-0.1.0-mixed-2=p2",
+        "trial-0.1.0-mixed-1=p6"
+      ],
+      "score": {
+        "median": 22,
+        "min": 20,
+        "max": 23
+      },
+      "loc": {
+        "median": 1335,
+        "min": 1086,
+        "max": 1651
+      },
+      "tests": {
+        "median": 37,
+        "min": 34,
+        "max": 38
+      },
+      "per_item_passes": {
+        "B1": 3,
+        "B2": 3,
+        "B3": 3,
+        "U1": 3,
+        "F1": 3,
+        "F2": 3,
+        "F3": 2,
+        "F4": 3,
+        "F5": 2,
+        "P1": 3,
+        "S1": 3,
+        "S2": 3,
+        "S3": 2,
+        "O1": 3,
+        "O2": 3,
+        "O3": 3,
+        "O4": 3,
+        "O5": 3,
+        "O6": 3,
+        "O7": 2,
+        "R1": 3,
+        "R2": 3,
+        "R3": 3
+      }
+    },
+    "free agent": {
+      "runs": [
+        "free-agent-0.1.0-sonnet-1=p3",
+        "free-agent-0.1.0-sonnet-3=p5",
+        "free-agent-0.1.0-sonnet-2=p7"
+      ],
+      "score": {
+        "median": 20,
+        "min": 19,
+        "max": 20
+      },
+      "loc": {
+        "median": 663,
+        "min": 623,
+        "max": 763
+      },
+      "tests": {
+        "median": 17,
+        "min": 16,
+        "max": 19
+      },
+      "per_item_passes": {
+        "B1": 3,
+        "B2": 3,
+        "B3": 3,
+        "U1": 3,
+        "F1": 3,
+        "F2": 3,
+        "F3": 0,
+        "F4": 3,
+        "F5": 0,
+        "P1": 3,
+        "S1": 3,
+        "S2": 3,
+        "S3": 2,
+        "O1": 3,
+        "O2": 3,
+        "O3": 3,
+        "O4": 3,
+        "O5": 3,
+        "O6": 3,
+        "O7": 0,
+        "R1": 3,
+        "R2": 3,
+        "R3": 3
+      }
+    },
+    "SDC strong": {
+      "runs": [
+        "trial-0.1.0-strong-3=p4",
+        "trial-0.1.0-strong-2=p8",
+        "trial-0.1.0-strong-1=p9"
+      ],
+      "score": {
+        "median": 23,
+        "min": 20,
+        "max": 23
+      },
+      "loc": {
+        "median": 1450,
+        "min": 1356,
+        "max": 1666
+      },
+      "tests": {
+        "median": 42,
+        "min": 25,
+        "max": 50
+      },
+      "per_item_passes": {
+        "B1": 3,
+        "B2": 3,
+        "B3": 3,
+        "U1": 3,
+        "F1": 3,
+        "F2": 3,
+        "F3": 2,
+        "F4": 3,
+        "F5": 3,
+        "P1": 3,
+        "S1": 3,
+        "S2": 3,
+        "S3": 2,
+        "O1": 3,
+        "O2": 3,
+        "O3": 3,
+        "O4": 3,
+        "O5": 3,
+        "O6": 3,
+        "O7": 2,
+        "R1": 3,
+        "R2": 3,
+        "R3": 3
+      }
+    }
+  },
+  "products": [
+    {
+      "run": "free-agent-0.1.0-sonnet-1",
+      "side": "free agent",
+      "blinded_id": "p3",
+      "score": 20,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [
+        "F3",
+        "F5",
+        "O7"
+      ],
+      "own_tests_passed": 17,
+      "cost_usd": 0.47,
+      "wall_s": 163,
+      "cost_source": "run events.jsonl result event (total_cost_usd 0.4701, duration_ms 163052)",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build (in confinement, offline)",
+          "got": "exit 0, 2 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 17 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo build; ./target/debug/todod <port> <data-file> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 324 ms; stdout: todod listening on port 38033, data file <quality>/products/p3/data/tasks.txt"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open / in Chromium",
+          "got": "content type text/html, add control #title visible: true; text: Our to-do list Online Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "fail",
+          "step": "edit a task title",
+          "got": "the page offers no control for it"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "fail",
+          "step": "remove a task",
+          "got": "the page offers no control for it"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Our to-do list Online Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Our to-do list Online Add Buy milk Pay rent Remove me"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "pass",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "shown in B after 7307 ms"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Our to-do list Offline – changes are kept on this device Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Our to-do list Online Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A Tickets offline"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Our to-do list Offline – changes are kept on this device · 2 change(s) waiting to sync Add Buy milk Pay rent Remove me Bread from A Soap from B waiting Live from A Tickets offline waiting"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "fail",
+          "step": "conflicting offline edits",
+          "got": "the page offers no edit control"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 7, after 7; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 8 -> 9"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [
+        "A: Failed to load resource: the server responded with a status of 409 (Conflict)"
+      ],
+      "exploratory_findings": [],
+      "static": {
+        "product_loc": 663,
+        "rust_loc": 525,
+        "separate_web_loc": 138,
+        "test_fns": 17,
+        "dependencies": 0,
+        "binaries": [
+          "todod"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /",
+          "GET /sw.js",
+          "GET|POST /api/tasks",
+          "POST /api/tasks/{id}/complete"
+        ]
+      }
+    },
+    {
+      "run": "free-agent-0.1.0-sonnet-2",
+      "side": "free agent",
+      "blinded_id": "p7",
+      "score": 20,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [
+        "F3",
+        "F5",
+        "O7"
+      ],
+      "own_tests_passed": 16,
+      "cost_usd": 0.414,
+      "wall_s": 143,
+      "cost_source": "run events.jsonl result event (total_cost_usd 0.4137, duration_ms 143457)",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --release (in confinement, offline)",
+          "got": "exit 0, 3 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 16 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --release -- <port> <data-file> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 320 ms; stdout: listening on port 37019, data in <quality>/products/p7/data/tasks.txt"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open / in Chromium",
+          "got": "content type text/html, add control input[name=title] visible: true; text: To-do Online Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "fail",
+          "step": "edit a task title",
+          "got": "the page offers no control for it"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "fail",
+          "step": "remove a task",
+          "got": "the page offers no control for it"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: To-do Online Add Buy milk (A) Pay rent (A) Remove me (A) Bread from A (A) Soap from B (B) Live from A (A)"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: To-do Online Add Buy milk (A) Pay rent (A) Remove me (A)"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "pass",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "shown in B after 2286 ms"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: To-do Offline - changes are kept and sent later Add Buy milk (A) Pay rent (A) Remove me (A) Bread from A (A) Soap from B (B) Live from A (A)"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: To-do Offline - changes are kept and sent later Add Buy milk (A) Pay rent (A) Remove me (A) Bread from A (A) Soap from B (B) Live from A (A) Tickets offline (A)"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: To-do Offline - changes are kept and sent later (2 waiting) Add Buy milk (A) Pay rent (A) Remove me (A) Bread from A (A) Soap from B (B) Live from A (A) Tickets offline (A)"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "fail",
+          "step": "conflicting offline edits",
+          "got": "the page offers no edit control"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 7, after 7; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 8 -> 9"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [
+        "A: Failed to load resource: the server responded with a status of 409 (Conflict)"
+      ],
+      "exploratory_findings": [],
+      "static": {
+        "product_loc": 623,
+        "rust_loc": 474,
+        "separate_web_loc": 149,
+        "test_fns": 16,
+        "dependencies": 0,
+        "binaries": [
+          "(package name)"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /",
+          "GET /sw.js",
+          "GET|POST /api/tasks",
+          "POST /api/tasks/{id}/complete",
+          "POST /api/tasks/{id}/reopen"
+        ]
+      }
+    },
+    {
+      "run": "free-agent-0.1.0-sonnet-3",
+      "side": "free agent",
+      "blinded_id": "p5",
+      "score": 19,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [
+        "F3",
+        "F5",
+        "S3",
+        "O7"
+      ],
+      "own_tests_passed": 19,
+      "cost_usd": 0.478,
+      "wall_s": 173,
+      "cost_source": "run events.jsonl result event (total_cost_usd 0.4779, duration_ms 173474)",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --release (in confinement, offline)",
+          "got": "exit 0, 2 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 19 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo build --release; target/release/todo-daemon <port> <data-file> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 319 ms; stdout: todo-daemon listening on port 40099, data in <quality>/products/p5/data/a.tsv"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open / in Chromium",
+          "got": "content type text/html, add control #title visible: true; text: Our to-do list Up to date Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "fail",
+          "step": "edit a task title",
+          "got": "the page offers no control for it"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "fail",
+          "step": "remove a task",
+          "got": "the page offers no control for it"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Our to-do list Up to date Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Our to-do list Up to date Add Buy milk Pay rent Remove me"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "fail",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "not shown in B within 10 s"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Our to-do list Offline Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Our to-do list Up to date Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A Tickets offline"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Our to-do list Offline - 2 change(s) waiting to be sent Add Buy milk Pay rent Remove me Bread from A Soap from B Live from A Tickets offline"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "fail",
+          "step": "conflicting offline edits",
+          "got": "the page offers no edit control"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 7, after 7; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 8 -> 9"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [],
+      "exploratory_findings": [],
+      "static": {
+        "product_loc": 763,
+        "rust_loc": 627,
+        "separate_web_loc": 136,
+        "test_fns": 19,
+        "dependencies": 0,
+        "binaries": [
+          "todo-daemon"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /",
+          "GET /sw.js",
+          "GET /api/tasks",
+          "POST /api/commands"
+        ]
+      }
+    },
+    {
+      "run": "trial-0.1.0-mixed-1",
+      "side": "SDC mixed",
+      "blinded_id": "p6",
+      "score": 20,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [
+        "F3",
+        "S3",
+        "O7"
+      ],
+      "own_tests_passed": 38,
+      "cost_usd": 2.497,
+      "wall_s": 1480,
+      "cost_source": "experiments/baseline-0.1.0/report.md:46",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --locked (in confinement, offline)",
+          "got": "exit 0, 2 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 38 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --locked -- <port> <data-file> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 404 after 354 ms; stdout: list link: http://localhost:<port>/l/<secret>"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open http://localhost:<port>/l/<secret> in Chromium",
+          "got": "content type text/html, add control #text visible: true; text: Shared to-do list The list is open. You can change it. Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "fail",
+          "step": "edit a task title",
+          "got": "the page offers no control for it"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "pass",
+          "step": "remove \"Remove me\", reload",
+          "got": "gone after reload: true"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Shared to-do list The list is open. You can change it. Add Buy milk DoneDelete Pay rent (done) Delete Bread from A DoneDelete Soap from B DoneDelete Live from A DoneDelete"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Shared to-do list The list is open. You can change it. Add Buy milk DoneDelete Pay rent (done) Delete"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "fail",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "not shown in B within 10 s"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Shared to-do list The list is open. You can change it. Add Buy milk DoneDelete Pay rent (done) Delete Bread from A DoneDelete Soap from B DoneDelete Live from A DoneDelete"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Shared to-do list The list is open. You can change it. Add Buy milk DoneDelete Pay rent (done) Delete Bread from A DoneDelete Soap from B (done) Delete Live from A DoneDelete Tickets offline DoneDelet"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Shared to-do list No connection. This is the copy kept at your last visit; 2 change(s) wait to be sent. Add Buy milk DoneDelete Pay rent (done) Delete Bread from A DoneDelete Soap from B (done) Delete"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "fail",
+          "step": "conflicting offline edits",
+          "got": "the page offers no edit control"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 6, after 6; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 404; page lists tasks: true; items 7 -> 8"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [],
+      "exploratory_findings": [
+        {
+          "finding": "A change made while the server is unreachable but the browser is online is not sent once the server is back (the page retries only on the browser's online event or a reload); the partner does not get it",
+          "step": "explore.ts X6: stop server; A adds \"While server down\"; start server; wait 16 s; B reloads: absent"
+        }
+      ],
+      "static": {
+        "product_loc": 1086,
+        "rust_loc": 1086,
+        "separate_web_loc": 0,
+        "test_fns": 38,
+        "dependencies": 0,
+        "binaries": [
+          "todo-service"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /l/{link}",
+          "GET /sw.js",
+          "GET /api/open/{link}",
+          "GET /api/list/{link}",
+          "POST /api/list/{link}/items",
+          "POST /api/list/{link}/items/{id}/done",
+          "POST /api/list/{link}/items/{id}/delete",
+          "POST /api/list/{link}/changes"
+        ]
+      }
+    },
+    {
+      "run": "trial-0.1.0-mixed-2",
+      "side": "SDC mixed",
+      "blinded_id": "p2",
+      "score": 22,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [
+        "F5"
+      ],
+      "own_tests_passed": 37,
+      "cost_usd": 3.883,
+      "wall_s": 2091,
+      "cost_source": "experiments/baseline-0.1.0/report.md:47",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --locked (in confinement, offline)",
+          "got": "exit 0, 2 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 37 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --locked --bin sync_service -- <sync-port> <sync-data-file>; cargo run --locked --bin todo-app -- <port> <data-file> <sync-host:port> <partner-id> <partner-id> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 628 ms; stdout: sync_service listening on http://127.0.0.1:<port>/"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open / in Chromium",
+          "got": "content type text/html, add control #title visible: true; text: Shared list Connected. Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "pass",
+          "step": "Edit \"Buy milk\" to \"Buy oat drink\", reload",
+          "got": "after reload: Shared list Connected. Add Buy oat drinkEditComplete"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "fail",
+          "step": "remove a task",
+          "got": "the page offers no control for it"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Shared list Connected. Add Buy oat drinkEditComplete Pay rentEdit Remove meEditComplete Bread from AEditComplete Soap from BEditComplete Live from AEditComplete"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Shared list Connected. Add Buy oat drinkEditComplete Pay rentEdit Remove meEditComplete"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "pass",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "shown in B after 6349 ms"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Shared list Connected. Add Buy oat drinkEditComplete Pay rentEdit Remove meEditComplete Bread from AEditComplete Soap from BEditComplete Live from AEditComplete"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Shared list Connected. Add Buy oat drinkEditComplete Pay rentEdit Remove meEditComplete Bread from AEditComplete Soap from BEdit Live from AEditComplete Tickets offlineEditComplete"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Shared list No connection: changes are kept on this device. 2 change(s) waiting to be sent. Add Buy oat drinkEditComplete Pay rentEdit Remove meEditComplete Bread from AEditComplete Soap from BEdit Li"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "pass",
+          "step": "A and B offline edit \"Shared chore\" to \"Chore by A\"/\"Chore by B\"; A reconnects, 6 s later B; 15 s; both reload",
+          "got": "A: [Chore by B] B: [Chore by B]; other tasks kept in both: true"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 8, after 8; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 9 -> 10"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [],
+      "exploratory_findings": [],
+      "static": {
+        "product_loc": 1651,
+        "rust_loc": 1651,
+        "separate_web_loc": 0,
+        "test_fns": 37,
+        "dependencies": 0,
+        "binaries": [
+          "(package name)"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /",
+          "GET /sw.js",
+          "POST /api/sign-in",
+          "GET|POST /api/items",
+          "POST /api/items/{id}/edit",
+          "POST /api/items/{id}/complete",
+          "POST /api/changes",
+          "sync_service: GET /items, POST|PUT /items/{id}"
+        ]
+      }
+    },
+    {
+      "run": "trial-0.1.0-mixed-3",
+      "side": "SDC mixed",
+      "blinded_id": "p1",
+      "score": 23,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [],
+      "own_tests_passed": 34,
+      "cost_usd": 2.549,
+      "wall_s": 1489,
+      "cost_source": "experiments/baseline-0.1.0/report.md:48",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --release (in confinement, offline)",
+          "got": "exit 0, 3 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 34 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --release -- <port> <data-file> [bind-address] (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 320 ms; stdout: todo-server: listening on 127.0.0.1:<port>, data in <quality>/products/p1/data/todo.dat"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open / in Chromium",
+          "got": "content type text/html, add control #text visible: true; text: Shared to-do list Hello, A. Items you add are tagged with this name. Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "pass",
+          "step": "Edit \"Buy milk\" to \"Buy oat drink\", reload",
+          "got": "after reload: Shared to-do list Hello, A. Items you add are tagged with this name. Add Buy oat drink (A)DoneEditDelete"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "pass",
+          "step": "remove \"Remove me\", reload",
+          "got": "gone after reload: true"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Shared to-do list Hello, C. Items you add are tagged with this name. Add Buy oat drink (A)DoneEditDelete Pay rent (A)EditDelete Bread from A (A)DoneEditDelete Soap from B (B)DoneEditDelete Live from A"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Shared to-do list Hello, B. Items you add are tagged with this name. Add Buy oat drink (A)DoneEditDelete Pay rent (A)EditDelete"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "pass",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "shown in B after 1786 ms"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Shared to-do list Hello, A. Items you add are tagged with this name. Add Offline: showing the list saved on this device. Buy oat drink (A)DoneEditDelete Pay rent (A)EditDelete Bread from A (A)DoneEdit"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Shared to-do list Hello, A. Items you add are tagged with this name. Add Offline: showing the list saved on this device. Buy oat drink (A)DoneEditDelete Pay rent (A)EditDelete Bread from A (A)DoneEdit"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Shared to-do list Hello, A. Items you add are tagged with this name. Add Offline: showing the list saved on this device. Buy oat drink (A)DoneEditDelete Pay rent (A)EditDelete Bread from A (A)DoneEdit"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "pass",
+          "step": "A and B offline edit \"Shared chore\" to \"Chore by A\"/\"Chore by B\"; A reconnects, 6 s later B; 15 s; both reload",
+          "got": "A: [Chore by B] B: [Chore by B]; other tasks kept in both: true"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 7, after 7; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 8 -> 9"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [],
+      "exploratory_findings": [
+        {
+          "finding": "On a slow connection the add box keeps the previous title until the server answers; text typed meanwhile is joined to it and added as one task (\"FirstSecond\")",
+          "step": "slow.ts: every /api/ request delayed 2 s; add \"First\"; type \"Second\" 300 ms later; Enter after 3 s"
+        }
+      ],
+      "static": {
+        "product_loc": 1335,
+        "rust_loc": 1335,
+        "separate_web_loc": 0,
+        "test_fns": 34,
+        "dependencies": 0,
+        "binaries": [
+          "todo-server"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /",
+          "GET /sw.js",
+          "GET /api/health",
+          "POST /api/identity/enter-name",
+          "GET /api/identity/sessions/{id}",
+          "GET|POST /api/list/items",
+          "PUT|DELETE /api/list/items/{id}",
+          "POST /api/list/items/{id}/done",
+          "POST /api/sync/edits"
+        ]
+      }
+    },
+    {
+      "run": "trial-0.1.0-strong-1",
+      "side": "SDC strong",
+      "blinded_id": "p9",
+      "score": 20,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [
+        "F3",
+        "S3",
+        "O7"
+      ],
+      "own_tests_passed": 25,
+      "cost_usd": 5.432,
+      "wall_s": 1075,
+      "cost_source": "experiments/baseline-0.1.0/report.md:43",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --locked (in confinement, offline)",
+          "got": "exit 0, 2 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 25 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --locked --bin todo-service -- <port> <data-file> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 388 ms; stdout: listening on port 35553, data file <quality>/products/p9/data/todo.dat"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open /lists/<uuid> in Chromium",
+          "got": "content type text/html, add control #subject visible: true; text: Our list Add All changes sent"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "create a list in the first page's form, open its address",
+          "got": "list created, address /lists/<uuid>"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "fail",
+          "step": "edit a task title",
+          "got": "the page offers no control for it"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "pass",
+          "step": "remove \"Remove me\", reload",
+          "got": "gone after reload: true"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Our list Buy milk Tick Remove Pay rent Tick Remove Bread from A Tick Remove Soap from B Tick Remove Live from A Tick Remove Add All changes sent"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Our list Buy milk Tick Remove Pay rent Tick Remove Add All changes sent"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "fail",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "not shown in B within 10 s"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Our list Buy milk Tick Remove Pay rent Tick Remove Bread from A Tick Remove Soap from B Tick Remove Live from A Tick Remove Add Offline. All changes sent"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Our list Buy milk Tick Remove Pay rent Tick Remove Bread from A Tick Remove Soap from B Tick Remove Live from A Tick Remove Tickets offline Tick Remove Add All changes sent"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Our list Buy milk Tick Remove Pay rent Tick Remove Bread from A Tick Remove Soap from B Tick Remove Live from A Tick Remove Tickets offline Tick Remove Add Offline. 2 change(s) waiting to be sent"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "fail",
+          "step": "conflicting offline edits",
+          "got": "the page offers no edit control"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 6, after 6; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 7 -> 8"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [],
+      "exploratory_findings": [
+        {
+          "finding": "Adding a title that already exists adds nothing: tasks are keyed by their text, so a second \"Eggs\" merges into the first",
+          "step": "explore.ts X2: add \"Eggs\" twice; A and B show one"
+        }
+      ],
+      "static": {
+        "product_loc": 1356,
+        "rust_loc": 1356,
+        "separate_web_loc": 0,
+        "test_fns": 25,
+        "dependencies": 0,
+        "binaries": [
+          "todo-service"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /",
+          "GET /lists/{id}",
+          "GET /sw.js",
+          "GET|POST /api/lists",
+          "GET /api/lists/{id}",
+          "GET /api/lists/{id}/items",
+          "GET|POST /api/changes",
+          "GET /api/changes/{id}",
+          "POST /api/changes/{id}/send",
+          "POST /api/tasks",
+          "GET /api/tasks/{id}",
+          "POST /api/tasks/{id}/tick|remove",
+          "GET /api/tasks/open|done"
+        ]
+      }
+    },
+    {
+      "run": "trial-0.1.0-strong-2",
+      "side": "SDC strong",
+      "blinded_id": "p8",
+      "score": 23,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [],
+      "own_tests_passed": 50,
+      "cost_usd": 6.194,
+      "wall_s": 1247,
+      "cost_source": "experiments/baseline-0.1.0/report.md:44",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --release (in confinement, offline)",
+          "got": "exit 0, 3 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 50 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --release --bin list-service -- <port> <data-file> (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 200 after 325 ms; stdout: list-service on port 43495, data file <quality>/products/p8/data/list.dat"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open / in Chromium",
+          "got": "content type text/html, add control #title visible: true; text: Shared to-do list Online Add To do Done"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "pass",
+          "step": "Edit \"Buy milk\" to \"Buy oat drink\", reload",
+          "got": "after reload: Shared to-do list Online Add To do Buy oat drink DoneEditDelete Done"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "pass",
+          "step": "remove \"Remove me\", reload",
+          "got": "gone after reload: true"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Shared to-do list Online Add To do Buy oat drink DoneEditDelete Bread from A DoneEditDelete Soap from B DoneEditDelete Live from A DoneEditDelete Done Pay rent EditDelete"
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Shared to-do list Online Add To do Buy oat drink DoneEditDelete Done Pay rent EditDelete"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "pass",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "shown in B after 2286 ms"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Shared to-do list Offline Add To do Buy oat drink DoneEditDelete Bread from A DoneEditDelete Soap from B DoneEditDelete Live from A DoneEditDelete Done Pay rent EditDelete"
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Shared to-do list Online Add To do Buy oat drink DoneEditDelete Bread from A DoneEditDelete Live from A DoneEditDelete Tickets offline DoneEditDelete Done Pay rent EditDelete Soap from B EditDelete"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Shared to-do list Offline, 2 change(s) waiting to be sent Add To do Buy oat drink DoneEditDelete Bread from A DoneEditDelete Live from A DoneEditDelete Tickets offline (waiting) DoneEditDelete Done So"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "pass",
+          "step": "A and B offline edit \"Shared chore\" to \"Chore by A\"/\"Chore by B\"; A reconnects, 6 s later B; 15 s; both reload",
+          "got": "A: [Chore by B] B: [Chore by B]; other tasks kept in both: true"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 7, after 7; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 200; page lists tasks: true; items 8 -> 9"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [
+        "A: Failed to load resource: the server responded with a status of 409 (Conflict)"
+      ],
+      "exploratory_findings": [
+        {
+          "finding": "The README's first run command starts sync-service, whose page has Add and Edit only (no Done, no Delete); the full list page is the second binary, described further down",
+          "step": "readme-first.ts: start the README's first command, open /"
+        }
+      ],
+      "static": {
+        "product_loc": 1666,
+        "rust_loc": 1666,
+        "separate_web_loc": 0,
+        "test_fns": 50,
+        "dependencies": 0,
+        "binaries": [
+          "sync-service",
+          "list-service"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "list-service: GET /",
+          "GET /sw.js",
+          "GET|POST /api/tasks",
+          "PUT|DELETE /api/tasks/{id}",
+          "POST /api/tasks/{id}/edit|complete|delete",
+          "POST /api/push",
+          "sync-service (second binary): GET /, GET /sw.js, POST /api/push, GET /api/shared"
+        ]
+      }
+    },
+    {
+      "run": "trial-0.1.0-strong-3",
+      "side": "SDC strong",
+      "blinded_id": "p4",
+      "score": 23,
+      "n": 23,
+      "not_testable": 0,
+      "failed": [],
+      "own_tests_passed": 42,
+      "cost_usd": 5.503,
+      "wall_s": 1430,
+      "cost_source": "experiments/baseline-0.1.0/report.md:45",
+      "items": {
+        "B1": {
+          "score": "pass",
+          "step": "cargo build --locked (in confinement, offline)",
+          "got": "exit 0, 2 s"
+        },
+        "B2": {
+          "score": "pass",
+          "step": "cargo test --locked (Taskfile check)",
+          "got": "exit 0; 42 passed, 0 failed, 0 ignored"
+        },
+        "B3": {
+          "score": "pass",
+          "step": "cargo run --locked -- <port> <data-file> [secret] (binary of B1, in confinement, 127.0.0.1:<free port>)",
+          "got": "GET / answered 403 after 325 ms; stdout: private link: http://127.0.0.1:<port>/list/<secret>"
+        },
+        "U1": {
+          "score": "pass",
+          "step": "open /list/<secret> in Chromium",
+          "got": "content type text/html, add control #title visible: true; text: Shared list You opened the shared list. No sign-in is needed. Add"
+        },
+        "F1": {
+          "score": "pass",
+          "step": "open the address",
+          "got": "one shared list, usable on the first page without setup"
+        },
+        "F2": {
+          "score": "pass",
+          "step": "type \"Buy milk\", submit",
+          "got": "shown: true"
+        },
+        "F3": {
+          "score": "pass",
+          "step": "Edit \"Buy milk\" to \"Buy oat drink\", reload",
+          "got": "after reload: Shared list You opened the shared list. No sign-in is needed. Add [ ] Buy oat drink DoneEditRemove"
+        },
+        "F4": {
+          "score": "pass",
+          "step": "tick \"Pay rent\" done, reload",
+          "got": "done after reload: true"
+        },
+        "F5": {
+          "score": "pass",
+          "step": "remove \"Remove me\", reload",
+          "got": "gone after reload: true"
+        },
+        "P1": {
+          "score": "pass",
+          "step": "stop the server, start it again with the same command and data file, open in a fresh context C",
+          "got": "restarted: true; C shows \"Pay rent\" and \"Soap from B\": true; text: Shared list You opened the shared list. No sign-in is needed. Add [ ] Buy oat drink DoneEditRemove [x] Pay rent EditRemove [ ] Bread from A DoneEditRemove [ ] Soap from B DoneEditRemove [ ] Live from "
+        },
+        "S1": {
+          "score": "pass",
+          "step": "second context B opens the same address",
+          "got": "B shows \"Pay rent\": true; text: Shared list You opened the shared list. No sign-in is needed. Add [ ] Buy oat drink DoneEditRemove [x] Pay rent EditRemove"
+        },
+        "S2": {
+          "score": "pass",
+          "step": "A adds \"Bread from A\", B reloads; B adds \"Soap from B\", A reloads",
+          "got": "B sees A's: true; A sees B's: true"
+        },
+        "S3": {
+          "score": "pass",
+          "step": "A adds \"Live from A\"; B waits 10 s without reload",
+          "got": "shown in B after 2285 ms"
+        },
+        "O1": {
+          "score": "pass",
+          "step": "A context offline, wait 5 s",
+          "got": "\"Pay rent\" still shown: true; text: Shared list You opened the shared list. No sign-in is needed. Add [ ] Buy oat drink DoneEditRemove [x] Pay rent EditRemove [ ] Bread from A DoneEditRemove [ ] Soap from B DoneEditRemove [ ] Live from "
+        },
+        "O2": {
+          "score": "pass",
+          "step": "stop the server process, wait 5 s on the loaded page A",
+          "got": "\"Pay rent\" still shown: true; text: Shared list You opened the shared list. No sign-in is needed. Add [ ] Buy oat drink DoneEditRemove [x] Pay rent EditRemove [ ] Bread from A DoneEditRemove [x] Soap from B EditRemove [ ] Live from A Do"
+        },
+        "O3": {
+          "score": "pass",
+          "step": "reload A while offline",
+          "got": "after offline reload: Shared list You opened the shared list. No sign-in is needed. 2 change(s) wait on this device Add [ ] Buy oat drink DoneEditRemove [x] Pay rent EditRemove [ ] Bread from A DoneEditRemove [x] Soap from"
+        },
+        "O4": {
+          "score": "pass",
+          "step": "A offline: add \"Tickets offline\"; then A online",
+          "got": "shown offline: true; still shown after going online: true"
+        },
+        "O5": {
+          "score": "pass",
+          "step": "after A reconnects (15 s), B reloads",
+          "got": "B shows \"Tickets offline\": true"
+        },
+        "O6": {
+          "score": "pass",
+          "step": "A offline: tick \"Soap from B\"; A reconnects; B reloads",
+          "got": "done in A offline: true; done in B: true"
+        },
+        "O7": {
+          "score": "pass",
+          "step": "A and B offline edit \"Shared chore\" to \"Chore by A\"/\"Chore by B\"; A reconnects, 6 s later B; 15 s; both reload",
+          "got": "A: [Chore by B] B: [Chore by B]; other tasks kept in both: true"
+        },
+        "R1": {
+          "score": "pass",
+          "step": "submit \"\" and \"   \", then add \"After empty\"",
+          "got": "items before 7, after 7; page still adds: true"
+        },
+        "R2": {
+          "score": "pass",
+          "step": "add a 10 000-character title, reload",
+          "got": "server answers GET / with 403; page lists tasks: true; items 8 -> 9"
+        },
+        "R3": {
+          "score": "pass",
+          "step": "add title <img src=x onerror=\"window.__xss=1\">; B reloads",
+          "got": "shown as text in A: true, in B: true; window.__xss A=undefined B=undefined"
+        }
+      },
+      "console_errors_other_than_network": [],
+      "exploratory_findings": [],
+      "static": {
+        "product_loc": 1450,
+        "rust_loc": 1450,
+        "separate_web_loc": 0,
+        "test_fns": 42,
+        "dependencies": 0,
+        "binaries": [
+          "todo-service"
+        ],
+        "service_worker": true,
+        "local_storage": true,
+        "indexed_db": false,
+        "routes": [
+          "GET /list/{secret}",
+          "GET /?secret=",
+          "GET /sw.js",
+          "GET /api/open",
+          "POST /api/queue",
+          "POST /api/send",
+          "GET /api/resolve",
+          "GET /api/tasks",
+          "GET /api/changes",
+          "POST /api/task/add|edit|done|remove",
+          "GET /api/task/open",
+          "GET /api/task/done-list"
+        ]
+      }
+    }
+  ],
+  "uniform_probe_outcomes": {
+    "X1 special characters survive restart": "all nine",
+    "X3 five quick adds reach a fresh context": "all nine (in the discarded loopback-only pass p1 lost two of five once; not reproduced)",
+    "X4 remove vs stale tick": "removed stays removed in p1, p8, p9; the tick brings the task back in p4 and p6 (their READMEs: latest change wins, a delete counts as a change); p2, p3, p5, p7 have no remove",
+    "X5 offline task in a closed tab reaches partner when reopened online": "all nine",
+    "X6 add while server down, server back, 16 s": "reaches the partner in all but p6",
+    "X7 first open while offline, never visited": "fails in all nine (expected)",
+    "X8 edit to blank refused": "p1, p2, p4, p8 (the four with edit)",
+    "console": "no uncaught page error in any product; only failed requests while offline or server stopped, and 409 answers on conflicting changes"
+  },
+  "notes": "p1 asks for a name at every page load, also when reopened offline; p2 signs in with a 36-character account id fixed on the server command line and has no delete; p4 and p6 answer the server root with 403/404 and print the private link only on the server console; p9's first page creates a new list on every submit; only p5 and p7 can untick a done task"
+}
