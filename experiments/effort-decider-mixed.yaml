@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: effort-decider-mixed
 kind: prospective
-status: planned
+status: running
 created: 2026-11-21
 title: Decider effort medium against xhigh on the Haiku decider of the mixed setting, everything else fixed
 purpose: Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass.
@@ -43,11 +43,17 @@ variants:
 - id: xhigh
   settings:
     efforts.decider.effort: xhigh
-  runs: []
+  runs:
+  - effort-decider-mixed.xhigh.1
+  - effort-decider-mixed.xhigh.2
+  - effort-decider-mixed.xhigh.3
 - id: medium
   settings:
     efforts.decider.effort: medium
-  runs: []
+  runs:
+  - effort-decider-mixed.medium.1
+  - effort-decider-mixed.medium.2
+  - effort-decider-mixed.medium.3
 baseline: xhigh
 treatment: medium
 runs_per_variant: 3
