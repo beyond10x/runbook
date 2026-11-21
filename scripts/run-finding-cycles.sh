@@ -912,6 +912,32 @@ if (( code == 7 )) && jq -e '.cause == "decision_not_takeable" and .by == "rule:
 else
   echo "keep-going-repeat: FAILED (exit $code, defects $(jq -sc 'map([.cause, .forced])' "$r/defects.jsonl" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+# reopen-refused-decision: runs/trial-3-mixed-4 reopened did nothing (f1 stayed needs_person with
+# its refused_decision). Leg 1 under autopilot: the decider's option 2 on the spec finding f1 is
+# refused by the check (SDC_STUB_REFUSE_DECISION simulates the fault) -> decision_not_takeable,
+# exit 7. Leg 2, `--reopen` with the fault fixed (the variable unset): the stored decision is put
+# back and applied through the current check; f1 resolved with option 2 by decider:haiku, the run
+# closes (exit 0), the first stop record kept as run-stopped.<at>.json.
+expected+=(reopen-refused-decision)
+targs=(--autopilot)
+opt2="the customer and the billing clerk"
+rdreplies=$(jq -cn --arg o "$opt2" '{f1: {decision: "approve", answer: $o, best: null, cites: ["r2"], reasons: ["fixture: the clerk gets the email too"]}}')
+trial reopen-refused-decision SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_STUB_REFUSE_DECISION="$opt2" SDC_DECIDER_REPLIES="$rdreplies"
+code=$?
+r=$s/runs/reopen-refused-decision
+SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=haiku SDC_DECIDER_ADAPTER="$fixture" SDC_PRINCIPAL=agent:finding-cycles \
+  SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_DECIDER_REPLIES="$rdreplies" \
+  "$sdc/scripts/run-trial.sh" reopen-refused-decision --reopen --autopilot > "$s/reopen-refused-decision-reopen.txt" 2>&1
+reopen=$?
+if (( code == 7 && reopen == 0 )) && [[ ! -e $r/run-stopped.json ]] && ls "$r"/run-stopped.*.json >/dev/null 2>&1 &&
+   jq -e '.cause == "decision_not_takeable"' "$(ls "$r"/run-stopped.*.json | head -n 1)" >/dev/null &&
+   grep -q '^# reopen: 1 refused decision(s) in .* put back for the current check' "$r/run.log" &&
+   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e --arg o "$opt2" '.findings[] | select(.id == "f1") | .status == "resolved"
+     and .decided_by == "decider:haiku" and .decision == $o and .refused_decision == null' >/dev/null; then
+  echo "reopen-refused-decision: checks pass (refused, stopped; reopened with the check fixed: the decision applied, closed)"
+else
+  echo "reopen-refused-decision: FAILED (exit $code, reopen exit $reopen: $(tail -n 1 "$s/reopen-refused-decision-reopen.txt" | cut -c1-200))"
+fi
 targs=(--autopilot)
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3

@@ -150,6 +150,16 @@ if [[ -f $stopped ]]; then
   was=$(jq -r .at "$stopped")
   mv "$stopped" "$out/run-stopped.$was.json"
   echo "# reopened at $(now) by ${SDC_PRINCIPAL:-an unnamed principal}: stopped at $was (run-stopped.$was.json)" >> "$log"
+  # A finding that waits only because the program check refused a decider's (or rule:keep-going's)
+  # decision gets that decision back once: amend.upstream applies it through the current check (a
+  # fixed checker takes it; refused again, it is stored again and the stop is as before).
+  while IFS= read -r ff; do
+    n=$(yq '[.findings[] | select(.status == "needs_person" and (.decision // "") == "" and .refused_decision != null)] | length' "$ff" 2>/dev/null || echo 0)
+    (( n > 0 )) || continue
+    yq -i '(.findings[] | select(.status == "needs_person" and (.decision // "") == "" and .refused_decision != null))
+      |= (.decision = .refused_decision.decision | .decided_by = .refused_decision.decided_by | del(.refused_decision))' "$ff"
+    echo "# reopen: $n refused decision(s) in ${ff#"$store"/} put back for the current check" >> "$log"
+  done < <(find "$store" -name findings.yaml -path '*/work/*' -exec realpath {} + 2>/dev/null | sort -u)
 fi
 
 case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
