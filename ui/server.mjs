@@ -553,7 +553,12 @@ const HOME = process.env.HOME || '/nonexistent';
 // a worktree whose runs/ links to another checkout's runs/ has that checkout as a second root
 const roots = (() => { try { const r = path.dirname(fs.realpathSync(path.join(sdc, 'runs'))); return r !== sdc ? [sdc, r] : [sdc]; } catch { return [sdc]; } })();
 const rootRel = (s, r) => s.split(r + '/').join('').split(r).join('.').split(path.dirname(r) + '/').join('../');
-const shownPaths = (s) => roots.reduce(rootRel, s)
+// every directory the server was given (--runs DIR, the run directory of each store argument) shows by
+// the name of its parent: <runs>/<run>/..., wherever the checkout or the run lives
+const givenDirs = () => [...new Set([...runsDirs.map((d) => path.join(d, 'x')), ...sources.map(runDirOf)].map((d) => path.dirname(d)))]
+  .filter((d) => d !== path.dirname(d)).sort((x, y) => y.length - x.length);
+const givenRel = (s, d) => s.split(d + '/').join(path.basename(d) + '/');
+const shownPaths = (s) => givenDirs().reduce(givenRel, roots.reduce(rootRel, s))
   .split(HOME + '/').join('~/').split(HOME).join('~').replace(/\/home\/[^/\s"'<>\\]+/g, '~');
 function push(name, data) {
   const msg = `event: ${name}\ndata: ${shownPaths(JSON.stringify(data))}\n\n`;
