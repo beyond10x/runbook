@@ -1,0 +1,67 @@
+format: loom.bindings/1
+protocol: sdc-epic@1
+artifacts:
+  roadmap: aep/initiative/roadmap.md
+  spec: spec
+actions:
+  - action: roadmap.read
+    executor:
+      kind: copy
+      evidence: roadmap_approval
+      from: sdc-direction@1
+  - action: spec.gate
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+    timeout_seconds: 1800
+    evidence:
+      - kind: ess_gate
+        subject: spec
+        producer: ess
+        from: exit
+        results: {"0": passed, "*": failed}
+  - action: spec.open
+    executor:
+      kind: open
+      name: spec
+      bindings: sdc-spec.yaml
+    evidence:
+      - kind: spec_opened
+        subject: epic
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}
+  - action: plan.open
+    executor:
+      kind: open
+      name: plan
+      bindings: sdc-plan.yaml
+    evidence:
+      - kind: plan_opened
+        subject: epic
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}
+  - action: stories.open
+    executor:
+      kind: open
+      each: stories
+      bindings: sdc-story.yaml
+    arguments_from: [../driver/examples/sdc/tools/sdc-tool.sh, list-stories]
+    evidence:
+      - kind: stories_opened
+        subject: epic
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}
+  - action: release.open
+    executor:
+      kind: open
+      name: release
+      bindings: sdc-release.yaml
+    evidence:
+      - kind: release_opened
+        subject: epic
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}

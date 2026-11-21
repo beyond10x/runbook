@@ -1,0 +1,46 @@
+format: loom.bindings/1
+protocol: sdc@1
+artifacts:
+  idea: idea.yaml
+  goals: goals.yaml
+  roadmap: aep/initiative/roadmap.md
+actions:
+  - action: roadmap.read
+    executor:
+      kind: copy
+      evidence: roadmap_approval
+      from: sdc-direction@1
+  - action: intake.open
+    executor:
+      kind: open
+      name: intake
+      bindings: sdc-intake.yaml
+    evidence:
+      - kind: intake_opened
+        subject: idea
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}
+  - action: direction.open
+    executor:
+      kind: open
+      name: direction
+      bindings: sdc-direction.yaml
+    evidence:
+      - kind: direction_opened
+        subject: idea
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}
+  - action: epics.open
+    executor:
+      kind: open
+      each: epics
+      bindings: sdc-epic.yaml
+    arguments_from: [../driver/examples/sdc/tools/sdc-tool.sh, list-epics]
+    evidence:
+      - kind: epics_opened
+        subject: roadmap
+        producer: sdc-drive
+        from: effect
+        results: {performed: null}

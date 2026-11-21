@@ -1,0 +1,59 @@
+format: loom.bindings/1
+protocol: sdc-release@1
+artifacts:
+  spec: spec
+  release: release
+actions:
+  - action: spec.gate
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+    timeout_seconds: 1800
+    evidence:
+      - kind: ess_gate
+        subject: spec
+        producer: ess
+        from: exit
+        results: {"0": passed, "*": failed}
+  - action: release.build
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, release-build]
+    evidence:
+      - kind: build_provenance
+        subject: release
+        producer: sdc-drive.build
+        from: exit
+        results: {"0": null}
+  - action: acceptance.run
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, conform-run, release]
+    timeout_seconds: 1800
+    evidence:
+      - kind: release_conformance
+        subject: release
+        producer: ess
+        from: exit
+        results: {"0": passed, "*": failed}
+        upstream: [spec]
+  - action: release.publish
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, publish]
+    evidence:
+      - kind: release_record
+        subject: release
+        producer: sdc-drive.deploy
+        from: exit
+        results: {"0": null}
+  - action: release.observe
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, observe]
+    evidence:
+      - kind: health_observation
+        subject: release
+        producer: sdc-drive.monitor
+        from: exit
+        results: {"0": healthy, "*": unhealthy}

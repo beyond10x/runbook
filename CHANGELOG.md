@@ -7,6 +7,13 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- `bindings/`: the nine bindings files in Loom's `loom.bindings/1`, beside the JSON files the
+  driver still runs from, each accepted by Loom's loader at Loom `8a8fad3b`; `bindings/PENDING.md`
+  lists what the format cannot express yet, and `scripts/check-bindings.sh` checks the YAML files
+  against the JSON files and the protocols (`docs/loom-bindings.md`).
+
 ## [0.2.1] - 2026-11-21
 
 A patch release of 0.2.0: two fixes of the documentation checks. The driver, protocols, bindings,
