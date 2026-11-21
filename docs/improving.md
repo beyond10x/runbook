@@ -6,6 +6,27 @@ releases after every improvement." One change at a time, measured, merged, relea
 in `docs/progress.md` and `docs/img/progress.svg`, written by `sdc-experiment progress`. The
 candidates are the stories of `epic:improvement-loop` (`aep plan artifact list`).
 
+## Target
+
+The operator, 2026-11-21, after one free Sonnet session built the same idea for 0.41 to 0.48 USD:
+"so, this is our target then 10% costs". And how: "reduce context to minimal fact sets / inputs -
+dont collect big conversations, figure out where we can use cheeper models".
+
+- **Figure**: `run.cost_usd` 0.47 USD on the `todo-app` input in every setting, the median of the
+  three runs of `free-agent-0.1.0` (record on branch `feat/run-timeline`). Now: strong 5.50, mixed
+  2.55 (`baseline-0.1.0`).
+- **Condition**: neither delivery nor the product check gets worse. `run.delivered` and `run.clean`
+  stay at least the setting's reference record. The product check is the oracle once runs write
+  one; until then, the passing tests and the requirements covered in `work/impl`.
+- **Machine-readable**: `experiments/targets.yaml` (`sdc.targets/1`), validated by
+  `sdc-experiment check --all`.
+- **Where the money goes and the levers**: `experiments/baseline-0.1.0/costs.md` (budget by token
+  kind and node class, the floor), `inputs.md` (fact sets per node), `models.md` (cheaper models
+  per class, the replay test).
+- **The floor with today's protocols**: about 2.0 USD with Sonnet on the writer, implement and
+  review nodes, even with no reruns. 0.47 USD needs Haiku work nodes that pass and fewer sessions
+  (34 per run against 1).
+
 ## The loop
 
 1. **Baseline.** On the last release's tree, n ≥ 3 runs per model setting, started by
@@ -45,7 +66,7 @@ From the nine runs of `experiments/baseline-0.1.0`, counted in `experiments/base
 - haiku-1's Postgres default (q9) was accepted by the non-interactive rule, not by the decider.
 - Stories 3, 5 and 7 of `epic:improvement-loop` address about zero loss in these runs; they are parked.
 
-Ranking rule: first what needs no new code (a setting, then an existing branch), then new code; within each group, a stop of the Haiku setting before money and time, then the larger loss the change could at most remove in the baseline runs.
+Ranking rule, since the target: by saving per run toward 0.47 USD (`costs.md`, `inputs.md`, `models.md`). Equal savings go first to what needs no new code (a setting, then an existing branch), then to what a recorded replay can test before a full run.
 
 ## Versioning
 

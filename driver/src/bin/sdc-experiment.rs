@@ -22,7 +22,8 @@
 //! An experiment record (`experiments/<id>.yaml`, `sdc.experiment/1`) is the one way a real run
 //! is started and accounted for. `check` validates a record and, with `--runs-dir`, that every
 //! listed run was made with its variant's settings; `check --all` validates every record and
-//! fails when a report, a verdict or `experiments/INDEX.md` is stale. `report` writes, per ended
+//! the operator's targets (`experiments/targets.yaml`, `sdc.targets/1`) and fails when a report,
+//! a verdict or `experiments/INDEX.md` is stale. `report` writes, per ended
 //! run, a sanitized summary to `experiments/<id>/runs/<run>.json` (no prompts, no transcripts, no
 //! absolute paths), computes the result from those summaries, puts it into the record, and writes
 //! `experiments/<id>/report.md` and `experiments/INDEX.md`. `run` launches a prospective record:
@@ -1181,10 +1182,82 @@ fn render_report(r: &Y, loaded: &Loaded, result: &J) -> String {
 fn record_paths(exp: &Path) -> Result<Vec<PathBuf>, String> {
     let mut v: Vec<PathBuf> = fs::read_dir(exp).map_err(|e| format!("cannot read {}: {e}", exp.display()))?
         .flatten().map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "yaml") && p.file_name().is_none_or(|n| n != progress::RELEASES))
+        .filter(|p| p.extension().is_some_and(|x| x == "yaml") && p.file_name().is_none_or(|n| n != progress::RELEASES && n != TARGETS))
         .collect();
     v.sort();
     Ok(v)
+}
+
+/// The operator's targets (`experiments/targets.yaml`, `sdc.targets/1`), not a record.
+const TARGETS: &str = "targets.yaml";
+
+fn is_metric(m: &str) -> bool {
+    METRIC_PREFIXES.iter().any(|x| m.starts_with(x)) && m.rsplit_once('.').is_some_and(|(_, f)| !f.is_empty())
+}
+
+/// Each target: who set it and their words, a metric, a figure, the experiment it comes from, one
+/// reference record per setting that exists, and guards on metrics that must not get worse.
+fn check_targets(exp: &Path) -> Vec<String> {
+    let path = exp.join(TARGETS);
+    let Ok(raw) = fs::read_to_string(&path) else { return vec![] };
+    let at = path.display().to_string();
+    let doc: Y = match serde_yaml::from_str(&raw) {
+        Ok(d) => d,
+        Err(e) => return vec![format!("{at}: not YAML: {e}")],
+    };
+    let mut p = vec![];
+    if ystr(&doc, "format") != Some("sdc.targets/1") {
+        p.push("`format` must be sdc.targets/1".to_string());
+    }
+    let ts = yseq(&doc, "targets");
+    if ts.is_empty() {
+        p.push("`targets` must list at least one target".to_string());
+    }
+    let mut ids = BTreeSet::new();
+    for t in &ts {
+        let id = ystr(t, "id").unwrap_or("");
+        let who = if id.is_empty() { "a target".to_string() } else { format!("target {id:?}") };
+        if id.is_empty() || !ids.insert(id.to_string()) {
+            p.push(format!("{who}: `id` must be present and unique"));
+        }
+        for k in ["set", "by", "said", "basis", "source_experiment", "product_check"] {
+            if t.get(k).map(yscalar).is_none_or(|s| s.trim().is_empty()) {
+                p.push(format!("{who}: `{k}` is missing"));
+            }
+        }
+        if !ystr(t, "metric").is_some_and(is_metric) {
+            p.push(format!("{who}: `metric` must be a metric name (run., node., edge. or decision.<...>.<field>)"));
+        }
+        if t.get("target").and_then(Y::as_f64).is_none_or(|x| x < 0.0) {
+            p.push(format!("{who}: `target` must be a number of at least 0"));
+        }
+        let settings = yseq(t, "per_setting");
+        if settings.is_empty() {
+            p.push(format!("{who}: `per_setting` must list at least one setting"));
+        }
+        for s in &settings {
+            let name = ystr(s, "setting").unwrap_or("");
+            match ystr(s, "reference") {
+                Some(r) if exp.join(format!("{r}.yaml")).is_file() => {}
+                r => p.push(format!("{who}, setting {name:?}: `reference` {:?} names no record experiments/<id>.yaml", r.unwrap_or(""))),
+            }
+            for k in ["now", "target"] {
+                if s.get(k).and_then(Y::as_f64).is_none() {
+                    p.push(format!("{who}, setting {name:?}: `{k}` must be a number"));
+                }
+            }
+        }
+        let guards = yseq(t, "guards");
+        if guards.is_empty() {
+            p.push(format!("{who}: `guards` must list the metrics that must not get worse"));
+        }
+        for g in &guards {
+            if !ystr(g, "metric").is_some_and(is_metric) || !matches!(ystr(g, "worse"), Some("increase" | "decrease")) {
+                p.push(format!("{who}: a guard needs a `metric` name and `worse`: increase or decrease"));
+            }
+        }
+    }
+    p.into_iter().map(|x| format!("{at}: {x}")).collect()
 }
 
 fn render_index(exp: &Path) -> Result<String, String> {
@@ -1258,6 +1331,7 @@ fn check_all(exp: &Path) -> Result<(Vec<String>, Vec<String>), String> {
         Err(_) => problems.push(format!("{}: missing; run sdc-experiment index", index.display())),
     }
     problems.extend(progress::check(exp)?);
+    problems.extend(check_targets(exp));
     Ok((problems, notes))
 }
 
@@ -1985,6 +2059,48 @@ guards: [{{metric: run.delivered, worse: decrease, max_worsening: 0}}]
 decision_rule: {{rule: complete-separation, text: t}}
 adoption: {{decision: pending, commit: null}}
 "#, sha256_hex(IDEA))
+    }
+
+    fn targets_dir(name: &str, targets: &str) -> PathBuf {
+        let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("test-tmp").join(format!("{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("baseline-0.1.0.yaml"), "format: sdc.experiment/1\n").unwrap();
+        fs::write(d.join(TARGETS), targets).unwrap();
+        d
+    }
+
+    const TARGETS_OK: &str = "format: sdc.targets/1
+targets:
+- id: cost
+  set: 2026-11-21
+  by: human:operator
+  said: so, this is our target then 10% costs
+  metric: run.cost_usd
+  target: 0.47
+  basis: median of three free runs
+  source_experiment: free-agent-0.1.0
+  product_check: the oracle once runs write one
+  per_setting:
+  - {setting: mixed, reference: baseline-0.1.0, now: 2.55, target: 0.47}
+  guards:
+  - {metric: run.delivered, worse: decrease}
+";
+
+    #[test]
+    fn targets_pass_and_name_what_is_wrong() {
+        let d = targets_dir("ok", TARGETS_OK);
+        assert_eq!(check_targets(&d), Vec::<String>::new());
+        assert!(record_paths(&d).unwrap().iter().all(|p| p.file_name().is_some_and(|n| n != TARGETS)));
+        let bad = TARGETS_OK.replace("metric: run.cost_usd", "metric: cost").replace("reference: baseline-0.1.0", "reference: nothing")
+            .replace("worse: decrease", "worse: lower").replace("  said: so, this is our target then 10% costs\n", "");
+        let d2 = targets_dir("bad", &bad);
+        let p = check_targets(&d2).join("\n");
+        for want in ["`said` is missing", "`metric` must be a metric name", "names no record", "a guard needs"] {
+            assert!(p.contains(want), "{want} not in {p}");
+        }
+        let _ = fs::remove_dir_all(&d);
+        let _ = fs::remove_dir_all(&d2);
     }
 
     #[test]
