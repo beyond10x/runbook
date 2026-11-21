@@ -475,6 +475,14 @@ async function drain() {
     schedule();
   } catch { /* the next change retries */ } finally { inflight = false; }
 }
+// The ux loop's measured run (ux/specs/env.mjs) calls this after each step of its shared clock: fetch
+// everything, render, resolve when the frame is painted. Nothing calls it otherwise.
+window.__sdcSync = async () => {
+  while (inflight) await new Promise((r) => setTimeout(r, 20));
+  pending.full = true;
+  await drain();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+};
 function connect() {
   const es = new EventSource('/events');
   es.addEventListener('hello', () => { if (S.live !== 'on') { S.live = 'on'; pending.full = true; drain(); } });

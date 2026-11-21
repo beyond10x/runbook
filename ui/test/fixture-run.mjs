@@ -40,6 +40,14 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {unifiedDiff} from '../udiff.mjs';
 import {missingRun, fixtureSource} from './need-run.mjs';
+import {installClock, readGate, RealDate} from '../vclock.mjs';
+
+// The ux loop's measured run (SDC_CLOCK_DIR, vclock.mjs): the time is the shared clock, each sleep is
+// one step the loop releases, and every file written in a step carries the clock's time as mtime.
+const GATE = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
+if (GATE) installClock(GATE);
+const utimes = fs.utimesSync;
+const stamped = new Map();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const [scenario, targetArg, speedArg] = process.argv.slice(2);
@@ -68,7 +76,51 @@ const target = path.resolve(targetArg);
 if (missingRun(SRC)) { console.error(`fixture-run.mjs: ${missingRun(SRC)}`); process.exit(2); }
 if (target.startsWith(path.resolve(SRC))) { console.error('refused: the target is inside the source run'); process.exit(2); }
 const speed = Number(speedArg || 1);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const realSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// play time in the measured run: every sleep is a timer on a play clock of its own; the timers fire
+// one at a time in order of play time (then of creation), each after the work the last one started
+// has run to its next sleep, and only up to the budget the loop releases (go)
+let playMs = 0, timerSeq = 0, pumping = false;
+const timers = [];
+// path inside the run directory, the same before and after the move from .part into place
+const inRun = (p) => (p.startsWith(part) ? p.slice(part.length) : p.startsWith(target) ? p.slice(target.length) : p);
+if (GATE) fs.utimesSync = (p, a, m) => { utimes(p, a, m); stamped.set(inRun(path.resolve(p)), fs.statSync(p).mtimeMs); };
+function settle() {
+  if (!GATE || !fs.existsSync(target)) return;
+  const v = new RealDate(Date.now());
+  const walk = (d) => {
+    for (const n of fs.readdirSync(d)) {
+      const p = path.join(d, n);
+      const st = fs.lstatSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (st.isFile() && stamped.get(inRun(p)) !== st.mtimeMs) { utimes(p, v, v); stamped.set(inRun(p), fs.statSync(p).mtimeMs); }
+    }
+  };
+  walk(target);
+}
+async function pump() {
+  if (pumping) return;
+  pumping = true;
+  for (;;) {
+    // the work the last timer started runs on until it sleeps again (fs is synchronous here)
+    await new Promise((r) => setImmediate(r));
+    if (!timers.length) break;
+    timers.sort((a, b) => a.due - b.due || a.n - b.n);
+    const t = timers[0];
+    // past the budget: what the step wrote is stamped and reported, then the player waits
+    if (Number(readGate(GATE, 'go')) < t.due) {
+      settle();
+      fs.writeFileSync(path.join(GATE, 'at'), String(t.due));
+      while (Number(readGate(GATE, 'go')) < t.due) await realSleep(10);
+    }
+    timers.shift();
+    playMs = t.due;
+    t.fire();
+  }
+  pumping = false;
+}
+const after = (ms, fire) => { timers.push({due: playMs + ms, n: timerSeq++, fire}); pump(); };
+const sleep = GATE ? (ms) => new Promise((r) => after(ms, r)) : realSleep;
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
 const lines = (f) => fs.readFileSync(f, 'utf8').split('\n').filter((l) => l.trim());
 
@@ -163,6 +215,8 @@ if (signals) {
   fs.writeFileSync(path.join(root, 'driver.json'), driverJson(process.pid));
   process.on('exit', () => fs.rmSync(path.join(root, 'driver.json'), {force: true}));
 }
+// the last step: what the exit leaves, then done
+if (GATE) process.on('exit', () => { settle(); fs.writeFileSync(path.join(GATE, 'at'), 'done'); });
 const calls = fs.existsSync(path.join(SRC, 'llm-calls.jsonl')) ? lines(path.join(SRC, 'llm-calls.jsonl')).map((l) => JSON.parse(l)) : [];
 const rel = (p) => p.split(SRC).join(target).split('@SRC@').join(target);
 
@@ -225,8 +279,9 @@ const writes = (caseId, action) => async (e, record) => {
     // the stream lagged behind this write: recorded against the call, its tool supplied later
     change(`${record}/cwd`, p, e.input.content ?? '', {case: caseId, action, record, tool: null, basis: 'record'});
     const seq = fsSeq;
-    setTimeout(() => fs.appendFileSync(path.join(target, 'fs', 'changes.jsonl'), JSON.stringify({format: 'sdc.fs-attribution/1', change: seq, at: new Date().toISOString(),
-      attribution: {case: caseId, action, record, tool, basis: 'tool-window'}}) + '\n'), 1500 / speed);
+    const lag = () => fs.appendFileSync(path.join(target, 'fs', 'changes.jsonl'), JSON.stringify({format: 'sdc.fs-attribution/1', change: seq, at: new Date().toISOString(),
+      attribution: {case: caseId, action, record, tool, basis: 'tool-window'}}) + '\n');
+    if (GATE) after(1500 / speed, lag); else setTimeout(lag, 1500 / speed);
     return;
   }
   change(`${record}/cwd`, p, e.input.content ?? '', {case: caseId, action, record, tool, basis: 'tool-window'});

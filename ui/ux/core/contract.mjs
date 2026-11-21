@@ -80,11 +80,17 @@ export async function startShifts(page) {
   await page.evaluate(() => {
     window.__ux_shift = 0;
     window.__ux_shift_t0 = performance.now();
-    new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__ux_shift += e.value; }).observe({type: 'layout-shift', buffered: false});
+    const add = (es) => { for (const e of es) if (!e.hadRecentInput) window.__ux_shift += e.value; };
+    window.__ux_obs = new PerformanceObserver((l) => add(l.getEntries()));
+    window.__ux_obs.observe({type: 'layout-shift', buffered: false});
+    window.__ux_add = add;
   });
 }
-export async function shiftsPerMinute(page) {
-  return page.evaluate(() => { const min = (performance.now() - window.__ux_shift_t0) / 60000; return min > 0 ? window.__ux_shift / min : 0; });
+// minutes: the span the shifts are counted over, when the caller measures on a clock of its own
+// (a fixed grid of steps); else the page's wall time since startShifts. Entries not yet delivered
+// to the observer are taken first.
+export async function shiftsPerMinute(page, minutes = null) {
+  return page.evaluate((fixed) => { window.__ux_add(window.__ux_obs.takeRecords()); const min = fixed ?? (performance.now() - window.__ux_shift_t0) / 60000; return min > 0 ? window.__ux_shift / min : 0; }, minutes);
 }
 
 // The screen-only user's eyes: a control it may use is found by role and name, fully inside the
