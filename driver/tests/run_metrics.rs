@@ -225,6 +225,28 @@ fn a_check_sends_the_writer_back_and_a_not_called_run_is_no_take() {
 }
 
 #[test]
+fn a_run_refused_by_its_postcondition_is_its_own_retry_kind() {
+    // change.implement's first run is refused by its requirement coverage postcondition (no
+    // evidence, `refused` on action_finished); the second, sent back by it, passes; tests.run passes.
+    let run = scratch("refused").join("run-r");
+    root(&run, None);
+    let effects = [("change.implement", "write"), ("tests.run", "read")];
+    let mut c = CaseW::new(run.join("store/IDEA-1/children/IDEA-1.s"), "sdc.story", &effects, &[]);
+    c.take("change.implement", true, &[], 5, "0", "", None, None, None);
+    let last = c.events.len() - 1;
+    c.events[last]["refused"] = json!({"kind": "requirement_coverage", "result": "refused", "exit": "1", "log": "b1", "subject_revision": "t2"});
+    c.take("change.implement", true, &["requirement_coverage"], 5, "0", "implementation_change", None, None, None);
+    c.take("tests.run", false, &[], 1, "0", "conformance_run", Some("passed"), None, None);
+    c.finish(None);
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    let n = node(&doc, "story/change.implement");
+    assert_eq!(n["retries_by_cause"], json!({"requirement_coverage:refused": 1}));
+    let e = edge(&doc, "story: requirement_coverage:refused -> change.implement");
+    assert_eq!((e["kind"].as_str(), e["count"].as_u64()), (Some("check"), Some(1)));
+}
+
+#[test]
 fn a_run_without_a_case_tree_is_exit_2() {
     let run = scratch("empty").join("nothing");
     fs::create_dir_all(&run).unwrap();

@@ -69,6 +69,18 @@ if [[ $node == change.review ]]; then
 fi
 [[ -n ${SDC_LLM_NODES:-} && " $SDC_LLM_NODES " != *" $node "* ]] && adapter=stub
 work=$PWD
+# change.implement replies, besides its change, with a coverage document (sdc-reply coverage):
+# per requirement of the story, built with the lines and a test, or not_built with a reason. It
+# goes to impl/.sdc/coverage.json; the binding's postcondition (sdc-reply check-coverage) checks it.
+if [[ $node == change.implement ]]; then
+  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
+fi
+# The stub implementer's coverage document, unless the stub tree carries one (a fixture's own).
+coverage_stub() {
+  [[ $node == change.implement && -d $work/impl && ! -f $work/impl/.sdc/coverage.json ]] || return 0
+  mkdir -p "$work/impl/.sdc" && "$reply_bin" coverage-stub --tree "$work/impl" > "$work/impl/.sdc/coverage.json"
+}
 
 run_stub() {
   local a
@@ -162,6 +174,7 @@ fi
 
 if [[ $adapter == stub ]]; then
   run_stub; code=$?
+  [[ $code == 0 ]] && { coverage_stub || code=126; }
   [[ $code == 0 ]] && post ""
   # The stub addresses a rejection by recording it in the rejected artifact (the approval's
   # subject, at its `$artifacts` path), so the rework is a new revision: a tree gets `.rework`,
@@ -395,7 +408,25 @@ out/impl/ (it holds the current implementation, if any: extend it, keep what ear
 - out/impl/Taskfile.yml: version: '3', with a task \`check\` that runs \`cargo test --locked\`
   (commit a Cargo.lock: with no dependencies it holds only the package itself).
 - out/impl/README.md: how to run it and how it maps to the specification's commands.
-You cannot run commands: write code that passes its own tests." ;;
+You cannot run commands: write code that passes its own tests."
+  # The coverage document (story:implement-cites-requirements): the story's requirements and the
+  # reply schema by program; the reply is checked against it below and asked again at most twice.
+  "$reply_bin" coverage > "$cwd/in/story-requirements.json" 2> "$rec/coverage-check.err" &&
+    "$reply_bin" coverage --schema > "$rec/coverage-schema.json" 2>> "$rec/coverage-check.err" ||
+    { echo "llm-node: $node could not run: no story requirements: $(cat "$rec/coverage-check.err")" >&2; exit 126; }
+  node_schema=$rec/coverage-schema.json
+  inputs+=("in/story-requirements.json (the requirements this story carries: id and text)")
+  task="$task
+
+Coverage. Besides the files, write out/coverage.json, one JSON object with one key
+\`requirements\`, a list with exactly one entry per requirement of in/story-requirements.json:
+- built: {\"id\", \"status\": \"built\", \"at\": [{\"file\", \"line\"}, ...], \"test\"}: \`at\` the
+  places in out/impl/ that build it (file relative to out/impl/, for example src/lib.rs; line from
+  1; at least one), \`test\` the name of a #[test] function in out/impl/ that exercises it
+- not_built: {\"id\", \"status\": \"not_built\", \"reason\"}: one sentence why it is not built
+A program checks it before any test runs: an id that is missing, named twice or not_built, a file
+that is not in out/impl/, a line outside its file, or a test name no #[test] function has sends
+the change back to you. Schema: $(jq -c . "$rec/coverage-schema.json")" ;;
 change.review)
   # The review (story:review-node-is-a-model): nothing is written; the reply is the decision, under
   # a response schema, and a program checks it (sdc-reply check-review, below). Inputs by program.
@@ -411,10 +442,14 @@ change.review)
     "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
     "in/tests.txt (the conformance run that passed on this revision)"
     "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
+  [[ $(jq -r '.coverage // false' "$rec/review-inputs.json") == true ]] &&
+    inputs+=("in/coverage.json (read-only: the implementer's own statement, per requirement, of the lines of in/impl/ that build it and the test that exercises it; a program checked that the lines and tests exist, not that they build the requirement)")
   task="Review the change of story '$story' as a reviewer independent of its implementer: does the
 change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?
 in/uncovered.json lists requirements no story of the plan covers: they are outside this story, so do
 not reject for them; name one you see missing as a finding of kind \`outside\`.
+in/coverage.json, when it is there, says where the implementer built each requirement: read those
+lines first instead of searching, and judge whether they build it.
 Reply with the JSON object of the response schema:
 - decision: approved, or rejected when the change fails a requirement, acceptance line or command of
   this story
@@ -551,6 +586,13 @@ prompt=$rec/prompt.md
   echo
   if [[ $node == change.review ]]; then
     echo "Reply with the JSON object only."
+  elif [[ $node == change.implement ]]; then
+    if [[ -n $rejection ]]; then
+      echo "When the files and out/coverage.json are written, reply with one line per rejection reason (as above), then the word: done."
+    else
+      echo "When the files and out/coverage.json are written, reply with the single word: done."
+    fi
+    echo "Under a response schema, reply with the coverage object instead."
   elif [[ -n $rejection ]]; then
     echo "When the files are written, reply with one line per rejection reason (as above), then the word: done."
   else
@@ -645,9 +687,30 @@ if [[ $node == change.review ]]; then
 fi
 
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-"$adapter_bin" "$rec/request.json" > "$rec/response.json"
-acode=$?
-[[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
+# change.implement's coverage document (the adapter's structured output, else out/coverage.json)
+# is checked against its schema by program; an invalid one is asked again with the check's reason
+# (SDC_COVERAGE_RETRIES, default 2), each a model call with its own line in the call log, the
+# files under out/ kept. Still invalid: coverage_invalid, exit 2, nothing applied (R9 feeds it back).
+try=0 coverage_invalid="" coverage_reply=""
+while :; do
+  rm -f "$rec/structured-output.json"
+  "$adapter_bin" "$rec/request.json" > "$rec/response.json"
+  acode=$?
+  [[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
+  [[ $node == change.implement && $acode == 0 && $adapter != dry ]] || break
+  coverage_reply=$rec/structured-output.json
+  [[ -s $coverage_reply ]] || coverage_reply=$cwd/out/coverage.json
+  "$reply_bin" check-coverage --shape --tree "$cwd/out/impl" --reply "$coverage_reply" 2> "$rec/coverage-check.err" && break
+  (( try < ${SDC_COVERAGE_RETRIES:-2} )) || { coverage_invalid=yes; break; }
+  try=$((try + 1))
+  code=2; log_call
+  cp "$rec/response.json" "$rec/response.try$try.json"
+  [[ -f $coverage_reply ]] && cp "$coverage_reply" "$rec/coverage.try$try.json"
+  printf '\nYour coverage document was refused by the program check: %s\nYour files under out/ are kept. Fix exactly that and write out/coverage.json again (under a response schema, reply with the corrected object).\n' \
+    "$(cat "$rec/coverage-check.err")" >> "$prompt"
+  jq --argjson t $((try + 1)) '.coverage_attempt = $t' "$rec/request.json" > "$rec/request.json.tmp" &&
+    mv "$rec/request.json.tmp" "$rec/request.json"
+done
 
 # Apply: copy back only the declared output, through a program where the store is AEP's.
 apply() {
@@ -707,6 +770,11 @@ apply() {
       [[ -s $rec/structured-output.json ]] && f=$rec/structured-output.json
       [[ -f $f ]] || return 1
       cp "$f" "$work/bug-dissection.json" ;;
+    change.implement)
+      # The tree, then the checked coverage document inside it (part of the revision it describes).
+      [[ -d $cwd/out/impl ]] || return 1
+      rm -rf "${work:?}/impl" && cp -r "$cwd/out/impl" "$work/impl" && mkdir -p "$work/impl/.sdc" &&
+        jq . "$coverage_reply" > "$work/impl/.sdc/coverage.json" ;;
     test.reproduce)
       [[ -d $cwd/out/repro ]] || return 1
       rm -rf "${work:?}/repro" && cp -r "$cwd/out/repro" "$work/repro" && "$here/sdc-tool.sh" bugfix repro-install ;;
@@ -718,7 +786,11 @@ apply() {
 
 if [[ $adapter == dry ]]; then
   run_stub; code=$?
+  [[ $code == 0 ]] && { coverage_stub || code=126; }
   [[ $code == 0 ]] && post "" >> "$rec/apply.log" 2>&1
+elif [[ $acode == 0 && -n $coverage_invalid ]]; then
+  code=2
+  echo "llm-node: $node: coverage_invalid: the coverage document stayed invalid after $((try + 1)) attempt(s) (call llm/$(basename "$rec")), nothing applied: $(cat "$rec/coverage-check.err")"
 elif [[ $acode == 0 ]]; then
   apply > "$rec/apply.log" 2>&1; code=$?
   # Why it was not applied goes into the step's log, which the next run reads (R9 above).

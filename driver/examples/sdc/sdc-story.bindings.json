@@ -59,7 +59,17 @@
       ]
     },
     "max_runs": 3,
-    "timeout_s": 1500
+    "timeout_s": 1500,
+    "postcondition": {
+      "argv": [
+        "{dir}/../../target/debug/sdc-reply",
+        "check-coverage",
+        "--tree",
+        "impl"
+      ],
+      "kind": "requirement_coverage",
+      "timeout_s": 120
+    }
   },
   "tests.run": {
     "argv": [

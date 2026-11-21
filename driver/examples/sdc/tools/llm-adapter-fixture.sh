@@ -20,6 +20,10 @@
 # taken by the number of the case's earlier rejected reviews (sdc-reply rejections), the last round
 # after that, each round a reply or a list by the request's `review_attempt`; without one, approved
 # with no finding.
+# change.implement's coverage reply goes to out/coverage.json: SDC_COVERAGE_REPLIES, `{"rounds":
+# [...]}` taken by the request's `attempt` (the node's n-th call record, the last round after
+# that), each round a reply or a list by `coverage_attempt`; else the tree fixture's
+# .sdc/coverage.json; else the stub document (sdc-reply coverage-stub).
 # run.unstick (scripts/run-trial.sh) gets out/unstick.json from SDC_UNSTICK_REPLIES (JSON {cause:
 # reply}, "*" for any cause; a list by attempt); without one, the move `stop`.
 #
@@ -101,5 +105,16 @@ mkdir -p "$cwd/out"
 w=$PWD
 mkdir -p "$w/.sdc"
 (cd "$cwd" && SDC_STUB_COUNTER="$w/.sdc" "$here/sdc-tool.sh" "${a[0]}" "${a[1]}" "out/${a[2]}") || exit 1
+# change.implement's coverage reply: the tree fixture's own .sdc/coverage.json (moved out of the
+# tree, as a model writes it), else the stub document (sdc-reply coverage-stub).
+if [[ $node == change.implement ]]; then
+  rm -f "$cwd/out/coverage.json"
+  if [[ -n ${SDC_COVERAGE_REPLIES:-} ]]; then
+    jq -n --argjson r "$SDC_COVERAGE_REPLIES" --argjson a "$(jq '.attempt // 1' "$1")" --argjson n "$(jq '.coverage_attempt // 1' "$1")" '
+      ($r.rounds // [] | .[$a - 1] // last) | if type == "array" then (.[$n - 1] // last) else . end' > "$cwd/out/coverage.json" || exit 1
+    rm -f "$cwd/out/impl/.sdc/coverage.json"
+  elif [[ -f $cwd/out/impl/.sdc/coverage.json ]]; then mv "$cwd/out/impl/.sdc/coverage.json" "$cwd/out/coverage.json"
+  else "${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" coverage-stub --tree "$cwd/out/impl" > "$cwd/out/coverage.json" || exit 1; fi
+fi
 jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
   num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'

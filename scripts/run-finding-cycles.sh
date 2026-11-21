@@ -93,6 +93,11 @@
 #   implement-percause, writer-sees-test-failure, scope-unattributed-reject, finding-refused-reask,
 #   review-invalid-named, and the pending rework-spent-dropped, rework-spent-abandoned: the reject
 #   and cap routes of docs/reject-routes.md (R1-R9, R13)
+#   coverage-complete, coverage-not-built, coverage-line-outside, coverage-test-missing,
+#   coverage-spent, coverage-reply-retry  change.implement's requirement coverage
+#                   (story:implement-cites-requirements): complete proceeds; not built, a line
+#                   outside its file, a test that does not exist: refused before tests.run, fed back,
+#                   fixed; never built: writer_spent; a reply outside the schema asked again
 #   bugfix-full, bugfix-not-red, bugfix-edited-test, bugfix-never-red  sdc.bugfix in autopilot on the
 #                   pager seed (docs/bugfix.md): fixed; not_red then red then fixed; the fix that
 #                   changed the test refused then fixed; not_reproduced
@@ -145,6 +150,9 @@ expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
 expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause
   writer-sees-test-failure scope-unattributed-reject finding-refused-reask review-invalid-named)
+# change.implement's requirement coverage (story:implement-cites-requirements).
+expected+=(coverage-complete coverage-not-built coverage-line-outside coverage-test-missing coverage-spent
+  coverage-reply-retry)
 pending=(rework-spent-dropped rework-spent-abandoned)
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
@@ -1675,6 +1683,123 @@ if (( code == 0 )) && [[ -n $second ]] &&
 else
   echo "writer-sees-test-failure: FAILED (exit $code, second call ${second:-none}, feedback without the test's message)"
 fi
+# --- requirement coverage (story:implement-cites-requirements) ---------------------------------
+# change.implement on the fixture adapter (llm-node.sh's model path: schema, shape check, apply)
+# replies with the coverage documents of SDC_COVERAGE_REPLIES, one round per call; the tree is
+# fixtures/impl (src/lib.rs 79 lines; tests create_invoice ... send_email); the story carries r1
+# and r2. The binding's postcondition (sdc-reply check-coverage) runs right after each run.
+cov_doc() { # <r2 entry>: r1 built and cited, then r2 as given
+  jq -cn --argjson r2 "$1" '{requirements: [{id: "r1", status: "built", at: [{file: "src/lib.rs", line: 1}], test: "create_invoice"}, $r2]}'; }
+cov_good=$(cov_doc '{"id": "r2", "status": "built", "at": [{"file": "src/lib.rs", "line": 2}], "test": "send_email"}')
+cov_notbuilt=$(cov_doc '{"id": "r2", "status": "not_built", "reason": "fixture: the email is not sent yet"}')
+cov_outside=$(cov_doc '{"id": "r2", "status": "built", "at": [{"file": "src/lib.rs", "line": 999}], "test": "send_email"}')
+cov_notest=$(cov_doc '{"id": "r2", "status": "built", "at": [{"file": "src/lib.rs", "line": 2}], "test": "email_is_sent"}')
+cov_env=(SDC_LLM_NODES=change.implement SDC_LLM_ADAPTER="$fixture")
+cov_rounds() { jq -cn --args '{rounds: [$ARGS.positional[] | fromjson]}' "$@"; }
+# impl_takes <story dir>: change.implement's finished runs as {exit, refused kind, evidence count},
+# and whether tests.run ran between a refused run and the next implement run.
+impl_takes() { jq -sc '[.[] | select(.event == "action_finished" and .action == "change.implement")
+  | {exit, refused: (.refused.kind // null), evidence: (.evidence | length)}]' "$1/events.jsonl"; }
+tests_after_refusal() { jq -se '[.[] | select(.event == "action_finished")] as $f
+  | [range(0; $f | length) as $i | select($f[$i].refused != null)
+     | ($f[$i + 1:] | map(.action) | (index("change.implement") // length) as $n | .[:$n] | index("tests.run"))] | all(. == null)' "$1/events.jsonl"; }
+cov_feedback() { jq -rs '[.[] | select(.action == "change.implement") | .record] | .[1] // empty' "$s/runs/$1/llm-calls.jsonl" 2>/dev/null; }
+# coverage-complete: every requirement built and cited. Passes when the run closes, the one
+# implement run recorded its change with no refusal, its log names the passing postcondition, and
+# the review (fixture adapter, approving) got the document as in/coverage.json among its inputs.
+trial coverage-complete SDC_LLM_NODES="change.implement change.review" SDC_LLM_ADAPTER="$fixture" \
+  SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_good")"
+code=$?
+st=$(rr_story coverage-complete)
+rv=$(ls -d "$s"/runs/coverage-complete/llm/*-change.review 2>/dev/null | tail -n 1)
+lg=$(jq -rs '[.[] | select(.event == "action_finished" and .action == "change.implement")] | last | .log // empty' "$st/events.jsonl" 2>/dev/null)
+if (( code == 0 )) && [[ -n $st && $(impl_takes "$st") == '[{"exit":"0","refused":null,"evidence":1}]' ]] &&
+   grep -q 'requirement coverage of story invoices: 2 built and cited (r1 r2)' "$st/blobs/$lg" &&
+   jq -e '.requirements | length == 2' "$s/runs/coverage-complete/store/IDEA-1/work/impl/.sdc/coverage.json" >/dev/null 2>&1 &&
+   [[ -n $rv ]] && jq -e '.requirements[1].test == "send_email"' "$rv/cwd/in/coverage.json" >/dev/null &&
+   grep -q '^- in/coverage.json (read-only' "$rv/prompt.md" && [[ ! -e $rv/cwd/in/impl/.sdc ]]; then
+  echo "coverage-complete: checks pass (every requirement cited: the change recorded, the review read in/coverage.json; closed)"
+else
+  echo "coverage-complete: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null), review ${rv:-none})"
+fi
+# coverage-not-built: the first reply says r2 not_built. Passes when that run is refused (no
+# evidence, `refused` requirement_coverage), tests.run does not run on it, the next run is sent
+# back with retry_of requirement_coverage and an in/feedback.md naming r2, it passes, the run
+# closes, and sdc-run-metrics counts the retry as requirement_coverage:refused.
+trial coverage-not-built "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_notbuilt" "$cov_good")"
+code=$?
+st=$(rr_story coverage-not-built)
+fb=$(cov_feedback coverage-not-built)
+if (( code == 0 )) && [[ -n $st && $(impl_takes "$st") == '[{"exit":"0","refused":"requirement_coverage","evidence":0},{"exit":"0","refused":null,"evidence":1}]' ]] &&
+   tests_after_refusal "$st" >/dev/null &&
+   jq -se '[.[] | select(.event == "action_started" and .action == "change.implement")] | .[1].retry_of == ["requirement_coverage"]' "$st/events.jsonl" >/dev/null &&
+   [[ -n $fb ]] && grep -q '^## requirement_coverage = refused (from change.implement' "$fb/cwd/in/feedback.md" &&
+   grep -q -- '- r2: not built: fixture: the email is not sent yet' "$fb/cwd/in/feedback.md" &&
+   grep -q '^refused requirements: r2$' "$fb/cwd/in/feedback.md" &&
+   "$metrics" "$s/runs/coverage-not-built" --json - 2>/dev/null | jq -e '[.nodes[] | select(.node == "story/change.implement")][0].retries_by_cause == {"requirement_coverage:refused": 1}' >/dev/null; then
+  echo "coverage-not-built: checks pass (r2 not_built: refused before tests.run, fed back naming r2, the next run passed; metrics requirement_coverage:refused 1; closed)"
+else
+  echo "coverage-not-built: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null), feedback ${fb:-none})"
+fi
+# coverage-line-outside: r2 cited at src/lib.rs:999 (the file has 79 lines). Passes when the first
+# run is refused naming that line, the next passes, and the run closes.
+trial coverage-line-outside "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_outside" "$cov_good")"
+code=$?
+st=$(rr_story coverage-line-outside)
+fb=$(cov_feedback coverage-line-outside)
+if (( code == 0 )) && [[ -n $st && $(impl_takes "$st" | jq -c 'map(.refused)') == '["requirement_coverage",null]' ]] &&
+   tests_after_refusal "$st" >/dev/null && [[ -n $fb ]] &&
+   grep -q -- '- r2: src/lib.rs:999 is outside src/lib.rs (79 lines)' "$fb/cwd/in/feedback.md"; then
+  echo "coverage-line-outside: checks pass (a cited line outside its file: refused, fed back, fixed; closed)"
+else
+  echo "coverage-line-outside: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null))"
+fi
+# coverage-test-missing: r2's test email_is_sent does not exist. Passes when the first run is
+# refused naming the test, the next passes, and the run closes.
+trial coverage-test-missing "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_notest" "$cov_good")"
+code=$?
+st=$(rr_story coverage-test-missing)
+fb=$(cov_feedback coverage-test-missing)
+if (( code == 0 )) && [[ -n $st && $(impl_takes "$st" | jq -c 'map(.refused)') == '["requirement_coverage",null]' ]] &&
+   tests_after_refusal "$st" >/dev/null && [[ -n $fb ]] &&
+   grep -q -- '- r2: test email_is_sent: no #\[test\] function of that name in the test sources' "$fb/cwd/in/feedback.md"; then
+  echo "coverage-test-missing: checks pass (a named test that does not exist: refused, fed back, fixed; closed)"
+else
+  echo "coverage-test-missing: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null))"
+fi
+# coverage-spent: every reply says r2 not_built. Passes when the run stops writer_spent (the
+# existing cause) on change.implement after 3 runs, the kind that ran out is requirement_coverage,
+# each run sent back by its postcondition, and tests.run never ran in the story.
+trial coverage-spent "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_notbuilt")"
+code=$?
+r=$s/runs/coverage-spent
+st=$(rr_story coverage-spent)
+if (( code != 0 )) && jq -e '.cause == "writer_spent" and (.reason | test("requirement_coverage"))' "$r/run-stopped.json" >/dev/null 2>&1 &&
+   jq -se '(map(select(.event == "writer_spent")) | last | .spent[0]) as $w
+     | $w.action == "change.implement" and $w.kind == "requirement_coverage" and $w.runs == 3
+       and ([$w.sent_back[].kind] == ["requirement_coverage", "requirement_coverage", "requirement_coverage"])
+       and ([.[] | select(.action == "tests.run")] | length == 0)' "$st/events.jsonl" >/dev/null; then
+  echo "coverage-spent: checks pass (r2 never built: writer_spent on change.implement after 3 runs, kind requirement_coverage, no tests.run)"
+else
+  echo "coverage-spent: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-240))"
+fi
+# coverage-reply-retry: the first reply of the first call breaks the schema (r1 built with no
+# place); llm-node.sh asks again with the check's reason in the same run, the second reply is
+# valid. Passes when there is one implement run, its call record holds the refused reply and the
+# prompt the reason, two call lines are logged for it, and the run closes.
+cov_bad=$(jq -cn '{requirements: [{id: "r1", status: "built", at: [], test: "create_invoice"}, {id: "r2", status: "not_built", reason: "x"}]}')
+trial coverage-reply-retry "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(jq -cn --argjson b "$cov_bad" --argjson g "$cov_good" '{rounds: [[$b, $g]]}')"
+code=$?
+st=$(rr_story coverage-reply-retry)
+cr=$(ls -d "$s"/runs/coverage-reply-retry/llm/*-change.implement 2>/dev/null | head -n 1)
+if (( code == 0 )) && [[ -n $st && $(impl_takes "$st") == '[{"exit":"0","refused":null,"evidence":1}]' && -n $cr && -f $cr/coverage.try1.json ]] &&
+   grep -q 'Your coverage document was refused by the program check: invalid coverage reply: entry 1 (r1): built needs `at`' "$cr/prompt.md" &&
+   jq -se --arg r "$cr" '[.[] | select(.record == $r)] | length == 2' "$s/runs/coverage-reply-retry/llm-calls.jsonl" >/dev/null; then
+  echo "coverage-reply-retry: checks pass (a reply outside the schema asked again with the reason in the same run; two call lines; closed)"
+else
+  echo "coverage-reply-retry: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null), record ${cr:-none})"
+fi
+# --- end requirement coverage
 targs=()
 # The review on the adapter path a real run takes (runs/trial-3-strong-3 and -4 stopped stuck at
 # their first change.review: on metaharness the review could reply only by writing a file, which

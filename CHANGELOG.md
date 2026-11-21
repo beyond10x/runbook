@@ -7,6 +7,21 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Changed
+
+- `change.implement` cites its requirements (`story:implement-cites-requirements`): besides its
+  change it replies with a coverage document checked against a response schema (per requirement
+  of the story, `built` with file, line and a test, or `not_built` with a reason), and the
+  binding's new `postcondition`, `sdc-reply check-coverage`, run by `sdc-drive` right after the
+  implement step, refuses the revision before `tests.run` when a requirement is missing, not
+  built, cited at a file or line the tree lacks, or named with a test that does not exist. The
+  refusal names the requirement ids, reaches the next implement run as `in/feedback.md`, counts
+  under its own retry kind `requirement_coverage` against `max_runs`, and shows in
+  `sdc-run-metrics` as `requirement_coverage:refused`. The review gets the document as
+  `in/coverage.json`. No protocol rule changed (`docs/driver.md`, "Requirement coverage").
+  Not measured: no experiment has tested this change; `experiments/implement-cites-requirements.yaml`
+  is registered and not launched.
+
 ## [0.1.2] - 2026-11-21
 
 Corrections and tools after 0.1.1: recorded replay, the timeline of a run, one rework cap, the

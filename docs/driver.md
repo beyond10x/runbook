@@ -543,7 +543,55 @@ rejection exits 1 with only its `sdc.rejection/1` on stdout (approval `change.re
 through `retry_when: {code_review: [rejected]}` as `in/rejection.json`. The bound is
 `change.implement`'s `max_runs` 3 per arrival, shared with failed conformance runs: the third
 rejection ends `writer_spent` with `sent_back` naming `change.review`. Cycles `review-reject-once`,
-`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`).
+`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`). Since
+`story:implement-cites-requirements` the review also gets `in/coverage.json`, the implementer's
+coverage document (read-only, below), when the change tree holds one; schema and verdict rules are
+unchanged.
+
+**Requirement coverage** (2026-11-21, `story:implement-cites-requirements`). In the nine runs of
+`baseline-0.1.0` the review sent the build back 10 times, 4 of them for an offline requirement the
+story covers that was not built (`experiments/baseline-0.1.0/losses.md`, on `exp/improve-1`). Such
+a gap is now sent back by a program before `tests.run` and the review:
+
+- Reply. `change.implement` replies, besides its change, with a coverage document: per requirement
+  the story carries (the review's story requirements, `sdc-reply coverage`, given to the node as
+  `in/story-requirements.json`), `{id, status: built, at: [{file, line}], test}` or `{id, status:
+  not_built, reason}`. The schema is `sdc-reply coverage --schema` (request `json_schema`; an
+  adapter without a schema option, metaharness, gets it in the prompt and the node writes
+  `out/coverage.json`). `sdc-reply check-coverage --shape` checks the reply against it; an invalid
+  one is asked again with the reason, in the same run with the files under `out/` kept
+  (`SDC_COVERAGE_RETRIES`, default 2, each a model call with its own line in the call log); still
+  invalid: exit 2 with `coverage_invalid` in the step log, nothing applied, fed back by R9. A
+  valid reply goes to `impl/.sdc/coverage.json`, inside the revision it describes (`.sdc/` is left
+  out of the review's copy and diff).
+- Check. The binding's `postcondition` `{argv, kind: requirement_coverage, timeout_s}` is run by
+  `sdc-drive` right after a run of the writer that exited 0 and was called, before anything else:
+  `sdc-reply check-coverage --tree impl` (`SDC_CASE_DIR`, `SDC_CASE`). It refuses (exit 1) when an
+  id of the story is missing, named twice or `not_built`, a cited file is not in the tree, a cited
+  line is outside its file, or a named test is no `#[test]` function of the tree's Rust sources
+  (outside `target/` and `.sdc/`); the output names each fault by requirement id and ends
+  `refused requirements: <ids>`. Exit 0: the step goes on and records `implementation_change`.
+  Any other exit: a program error (126).
+- Refusal. A refused run records no evidence; its `action_finished` carries `refused: {kind,
+  result: refused, exit, log, subject_revision}`. `change.built` stays unknown for the new
+  revision, so `tests.run` is not admissible and `change.implement` runs again. While the
+  subject is still at that revision, the refusal is due like a failed check's record
+  (`own_refusal` in `src/main.rs`): it is in `SDC_FEEDBACK` (so `in/feedback.md` holds
+  `## requirement_coverage = refused` and the check's output), in `retry_of`, and it is counted
+  under its own kind against `max_runs` (3) and the backstop (R7). The third refusal ends the run
+  `writer_spent`, kind `requirement_coverage`, `sent_back` naming the postcondition.
+  `sdc-run-metrics` labels such a retry `requirement_coverage:refused`.
+- Protocol. No rule changed: the check is the implement action's own post-condition and its
+  refusal the action's recorded result, not a Canon fact, so `simulate` does not see it (as R9).
+- Stub. The stub implementer (and the fixture adapter without a scripted reply) writes
+  `sdc-reply coverage-stub`: every requirement built at the first line of the first Rust source,
+  exercised by the first test; a tree fixture's own `.sdc/coverage.json` wins. The fixture
+  adapter takes `SDC_COVERAGE_REPLIES` (`{"rounds": [...]}` by call, a list by
+  `coverage_attempt`). Cycles `coverage-complete`, `coverage-not-built`, `coverage-line-outside`,
+  `coverage-test-missing`, `coverage-spent`, `coverage-reply-retry`.
+- Limit. The check proves that the cited lines and tests exist, not that they build the
+  requirement: a node that cites lines that exist but do not build it passes, and the review is
+  still the only judge of that.
 
 **A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
 writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
@@ -840,7 +888,7 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | plan | `plan.decompose` | `llm-node.sh`: proposal → `aep plan artifact new story`, `scope --add`, `move --to active` (epic, story) | revises `plan` |
 | plan | `plan.validate`, `plan.scope`, `plan.status` | `aep plan artifact validate --strict`; `waves --kind story` with 0 unassessed; `list` all active | `valid`, `scoped`, `active` |
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
-| story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`) | `implementation_change` |
+| story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`), then its `postcondition` `sdc-reply check-coverage --tree impl` (see "Requirement coverage") | `implementation_change`; nothing when the postcondition refuses |
 | story, release | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (release): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
 | story | `merge.approve` | manual (`argv: ["true"]`), taken by `approve --capability change.merge --action merge.approve`, `--result rejected --reasons <file>` for a rejection | `merge_approval` approved or rejected |
 | story | `change.merge` | copy `impl/` to `mainline/` (once `merge.approved`) | `merge_record` |
