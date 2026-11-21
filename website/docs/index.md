@@ -1,6 +1,6 @@
 ---
 title: What Runbook is
-sidebar_label: What it is
+sidebar_label: What Runbook is
 slug: /
 description: "Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next step from recorded facts; a model carries out single steps."
 ---
