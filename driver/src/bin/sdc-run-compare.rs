@@ -426,6 +426,15 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
         None => json_opt(&dir.join("store").join("oracle.json"))?,
     };
     metrics.push(("oracle check".into(), text(oracle.as_ref().map_or("none".to_string(), oracle_summary))));
+    // The conformance observation after close (docs/conformance.md): `k of n scenarios`.
+    let conformance = oracle.as_ref().map(|o| &o["conformance"]).filter(|c| c["summary"].is_string());
+    metrics.push(("conformance".into(), text(conformance.map_or("not observed".to_string(), |c| {
+        let summary = c["summary"].as_str().unwrap_or("");
+        match c["result"].as_str() {
+            Some(r @ ("held" | "contradicted")) => format!("{summary} ({r})"),
+            _ => summary.to_string(),
+        }
+    }))));
     let replay = json_opt(&dir.join("replay.json"))?;
     metrics.push(("replay".into(), text(replay.as_ref().map_or(NOT_RECORDED.to_string(), replay_summary))));
 

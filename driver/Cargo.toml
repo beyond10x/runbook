@@ -48,6 +48,18 @@ path = "src/bin/sdc-run-metrics.rs"
 name = "sdc-experiment"
 path = "src/bin/sdc-experiment.rs"
 
+[[bin]]
+name = "sdc-conform"
+path = "src/bin/sdc-conform.rs"
+
+[[bin]]
+name = "sdc-conform-adapter"
+path = "src/bin/sdc-conform-adapter.rs"
+
+[[example]]
+name = "conformance-stub-product"
+path = "examples/conformance-stub-product.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

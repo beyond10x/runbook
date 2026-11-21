@@ -459,3 +459,34 @@ decision_rule: {{rule: descriptive, text: t}}
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("bindings is no launch setting"), "{out}");
 }
+
+fn oracle(run: &Path, result: &str, k: u64, n: Option<u64>, cause: Option<&str>, summary: &str) {
+    write_json(&run.join("oracle.json"), &json!({"format": "sdc.oracle/1", "run": "run-a",
+        "checks": [{"id": "conformance", "result": result, "k": k, "n": n, "cause": cause}],
+        "conformance": {"result": result, "k": k, "n": n, "cause": cause, "summary": summary}}));
+}
+
+#[test]
+fn the_conformance_figure_of_an_observed_run_is_a_run_metric() {
+    let run = scratch("conformance").join("run-a");
+    story_run(&run, 0, "decider:haiku");
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(doc["metrics"]["conformance"], "not observed");
+    assert_eq!(doc["metrics"]["conformance_k"], Value::Null);
+    oracle(&run, "contradicted", 13, Some(17), None, "13 of 17 scenarios");
+    let (_, doc, _) = metrics(&run);
+    assert_eq!(doc["metrics"]["conformance"], "13 of 17 scenarios");
+    assert_eq!((doc["metrics"]["conformance_k"].as_u64(), doc["metrics"]["conformance_n"].as_u64()), (Some(13), Some(17)));
+    assert_eq!(doc["metrics"]["conformance_result"], "contradicted");
+    let o = Command::new(env!("CARGO_BIN_EXE_sdc-run-metrics")).arg(&run).output().unwrap();
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("\n  conformance: 13 of 17 scenarios (contradicted)\n"), "{text}");
+    oracle(&run, "unknown", 0, Some(0), Some("suite_empty"), "0 of 0 scenarios, unknown: suite_empty");
+    let (_, doc, _) = metrics(&run);
+    assert_eq!(doc["metrics"]["conformance"], "0 of 0 scenarios, unknown: suite_empty");
+    assert_eq!(doc["metrics"]["conformance_result"], "unknown");
+    write_json(&run.join("oracle.json"), &json!({"format": "sdc-eval.oracle/1", "checks": [{"id": "x", "result": "held"}]}));
+    let (_, doc, _) = metrics(&run);
+    assert_eq!(doc["metrics"]["conformance"], "not observed", "an oracle file without the conformance check");
+}

@@ -8,14 +8,14 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 
 ## Summary
 
-| entry | kind | date | tree | tested by | clean passes of ended runs | by setting |
-|---|---|---|---|---|---|---|
-| [Attempts 1-5](#attempts-1-5) | pre-release | 2026-11-21 | several | `trial-3-attempts` | 0 of 9 | haiku 0 of 5; mixed 0 of 4 |
-| [acd6f12](#acd6f12) | pre-release | 2026-11-21 | `acd6f12` | `trial-3-batch-1` | 5 of 8 | haiku 1 of 2; mixed 1 of 2; strong 2 of 2; sonnet 0 of 1; opus 1 of 1 |
-| [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
-| [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
-| [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | no experiment yet | no run | - |
-| [0.1.1](#011) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
+| entry | kind | date | tree | tested by | clean passes of ended runs | conformance, scenarios (observed runs) | by setting |
+|---|---|---|---|---|---|---|---|
+| [Attempts 1-5](#attempts-1-5) | pre-release | 2026-11-21 | several | `trial-3-attempts` | 0 of 9 | not observed | haiku 0 of 5; mixed 0 of 4 |
+| [acd6f12](#acd6f12) | pre-release | 2026-11-21 | `acd6f12` | `trial-3-batch-1` | 5 of 8 | not observed | haiku 1 of 2; mixed 1 of 2; strong 2 of 2; sonnet 0 of 1; opus 1 of 1 |
+| [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | not observed | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
+| [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | not observed | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
+| [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | no experiment yet | no run | - | - |
+| [0.1.1](#011) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -52,6 +52,8 @@ Tested by, primary metric and verdict:
 
 Clean passes of ended runs, all settings: **0 of 9** (`trial-3-attempts`); rate: 0 %.
 
+Conformance of the delivered products (`sdc-conform observe`): not observed on any of the 9 ended runs.
+
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
 | All Haiku | `trial-3-attempts` | haiku | 0 of 5 | 0 % | - | - | trial-3-haiku (stopped: awaiting_authority in IDEA-1.direction), trial-3-haiku-2 (stopped: writer_spent in IDEA-1.list.spec), trial-3-haiku-3 (stopped: rejected_without_rework_path in IDEA-1.app.release), trial-3-haiku-4 (stopped: writer_spent in IDEA-1.todo.list), trial-3-haiku-5 (closed: operating) |
@@ -81,6 +83,8 @@ Tested by, primary metric and verdict:
 - [`trial-3-batch-1`](../experiments/trial-3-batch-1/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
 
 Clean passes of ended runs, all settings: **5 of 8** (`trial-3-batch-1`); rate: 62 %.
+
+Conformance of the delivered products (`sdc-conform observe`): not observed on any of the 8 ended runs.
 
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
@@ -119,6 +123,8 @@ Tested by, primary metric and verdict:
 
 Clean passes of ended runs, all settings: **0 of 4** (`trial-3-main-1`); rate: 0 %.
 
+Conformance of the delivered products (`sdc-conform observe`): not observed on any of the 4 ended runs.
+
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
 | All Haiku | `trial-3-main-1` | haiku | 0 of 1 | none given, n 1 < 3 | - | - | trial-3-haiku-8 (stopped: writer_spent in IDEA-1.list.access) |
@@ -147,6 +153,8 @@ Tested by, primary metric and verdict:
 - [`trial-3-main-2`](../experiments/trial-3-main-2/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
 
 Clean passes of ended runs, all settings: **2 of 4** (`trial-3-main-2`); rate: 50 %.
+
+Conformance of the delivered products (`sdc-conform observe`): not observed on any of the 4 ended runs.
 
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|

@@ -248,3 +248,20 @@ fn usage_errors_exit_64() {
     let dup = [run_arg("a", &fixture("trial-2-train")), run_arg("a", &fixture("trial-2b-fresh")), vec!["--out".into(), md]].concat();
     assert_eq!(tool(&dup).status.code(), Some(64), "labels are distinct");
 }
+
+#[test]
+fn the_conformance_figure_is_its_own_row() {
+    let d = scratch("conformance-run");
+    let cp = Command::new("cp").arg("-r").arg(fixture("autopilot-closed")).arg(&d).status().unwrap();
+    assert!(cp.success());
+    let run = d.join("autopilot-closed");
+    fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1", "run": "autopilot-closed",
+        "checks": [{"id": "conformance", "result": "contradicted", "k": 13, "n": 17, "cause": null}],
+        "conformance": {"result": "contradicted", "k": 13, "n": 17, "cause": null, "summary": "13 of 17 scenarios"}}).to_string()).unwrap();
+    let (code, err, md, js) = compare(&run, &fixture("autopilot-stopped"), "conformance");
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(text(&js, 0, "conformance"), "13 of 17 scenarios (contradicted)");
+    assert_eq!(text(&js, 1, "conformance"), "not observed");
+    assert_eq!(text(&js, 0, "oracle check"), "contradicted (held 0, contradicted 1, unknown 0)");
+    assert!(md.contains("\n| conformance | 13 of 17 scenarios (contradicted) | not observed | differs |\n"), "{md}");
+}

@@ -1,0 +1,52 @@
+{
+  "format": "sdc.conformance-table/1",
+  "build": null,
+  "start": {
+    "argv": ["bin/stub-product", "{port}", "{data_dir}", "ok"],
+    "ready": {"method": "GET", "path": "/health"}
+  },
+  "commands": [
+    {
+      "command": "chores.list.AddChore",
+      "request": {"method": "POST", "path": "/chores", "body": {"title": "{input.title}"}},
+      "outcomes": [
+        {
+          "outcome": "added",
+          "status": 201,
+          "events": [
+            {"event": "chores.list.ChoreAdded", "payload": {"chore_id": "{response.chore_id}", "title": "{response.title}"}}
+          ]
+        }
+      ]
+    },
+    {
+      "command": "chores.list.FinishChore",
+      "request": {"method": "POST", "path": "/chores/{input.chore_id}/finish"},
+      "forced": [
+        {"outcome": "unreachable", "request": {"method": "POST", "path": "/chores/{input.chore_id}/finish", "body": {"board": "down"}}}
+      ],
+      "outcomes": [
+        {
+          "outcome": "finished",
+          "status": 200,
+          "events": [{"event": "chores.list.ChoreFinished", "payload": {"chore_id": "{input.chore_id}"}}]
+        },
+        {"outcome": "unreachable", "status": 503, "error": {"error": "chores.list.BoardUnreachable", "fields": {}}},
+        {
+          "outcome": "wrong-state",
+          "status": 409,
+          "error": {"error": "chores.list.ChoreStateConflict", "fields": {"state": "{response.state}"}}
+        }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "view": "chores.list.OpenChores",
+      "request": {"method": "GET", "path": "/chores/open"},
+      "rows": "",
+      "fields": {"chore_id": "chore_id", "title": "title"}
+    }
+  ],
+  "notes": "Fixture table for the stub product."
+}

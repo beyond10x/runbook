@@ -1036,6 +1036,9 @@ pub fn load(dir: &Path) -> Res<J> {
     let last_settings = settings.last().cloned().unwrap_or(J::Null);
     let mut flat = BTreeMap::new();
     flat_settings(&last_settings, "", &mut flat);
+    // The conformance observation after close (docs/conformance.md): `oracle.json` `conformance`.
+    let conformance = json_opt(&dir.join("oracle.json"))?.map(|o| o["conformance"].clone()).filter(|c| c["summary"].is_string());
+    let conf = |k: &str| conformance.as_ref().map_or(J::Null, |c| c[k].clone());
 
     let run = json!({
         "end": end, "end_kind": end_kind, "closed": end_kind == "closed", "outcome": closed_outcome, "delivered": delivered,
@@ -1056,6 +1059,8 @@ pub fn load(dir: &Path) -> Res<J> {
         "driver_s": driver_rounds_s.map(round3), "take_driver_s": round3(total.driver_s), "model_s": round3(total.model_s),
         "wall_s": wall_s, "waiting_on_person_s": wait,
         "findings_raised": raised,
+        "conformance": conformance.as_ref().map_or(J::from("not observed"), |c| c["summary"].clone()),
+        "conformance_k": conf("k"), "conformance_n": conf("n"), "conformance_result": conf("result"), "conformance_cause": conf("cause"),
     });
     Ok(json!({
         "format": FORMAT, "run": name, "settings": flat, "metrics": run,
@@ -1154,6 +1159,15 @@ fn opt(v: &J) -> String {
     if v.is_null() { "-".into() } else { js(v) }
 }
 
+/// `k of n scenarios (held|contradicted)`, an unknown's summary, or `not observed`.
+pub fn conformance_text(m: &J) -> String {
+    let summary = m["conformance"].as_str().unwrap_or("not observed");
+    match m["conformance_result"].as_str() {
+        Some(r @ ("held" | "contradicted")) => format!("{summary} ({r})"),
+        _ => summary.to_string(),
+    }
+}
+
 /// A short text form of one run's metrics.
 pub fn text(doc: &J) -> String {
     let m = &doc["metrics"];
@@ -1166,6 +1180,7 @@ pub fn text(doc: &J) -> String {
     let _ = writeln!(s, "  driver {} s, wall {} s, waiting on a person {} s; takes {} real {} rework {} not called {}",
         opt(&m["driver_s"]), opt(&m["wall_s"]), opt(&m["waiting_on_person_s"]), m["takings"], m["real_takes"], m["rework_takes"], m["not_called"]);
     let _ = writeln!(s, "  writers: looping factor {}, first-pass yield {}", opt(&m["looping_factor"]), opt(&m["first_pass_yield"]));
+    let _ = writeln!(s, "  conformance: {}", conformance_text(m));
     let mut nodes: Vec<&J> = doc["nodes"].as_array().into_iter().flatten()
         .filter(|n| n["rework_takes"].as_u64().unwrap_or(0) > 0 && n["kind"] != "check").collect();
     nodes.sort_by(|a, b| b["looping_factor"].as_f64().unwrap_or(0.0).total_cmp(&a["looping_factor"].as_f64().unwrap_or(0.0))

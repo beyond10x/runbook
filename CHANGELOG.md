@@ -7,6 +7,22 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- Conformance observation after close (`docs/conformance.md`, `story:conformance-observe-after-close`):
+  `sdc-conform observe runs/<run>` holds the delivered product to the conformance suite of the
+  run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
+  `sdc-conform-adapter`, with a route table written after the run by the node `conformance.table`
+  (read-only, response schema, program check, two retries) and writes `runs/<run>/oracle.json`:
+  `conformance: k of n scenarios`, `held` only when ess says `passed` and k = n > 0, every other
+  end `unknown` with a named cause. `scripts/run-trial.sh` runs it after a close
+  (`SDC_CONFORMANCE=off`). Observation only: no gate.
+- `driver/ess-pin.json`: ess 0.97.0 pinned by archive and binary sha256 per platform, resolved
+  through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
+- The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in
+  `sdc-run-metrics`, and a conformance column, line and per-run figure in the progress ledger
+  (`docs/progress.md`, `docs/progress.json`).
+
 ## [0.1.1] - 2026-11-21
 
 Fixes and tools after the first release; no protocol of the nine changed. The longer note is

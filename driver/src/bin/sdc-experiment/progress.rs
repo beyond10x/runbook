@@ -217,6 +217,90 @@ struct RunFig {
     cost: Option<f64>,
     wall: Option<f64>,
     end: String,
+    /// The conformance observation (docs/conformance.md), when the summary carries one.
+    conformance: Option<Conformance>,
+}
+
+struct Conformance {
+    summary: String,
+    result: String,
+    k: u64,
+    n: u64,
+    cause: Option<String>,
+}
+
+/// The conformance figures of a group of ended runs: k and n summed over the runs with a figure
+/// (held or contradicted), the unknown ones by cause, and the runs never observed.
+struct ConfTotals {
+    k: u64,
+    n: u64,
+    held: usize,
+    contradicted: usize,
+    unknown: usize,
+    causes: BTreeMap<String, usize>,
+    not_observed: usize,
+    ended: usize,
+}
+
+fn conf_totals<'a>(cells: impl Iterator<Item = &'a Cell>) -> ConfTotals {
+    let mut t = ConfTotals { k: 0, n: 0, held: 0, contradicted: 0, unknown: 0, causes: BTreeMap::new(), not_observed: 0, ended: 0 };
+    for r in cells.flat_map(|c| c.runs.iter()) {
+        t.ended += 1;
+        match &r.conformance {
+            None => t.not_observed += 1,
+            Some(c) if c.result == "held" || c.result == "contradicted" => {
+                t.k += c.k;
+                t.n += c.n;
+                if c.result == "held" { t.held += 1 } else { t.contradicted += 1 }
+            }
+            Some(c) => {
+                t.unknown += 1;
+                *t.causes.entry(c.cause.clone().unwrap_or_else(|| "no cause".into())).or_default() += 1;
+            }
+        }
+    }
+    t
+}
+
+fn plural(n: usize, one: &str) -> String {
+    if n == 1 { format!("{n} {one}") } else { format!("{n} {one}s") }
+}
+
+/// The summary column: `k of n (observed of ended runs)`.
+fn conf_cell_md(t: &ConfTotals) -> String {
+    let observed = t.held + t.contradicted;
+    match (observed, t.unknown) {
+        (0, 0) => "not observed".into(),
+        (0, u) => format!("unknown ({u} of {})", plural(t.ended, "run")),
+        (o, _) => format!("{} of {} ({o} of {})", t.k, t.n, plural(t.ended, "run")),
+    }
+}
+
+/// The entry's sentence on conformance.
+fn conf_line_md(t: &ConfTotals) -> String {
+    let head = "Conformance of the delivered products (`sdc-conform observe`)";
+    let observed = t.held + t.contradicted;
+    if observed == 0 && t.unknown == 0 {
+        return format!("{head}: not observed on any of the {} ended runs.", t.ended);
+    }
+    let mut s = if observed > 0 {
+        format!("{head}: **{} of {} scenarios** over {} (held {}, contradicted {})", t.k, t.n, plural(observed, "run"), t.held, t.contradicted)
+    } else {
+        format!("{head}: no figure")
+    };
+    if t.unknown > 0 {
+        let causes = t.causes.iter().map(|(c, n)| if *n == 1 { c.clone() } else { format!("{c} {n}") }).collect::<Vec<_>>().join(", ");
+        let _ = write!(s, "; unknown {} ({causes})", t.unknown);
+    }
+    if t.not_observed > 0 {
+        let _ = write!(s, "; not observed {} of {} ended runs", t.not_observed, t.ended);
+    }
+    s.push('.');
+    s
+}
+
+fn conf_totals_j(t: &ConfTotals) -> J {
+    json!({"k": t.k, "n": t.n, "held": t.held, "contradicted": t.contradicted, "unknown": t.unknown, "not_observed": t.not_observed})
 }
 
 /// The runs of one variant of one record that fall in one setting.
@@ -306,6 +390,13 @@ fn run_fig(r: &Run) -> RunFig {
         cost: m["cost_usd"].as_f64(),
         wall: m["wall_s"].as_f64(),
         end: m["end"].as_str().unwrap_or("").to_string(),
+        conformance: m["conformance_result"].as_str().map(|result| Conformance {
+            summary: m["conformance"].as_str().unwrap_or("").to_string(),
+            result: result.to_string(),
+            k: m["conformance_k"].as_u64().unwrap_or(0),
+            n: m["conformance_n"].as_u64().unwrap_or(0),
+            cause: m["conformance_cause"].as_str().map(String::from),
+        }),
     }
 }
 
@@ -543,7 +634,7 @@ fn render_md(b: &Built) -> String {
     md.push_str("![Clean passes of ended runs per release and model setting, with the median cost and wall time of a clean pass](img/progress.svg)\n\n");
     let _ = writeln!(md, "Every figure counts runs of one input, `{}` (sha256 `{}`), started with no person (autonomy A5). A **clean pass** is a run that closed, delivered, and needed no reopen, forced step or unstick (`pass_rule: clean-delivery`, `docs/workflow-metrics.md` § 7). Counts come before rates, and a rate is given only from {SMALL_N} ended runs. Cost is `run.cost_usd` (model calls and decider calls), wall time `run.wall_s`; both are given over the clean passes as median [min, max] (n). Every figure names the experiment record it comes from. Pre-release trees are the trial trees before the first release; they are no release.\n",
         l.input_name, &l.input_sha[..l.input_sha.len().min(12)]);
-    md.push_str("## Summary\n\n| entry | kind | date | tree | tested by | clean passes of ended runs | by setting |\n|---|---|---|---|---|---|---|\n");
+    md.push_str("## Summary\n\n| entry | kind | date | tree | tested by | clean passes of ended runs | conformance, scenarios (observed runs) | by setting |\n|---|---|---|---|---|---|---|---|\n");
     for (e, f) in l.entries.iter().zip(&b.figs) {
         let c = counts(f.cells.iter());
         let tested = if f.exps.is_empty() { "no experiment yet".to_string() } else { f.exps.iter().map(|x| format!("`{}`", x.id)).collect::<Vec<_>>().join(", ") };
@@ -555,7 +646,8 @@ fn render_md(b: &Built) -> String {
         }
         let by_s = by.iter().map(|(i, k)| format!("{} {}", l.settings[*i].id, of_md(k))).collect::<Vec<_>>().join("; ");
         let tree = match e.tree.as_deref() { None => "not tagged yet".to_string(), Some("several") => "several".to_string(), Some(t) => format!("`{}`", &t[..t.len().min(7)]) };
-        let _ = writeln!(md, "| [{}](#{}) | {} | {} | {tree} | {tested} | {} | {} |", e.label, anchor(e), e.kind, e.date,
+        let conf = if f.exps.is_empty() { "-".into() } else { conf_cell_md(&conf_totals(f.cells.iter())) };
+        let _ = writeln!(md, "| [{}](#{}) | {} | {} | {tree} | {tested} | {} | {conf} | {} |", e.label, anchor(e), e.kind, e.date,
             if f.exps.is_empty() { "no run".into() } else { of_md(&c) }, if by_s.is_empty() { "-".into() } else { by_s });
     }
     md.push_str("\nSettings (a run is in a setting when its record's settings have every value of `match`):\n\n| setting | label | note | match |\n|---|---|---|---|\n");
@@ -587,11 +679,20 @@ fn render_md(b: &Built) -> String {
             let c = counts(f.cells.iter());
             let ids = f.exps.iter().map(|x| format!("`{}`", x.id)).collect::<Vec<_>>().join(", ");
             let _ = writeln!(md, "\nClean passes of ended runs, all settings: **{}** ({ids}); rate: {}.\n", of_md(&c), rate_md(&c));
+            let _ = writeln!(md, "{}\n", conf_line_md(&conf_totals(f.cells.iter())));
             md.push_str("| setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |\n|---|---|---|---|---|---|---|---|\n");
             for x in &f.cells {
                 let rs: Vec<&RunFig> = x.runs.iter().collect();
                 let k = counts(std::iter::once(x));
-                let names = x.runs.iter().map(|r| if r.clean { format!("**{}**", r.name) } else { format!("{} ({})", r.name, cell_md(&r.end)) })
+                let names = x.runs.iter().map(|r| {
+                    let conf = r.conformance.as_ref().map(|c| format!("conformance {}", cell_md(&c.summary)));
+                    match (r.clean, conf) {
+                        (true, None) => format!("**{}**", r.name),
+                        (true, Some(c)) => format!("**{}** ({c})", r.name),
+                        (false, None) => format!("{} ({})", r.name, cell_md(&r.end)),
+                        (false, Some(c)) => format!("{} ({}; {c})", r.name, cell_md(&r.end)),
+                    }
+                })
                     .chain(x.open.iter().map(|o| format!("{o} (not ended)"))).collect::<Vec<_>>().join(", ");
                 let _ = writeln!(md, "| {} | `{}` | {} | {} | {} | {} | {} | {names} |", cell_md(setting_name(b, x.setting)), x.experiment, x.variant,
                     of_md(&k), rate_md(&k), stat_md(&clean_stat(&rs, |r| r.cost), usd), stat_md(&clean_stat(&rs, |r| r.wall), secs));
@@ -664,15 +765,18 @@ fn render_json(b: &Built) -> String {
             v["variant"] = json!(x.variant);
             v["clean_pass_cost_usd"] = stat_j(&clean_stat(&rs, |r| r.cost));
             v["clean_pass_wall_s"] = stat_j(&clean_stat(&rs, |r| r.wall));
-            v["runs"] = json!(x.runs.iter().map(|r| json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end})).collect::<Vec<_>>());
+            v["runs"] = json!(x.runs.iter().map(|r| json!({"run": r.name, "clean_pass": r.clean, "cost_usd": r.cost.map(r6), "wall_s": r.wall, "end": r.end,
+                "conformance": r.conformance.as_ref().map(|c| json!({"summary": c.summary, "result": c.result, "k": c.k, "n": c.n, "cause": c.cause}))})).collect::<Vec<_>>());
             v["not_ended_runs"] = json!(x.open);
             v
         }).collect();
+        let mut totals = counts_j(&counts(f.cells.iter()));
+        totals["conformance"] = conf_totals_j(&conf_totals(f.cells.iter()));
         json!({
             "id": e.id, "kind": e.kind, "version": e.version, "label": e.label, "date": e.date, "tree": e.tree, "tree_note": e.tree_note,
             "changes": e.changes.iter().map(|c| json!({"commit": c.commit, "line": c.line, "effect": c.effect, "experiment": c.experiment})).collect::<Vec<_>>(),
             "experiments": f.exps.iter().map(exp_j).collect::<Vec<_>>(),
-            "totals": counts_j(&counts(f.cells.iter())),
+            "totals": totals,
             "settings": cells,
             "limits": entry_limits(b, e, f),
         })
@@ -980,6 +1084,34 @@ entries:\n- id: t1\n  kind: pre-release\n  short: a fix\n  date: 2026-11-21\n  t
         assert_eq!((fifteen.cols.len(), fifteen.hidden_releases), (6, 10));
         assert_eq!(fifteen.cols[1].label, "0.11.0");
         assert_eq!(fifteen.cols[5].label, "0.15.0");
+    }
+
+    #[test]
+    fn the_conformance_figure_of_observed_runs_is_summed_per_entry_and_shown_per_run() {
+        let exp = fixture("conformance");
+        let with = |r: &str, w: &str, result: &str, k: u64, n: u64| {
+            let mut v: J = serde_json::from_str(&summary(r, w, true, 1.0, 100.0)).unwrap();
+            v["metrics"]["conformance"] = json!(format!("{k} of {n} scenarios"));
+            v["metrics"]["conformance_k"] = json!(k);
+            v["metrics"]["conformance_n"] = json!(n);
+            v["metrics"]["conformance_result"] = json!(result);
+            fs::write(exp.join(format!("e1/runs/{r}.json")), v.to_string()).unwrap();
+        };
+        with("h1", "h", "contradicted", 13, 17);
+        with("h3", "h", "held", 17, 17);
+        let mut u: J = serde_json::from_str(&summary("s1", "s", true, 2.0, 60.0)).unwrap();
+        u["metrics"]["conformance"] = json!("unknown: table_refused");
+        u["metrics"]["conformance_result"] = json!("unknown");
+        u["metrics"]["conformance_cause"] = json!("table_refused");
+        fs::write(exp.join("e1/runs/s1.json"), u.to_string()).unwrap();
+        let b = build(&exp).unwrap().unwrap();
+        assert!(b.problems.is_empty(), "{:?}", b.problems);
+        let md = render_md(&b);
+        assert!(md.contains("Conformance of the delivered products (`sdc-conform observe`): **30 of 34 scenarios** over 2 runs (held 1, contradicted 1); unknown 1 (table_refused); not observed 1 of 4 ended runs."), "{md}");
+        assert!(md.contains("**h1** (conformance 13 of 17 scenarios)"), "{md}");
+        assert!(md.contains("| [t1](#t1) | pre-release | 2026-11-21 | `acd6f12` | `e1` | 3 of 4 | 30 of 34 (2 of 4 runs) |"), "{md}");
+        let j: J = serde_json::from_str(&render_json(&b)).unwrap();
+        assert_eq!(j["entries"][0]["totals"]["conformance"], json!({"k": 30, "n": 34, "held": 1, "contradicted": 1, "unknown": 1, "not_observed": 1}));
     }
 
     #[test]

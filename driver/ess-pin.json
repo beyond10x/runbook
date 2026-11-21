@@ -1,0 +1,32 @@
+{
+  "format": "sdc.ess-pin/1",
+  "version": "0.97.0",
+  "release": "https://github.com/beyond10x/ess/releases/tag/0.97.0",
+  "commit": "58242e0bc7671bf2a9adb701faf747a6f4bb1acc",
+  "platforms": {
+    "aarch64-apple-darwin": {
+      "asset": "ess-0.97.0-aarch64-apple-darwin.tar.gz",
+      "archive_sha256": "2cce314a81df52357d38f457914abd6bd687d9a7b51c3dc1b6fe4dcbf52c9566",
+      "member": "ess-0.97.0-aarch64-apple-darwin/ess",
+      "binary_sha256": "25db873dcddbce29044636f46acb7ee59527eb5192204506d17ff570ae7b9e11"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "asset": "ess-0.97.0-aarch64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "fc5ed987e9b84f6560fefcc06691d4aa0f1110cfee0cd96f3db8d98e66b9db15",
+      "member": "ess-0.97.0-aarch64-unknown-linux-gnu/ess",
+      "binary_sha256": "bffde085ed5840d384fa83e36f379d84f16bbdeef6ec679db3a6975e0161517f"
+    },
+    "x86_64-apple-darwin": {
+      "asset": "ess-0.97.0-x86_64-apple-darwin.tar.gz",
+      "archive_sha256": "b1179d2f3f3f9d5e61b5cb675ca6e659e9193e7120e29c92f4ecb1d5303f2b88",
+      "member": "ess-0.97.0-x86_64-apple-darwin/ess",
+      "binary_sha256": "db51a29619c9c8cbd1824f76b1434b88b32293ab268f9a505d8a703f810a9dd2"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "asset": "ess-0.97.0-x86_64-unknown-linux-gnu.tar.gz",
+      "archive_sha256": "ffdd7e9ed0e3cf0f0e0c7e23231b0d8281abf2d1494abdd32940f301977e26b0",
+      "member": "ess-0.97.0-x86_64-unknown-linux-gnu/ess",
+      "binary_sha256": "c4b746ae9de2c080e5ebd3e6e5e3be1b9cd861d88f2dcf85a630f40d05cb8add"
+    }
+  }
+}
