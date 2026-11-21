@@ -12,7 +12,8 @@ import {setRunSettings, autopilot, standIn} from './principal.js';
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
-const PHONE = matchMedia('(max-width: 900px)');
+// the phone layout's query, defined once in index.html (html.phone)
+const PHONE = matchMedia(window.SDC_PHONE);
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
@@ -97,7 +98,7 @@ function render() {
   patch($('#source'), S.sources.filter((s) => !isStub(s)).sort(byNewest).map(opt).join('') + (stubs.length ? `<optgroup label="Stub and fixture runs (no model calls)">${stubs.map(opt).join('')}</optgroup>` : ''));
   // who this run is: an end-to-end test with a stand-in, autopilot; the graph legend follows
   const set = S.run?.settings;
-  patch($('#runmark'), [isStub(src) ? `<span class="rm rm-stub" title="${esc(src.program.why)}">${esc(STUB_NOTE)}</span>` : '', standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
+  patch($('#runmark'), [isStub(src) ? `<span class="rm rm-stub" title="${esc(`${STUB_NOTE} (${src.program.why})`)}">${esc(STUB_NOTE)}</span>` : '', standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
   const lg = $('#lg-person');
   const lgText = autopilot(set) ? 'decider (on the operator’s behalf)' : 'person';
   if (lg && lg.textContent !== lgText) lg.innerHTML = `<i class="lg c-person"></i>${lgText}`;
@@ -105,7 +106,7 @@ function render() {
   $('#reads').checked = S.showReads;
   const live = $('#live');
   live.className = `live ${S.live}`;
-  patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? `<span class="lt">updated ${S.lastChange.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>` : ''}`);
+  patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? ((t) => `<span class="lt" title="${t}">${t}</span>`)(`updated ${S.lastChange.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}`) : ''}`);
   renderDecisions();
   const cases = ordered();
   if (!cases.length) {

@@ -226,9 +226,10 @@ ux loop and the server without arguments still need the recorded runs and say wh
 ## UI iteration loop
 
 `ux/` holds the measured loop of the `ui-iteration-loop` skill. `ux/adapter.mjs` names the gating
-viewports (1600x1000, 1366x768 and the phone 390x844; 1280x720, 1920x1080 and the phones 360x800,
-414x896 and 768x1024 are measured only), the one theme, what is
-always visible (Now band, KPI strip, store selector, Decisions), the scroll exceptions (decision
+viewports (1600x1000, 1366x768, the operator tile 805x1270 and the phone 390x844; 1280x720,
+1920x1080 and the phones 360x800, 414x896 and 768x1024 are measured only), the one theme, what is
+always visible (Now band with its run state, KPI strip, phase bar, store selector, Decisions), the
+desktop order from the top and the KPI tiles that must be whole (decision D-008), the scroll exceptions (decision
 D-001), the guidance cue (the Now band's waiting card and its Decide control) and six scenarios
 with their truth. `ux/core/` is generic: the layout contract with axe-core, the screen-only user's
 eyes, the metrics, the ratchet and the round command. `ux/specs/` joins them: the driver bot
@@ -283,8 +284,8 @@ at 360x800, 414x896 and 768x1024:
 - Dialogs (the change dialog, the Decisions drawer with its decision cards) are full-screen sheets
   with their close control in view.
 - Every tap target is at least 44x44 CSS px; no body text under 14 px (and no label under 12 px).
-- Desktop behaviour at 1600x1000 and 1366x768 does not change: every phone rule is under
-  `@media (max-width: 900px)`.
+- Desktop behaviour does not change: every phone rule is under `html.phone`, which `index.html`
+  sets from one query, `SDC_PHONE` (decision D-008).
 
 `ux/core/phone.mjs` measures these facts (generic); `ux/specs/phone.spec.mjs` is the phone layout
 contract at every key moment of the six scenarios and of the recorded runs `trial-2-train`,
@@ -302,3 +303,27 @@ D-007: the UI changed on purpose. On a phone (390x844) the header mark and the l
 and in the first screen (`test/stub-runs.spec.mjs`); there reading_load rises by 8 as well, and in two
 the screen-only user scrolls once more (screen_only.looks 4 to 6, glance_cost.p95 1 to 3) because
 the second card moves below the first screen.
+
+### Two layouts, chosen by device (decision D-008)
+
+The operator, 2026-11-21, on the phone layout in his desktop browser, a tile about 805x1270: "the UI
+changes you did for the mobile version, they are horrible for the non-mobile version … I like the
+overall, like the green bar stuff. Like when it was on top, it was way better for the normal
+version. I mean, just make two versions. Don't break it for the non-mobile one". The phone rules
+had switched on at `max-width: 900px`, so any narrow desktop window got the phone layout.
+
+- The phone layout is for a phone: `SDC_PHONE` in `index.html`, `(max-width: 600px), (max-width:
+  900px) and (pointer: coarse)`, sets `html.phone`, and `app.js` reads the same query. A desktop
+  window wider than 600 px with a mouse gets the desktop layout of any width.
+- 805x1270, the operator tile, is a gating viewport with the desktop rules: always visible the Now
+  band with its run state, the KPI strip, the phase bar, the store selector and Decisions; from the
+  top the header, the KPI strip, the Now band and the phase bar, each below the one before; no KPI
+  tile cut off by the window or its strip (`contract.clipped`); no page scroll.
+- In a desktop window below 1000 px the layout is the one of 1366 px with narrower Now band columns
+  (the Just finished list 200 px, 184 px when the run waits or stopped), so a card shows its action,
+  executor, model and holder whole; the run's state text breaks a long name inside its column
+  instead of running under the cards and, in the desktop layout at any width, ends after 12 lines
+  with an ellipsis, the whole text in its title (a stop's reason kept the band 800 px tall); the live pill's time and a stub run's header mark give way
+  with an ellipsis and a title, and the store select is as wide as its choice.
+- The phone sizes are measured as phones (touch and a coarse pointer: `isMobile`, `hasTouch`), in
+  the loop, `test/mobile.spec.mjs` and `test/stub-runs.spec.mjs`, which also checks the tile.

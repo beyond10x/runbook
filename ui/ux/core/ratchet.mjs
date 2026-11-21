@@ -4,7 +4,7 @@
 // Exit 1 on: a value worse than the baseline beyond its tolerance; an improvement not taken into
 // the baseline (run with --update in the same change); a missing value; a baseline made worse than
 // the committed one without --decision. --update writes improved and new values (worse ones only
-// with --decision, which is recorded on them). Generic: no project code.
+// with --decision, which is recorded on them, as on the new ones). Generic: no project code.
 import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -52,7 +52,7 @@ for (const [sc, keys] of Object.entries(base.scenarios || {})) {
 }
 for (const [sc, keys] of Object.entries(now)) for (const [k, v] of Object.entries(keys)) {
   if (!inScope(k) || base.scenarios?.[sc]?.[k]) continue;
-  if (update) { ((base.scenarios ||= {})[sc] ||= {})[k] = {value: v}; lines.push(`NEW      ${sc} ${k} ${v}`); }
+  if (update) { ((base.scenarios ||= {})[sc] ||= {})[k] = decision ? {value: v, decision} : {value: v}; lines.push(`NEW      ${sc} ${k} ${v}${decision ? ` (decision ${decision})` : ''}`); }
   else { lines.push(`NEW      ${sc} ${k} ${v}: not in the baseline (run with --update)`); fail = true; }
 }
 if (committed) {

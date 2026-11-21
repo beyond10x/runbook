@@ -40,6 +40,45 @@ export async function visibilityMisses(page, selectors) {
   }, selectors);
 }
 
+// Boxes cut off: each rendered element matching sel whose box runs past the viewport's left or right
+// edge, or past an ancestor that clips (overflow not visible). Its own content may still be shortened
+// inside the box; this counts boxes the user cannot see whole.
+export async function clippedBoxes(page, sel) {
+  return page.evaluate((sel) => {
+    const out = [];
+    [...document.querySelectorAll(sel)].forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      const name = `${sel}:nth(${i})`;
+      if (r.left < -0.5 || r.right > innerWidth + 0.5) { out.push({sel: name, why: `past the viewport (${Math.round(r.left)}..${Math.round(r.right)})`}); return; }
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        const s = getComputedStyle(a);
+        if (s.overflowX === 'visible' && s.overflowY === 'visible') continue;
+        const q = a.getBoundingClientRect();
+        if (r.left < q.left - 0.5 || r.right > q.right + 0.5 || r.top < q.top - 0.5 || r.bottom > q.bottom + 0.5) { out.push({sel: name, why: `cut by ${a.id ? '#' + a.id : a.tagName.toLowerCase() + '.' + String(a.className).split(' ')[0]}`}); return; }
+      }
+    });
+    return out;
+  }, sel);
+}
+
+// Regions out of their order from the top: each selector's element starts at or below the bottom of
+// the one before it (a region that is missing or not rendered counts too).
+export async function orderMisses(page, selectors) {
+  return page.evaluate((selectors) => {
+    const out = [];
+    let prev = null;
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      const r = el?.getBoundingClientRect();
+      if (!r || !r.height) { out.push({sel, why: 'missing'}); continue; }
+      if (prev && r.top < prev.r.bottom - 1) out.push({sel, why: `starts at ${Math.round(r.top)}, above the end of ${prev.sel} (${Math.round(prev.r.bottom)})`});
+      prev = {sel, r};
+    }
+    return out;
+  }, selectors);
+}
+
 // Hard gate 5. axe-core serious and critical violations.
 export async function axeViolations(page, {tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'], exclude = []} = {}) {
   // judge the settled frame (the skill's 0.75 s rule): finite animations run to their end first

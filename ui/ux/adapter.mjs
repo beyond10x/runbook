@@ -20,15 +20,22 @@ const principal = (() => {
 const you = `You (${principal})`;
 
 export const viewports = {
-  gating: [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768}, {name: '390x844', width: 390, height: 844, phone: true}],
+  // 805x1270, the operator tile: the operator's own desktop browser window, a narrow tall tile with a
+  // mouse (decision D-008). A phone size is measured as a phone: touch and a coarse pointer.
+  gating: [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768},
+    {name: '805x1270', label: 'operator tile', width: 805, height: 1270}, {name: '390x844', width: 390, height: 844, phone: true}],
   measured: [{name: '1280x720', width: 1280, height: 720}, {name: '1920x1080', width: 1920, height: 1080},
     {name: '360x800', width: 360, height: 800, phone: true}, {name: '414x896', width: 414, height: 896, phone: true}, {name: '768x1024', width: 768, height: 1024, phone: true}],
 };
 export const isPhone = (name) => [...viewports.gating, ...viewports.measured].some((v) => v.name === name && v.phone);
 // The UI ships one theme.
 export const themes = ['dark'];
-// Always visible (hard gate 2): the Now band, the KPI strip, the store selector, the Decisions control.
-export const alwaysVisible = ['#now', '#kpis', '#source', '#decbtn'];
+// Always visible (hard gate 2): the Now band with its run state, the KPI strip, the phase bar, the store
+// selector, the Decisions control.
+export const alwaysVisible = ['#now', '#now .now-s', '#kpis', '#phases', '#source', '#decbtn'];
+// The desktop layout from the top (hard gate 2, D-008): the KPI strip, then the Now band, then the
+// phase bar, each below the one before; and no KPI tile cut off by the window or by its strip.
+export const desktop = {order: ['header', '#kpis', '#now', '#phases'], whole: '#kpis .kt'};
 // Elements that scroll by design (hard gate 1 exceptions, recorded as decision D-001 in baseline.json):
 // the protocol graph pans, and long lists scroll inside their own box.
 export const scrollAllowed = ['#graph', '#tree', '.fd-list', '#panel', '#drawer', '#drawer *', '.dwrap .db', '.db', '.tl-ticks', '#modal pre', '.now-cards', '.chg-strip'];
@@ -68,8 +75,8 @@ export const phone = {
 };
 // The checks of one viewport: at a phone size the phone values, else the desktop ones.
 export function policy(vp) {
-  if (!isPhone(vp)) return {alwaysVisible, scrollAllowed, pageScrollY: false};
-  return {alwaysVisible: Object.values(phone.alwaysVisible).map((s) => s[0]), scrollAllowed: phone.scrollAllowed, pageScrollY: true};
+  if (!isPhone(vp)) return {alwaysVisible, scrollAllowed, pageScrollY: false, order: desktop.order, whole: desktop.whole};
+  return {alwaysVisible: Object.values(phone.alwaysVisible).map((s) => s[0]), scrollAllowed: phone.scrollAllowed, pageScrollY: true, order: [], whole: null};
 }
 
 // Scenarios: a run played by test/fixture-run.mjs (the driver bot: deterministic code that plays the
