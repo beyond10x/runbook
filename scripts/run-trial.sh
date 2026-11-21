@@ -18,6 +18,8 @@
 #                                               seeded by `sdc-bugfix seed` from the crate (<seed dir>
 #                                               or <seed dir>/crate) and the report (the text, else
 #                                               <seed dir>/bug.yaml); with --dry the stubs write
+#   scripts/run-trial.sh <name> --bugfix-ticket <ticket file>  the same from a ticket (sdc.ticket/1) on
+#                                               the git worktree it names (`sdc-bugfix seed --ticket`)
 #   scripts/run-trial.sh <name> ... --autopilot --keep-going
 #                                               trial and eval runs only (D142): where autopilot
 #                                               stops with a cause it can continue past, a line
@@ -127,6 +129,8 @@ while (($#)); do
     --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
     --reopen) reopen=yes ;;
     --bugfix) bugfix=${2:-}; [[ -d $bugfix ]] || { echo "--bugfix needs a seed directory, not '$bugfix'"; exit 64; }; bugfix=$(cd "$bugfix" && pwd); shift ;;
+    --bugfix-ticket) bugfix=${2:-}; [[ -f $bugfix ]] || { echo "--bugfix-ticket needs a ticket file (sdc.ticket/1), not '$bugfix'"; exit 64; }
+      bugfix_ticket=$(cd "$(dirname "$bugfix")" && pwd)/$(basename "$bugfix"); bugfix=$bugfix_ticket; shift ;;
     *) pos+=("$1") ;;
   esac
   shift
@@ -365,6 +369,7 @@ if [[ -n ${bugfix:-} && ! -d $root ]]; then
   [[ $code == 0 ]] || { echo "init failed: $last"; exit 1; }
   seed=(--from "$bugfix")
   [[ -n $idea_text ]] && seed+=(--text "$idea_text" --story "story:bug-$name")
+  [[ -z ${bugfix_ticket:-} ]] || seed=(--ticket "$bugfix_ticket")
   (cd "$root/work" && "${SDC_BUGFIX:-$sdc/driver/target/debug/sdc-bugfix}" seed "${seed[@]}") >> "$log" 2>&1 ||
     { echo "seed failed: $(tail -n 3 "$log")"; exit 1; }
   echo "# the bug report: $(cat "$root/work/bug.yaml")" >> "$log"
@@ -474,7 +479,8 @@ ustart=""
 [[ $unstick_on == yes ]] && ustart=" run.unstick ($unstick_model),"
 [[ -z ${SDC_REPLAY:-} ]] || jq -r .first_line "$SDC_REPLAY"
 if [[ $leg == started ]]; then
-  echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '"bug: " + .text' "$root/work/bug.yaml")"
+  # A ticket's text never reaches the console (docs/bugfix.md, "From a ticket"): its id stands for it.
+  echo "started $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(yq -r '"idea: " + .text' "$root/work/idea.yaml" 2>/dev/null || yq -r '(select(has("ticket")) | "bug: ticket " + .ticket.id) // "bug: " + .text' "$root/work/bug.yaml")"
 else
   echo "resuming $name: adapter $SDC_LLM_ADAPTER, review adapter $SDC_REVIEW_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode,$ustart LLM call cap $max_llm, $(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l) LLM calls so far"
 fi

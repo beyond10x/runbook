@@ -1,0 +1,10 @@
+format: sdc.checks/1
+test: [./checks/run-all]
+repro: [./checks/run-one, "{file}"]
+gate:
+- name: suite
+  argv: [./checks/run-all]
+test_file: '^tests/[a-z][a-z0-9_]*\.test\.sh$'
+test_name: '^[a-z][a-z0-9_]*$'
+env:
+  LC_ALL: C

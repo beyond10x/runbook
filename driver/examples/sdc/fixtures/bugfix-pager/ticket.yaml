@@ -1,0 +1,27 @@
+format: sdc.ticket/1
+id: PAGER-7
+kind: bug
+title: The last partial page is never shown
+text: >-
+  An invented ticket. With 11 items and 5 items per page, pager::page_count(11, 5) returns 2 and
+  pager::page(&items, 3, 5) returns an empty slice, so item 11 is never shown. Expected: 3 pages,
+  the third holding item 11.
+context:
+- kind: comment
+  ref: comment-1
+  text: Seen with every total that is not a multiple of the page size.
+source:
+  system: example
+  url: https://tickets.example.invalid/PAGER-7
+  fetched_at: 2026-11-21T09:00:00Z
+repository:
+  path: repo
+  base:
+    ref: main
+    commit: "0000000000000000000000000000000000000000"
+check:
+  argv: [cargo, test, --offline]
+constraints:
+- Keep the public API of the crate unchanged.
+- Add no dependency.
+branch: fix/pager-7

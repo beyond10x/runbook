@@ -21,7 +21,7 @@ Each step is admissible only after the one before it (the preconditions in the p
 | 4 | `change.fix` | LLM, edits a copy of `impl/`; admissible only with `repro.red` | `implementation_change` |
 | 5 | `tests.run` | `sdc-bugfix tests-run` (see below) | `test_run` passed / failed |
 | 6 | `story.update` | `sdc-bugfix story-update`: the story named by `bug.yaml` `story` moved to `implemented` through `aep`, actor and executor `agent:story.update`; created first if no parent handed it in | `story_record` |
-| 7 | `gate.run` | `sdc-bugfix gate-run`: `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` | `gate_run` passed / failed |
+| 7 | `gate.run` | `sdc-bugfix gate-run`: every `gate` command of the case's `checks.yaml` in order (for Rust: `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`) | `gate_run` passed / failed |
 | 8 | close | `scripts/run-trial.sh` closes the terminable root through its outcome; no outcome requires a decision, so under `--autopilot` the close is `rule:autopilot`'s (`closed BUG-1: "fixed" by rule:autopilot`, `closed_by` in `status.json`) | `terminated` with `principal` |
 
 Outcomes: `fixed` (all of the above), `not_reproduced` (no valid dissection, or no red), `not_fixed`
@@ -40,27 +40,112 @@ copying `impl/` to `mainline/`.
 
 ## The programs (red and green)
 
-Every cargo run happens in a copy of `impl/` under `.sdc/bugfix/`, so nothing is written into an
-artifact. The run goes through `slot` when slot is on PATH. Two runs per check:
+The commands are the case's `work/checks.yaml` (below), not code of `sdc-bugfix`. Every command
+runs as an argv, never through a shell, in a copy under `.sdc/bugfix/`, so nothing is written into
+an artifact: `tree/` (a copy of `impl/`) or `base/` (a copy of the base, `bug.yaml` `base`, default
+`mainline/`). It goes through `slot` when slot is on PATH, with `checks.yaml` `env` and
+`CARGO_TARGET_DIR=.sdc/bugfix/target`. A program that is not on PATH (or, for a program with a
+`/`, not a file of the tree) exits 127 and an unusable `checks.yaml` 126: program errors, which
+`sdc-drive` never records as a check result. Two kinds of run:
 
-- the whole suite, `cargo test --no-fail-fast`, for the counts;
-- the reproducing test alone, `cargo test --test <name> -- --exact <test>`, for its status.
+- the whole suite, `checks.yaml` `test` (Rust: `cargo test --offline --no-fail-fast`);
+- the reproducing test alone, `checks.yaml` `repro` (Rust: `cargo test --offline --test {stem} --
+  --exact {test}`), for its status.
 
-Its status is taken from its own run because, through `slot`, stdout and stderr reach the log as
-two streams. A `Running <target>` line can land after the tests it opened, so the full run cannot
-tell which target a test line belongs to. In `runs/bugfix-tally-sonnet` and
+The test's status is taken from its own run because, through `slot`, stdout and stderr reach the
+log as two streams. A `Running <target>` line can land after the tests it opened, so a full cargo
+run cannot tell which target a test line belongs to. In `runs/bugfix-tally-sonnet` and
 `runs/bugfix-kvparse-haiku` (before the fix), the reproducing test's line landed under
 `Doc-tests` and was read as "did not run".
 
-- `repro-run` is red only when all of these hold: `repro/repro.json` fits its schema; the test file
-  holds `#[test] fn <test>` and no `#[ignore]` or `#[should_panic]`; the file is new to the base
-  (`bug.yaml` `base`, default `mainline/`); `impl/<file>` is byte for byte `repro/<file>`; `impl/`
-  equals the base except that file; the test's own run reports it FAILED; and in the full run
-  nothing else fails. A compile error, a passing test, or another failing test makes it not_red, and
-  the log line names the reason.
+- `repro-run` is red only when all of these hold: `repro/repro.json` fits its schema (`file`
+  matches `test_file` and lies inside the tree, `test` matches `test_name`); the test file defines
+  the test (`test_def`, else it names it) and matches no `test_forbid` (Rust: `#[ignore]`,
+  `#[should_panic]`); the file is new to the base; `impl/<file>` is byte for byte `repro/<file>`;
+  `impl/` equals the base except that file; the test's own run fails as a test (the red rule
+  below); and the whole suite on the base, without the test, passes (the `suite` rule, else exit
+  0). A test that does not build, a passing test, or another failing test makes it not_red, and the
+  log line names the reason and quotes the run's last 40 lines.
 - `tests-run` refuses a fix that changed or removed the test file (the byte comparison). It passes
-  only when the test's own run reports it ok and the full run has nothing failed and nothing
-  ignored.
+  only when the test's own run passes (the `green` rule, else exit 0) and the whole suite passes
+  (the `suite` rule, else exit 0). Rust's rules keep the earlier meaning: the test reported `ok`
+  under its name, nothing `FAILED` and nothing `ignored`.
+
+### The red rule
+
+Red keeps its meaning in every language: the one reproducing test ran and failed against the
+unchanged code. Two parts:
+
+- The test's own run fails as a test. With a `red` rule (`exit` codes, `output` that must match,
+  `refuse` that must not), the rule decides. Rust: exit 101 and the line `test <name> ... FAILED`;
+  a compile error also exits 101 but prints no such line, and an unknown test exits 0. Without a
+  rule, any exit but 0 counts.
+- The suite without the test passes: `test` runs on `base/`. This is the cheapest sound rule that
+  needs no rule at all: it is one run, and a failure that the suite shows without the test was not
+  caused by the test. A broken command fails here too, so it is never read as red. It also stands
+  in for Rust's former check that nothing else failed in the full run with the test.
+
+What a rule cannot tell, no rule tells either: without a `red` rule, a test file that does not
+build counts as red in a compiled language. The detection table sets a rule wherever the tool
+prints a clear per-test line (Rust, Go, Node's TAP, pytest, Maven, Gradle).
+
+### The commands of a case: `checks.yaml` (`sdc.checks/1`)
+
+| key | | |
+|---|---|---|
+| `format` | required | `sdc.checks/1` |
+| `test` | required | argv that runs the whole suite |
+| `repro` | required | argv template that runs one test; placeholders `{file}` (its path in the tree), `{dir}` (its directory, `.` at the root), `{stem}` (the file name without its last extension), `{test}` (its name), replaced inside any argument |
+| `gate` | optional | ordered list of `{name, argv}`; each must exit 0; every one runs; may be empty |
+| `test_file` | required | a pattern (`^...$`) the reproducing test's path must match: the test area |
+| `test_name` | optional | a pattern (`^...$`) its name must match; default `^[A-Za-z_][A-Za-z0-9_]*$` |
+| `test_def` | optional | a pattern the test file must match (with `{test}`); without it the file must contain the name |
+| `test_forbid` | optional | a pattern the test file must not match (skip, ignore, expected failure) |
+| `env` | optional | `NAME: value` for every command |
+| `red`, `green`, `suite` | optional | rules `{exit?: [codes], output?, refuse?}` for a failing own run, a passing own run, a passing suite; patterns are multi-line, `{test}` and the others are replaced by their regex-escaped value |
+
+Validation is strict (an unknown key is refused, every miss named). `sdc-bugfix checks` prints the
+commands a case runs with.
+
+Where it comes from, at seed time, first match wins:
+
+1. `sdc-bugfix seed --checks <file>`: the outside controller supplies it (with a ticket, or for a
+   repository the table does not know);
+2. the repository's own `.runbook/checks.yaml` (for a seed from a ticket, only when git tracks it);
+3. detection by marker files at the tree's root, from the table
+   `driver/examples/sdc/checks-detect.yaml` (`sdc.checks-detect/1`, a data file beside the bindings,
+   compiled into `sdc-bugfix`; `SDC_CHECKS_DETECT=<file>` names another): the first row with a marker
+   present (and its `contains` pattern matching) gives the commands;
+4. nothing matched: the seed fails before it writes anything, with a message that names
+   `--checks <file>`. It never guesses.
+
+The seed writes the result to `work/checks.yaml` and prints its source (`--checks`,
+`.runbook/checks.yaml`, or `detected <row> (<marker>)`); a seed from a ticket records it in
+`.sdc/seed.json` `checks`. A case with no `checks.yaml` (a parent that wrote its `work/` itself)
+takes what the seed would have found for the base: its `.runbook/checks.yaml`, else the table.
+
+The table's rows, in order:
+
+| row | marker | suite | one test | red rule |
+|---|---|---|---|---|
+| `rust` | `Cargo.toml` | `cargo test --offline --no-fail-fast` | `cargo test --offline --test {stem} -- --exact {test}` | exit 101, `test {test} ... FAILED` |
+| `go` | `go.mod` | `go test -count=1 ./...` | `go test -count=1 -v -run ^{test}$ ./{dir}` | exit 1, `--- FAIL: {test}` |
+| `javascript-node-test` | `package.json` whose `test` script is `node --test` | `node --test --test-reporter=tap` | the same with `{file}` | exit 1, `not ok N - {test}` |
+| `javascript-npm` | `package.json` | `npm test` | `npm test -- {file}` | none |
+| `python-pytest` | `pyproject.toml`, `pytest.ini` | `python3 -m pytest -q` | `python3 -m pytest -v {file}::{test}` | exit 1, `{file}::{test} FAILED` |
+| `java-maven` | `pom.xml` | `mvn -o -q test` | `mvn -o test -Dtest={stem}#{test}` | exit 1, `{stem}.{test}` |
+| `java-gradle-wrapper`, `java-gradle` | `gradlew`; `build.gradle`, `build.gradle.kts` | `./gradlew --offline test` (or `gradle`) | `... test --tests *{stem}.{test}` | exit 1, `{stem} > {test} FAILED` |
+| `make` | `Makefile` with a `test:` target | `make test` | `make test` (the whole suite: red only through the suite-without-the-test run) | none |
+
+The gate per row: Rust as before; Go `go build`, `go vet`, `go test`; Node the suite again; npm
+`npm test`; pytest the suite; Maven `mvn -o -q verify`; Gradle `check`; make none.
+
+Tested here (`driver/tests/bugfix_languages.rs`, no network, no toolchain download): Rust (the
+pager seed and its cycles, unchanged), JavaScript with `node --test` (`fixtures/bugfix-js`, no
+dependency; Node 22 is a requirement of this repository), and any repository with a supplied
+`checks.yaml` (`fixtures/bugfix-script`: plain executable test scripts, no red rule). Each is seeded,
+red on the unchanged code with its reproducing test, green after the fix, and a failing gate command
+exits 1 and is named. The rows for Go, Python, Java, npm and make exist and are not tested here.
 
 What the record shows, by program:
 
@@ -79,8 +164,10 @@ revision R (`repro/repro.json`) and in each step's log blob, not in the record i
 $ scripts/run-trial.sh <run> --bugfix <seed dir> ["<bug report>"] [--autopilot | --dry]
 ```
 
-This opens root `BUG-1` on `sdc.bugfix`. `sdc-bugfix seed` copies the crate (`<seed dir>`, or
-`<seed dir>/crate`) to `work/mainline/` and `work/impl/`. It writes `work/bug.yaml` from the text
+This opens root `BUG-1` on `sdc.bugfix`. `sdc-bugfix seed` copies the code tree (`<seed dir>` when
+it holds a `Cargo.toml`, else `<seed dir>/crate` or `<seed dir>/repo`, else `<seed dir>`) to
+`work/mainline/` and `work/impl/` and writes `work/checks.yaml` (above; `--checks <file>` supplies
+it). It writes `work/bug.yaml` from the text
 (story `story:bug-<run>`), or copies `<seed dir>/bug.yaml`. It creates the story in `work/aep/` and
 moves it to `active` (actor `agent:bugfix.seed`). The rest of the run is `run-trial.sh`'s loop.
 
@@ -99,7 +186,7 @@ the last partial page. `bug.yaml` holds the report. `stub-dissection.json`, `stu
 `scripts/run-finding-cycles.sh` runs the four in autopilot (`bugfix-full`, `bugfix-not-red`,
 `bugfix-edited-test`, `bugfix-never-red`). It checks the outcome, `closed_by: rule:autopilot`,
 replay, and the records: the green `test_run` names the red `repro_run`'s repro revision at
-another change revision.
+another change revision. A fifth, `bugfix-from-ticket`, starts from a ticket (below).
 
 More seeds, each with one planted bug of another kind:
 
@@ -110,6 +197,120 @@ More seeds, each with one planted bug of another kind:
 `cases/12-bugfix-red-first/` holds Canon evaluations. Two matter most: `green-without-red` (a fix
 and a green suite with no red record) leaves `change.fix`, `tests.run` and `story.update` blocked;
 `test-edited` makes `change.fix` the writer again and `not_fixed` legitimate.
+
+## From a ticket: `sdc.ticket/1` (2026-11-21)
+
+The operator, 2026-11-21: "then I can actually point it to say Jira ticket and then it will just do
+it. Maybe we can have external outside controller session, which is maybe first fetching the ticket
+context, and the repo context and such, and then starting the runbook with a certain protocol."
+`story:ticket-input-and-repo-seed`. The controller that fetches a ticket is a later story; this one
+defines the document it writes and makes the bug-fix runbook take it.
+
+```console
+$ scripts/run-trial.sh <run> --bugfix-ticket <ticket file> [--autopilot | --dry]
+$ sdc-bugfix seed --ticket <ticket file> [--repo <worktree>]      # what run-trial.sh calls in work/
+$ sdc-bugfix schema ticket                                         # the JSON schema of the format
+```
+
+### The format
+
+| key | | |
+|---|---|---|
+| `format` | required | `sdc.ticket/1` |
+| `id` | required | the ticket's key in its system, a string (quote a number) |
+| `kind` | required | `bug` or `feature`; `sdc-bugfix` refuses `feature`: its protocol (`sdc-feature`) does not exist yet |
+| `title`, `text` | required | the ticket's words |
+| `context` | optional | a list of `{kind: comment\|linked\|doc, ref, text}` |
+| `source` | optional | `{system, url?, fetched_at}`: `system` is one free word (`jira`, `github`), `fetched_at` an RFC 3339 instant |
+| `repository` | required | `{path, remote?, base: {ref, commit}}`: `path` a local git worktree (relative to the ticket file), `commit` the full commit id its HEAD must be at |
+| `check` | optional | `{argv: [...]}`: recorded in `bug.yaml`, not run; the commands that run are `checks.yaml`'s (`seed --checks`) |
+| `constraints` | optional | a list of strings, added to the code writers' prompts |
+| `branch` | optional | the branch a later hand-back step will create |
+
+Validation is strict: an unknown key at any level is refused, every missing required key is named,
+and no refusal quotes a value of the ticket.
+
+An invented example, also the fixture of the cycle `bugfix-from-ticket`
+(`driver/examples/sdc/fixtures/bugfix-pager/ticket.yaml`; the cycle sets the commit):
+
+```yaml
+format: sdc.ticket/1
+id: PAGER-7
+kind: bug
+title: The last partial page is never shown
+text: >-
+  An invented ticket. With 11 items and 5 items per page, pager::page_count(11, 5) returns 2 and
+  pager::page(&items, 3, 5) returns an empty slice, so item 11 is never shown. Expected: 3 pages,
+  the third holding item 11.
+context:
+- kind: comment
+  ref: comment-1
+  text: Seen with every total that is not a multiple of the page size.
+source:
+  system: example
+  url: https://tickets.example.invalid/PAGER-7
+  fetched_at: 2026-11-21T09:00:00Z
+repository:
+  path: repo
+  base:
+    ref: main
+    commit: "0000000000000000000000000000000000000000"
+check:
+  argv: [cargo, test, --offline]
+constraints:
+- Keep the public API of the crate unchanged.
+- Add no dependency.
+branch: fix/pager-7
+```
+
+### What the seed does
+
+`sdc-bugfix seed --ticket` (`driver/src/bin/sdc-bugfix.rs`, `seed_ticket`) refuses, before it
+writes anything, a path that is not the top of a git worktree, a worktree with a changed tracked
+file (untracked and ignored files do not count: they are not copied), a HEAD other than
+`repository.base.commit`, a submodule or a symlink, a tree above the size cap, and a repository
+whose commands are not found (`--checks <file>`, a tracked `.runbook/checks.yaml`, or a tracked
+marker of the detection table). `--repo`, when given, must name the same directory as
+`repository.path`.
+
+It then copies exactly the files `git ls-files` lists to `work/mainline/` and `work/impl/`, and
+writes `work/checks.yaml` and:
+
+- `work/bug.yaml`: `title`; `text`, the title, the text and each context entry in that order,
+  separated by a blank line, an entry headed `--- <kind> <ref>`; `story: story:ticket-<id>` (the id
+  lower case, every run of other characters one `-`); `ticket` (`id`, `kind`, `source`, no text);
+  `constraints`; `check` when the ticket has one;
+- `work/.sdc/seed.json` (`sdc.bugfix-seed/1`): the ticket's id, kind and branch, the repository's
+  path, remote and base (`ref`, `commit`), the number of files and bytes copied, and where
+  `checks.yaml` came from (`checks`).
+
+The story is created in `work/aep/` and moved to `active`, as in the other form. From there the run
+is the same as from a seed directory.
+
+Prompts (`driver/examples/sdc/tools/llm-node.sh`): when `bug.yaml` carries `ticket`, `change.fix`
+loses "Standard library only", and `test.reproduce` and `change.fix` end with the ticket's
+constraints. A run without a ticket keeps its prompts byte for byte
+(`driver/tests/bugfix_prompt.rs` against `driver/tests/fixtures/bugfix-prompt/`). The code writers
+get `in/checks.yaml`, and their task quotes its test file pattern, how the test and the suite will
+be run, and the gate commands, so the test is written in the repository's language; no prompt names
+a language of its own (`story:bugfix-any-language`).
+
+### Limits
+
+- The repository's commands must be found: `--checks`, its `.runbook/checks.yaml`, or a marker of
+  the detection table (above). Tested are Rust, JavaScript with `node --test`, and a supplied
+  `checks.yaml`.
+- The detected commands run offline (`cargo --offline`, `mvn -o`, `gradle --offline`): the
+  repository's dependencies must be fetched before the run.
+- Bug tickets only: `kind: feature` is refused.
+- Size cap: 2000 files and 16 MiB (`SEED_MAX_FILES`, `SEED_MAX_BYTES`), raised for one run with
+  `SDC_SEED_MAX_FILES` and `SDC_SEED_MAX_BYTES`. Every model call copies the code tree into its
+  scratch directory and back (`llm-node.sh`, `input impl` and `seed impl`).
+- No hand-back: nothing is committed or pushed to the repository, and `branch` is only recorded.
+
+The ticket's text reaches the prompts and the run's own records (`runs/`, never committed) only.
+The seed prints the repository, the commit and the counts; the cycle checks that the run's output
+holds no ticket text.
 
 ## Run `runs/bugfix-1` (2026-11-21, real, autopilot)
 

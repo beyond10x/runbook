@@ -105,6 +105,8 @@
 #   bugfix-full, bugfix-not-red, bugfix-edited-test, bugfix-never-red  sdc.bugfix in autopilot on the
 #                   pager seed (docs/bugfix.md): fixed; not_red then red then fixed; the fix that
 #                   changed the test refused then fixed; not_reproduced
+#   bugfix-from-ticket  the same from the invented ticket fixtures/bugfix-pager/ticket.yaml on a git
+#                   repository (run-trial.sh --bugfix-ticket --dry): fixed; a dirty worktree refused
 #   run-metrics     sdc-run-metrics on decider-rework's run: looping factor, the approval edge,
 #                   merge.approve's decisions, a clean close (docs/workflow-metrics.md)
 #   implement-request-build, -tests-rework, -review-rework, -invalid-retry, -invalid-named,
@@ -166,7 +168,7 @@ expected+=(coverage-complete coverage-not-built coverage-line-outside coverage-t
 pending=(rework-spent-dropped rework-spent-abandoned)
 expected+=(implement-request-build implement-request-tests-rework implement-request-review-rework implement-request-invalid-retry
   implement-request-invalid-named implement-request-path-escape)
-expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red)
+expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red bugfix-from-ticket)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
   replay-recording-clean rule-approvals-default review-mode-default implement-coverage-default)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
@@ -2322,6 +2324,47 @@ grep -q 'the reproducing test was changed' "$s/runs/bugfix-edited-test/store/BUG
 bugfix_cycle bugfix-never-red never-red not_reproduced \
   '([.[] | select(.kind == "repro_run" and .result == "red")] | length) == 0 and ([.[] | select(.kind == "implementation_change")] | length) == 0' \
   "every test passes on the seed: not_reproduced, no fix written"
+# bugfix-from-ticket: run-trial.sh --bugfix-ticket --dry --autopilot (the dry adapter writes each
+# prompt and calls nothing, the stubs write) on a git repository made from the pager crate, with an
+# ignored and an untracked file, from the invented ticket fixtures/bugfix-pager/ticket.yaml. Closes
+# fixed by rule:autopilot; mainline/ holds exactly what git ls-files lists, .sdc/seed.json the base
+# commit, bug.yaml the ticket's story; change.fix's prompt carries the ticket's constraints and no
+# "Standard library only"; the run's output quotes no ticket text. Then the same repository, dirty,
+# is refused before any step.
+tin=$s/bugfix-from-ticket-input r=$s/runs/bugfix-from-ticket
+rm -rf "$tin" "$r" "$s/runs/bugfix-from-ticket-dirty"
+tgit() { git -C "$tin/repo" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"; }
+mkdir -p "$tin" && cp -r "$bfx/crate" "$tin/repo" && printf 'ignored.txt\n' > "$tin/repo/.gitignore" &&
+  tgit init -q && tgit add . && tgit commit -q -m fixture
+echo ignored > "$tin/repo/ignored.txt"; echo untracked > "$tin/repo/untracked.txt"
+head_commit=$(tgit rev-parse HEAD)
+C=$head_commit yq '.repository.base.commit = strenv(C) | .repository.base.commit style="double"' "$bfx/ticket.yaml" > "$tin/ticket.yaml"
+env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_DECIDER=approve \
+  "$sdc/scripts/run-trial.sh" bugfix-from-ticket --bugfix-ticket "$tin/ticket.yaml" --dry --autopilot > "$s/bugfix-from-ticket.txt" 2>&1
+code=$?
+echo "bugfix-from-ticket: exit $code"
+w=$r/store/BUG-1/work
+fix_prompt=$(ls -d "$r"/llm/*-change.fix 2>/dev/null | tail -n 1)/prompt.md
+echo 'pub fn changed() {}' >> "$tin/repo/src/lib.rs"
+env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_DECIDER=approve \
+  "$sdc/scripts/run-trial.sh" bugfix-from-ticket-dirty --bugfix-ticket "$tin/ticket.yaml" --dry --autopilot > "$s/bugfix-from-ticket-dirty.txt" 2>&1
+dirty_code=$?
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   jq -e '.outcome == "fixed" and .closed_by == "rule:autopilot"' "$r/status.json" >/dev/null &&
+   jq -e 'all(.state_matches_log and .decision_matches_log)' "$r/replay.json" >/dev/null &&
+   cat "$r"/store/BUG-1/evidence/*.json | jq -se "$red_then_green" >/dev/null &&
+   [[ $(cd "$w/mainline" && find . -type f | sed 's|^\./||' | LC_ALL=C sort) == "$(tgit ls-files | LC_ALL=C sort)" ]] &&
+   [[ ! -e $w/mainline/ignored.txt && ! -e $w/mainline/untracked.txt ]] &&
+   jq -e --arg c "$head_commit" '.repository.base.commit == $c and .ticket.id == "PAGER-7"' "$w/.sdc/seed.json" >/dev/null &&
+   yq -e '.story == "story:ticket-pager-7" and .ticket.id == "PAGER-7" and (.constraints | length) == 2' "$w/bug.yaml" >/dev/null &&
+   grep -q '^status: implemented' "$w/aep/story/ticket-pager-7.md" &&
+   grep -qF -- '- Keep the public API of the crate unchanged.' "$fix_prompt" && ! grep -q 'Standard library only' "$fix_prompt" &&
+   ! grep -qF -e 'never shown' -e 'multiple of the page size' "$s/bugfix-from-ticket.txt" &&
+   (( dirty_code == 1 )) && grep -q 'is dirty' "$s/bugfix-from-ticket-dirty.txt"; then
+  echo "bugfix-from-ticket: checks pass (fixed from the ticket on a git repository: only tracked files seeded, base recorded, constraints in the prompt, no ticket text in the output; a dirty worktree refused)"
+else
+  echo "bugfix-from-ticket: FAILED (exit $code, dirty exit $dirty_code, $(jq -c '{outcome, closed_by}' "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
+fi
 # --- recorded replay (docs/driver.md, "Recorded replay"): scripts/run-trial.sh --recorded re-drives
 # the committed recording fixtures/recorded/stub with driver/src/bin/sdc-replay as the adapter of
 # every model and decider call, no LLM. The recording is a stub run through the fixture adapters,

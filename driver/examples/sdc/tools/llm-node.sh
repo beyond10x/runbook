@@ -282,6 +282,14 @@ input() {
 }
 # An output edited in place starts as a copy of the current artifact.
 seed() { [[ -e $work/$1 ]] && mkdir -p "$cwd/out/$(dirname "$1")" && cp -r "$work/$1" "$cwd/out/$1"; true; }
+# sdc.bugfix: the case's commands as the programs will run them (sdc-bugfix checks), as in/checks.yaml;
+# `ck <yq expression>` reads it. Commands that cannot be read are a program error, not a writer's.
+checks_input() {
+  "$here/sdc-tool.sh" bugfix checks > "$cwd/in/checks.yaml" ||
+    { echo "llm-node: $node could not run: the case's checks.yaml cannot be read (sdc-bugfix checks)" >&2; exit 126; }
+  inputs+=("in/checks.yaml")
+}
+ck() { yq -r "$1" "$cwd/in/checks.yaml"; }
 
 ops='["dir.list","file.edit","file.read","file.write","search"]'
 mt=30
@@ -533,7 +541,9 @@ A rejection needs at least one violation. A program checks every \`at\` and \`vi
 the reply otherwise. Judge from the inputs only; you cannot run anything."
   fi ;;
 # sdc.bugfix (docs/bugfix.md): the dissection is a data document under a schema (sdc-bugfix schema
-# dissection), checked by dissection.check; the test and the fix are code.
+# dissection), checked by dissection.check; the test and the fix are code, in the language of the
+# code tree. How the programs test it is the case's checks.yaml (sdc.checks/1, `sdc-bugfix checks`),
+# given to the code writers as in/checks.yaml and quoted in their task.
 bug.dissect)
   input bug.yaml; input impl; out=bug-dissection.json
   "$here/sdc-tool.sh" bugfix schema dissection > "$rec/schema.json" && node_schema=$rec/schema.json
@@ -542,36 +552,56 @@ out/bug-dissection.json, one JSON object with exactly these four string keys (sc
 $(jq -c . "$rec/schema.json")):
 - observed: what happens, as the report states it: the inputs and the wrong result
 - expected: what should happen instead, for the same inputs
-- where: the file of the code tree the bug is in, relative to in/impl/ (for example src/lib.rs),
-  optionally with :<line> of the faulty line (src/lib.rs:9)
+- where: the file of the code tree the bug is in, relative to in/impl/ (for example
+  path/to/file), optionally with :<line> of the faulty line (path/to/file:9)
 - reproduce: how to reproduce it: the call or command and its inputs
 Each value is one or two sentences. Do not fix anything." ;;
 test.reproduce)
   input bug.yaml; input bug-dissection.json; input impl; out=repro
-  task="Write ONE Rust integration test that reproduces the bug in in/bug.yaml, as dissected in
-in/bug-dissection.json, for the crate in in/impl/ (do not change in/impl/). Write two files:
-- out/repro/<name>.rs: a new integration test file (<name> lower case, letters, digits and _;
-  not a file that exists in in/impl/tests/), using the crate's public API, with exactly one
-  #[test] function. It asserts the expected behaviour, so it FAILS on the current code because of
-  the bug, and will pass once the bug is fixed. No #[ignore], no #[should_panic]. It must compile
-  against the current code: call only functions that exist.
-- out/repro/repro.json: {\"file\": \"tests/<name>.rs\", \"test\": \"<the #[test] function's name>\"}
-A program then runs the whole suite on the unchanged code: your test must fail, every other test
-must pass. You cannot run commands." ;;
+  checks_input
+  task="Write ONE test that reproduces the bug in in/bug.yaml, as dissected in
+in/bug-dissection.json, for the code in in/impl/ (do not change in/impl/), in the language and
+with the test framework that code already uses. Write two files:
+- out/repro/<file name>: a new test file. Its path in the code tree must match
+  $(ck .test_file) (in/checks.yaml \`test_file\`), and no file of in/impl/ has that path. It uses the
+  code's public interface and holds exactly one test, whose name matches $(ck .test_name). It
+  asserts the expected behaviour, so it FAILS on the current code because of the bug, and will
+  pass once the bug is fixed. Do not skip or ignore it, and do not mark it as expected to fail.
+  It must build and load against the current code: call only what exists.
+- out/repro/repro.json: {\"file\": \"<the test file's path in the code tree>\", \"test\": \"<the test's name>\"}
+A program then runs your test alone on the unchanged code with \`$(ck '.repro | join(" ")')\`
+(in/checks.yaml \`repro\`; {file} and {test} are your repro.json, {stem} the file name without its
+extension, {dir} its directory): your test must fail. It runs the whole suite without your test
+with \`$(ck '.test | join(" ")')\`: every other test must pass. You cannot run commands." ;;
 change.fix)
   input bug.yaml; input bug-dissection.json; input repro; input impl; seed impl; out=impl
+  checks_input
   repro_file=$(jq -r '.file // ""' "$work/repro/repro.json" 2>/dev/null)
+  # A run seeded from a ticket works on a repository that may have dependencies of its own.
+  stdlib=" Standard library only."
+  yq -e '.ticket' "$work/bug.yaml" >/dev/null 2>&1 && stdlib=""
+  gate=$(ck '.gate[] | "  - " + .name + ": `" + (.argv | join(" ")) + "`"')
   task="Fix the bug in in/bug.yaml (dissected in in/bug-dissection.json) in out/impl/, a copy of the
-crate. The test $(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null) in out/impl/$repro_file
+code tree. The test $(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null) in out/impl/$repro_file
 reproduces the bug: it fails now and must pass after your fix.
 - Do not change out/impl/$repro_file in any way: a program compares it byte for byte and refuses
   the fix otherwise. Do not delete, weaken or ignore any test.
-- Change as little as the fix needs; keep the public API. Standard library only.
-- The whole suite must pass, and the crate must pass \`cargo clippy --all-targets -- -D warnings\`
-  and \`cargo fmt --check\` (rustfmt's default style).
-You cannot run commands: write code that passes the tests." ;;
+- Change as little as the fix needs; keep the public API.$stdlib
+- The whole suite must pass (\`$(ck '.test | join(" ")')\`, in/checks.yaml \`test\`), and so must
+  every gate command of in/checks.yaml \`gate\`:
+${gate:-  (none)}
+You cannot run commands: write code that passes the tests and the gate." ;;
 *) echo "llm-node: no agent node $node" >&2; exit 64 ;;
 esac
+# A run seeded from a ticket (bug.yaml `ticket`, docs/bugfix.md "From a ticket"): the ticket's
+# constraints bind the code writers. A run without a ticket keeps its prompt byte for byte.
+if [[ $node == test.reproduce || $node == change.fix ]] && yq -e '.ticket' "$work/bug.yaml" >/dev/null 2>&1; then
+  constraints=$(yq -r '(.constraints // [])[] | "- " + .' "$work/bug.yaml")
+  [[ -z $constraints ]] || task="$task
+
+Constraints of the ticket (in/bug.yaml \`constraints\`), each one binding:
+$constraints"
+fi
 
 # (Request mode: sdc-reply implement-run inlines findings.yaml and asks for findings in the reply.)
 if [[ $raises == yes && $implement_mode == session ]]; then
