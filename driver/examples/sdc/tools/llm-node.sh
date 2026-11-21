@@ -36,10 +36,10 @@ done
 # draft may only move to proposed), and plan.decompose's moves to active are refused.
 aep() { command aep "$@" --root .; }
 # aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, the run's
-# SDC_PRINCIPAL unless it names a person (no person takes a tool step), else agent:<node>; a
-# move's --executor names the node that ran it.
+# SDC_PRINCIPAL when it is a <kind>:<name> principal and no person (no person takes a tool step;
+# dry-run is none), else agent:<node>; a move's --executor names the node that ran it.
 aep_actor=${SDC_PRINCIPAL:-}
-[[ -z $aep_actor || $aep_actor == human:* || $aep_actor == person:* ]] && aep_actor=agent:$node
+[[ $aep_actor =~ ^[a-z][a-z-]*:[^[:space:]]+$ && $aep_actor != human:* && $aep_actor != person:* ]] || aep_actor=agent:$node
 export AEP_ACTOR=$aep_actor
 
 # questions.write writes the interview; it never rewrites one that exists unless a check found it

@@ -38,10 +38,10 @@ esac
 # (runs/ inside this repository is under development.standard); see llm-node.sh.
 aep() { command aep "$@" --root .; }
 # aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, as in
-# llm-node.sh: SDC_PRINCIPAL unless it names a person, else agent:<action>.
+# llm-node.sh: SDC_PRINCIPAL when it is a <kind>:<name> principal and no person, else agent:<action>.
 executor=agent:${SDC_ACTION:-sdc-tool}
 aep_actor=${SDC_PRINCIPAL:-}
-[[ -z $aep_actor || $aep_actor == human:* || $aep_actor == person:* ]] && aep_actor=$executor
+[[ $aep_actor =~ ^[a-z][a-z-]*:[^[:space:]]+$ && $aep_actor != human:* && $aep_actor != person:* ]] || aep_actor=$executor
 export AEP_ACTOR=$aep_actor
 
 case $1 in
