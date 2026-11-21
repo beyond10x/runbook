@@ -776,7 +776,7 @@ mod tests {
     #[test]
     fn a_person_is_not_an_agent_a_decider_or_a_rule() {
         assert!(person("person:ada") && person("operator") && person("human"));
-        assert!(!person("") && !person("decider:haiku") && !person("rule:x") && !person("non-interactive") && !person("derived"));
+        assert!(!person("") && !person("decider:haiku") && !person("decider:model") && !person("rule:x") && !person("non-interactive") && !person("derived"));
     }
 
     #[test]

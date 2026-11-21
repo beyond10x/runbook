@@ -430,8 +430,8 @@ sealed frame was accepted (`session.started`) and the run only failed at the API
 
 **Decider** (2026-11-21, `scripts/run-trial.sh`, `tools/decider.sh`; usage in `trial-1.md`,
 KPIs H1-H4 in `kpis.md` § 1d). The person's decisions (approvals, scope-changing questions, the
-root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `reject`, or `haiku`
-(one bounded call through the adapters above, `SDC_DECIDER_ADAPTER` else `SDC_LLM_ADAPTER`; the LLM
+root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `reject`, or `model`
+(`haiku` is its old name, an alias, and runs before D149 recorded `decider:haiku`; one bounded call through the adapters above, `SDC_DECIDER_ADAPTER` else `SDC_LLM_ADAPTER`; the LLM
 writes `out/decision.json` {decision, answer, reasons, cites, best}, a jq program validates it,
 invalid counts as escalate). The script, not the driver, applies a decision: `sdc-drive approve
 --principal decider:<kind>` (grant and approval record carry that principal) or `answered_by:
@@ -559,7 +559,7 @@ output every time, appends the rejection to the subject (`.rework` in a tree, a 
 Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
 adapter). The new revision leaves the record behind and the approval is asked again; the
 decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
-evidence and the event log). The third rejection stops the run with cause `rework_spent`; a
+evidence and the event log). The rejection after the last rework (the third, unless `SDC_MAX_REJECTIONS` sets another rework cap than `rework_limit` of rule-ends.json; run-settings.jsonl records the effective `rework_limit`, D184) stops the run with cause `rework_spent`; a
 rejection that cannot be recorded, or that sends no writer back, and has no end of its own (below)
 with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
 it was opened with, so a run started before a protocol change does not gain the new actions.
