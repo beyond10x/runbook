@@ -3065,6 +3065,35 @@
     },
     {
       "hypothesis": null,
+      "id": "review-minimal-facts",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "tree",
+          "note": "the change must be built on the source runs' tree 72a3eef; a replay on a later tree diverges at other calls as well."
+        },
+        {
+          "key": "same-model",
+          "note": "Sonnet in both, so a differing decision is the inputs' doing or Sonnet's own variance; three replays of one source would separate the two, at three times the cost."
+        }
+      ],
+      "primary": null,
+      "purpose": "Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input.",
+      "tree": "5741425",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "minimal-facts",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
       "id": "small-idea-1",
       "kind": "retrospective",
       "known_confounds": [],
@@ -3348,6 +3377,10 @@
     {
       "path": "experiments/release-0.1.2.yaml",
       "sha256": "c2e7d4c9fa21149f9f8420106371cd8370440feee0d6771d952cd362ccd365ac"
+    },
+    {
+      "path": "experiments/review-minimal-facts.yaml",
+      "sha256": "d9fe5a3a4dc6d964d9f71ab6e62481eef372fea306832eac886ad7cd21d1f7bd"
     },
     {
       "path": "experiments/small-idea-1.yaml",
