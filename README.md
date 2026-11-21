@@ -59,6 +59,18 @@ Every protocol drawn from its YAML is in the
 [docs/phases.md](docs/phases.md), [docs/driver.md](docs/driver.md) and
 [docs/orchestration.md](docs/orchestration.md).
 
+## Install the plugin
+
+The repository is also a Claude Code and Codex plugin, `runbook`, with skills for building,
+recording and hardening a runbook. In Claude Code:
+
+```console
+/plugin marketplace add beyond10x/runbook
+/plugin install runbook@runbook
+```
+
+The skills and what each needs: [plugin/README.md](plugin/README.md).
+
 ## Try it
 
 Needs a Canon checkout with a built `canon` binary (`CANON_DIR`, default `$HOME/beyond10x/canon`),
@@ -89,7 +101,7 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 | `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
 | `docs/` | Design notes, results and release notes |
 | `scripts/` | Check, evaluate and trial scripts |
-| `skills/` | The `workflow-builder` agent skill |
+| `plugin/` | The `runbook` plugin: the skills `workflow-builder`, `harden` and `record` |
 | `.engineering/planning/` | The planning store (AEP) |
 
 Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.md).

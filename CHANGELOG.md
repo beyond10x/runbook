@@ -48,6 +48,11 @@ The crates are `publish = false`; releases are source releases at bare-version t
   records and cycles. A change in what a run does merges off by default until its record holds.
   Cycles `rule-approvals-default`, `review-mode-default` and `implement-coverage-default` re-drive
   main's stub recording once with every switch at its default (run `switches-default`).
+- The `runbook` plugin (`plugin/`, `.claude-plugin/marketplace.json`): skills `workflow-builder`
+  (moved from `skills/`), `harden` and `record`, for Claude Code and Codex. Its manifests carry the
+  repository version, which `task release:check` compares; `driver/tests/plugin.rs` checks the
+  versions, the marketplace entry and that every repository path a `SKILL.md` names exists
+  (`story:runbook-plugin`).
 
 ### Changed
 

@@ -1,13 +1,13 @@
 ---
 name: workflow-builder
-description: Build a protocol-driven workflow (Canon protocol/1 cases run by a driver, with LLM nodes as executors of single actions and a decider model in place of a person) so that its first real unattended run passes with few attempts, then measure it and improve it by controlled experiments. Use when designing or changing such a workflow, before and during its first real trials, when trial runs keep stopping at new places, when a run must be classed as pass or defect, or when comparing settings (models, effort, caps) of a workflow that already passes. Not for writing a single protocol's syntax (Canon's own docs), not for UI iteration (ui-iteration-loop), and not for running a fixed benchmark of agent freedom (the eval design of the repository, docs/eval-design.md in the SDC).
+description: Build a runbook, a protocol-driven workflow (Canon protocol/1 cases run by a driver, with LLM nodes as executors of single actions and a decider model in place of a person) so that its first real unattended run passes with few attempts, then measure it and improve it by controlled experiments. Use when designing or changing such a workflow, before and during its first real trials, when trial runs keep stopping at new places, when a run must be classed as pass or defect, or when comparing settings (models, effort, caps) of a workflow that already passes. Not for writing a single protocol's syntax (Canon's own docs), not for UI iteration (ui-iteration-loop), and not for running a fixed benchmark of agent freedom (the eval design of the repository, docs/eval-design.md of this repository).
 ---
 
 # workflow-builder
 
 Two parts. Part A takes a workflow from design to its first clean pass. Part B measures it and
-improves it one variable at a time. The worked example (the SDC, eight protocols, five attempts and
-a batch on 2026-11-21) is in `references/`; the rules below are generic.
+improves it one variable at a time. The worked example (the SDC, the first runbook: eight
+protocols, five attempts and a batch on 2026-11-21) is in `references/`; the rules below are generic.
 
 Each rule carries a mark: **[observed]** the worked example shows it worked; **[inferred]** the
 example shows that its absence cost time; **[untested]** neither.
@@ -170,7 +170,7 @@ Every run directory holds, written by programs:
 Programs compute every metric and verdict; no LLM judges. The repository's eval design defines the
 base metrics and levels (SDC: `docs/eval-design.md` § 2, M1 to M11, and § 5); this part adds the
 workflow-level metrics and the experiment procedure. Names follow the SDC's `sdc.run-metrics/1`
-(binary `sdc-run-metrics`, full text in `docs/workflow-metrics.md` on `feat/run-metrics`).
+(binary `sdc-run-metrics`, full text in `docs/workflow-metrics.md`).
 
 ### B1. Metrics
 

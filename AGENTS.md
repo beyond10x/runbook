@@ -35,6 +35,7 @@
 - `scripts/` check, evaluate, trial and full-cycle scripts.
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
 - `docs/` design notes and research results; start with `phases.md`, `driver.md`, `orchestration.md`.
+- `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.
 - `.engineering/planning/` the AEP planning store.
 
 ## Rules
