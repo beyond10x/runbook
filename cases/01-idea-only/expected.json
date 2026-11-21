@@ -1,24 +1,27 @@
 {
-  "claims": {
-    "children.passed": "unknown",
-    "direction.opened": "unknown",
-    "epics.opened": "unknown",
-    "intake.opened": "unknown",
-    "roadmap.approved": "unknown"
-  },
-  "obligations": {
-    "direction.required": "open",
-    "epics.required": "open",
-    "intake.required": "open"
-  },
   "actions": {
     "direction.open": "blocked",
     "epics.open": "blocked",
     "intake.open": "admissible",
     "roadmap.read": "admissible"
   },
+  "claims": {
+    "children.passed": "unknown",
+    "direction.opened": "unknown",
+    "epics.opened": "unknown",
+    "intake.opened": "unknown",
+    "roadmap.approved": "unknown",
+    "roadmap.copied": "unknown"
+  },
+  "obligations": {
+    "direction.required": "open",
+    "epics.required": "open",
+    "intake.required": "open"
+  },
   "outcomes": {
     "abandoned": "blocked",
-    "operating": "blocked"
+    "not_delivered": "blocked",
+    "operating": "blocked",
+    "refused": "blocked"
   }
 }

@@ -35,6 +35,12 @@ done
 # project above the case directory (runs/ inside this repository: development.standard, where a
 # draft may only move to proposed), and plan.decompose's moves to active are refused.
 aep() { command aep "$@" --root .; }
+# aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, the run's
+# SDC_PRINCIPAL when it is a <kind>:<name> principal and no person (no person takes a tool step;
+# dry-run is none), else agent:<node>; a move's --executor names the node that ran it.
+aep_actor=${SDC_PRINCIPAL:-}
+[[ $aep_actor =~ ^[a-z][a-z-]*:[^[:space:]]+$ && $aep_actor != human:* && $aep_actor != person:* ]] || aep_actor=agent:$node
+export AEP_ACTOR=$aep_actor
 
 # questions.write writes the interview; it never rewrites one that exists unless a check found it
 # invalid (a retry, SDC_FEEDBACK set). An interview whose shape is only not checked yet (after an
@@ -106,9 +112,31 @@ post() {
   return 0
 }
 
+# A rejected approval of this writer's output (`approve --result rejected`): SDC_FEEDBACK names
+# the record, and its log is the rejection (sdc.rejection/1: approval, revision, reasons,
+# citations). The writer gets it as in/rejection.json and addresses each reason.
+rejection=""
+if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]]; then
+  rejection=$(jq -r '[.[] | select(.result == "rejected") | .log // empty] | last // empty' "$SDC_FEEDBACK")
+  [[ -n $rejection && -f $rejection ]] && jq -e '.format == "sdc.rejection/1"' "$rejection" > /dev/null 2>&1 || rejection=""
+fi
+
 if [[ $adapter == stub ]]; then
   run_stub; code=$?
   [[ $code == 0 ]] && post ""
+  # The stub addresses a rejection by recording it in the rejected artifact (the approval's
+  # subject, at its `$artifacts` path), so the rework is a new revision: a tree gets `.rework`,
+  # a YAML or Markdown file the same lines as a comment.
+  t=""
+  [[ -n $rejection ]] && t=$(jq -r --arg s "$(jq -r '.subject // ""' "$rejection")" '."$artifacts"[$s] // ""' "${SDC_CASE_DIR:-$work/..}/bindings.json" 2>/dev/null)
+  if [[ $code == 0 && -n $t && -e $work/$t ]]; then
+    lines=$(jq -r '"rework \(.count) of the rejection of \(.approval) at \(.revision):", (.reasons[] | "- " + .)' "$rejection")
+    case $t in
+      *.yaml|*.yml) [[ -d $work/$t ]] || sed 's/^/# /' <<< "$lines" >> "$work/$t" ;;
+      *.md) printf '\n<!--\n%s\n-->\n' "$lines" >> "$work/$t" ;;
+    esac
+    [[ -d $work/$t ]] && printf '%s\n' "$lines" > "$work/$t/.rework"
+  fi
   exit $code
 fi
 
@@ -356,16 +384,26 @@ raised and waits for its decision: follow its \`default\`; never raise it again.
 fi
 
 feedback=""
-if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]]; then
+if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e 'any(.[]; .result != "rejected")' "$SDC_FEEDBACK" > /dev/null; then
   {
     echo "# Checks that failed on the current revision of your output"
-    jq -r '.[] | "\(.kind) = \(.result) (from \(.action // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
+    jq -r '.[] | select(.result != "rejected") | "\(.kind) = \(.result) (from \(.action // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
       echo; echo "## ${line%%: *}"; log=${line#*: }
       [[ -f $log ]] && { echo '```'; tail -n 60 "$log"; echo '```'; }
     done
   } > "$cwd/in/feedback.md"
   inputs+=("in/feedback.md (why the previous attempt was sent back: fix exactly that)")
   feedback=yes
+fi
+if [[ -n $rejection ]]; then
+  cp "$rejection" "$cwd/in/rejection.json"
+  inputs+=("in/rejection.json (the approval \`$(jq -r .approval "$rejection")\` of your previous output, revision $(jq -r .revision "$rejection"), was rejected by $(jq -r .principal "$rejection"): its reasons and what they cite)")
+  task="$task
+
+Rework. Your previous output was rejected at \`$(jq -r .approval "$rejection")\` (rejection $(jq -r .count "$rejection") of at most 2).
+Address every reason in in/rejection.json; change only what a reason asks for. In your final reply,
+before the word done, write one line per reason: its number, then where you addressed it as
+<file>:<line> (or <file>:<first>-<last>), then what you changed."
 fi
 
 prompt=$rec/prompt.md
@@ -380,7 +418,11 @@ prompt=$rec/prompt.md
   echo "Task:"
   echo "$task"
   echo
-  echo "When the files are written, reply with the single word: done."
+  if [[ -n $rejection ]]; then
+    echo "When the files are written, reply with one line per rejection reason (as above), then the word: done."
+  else
+    echo "When the files are written, reply with the single word: done."
+  fi
 } > "$prompt"
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
@@ -432,10 +474,10 @@ apply() {
         aep plan artifact new story "$name" --store aep --title "$(jq -r .title <<< "$s")" \
           --summary "$(jq -r .summary <<< "$s")" --relate "delivers:epic:$epic" --relate serves:vision:product &&
         aep plan artifact scope "story:$name" --store aep --add impl &&
-        aep plan artifact move "story:$name" --to active --store aep || exit 1
+        aep plan artifact move "story:$name" --to active --store aep --executor "agent:$node" || exit 1
       done || return 1
       [[ $(aep plan artifact list --store aep --format json | jq -r --arg e "epic:$epic" '.[] | select(.id == $e) | .status') == active ]] ||
-        aep plan artifact move "epic:$epic" --to active --store aep ;;
+        aep plan artifact move "epic:$epic" --to active --store aep --executor "agent:$node" ;;
     context.default)
       f=$cwd/out/context.yaml
       [[ -f $f ]] || return 1

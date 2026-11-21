@@ -12,21 +12,20 @@ import {scrollOffenders, axeViolations, truncatedWithoutValue} from '../core/con
 import {horizontalOverflow, smallTargets, smallText, coveredControls, alwaysVisibleAcross, withinOneScroll, sheetProblems} from '../core/phone.mjs';
 import {record} from '../core/metrics.mjs';
 import {missingRun} from '../../test/need-run.mjs';
-import {start, OUT, SHOTS, ROUND, gating} from './env.mjs';
+import {start, serverUp, OUT, SHOTS, ROUND, gating} from './env.mjs';
 
 let env, rec;
 test.describe.configure({mode: 'default'});
 test.beforeAll(async ({}, info) => {
   if (!isPhone(info.project.name)) return;
   env = await start(info.project.name, 'phone');
-  // the recorded runs: one read-only server of their own (80 ports above the loop's)
+  // the recorded runs: one read-only server of their own (a free port; SDC_UI_UX_PORT + 80 pins it)
   const runs = phone.runs.filter((r) => !missingRun(r.dir));
   if (runs.length) {
     const all = [...viewports.gating, ...viewports.measured];
-    const port = Number(process.env.SDC_UI_UX_PORT || 7510) + 80 + all.findIndex((v) => v.name === info.project.name);
-    const srv = spawn('node', ['server.mjs', '--port', String(port), ...runs.map((r) => path.join(r.dir, 'store'))], {cwd: UI, stdio: 'ignore'});
-    const base = `http://127.0.0.1:${port}`;
-    for (let i = 0; i < 80; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+    const port = process.env.SDC_UI_UX_PORT ? Number(process.env.SDC_UI_UX_PORT) + 80 + all.findIndex((v) => v.name === info.project.name) : 0;
+    const srv = spawn('node', ['server.mjs', '--port', String(port), ...runs.map((r) => path.join(r.dir, 'store'))], {cwd: UI, stdio: ['ignore', 'pipe', 'pipe']});
+    const base = await serverUp(srv, `${info.project.name} (recorded runs)`, {clock: false});
     rec = {base, srv, source: (name) => runs.findIndex((r) => r.name === name)};
   }
 });

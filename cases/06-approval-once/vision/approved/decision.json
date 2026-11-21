@@ -1,0 +1,390 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "context.valid",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "context.approve": {
+      "reasons": [
+        {
+          "claim": "context.decided",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "context.change": {
+      "status": "admissible"
+    },
+    "context.check": {
+      "reasons": [
+        {
+          "claim": "context.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "context.default": {
+      "reasons": [
+        {
+          "claim": "context.approved",
+          "value": "true"
+        },
+        {
+          "claim": "context.valid",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.approve": {
+      "reasons": [
+        {
+          "claim": "roadmap.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.validate": {
+      "status": "admissible"
+    },
+    "roadmap.write": {
+      "status": "admissible"
+    },
+    "vision.approve": {
+      "reasons": [
+        {
+          "claim": "vision.decided",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "vision.write": {
+      "reasons": [
+        {
+          "claim": "vision.approved",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "DIRECTION-6",
+  "claims": {
+    "context.approved": {
+      "value": "true"
+    },
+    "context.checked": {
+      "value": "true"
+    },
+    "context.decided": {
+      "value": "true"
+    },
+    "context.valid": {
+      "value": "true"
+    },
+    "roadmap.approved": {
+      "value": "unknown"
+    },
+    "roadmap.checked": {
+      "value": "unknown"
+    },
+    "roadmap.decided": {
+      "value": "unknown"
+    },
+    "roadmap.valid": {
+      "value": "unknown"
+    },
+    "vision.approved": {
+      "value": "true"
+    },
+    "vision.decided": {
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "context.valid",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "context.approve": {
+        "because": [
+          {
+            "claim": "context.decided",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "context.check": {
+        "because": [
+          {
+            "claim": "context.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "context.default": {
+        "because": [
+          {
+            "claim": "context.approved",
+            "value": "true"
+          },
+          {
+            "claim": "context.valid",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "roadmap.approve": {
+        "because": [
+          {
+            "claim": "roadmap.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "vision.approve": {
+        "because": [
+          {
+            "claim": "vision.decided",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "vision.write": {
+        "because": [
+          {
+            "claim": "vision.approved",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "context.approved": {
+        "because": [
+          {
+            "evidence": "xa",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "context.checked": {
+        "because": [
+          {
+            "evidence": "d1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "context.decided": {
+        "because": [
+          {
+            "evidence": "xa",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "context.valid": {
+        "because": [
+          {
+            "evidence": "d1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "roadmap.approved": {
+        "because": [
+          {
+            "kind": "roadmap_approval",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.checked": {
+        "because": [
+          {
+            "kind": "roadmap_validation",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.decided": {
+        "because": [
+          {
+            "kind": "roadmap_approval",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.valid": {
+        "because": [
+          {
+            "kind": "roadmap_validation",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "vision.approved": {
+        "because": [
+          {
+            "evidence": "va",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "vision.decided": {
+        "because": [
+          {
+            "evidence": "va",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      }
+    },
+    "computed_from": {
+      "authority": [
+        {
+          "capability": "owner.approve",
+          "decision": "granted"
+        }
+      ],
+      "case": {
+        "artifacts": {
+          "context": {
+            "revision": "x1"
+          },
+          "findings": {
+            "revision": "none"
+          },
+          "goals": {
+            "revision": "none"
+          },
+          "questions": {
+            "revision": "a1"
+          },
+          "requirements": {
+            "revision": "q1"
+          },
+          "roadmap": {
+            "revision": "none"
+          },
+          "vision": {
+            "revision": "v1"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "DIRECTION-6",
+        "protocol": "sdc.direction",
+        "revision": "c1"
+      },
+      "evidence": [
+        "d1",
+        "va",
+        "xa"
+      ],
+      "protocol": "sdc.direction",
+      "protocol_revision": 7,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "roadmap.required": {
+        "because": [
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "passed": {
+        "because": [
+          {
+            "claim": "roadmap.approved",
+            "value": "unknown"
+          },
+          {
+            "claim": "roadmap.valid",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "context.required",
+      "status": "discharged"
+    },
+    {
+      "id": "roadmap.required",
+      "status": "open"
+    },
+    {
+      "id": "vision.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "passed": {
+      "reasons": [
+        {
+          "claim": "roadmap.approved",
+          "value": "unknown"
+        },
+        {
+          "claim": "roadmap.valid",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.direction",
+  "protocol_revision": 7
+}

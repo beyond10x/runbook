@@ -1,0 +1,9 @@
+format: canon-evidence/1
+id: k3
+kind: case_outcome
+result: passed
+subject: spec
+subject_revision: s1
+producer: sdc-drive
+child_case: IDEA-10.app.tasks
+observed_at: 2026-11-20T10:07:00Z

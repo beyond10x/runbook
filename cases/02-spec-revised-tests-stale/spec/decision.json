@@ -10,13 +10,25 @@
       "status": "blocked"
     },
     "roadmap.read": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "roadmap.copied",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "spec.author": {
       "status": "admissible"
     },
     "spec.compile": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "spec.compile_run",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "spec.reconstruct": {
       "status": "admissible"
@@ -25,24 +37,57 @@
       "status": "admissible"
     },
     "spec.review": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "spec.reviewed",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "spec.scan": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "spec.scanned",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "spec.synthesize": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "spec.synthesis_run",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "spec.trace": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "spec.trace_run",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "spec.validate": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "spec.validated",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     }
   },
   "case": "SPEC-1",
   "claims": {
     "roadmap.approved": {
+      "value": "true"
+    },
+    "roadmap.copied": {
       "value": "true"
     },
     "spec.approved": {
@@ -52,6 +97,9 @@
           "reason": "not_independent"
         }
       ],
+      "value": "true"
+    },
+    "spec.compile_run": {
       "value": "true"
     },
     "spec.compiled": {
@@ -83,6 +131,18 @@
       ],
       "value": "true"
     },
+    "spec.reviewed": {
+      "excluded_evidence": [
+        {
+          "evidence": "r2",
+          "reason": "not_independent"
+        }
+      ],
+      "value": "true"
+    },
+    "spec.scanned": {
+      "value": "true"
+    },
     "spec.sourced": {
       "excluded_evidence": [
         {
@@ -92,7 +152,13 @@
       ],
       "value": "true"
     },
+    "spec.synthesis_run": {
+      "value": "true"
+    },
     "spec.synthesized": {
+      "value": "true"
+    },
+    "spec.trace_run": {
       "value": "true"
     },
     "spec.traced": {
@@ -102,6 +168,15 @@
       "value": "true"
     },
     "spec.valid": {
+      "excluded_evidence": [
+        {
+          "evidence": "v1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "spec.validated": {
       "excluded_evidence": [
         {
           "evidence": "v1",
@@ -121,13 +196,149 @@
           }
         ],
         "status": "blocked"
+      },
+      "roadmap.read": {
+        "because": [
+          {
+            "claim": "roadmap.copied",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.compile": {
+        "because": [
+          {
+            "claim": "spec.compile_run",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.review": {
+        "because": [
+          {
+            "claim": "spec.reviewed",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.scan": {
+        "because": [
+          {
+            "claim": "spec.scanned",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.synthesize": {
+        "because": [
+          {
+            "claim": "spec.synthesis_run",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.trace": {
+        "because": [
+          {
+            "claim": "spec.trace_run",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
+      "spec.validate": {
+        "because": [
+          {
+            "claim": "spec.validated",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
       }
     },
     "claims": {
+      "roadmap.copied": {
+        "because": [
+          {
+            "evidence": "a1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.compile_run": {
+        "because": [
+          {
+            "evidence": "c2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.reviewed": {
+        "because": [
+          {
+            "evidence": "r2",
+            "reason": "not_independent",
+            "status": "excluded"
+          },
+          {
+            "evidence": "r3",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.scanned": {
+        "because": [
+          {
+            "evidence": "m2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.synthesis_run": {
+        "because": [
+          {
+            "evidence": "y2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.trace_run": {
+        "because": [
+          {
+            "evidence": "t2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "spec.traced": {
         "because": [
           {
             "evidence": "t2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "spec.validated": {
+        "because": [
+          {
+            "evidence": "v1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "v2",
             "status": "applied"
           }
         ],
@@ -175,7 +386,7 @@
         "y2"
       ],
       "protocol": "sdc.spec",
-      "protocol_revision": 4,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -231,5 +442,5 @@
     }
   },
   "protocol": "sdc.spec",
-  "protocol_revision": 4
+  "protocol_revision": 5
 }

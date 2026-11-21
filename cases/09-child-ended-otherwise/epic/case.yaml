@@ -1,0 +1,11 @@
+format: canon-case/1
+id: EPIC-9
+protocol: sdc.epic
+revision: c1
+artifacts:
+  roadmap:
+    revision: r1
+  epic:
+    revision: e1
+  spec:
+    revision: none

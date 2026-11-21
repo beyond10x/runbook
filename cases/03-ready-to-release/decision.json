@@ -1,7 +1,13 @@
 {
   "actions": {
     "acceptance.run": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "release.acceptance_run",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     },
     "release.build": {
       "status": "admissible"
@@ -34,12 +40,24 @@
       "status": "blocked"
     },
     "spec.gate": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "gate.checked",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
     }
   },
   "case": "REL-1",
   "claims": {
+    "gate.checked": {
+      "value": "true"
+    },
     "gate.passed": {
+      "value": "true"
+    },
+    "release.acceptance_run": {
       "value": "true"
     },
     "release.accepted": {
@@ -51,6 +69,9 @@
     "release.healthy": {
       "value": "unknown"
     },
+    "release.observed": {
+      "value": "unknown"
+    },
     "release.published": {
       "value": "unknown"
     },
@@ -60,6 +81,15 @@
   },
   "explanation": {
     "actions": {
+      "acceptance.run": {
+        "because": [
+          {
+            "claim": "release.acceptance_run",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      },
       "release.observe": {
         "because": [
           {
@@ -86,10 +116,47 @@
           }
         ],
         "status": "blocked"
+      },
+      "spec.gate": {
+        "because": [
+          {
+            "claim": "gate.checked",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
       }
     },
     "claims": {
+      "gate.checked": {
+        "because": [
+          {
+            "evidence": "g2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
+      "release.acceptance_run": {
+        "because": [
+          {
+            "evidence": "a1",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      },
       "release.healthy": {
+        "because": [
+          {
+            "kind": "health_observation",
+            "status": "absent",
+            "subject": "release"
+          }
+        ],
+        "value": "unknown"
+      },
+      "release.observed": {
         "because": [
           {
             "kind": "health_observation",
@@ -141,7 +208,7 @@
         "g2"
       ],
       "protocol": "sdc.release",
-      "protocol_revision": 3,
+      "protocol_revision": 4,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -245,5 +312,5 @@
     }
   },
   "protocol": "sdc.release",
-  "protocol_revision": 3
+  "protocol_revision": 4
 }

@@ -90,6 +90,9 @@
     "children.passed": {
       "value": "unknown"
     },
+    "gate.checked": {
+      "value": "unknown"
+    },
     "gate.passed": {
       "value": "unknown"
     },
@@ -100,6 +103,9 @@
       "value": "unknown"
     },
     "roadmap.approved": {
+      "value": "unknown"
+    },
+    "roadmap.copied": {
       "value": "unknown"
     },
     "spec.opened": {
@@ -205,6 +211,16 @@
         ],
         "value": "unknown"
       },
+      "gate.checked": {
+        "because": [
+          {
+            "kind": "ess_gate",
+            "status": "absent",
+            "subject": "spec"
+          }
+        ],
+        "value": "unknown"
+      },
       "gate.passed": {
         "because": [
           {
@@ -236,6 +252,16 @@
         "value": "unknown"
       },
       "roadmap.approved": {
+        "because": [
+          {
+            "kind": "roadmap_approval",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
+      },
+      "roadmap.copied": {
         "because": [
           {
             "kind": "roadmap_approval",
@@ -286,7 +312,7 @@
       },
       "evidence": [],
       "protocol": "sdc.epic",
-      "protocol_revision": 2,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -331,6 +357,28 @@
           {
             "decision": "explicitly_abandoned",
             "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_delivered": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_released": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "release.opened",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -383,6 +431,28 @@
       ],
       "status": "blocked"
     },
+    "not_delivered": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "not_released": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "release.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "passed": {
       "reasons": [
         {
@@ -406,5 +476,5 @@
     }
   },
   "protocol": "sdc.epic",
-  "protocol_revision": 2
+  "protocol_revision": 5
 }

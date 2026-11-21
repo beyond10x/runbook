@@ -18,8 +18,9 @@
 # SCOPE_ANSWERS='{"qN": "answer"}': at the scope.answer stop the scripted person first changes
 # those scope-changing answers in questions.yaml (`status: changed`), then takes scope.answer;
 # with SCOPE_RESUME_FIRST=1 it resumes after the edit and takes scope.answer at the next stop.
-# NO_YQ_STEP=<action>: at that first stop, one `step --action <action>` runs with yq removed from
-# PATH (an environment failure, as the live view's check in runs/trial-2-train).
+# NO_YQ_STEP=<action>: at that first stop, after the person's edit, one `step --action <action>`
+# runs with yq removed from PATH (an environment failure, as the live view's check in
+# runs/trial-2-train).
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 name=$1 store=$2
@@ -89,6 +90,16 @@ for round in $(seq 1 30); do
           scope.answer)
             # SCOPE_ANSWERS={"qN": "answer", ...}: the person changes those answers in
             # questions.yaml (status changed), then takes scope.answer once (docs/trial-2.md).
+            if [[ -n ${SCOPE_ANSWERS:-} && -z ${scope_answered:-} ]]; then
+              scope_answered=yes
+              q=$case_dir/work/questions.yaml
+              echo "\$ person edits $q: $SCOPE_ANSWERS" >> "$log"
+              yq -i "$(jq -r 'to_entries | map("(.questions[] | select(.id == \(.key | tojson))) |= (.answer = \(.value | tojson) | .status = \"changed\")") | join(" | ")' <<< "$SCOPE_ANSWERS")" "$q"
+              echo "  person changed $(jq -r 'keys | join(" ")' <<< "$SCOPE_ANSWERS")"
+              edited=yes
+            fi
+            # After the person's edit, not before: a check runs once per interview revision, so it
+            # is admissible again only at the new revision the edit made.
             if [[ -n ${NO_YQ_STEP:-} && -z ${no_yq_done:-} ]]; then
               # runs/trial-2-train: the live view ran a check in an environment without yq.
               no_yq_done=yes
@@ -101,17 +112,10 @@ for round in $(seq 1 30); do
               echo "$res" >> "$log"; echo "exit $rc" >> "$log"; echo >> "$log"
               echo "  $NO_YQ_STEP without yq: exit $rc, evidence $(jq -c '[.evidence[]?.result]' <<< "$res" 2>/dev/null || echo none)"
             fi
-            if [[ -n ${SCOPE_ANSWERS:-} && -z ${scope_answered:-} ]]; then
-              scope_answered=yes
-              q=$case_dir/work/questions.yaml
-              echo "\$ person edits $q: $SCOPE_ANSWERS" >> "$log"
-              yq -i "$(jq -r 'to_entries | map("(.questions[] | select(.id == \(.key | tojson))) |= (.answer = \(.value | tojson) | .status = \"changed\")") | join(" | ")' <<< "$SCOPE_ANSWERS")" "$q"
-              echo "  person changed $(jq -r 'keys | join(" ")' <<< "$SCOPE_ANSWERS")"
-              # SCOPE_RESUME_FIRST=1: the person resumes after the edit and approves at the next stop.
-              [[ -n ${SCOPE_RESUME_FIRST:-} ]] && break
-            fi
+            # SCOPE_RESUME_FIRST=1: the person resumes after the edit and approves at the next stop.
+            [[ -n ${edited:-} && -n ${SCOPE_RESUME_FIRST:-} ]] && { edited=; break; }
             d "$case_dir" approve --at "$(at)" --capability scope.answer --principal "$principal" --action "$a" ;;
-          change.merge) d "$case_dir" approve --at "$(at)" --capability change.merge --principal "$principal" ;;
+          merge.approve) d "$case_dir" approve --at "$(at)" --capability change.merge --principal "$principal" --action "$a" ;;
           release.publish) d "$case_dir" approve --at "$(at)" --capability release.approve --principal "$principal" ;;
           *) echo "no approval rule for $a"; exit 1 ;;
         esac

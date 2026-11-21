@@ -6,4 +6,12 @@ pass cases/03-ready-to-release/approved
 pass cases/03-ready-to-release
 pass cases/04-roadmap-awaiting-approval/direction
 pass cases/04-roadmap-awaiting-approval/epic
+pass cases/05-roadmap-read-once/epic
+pass cases/05-roadmap-read-once/epic/revised
+pass cases/05-roadmap-read-once/plan
+pass cases/05-roadmap-read-once/plan/revised
+pass cases/05-roadmap-read-once/root
+pass cases/05-roadmap-read-once/root/revised
+pass cases/05-roadmap-read-once/spec
+pass cases/05-roadmap-read-once/spec/revised
 exit 0

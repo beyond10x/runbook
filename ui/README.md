@@ -241,8 +241,10 @@ task ux:update          # take improvements into the baseline (DECISION=D-nnn fo
 task ux:round ROUND=R-02   # measure a round: ux/rounds/R-02/{report.md,round.json,shots/} and trend.md
 ```
 
-Ports 7510 to 7517, the phone contract 7570 to 7577 and its recorded runs 7590 to 7597
-(`SDC_UI_UX_PORT` moves them all). Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
+Each server of the loop and of the phone contract (and the contract's recorded runs) takes a free
+port and names it in its first line, so two loops on one machine do not collide. `SDC_UI_UX_PORT`
+pins them instead: its value on for the loop, 60 above for the phone contract, 80 above for its
+recorded runs. Findings are `ux/findings/UXF-nnn.md`; a closed S1 or S2 needs
 a regression asset that exists (`ux/specs/findings.spec.mjs`). Round R-01: `ux/rounds/R-01/`
 (report, the two reviews, triage, decision).
 A baseline key may carry its own `tolerance` (decision D-003: the wall-clock sampled metrics of the
@@ -291,3 +293,12 @@ ratchet; `test/mobile.spec.mjs` (port 7532, `SDC_UI_MOBILE_PORT`) holds one test
 (UXF-016 to UXF-026) over played runs that need no `runs/`. In `ux/specs/loop.spec.mjs` the
 screen-only user may scroll the page at a phone size; what it scrolls to costs a glance 3. Round
 R-03: `ux/rounds/R-03/`.
+
+Decision D-007 labels stub runs. The played scenarios are fixture runs, so the measured page
+shows the label "stub run: canned content, not a model's work" in the header and in a row of its
+own above the Now band. reading_load rises by the label's 8 words in every played scenario, and two's
+layout shift falls a little because the band starts one row lower. These values were taken under
+D-007: the UI changed on purpose. On a phone (390x844) the header mark and the label row are whole
+and in the first screen (`test/stub-runs.spec.mjs`); there reading_load rises by 8 as well, and in two
+the screen-only user scrolls once more (screen_only.looks 4 to 6, glance_cost.p95 1 to 3) because
+the second card moves below the first screen.

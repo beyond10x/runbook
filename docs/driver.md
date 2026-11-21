@@ -280,8 +280,9 @@ becomes the evidence's `observed_at`. So a tool's own timestamp is never used.
   one `owner.approve` grant made `context.approve`, `vision.approve` and `roadmap.approve`
   admissible for every later revision; only the driver's `manual` rule kept each approval a
   separate step by a person. One `release.approve` grant also admits `release.rollback`
-  (unbound in the example), and a `change.merge` grant would admit merging a later change
-  revision. Fix belongs in Canon: `principal` and `case_revision` on `canon-authority/1`
+  (unbound in the example). A `change.merge` grant no longer admits merging a later change
+  revision: `change.merge` needs a `merge_approval` record of the current change revision
+  (docs/protocol-notes.md, "An approval is decided once per revision"). Fix belongs in Canon: `principal` and `case_revision` on `canon-authority/1`
   entries, as `canon-decisions/1` has (boundary.md top change 2).
 
 **Stuck detection.**
@@ -410,9 +411,43 @@ its default (`fallback: invalid_reply_default`); an approval is approved when ev
 precondition is true (`approved_on_checks`), a close when its outcome's claims are true and no
 obligation is open, else rejected with the failing checks (`rejected_on_checks`). `--autopilot`
 exports `SDC_DECIDER_ESCALATE=final`, so the decider is asked for `best` and an escalate without
-it is invalid. A reject ends the
-run with exit 6, `rejected_without_rework_path`: no protocol approval has a result other than
-`approved`, so none has an action that reworks a rejected revision with the reasons.
+it is invalid.
+
+**A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
+writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
+revision, principal, reasons, citations, count) and records it: `sdc-drive approve … --action
+<approval> --result rejected --reasons <file>` writes the plain `canon-evidence/1` record with
+result `rejected` (refused unless the action's binding is a manual approval whose `results` name
+`rejected`) and keeps the file as the step's log blob. A writer whose binding names the approval's
+kind in `retry_when` (`"retry_when": {"merge_approval": ["rejected"]}`) is then useful while the
+rejected record is about the current revision; the driver passes the record in SDC_FEEDBACK, and
+`llm-node.sh` gives the writer the blob as `in/rejection.json` with a prompt to address each reason
+and cite it back. A model writer writes the artifact itself; only the stub, which writes the same
+output every time, appends the rejection to the subject (`.rework` in a tree, a comment in a YAML or
+Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
+adapter). The new revision leaves the record behind and the approval is asked again; the
+decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
+evidence and the event log). The third rejection stops the run with cause `rework_spent`; a
+rejection that cannot be recorded, or that sends no writer back, and has no end of its own (below)
+with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
+it was opened with, so a run started before a protocol change does not gain the new actions.
+
+**A refused release** (2026-11-21, `docs/protocol-notes.md`). `release.publish` is approved by the
+capability `release.approve`: no `rejected` result, no writer. The release's other end is
+`withheld`, which requires the decision `explicitly_withheld`; Canon admits that decision from any
+principal in any state, so the tools hold the rule. Under autopilot only, directly after the
+decider rejected `release.publish`, `run-trial.sh` records the refusal as the protocol represents
+it, `approve --capability release.approve --deny` by the decider, then `sdc-drive decide
+--decision explicitly_withheld --outcome withheld --principal rule:autopilot --after-denial
+release.approve --reasons <rejection>`, which appends the `canon-decisions/1` entry (decision,
+outcome, principal, case revision) with the rejection (the decider's reasons and citations) as its
+log blob, and refuses before writing unless the outcome requires that decision alone and the
+case's last step was that denial. The release is closed `withheld`; the driver's round closes the
+epic `not_released`, and the root, terminable `not_delivered`, is closed without a decider: the
+decider closes only `operating` (class close) and outcomes that require a decision. The run is
+closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)`,
+and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note), no stop record. Under
+A0–A4 the reject stops the run as before and nothing is recorded in the release case.
 
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
@@ -423,7 +458,7 @@ or null>"}` (`by` from `SDC_PRINCIPAL`, required), and a `# stopped at … by �
 on. `sdc-finding-kpis` reports the time the run waited on a person as L7 (`kpis.md` § 4), with the
 stops that caused it, up to the stop record's instant; with a decider set (A3 and up) a value
 above 0 is printed as `FAILED`. Under `--autopilot` a stop the decider cannot take is written by
-`rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`,
+`rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`, `rework_spent`,
 `decider_budget_spent`, `writer_spent`, `stuck`, …) and a reason that names the action, the cause,
 the case and the fix it waits on; the interval before a `rule:` stop is not counted in L7.
 
@@ -471,7 +506,8 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
 | story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`) | `implementation_change` |
 | story, release | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (release): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
-| story | `change.merge` | copy `impl/` to `mainline/` (after `approve --capability change.merge`) | `merge_record` |
+| story | `merge.approve` | manual (`argv: ["true"]`), taken by `approve --capability change.merge --action merge.approve`, `--result rejected --reasons <file>` for a rejection | `merge_approval` approved or rejected |
+| story | `change.merge` | copy `impl/` to `mainline/` (once `merge.approved`) | `merge_record` |
 | release | `release.build`, `release.publish`, `release.observe` | copy `mainline/` to `release/` with a spec digest; copy to `published/`; compare | `build_provenance`, `release_record`, `healthy` |
 
 ### Interim story gate (2026-11-21)

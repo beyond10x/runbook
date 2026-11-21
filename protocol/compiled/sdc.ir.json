@@ -116,7 +116,7 @@
       "requires": []
     },
     "roadmap.read": {
-      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with",
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with. Only while this case holds no roadmap approval record about the current roadmap revision: a second copy with another result would leave roadmap.approved unknown for good. A new roadmap revision sets the old record aside and makes it admissible again",
       "effect": "read",
       "may_produce": [
         {
@@ -124,7 +124,10 @@
         }
       ],
       "precondition": {
-        "all": []
+        "claim": {
+          "id": "roadmap.copied",
+          "is": "unknown"
+        }
       },
       "requires": []
     }
@@ -187,6 +190,16 @@
         "evidence": {
           "kind": "roadmap_approval",
           "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "roadmap.copied": {
+      "description": "a roadmap approval record about the current roadmap revision is in this case, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": null,
           "subject": "roadmap"
         }
       }
@@ -256,6 +269,25 @@
         "decision": "explicitly_abandoned"
       }
     },
+    "not_delivered": {
+      "description": "a child case opened after the direction case ended other than passed: an epic was not delivered (a specification abandoned, a story dropped) or not released (the release withheld or rolled back), or abandoned. The children form keeps that outcome, so the case ends here, not operating",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "direction.opened",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
     "operating": {
       "description": "the current roadmap is approved, its epic cases were opened, and every child case ended passed",
       "requires": {
@@ -280,11 +312,30 @@
           }
         ]
       }
+    },
+    "refused": {
+      "description": "the intake case ended other than passed (its idea failed the schema check) before the direction case was opened for the current idea revision. The children form keeps that outcome for every later revision, so no child can be opened again to good effect and the case ends here; the idea starts again as a new root case",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "direction.opened",
+              "is": "unknown"
+            }
+          }
+        ]
+      }
     }
   },
   "protocol": {
-    "description": "Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.",
+    "description": "Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision; when a child case ended other than passed it ends refused (the intake, before the direction case opened) or not_delivered (any later child), without a person. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.",
     "id": "sdc",
-    "revision": 5
+    "revision": 8
   }
 }

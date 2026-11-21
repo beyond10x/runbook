@@ -11,6 +11,7 @@ relations:
 - decomposes: epic:conductor-succession
 - depends_on: story:model-per-node-variable
 - depends_on: story:decider-finding-decision
+- depends_on: story:review-node-is-a-model
 scope:
 - confidence: inferred
   path: driver/src/bin/sdc-run-compare.rs

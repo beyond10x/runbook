@@ -1,0 +1,10 @@
+format: canon-evidence/1
+id: c1
+kind: decomposition_coverage
+result: covered
+subject: plan
+subject_revision: p1
+producer: sdc-check
+observed_at: 2026-11-20T08:20:00Z
+upstream_revisions:
+  spec: s1

@@ -1,0 +1,19 @@
+format: canon-case/1
+id: DIRECTION-6
+protocol: sdc.direction
+revision: c1
+artifacts:
+  requirements:
+    revision: q1
+  goals:
+    revision: none
+  context:
+    revision: x2
+  vision:
+    revision: none
+  roadmap:
+    revision: none
+  findings:
+    revision: none
+  questions:
+    revision: a1

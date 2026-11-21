@@ -53,6 +53,9 @@
     },
     "roadmap.approved": {
       "value": "unknown"
+    },
+    "roadmap.copied": {
+      "value": "unknown"
     }
   },
   "explanation": {
@@ -139,6 +142,16 @@
           }
         ],
         "value": "unknown"
+      },
+      "roadmap.copied": {
+        "because": [
+          {
+            "kind": "roadmap_approval",
+            "status": "absent",
+            "subject": "roadmap"
+          }
+        ],
+        "value": "unknown"
       }
     },
     "computed_from": {
@@ -161,7 +174,7 @@
       },
       "evidence": [],
       "protocol": "sdc",
-      "protocol_revision": 5,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -210,6 +223,19 @@
         ],
         "status": "blocked"
       },
+      "not_delivered": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "direction.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
       "operating": {
         "because": [
           {
@@ -222,6 +248,15 @@
           },
           {
             "claim": "roadmap.approved",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "refused": {
+        "because": [
+          {
+            "claim": "children.passed",
             "value": "unknown"
           }
         ],
@@ -254,6 +289,19 @@
       ],
       "status": "blocked"
     },
+    "not_delivered": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "direction.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "operating": {
       "reasons": [
         {
@@ -270,8 +318,17 @@
         }
       ],
       "status": "blocked"
+    },
+    "refused": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
     }
   },
   "protocol": "sdc",
-  "protocol_revision": 5
+  "protocol_revision": 8
 }

@@ -4,15 +4,21 @@
     "change.implement": "admissible",
     "change.merge": "blocked",
     "change.review": "blocked",
-    "spec.gate": "admissible",
+    "merge.approve": "blocked",
+    "spec.gate": "blocked",
     "tests.run": "blocked"
   },
   "claims": {
     "change.built": "unknown",
     "change.merged": "unknown",
+    "change.review_recorded": "true",
     "change.reviewed": "true",
+    "gate.checked": "true",
     "gate.passed": "true",
-    "tests.pass": "unknown"
+    "merge.approved": "unknown",
+    "merge.decided": "unknown",
+    "tests.pass": "unknown",
+    "tests.run_recorded": "unknown"
   },
   "obligations": {
     "gate.required": "discharged",

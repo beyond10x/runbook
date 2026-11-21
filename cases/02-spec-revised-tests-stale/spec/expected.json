@@ -1,28 +1,35 @@
 {
   "actions": {
     "amend.upstream": "blocked",
-    "roadmap.read": "admissible",
+    "roadmap.read": "blocked",
     "spec.author": "admissible",
-    "spec.compile": "admissible",
+    "spec.compile": "blocked",
     "spec.reconstruct": "admissible",
     "spec.reuse": "admissible",
-    "spec.review": "admissible",
-    "spec.scan": "admissible",
-    "spec.synthesize": "admissible",
-    "spec.trace": "admissible",
-    "spec.validate": "admissible"
+    "spec.review": "blocked",
+    "spec.scan": "blocked",
+    "spec.synthesize": "blocked",
+    "spec.trace": "blocked",
+    "spec.validate": "blocked"
   },
   "claims": {
     "roadmap.approved": "true",
+    "roadmap.copied": "true",
     "spec.approved": "true",
+    "spec.compile_run": "true",
     "spec.compiled": "true",
     "spec.complete": "true",
     "spec.done": "true",
+    "spec.reviewed": "true",
+    "spec.scanned": "true",
     "spec.sourced": "true",
+    "spec.synthesis_run": "true",
     "spec.synthesized": "true",
+    "spec.trace_run": "true",
     "spec.traced": "true",
     "spec.unmarked": "true",
-    "spec.valid": "true"
+    "spec.valid": "true",
+    "spec.validated": "true"
   },
   "obligations": {
     "gate.required": "discharged",

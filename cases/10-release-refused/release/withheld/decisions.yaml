@@ -1,0 +1,4 @@
+- decision: explicitly_withheld
+  outcome: withheld
+  principal: decider:haiku
+  case_revision: c2
