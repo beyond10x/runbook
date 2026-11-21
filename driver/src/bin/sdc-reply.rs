@@ -10,9 +10,9 @@
 //!   sdc-reply schema --cwd <call dir> --case-dir <case> --type review
 //!   sdc-reply check-review --cwd <call dir> --case-dir <case> --reply <file> --principal <p>
 //!   sdc-reply adapters --tools <tools dir>
-//!   sdc-reply coverage [--case-dir <case>] [--story <story>] [--schema]
-//!   sdc-reply check-coverage [--case-dir <case>] [--story <story>] --tree <tree> [--reply <file>] [--shape]
-//!   sdc-reply coverage-stub [--case-dir <case>] [--story <story>] --tree <tree>
+//!   sdc-reply coverage [--work <work>] [--case-dir <case>] [--story <story>] [--schema]
+//!   sdc-reply check-coverage [--work <work>] [--case-dir <case>] [--story <story>] --tree <tree> [--reply <file>] [--shape]
+//!   sdc-reply coverage-stub [--work <work>] [--case-dir <case>] [--story <story>] --tree <tree>
 //!
 //! change.implement (story:implement-cites-requirements): besides its change, the implementer
 //! replies with a coverage document, per requirement the story carries (review_scope's story
@@ -108,6 +108,7 @@ enum Cmd {
     /// the change tree: exit 0 complete, 1 refused (stdout names the requirement ids), 2 when it
     /// cannot check. `--case-dir` and `--story` default to the driver's SDC_CASE_DIR and SDC_CASE.
     CheckCoverage {
+        #[arg(long)] work: Option<PathBuf>,
         #[arg(long)] case_dir: Option<PathBuf>,
         #[arg(long)] story: Option<String>,
         #[arg(long)] tree: PathBuf,
@@ -116,12 +117,14 @@ enum Cmd {
     },
     /// The requirements the story carries, `[{id, text}]`, and with `--schema` the coverage schema.
     Coverage {
+        #[arg(long)] work: Option<PathBuf>,
         #[arg(long)] case_dir: Option<PathBuf>,
         #[arg(long)] story: Option<String>,
         #[arg(long)] schema: bool,
     },
     /// The stub implementer's coverage document for a tree (no model).
     CoverageStub {
+        #[arg(long)] work: Option<PathBuf>,
         #[arg(long)] case_dir: Option<PathBuf>,
         #[arg(long)] story: Option<String>,
         #[arg(long)] tree: PathBuf,
@@ -729,8 +732,8 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
 const COVERAGE: &str = ".sdc/coverage.json";
 
 /// The requirement ids the story carries: the requirements review_scope gives the story.
-fn story_requirements(case_dir: &Path, story: &str) -> Result<Vec<Value>, String> {
-    Ok(scope_of(&case_dir.join("work"), story)?.mine)
+fn story_requirements(work: &Path, story: &str) -> Result<Vec<Value>, String> {
+    Ok(scope_of(work, story)?.mine)
 }
 
 /// The reply schema of change.implement's coverage document: one entry per requirement of the
@@ -975,15 +978,22 @@ fn story_arg(story: Option<String>) -> Result<String, String> {
         .filter(|s| !s.is_empty()).ok_or("no --story and no story in SDC_CASE".into())
 }
 
+/// The case's `work/`: `--work` (llm-node.sh passes its own), else `<case dir>/work`.
+fn work_arg(work: Option<PathBuf>, case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
+    match work {
+        Some(w) => Ok(w),
+        None => case_dir_arg(case_dir).map(|d| d.join("work")),
+    }
+}
+
 fn case_dir_arg(case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
     case_dir.or_else(|| std::env::var("SDC_CASE_DIR").ok().map(PathBuf::from)).ok_or("no --case-dir and no SDC_CASE_DIR".into())
 }
 
 /// `check-coverage`: exit 0 complete, 1 refused (stdout names the ids), 2 when it cannot check.
-fn run_check_coverage(case_dir: Option<PathBuf>, story: Option<String>, tree: &Path, reply: Option<PathBuf>, shape: bool) -> Result<u8, String> {
+fn run_check_coverage(work: Option<PathBuf>, case_dir: Option<PathBuf>, story: Option<String>, tree: &Path, reply: Option<PathBuf>, shape: bool) -> Result<u8, String> {
     let story = story_arg(story)?;
-    let case_dir = case_dir_arg(case_dir)?;
-    let reqs = story_requirements(&case_dir, &story)?;
+    let reqs = story_requirements(&work_arg(work, case_dir)?, &story)?;
     let ids: Vec<String> = reqs.iter().filter_map(|r| r["id"].as_str().map(String::from)).collect();
     let file = reply.unwrap_or(tree.join(COVERAGE));
     let doc = read_json(&file);
@@ -1072,15 +1082,15 @@ fn main() -> ExitCode {
             }
             ExitCode::from(64)
         }
-        Cmd::CheckCoverage { case_dir, story, tree, reply, shape } => match run_check_coverage(case_dir, story, &tree, reply, shape) {
+        Cmd::CheckCoverage { work, case_dir, story, tree, reply, shape } => match run_check_coverage(work, case_dir, story, &tree, reply, shape) {
             Ok(c) => ExitCode::from(c),
             Err(e) => {
                 eprintln!("sdc-reply check-coverage: {e}");
                 ExitCode::from(2)
             }
         },
-        Cmd::Coverage { case_dir, story, schema } => {
-            let reqs = story_arg(story).and_then(|s| case_dir_arg(case_dir).and_then(|d| story_requirements(&d, &s)));
+        Cmd::Coverage { work, case_dir, story, schema } => {
+            let reqs = story_arg(story).and_then(|s| work_arg(work, case_dir).and_then(|d| story_requirements(&d, &s)));
             match reqs {
                 Ok(r) => {
                     let ids: Vec<String> = r.iter().filter_map(|x| x["id"].as_str().map(String::from)).collect();
@@ -1094,8 +1104,8 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Cmd::CoverageStub { case_dir, story, tree } => {
-            match story_arg(story).and_then(|s| case_dir_arg(case_dir).and_then(|d| story_requirements(&d, &s))) {
+        Cmd::CoverageStub { work, case_dir, story, tree } => {
+            match story_arg(story).and_then(|s| work_arg(work, case_dir).and_then(|d| story_requirements(&d, &s))) {
                 Ok(r) => {
                     let ids: Vec<String> = r.iter().filter_map(|x| x["id"].as_str().map(String::from)).collect();
                     println!("{}", coverage_stub(&tree, &ids));

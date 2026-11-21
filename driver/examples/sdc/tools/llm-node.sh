@@ -79,7 +79,7 @@ fi
 # The stub implementer's coverage document, unless the stub tree carries one (a fixture's own).
 coverage_stub() {
   [[ $node == change.implement && -d $work/impl && ! -f $work/impl/.sdc/coverage.json ]] || return 0
-  mkdir -p "$work/impl/.sdc" && "$reply_bin" coverage-stub --tree "$work/impl" > "$work/impl/.sdc/coverage.json"
+  mkdir -p "$work/impl/.sdc" && "$reply_bin" coverage-stub --work "$work" --tree "$work/impl" > "$work/impl/.sdc/coverage.json"
 }
 
 run_stub() {
@@ -411,8 +411,8 @@ out/impl/ (it holds the current implementation, if any: extend it, keep what ear
 You cannot run commands: write code that passes its own tests."
   # The coverage document (story:implement-cites-requirements): the story's requirements and the
   # reply schema by program; the reply is checked against it below and asked again at most twice.
-  "$reply_bin" coverage > "$cwd/in/story-requirements.json" 2> "$rec/coverage-check.err" &&
-    "$reply_bin" coverage --schema > "$rec/coverage-schema.json" 2>> "$rec/coverage-check.err" ||
+  "$reply_bin" coverage --work "$work" > "$cwd/in/story-requirements.json" 2> "$rec/coverage-check.err" &&
+    "$reply_bin" coverage --work "$work" --schema > "$rec/coverage-schema.json" 2>> "$rec/coverage-check.err" ||
     { echo "llm-node: $node could not run: no story requirements: $(cat "$rec/coverage-check.err")" >&2; exit 126; }
   node_schema=$rec/coverage-schema.json
   inputs+=("in/story-requirements.json (the requirements this story carries: id and text)")
@@ -700,7 +700,7 @@ while :; do
   [[ $node == change.implement && $acode == 0 && $adapter != dry ]] || break
   coverage_reply=$rec/structured-output.json
   [[ -s $coverage_reply ]] || coverage_reply=$cwd/out/coverage.json
-  "$reply_bin" check-coverage --shape --tree "$cwd/out/impl" --reply "$coverage_reply" 2> "$rec/coverage-check.err" && break
+  "$reply_bin" check-coverage --shape --work "$work" --tree "$cwd/out/impl" --reply "$coverage_reply" 2> "$rec/coverage-check.err" && break
   (( try < ${SDC_COVERAGE_RETRIES:-2} )) || { coverage_invalid=yes; break; }
   try=$((try + 1))
   code=2; log_call

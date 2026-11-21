@@ -114,7 +114,7 @@ if [[ $node == change.implement ]]; then
       ($r.rounds // [] | .[$a - 1] // last) | if type == "array" then (.[$n - 1] // last) else . end' > "$cwd/out/coverage.json" || exit 1
     rm -f "$cwd/out/impl/.sdc/coverage.json"
   elif [[ -f $cwd/out/impl/.sdc/coverage.json ]]; then mv "$cwd/out/impl/.sdc/coverage.json" "$cwd/out/coverage.json"
-  else "${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" coverage-stub --tree "$cwd/out/impl" > "$cwd/out/coverage.json" || exit 1; fi
+  else "${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" coverage-stub --work "$w" --tree "$cwd/out/impl" > "$cwd/out/coverage.json" || exit 1; fi
 fi
 jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0, cost_usd: 0,
   num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
