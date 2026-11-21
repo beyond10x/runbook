@@ -22,6 +22,7 @@
 #
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
+[[ ${1:-} == --capabilities ]] && { echo '{"json_schema": true}'; exit 0; } # scripted replies are the schema document
 for p in jq; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-fixture.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 here=$(cd "$(dirname "$0")" && pwd)
 cwd=$(jq -r .cwd "$1")

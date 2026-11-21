@@ -7,5 +7,6 @@
     "decider": [],
     "other": ["idea.dissect", "questions.write", "questions.answer", "requirements.normalise",
               "context.default", "vision.write", "roadmap.write"]
-  }
+  },
+  "schema_reply": ["review"]
 }
