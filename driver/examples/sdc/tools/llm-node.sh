@@ -112,6 +112,31 @@ if [[ $adapter == stub ]]; then
   exit $code
 fi
 
+# A derived tree is not re-derived by the LLM when every decision taken since this node last wrote
+# it is the default of a finding this node raised: the prompt has the node follow each default it
+# raises (and each open finding's), so the tree already follows those decisions. Only the
+# requirements digest in `.derived-from` is renewed (a new revision, so the checks run again). In
+# runs/trial-3-haiku-2 every re-derivation raised one new agent finding (f14, f16, f17) until
+# spec.author was spent. Not on a retry (a check sent the tree back) and not for the stubs, which
+# follow nothing (they model a writer that never converges, cycle story-spent).
+t=${derived[$node]:-}
+if [[ $raises == yes && -n $t && -z ${SDC_FEEDBACK:-} && -f $work/$t/.derived-from && -f $work/findings.yaml ]]; then
+  first=$(head -n 1 "$work/$t/.derived-from")
+  if [[ $first == "requirements "*" resolved"* ]]; then
+    was=" ${first#* resolved} "
+    new=$(yq -r '.findings[]? | select(.status == "resolved") | .id' "$work/findings.yaml" | while read -r id; do
+      [[ $was == *" $id "* ]] || echo "$id"; done | tr '\n' ' ')
+    own=$(N="llm:$node" yq -r '[.findings[]? | select(.status == "resolved" and .raised_by == strenv(N)
+      and .resolution.default_taken == true) | .id] | join(" ")' "$work/findings.yaml")
+    if [[ -n ${new// /} ]] && ! for id in $new; do [[ " $own " == *" $id "* ]] || echo x; done | grep -q x; then
+      echo "llm-node: $node not called: the decisions since $t/ was written are the defaults it raised and follows (${new% }); $t/ marked as derived from the amended requirements"
+      echo "requirements $(sha256sum < "$work/requirements.yaml" | cut -c1-16) resolved $(yq -r '[.findings[]? | select(.status == "resolved") | .id] | join(" ")' "$work/findings.yaml")" \
+        > "$work/$t/.derived-from"
+      exit 0
+    fi
+  fi
+fi
+
 case $adapter in
   metaharness|claude-cli|dry) adapter_bin=$here/llm-adapter-$adapter.sh ;;
   *) adapter_bin=$adapter ;;
@@ -294,7 +319,8 @@ out/findings.yaml with one top-level key \`findings\`, a list; each finding has 
   a component; else false
 Then still do the task, following each default. Write no out/findings.yaml when there is
 nothing to report. A finding in in/findings.yaml with status resolved is a decision already
-taken: follow its \`decision\`; never raise it again."
+taken: follow its \`decision\`; never raise it again. A finding there with status open is already
+raised and waits for its decision: follow its \`default\`; never raise it again."
 fi
 
 feedback=""
