@@ -38,6 +38,8 @@
 #   decider-finding-final the decider escalates the finding under final: its default taken
 #   decider-finding-refused the decider's amendment contradicts decision q3: refused, reverted,
 #                   a person decides (exit 3)
+#   run-stop        a waiting run is stopped (--stop), a resume refused, --reopen goes on; L7
+#   run-stop-decider L7 on a decider's run that waits on a person: reported FAILED
 # Prints each run's exit code and its KPIs L1-L6.
 #
 #   scripts/run-finding-cycles.sh <scratch dir>
@@ -304,4 +306,52 @@ if (( code == 3 )) &&
   echo "decider-finding-refused: checks pass (the decider's amendment refused and reverted, a person decides)"
 else
   echo "decider-finding-refused: FAILED (run exit $code, or the decider's amendment stood, or no refused_decision)"
+fi
+# run-stop: a run left waiting is stopped with a record (scripts/run-trial.sh <run> --stop). A run
+# with the person as decider stops at context.approve (exit 3); 2 s later it is stopped:
+# run-stopped.json (sdc.run-stopped/1, verdict and case at the stop), a run.log line, the event
+# logs untouched; a resume is refused (exit 8) until --reopen, which renames the record and goes
+# on (exit 3 again at the same stop). L7 counts the wait up to the stop's instant; on the
+# decider's stopped run (decider-finding-refused) it is a failure.
+stopped_ok() { # <run dir> <by> <reason>
+  jq -e --arg by "$2" --arg why "$3" '.format == "sdc.run-stopped/1" and (.at | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"))
+    and .by == $by and .reason == $why and (.verdict_at_stop | type) == "string" and (.case | type) == "string"' "$1/run-stopped.json" >/dev/null
+}
+evsum() { find "$1/store" -name events.jsonl | sort | xargs cat | sha256sum; }
+trial run-stop SDC_DECIDER=person
+code=$?
+r=$s/runs/run-stop
+before=$(evsum "$r")
+sleep 2
+why="fixture: nobody takes context.approve in this cycle"
+SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_PRINCIPAL=agent:finding-cycles "$sdc/scripts/run-trial.sh" run-stop --stop "$why" > "$s/run-stop-stop.txt" 2>&1
+stop=$?
+SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=person "$sdc/scripts/run-trial.sh" run-stop > "$s/run-stop-resume.txt" 2>&1
+resume=$?
+after=$(evsum "$r")
+l7=$("$kpis" "$r" --json | jq -c .L7_waiting_on_person_seconds)
+echo "run-stop: exit $code, --stop exit $stop, resume exit $resume, L7 $l7"
+if (( code == 3 && stop == 0 && resume == 8 )) && stopped_ok "$r" agent:finding-cycles "$why" &&
+   jq -e '.verdict_at_stop == "awaiting_authority" and .case == "IDEA-1.direction"' "$r/run-stopped.json" >/dev/null &&
+   [[ $before == "$after" ]] && grep -q "^# stopped at .* by agent:finding-cycles: $why" "$r/run.log" &&
+   jq -e '.value >= 2 and (.stops | last | .until == "stopped") and .failure == null' <<< "$l7" >/dev/null; then
+  SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=person "$sdc/scripts/run-trial.sh" run-stop --reopen > "$s/run-stop-reopen.txt" 2>&1
+  reopen=$?
+  if (( reopen == 3 )) && [[ ! -e $r/run-stopped.json ]] && ls "$r"/run-stopped.*.json >/dev/null 2>&1 &&
+     grep -q '^# reopened at ' "$r/run.log"; then
+    echo "run-stop: checks pass (record written, events untouched, resume refused, L7 to the stop, reopen renames and goes on)"
+  else
+    echo "run-stop: FAILED (--reopen exit $reopen, or the record was not renamed)"
+  fi
+else
+  echo "run-stop: FAILED (the record, the refusal, the untouched events or L7 are wrong)"
+fi
+r=$s/runs/decider-finding-refused
+SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_PRINCIPAL=agent:finding-cycles "$sdc/scripts/run-trial.sh" decider-finding-refused --stop "fixture: the finding waits for a person" > /dev/null 2>&1
+l7=$("$kpis" "$r" --json | jq -c .L7_waiting_on_person_seconds)
+if jq -e '.value >= 1 and .failure == true and .decider == "haiku"' <<< "$l7" >/dev/null &&
+   "$kpis" "$r" | grep -q '^L7_waiting_on_person_seconds: FAILED '; then
+  echo "run-stop-decider: checks pass (a decider's run waiting on a person: L7 $(jq .value <<< "$l7") s, reported FAILED)"
+else
+  echo "run-stop-decider: FAILED (L7 $l7)"
 fi

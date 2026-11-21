@@ -48,6 +48,11 @@
 - Cite `path:line` for facts in docs; mark what was not observed as *inferred*.
 - No `/home/<name>/` path in any committed file: write repository-relative paths, sibling-relative
   paths (`../canon/…`) in docs, and `$HOME`-based or argument paths in scripts.
+- A run that cannot continue (a defect that needs a code change, a missing capability, or a
+  decision nobody will take) is stopped at once by whoever finds it, with
+  `SDC_PRINCIPAL=<principal> scripts/run-trial.sh <run> --stop "<reason and the fix it waits on>"`.
+  No run is left waiting when no person or agent is working on it. Demo and fixture runs are never
+  listed beside real runs without a label (the operator, 2026-11-21).
 
 ## Commits
 

@@ -380,6 +380,16 @@ written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings am
 checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
 principal for a scope-changing answer (`sdc.intake` r5).
 
+**Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
+`runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
+"<principal>", "reason": "…", "verdict_at_stop": "<last round's verdict>", "case": "<its case id
+or null>"}` (`by` from `SDC_PRINCIPAL`, required), and a `# stopped at … by …: …` line in
+`run.log`; the driver and the event logs are not touched. A resume of a stopped run is refused
+(exit 8) until `--reopen`, which renames the record to `run-stopped.<at>.json`, logs it and goes
+on. `sdc-finding-kpis` reports the time the run waited on a person as L7 (`kpis.md` § 4), with the
+stops that caused it, up to the stop record's instant; with a decider set (A3 and up) a value
+above 0 is printed as `FAILED`.
+
 **Where another model source plugs in** (not built):
 
 - A gateway: `SDC_LLM_ENDPOINT=<root URL>` makes the metaharness adapter add `--model-endpoint

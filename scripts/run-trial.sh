@@ -6,6 +6,13 @@
 #   scripts/run-trial.sh --dry <name>           dry run: the stub fixture idea, the stubs write the
 #                                               artifacts, every LLM command is printed and none is
 #                                               run, and the person's approvals are scripted
+#   scripts/run-trial.sh <name> --stop "<reason>"  stop a run that will not go on: writes
+#                                               run-stopped.json (sdc.run-stopped/1: format, at,
+#                                               by = SDC_PRINCIPAL, reason, verdict_at_stop, case)
+#                                               and a run.log line; nothing else is touched
+#   scripts/run-trial.sh <name> --reopen        resume a stopped run: the record is renamed
+#                                               run-stopped.<at>.json; without it a resume of a
+#                                               stopped run is refused (exit 8)
 #
 # Writes $SDC_RUNS_DIR/<name>/ (default runs/): store/IDEA-1/ (the case tree, the layout of
 # runs/full-cycle-1/store/), run.log (every sdc-drive command and its output), llm-calls.jsonl (one
@@ -44,13 +51,21 @@
 # default. A decision the program check refuses (`refused_decision`) waits for a person.
 #
 # Exit: 0 terminable or closed, 3 waiting on a person, 4 stuck or a driver cap, 5 decider budget,
-# 6 refused by the decider.
+# 6 refused by the decider, 8 the run is stopped (or already stopped), 64 usage.
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
-dry=no
-[[ ${1:-} == --dry ]] && { dry=yes; shift; }
-name=${1:?usage: run-trial.sh [--dry] <name> [idea text]}
-idea_text=${2:-}
+dry=no stop_reason="" reopen=no pos=()
+while (($#)); do
+  case $1 in
+    --dry) dry=yes ;;
+    --stop) stop_reason=${2:-}; [[ -n $stop_reason ]] || { echo "--stop needs a reason"; exit 64; }; shift ;;
+    --reopen) reopen=yes ;;
+    *) pos+=("$1") ;;
+  esac
+  shift
+done
+name=${pos[0]:?usage: run-trial.sh [--dry] <name> [idea text] | <name> --stop "<reason>" | <name> --reopen}
+idea_text=${pos[1]:-}
 canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
 ex=$sdc/driver/examples/sdc
@@ -63,6 +78,37 @@ max_wall=${SDC_MAX_WALL_SECONDS:-5400}
 decider=${SDC_DECIDER:-person}
 escalate_mode=${SDC_DECIDER_ESCALATE:-stop}
 max_decider=${SDC_MAX_DECIDER_CALLS:-20}
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# The stop record (sdc.run-stopped/1): a run that will not go on is stopped with a reason. Only
+# run-stopped.json and a run.log line are written; the driver and the event logs are not touched.
+stopped=$out/run-stopped.json
+if [[ -n $stop_reason ]]; then
+  [[ -d $root ]] || { echo "no run $name to stop ($out)"; exit 64; }
+  [[ ! -f $stopped ]] || { echo "$name is already stopped: $(jq -c . "$stopped")"; exit 8; }
+  by=${SDC_PRINCIPAL:-}
+  [[ -n $by ]] || { echo "--stop needs the principal that stops the run in SDC_PRINCIPAL (person:<id>, agent:<name>)"; exit 64; }
+  at=$(now)
+  jq -n --arg at "$at" --arg by "$by" --arg why "$stop_reason" \
+    --argjson r "$(tail -n 1 "$out/rounds.jsonl" 2>/dev/null | jq -c . 2>/dev/null || echo null)" \
+    '{format: "sdc.run-stopped/1", at: $at, by: $by, reason: $why, verdict_at_stop: ($r.verdict // null),
+      case: (($r.case_dir // "") | split("/") | last | if . == "" or . == null then null else . end)}' > "$stopped.tmp"
+  mv "$stopped.tmp" "$stopped"
+  echo "# stopped at $at by $by: $stop_reason" >> "$log"
+  echo "stopped $name: $(jq -c . "$stopped")"
+  exit 0
+fi
+if [[ -f $stopped ]]; then
+  if [[ $reopen != yes ]]; then
+    echo "$name was stopped at $(jq -r .at "$stopped") by $(jq -r .by "$stopped"): $(jq -r .reason "$stopped")"
+    echo "to go on: scripts/run-trial.sh $name --reopen"
+    exit 8
+  fi
+  was=$(jq -r .at "$stopped")
+  mv "$stopped" "$out/run-stopped.$was.json"
+  echo "# reopened at $(now) by ${SDC_PRINCIPAL:-an unnamed principal}: stopped at $was (run-stopped.$was.json)" >> "$log"
+fi
+
 case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
 
 export SDC_LLM_RECORD=$out/llm SDC_LLM_LOG=$out/llm-calls.jsonl
@@ -72,7 +118,6 @@ else
   export SDC_LLM_ADAPTER=${SDC_LLM_ADAPTER:-metaharness}
   [[ $SDC_LLM_ADAPTER == dry ]] && export SDC_LLM_DRY_LOG=${SDC_LLM_DRY_LOG:-$out/dry-commands.txt}
 fi
-now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # The file-change recorder (scripts/watch-run.sh, docs/fs-changes.md) runs while this script
 # does: started before the first driver call, stopped on every exit. SDC_WATCH=0 skips it; any
