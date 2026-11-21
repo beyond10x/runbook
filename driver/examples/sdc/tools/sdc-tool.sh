@@ -239,12 +239,25 @@ impl-gate)
   # Run in a copy, so the observation writes nothing into the tree; the copy (with its target/)
   # is removed afterwards.
   rm -rf .sdc/impl-gate && cp -r "$tree" .sdc/impl-gate && rm -rf .sdc/impl-gate/target
-  out=$(cd .sdc/impl-gate && CARGO_TARGET_DIR=$PWD/target slot cargo test --offline 2>&1)
+  # The counts come from cargo's stdout alone. Mixed with stderr (2>&1, under slot and load), a
+  # stderr line such as `Finished` or `Doc-tests` landed inside `test result: ok. 5 passed`, no
+  # count was read and the gate failed "0 tests ran" on a passing suite.
+  out=$(cd .sdc/impl-gate && CARGO_TARGET_DIR=$PWD/target slot cargo test --offline 2>../impl-gate.stderr)
   rc=$?
-  rm -rf .sdc/impl-gate
-  grep -E '^(test |test result:|error|warning: unused)|panicked|FAILED' <<< "$out" | tail -n 60 | sed 's/^/  | /'
-  ran=$(grep -oE '^test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed' <<< "$out" | awk '{s += $4 + $6} END {print s + 0}')
-  ignored=$(grep -oE '[0-9]+ ignored' <<< "$out" | awk '{s += $1} END {print s + 0}')
+  err=$(cat .sdc/impl-gate.stderr)
+  rm -rf .sdc/impl-gate .sdc/impl-gate.stderr
+  grep -E '^(test |test result:|error|warning: unused)|panicked|FAILED' <<< "$err"$'\n'"$out" | tail -n 60 | sed 's/^/  | /'
+  passon $rc
+  results=$(grep -cE '^test result: ' <<< "$out")
+  counted=$(grep -oE '^test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored' <<< "$out")
+  # Output that cannot be read is a tool error (126: no evidence, the run stops), never a failure
+  # of the writer's tree: a passing run with no `test result:` line, or one that does not parse.
+  if (( rc == 0 )) && { (( results == 0 )) || (( $(grep -c . <<< "$counted") < results )); }; then
+    echo "impl-gate: cargo test exit 0, its output could not be read ($results \`test result:\` line(s) on stdout, $(grep -c . <<< "$counted") parsed)"
+    exit 126
+  fi
+  ran=$(awk '{s += $4 + $6} END {print s + 0}' <<< "$counted")
+  ignored=$(awk '{s += $8} END {print s + 0}' <<< "$counted")
   if (( rc != 0 )); then no "run: cargo test exit $rc"
   elif (( ran < 1 )); then no "run: 0 tests ran"
   elif (( ignored > 0 )); then no "run: $ignored ignored (need 0)"
