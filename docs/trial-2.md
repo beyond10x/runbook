@@ -214,6 +214,16 @@ unchanged.
   the answer is written as `decision:` with `decided_by: decider:<kind>`, `amend.upstream` applies
   it through the same program check as the agent's amendments, and a refused one is reverted and
   kept as `refused_decision`, and the finding waits for a person.
+- The program check refuses a decision only for what the amendment wrote (D137, 2026-11-21,
+  `runs/trial-3-mixed-4`: `f1`'s decision was refused because `r3` already cited the dark spot
+  `d6`): a citation fault a requirement had before the amendment, and any question but the one
+  the amendment adds, are left to the writer's own check, which sends the writer back with the
+  fault. Still refused, though they read content the decision did not write: a rule decision
+  whose removed side another requirement's cited decision states (both sides go to a person).
+  The citation rule (D136, `sdc-findings` `citation_fault`, also `requirements.check` at write
+  time): every cite is a fact, a wish, a question, or an open item (belief, unknown, ambiguity,
+  dark spot: the items that get exactly one question) beside a cited question that asks about it
+  (the question's `item`); at least one cite is a fact, a wish or a question.
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
