@@ -30,7 +30,13 @@
       "status": "blocked"
     },
     "change.review": {
-      "status": "admissible"
+      "reasons": [
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
     },
     "merge.approve": {
       "reasons": [
@@ -154,6 +160,15 @@
             "claim": "merge.approved",
             "value": "unknown"
           },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "change.review": {
+        "because": [
           {
             "claim": "tests.pass",
             "value": "unknown"
@@ -307,7 +322,7 @@
         "t1"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 6,
+      "protocol_revision": 7,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -410,5 +425,5 @@
     }
   },
   "protocol": "sdc.story",
-  "protocol_revision": 6
+  "protocol_revision": 7
 }
