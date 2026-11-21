@@ -29,10 +29,12 @@ async function until(what, ok, ms = 60000) {
   throw new Error(`timed out waiting for ${what}`);
 }
 
-export async function start(viewport) {
+// slot: 'loop' (ports 7510 on) or 'phone' (the phone contract, 60 ports higher, its own fixture dir),
+// so the two spec files can run at the same viewport at once
+export async function start(viewport, slot = 'loop') {
   const k = all.findIndex((v) => v.name === viewport);
-  const port = Number(process.env.SDC_UI_UX_PORT || 7510) + k;
-  const dir = path.join(OUT, 'fixtures', viewport);
+  const port = Number(process.env.SDC_UI_UX_PORT || 7510) + k + (slot === 'phone' ? 60 : 0);
+  const dir = path.join(OUT, 'fixtures', slot === 'phone' ? `phone-${viewport}` : viewport);
   fs.rmSync(dir, {recursive: true, force: true});
   fs.mkdirSync(dir, {recursive: true});
   const gate = path.join(dir, '.clock');

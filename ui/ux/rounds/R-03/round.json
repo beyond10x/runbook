@@ -1,0 +1,2205 @@
+{
+  "round": "R-03",
+  "at": "2026-11-21T06:07:50.900Z",
+  "exit": 1,
+  "viewports": [
+    "1280x720",
+    "1366x768",
+    "1600x1000",
+    "1920x1080",
+    "360x800",
+    "390x844",
+    "414x896",
+    "768x1024"
+  ],
+  "metrics": {
+    "person": {
+      "keyboard.tabs_to_cue@1280x720": 9,
+      "keyboard.tabs_to_decide@1280x720": 0,
+      "screen_only.time_to_act_steps.max@1280x720": 0,
+      "layout_shift.per_minute@1280x720": 0,
+      "reading_load.max@1280x720": 107,
+      "reading_load.median@1280x720": 107,
+      "cue_churn.changes@1280x720": 0,
+      "cue_churn.flip_flops@1280x720": 0,
+      "contract.scroll@1280x720": 0,
+      "contract.hidden@1280x720": 0,
+      "contract.axe_serious@1280x720": 0,
+      "contract.truncated_hidden@1280x720": 12,
+      "completion.miss@1280x720": 0,
+      "completion.false@1280x720": 0,
+      "screen_only.decision_refused@1280x720": 1,
+      "screen_only.actions@1280x720": 2,
+      "screen_only.looks@1280x720": 8,
+      "screen_only.steers@1280x720": 0,
+      "glance_cost.median@1280x720": 1,
+      "glance_cost.p95@1280x720": 2,
+      "actions_per_fix.max@1280x720": 2,
+      "actions_per_fix.median@1280x720": 2,
+      "keyboard.tabs_to_cue@1366x768": 9,
+      "keyboard.tabs_to_decide@1366x768": 0,
+      "screen_only.time_to_act_steps.max@1366x768": 0,
+      "layout_shift.per_minute@1366x768": 0,
+      "reading_load.max@1366x768": 107,
+      "reading_load.median@1366x768": 107,
+      "cue_churn.changes@1366x768": 0,
+      "cue_churn.flip_flops@1366x768": 0,
+      "contract.scroll@1366x768": 0,
+      "contract.hidden@1366x768": 0,
+      "contract.axe_serious@1366x768": 0,
+      "contract.truncated_hidden@1366x768": 11,
+      "completion.miss@1366x768": 0,
+      "completion.false@1366x768": 0,
+      "screen_only.decision_refused@1366x768": 1,
+      "screen_only.actions@1366x768": 2,
+      "screen_only.looks@1366x768": 8,
+      "screen_only.steers@1366x768": 0,
+      "glance_cost.median@1366x768": 1,
+      "glance_cost.p95@1366x768": 2,
+      "actions_per_fix.max@1366x768": 2,
+      "actions_per_fix.median@1366x768": 2,
+      "keyboard.tabs_to_cue@1600x1000": 9,
+      "keyboard.tabs_to_decide@1600x1000": 0,
+      "screen_only.time_to_act_steps.max@1600x1000": 0,
+      "layout_shift.per_minute@1600x1000": 0,
+      "reading_load.max@1600x1000": 116,
+      "reading_load.median@1600x1000": 116,
+      "cue_churn.changes@1600x1000": 0,
+      "cue_churn.flip_flops@1600x1000": 0,
+      "contract.scroll@1600x1000": 0,
+      "contract.hidden@1600x1000": 0,
+      "contract.axe_serious@1600x1000": 0,
+      "contract.truncated_hidden@1600x1000": 4,
+      "completion.miss@1600x1000": 0,
+      "completion.false@1600x1000": 0,
+      "screen_only.decision_refused@1600x1000": 1,
+      "screen_only.actions@1600x1000": 2,
+      "screen_only.looks@1600x1000": 8,
+      "screen_only.steers@1600x1000": 0,
+      "glance_cost.median@1600x1000": 1,
+      "glance_cost.p95@1600x1000": 2,
+      "actions_per_fix.max@1600x1000": 2,
+      "actions_per_fix.median@1600x1000": 2,
+      "keyboard.tabs_to_cue@1920x1080": 9,
+      "keyboard.tabs_to_decide@1920x1080": 0,
+      "screen_only.time_to_act_steps.max@1920x1080": 0,
+      "layout_shift.per_minute@1920x1080": 0,
+      "reading_load.max@1920x1080": 116,
+      "reading_load.median@1920x1080": 116,
+      "cue_churn.changes@1920x1080": 0,
+      "cue_churn.flip_flops@1920x1080": 0,
+      "contract.scroll@1920x1080": 0,
+      "contract.hidden@1920x1080": 0,
+      "contract.axe_serious@1920x1080": 0,
+      "contract.truncated_hidden@1920x1080": 4,
+      "completion.miss@1920x1080": 0,
+      "completion.false@1920x1080": 0,
+      "screen_only.decision_refused@1920x1080": 1,
+      "screen_only.actions@1920x1080": 2,
+      "screen_only.looks@1920x1080": 8,
+      "screen_only.steers@1920x1080": 0,
+      "glance_cost.median@1920x1080": 1,
+      "glance_cost.p95@1920x1080": 2,
+      "actions_per_fix.max@1920x1080": 2,
+      "actions_per_fix.median@1920x1080": 2,
+      "keyboard.tabs_to_cue@360x800": 10,
+      "keyboard.tabs_to_decide@360x800": 0,
+      "screen_only.time_to_act_steps.max@360x800": 0,
+      "layout_shift.per_minute@360x800": 0,
+      "reading_load.max@360x800": 107,
+      "reading_load.median@360x800": 107,
+      "cue_churn.changes@360x800": 0,
+      "cue_churn.flip_flops@360x800": 0,
+      "contract.scroll@360x800": 0,
+      "contract.hidden@360x800": 0,
+      "contract.axe_serious@360x800": 0,
+      "contract.truncated_hidden@360x800": 0,
+      "completion.miss@360x800": 0,
+      "completion.false@360x800": 0,
+      "screen_only.decision_refused@360x800": 1,
+      "screen_only.actions@360x800": 2,
+      "screen_only.looks@360x800": 10,
+      "screen_only.steers@360x800": 0,
+      "glance_cost.median@360x800": 1,
+      "glance_cost.p95@360x800": 3,
+      "actions_per_fix.max@360x800": 2,
+      "actions_per_fix.median@360x800": 2,
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "phone.sheet_drawer@360x800": 0,
+      "keyboard.tabs_to_cue@390x844": 10,
+      "keyboard.tabs_to_decide@390x844": 0,
+      "screen_only.time_to_act_steps.max@390x844": 0,
+      "layout_shift.per_minute@390x844": 0,
+      "reading_load.max@390x844": 107,
+      "reading_load.median@390x844": 107,
+      "cue_churn.changes@390x844": 0,
+      "cue_churn.flip_flops@390x844": 0,
+      "contract.scroll@390x844": 0,
+      "contract.hidden@390x844": 0,
+      "contract.axe_serious@390x844": 0,
+      "contract.truncated_hidden@390x844": 0,
+      "completion.miss@390x844": 0,
+      "completion.false@390x844": 0,
+      "screen_only.decision_refused@390x844": 1,
+      "screen_only.actions@390x844": 2,
+      "screen_only.looks@390x844": 10,
+      "screen_only.steers@390x844": 0,
+      "glance_cost.median@390x844": 1,
+      "glance_cost.p95@390x844": 3,
+      "actions_per_fix.max@390x844": 2,
+      "actions_per_fix.median@390x844": 2,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "phone.sheet_drawer@390x844": 0,
+      "keyboard.tabs_to_cue@414x896": 10,
+      "keyboard.tabs_to_decide@414x896": 0,
+      "screen_only.time_to_act_steps.max@414x896": 0,
+      "layout_shift.per_minute@414x896": 0,
+      "reading_load.max@414x896": 107,
+      "reading_load.median@414x896": 107,
+      "cue_churn.changes@414x896": 0,
+      "cue_churn.flip_flops@414x896": 0,
+      "contract.scroll@414x896": 0,
+      "contract.hidden@414x896": 0,
+      "contract.axe_serious@414x896": 0,
+      "contract.truncated_hidden@414x896": 0,
+      "completion.miss@414x896": 0,
+      "completion.false@414x896": 0,
+      "screen_only.decision_refused@414x896": 1,
+      "screen_only.actions@414x896": 2,
+      "screen_only.looks@414x896": 8,
+      "screen_only.steers@414x896": 0,
+      "glance_cost.median@414x896": 1,
+      "glance_cost.p95@414x896": 2,
+      "actions_per_fix.max@414x896": 2,
+      "actions_per_fix.median@414x896": 2,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "phone.sheet_drawer@414x896": 0,
+      "keyboard.tabs_to_cue@768x1024": 10,
+      "keyboard.tabs_to_decide@768x1024": 0,
+      "screen_only.time_to_act_steps.max@768x1024": 0,
+      "layout_shift.per_minute@768x1024": 0,
+      "reading_load.max@768x1024": 107,
+      "reading_load.median@768x1024": 107,
+      "cue_churn.changes@768x1024": 0,
+      "cue_churn.flip_flops@768x1024": 0,
+      "contract.scroll@768x1024": 0,
+      "contract.hidden@768x1024": 0,
+      "contract.axe_serious@768x1024": 0,
+      "contract.truncated_hidden@768x1024": 0,
+      "completion.miss@768x1024": 0,
+      "completion.false@768x1024": 0,
+      "screen_only.decision_refused@768x1024": 1,
+      "screen_only.actions@768x1024": 2,
+      "screen_only.looks@768x1024": 8,
+      "screen_only.steers@768x1024": 0,
+      "glance_cost.median@768x1024": 1,
+      "glance_cost.p95@768x1024": 2,
+      "actions_per_fix.max@768x1024": 2,
+      "actions_per_fix.median@768x1024": 2,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0,
+      "phone.sheet_drawer@768x1024": 0
+    },
+    "agent": {
+      "screen_only.time_to_act_steps.max@1280x720": 0,
+      "layout_shift.per_minute@1280x720": 0.506,
+      "reading_load.max@1280x720": 78,
+      "reading_load.median@1280x720": 52,
+      "cue_churn.changes@1280x720": 0,
+      "cue_churn.flip_flops@1280x720": 0,
+      "contract.scroll@1280x720": 0,
+      "contract.hidden@1280x720": 0,
+      "contract.axe_serious@1280x720": 0,
+      "contract.truncated_hidden@1280x720": 31,
+      "completion.miss@1280x720": 0,
+      "completion.false@1280x720": 0,
+      "screen_only.actions@1280x720": 1,
+      "screen_only.looks@1280x720": 6,
+      "screen_only.steers@1280x720": 0,
+      "glance_cost.median@1280x720": 1,
+      "glance_cost.p95@1280x720": 2,
+      "actions_per_fix.max@1280x720": 1,
+      "actions_per_fix.median@1280x720": 1,
+      "screen_only.time_to_act_steps.max@1366x768": 0,
+      "layout_shift.per_minute@1366x768": 0.023,
+      "reading_load.max@1366x768": 78,
+      "reading_load.median@1366x768": 52,
+      "cue_churn.changes@1366x768": 0,
+      "cue_churn.flip_flops@1366x768": 0,
+      "contract.scroll@1366x768": 0,
+      "contract.hidden@1366x768": 0,
+      "contract.axe_serious@1366x768": 0,
+      "contract.truncated_hidden@1366x768": 31,
+      "completion.miss@1366x768": 0,
+      "completion.false@1366x768": 0,
+      "screen_only.actions@1366x768": 1,
+      "screen_only.looks@1366x768": 6,
+      "screen_only.steers@1366x768": 0,
+      "glance_cost.median@1366x768": 1,
+      "glance_cost.p95@1366x768": 2,
+      "actions_per_fix.max@1366x768": 1,
+      "actions_per_fix.median@1366x768": 1,
+      "screen_only.time_to_act_steps.max@1600x1000": 0,
+      "layout_shift.per_minute@1600x1000": 0.005,
+      "reading_load.max@1600x1000": 89,
+      "reading_load.median@1600x1000": 63,
+      "cue_churn.changes@1600x1000": 0,
+      "cue_churn.flip_flops@1600x1000": 0,
+      "contract.scroll@1600x1000": 0,
+      "contract.hidden@1600x1000": 0,
+      "contract.axe_serious@1600x1000": 0,
+      "contract.truncated_hidden@1600x1000": 12,
+      "completion.miss@1600x1000": 0,
+      "completion.false@1600x1000": 0,
+      "screen_only.actions@1600x1000": 1,
+      "screen_only.looks@1600x1000": 6,
+      "screen_only.steers@1600x1000": 0,
+      "glance_cost.median@1600x1000": 1,
+      "glance_cost.p95@1600x1000": 2,
+      "actions_per_fix.max@1600x1000": 1,
+      "actions_per_fix.median@1600x1000": 1,
+      "screen_only.time_to_act_steps.max@1920x1080": 0,
+      "layout_shift.per_minute@1920x1080": 0.004,
+      "reading_load.max@1920x1080": 89,
+      "reading_load.median@1920x1080": 63,
+      "cue_churn.changes@1920x1080": 0,
+      "cue_churn.flip_flops@1920x1080": 0,
+      "contract.scroll@1920x1080": 0,
+      "contract.hidden@1920x1080": 0,
+      "contract.axe_serious@1920x1080": 0,
+      "contract.truncated_hidden@1920x1080": 12,
+      "completion.miss@1920x1080": 0,
+      "completion.false@1920x1080": 0,
+      "screen_only.actions@1920x1080": 1,
+      "screen_only.looks@1920x1080": 6,
+      "screen_only.steers@1920x1080": 0,
+      "glance_cost.median@1920x1080": 1,
+      "glance_cost.p95@1920x1080": 2,
+      "actions_per_fix.max@1920x1080": 1,
+      "actions_per_fix.median@1920x1080": 1,
+      "screen_only.time_to_act_steps.max@360x800": 0,
+      "layout_shift.per_minute@360x800": 0.183,
+      "reading_load.max@360x800": 78,
+      "reading_load.median@360x800": 52,
+      "cue_churn.changes@360x800": 0,
+      "cue_churn.flip_flops@360x800": 0,
+      "contract.scroll@360x800": 0,
+      "contract.hidden@360x800": 0,
+      "contract.axe_serious@360x800": 0,
+      "contract.truncated_hidden@360x800": 0,
+      "completion.miss@360x800": 0,
+      "completion.false@360x800": 0,
+      "screen_only.actions@360x800": 1,
+      "screen_only.looks@360x800": 7,
+      "screen_only.steers@360x800": 0,
+      "glance_cost.median@360x800": 1,
+      "glance_cost.p95@360x800": 3,
+      "actions_per_fix.max@360x800": 1,
+      "actions_per_fix.median@360x800": 1,
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "phone.sheet_diff@360x800": 0,
+      "phone.sheet_rail@360x800": 0,
+      "phone.graph@360x800": 0,
+      "screen_only.time_to_act_steps.max@390x844": 0,
+      "layout_shift.per_minute@390x844": 0.384,
+      "reading_load.max@390x844": 78,
+      "reading_load.median@390x844": 52,
+      "cue_churn.changes@390x844": 0,
+      "cue_churn.flip_flops@390x844": 0,
+      "contract.scroll@390x844": 0,
+      "contract.hidden@390x844": 0,
+      "contract.axe_serious@390x844": 0,
+      "contract.truncated_hidden@390x844": 0,
+      "completion.miss@390x844": 0,
+      "completion.false@390x844": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "screen_only.actions@390x844": 1,
+      "screen_only.looks@390x844": 7,
+      "screen_only.steers@390x844": 0,
+      "glance_cost.median@390x844": 1,
+      "glance_cost.p95@390x844": 3,
+      "actions_per_fix.max@390x844": 1,
+      "actions_per_fix.median@390x844": 1,
+      "phone.sheet_diff@390x844": 0,
+      "phone.sheet_rail@390x844": 0,
+      "phone.graph@390x844": 0,
+      "screen_only.time_to_act_steps.max@414x896": 0,
+      "layout_shift.per_minute@414x896": 0.568,
+      "reading_load.max@414x896": 78,
+      "reading_load.median@414x896": 52,
+      "cue_churn.changes@414x896": 0,
+      "cue_churn.flip_flops@414x896": 0,
+      "contract.scroll@414x896": 0,
+      "contract.hidden@414x896": 0,
+      "contract.axe_serious@414x896": 0,
+      "contract.truncated_hidden@414x896": 0,
+      "completion.miss@414x896": 0,
+      "completion.false@414x896": 0,
+      "screen_only.actions@414x896": 1,
+      "screen_only.looks@414x896": 7,
+      "screen_only.steers@414x896": 0,
+      "glance_cost.median@414x896": 1,
+      "glance_cost.p95@414x896": 3,
+      "actions_per_fix.max@414x896": 1,
+      "actions_per_fix.median@414x896": 1,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "phone.sheet_diff@414x896": 0,
+      "phone.sheet_rail@414x896": 0,
+      "phone.graph@414x896": 0,
+      "screen_only.time_to_act_steps.max@768x1024": 0,
+      "layout_shift.per_minute@768x1024": 0.824,
+      "reading_load.max@768x1024": 78,
+      "reading_load.median@768x1024": 52,
+      "cue_churn.changes@768x1024": 0,
+      "cue_churn.flip_flops@768x1024": 0,
+      "contract.scroll@768x1024": 0,
+      "contract.hidden@768x1024": 0,
+      "contract.axe_serious@768x1024": 0,
+      "contract.truncated_hidden@768x1024": 0,
+      "completion.miss@768x1024": 0,
+      "completion.false@768x1024": 0,
+      "screen_only.actions@768x1024": 1,
+      "screen_only.looks@768x1024": 7,
+      "screen_only.steers@768x1024": 0,
+      "glance_cost.median@768x1024": 1,
+      "glance_cost.p95@768x1024": 3,
+      "actions_per_fix.max@768x1024": 1,
+      "actions_per_fix.median@768x1024": 1,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0,
+      "phone.sheet_diff@768x1024": 0,
+      "phone.sheet_rail@768x1024": 0,
+      "phone.graph@768x1024": 0
+    },
+    "two": {
+      "screen_only.time_to_act_steps.max@1280x720": 0,
+      "layout_shift.per_minute@1280x720": 2.299,
+      "reading_load.max@1280x720": 122,
+      "reading_load.median@1280x720": 85,
+      "cue_churn.changes@1280x720": 0,
+      "cue_churn.flip_flops@1280x720": 0,
+      "contract.scroll@1280x720": 0,
+      "contract.hidden@1280x720": 0,
+      "contract.axe_serious@1280x720": 0,
+      "contract.truncated_hidden@1280x720": 30,
+      "completion.miss@1280x720": 0,
+      "completion.false@1280x720": 0,
+      "screen_only.actions@1280x720": 0,
+      "screen_only.looks@1280x720": 4,
+      "screen_only.steers@1280x720": 0,
+      "glance_cost.median@1280x720": 1,
+      "glance_cost.p95@1280x720": 1,
+      "actions_per_fix.max@1280x720": 0,
+      "actions_per_fix.median@1280x720": 0,
+      "screen_only.time_to_act_steps.max@1366x768": 0,
+      "layout_shift.per_minute@1366x768": 2.558,
+      "reading_load.max@1366x768": 122,
+      "reading_load.median@1366x768": 85,
+      "cue_churn.changes@1366x768": 0,
+      "cue_churn.flip_flops@1366x768": 0,
+      "contract.scroll@1366x768": 0,
+      "contract.hidden@1366x768": 0,
+      "contract.axe_serious@1366x768": 0,
+      "contract.truncated_hidden@1366x768": 30,
+      "completion.miss@1366x768": 0,
+      "completion.false@1366x768": 0,
+      "screen_only.actions@1366x768": 0,
+      "screen_only.looks@1366x768": 4,
+      "screen_only.steers@1366x768": 0,
+      "glance_cost.median@1366x768": 1,
+      "glance_cost.p95@1366x768": 1,
+      "actions_per_fix.max@1366x768": 0,
+      "actions_per_fix.median@1366x768": 0,
+      "screen_only.time_to_act_steps.max@1600x1000": 0,
+      "layout_shift.per_minute@1600x1000": 3.824,
+      "reading_load.max@1600x1000": 133,
+      "reading_load.median@1600x1000": 96,
+      "cue_churn.changes@1600x1000": 0,
+      "cue_churn.flip_flops@1600x1000": 0,
+      "contract.scroll@1600x1000": 0,
+      "contract.hidden@1600x1000": 0,
+      "contract.axe_serious@1600x1000": 0,
+      "contract.truncated_hidden@1600x1000": 12,
+      "completion.miss@1600x1000": 0,
+      "completion.false@1600x1000": 0,
+      "screen_only.actions@1600x1000": 0,
+      "screen_only.looks@1600x1000": 4,
+      "screen_only.steers@1600x1000": 0,
+      "glance_cost.median@1600x1000": 1,
+      "glance_cost.p95@1600x1000": 1,
+      "actions_per_fix.max@1600x1000": 0,
+      "actions_per_fix.median@1600x1000": 0,
+      "screen_only.time_to_act_steps.max@1920x1080": 0,
+      "layout_shift.per_minute@1920x1080": 2.76,
+      "reading_load.max@1920x1080": 137,
+      "reading_load.median@1920x1080": 100,
+      "cue_churn.changes@1920x1080": 0,
+      "cue_churn.flip_flops@1920x1080": 0,
+      "contract.scroll@1920x1080": 0,
+      "contract.hidden@1920x1080": 0,
+      "contract.axe_serious@1920x1080": 0,
+      "contract.truncated_hidden@1920x1080": 12,
+      "completion.miss@1920x1080": 0,
+      "completion.false@1920x1080": 0,
+      "screen_only.actions@1920x1080": 0,
+      "screen_only.looks@1920x1080": 4,
+      "screen_only.steers@1920x1080": 0,
+      "glance_cost.median@1920x1080": 1,
+      "glance_cost.p95@1920x1080": 1,
+      "actions_per_fix.max@1920x1080": 0,
+      "actions_per_fix.median@1920x1080": 0,
+      "screen_only.time_to_act_steps.max@360x800": 0,
+      "layout_shift.per_minute@360x800": 4.718,
+      "reading_load.max@360x800": 126,
+      "reading_load.median@360x800": 89,
+      "cue_churn.changes@360x800": 0,
+      "cue_churn.flip_flops@360x800": 0,
+      "contract.scroll@360x800": 0,
+      "contract.hidden@360x800": 0,
+      "contract.axe_serious@360x800": 0,
+      "contract.truncated_hidden@360x800": 0,
+      "completion.miss@360x800": 0,
+      "completion.false@360x800": 0,
+      "screen_only.actions@360x800": 0,
+      "screen_only.looks@360x800": 6,
+      "screen_only.steers@360x800": 0,
+      "glance_cost.median@360x800": 1,
+      "glance_cost.p95@360x800": 3,
+      "actions_per_fix.max@360x800": 0,
+      "actions_per_fix.median@360x800": 0,
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "screen_only.time_to_act_steps.max@390x844": 0,
+      "layout_shift.per_minute@390x844": 4.829,
+      "reading_load.max@390x844": 126,
+      "reading_load.median@390x844": 89,
+      "cue_churn.changes@390x844": 0,
+      "cue_churn.flip_flops@390x844": 0,
+      "contract.scroll@390x844": 0,
+      "contract.hidden@390x844": 0,
+      "contract.axe_serious@390x844": 0,
+      "contract.truncated_hidden@390x844": 0,
+      "completion.miss@390x844": 0,
+      "completion.false@390x844": 0,
+      "screen_only.actions@390x844": 0,
+      "screen_only.looks@390x844": 4,
+      "screen_only.steers@390x844": 0,
+      "glance_cost.median@390x844": 1,
+      "glance_cost.p95@390x844": 1,
+      "actions_per_fix.max@390x844": 0,
+      "actions_per_fix.median@390x844": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "screen_only.time_to_act_steps.max@414x896": 0,
+      "layout_shift.per_minute@414x896": 4.937,
+      "reading_load.max@414x896": 126,
+      "reading_load.median@414x896": 89,
+      "cue_churn.changes@414x896": 0,
+      "cue_churn.flip_flops@414x896": 0,
+      "contract.scroll@414x896": 0,
+      "contract.hidden@414x896": 0,
+      "contract.axe_serious@414x896": 0,
+      "contract.truncated_hidden@414x896": 0,
+      "completion.miss@414x896": 0,
+      "completion.false@414x896": 0,
+      "screen_only.actions@414x896": 0,
+      "screen_only.looks@414x896": 4,
+      "screen_only.steers@414x896": 0,
+      "glance_cost.median@414x896": 1,
+      "glance_cost.p95@414x896": 1,
+      "actions_per_fix.max@414x896": 0,
+      "actions_per_fix.median@414x896": 0,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "screen_only.time_to_act_steps.max@768x1024": 0,
+      "layout_shift.per_minute@768x1024": 4.439,
+      "reading_load.max@768x1024": 126,
+      "reading_load.median@768x1024": 89,
+      "cue_churn.changes@768x1024": 0,
+      "cue_churn.flip_flops@768x1024": 0,
+      "contract.scroll@768x1024": 0,
+      "contract.hidden@768x1024": 0,
+      "contract.axe_serious@768x1024": 0,
+      "contract.truncated_hidden@768x1024": 0,
+      "completion.miss@768x1024": 0,
+      "completion.false@768x1024": 0,
+      "screen_only.actions@768x1024": 0,
+      "screen_only.looks@768x1024": 4,
+      "screen_only.steers@768x1024": 0,
+      "glance_cost.median@768x1024": 1,
+      "glance_cost.p95@768x1024": 1,
+      "actions_per_fix.max@768x1024": 0,
+      "actions_per_fix.median@768x1024": 0,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0
+    },
+    "decider": {
+      "screen_only.time_to_act_steps.max@1280x720": 1,
+      "layout_shift.per_minute@1280x720": 0.037,
+      "reading_load.max@1280x720": 105,
+      "reading_load.median@1280x720": 105,
+      "cue_churn.changes@1280x720": 0,
+      "cue_churn.flip_flops@1280x720": 0,
+      "contract.scroll@1280x720": 0,
+      "contract.hidden@1280x720": 0,
+      "contract.axe_serious@1280x720": 0,
+      "contract.truncated_hidden@1280x720": 12,
+      "completion.miss@1280x720": 0,
+      "completion.false@1280x720": 0,
+      "screen_only.actions@1280x720": 0,
+      "screen_only.looks@1280x720": 4,
+      "screen_only.steers@1280x720": 0,
+      "glance_cost.median@1280x720": 1,
+      "glance_cost.p95@1280x720": 1,
+      "actions_per_fix.max@1280x720": 0,
+      "actions_per_fix.median@1280x720": 0,
+      "screen_only.time_to_act_steps.max@1366x768": 1,
+      "layout_shift.per_minute@1366x768": 0.035,
+      "reading_load.max@1366x768": 105,
+      "reading_load.median@1366x768": 105,
+      "cue_churn.changes@1366x768": 0,
+      "cue_churn.flip_flops@1366x768": 0,
+      "contract.scroll@1366x768": 0,
+      "contract.hidden@1366x768": 0,
+      "contract.axe_serious@1366x768": 0,
+      "contract.truncated_hidden@1366x768": 12,
+      "completion.miss@1366x768": 0,
+      "completion.false@1366x768": 0,
+      "screen_only.actions@1366x768": 0,
+      "screen_only.looks@1366x768": 4,
+      "screen_only.steers@1366x768": 0,
+      "glance_cost.median@1366x768": 1,
+      "glance_cost.p95@1366x768": 1,
+      "actions_per_fix.max@1366x768": 0,
+      "actions_per_fix.median@1366x768": 0,
+      "screen_only.time_to_act_steps.max@1600x1000": 1,
+      "layout_shift.per_minute@1600x1000": 0.016,
+      "reading_load.max@1600x1000": 113,
+      "reading_load.median@1600x1000": 113,
+      "cue_churn.changes@1600x1000": 0,
+      "cue_churn.flip_flops@1600x1000": 0,
+      "contract.scroll@1600x1000": 0,
+      "contract.hidden@1600x1000": 0,
+      "contract.axe_serious@1600x1000": 0,
+      "contract.truncated_hidden@1600x1000": 5,
+      "completion.miss@1600x1000": 0,
+      "completion.false@1600x1000": 0,
+      "screen_only.actions@1600x1000": 0,
+      "screen_only.looks@1600x1000": 4,
+      "screen_only.steers@1600x1000": 0,
+      "glance_cost.median@1600x1000": 1,
+      "glance_cost.p95@1600x1000": 1,
+      "actions_per_fix.max@1600x1000": 0,
+      "actions_per_fix.median@1600x1000": 0,
+      "screen_only.time_to_act_steps.max@1920x1080": 1,
+      "layout_shift.per_minute@1920x1080": 0.019,
+      "reading_load.max@1920x1080": 113,
+      "reading_load.median@1920x1080": 113,
+      "cue_churn.changes@1920x1080": 0,
+      "cue_churn.flip_flops@1920x1080": 0,
+      "contract.scroll@1920x1080": 0,
+      "contract.hidden@1920x1080": 0,
+      "contract.axe_serious@1920x1080": 0,
+      "contract.truncated_hidden@1920x1080": 4,
+      "completion.miss@1920x1080": 0,
+      "completion.false@1920x1080": 0,
+      "screen_only.actions@1920x1080": 0,
+      "screen_only.looks@1920x1080": 4,
+      "screen_only.steers@1920x1080": 0,
+      "glance_cost.median@1920x1080": 1,
+      "glance_cost.p95@1920x1080": 1,
+      "actions_per_fix.max@1920x1080": 0,
+      "actions_per_fix.median@1920x1080": 0,
+      "screen_only.time_to_act_steps.max@360x800": 1,
+      "layout_shift.per_minute@360x800": 0.776,
+      "reading_load.max@360x800": 105,
+      "reading_load.median@360x800": 105,
+      "cue_churn.changes@360x800": 0,
+      "cue_churn.flip_flops@360x800": 0,
+      "contract.scroll@360x800": 0,
+      "contract.hidden@360x800": 0,
+      "contract.axe_serious@360x800": 0,
+      "contract.truncated_hidden@360x800": 0,
+      "completion.miss@360x800": 0,
+      "completion.false@360x800": 0,
+      "screen_only.actions@360x800": 0,
+      "screen_only.looks@360x800": 4,
+      "screen_only.steers@360x800": 0,
+      "glance_cost.median@360x800": 1,
+      "glance_cost.p95@360x800": 1,
+      "actions_per_fix.max@360x800": 0,
+      "actions_per_fix.median@360x800": 0,
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "screen_only.time_to_act_steps.max@390x844": 1,
+      "layout_shift.per_minute@390x844": 1.698,
+      "reading_load.max@390x844": 105,
+      "reading_load.median@390x844": 105,
+      "cue_churn.changes@390x844": 0,
+      "cue_churn.flip_flops@390x844": 0,
+      "contract.scroll@390x844": 0,
+      "contract.hidden@390x844": 0,
+      "contract.axe_serious@390x844": 0,
+      "contract.truncated_hidden@390x844": 0,
+      "completion.miss@390x844": 0,
+      "completion.false@390x844": 0,
+      "screen_only.actions@390x844": 0,
+      "screen_only.looks@390x844": 4,
+      "screen_only.steers@390x844": 0,
+      "glance_cost.median@390x844": 1,
+      "glance_cost.p95@390x844": 1,
+      "actions_per_fix.max@390x844": 0,
+      "actions_per_fix.median@390x844": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "screen_only.time_to_act_steps.max@414x896": 1,
+      "layout_shift.per_minute@414x896": 0.662,
+      "reading_load.max@414x896": 105,
+      "reading_load.median@414x896": 105,
+      "cue_churn.changes@414x896": 0,
+      "cue_churn.flip_flops@414x896": 0,
+      "contract.scroll@414x896": 0,
+      "contract.hidden@414x896": 0,
+      "contract.axe_serious@414x896": 0,
+      "contract.truncated_hidden@414x896": 0,
+      "completion.miss@414x896": 0,
+      "completion.false@414x896": 0,
+      "screen_only.actions@414x896": 0,
+      "screen_only.looks@414x896": 4,
+      "screen_only.steers@414x896": 0,
+      "glance_cost.median@414x896": 1,
+      "glance_cost.p95@414x896": 1,
+      "actions_per_fix.max@414x896": 0,
+      "actions_per_fix.median@414x896": 0,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "screen_only.time_to_act_steps.max@768x1024": 1,
+      "layout_shift.per_minute@768x1024": 2.045,
+      "reading_load.max@768x1024": 105,
+      "reading_load.median@768x1024": 105,
+      "cue_churn.changes@768x1024": 0,
+      "cue_churn.flip_flops@768x1024": 0,
+      "contract.scroll@768x1024": 0,
+      "contract.hidden@768x1024": 0,
+      "contract.axe_serious@768x1024": 0,
+      "contract.truncated_hidden@768x1024": 0,
+      "completion.miss@768x1024": 0,
+      "completion.false@768x1024": 0,
+      "screen_only.actions@768x1024": 0,
+      "screen_only.looks@768x1024": 4,
+      "screen_only.steers@768x1024": 0,
+      "glance_cost.median@768x1024": 1,
+      "glance_cost.p95@768x1024": 1,
+      "actions_per_fix.max@768x1024": 0,
+      "actions_per_fix.median@768x1024": 0,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0
+    },
+    "closed": {
+      "screen_only.time_to_act_steps.max@1280x720": 0,
+      "layout_shift.per_minute@1280x720": 0,
+      "reading_load.max@1280x720": 39,
+      "reading_load.median@1280x720": 39,
+      "cue_churn.changes@1280x720": 0,
+      "cue_churn.flip_flops@1280x720": 0,
+      "contract.scroll@1280x720": 0,
+      "contract.hidden@1280x720": 0,
+      "contract.axe_serious@1280x720": 0,
+      "contract.truncated_hidden@1280x720": 41,
+      "completion.miss@1280x720": 0,
+      "completion.false@1280x720": 0,
+      "screen_only.actions@1280x720": 0,
+      "screen_only.looks@1280x720": 3,
+      "screen_only.steers@1280x720": 0,
+      "glance_cost.median@1280x720": 1.5,
+      "glance_cost.p95@1280x720": 2,
+      "actions_per_fix.max@1280x720": 0,
+      "actions_per_fix.median@1280x720": 0,
+      "screen_only.time_to_act_steps.max@1366x768": 0,
+      "layout_shift.per_minute@1366x768": 0,
+      "reading_load.max@1366x768": 39,
+      "reading_load.median@1366x768": 39,
+      "cue_churn.changes@1366x768": 0,
+      "cue_churn.flip_flops@1366x768": 0,
+      "contract.scroll@1366x768": 0,
+      "contract.hidden@1366x768": 0,
+      "contract.axe_serious@1366x768": 0,
+      "contract.truncated_hidden@1366x768": 41,
+      "completion.miss@1366x768": 0,
+      "completion.false@1366x768": 0,
+      "screen_only.actions@1366x768": 0,
+      "screen_only.looks@1366x768": 3,
+      "screen_only.steers@1366x768": 0,
+      "glance_cost.median@1366x768": 1.5,
+      "glance_cost.p95@1366x768": 2,
+      "actions_per_fix.max@1366x768": 0,
+      "actions_per_fix.median@1366x768": 0,
+      "screen_only.time_to_act_steps.max@1600x1000": 0,
+      "layout_shift.per_minute@1600x1000": 0,
+      "reading_load.max@1600x1000": 47,
+      "reading_load.median@1600x1000": 47,
+      "cue_churn.changes@1600x1000": 0,
+      "cue_churn.flip_flops@1600x1000": 0,
+      "contract.scroll@1600x1000": 0,
+      "contract.hidden@1600x1000": 0,
+      "contract.axe_serious@1600x1000": 0,
+      "contract.truncated_hidden@1600x1000": 18,
+      "completion.miss@1600x1000": 0,
+      "completion.false@1600x1000": 0,
+      "screen_only.actions@1600x1000": 0,
+      "screen_only.looks@1600x1000": 3,
+      "screen_only.steers@1600x1000": 0,
+      "glance_cost.median@1600x1000": 1.5,
+      "glance_cost.p95@1600x1000": 2,
+      "actions_per_fix.max@1600x1000": 0,
+      "actions_per_fix.median@1600x1000": 0,
+      "screen_only.time_to_act_steps.max@1920x1080": 0,
+      "layout_shift.per_minute@1920x1080": 0,
+      "reading_load.max@1920x1080": 47,
+      "reading_load.median@1920x1080": 47,
+      "cue_churn.changes@1920x1080": 0,
+      "cue_churn.flip_flops@1920x1080": 0,
+      "contract.scroll@1920x1080": 0,
+      "contract.hidden@1920x1080": 0,
+      "contract.axe_serious@1920x1080": 0,
+      "contract.truncated_hidden@1920x1080": 18,
+      "completion.miss@1920x1080": 0,
+      "completion.false@1920x1080": 0,
+      "screen_only.actions@1920x1080": 0,
+      "screen_only.looks@1920x1080": 3,
+      "screen_only.steers@1920x1080": 0,
+      "glance_cost.median@1920x1080": 1.5,
+      "glance_cost.p95@1920x1080": 2,
+      "actions_per_fix.max@1920x1080": 0,
+      "actions_per_fix.median@1920x1080": 0,
+      "screen_only.time_to_act_steps.max@360x800": 0,
+      "layout_shift.per_minute@360x800": 0,
+      "reading_load.max@360x800": 39,
+      "reading_load.median@360x800": 39,
+      "cue_churn.changes@360x800": 0,
+      "cue_churn.flip_flops@360x800": 0,
+      "contract.scroll@360x800": 0,
+      "contract.hidden@360x800": 0,
+      "contract.axe_serious@360x800": 0,
+      "contract.truncated_hidden@360x800": 0,
+      "completion.miss@360x800": 0,
+      "completion.false@360x800": 0,
+      "screen_only.actions@360x800": 0,
+      "screen_only.looks@360x800": 3,
+      "screen_only.steers@360x800": 0,
+      "glance_cost.median@360x800": 1.5,
+      "glance_cost.p95@360x800": 2,
+      "actions_per_fix.max@360x800": 0,
+      "actions_per_fix.median@360x800": 0,
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "screen_only.time_to_act_steps.max@390x844": 0,
+      "layout_shift.per_minute@390x844": 0,
+      "reading_load.max@390x844": 39,
+      "reading_load.median@390x844": 39,
+      "cue_churn.changes@390x844": 0,
+      "cue_churn.flip_flops@390x844": 0,
+      "contract.scroll@390x844": 0,
+      "contract.hidden@390x844": 0,
+      "contract.axe_serious@390x844": 0,
+      "contract.truncated_hidden@390x844": 0,
+      "completion.miss@390x844": 0,
+      "completion.false@390x844": 0,
+      "screen_only.actions@390x844": 0,
+      "screen_only.looks@390x844": 3,
+      "screen_only.steers@390x844": 0,
+      "glance_cost.median@390x844": 1.5,
+      "glance_cost.p95@390x844": 2,
+      "actions_per_fix.max@390x844": 0,
+      "actions_per_fix.median@390x844": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "screen_only.time_to_act_steps.max@414x896": 0,
+      "layout_shift.per_minute@414x896": 0,
+      "reading_load.max@414x896": 39,
+      "reading_load.median@414x896": 39,
+      "cue_churn.changes@414x896": 0,
+      "cue_churn.flip_flops@414x896": 0,
+      "contract.scroll@414x896": 0,
+      "contract.hidden@414x896": 0,
+      "contract.axe_serious@414x896": 0,
+      "contract.truncated_hidden@414x896": 0,
+      "completion.miss@414x896": 0,
+      "completion.false@414x896": 0,
+      "screen_only.actions@414x896": 0,
+      "screen_only.looks@414x896": 3,
+      "screen_only.steers@414x896": 0,
+      "glance_cost.median@414x896": 1.5,
+      "glance_cost.p95@414x896": 2,
+      "actions_per_fix.max@414x896": 0,
+      "actions_per_fix.median@414x896": 0,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "screen_only.time_to_act_steps.max@768x1024": 0,
+      "layout_shift.per_minute@768x1024": 0,
+      "reading_load.max@768x1024": 39,
+      "reading_load.median@768x1024": 39,
+      "cue_churn.changes@768x1024": 0,
+      "cue_churn.flip_flops@768x1024": 0,
+      "contract.scroll@768x1024": 0,
+      "contract.hidden@768x1024": 0,
+      "contract.axe_serious@768x1024": 0,
+      "contract.truncated_hidden@768x1024": 0,
+      "completion.miss@768x1024": 0,
+      "completion.false@768x1024": 0,
+      "screen_only.actions@768x1024": 0,
+      "screen_only.looks@768x1024": 3,
+      "screen_only.steers@768x1024": 0,
+      "glance_cost.median@768x1024": 1.5,
+      "glance_cost.p95@768x1024": 2,
+      "actions_per_fix.max@768x1024": 0,
+      "actions_per_fix.median@768x1024": 0,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0
+    },
+    "changes": {
+      "screen_only.time_to_act_steps.max@1280x720": 0,
+      "layout_shift.per_minute@1280x720": 0,
+      "reading_load.max@1280x720": 91,
+      "reading_load.median@1280x720": 91,
+      "cue_churn.changes@1280x720": 0,
+      "cue_churn.flip_flops@1280x720": 0,
+      "contract.scroll@1280x720": 0,
+      "contract.hidden@1280x720": 0,
+      "contract.axe_serious@1280x720": 0,
+      "contract.truncated_hidden@1280x720": 16,
+      "completion.miss@1280x720": 0,
+      "completion.false@1280x720": 0,
+      "screen_only.actions@1280x720": 2,
+      "screen_only.looks@1280x720": 11,
+      "screen_only.steers@1280x720": 0,
+      "glance_cost.median@1280x720": 1,
+      "glance_cost.p95@1280x720": 3,
+      "actions_per_fix.max@1280x720": 3,
+      "actions_per_fix.median@1280x720": 2,
+      "screen_only.time_to_act_steps.max@1366x768": 0,
+      "layout_shift.per_minute@1366x768": 0,
+      "reading_load.max@1366x768": 91,
+      "reading_load.median@1366x768": 91,
+      "cue_churn.changes@1366x768": 0,
+      "cue_churn.flip_flops@1366x768": 0,
+      "contract.scroll@1366x768": 0,
+      "contract.hidden@1366x768": 0,
+      "contract.axe_serious@1366x768": 0,
+      "contract.truncated_hidden@1366x768": 16,
+      "completion.miss@1366x768": 0,
+      "completion.false@1366x768": 0,
+      "screen_only.actions@1366x768": 3,
+      "screen_only.looks@1366x768": 11,
+      "screen_only.steers@1366x768": 0,
+      "glance_cost.median@1366x768": 1,
+      "glance_cost.p95@1366x768": 2,
+      "actions_per_fix.max@1366x768": 1,
+      "actions_per_fix.median@1366x768": 1,
+      "screen_only.time_to_act_steps.max@1600x1000": 0,
+      "layout_shift.per_minute@1600x1000": 0,
+      "reading_load.max@1600x1000": 101,
+      "reading_load.median@1600x1000": 101,
+      "cue_churn.changes@1600x1000": 0,
+      "cue_churn.flip_flops@1600x1000": 0,
+      "contract.scroll@1600x1000": 0,
+      "contract.hidden@1600x1000": 0,
+      "contract.axe_serious@1600x1000": 0,
+      "contract.truncated_hidden@1600x1000": 6,
+      "completion.miss@1600x1000": 0,
+      "completion.false@1600x1000": 0,
+      "screen_only.actions@1600x1000": 3,
+      "screen_only.looks@1600x1000": 11,
+      "screen_only.steers@1600x1000": 0,
+      "glance_cost.median@1600x1000": 1,
+      "glance_cost.p95@1600x1000": 2,
+      "actions_per_fix.max@1600x1000": 1,
+      "actions_per_fix.median@1600x1000": 1,
+      "screen_only.time_to_act_steps.max@1920x1080": 0,
+      "layout_shift.per_minute@1920x1080": 0,
+      "reading_load.max@1920x1080": 105,
+      "reading_load.median@1920x1080": 105,
+      "cue_churn.changes@1920x1080": 0,
+      "cue_churn.flip_flops@1920x1080": 0,
+      "contract.scroll@1920x1080": 0,
+      "contract.hidden@1920x1080": 0,
+      "contract.axe_serious@1920x1080": 0,
+      "contract.truncated_hidden@1920x1080": 5,
+      "completion.miss@1920x1080": 0,
+      "completion.false@1920x1080": 0,
+      "screen_only.actions@1920x1080": 3,
+      "screen_only.looks@1920x1080": 11,
+      "screen_only.steers@1920x1080": 0,
+      "glance_cost.median@1920x1080": 1,
+      "glance_cost.p95@1920x1080": 2,
+      "actions_per_fix.max@1920x1080": 1,
+      "actions_per_fix.median@1920x1080": 1,
+      "screen_only.time_to_act_steps.max@360x800": 0,
+      "layout_shift.per_minute@360x800": 0,
+      "reading_load.max@360x800": 95,
+      "reading_load.median@360x800": 95,
+      "cue_churn.changes@360x800": 0,
+      "cue_churn.flip_flops@360x800": 0,
+      "contract.scroll@360x800": 0,
+      "contract.hidden@360x800": 0,
+      "contract.axe_serious@360x800": 0,
+      "contract.truncated_hidden@360x800": 0,
+      "completion.miss@360x800": 0,
+      "completion.false@360x800": 0,
+      "screen_only.actions@360x800": 3,
+      "screen_only.looks@360x800": 12,
+      "screen_only.steers@360x800": 0,
+      "glance_cost.median@360x800": 1,
+      "glance_cost.p95@360x800": 3,
+      "actions_per_fix.max@360x800": 1,
+      "actions_per_fix.median@360x800": 1,
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "phone.sheet_diff@360x800": 0,
+      "screen_only.time_to_act_steps.max@390x844": 0,
+      "layout_shift.per_minute@390x844": 0,
+      "reading_load.max@390x844": 95,
+      "reading_load.median@390x844": 95,
+      "cue_churn.changes@390x844": 0,
+      "cue_churn.flip_flops@390x844": 0,
+      "contract.scroll@390x844": 0,
+      "contract.hidden@390x844": 0,
+      "contract.axe_serious@390x844": 0,
+      "contract.truncated_hidden@390x844": 0,
+      "completion.miss@390x844": 0,
+      "completion.false@390x844": 0,
+      "screen_only.actions@390x844": 3,
+      "screen_only.looks@390x844": 12,
+      "screen_only.steers@390x844": 0,
+      "glance_cost.median@390x844": 1,
+      "glance_cost.p95@390x844": 3,
+      "actions_per_fix.max@390x844": 1,
+      "actions_per_fix.median@390x844": 1,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "phone.sheet_diff@390x844": 0,
+      "screen_only.time_to_act_steps.max@414x896": 0,
+      "layout_shift.per_minute@414x896": 0,
+      "reading_load.max@414x896": 95,
+      "reading_load.median@414x896": 95,
+      "cue_churn.changes@414x896": 0,
+      "cue_churn.flip_flops@414x896": 0,
+      "contract.scroll@414x896": 0,
+      "contract.hidden@414x896": 0,
+      "contract.axe_serious@414x896": 0,
+      "contract.truncated_hidden@414x896": 0,
+      "completion.miss@414x896": 0,
+      "completion.false@414x896": 0,
+      "screen_only.actions@414x896": 3,
+      "screen_only.looks@414x896": 12,
+      "screen_only.steers@414x896": 0,
+      "glance_cost.median@414x896": 1,
+      "glance_cost.p95@414x896": 3,
+      "actions_per_fix.max@414x896": 1,
+      "actions_per_fix.median@414x896": 1,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "phone.sheet_diff@414x896": 0,
+      "screen_only.time_to_act_steps.max@768x1024": 0,
+      "layout_shift.per_minute@768x1024": 0,
+      "reading_load.max@768x1024": 95,
+      "reading_load.median@768x1024": 95,
+      "cue_churn.changes@768x1024": 0,
+      "cue_churn.flip_flops@768x1024": 0,
+      "contract.scroll@768x1024": 0,
+      "contract.hidden@768x1024": 0,
+      "contract.axe_serious@768x1024": 0,
+      "contract.truncated_hidden@768x1024": 0,
+      "completion.miss@768x1024": 0,
+      "completion.false@768x1024": 0,
+      "screen_only.actions@768x1024": 3,
+      "screen_only.looks@768x1024": 12,
+      "screen_only.steers@768x1024": 0,
+      "glance_cost.median@768x1024": 1,
+      "glance_cost.p95@768x1024": 3,
+      "actions_per_fix.max@768x1024": 1,
+      "actions_per_fix.median@768x1024": 1,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0,
+      "phone.sheet_diff@768x1024": 0
+    },
+    "engine": {
+      "cue.ahead@1600x1000": 0,
+      "cue.missing@1600x1000": 0,
+      "cue.flip_flops@1600x1000": 0,
+      "cue.inaccuracy_pct@1600x1000": 0
+    },
+    "trial-2-train": {
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "phone.sheet_drawer@360x800": 0,
+      "phone.graph@360x800": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "phone.sheet_drawer@390x844": 0,
+      "phone.graph@390x844": 0,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "phone.sheet_drawer@414x896": 0,
+      "phone.graph@414x896": 0,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0,
+      "phone.sheet_drawer@768x1024": 0,
+      "phone.graph@768x1024": 0
+    },
+    "trial-3-haiku": {
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "phone.sheet_drawer@360x800": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "phone.sheet_drawer@390x844": 0,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "phone.sheet_drawer@414x896": 0,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0,
+      "phone.sheet_drawer@768x1024": 0
+    },
+    "trial-todo-1": {
+      "phone.hscroll_px@360x800": 0,
+      "phone.wide@360x800": 0,
+      "phone.small_targets@360x800": 0,
+      "phone.small_text@360x800": 0,
+      "phone.small_body_text@360x800": 0,
+      "phone.covered@360x800": 0,
+      "phone.truncated_hidden@360x800": 0,
+      "phone.scroll@360x800": 0,
+      "phone.hidden@360x800": 0,
+      "phone.kpi_reach@360x800": 0,
+      "phone.axe_serious@360x800": 0,
+      "phone.sheet_rail@360x800": 0,
+      "phone.graph@360x800": 0,
+      "phone.hscroll_px@390x844": 0,
+      "phone.wide@390x844": 0,
+      "phone.small_targets@390x844": 0,
+      "phone.small_text@390x844": 0,
+      "phone.small_body_text@390x844": 0,
+      "phone.covered@390x844": 0,
+      "phone.truncated_hidden@390x844": 0,
+      "phone.scroll@390x844": 0,
+      "phone.hidden@390x844": 0,
+      "phone.kpi_reach@390x844": 0,
+      "phone.axe_serious@390x844": 0,
+      "phone.sheet_rail@390x844": 0,
+      "phone.graph@390x844": 0,
+      "phone.hscroll_px@414x896": 0,
+      "phone.wide@414x896": 0,
+      "phone.small_targets@414x896": 0,
+      "phone.small_text@414x896": 0,
+      "phone.small_body_text@414x896": 0,
+      "phone.covered@414x896": 0,
+      "phone.truncated_hidden@414x896": 0,
+      "phone.scroll@414x896": 0,
+      "phone.hidden@414x896": 0,
+      "phone.kpi_reach@414x896": 0,
+      "phone.axe_serious@414x896": 0,
+      "phone.sheet_rail@414x896": 0,
+      "phone.graph@414x896": 0,
+      "phone.hscroll_px@768x1024": 0,
+      "phone.wide@768x1024": 0,
+      "phone.small_targets@768x1024": 0,
+      "phone.small_text@768x1024": 0,
+      "phone.small_body_text@768x1024": 0,
+      "phone.covered@768x1024": 0,
+      "phone.truncated_hidden@768x1024": 0,
+      "phone.scroll@768x1024": 0,
+      "phone.hidden@768x1024": 0,
+      "phone.kpi_reach@768x1024": 0,
+      "phone.axe_serious@768x1024": 0,
+      "phone.sheet_rail@768x1024": 0,
+      "phone.graph@768x1024": 0
+    }
+  },
+  "failures": [
+    {
+      "test": "changes: layout contract and the screen-only user",
+      "viewport": "1280x720",
+      "message": "Error: finds the last change as a control it can use expect(received).toBe(expected) // Object.is equality Expected: true Received: false 158 | if (s.truth.lastChange?.cls) expect.soft(await first.getAttribute('class'), `the newest change is ${s.truth.lastChange.cls}`).toContain(`c-${s.truth.lastChange.cls}`); 159 | const ok = !!name && await use('button', name); > 160 | expect.soft(ok, 'finds the last change as a control it can use').toBe(true); | ^ 161 | if (!ok) u.fixes.push(3); 162 | if (ok) { 163 | await expect.soft(page.getByRole('dialog')).toBeVisible(); at ui/ux/specs/loop.spec.mjs:160:72",
+      "gating": false,
+      "gate": null
+    }
+  ],
+  "baseline": {
+    "person": {
+      "keyboard.tabs_to_cue@1366x768": {
+        "value": 9
+      },
+      "screen_only.time_to_act_steps.max@1366x768": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1366x768": {
+        "value": 0
+      },
+      "reading_load.max@1366x768": {
+        "value": 107,
+        "decision": "D-004"
+      },
+      "reading_load.median@1366x768": {
+        "value": 107,
+        "decision": "D-004"
+      },
+      "cue_churn.changes@1366x768": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1366x768": {
+        "value": 0
+      },
+      "contract.scroll@1366x768": {
+        "value": 0
+      },
+      "contract.hidden@1366x768": {
+        "value": 0
+      },
+      "contract.axe_serious@1366x768": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1366x768": {
+        "value": 11,
+        "decision": "D-004"
+      },
+      "completion.miss@1366x768": {
+        "value": 0
+      },
+      "completion.false@1366x768": {
+        "value": 0
+      },
+      "screen_only.actions@1366x768": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "screen_only.looks@1366x768": {
+        "value": 8,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1366x768": {
+        "value": 0
+      },
+      "glance_cost.median@1366x768": {
+        "value": 1
+      },
+      "glance_cost.p95@1366x768": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "actions_per_fix.max@1366x768": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "actions_per_fix.median@1366x768": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "keyboard.tabs_to_cue@1600x1000": {
+        "value": 9
+      },
+      "screen_only.time_to_act_steps.max@1600x1000": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1600x1000": {
+        "value": 0.006
+      },
+      "reading_load.max@1600x1000": {
+        "value": 116,
+        "decision": "D-004"
+      },
+      "reading_load.median@1600x1000": {
+        "value": 116,
+        "decision": "D-004"
+      },
+      "cue_churn.changes@1600x1000": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "contract.scroll@1600x1000": {
+        "value": 0
+      },
+      "contract.hidden@1600x1000": {
+        "value": 0
+      },
+      "contract.axe_serious@1600x1000": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1600x1000": {
+        "value": 4
+      },
+      "completion.miss@1600x1000": {
+        "value": 0
+      },
+      "completion.false@1600x1000": {
+        "value": 0
+      },
+      "screen_only.actions@1600x1000": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "screen_only.looks@1600x1000": {
+        "value": 8,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1600x1000": {
+        "value": 0
+      },
+      "glance_cost.median@1600x1000": {
+        "value": 1
+      },
+      "glance_cost.p95@1600x1000": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "actions_per_fix.max@1600x1000": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "actions_per_fix.median@1600x1000": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "keyboard.tabs_to_decide@1366x768": {
+        "value": 0
+      },
+      "screen_only.decision_refused@1366x768": {
+        "value": 1
+      },
+      "keyboard.tabs_to_decide@1600x1000": {
+        "value": 0
+      },
+      "screen_only.decision_refused@1600x1000": {
+        "value": 1
+      }
+    },
+    "agent": {
+      "screen_only.time_to_act_steps.max@1366x768": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1366x768": {
+        "value": 0.023,
+        "decision": "D-004"
+      },
+      "reading_load.max@1366x768": {
+        "value": 78
+      },
+      "reading_load.median@1366x768": {
+        "value": 52,
+        "decision": "D-005"
+      },
+      "cue_churn.changes@1366x768": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1366x768": {
+        "value": 0
+      },
+      "contract.scroll@1366x768": {
+        "value": 0
+      },
+      "contract.hidden@1366x768": {
+        "value": 0
+      },
+      "contract.axe_serious@1366x768": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1366x768": {
+        "value": 31,
+        "decision": "D-004"
+      },
+      "completion.miss@1366x768": {
+        "value": 0
+      },
+      "completion.false@1366x768": {
+        "value": 0
+      },
+      "screen_only.actions@1366x768": {
+        "value": 1
+      },
+      "screen_only.looks@1366x768": {
+        "value": 6,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1366x768": {
+        "value": 0
+      },
+      "glance_cost.median@1366x768": {
+        "value": 1
+      },
+      "glance_cost.p95@1366x768": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "actions_per_fix.max@1366x768": {
+        "value": 1
+      },
+      "actions_per_fix.median@1366x768": {
+        "value": 1
+      },
+      "screen_only.time_to_act_steps.max@1600x1000": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1600x1000": {
+        "value": 0.005
+      },
+      "reading_load.max@1600x1000": {
+        "value": 89
+      },
+      "reading_load.median@1600x1000": {
+        "value": 63,
+        "decision": "D-005"
+      },
+      "cue_churn.changes@1600x1000": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "contract.scroll@1600x1000": {
+        "value": 0
+      },
+      "contract.hidden@1600x1000": {
+        "value": 0
+      },
+      "contract.axe_serious@1600x1000": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1600x1000": {
+        "value": 12
+      },
+      "completion.miss@1600x1000": {
+        "value": 0
+      },
+      "completion.false@1600x1000": {
+        "value": 0
+      },
+      "screen_only.actions@1600x1000": {
+        "value": 1
+      },
+      "screen_only.looks@1600x1000": {
+        "value": 6,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1600x1000": {
+        "value": 0
+      },
+      "glance_cost.median@1600x1000": {
+        "value": 1
+      },
+      "glance_cost.p95@1600x1000": {
+        "value": 2,
+        "decision": "D-002"
+      },
+      "actions_per_fix.max@1600x1000": {
+        "value": 1
+      },
+      "actions_per_fix.median@1600x1000": {
+        "value": 1
+      }
+    },
+    "two": {
+      "screen_only.time_to_act_steps.max@1366x768": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1366x768": {
+        "value": 2.558,
+        "decision": "D-005"
+      },
+      "reading_load.max@1366x768": {
+        "value": 122
+      },
+      "reading_load.median@1366x768": {
+        "value": 85
+      },
+      "cue_churn.changes@1366x768": {
+        "value": 0,
+        "decision": "D-005"
+      },
+      "cue_churn.flip_flops@1366x768": {
+        "value": 0
+      },
+      "contract.scroll@1366x768": {
+        "value": 0
+      },
+      "contract.hidden@1366x768": {
+        "value": 0
+      },
+      "contract.axe_serious@1366x768": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1366x768": {
+        "value": 30,
+        "decision": "D-005"
+      },
+      "completion.miss@1366x768": {
+        "value": 0
+      },
+      "completion.false@1366x768": {
+        "value": 0
+      },
+      "screen_only.actions@1366x768": {
+        "value": 0
+      },
+      "screen_only.looks@1366x768": {
+        "value": 4
+      },
+      "screen_only.steers@1366x768": {
+        "value": 0
+      },
+      "glance_cost.median@1366x768": {
+        "value": 1
+      },
+      "glance_cost.p95@1366x768": {
+        "value": 1
+      },
+      "actions_per_fix.max@1366x768": {
+        "value": 0
+      },
+      "actions_per_fix.median@1366x768": {
+        "value": 0
+      },
+      "screen_only.time_to_act_steps.max@1600x1000": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1600x1000": {
+        "value": 3.824,
+        "decision": "D-005"
+      },
+      "reading_load.max@1600x1000": {
+        "value": 133,
+        "decision": "D-005"
+      },
+      "reading_load.median@1600x1000": {
+        "value": 96,
+        "decision": "D-005"
+      },
+      "cue_churn.changes@1600x1000": {
+        "value": 0,
+        "decision": "D-005"
+      },
+      "cue_churn.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "contract.scroll@1600x1000": {
+        "value": 0
+      },
+      "contract.hidden@1600x1000": {
+        "value": 0
+      },
+      "contract.axe_serious@1600x1000": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1600x1000": {
+        "value": 12
+      },
+      "completion.miss@1600x1000": {
+        "value": 0
+      },
+      "completion.false@1600x1000": {
+        "value": 0
+      },
+      "screen_only.actions@1600x1000": {
+        "value": 0
+      },
+      "screen_only.looks@1600x1000": {
+        "value": 4
+      },
+      "screen_only.steers@1600x1000": {
+        "value": 0
+      },
+      "glance_cost.median@1600x1000": {
+        "value": 1
+      },
+      "glance_cost.p95@1600x1000": {
+        "value": 1
+      },
+      "actions_per_fix.max@1600x1000": {
+        "value": 0
+      },
+      "actions_per_fix.median@1600x1000": {
+        "value": 0
+      }
+    },
+    "decider": {
+      "screen_only.time_to_act_steps.max@1366x768": {
+        "value": 1,
+        "decision": "D-005"
+      },
+      "layout_shift.per_minute@1366x768": {
+        "value": 0.03,
+        "decision": "D-004"
+      },
+      "reading_load.max@1366x768": {
+        "value": 105,
+        "decision": "D-004"
+      },
+      "reading_load.median@1366x768": {
+        "value": 105,
+        "decision": "D-004"
+      },
+      "cue_churn.changes@1366x768": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1366x768": {
+        "value": 0
+      },
+      "contract.scroll@1366x768": {
+        "value": 0
+      },
+      "contract.hidden@1366x768": {
+        "value": 0
+      },
+      "contract.axe_serious@1366x768": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1366x768": {
+        "value": 12,
+        "decision": "D-004"
+      },
+      "completion.miss@1366x768": {
+        "value": 0
+      },
+      "completion.false@1366x768": {
+        "value": 0
+      },
+      "screen_only.actions@1366x768": {
+        "value": 0
+      },
+      "screen_only.looks@1366x768": {
+        "value": 4,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1366x768": {
+        "value": 0
+      },
+      "glance_cost.median@1366x768": {
+        "value": 1
+      },
+      "glance_cost.p95@1366x768": {
+        "value": 1
+      },
+      "actions_per_fix.max@1366x768": {
+        "value": 0
+      },
+      "actions_per_fix.median@1366x768": {
+        "value": 0
+      },
+      "screen_only.time_to_act_steps.max@1600x1000": {
+        "value": 1,
+        "decision": "D-005"
+      },
+      "layout_shift.per_minute@1600x1000": {
+        "value": 0.012
+      },
+      "reading_load.max@1600x1000": {
+        "value": 108,
+        "decision": "D-002"
+      },
+      "reading_load.median@1600x1000": {
+        "value": 108,
+        "decision": "D-002"
+      },
+      "cue_churn.changes@1600x1000": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "contract.scroll@1600x1000": {
+        "value": 0
+      },
+      "contract.hidden@1600x1000": {
+        "value": 0
+      },
+      "contract.axe_serious@1600x1000": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1600x1000": {
+        "value": 5
+      },
+      "completion.miss@1600x1000": {
+        "value": 0
+      },
+      "completion.false@1600x1000": {
+        "value": 0
+      },
+      "screen_only.actions@1600x1000": {
+        "value": 0
+      },
+      "screen_only.looks@1600x1000": {
+        "value": 4,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1600x1000": {
+        "value": 0
+      },
+      "glance_cost.median@1600x1000": {
+        "value": 1
+      },
+      "glance_cost.p95@1600x1000": {
+        "value": 1
+      },
+      "actions_per_fix.max@1600x1000": {
+        "value": 0
+      },
+      "actions_per_fix.median@1600x1000": {
+        "value": 0
+      }
+    },
+    "closed": {
+      "screen_only.time_to_act_steps.max@1366x768": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1366x768": {
+        "value": 0.01
+      },
+      "reading_load.max@1366x768": {
+        "value": 39
+      },
+      "reading_load.median@1366x768": {
+        "value": 39
+      },
+      "cue_churn.changes@1366x768": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1366x768": {
+        "value": 0
+      },
+      "contract.scroll@1366x768": {
+        "value": 0
+      },
+      "contract.hidden@1366x768": {
+        "value": 0
+      },
+      "contract.axe_serious@1366x768": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1366x768": {
+        "value": 41,
+        "decision": "D-004"
+      },
+      "completion.miss@1366x768": {
+        "value": 0
+      },
+      "completion.false@1366x768": {
+        "value": 0
+      },
+      "screen_only.actions@1366x768": {
+        "value": 0
+      },
+      "screen_only.looks@1366x768": {
+        "value": 3
+      },
+      "screen_only.steers@1366x768": {
+        "value": 0
+      },
+      "glance_cost.median@1366x768": {
+        "value": 1.5
+      },
+      "glance_cost.p95@1366x768": {
+        "value": 2
+      },
+      "actions_per_fix.max@1366x768": {
+        "value": 0
+      },
+      "actions_per_fix.median@1366x768": {
+        "value": 0
+      },
+      "screen_only.time_to_act_steps.max@1600x1000": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1600x1000": {
+        "value": 0.006
+      },
+      "reading_load.max@1600x1000": {
+        "value": 47
+      },
+      "reading_load.median@1600x1000": {
+        "value": 47
+      },
+      "cue_churn.changes@1600x1000": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "contract.scroll@1600x1000": {
+        "value": 0
+      },
+      "contract.hidden@1600x1000": {
+        "value": 0
+      },
+      "contract.axe_serious@1600x1000": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1600x1000": {
+        "value": 18,
+        "decision": "D-004"
+      },
+      "completion.miss@1600x1000": {
+        "value": 0
+      },
+      "completion.false@1600x1000": {
+        "value": 0
+      },
+      "screen_only.actions@1600x1000": {
+        "value": 0
+      },
+      "screen_only.looks@1600x1000": {
+        "value": 3
+      },
+      "screen_only.steers@1600x1000": {
+        "value": 0
+      },
+      "glance_cost.median@1600x1000": {
+        "value": 1.5
+      },
+      "glance_cost.p95@1600x1000": {
+        "value": 2
+      },
+      "actions_per_fix.max@1600x1000": {
+        "value": 0
+      },
+      "actions_per_fix.median@1600x1000": {
+        "value": 0
+      }
+    },
+    "changes": {
+      "screen_only.time_to_act_steps.max@1366x768": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1366x768": {
+        "value": 0
+      },
+      "reading_load.max@1366x768": {
+        "value": 91,
+        "decision": "D-004"
+      },
+      "reading_load.median@1366x768": {
+        "value": 91,
+        "decision": "D-004"
+      },
+      "cue_churn.changes@1366x768": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1366x768": {
+        "value": 0
+      },
+      "contract.scroll@1366x768": {
+        "value": 0
+      },
+      "contract.hidden@1366x768": {
+        "value": 0
+      },
+      "contract.axe_serious@1366x768": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1366x768": {
+        "value": 16,
+        "decision": "D-002"
+      },
+      "completion.miss@1366x768": {
+        "value": 0
+      },
+      "completion.false@1366x768": {
+        "value": 0
+      },
+      "screen_only.actions@1366x768": {
+        "value": 3,
+        "decision": "D-002"
+      },
+      "screen_only.looks@1366x768": {
+        "value": 11,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1366x768": {
+        "value": 0
+      },
+      "glance_cost.median@1366x768": {
+        "value": 1
+      },
+      "glance_cost.p95@1366x768": {
+        "value": 2
+      },
+      "actions_per_fix.max@1366x768": {
+        "value": 1
+      },
+      "actions_per_fix.median@1366x768": {
+        "value": 1
+      },
+      "screen_only.time_to_act_steps.max@1600x1000": {
+        "value": 0
+      },
+      "layout_shift.per_minute@1600x1000": {
+        "value": 0.006
+      },
+      "reading_load.max@1600x1000": {
+        "value": 101,
+        "decision": "D-004"
+      },
+      "reading_load.median@1600x1000": {
+        "value": 101,
+        "decision": "D-004"
+      },
+      "cue_churn.changes@1600x1000": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "contract.scroll@1600x1000": {
+        "value": 0
+      },
+      "contract.hidden@1600x1000": {
+        "value": 0
+      },
+      "contract.axe_serious@1600x1000": {
+        "value": 0
+      },
+      "contract.truncated_hidden@1600x1000": {
+        "value": 6,
+        "decision": "D-002"
+      },
+      "completion.miss@1600x1000": {
+        "value": 0
+      },
+      "completion.false@1600x1000": {
+        "value": 0
+      },
+      "screen_only.actions@1600x1000": {
+        "value": 3,
+        "decision": "D-002"
+      },
+      "screen_only.looks@1600x1000": {
+        "value": 11,
+        "decision": "D-002"
+      },
+      "screen_only.steers@1600x1000": {
+        "value": 0
+      },
+      "glance_cost.median@1600x1000": {
+        "value": 1
+      },
+      "glance_cost.p95@1600x1000": {
+        "value": 2
+      },
+      "actions_per_fix.max@1600x1000": {
+        "value": 1
+      },
+      "actions_per_fix.median@1600x1000": {
+        "value": 1
+      }
+    },
+    "engine": {
+      "cue.ahead@1600x1000": {
+        "value": 0
+      },
+      "cue.missing@1600x1000": {
+        "value": 0
+      },
+      "cue.flip_flops@1600x1000": {
+        "value": 0
+      },
+      "cue.inaccuracy_pct@1600x1000": {
+        "value": 0
+      }
+    }
+  },
+  "previous": "R-02"
+}

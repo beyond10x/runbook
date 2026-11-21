@@ -980,3 +980,355 @@ tr.fail td b { color: #ff9a9e; }
 .badge-h.b-rule { color: var(--text); background: var(--surface-3); }
 .badge-h.b-legacy, .badge-h.b-agent, .badge-h.b-none { color: var(--text-2); background: var(--surface-2); border: 1px dashed var(--line-3); }
 .fd-w.w-legacy, .fd-w.w-none { color: var(--text-3); font-style: italic; }
+
+/* R-03 change set (ux/rounds/R-03/triage.md): phone sizes, decision D-006. Nothing here applies above
+   900 px wide: the desktop viewports keep their layout. */
+#nowbar, #railbtn, .ghint { display: none; }
+/* C1 one column: the page scrolls down, never sideways; a sticky header holds the store, Follow and
+   Decisions, and a status bar with the run's state and its current step */
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  body { display: block; overflow: visible; }
+  header { position: sticky; top: 0; z-index: 25; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: 'logo sel fol dec' 'live now now rail' 'mark mark mark mark'; gap: 6px 8px; height: auto; padding: 6px 10px 8px; align-items: center; }
+  .brand, .hctl { display: contents; }
+  .logo { grid-area: logo; }
+  .bt, .bs { display: none; }
+  .selectw { grid-area: sel; min-width: 0; }
+  .selectw > span, .switch .swl, #live > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  select { width: 100%; min-width: 0; max-width: none; height: 44px; }
+  header .switch { grid-area: fol; justify-content: center; min-width: 44px; min-height: 44px; }
+  #decbtn { grid-area: dec; height: 44px; padding: 0 8px 0 12px; }
+  #live { grid-area: live; justify-self: center; padding: 0; border: 0; background: none; }
+  #live .lt { display: none; }
+  #runmark { grid-area: mark; flex-wrap: wrap; }
+  #nowbar { grid-area: now; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .nb-state { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; font-weight: 650; line-height: 1.3; color: var(--text); }
+  .nb-state i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--text-3); vertical-align: 1px; }
+  .nb-state.m-running i { background: var(--accent-2); }
+  .nb-state.m-waiting i { background: var(--appr); }
+  .nb-state.m-closed i, .nb-state.m-terminable i { background: var(--true); }
+  .nb-state.m-stuck i, .nb-state.m-gone i, .nb-state.m-stalled i { background: var(--false); }
+  .nb-state.m-stopped i { border-radius: 2px; background: var(--text-2); }
+  .nb-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text-2); }
+
+  #kpis { display: grid; grid-template-columns: 1fr 1fr; height: auto; padding: 0; }
+  .kt { min-height: 60px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .kt:nth-child(even) { border-right: 0; }
+  .kt:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .kt, .kt-main { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'l' 'v' 's'; align-content: start; }
+  .k-s { flex-wrap: wrap; white-space: normal; row-gap: 0; }
+  .kt.fail { grid-column: 1 / -1; flex-wrap: wrap; padding-bottom: 6px; }
+  .kt.fail .kt-main { flex: 1 1 100%; padding: 6px 12px 0; }
+  .k-fail { flex: 1 1 100%; padding: 0 12px; }
+  .k-stop, .kf-stop { white-space: normal; }
+  .k-standin { grid-column: 1 / -1; justify-self: start; margin: 6px 12px; }
+
+  #now, #now.m-waiting, #now.m-stuck, #now.m-closed, #now.m-stalled, #now.m-stopped { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+  html:not(.rp-open) #now, html:not(.rp-open) #phases { margin-right: 0; }
+  .now-s, .now-s.m-waiting, .now-s.m-stuck, .now-s.m-closed, .now-s.m-stalled, .now-s.m-stopped { white-space: normal; align-items: flex-start; line-height: 1.35; }
+  .now-cards { grid-template-columns: minmax(0, 1fr); }
+  .nc { grid-template-columns: 34px minmax(0, 1fr); padding: 12px; }
+  .nc-time { grid-column: 2; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+  .nc-1, .nc-2, .nc-3 { flex-wrap: wrap; row-gap: 2px; white-space: normal; overflow: visible; }
+  .nc-act, .nc-case, .nc-x, .nc-why, .nc-dim, .nc-q, .nc-q span, .np-say, .np-arg, .np-last, .tr-r, .fp, .fmt, .ft { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; direction: ltr; max-width: none; }
+  .nc .nc-verb, .nc .nc-2 .nc-dim { display: inline; }
+  .nc-3 .np-last { flex-basis: 100%; padding-left: 0; border-left: 0; }
+  .nc-btn { margin-left: 0; }
+  .trail { padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+  .tr { grid-template-columns: 6px auto minmax(0, 1fr) auto; }
+  .tr-t { display: none; }
+  .fd-m, .fd-2, .fd-w, .fd-a { flex-wrap: wrap; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+
+  #phases { padding: 10px 12px; }
+  .stages { flex-wrap: wrap; gap: 8px 18px; }
+  .stage { flex: 0 0 auto !important; }
+  .phase { flex: 0 0 44px; min-height: 44px; justify-content: center; padding: 0; }
+  .phase .pl, .phase .ps { display: none; }
+  .ticket { flex-wrap: wrap; row-gap: 4px; }
+
+  main { display: flex; flex-direction: column; min-height: 0; }
+  #left { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
+  #tree { max-height: 50vh; }
+  #feed { flex: none; }
+  .fd-list { max-height: 70vh; }
+  #center { border-bottom: 1px solid var(--line); }
+  #right, html:not(.rp-open) #right { display: none; }
+}
+/* C2 the right panel is a full-width sheet, opened from Details in the status bar, never a column */
+@media (max-width: 900px) {
+  #railbtn { grid-area: rail; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; padding: 0 12px; font: 600 14px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
+  html.rp-open #right { display: flex; position: fixed; inset: 0; z-index: 30; width: auto; border: 0; }
+  html.rp-open body { overflow: hidden; }
+  html.rp-open #tabs { flex-wrap: wrap; gap: 4px; margin: 8px; padding: 4px; overflow: visible; }
+  html.rp-open #tabs button { flex: 1 1 26%; min-height: 44px; padding: 0 6px; }
+  html.rp-open #rpclose { order: -1; flex: 0 0 100%; justify-content: flex-end; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--text); font: 600 14px var(--sans); }
+  html.rp-open #rpclose::before { content: 'Close'; }
+  #panel { padding: 12px 14px 32px; }
+  .tiles { grid-template-columns: 1fr 1fr; }
+  .cols2 { grid-template-columns: 1fr; }
+}
+/* C3 the case graph scrolls in its own box at a readable scale, with a visible hint, never clipped */
+@media (max-width: 900px) {
+  #center { display: block; }
+  .gbar { padding: 10px 12px; gap: 8px; }
+  #graph { height: 62vh; scroll-margin-top: 150px; }
+  .ghint:not([hidden]) { display: block; margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-2); background: var(--bg-2); }
+  #timeline { padding: 10px 12px; overflow-x: clip; }
+  .tl-head { flex-wrap: wrap; row-gap: 6px; }
+  .tl-cur { flex: 1 1 100%; order: 2; flex-wrap: wrap; white-space: normal; }
+  .tl-cur > span:last-child { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+  .tl-track { height: 46px; }
+  .tl-foot { flex-wrap: wrap; }
+  .tl-legend { flex-wrap: wrap; overflow: visible; white-space: normal; }
+}
+/* C4 the Decisions drawer and the dialogs are full-screen sheets with their close control in view */
+@media (max-width: 900px) {
+  #scrim { inset: 0; z-index: 40; }
+  #drawer { top: 0; width: 100%; border-left: 0; z-index: 41; }
+  body.drawer-open { overflow: hidden; }
+  .dr-h { gap: 8px; padding: 8px 12px 8px 16px; }
+  #drclose { min-width: 64px; min-height: 44px; }
+  #drawer > .gap { margin: 12px 12px 0; }
+  .dr-list { padding: 12px; }
+  .dcard { padding: 14px 14px 14px 16px; }
+  .dc-h h3 { min-width: 0; overflow-wrap: anywhere; }
+  .dc-a, .dr-fa { flex-wrap: wrap; }
+  table.ctx thead { display: none; }
+  table.ctx, table.ctx tbody, table.ctx tr, table.ctx td { display: block; width: auto; }
+  table.ctx tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  table.ctx td { padding: 2px 12px; border: 0; }
+  .ca { text-align: left; }
+  .unl-k { width: auto; flex-basis: 100%; }
+  .mdv { max-height: none; }
+  .dr-f { padding: 8px 12px 12px; }
+  dialog, #diffdlg, #diffdlg:has(.grounds) { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+  dialog { padding: 12px; }
+  #diffdlg { padding: 0; }
+  .dh { padding: 10px 12px; }
+  .dh-1 { flex-wrap: wrap; row-gap: 6px; }
+  .dh-p { flex: 1 1 calc(100% - 40px); white-space: normal; overflow-wrap: anywhere; }
+  .dh-nav { margin-left: auto; }
+  .dh-nav .ib, dialog .mh .ib { min-width: 44px; min-height: 44px; }
+  .dh-2 { gap: 4px 12px; }
+  .dmean { padding: 10px 12px; flex-wrap: wrap; }
+}
+/* C5 touch and type: every tap target at least 44x44 CSS px, no label under 12 px, no body text under
+   14 px (the second and third rules list every selector of this file that sets a smaller size) */
+@media (max-width: 900px) {
+  .ib, .btn, .btn.sm, .fchip, .decbtn, .nc-btn, .kt-main, .k-stop, .kf-stop, .nf-more, button.fd-s, .cmdrow summary, .opt, .tin, .switch, .tr, .fr, .nc-was { min-height: 44px; }
+  .ib { min-width: 44px; height: auto; }
+  .btn, .btn.sm { height: auto; white-space: normal; }
+  .k-stop, .kf-stop, .nf-more, .nc-was, .tr { display: flex; align-items: center; }
+  .tr { display: grid; }
+  .fr, .fr.fr-m { align-items: center; }
+  button.fd-s { display: flex; align-items: center; }
+  .fchip { padding: 0 12px; }
+  .nc-btn { padding: 0 16px; }
+  .k-stop, .kf-stop { width: 100%; }
+  .stage-h,
+  .ph,
+  .tl-title,
+  .sect,
+  #panel h3,
+  #panel h4,
+  .kind,
+  .cols2 i,
+  .kv > span:first-child,
+  .dk,
+  .unl-k,
+  .def,
+  .now-l,
+  .nc-verb,
+  .nc-kv i,
+  .fb,
+  .tr-h,
+  .cg-live,
+  .dh-kv i,
+  .cb,
+  .k-l,
+  .fd-title,
+  .nc-hold .nc-hk,
+  .dc-hk,
+  .dstop,
+  .k-f0,
+  .k-standin { font-size: 12px; }
+  :root,
+  code,
+  pre,
+  .mono,
+  .bs,
+  .selectw,
+  select,
+  .switch,
+  .live,
+  .ib,
+  .pl,
+  .ps,
+  .ticket,
+  .nr,
+  .cid,
+  .cst,
+  .cp,
+  .gt-sub,
+  .pill,
+  .legend,
+  .tl-cur,
+  .tl-cur .muted,
+  .tl-eval,
+  .tl-foot,
+  #tabs button,
+  .v,
+  .rec,
+  .rec .muted,
+  .bec,
+  .hp,
+  .small,
+  .badge-h,
+  table.steps,
+  table.steps th,
+  .llm,
+  .agent,
+  .tl,
+  .tv small,
+  .kpi,
+  .foot,
+  .cmdrow summary,
+  dialog h3,
+  .stime,
+  .sact,
+  .s2,
+  .llmrec,
+  .nx1 b,
+  .nx2,
+  .llmsum span,
+  .ag-h a,
+  .tc,
+  .decbtn,
+  .decbtn b,
+  .dr-h .muted,
+  .art-h,
+  .mdv h3,
+  .mdv h4,
+  .mdv h5,
+  .mdv pre,
+  .front,
+  table.ctx,
+  table.ctx th,
+  .cr,
+  .cs,
+  .unl,
+  .ul,
+  .ul .v,
+  .dc-a,
+  .btn,
+  .btn.sm,
+  .tin,
+  .tin.note,
+  .res,
+  .dr-fa,
+  pre.proc,
+  #toast,
+  .drow .d1 b,
+  .drow .d1 .scase,
+  .drow .d2,
+  .drow .d3,
+  .dreasons,
+  .dr1,
+  .dcites,
+  .dcites code,
+  .now-s,
+  .now-sub,
+  .now-drv,
+  .nc-q,
+  .nc-q b,
+  .nc-in,
+  .nc-case,
+  .nc-out,
+  .nc-2,
+  .nc-2 code,
+  .nc-kv code,
+  .ek,
+  .nc-3,
+  .np-tool,
+  .np-arg,
+  .nc-since,
+  .nc-warn,
+  .nf-h,
+  .fa,
+  .fd,
+  .op,
+  .fp,
+  .ft,
+  .fbin,
+  .fat,
+  .tr,
+  .tr-a,
+  .tr-d,
+  .tr-t,
+  .cst.st-running,
+  .chg-axis,
+  .cg-h,
+  .cg-h .muted,
+  .cg-t,
+  .fr2 .froot,
+  .dh-1 .op,
+  .dh-p,
+  .dh-1 .fa,
+  .dh-1 .fd,
+  .dh-pos,
+  .dh-2,
+  .dh-lang,
+  .d-note,
+  .dt,
+  .dl .ln,
+  .k-v small,
+  .k-s,
+  .k-nr,
+  .fd-h .muted,
+  .fchip,
+  .fd-note,
+  .fd-empty,
+  .fd-s,
+  .fd-row.c-code .fd-s,
+  .fd-1 .fa,
+  .fd-1 .fd,
+  .fd-m,
+  .fd-f,
+  .fd-2,
+  .fd-c,
+  .fd-a,
+  .fmore,
+  .dmean ul,
+  .dmean > .muted,
+  .kpirows .kid,
+  .kpirows .kdef td,
+  html:not(.rp-open) #tabs button[data-tab],
+  .fr.fr-m .fmt,
+  .now-s.m-waiting,
+  .now-s.m-stuck,
+  .now-s.m-closed,
+  .nc-one,
+  .nc-taken,
+  .dc-one,
+  .dc-who,
+  .dc-taken,
+  .dc-dv,
+  .ctx td .cdv,
+  button.fd-s,
+  .now-s.m-stalled,
+  .now-s.m-stopped,
+  .tree-stop,
+  .k-stop,
+  .kf-stop,
+  .chip-r,
+  .rm { font-size: 14px; }
+}
+@media (max-width: 900px) {
+  .k-v { white-space: normal; }
+  .fd-f { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; }
+  .proto { width: auto; overflow: visible; }
+  .drow .d1 { flex-wrap: wrap; }
+  .drow .d1 b { white-space: normal; overflow-wrap: anywhere; }
+  .fr.fr-m .fmt { display: block; -webkit-line-clamp: unset; }
+  .unl-k { font-size: 14px; text-transform: none; letter-spacing: 0; }
+}
