@@ -232,7 +232,7 @@ export default function PitchSlider(props: Props): ReactNode {
 
   return (
     <section className={styles.section} aria-labelledby="pitch-title">
-      <h2 id="pitch-title" className="b10x-sr-only">The SDC in three claims</h2>
+      <h2 id="pitch-title" className="b10x-sr-only">Runbook in three claims</h2>
       <div
         className={styles.carousel}
         role="region"
