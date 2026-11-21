@@ -67,8 +67,8 @@
 #   reopen-refused-decision  --reopen puts a refused decision back
 #   unstick-end, unstick-rerun, unstick-invalid, unstick-limit, unstick-off  run.unstick (D147)
 #   decider-question-reject, rework-fresh-allowance, spec-review-rework, writer-own-error,
-#   implement-percause, and the pending
-#   scope-unattributed-reject, finding-refused-reask, rework-spent-dropped, rework-spent-abandoned,
+#   implement-percause, scope-unattributed-reject, and the pending
+#   finding-refused-reask, rework-spent-dropped, rework-spent-abandoned,
 #   review-invalid-named: the reject and cap routes of
 #   docs/reject-routes.md (R1-R9)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
@@ -108,8 +108,9 @@ expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a
 expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
 # is pending, reported as `pending: N (K still failing)` and never failing the script.
-expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause)
-pending=(scope-unattributed-reject finding-refused-reask rework-spent-dropped rework-spent-abandoned
+expected+=(decider-question-reject rework-fresh-allowance spec-review-rework writer-own-error implement-percause
+  scope-unattributed-reject)
+pending=(finding-refused-reask rework-spent-dropped rework-spent-abandoned
   review-invalid-named)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
@@ -1279,11 +1280,11 @@ if (( code == 0 )) &&
 else
   echo "spec-review-rework: FAILED (cycle exit $code, or spec.author not sent back by spec_review)"
 fi
-# scope-unattributed-reject (R2, pending): the interview's scope-changing answers q2 and q3 are
+# scope-unattributed-reject (R2): the interview's scope-changing answers q2 and q3 are
 # given but unattributed (answered_by non-interactive), none is open, so scope.answer goes to the
 # decider as an approval, which it rejects. Route: each unattributed answer is put to the decider
 # as a question (as R1). Passes when the run closes with q2 and q3 answered_by decider:haiku and no
-# approval decision on scope.answer. Today: exit 6, rejected_without_rework_path.
+# approval decision on scope.answer. Before: exit 6, rejected_without_rework_path.
 trial scope-unattributed-reject SDC_STUB_FIXTURES="$fx/scope-unattributed" \
   SDC_DECIDER_REPLIES='{"scope.answer": {"decision": "reject", "answer": null, "reasons": ["fixture: the answers were given by nobody who may give them"], "cites": ["d4"], "best": null}}'
 code=$?

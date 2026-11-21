@@ -411,6 +411,12 @@ This approval was rejected before, at an earlier revision, and the writer has re
 (\`prior_rejections\` in in/decision.json: each rejection's revision and reasons). Check whether the
 current revision addresses each of those reasons; a reason still not addressed is a reason to reject."
 fi
+# A scope-changing answer already written but given by no one with the right to (R2).
+if [[ $type == question && $(r '.question.status // "open"') != open ]]; then
+  what="$what
+This question already has an answer (\`question.answer\`), written by the interview agent, which may
+not answer a scope-changing question: decide it as if it were open."
+fi
 # Asked again by run.unstick (scripts/run-trial.sh): its diagnosis of why the run stopped here.
 if [[ $(r '.note // ""') != "" ]]; then
   what="$what

@@ -863,12 +863,16 @@ withhold() { # <request> <decider reply>
 
 # The open scope-changing questions of the interview in case $1, one decider decision each (action
 # $2, position $3): each answer is written as a person's is (`answer`, `status: accepted` for the
-# default or `changed`, `answered_by: decider:<kind>`). Returns 0 when all were answered, 1 when
-# one waits on a person, 2 when none is open; exits on a refusal.
+# default or `changed`, `answered_by: decider:<kind>`). So is each scope-changing answer no one
+# with the right to give it gave (`answered_by` empty or non-interactive, check-questions exit 3):
+# put to the decider as a question, never as an approval of scope.answer (R2), so a reject is
+# refused as for any question (R1). Returns 0 when all were answered, 1 when one waits on a
+# person, 2 when none is open or unattributed; exits on a refusal.
 answer_questions() {
   local cdir=$1 act=$2 pos=$3 qf=$1/work/questions.yaml found=no rev q st qs=()
   rev=$(jq -r '.artifacts.questions.revision // "none"' "$cdir/case.json")
-  mapfile -t qs < <(yq -o=json -I=0 '.questions[] | select(.scope_changing == true and .status == "open")' "$qf" 2>/dev/null)
+  mapfile -t qs < <(yq -o=json -I=0 '.questions[] | select(.scope_changing == true and (.status == "open"
+    or (.answered_by // "") == "" or .answered_by == "non-interactive"))' "$qf" 2>/dev/null)
   for q in "${qs[@]}"; do
     [[ -n $q ]] || continue
     found=yes
