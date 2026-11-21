@@ -1113,6 +1113,77 @@
       "why": "too few ended runs with the metric: low 0 and high 0, the rule needs 3 each"
     },
     {
+      "hypothesis": "A free-running agent given the same idea and the same list of deliverables costs more (run.cost_usd and run.tokens_total) than the SDC run on 0.1.0.",
+      "id": "free-agent-0.1.0",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "decider",
+          "note": "the SDC's strong setting decides through an Opus decider (effort xhigh), the mixed setting through a Haiku decider with Haiku also on the other class; the free agent has no decider and answers its own questions"
+        },
+        {
+          "key": "shell",
+          "note": "the free agent has a shell and builds and tests its own code; the SDC's model nodes have no shell and programs check what they write"
+        },
+        {
+          "key": "adapter",
+          "note": "the SDC's work nodes ran through metaharness (review and decider through claude-cli); the free agent runs claude -p directly with the claude-cli adapter's hermetic flags plus --include-partial-messages; the same Claude Code binary 2.1.330"
+        },
+        {
+          "key": "delivery",
+          "note": "the SDC delivers by closing operating after its gates (requirement trace, ESS gate with compile and synthesize, plan cover, story tests, review, merge, release); the free agent is measured by program only as far as ended by itself, ess specify validate --strict-requires, cargo build and cargo test --locked of a copy, and the five deliverables present; conformance not measured unless stated in the facts"
+        },
+        {
+          "key": "tree",
+          "note": "the SDC runs are on 4468bfd, the free runs on 3ad3391; the free prompt is driver/examples/sdc/free-agent/prompt.md (the cycle's deliverables and implementation constraints in one prompt); the example spec fixture is unchanged since 4468bfd"
+        },
+        {
+          "key": "builds",
+          "note": "the free agent's cargo jobs run through slot in a confinement with a fresh cargo home, no network and no compiler cache wrapper; the SDC's builds ran through slot with the host's cargo configuration"
+        },
+        {
+          "key": "wall",
+          "note": "an SDC run's wall time runs from its first case event to its last; a free run's from the launcher's start to the session's end"
+        },
+        {
+          "key": "login-and-network",
+          "note": "the free session can read its own login (the copy in its home) and reach the network through its shell; no SDC node can (the implementing node has no shell, and programs run what is built)"
+        },
+        {
+          "key": "size",
+          "note": "the two sides may deliver products of different size; both are counted by the same program (sdc-free-agent size, added after tree_commit as measurement only) on the SDC run's published tree (store/IDEA-1/work/published, the same bytes as release) with its requirements.yaml and spec, and on the free run's work/impl, requirements.yaml and spec, as product lines, web asset lines, tests, requirements, scenarios that ess 0.96.0 synthesizes from the spec, files, and whether the README says how to start it (experiments/free-agent-0.1.0/sizes.json); the counts are reported and decide nothing"
+        }
+      ],
+      "primary": null,
+      "purpose": "Whether the SDC, where the LLM is not the runtime, costs less than one agent doing the whole cycle in one go with its own tool calls.",
+      "tree": "3ad3391",
+      "variants": [
+        {
+          "clean_passes": 3,
+          "ended": 3,
+          "id": "strong",
+          "listed": 3,
+          "primary": null
+        },
+        {
+          "clean_passes": 3,
+          "ended": 3,
+          "id": "mixed",
+          "listed": 3,
+          "primary": null
+        },
+        {
+          "clean_passes": 3,
+          "ended": 3,
+          "id": "sonnet",
+          "listed": 3,
+          "primary": null
+        }
+      ],
+      "verdict": "contradicted",
+      "why": "held on every pair of primary metric and baseline is required for held; run.cost_usd, sonnet against strong: contradicted (ranges separate against the expected direction (median difference -5.0329)); run.cost_usd, sonnet against mixed: contradicted (ranges separate against the expected direction (median difference -2.0787)); run.tokens_total, sonnet against strong: contradicted (ranges separate against the expected direction (median difference -2847429)); run.tokens_total, sonnet against mixed: contradicted (ranges separate against the expected direction (median difference -2632626))"
+    },
+    {
       "hypothesis": null,
       "id": "small-idea-1",
       "kind": "retrospective",
@@ -1349,6 +1420,46 @@
     {
       "path": "experiments/effort-implement-levels.yaml",
       "sha256": "e8c25a7980bd05b201f24e34b14dc200c04e79520ba4bd55a525efa3ba808a80"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0.yaml",
+      "sha256": "44b867c7c66ae2ff54fa2a73c897e219610251ed6ef0f42875dff316befb7b51"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/free-agent-0.1.0-sonnet-1.json",
+      "sha256": "51765d5d724bf2e4dac74cdbb37b4abb1d2a90158c9892a0b54c0fe3fd3a4fd5"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/free-agent-0.1.0-sonnet-2.json",
+      "sha256": "377a1255305ddf3f538272f1b92966dab41387f8aa151afe9c3208b401af245c"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/free-agent-0.1.0-sonnet-3.json",
+      "sha256": "8a9daba9f4084b5bdc847187042d43dfc42f15688f419660d6e666e703243ef7"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/trial-0.1.0-mixed-1.json",
+      "sha256": "dc9954f382eee7b0d064370869e26bb926d3dc57e03acf77a033dd213dbb0d4a"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/trial-0.1.0-mixed-2.json",
+      "sha256": "d6a3a4806dc04db1f00382afeffcd477462d162ce245334c0ed9014d4a6e11ad"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/trial-0.1.0-mixed-3.json",
+      "sha256": "94e1b3b512b80550672af5f0fd49af04e931dcf51af599c15493221396fa419f"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/trial-0.1.0-strong-1.json",
+      "sha256": "94f7de9ac069d3e03dead67cf0142b600fd96c07e1228d75089a8bacedbd031d"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/trial-0.1.0-strong-2.json",
+      "sha256": "089361948d31014f9e0c2e202bd3a7b58f026d131f8a52bbd42765c4e8be400e"
+    },
+    {
+      "path": "experiments/free-agent-0.1.0/runs/trial-0.1.0-strong-3.json",
+      "sha256": "4d6d7452134f37d395bb84bac2f693e7bb2f796396643532477f1aa6c5a902c9"
     },
     {
       "path": "experiments/small-idea-1.yaml",

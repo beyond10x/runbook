@@ -1,0 +1,13 @@
+{
+  "decisions": {"by_action":{},"by_class":{}},
+  "edges": [],
+  "format": "sdc.free-agent-metrics/1",
+  "metrics": {"api_requests":13,"capped":null,"clean":true,"closed":true,"cost_usd":0.413731,"decider_calls":0,"decider_cost_usd":0.0,"delivered":true,"end":"completed","end_kind":"closed","finished":true,"forced":0,"idle_s":1.628,"llm_calls":null,"llm_cost_usd":0.413731,"model_s":141.122,"outcome":"delivered","reopens":0,"session_usage":{"cache_read":353410,"cache_write":36937,"input":26,"output":23059},"tokens":{"cache_creation":36937,"cache_read":353410,"input":26,"output":23059},"tool_calls":13,"tool_calls_by_name":{"Bash":13},"tool_s":2.261,"unstuck":0,"usage_beyond_streamed_requests":{"cache_read":0,"cache_write":0,"input":0,"output":0},"waiting_on_person_s":0,"wall_s":144.753},
+  "nodes": [],
+  "outcome": {"build_exit":0,"builds":true,"capped":null,"conformance":"not measured","deliverables":{"impl":true,"plan":true,"requirements":true,"review":true,"spec":true},"delivered":true,"end":"completed","ended_by_itself":true,"ess_version":"ess 0.96.0","format":"sdc.free-agent-outcome/1","measured_at":"2026-11-21T15:12:28.630Z","requirements":5,"rule":"delivered: ended by itself (not capped, no error), requirements, spec, plan with at least one covers line, impl and review present, ess specify validate --strict-requires passes, cargo build --locked and cargo test --locked of a copy pass with at least one test and none failed","size":{"asset_lines":149,"format":"sdc.product-size/1","product_lines":449,"readme":true,"readme_says_how_to_start":true,"rule":"tests: #[test] attributes; product_lines and test_lines: non-blank lines not starting with // in .rs files, test lines being those in a tests/ directory or in a #[cfg(test)] item (ended by brace count); asset_lines: non-blank lines of .html, .js and .css files; readme_says_how_to_start: a README at the root naming cargo run, task run, target/release/ or target/debug/; target/ and dot directories skipped","rust_files":4,"test_lines":159,"tests":16},"spec_valid":true,"spec_validate_exit":0,"stories":2,"test_exit":0,"tests_failed":0,"tests_pass":true,"tests_passed":16},
+  "records": {"free_agent":true,"outcome":true},
+  "run": "free-agent-0.1.0-sonnet-2",
+  "settings": {"free.adapter":"claude-cli","free.effort":"high","free.max_turns":"1000","free.max_usd":"25","free.max_wall_s":"5400","free.model":"claude-sonnet-5-5"},
+  "stages": [],
+  "summary": "sdc.run-metrics/1 without `cases`; strings holding an absolute path removed"
+}
