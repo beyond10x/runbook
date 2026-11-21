@@ -13,7 +13,7 @@ relations:
 scope:
 - confidence: cited
   path: driver/examples/sdc/tools/llm-node.sh
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T17:45:30Z", actor: "human:operator", revision: 3, executor: "agent:sdc-improve", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -27,11 +27,16 @@ tree and the diff text. Its decisions stay the same, and its input falls to abou
 ## Context
 
 The operator's target, 2026-11-21: `run.cost_usd` 0.47 USD (`docs/improving.md`, Target), and
-"reduce context to minimal fact sets / inputs". The review is one request with no tools, but
-`in/impl/` is the whole tree (24 KB at the first story of `trial-0.1.0-strong-1`, 84 KB at its
-fourth) plus `in/change.diff` (24 to 26 KB). For a new file the diff is the whole file again. 0.69
-of a strong run's 0.80 review USD is input (`experiments/baseline-0.1.0/inputs.md`). The fourth
-review's prompt passes 100K tokens, where Haiku costs five times as much.
+"reduce context to minimal fact sets / inputs".
+
+The review is a `claude-cli` session with `Glob`, `Read` and `Grep`, 10 to 17 turns. Its inputs
+are the whole tree `in/impl/` (24 KB at the first story of `trial-0.1.0-strong-1`, 84 KB at its
+fourth) plus `in/change.diff` (24 to 26 KB). For a new file the diff is the whole file again.
+Its tools returned 31 to 110 KB per call. 0.69 of a strong run's 0.80 review USD is input
+(`experiments/baseline-0.1.0/inputs.md`). The fourth review's prompt passes 100K tokens, where
+Haiku costs five times as much.
+
+The change: the facts go into the prompt and the read tools are dropped.
 
 ## Smallest change
 

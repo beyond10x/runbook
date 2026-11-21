@@ -19,7 +19,7 @@ Strong setting (Sonnet on every work node):
 | node | sessions | turns | tool calls per run | in/ KB | read of in/ KB | read elsewhere KB | USD | first request | growth | output |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `change.implement` | 5 | 25 | Read 55, Edit 37, Write 13, Glob 5, Bash 4, Grep 3 | 65 | 13 | 48 | 2.097 | 0.104 | 1.072 | 0.920 |
-| `change.review` | 4.3 | one request | none (all inlined) | 119 | | | 0.799 | 0.691 (all input) | 0 | 0.109 |
+| `change.review` | 4.3 | 13 | Read and Glob 11 per call (claude-cli, `Glob,Read,Grep`) | 119 | 83 per call | | 0.799 | 0.691 (input, all turns) | | 0.109 |
 | `spec.author` | 2.7 | 21 | Read 37, Write 8, Glob 3, Bash 2, Edit 1, Grep 1 | 42 | 35 | 10 | 0.442 | 0.050 | 0.253 | 0.140 |
 | `questions.write` | 1.3 | 4 | Read 3, Write 1 | 1 | 1 | 0 | 0.068 | 0.025 | 0.019 | 0.024 |
 | `vision.write` | 1.3 | 7 | Read 5, Write 3 | 4 | 4 | 0 | 0.064 | 0.023 | 0.023 | 0.018 |
@@ -35,7 +35,7 @@ Mixed setting (Sonnet on writer, implement, review; Haiku on the rest):
 | node | sessions | turns | tool calls per run | in/ KB | read of in/ KB | read elsewhere KB | USD | first request | growth | output |
 |---|---|---|---|---|---|---|---|---|---|---|
 | `change.implement` | 4 | 23 | Read 45, Edit 22, Write 14, Glob 4, Bash 3, Grep 1 | 56 | 18 | 17 | 1.712 | 0.083 | 0.807 | 0.823 |
-| `change.review` | 4 | one request | none | 108 | | | 0.633 | 0.547 (all input) | 0 | 0.086 |
+| `change.review` | 4 | 13 | Read and Glob 11 per call | 108 | 54 per call | | 0.633 | 0.547 (input, all turns) | | 0.086 |
 | `spec.author` | 1.7 | 20 | Read 21, Write 7, Edit 3, Glob 2, Bash 1, Grep 1 | 38 | 37 | 8 | 0.338 | 0.027 | 0.183 | 0.129 |
 | `plan.decompose` | 1 | 7 | Read 4, Glob 1, Write 1 | 16 | 10 | 0 | 0.052 | 0.018 | 0.024 | 0.010 |
 | the seven Haiku intake and direction nodes | 9 | 3 to 8 | Read 1 to 11, Write 1 to 7 | 0 to 7 | 0 to 11 | 0 to 3 | 0.042 | 0.008 | 0.015 | 0.017 |
@@ -49,11 +49,15 @@ What the tables say:
 - **Inputs the program already has are fetched by the model**: `spec.author` reads 35 to 37 KB of
   its own `in/` over 20 turns (`in/example-spec/`, 28.8 KB, is most of it); implement reads 13 to
   18 KB of `in/` and 17 to 48 KB of `impl/`.
-- **The review is one request, but with everything**: `in/impl/` is the whole tree (24 KB at the
-  first story of `trial-0.1.0-strong-1`, 84 KB at its fourth) plus `in/change.diff` (24 to 26 KB,
-  for a new file the whole file again), `tests.txt`, `commands.json`: 33k to 53k tokens written
-  per call. The fourth review's prompt (53k written, 68k read) is over 100K tokens, where Haiku
-  costs five times as much (`models.md`).
+- **The review is a conversation that reads the tree**: a `claude-cli` session with `Glob`,
+  `Read` and `Grep` (`llm/<i>-change.review/argv.json`), 10 to 17 turns. It picks what to read
+  from `in/`: the whole tree `in/impl/` (24 KB at the first story of `trial-0.1.0-strong-1`, 84 KB
+  at its fourth) and `in/change.diff` (24 to 26 KB; for a new file, the whole file again). Its
+  tools returned 31 to 110 KB per call (median 83 KB strong, 54 KB mixed), and it wrote 21k to 55k
+  tokens per call. The fourth review of `trial-0.1.0-strong-1` (53k written, 68k read) passes 100K
+  tokens, where Haiku costs five times as much (`models.md`). An earlier version of this file
+  called the review one request with everything inlined. That was wrong: the session script read
+  only metaharness event streams, and the review's `claude-cli` stream has another shape.
 - **The intake nodes pay for the harness, not for their facts**: their inputs are 0 to 7 KB; on
   Sonnet the first request alone (3,600 written, 16,000 read) is a third of each session.
 
@@ -74,7 +78,7 @@ the node's normal rerun). Facts are fields of records, not whole files.
 | `vision.write`, `roadmap.write` | requirements; context; for the roadmap the vision's items | yes: `{markdown}` per artifact |
 | `plan.decompose` | roadmap items; requirements (id, text); the spec's command names | yes: `{stories}`, the program creates them through `aep` |
 | `spec.author` | requirements; context; build constraints; findings addressed to the spec; the format as one minimal example (`system.yaml` and one domain file, not the 28.8 KB example tree); the last `spec.validate` refusal lines on a rerun | yes: `{files: [{path, content}]}`, then `spec.validate` |
-| `change.review` | the story's acceptance lines, requirements and commands (`scope.json`, the matching entries of `commands.json`); the changed files of `impl/` with line numbers (the `at` of a finding must cite them); the changed line ranges, not the diff text; the test summary and the names of the story's tests | already one request; only the inputs change |
+| `change.review` | the story's acceptance lines, requirements and commands (`scope.json`, the matching entries of `commands.json`); the changed files of `impl/` with line numbers (the `at` of a finding must cite them); the changed line ranges, not the diff text; the test summary and the names of the story's tests | yes: the reply schema exists; the facts are inlined and the tools dropped |
 | `change.implement` | the story; its requirements and acceptance lines; its spec commands (compiled, only those); build constraints; findings and the last rejection addressed to it; the current text of the files its scope names, or of the files the previous story changed | one request per story, `{edits: [{path, old, new}], files: [{path, content}]}`, then `cargo build` and `tests.run`, compiler and test lines in the follow-up |
 
 Implement, asked specifically:
@@ -104,8 +108,8 @@ From the tables above; the assembled input sizes are estimates (inferred), the o
 Build first, in this order:
 
 1. **Review on the smallest fact set** (`story:review-minimal-facts`, record
-   `review-minimal-facts`). It changes only what `llm-node.sh` inlines; the node, its schema and
-   its checks stay. The review's reply reaches later steps only as its decision, so a recorded
+   `review-minimal-facts`). It changes what `llm-node.sh` puts into the prompt, and the session
+   loses its read tools; the node, its schema and its checks stay. The review's reply reaches later steps only as its decision, so a recorded
    replay re-asks only the reviews (`--on-divergence live`) and compares the decisions.
 2. **One structured request per node** (`story:structured-request-nodes`): one adapter mode (response
    schema, no tools, the program writes the files, follow-ups on a refused check), used first by

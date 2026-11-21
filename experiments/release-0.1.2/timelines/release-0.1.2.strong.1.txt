@@ -1,0 +1,1 @@
+release-0.1.2.strong.1 (sdc): wall 972.316 s, cost 4.695228 USD, tokens in 312 out 122336 cache-read 2624288 cache-write 540778; 74 program steps (13.857 s), 19 model sessions (695.255 s, 146 API requests incl. decider, 207 tool calls), 13 decider calls (258.625 s), 1 rule steps, idle 4.579 s (between rounds 0.416, driver 4.163), waiting on a person 0.0 s

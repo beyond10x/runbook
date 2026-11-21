@@ -1,0 +1,1 @@
+release-0.1.2.haiku.1 (sdc): wall 3278.39 s, cost 1.723669 USD, tokens in 506 out 790663 cache-read 8818491 cache-write 1898986; 116 program steps (24.684 s), 25 model sessions (2367.006 s, 239 API requests incl. decider, 469 tool calls), 20 decider calls (877.527 s), 0 rule steps, idle 9.173 s (between rounds 0.589, driver 8.584), waiting on a person 0.0 s
