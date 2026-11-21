@@ -615,7 +615,7 @@ fi
 # (fixtures/finding-story-language.yaml). The decider first answers the Python option, which the
 # program check refuses because it names Python from the constraints' ruled_out list; asked again,
 # it answers the Rust option. Passes when the run ends 0, f1 is resolved with the Rust option by
-# decider:haiku, the first reply is recorded invalid with that reason, the second request carries
+# decider:model, the first reply is recorded invalid with that reason, the second request carries
 # it, and the decider's prompt lists in/build-constraints.yaml with the constraints sentence.
 py="Implement in Python 3 with the standard library only, as r1 and the context state"
 rs="Implement in Rust with the standard library only, as the build constraints fix it"
@@ -627,7 +627,7 @@ r=$s/runs/decider-constraints
 dd=$(find "$r/decider" -maxdepth 1 -type d -name "*-f1" 2>/dev/null | sort)
 d1=$(head -n 1 <<< "$dd") d2=$(sed -n 2p <<< "$dd")
 if (( code == 0 )) &&
-   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e --arg a "$rs" '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == $a and .decided_by == "decider:haiku"' >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e --arg a "$rs" '.findings[] | select(.id == "f1") | .status == "resolved" and .decision == $a and .decided_by == "decider:model"' >/dev/null &&
    [[ -n $d1 && -n $d2 ]] &&
    jq -se '[.[] | select(.finding == "f1") | .decision] == ["invalid_reply", "approve"] and (.[] | select(.finding == "f1" and .decision == "invalid_reply") | .invalid_reason | test("names Python, which the build constraints of this run"))' "$r/decisions.jsonl" >/dev/null &&
    jq -e '.retry.attempt == 2 and (.retry.invalid_reason | test("names Python"))' "$d2/decide-request.json" >/dev/null &&
@@ -1938,7 +1938,7 @@ bugfix_cycle bugfix-never-red never-red not_reproduced \
 # the committed recording fixtures/recorded/stub with driver/src/bin/sdc-replay as the adapter of
 # every model and decider call, no LLM. The recording is a stub run through the fixture adapters,
 # packed: SDC_PRINCIPAL=agent:recorded-fixture SDC_LLM_ADAPTER=SDC_DECIDER_ADAPTER=<fixture adapter>
-# SDC_DECIDER=haiku SDC_LLM_NODES="idea.dissect questions.write questions.answer
+# SDC_DECIDER=model SDC_LLM_NODES="idea.dissect questions.write questions.answer
 # requirements.normalise context.default spec.author plan.decompose change.implement change.review"
 # SDC_FIXTURE_STUB='{"plan.decompose": ["plan-stories.json", "stories.json"]}' run-trial.sh <run>
 # "<fixtures/idea.yaml text>" --autopilot, then sdc-replay pack <run> fixtures/recorded/stub.
