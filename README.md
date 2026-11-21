@@ -12,12 +12,16 @@ state. Decisions that belong to a person stop the run and print the command that
 
 ## State
 
-A prototype. Nothing is released and no interface is stable.
+A prototype; no interface is stable. Release 0.1.0 (2026-11-21) is the first, a source release at
+a bare-version tag: see [CHANGELOG.md](CHANGELOG.md), [docs/releases/0.1.0.md](docs/releases/0.1.0.md)
+and [docs/releasing.md](docs/releasing.md).
 
 - Trial 1 (`docs/trial-1.md`): a to-do list idea run with a real LLM; round 1 stopped, as
   designed, on three scope-changing questions for a person.
 - Trial 2 (`docs/trial-2.md`): a late-found ambiguity and the loop that repairs it; verified with
   stub executors, the real-LLM run is recorded in its run notes.
+- Trial 3 (`docs/trial-3.md`, `docs/releases/0.1.0.md`): five of eight autopilot runs
+  of the to-do idea closed delivered; the limits are in the release notes.
 - Recorded runs (`runs/`) are not in this repository.
 
 ## Layout
