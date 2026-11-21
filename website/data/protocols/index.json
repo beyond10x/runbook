@@ -718,7 +718,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "1ba6d0b62d01e0738f1f3d4ed005654fdce28adb20537212413c6070c30da8bd"
+      "sha256": "d396e689714428151c558843ddbcd414cb1bb5dc15acb605e4e4d0a1aac56ebd"
     },
     {
       "path": "docs/check-output.txt",

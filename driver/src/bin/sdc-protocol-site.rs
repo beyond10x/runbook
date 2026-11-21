@@ -705,6 +705,19 @@ fn read(root: &Path, rel: &str, sources: &mut Vec<(String, String)>) -> Result<S
     Ok(raw)
 }
 
+/// The changelog from its first released version on: what the site renders. An `[Unreleased]`
+/// line changes nothing the site shows, so it must not make the committed data stale.
+fn released_part(changelog: &str) -> &str {
+    let mut at = 0;
+    for line in changelog.split_inclusive('\n') {
+        if line.starts_with("## [") && !line.starts_with("## [Unreleased]") {
+            return &changelog[at..];
+        }
+        at += line.len();
+    }
+    ""
+}
+
 fn read_json(path: &Path) -> Result<J, String> {
     let raw = fs::read_to_string(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     serde_json::from_str(&raw).map_err(|e| format!("{}: {e}", path.display()))
@@ -748,7 +761,10 @@ fn load(root: &Path) -> Result<Inputs, String> {
     };
     let mut releases = vec![];
     if root.join("CHANGELOG.md").is_file() {
-        for (version, date) in parse_changelog(&read(root, "CHANGELOG.md", &mut sources)?) {
+        let raw = fs::read_to_string(root.join("CHANGELOG.md")).map_err(|e| format!("cannot read CHANGELOG.md: {e}"))?;
+        let released = released_part(&raw);
+        sources.push(("CHANGELOG.md".to_string(), sha256_hex(released)));
+        for (version, date) in parse_changelog(released) {
             let rel = format!("docs/releases/{version}.md");
             let (summary, limits, notes) = if root.join(&rel).is_file() {
                 let (s, l) = parse_notes(&read(root, &rel, &mut sources)?);
@@ -1188,6 +1204,20 @@ outcomes:
 
     fn doc(out: &BTreeMap<String, String>, name: &str) -> J {
         serde_json::from_str(&out[name]).unwrap()
+    }
+
+    #[test]
+    fn an_unreleased_changelog_line_leaves_the_data_current_and_a_release_does_not() {
+        let root = fixture_repo("unreleased");
+        let before = render(&load(&root).unwrap());
+        let changelog = root.join("CHANGELOG.md");
+        let text = fs::read_to_string(&changelog).unwrap();
+        fs::write(&changelog, text.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Added\n\n- a line nobody released\n")).unwrap();
+        assert_eq!(render(&load(&root).unwrap()), before);
+        fs::write(&changelog, text.replace("## [Unreleased]\n", "## [Unreleased]\n\n## [0.3.0] - 2026-11-23\n\ny\n")).unwrap();
+        let after = render(&load(&root).unwrap());
+        assert_ne!(after, before);
+        assert_eq!(doc(&after, "index.json")["release"]["version"], "0.3.0");
     }
 
     #[test]

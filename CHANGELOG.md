@@ -7,6 +7,23 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- The documentation site, `website/` (Docusaurus with the beyond10x docs-system theme), published
+  at https://beyond10x.github.io/sdc/ by `.github/workflows/pages.yml` and
+  `.github/workflows/b10x-docs-site.yml`: what the SDC is, the main flow and a browser with one
+  page per protocol, what it is built on, the evaluation per release and model setting, and one
+  run step by step ("The LLM is not the runtime") (`3e93276`, `3c2930b`, `b7497fa`).
+- `sdc-protocol-site`: writes the site's protocol data, `website/data/protocols/`, from the
+  protocol YAML, the bindings and the committed check outputs; `check` fails on stale data and runs
+  in `scripts/check-bindings.sh`; `site-manifest` writes the site's `.well-known/b10x-site.json`
+  (`19209b8`, `3ba6bd6`).
+- Each run in `docs/progress.json` carries its metrics (cost, wall time, model and decider calls,
+  rework takes, review and merge rejections, looping factor and first-pass yield per node, stop
+  cause; null where the run summary has none) (`c45bc91`).
+- `task docs`, `docs:generate`, `docs:build`, `docs:test`: the site's data check, build and smoke
+  test (every page at 1440 and 390 px in both themes, axe, internal links).
+
 ## [0.1.1] - 2026-11-21
 
 Fixes and tools after the first release; no protocol of the nine changed. The longer note is
