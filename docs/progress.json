@@ -3079,7 +3079,7 @@
       ],
       "primary": null,
       "purpose": "Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input.",
-      "tree": "5741425",
+      "tree": "9152866",
       "variants": [
         {
           "clean_passes": 0,
@@ -3380,7 +3380,7 @@
     },
     {
       "path": "experiments/review-minimal-facts.yaml",
-      "sha256": "d9fe5a3a4dc6d964d9f71ab6e62481eef372fea306832eac886ad7cd21d1f7bd"
+      "sha256": "86233ee86a2e438c08e4f0bdfd026b729ed29546ce5a1f9a5e9a8acc5bce1db3"
     },
     {
       "path": "experiments/small-idea-1.yaml",
