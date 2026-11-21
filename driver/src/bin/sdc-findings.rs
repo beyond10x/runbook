@@ -9,7 +9,8 @@
 //!     (folded into each stage check)
 //! sdc-findings --rules <…> promote <node> <file>
 //!     check the findings a stage agent wrote (shape, citations) and add the valid ones to
-//!     findings.yaml as open; the invalid ones as rejected, with the reason
+//!     findings.yaml as open; the invalid ones as rejected, with the reason; one that repeats a
+//!     finding not rejected (same type, cited items and text) is not added
 //! sdc-findings --rules <…> amend <stage>
 //!     resolve the open findings: classify each (agent or person), take the default or the
 //!     person's decision, amend questions.yaml and requirements.yaml, verify the amendment, and
@@ -338,6 +339,14 @@ fn check_finding(f: &Value, ids: &BTreeSet<String>) -> Option<String> {
     None
 }
 
+/// Two findings are the same when type, the set of cited items and the text (case and runs of
+/// whitespace ignored) are equal.
+fn same_finding(a: &Value, b: &Value) -> bool {
+    let cites = |v: &Value| -> BTreeSet<String> { seq(v, "cites").iter().map(scalar).collect() };
+    let text = |v: &Value| st(v, "says").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    st(a, "type") == st(b, "type") && cites(a) == cites(b) && text(a) == text(b)
+}
+
 fn promote(rules: &str, node: &str, path: &str) -> R<u8> {
     let mut w = Work::open(rules)?;
     let raised: Vec<Value> = seq(&load(path), "findings").to_vec();
@@ -352,6 +361,12 @@ fn promote(rules: &str, node: &str, path: &str) -> R<u8> {
     let mut added = 0;
     for f in raised {
         if !f.is_mapping() || (!st(&f, "key").is_empty() && keys.contains(st(&f, "key"))) {
+            continue;
+        }
+        // The same finding raised again (runs/trial-3-haiku-2: a writer's retry re-raised its own
+        // open findings, f10-f13 = f6-f9): not added; the earlier one stands with its decision.
+        if let Some(e) = w.findings().iter().find(|e| st(e, "status") != "rejected" && same_finding(e, &f)) {
+            println!("promote: not added, the same as {} ({}): {}", st(e, "id"), st(e, "status"), st(&f, "says"));
             continue;
         }
         n += 1;
@@ -591,8 +606,12 @@ fn verify(before: &Value, ctx_before: &Value, hits_before: &BTreeSet<String>, w:
 fn mark_derived(stage: &str, amended: &[String]) -> R<Option<String>> {
     if let Some((_, path)) = DERIVED.iter().find(|(st, _)| *st == stage) {
         if Path::new(path).is_dir() {
+            // Appended: the writer's own first line (`requirements <digest> resolved <ids>`, the
+            // findings resolved when it wrote the tree) stays, so it can tell which decisions are new.
             let line = format!("requirements {} amended by {}: re-derive\n", sha16("requirements.yaml"), amended.join(" "));
-            fs::write(format!("{path}/.derived-from"), line).map_err(|e| e.to_string())?;
+            let file = format!("{path}/.derived-from");
+            let before = fs::read_to_string(&file).unwrap_or_default();
+            fs::write(&file, before + &line).map_err(|e| e.to_string())?;
             return Ok(Some(format!("{path}/ marked as derived from an earlier requirements revision")));
         }
     }

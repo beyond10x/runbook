@@ -403,14 +403,42 @@ fn last_arrival(evs: &[Value], ir: &Value) -> usize {
         .map(|(i, _)| i).last().unwrap_or(0)
 }
 
-/// A writer that would be useful but has run its `max_runs` since the last arrival.
-fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, finished: &[&Value]) -> Value {
-    let last = finished.iter().rev().find(|e| e["action"] == a && !program_error(&e["exit"]));
-    let line = last.and_then(|e| e["log"].as_str()).and_then(|l| fs::read(dir.join("blobs").join(l)).ok())
+/// The last non-empty line of an event's log blob.
+fn log_line(dir: &Path, e: &Value) -> String {
+    e["log"].as_str().and_then(|l| fs::read(dir.join("blobs").join(l)).ok())
         .map(|b| String::from_utf8_lossy(&b).lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// A writer that would be useful but has run its `max_runs` since the last arrival. `sent_back`:
+/// for each counted run, the first other action after it (before the writer's next run) that
+/// exited non-zero, with its last log line: what made the writer useful again (runs/trial-3-haiku-2
+/// stopped with "last exit 0:" and nothing else, though each run was sent back by a new finding).
+fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, evs: &[Value]) -> Value {
+    let finished: Vec<&Value> = evs.iter().filter(|e| e["event"] == "action_finished").collect();
+    let last = finished.iter().rev().find(|e| e["action"] == a && !program_error(&e["exit"]));
+    let line = last.map(|e| log_line(dir, e)).unwrap_or_default();
+    let mut sent_back = Vec::new();
+    let after: Vec<&Value> = evs.iter().skip(since).filter(|e| e["event"] == "action_finished" && !program_error(&e["exit"])).collect();
+    for (i, run) in after.iter().enumerate().filter(|(_, e)| e["action"] == a) {
+        let by = after[i + 1..].iter().take_while(|e| e["action"] != a).find(|e| e["exit"] != "0");
+        sent_back.push(json!({"run_seq": run["seq"], "by": by.map(|e| e["action"].clone()),
+            "exit": by.map(|e| e["exit"].clone()), "line": by.map(|e| log_line(dir, e))}));
+    }
     json!({"action": a, "runs": runs, "max_runs": max, "since_seq": since,
-        "last_exit": last.map(|e| e["exit"].clone()), "last_failure": line})
+        "last_exit": last.map(|e| e["exit"].clone()), "last_failure": line, "sent_back": sent_back})
+}
+
+/// `sent_back` as one line for the stop message.
+fn sent_back_text(s: &Value) -> String {
+    let parts: Vec<String> = s["sent_back"].as_array().into_iter().flatten().map(|b| match b["by"].as_str() {
+        Some(by) => {
+            let line: String = b["line"].as_str().unwrap_or("").chars().take(160).collect();
+            format!("run {} then {by} exit {}: {line}", b["run_seq"], b["exit"].as_str().unwrap_or("?"))
+        }
+        None => format!("run {} then nothing failed", b["run_seq"]),
+    }).collect();
+    if parts.is_empty() { String::new() } else { format!("; sent back: {}", parts.join("; ")) }
 }
 
 /// The useful actions (`auto`, `manual`, see above) and the spent writers. Runs are counted so:
@@ -465,7 +493,7 @@ fn useful(dir: &Path, d: &Value) -> R<(Vec<String>, Vec<String>, Vec<Value>)> {
                 && !program_error(&e["exit"])).count() as u64;
             let max = b["max_runs"].as_u64().unwrap_or(8);
             if runs >= max {
-                spent.push(spent_entry(dir, &a, runs, max, since, &finished));
+                spent.push(spent_entry(dir, &a, runs, max, since, &evs));
                 continue;
             }
         }
@@ -763,9 +791,9 @@ fn step(canon: &str, dir: &Path, at: &str, action: Option<&str>, args: &str, pri
                     // dropped above).
                     let s = &pos["spent"][0];
                     event(dir, at, "writer_spent", json!({"state": pos["state"], "spent": pos["spent"]}))?;
-                    let message = format!("writer `{}` is spent at {}: {} runs since event {} (max_runs {}), last exit {}: {}",
+                    let message = format!("writer `{}` is spent at {}: {} runs since event {} (max_runs {}), last exit {}: {}{}",
                         s["action"].as_str().unwrap_or(""), dir.display(), s["runs"], s["since_seq"], s["max_runs"],
-                        s["last_exit"].as_str().unwrap_or("?"), s["last_failure"].as_str().unwrap_or(""));
+                        s["last_exit"].as_str().unwrap_or("?"), s["last_failure"].as_str().unwrap_or(""), sent_back_text(s));
                     return Ok((json!({"verdict": "writer_spent", "case_dir": dir, "spent": pos["spent"],
                         "message": message, "next": next, "position": pos, "explanation": decision["explanation"]}), 4));
                 } else if nonempty("approval_required") {
