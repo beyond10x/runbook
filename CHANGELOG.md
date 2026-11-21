@@ -7,6 +7,16 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Changed
+
+- "SDC" stands for "software delivery cycle" (the operator, 2026-11-21). The root protocol
+  `protocol/sdc.protocol.yaml` said "software development cycle" in its description; it now says
+  "delivery". That changes its compiled IR (`protocol/compiled/sdc.ir.json`, sha256
+  `41c6acc7…` to `8a05e12f…`) and so the IR hash a new case records, but no rule: no action,
+  condition, outcome or binding changed, and `canon simulate` gives the pinned report byte for byte.
+  Runs recorded before keep their own IR in their logs; the committed replay recording still
+  re-drives with every call matched.
+
 ### Corrections to 0.1.0
 
 `docs/releases/0.1.0.md` and the GitHub Release of 0.1.0 are not edited; this section holds the
