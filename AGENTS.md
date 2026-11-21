@@ -86,8 +86,8 @@
   the organization App's credentials. Every other GitHub write goes through
   `b10x-gates api` or `b10x-gates gh`.
 - No attribution lines. Every commit has a subject and a body.
-- Common Gates: hooks with `b10x-gates --repository beyond10x/sdc --policy ../gates-policy/policy.json
-  install`; before a push, `b10x-gates --repository beyond10x/sdc check --receipt <file>`. CI runs
+- Common Gates: hooks with `b10x-gates --repository beyond10x/runbook --policy ../gates-policy/policy.json
+  install`; before a push, `b10x-gates --repository beyond10x/runbook check --receipt <file>`. CI runs
   `.github/workflows/shared-gates.yml`, the reusable Gates workflow pinned by commit. Install and
   check need the repository enrolled in `gates-policy` (GitHub id and adoption baseline, the first
   commit).

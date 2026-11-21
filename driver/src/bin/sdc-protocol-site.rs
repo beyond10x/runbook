@@ -30,8 +30,8 @@ use sha2::{Digest, Sha256};
 
 const FORMAT: &str = "sdc.protocol-site/1";
 const OUT_DIR: &str = "website/data/protocols";
-const REPOSITORY: &str = "beyond10x/sdc";
-const BASE_URL: &str = "/sdc/";
+const REPOSITORY: &str = "beyond10x/runbook";
+const BASE_URL: &str = "/runbook/";
 const BINDINGS_DIR: &str = "driver/examples/sdc";
 const CHECK_OUTPUT: &str = "docs/check-output.txt";
 
@@ -986,7 +986,7 @@ fn valid_commit(commit: &str) -> bool {
 }
 
 fn site_manifest(commit: &str) -> String {
-    pretty(&json!({"schema": "b10x-project-site/v1", "repository": "sdc", "commit": commit, "baseUrl": BASE_URL}))
+    pretty(&json!({"schema": "b10x-project-site/v1", "repository": "runbook", "commit": commit, "baseUrl": BASE_URL}))
 }
 
 fn write_site_manifest(out: &Path, commit: &str) -> Result<PathBuf, String> {
@@ -1294,7 +1294,7 @@ outcomes:
         assert_eq!(index["roots"], json!(["demo"]));
         assert_eq!(index["flow"][0]["child"], "demo.child");
         assert_eq!(index["release"]["version"], "0.2.0");
-        assert_eq!(d["source"]["url"], "https://github.com/beyond10x/sdc/blob/0.2.0/protocol/demo.protocol.yaml");
+        assert_eq!(d["source"]["url"], "https://github.com/beyond10x/runbook/blob/0.2.0/protocol/demo.protocol.yaml");
     }
 
     #[test]
@@ -1379,7 +1379,7 @@ outcomes:
     #[test]
     fn the_site_manifest_names_the_project_site_and_its_commit() {
         let commit = "0123456789abcdef0123456789abcdef01234567";
-        assert_eq!(site_manifest(commit), format!("{{\n  \"baseUrl\": \"/sdc/\",\n  \"commit\": \"{commit}\",\n  \"repository\": \"sdc\",\n  \"schema\": \"b10x-project-site/v1\"\n}}\n"));
+        assert_eq!(site_manifest(commit), format!("{{\n  \"baseUrl\": \"/runbook/\",\n  \"commit\": \"{commit}\",\n  \"repository\": \"runbook\",\n  \"schema\": \"b10x-project-site/v1\"\n}}\n"));
         assert!(valid_commit(commit));
         assert!(!valid_commit(&"0".repeat(40)));
         assert!(!valid_commit("abc123"));

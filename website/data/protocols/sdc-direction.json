@@ -1118,7 +1118,7 @@
   "source": {
     "path": "protocol/sdc-direction.protocol.yaml",
     "tag": "0.1.4",
-    "url": "https://github.com/beyond10x/sdc/blob/0.1.4/protocol/sdc-direction.protocol.yaml"
+    "url": "https://github.com/beyond10x/runbook/blob/0.1.4/protocol/sdc-direction.protocol.yaml"
   },
   "stem": "sdc-direction",
   "summary": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6).",

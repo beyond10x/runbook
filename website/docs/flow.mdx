@@ -13,11 +13,11 @@ the protocol `sdc`. The root case holds no work of its own: it opens
 child cases, each worked by another party, and ends once its children ended. No case stores a phase;
 where a case stands is what its evidence makes true, and Canon lists at every moment the open
 obligations (what is missing) and the admissible actions (what is next)
-([`docs/protocol-notes.md:18-20`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/protocol-notes.md#L18-L20)).
+([`docs/protocol-notes.md:18-20`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/protocol-notes.md#L18-L20)).
 
 The diagram below is drawn from the generated protocol data: a box for every protocol a
 `case_open` action names, in the order those actions can be taken. Each box links to the protocol in
-the [browser](pathname:///sdc/protocols), where its actions, records and outcomes are listed.
+the [browser](pathname:///runbook/protocols), where its actions, records and outcomes are listed.
 
 <CycleFlow />
 
@@ -32,7 +32,7 @@ the [browser](pathname:///sdc/protocols), where its actions, records and outcome
   story, then the release, each once every earlier child ended passed.
 - **spec** is complete when the ESS gate passes at the current specification revision: validate,
   compile, conformance synthesis with no refusal and no open-question marker
-  ([`docs/phases.md:34-35`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/phases.md#L34-L35)).
+  ([`docs/phases.md:34-35`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/phases.md#L34-L35)).
 - **story** implements, tests against the specification's conformance suite, is reviewed and
   merged; **release** builds, runs the acceptance suite, publishes after an approval and observes.
 
@@ -45,7 +45,7 @@ box to read them.
 
 `sdc.bugfix` is its own small flow: dissect the report, write a reproducing test that is red, fix,
 run the tests, update the story, run the gate
-([`docs/releases/0.1.0.md:13`](https://github.com/beyond10x/sdc/blob/0.1.1/docs/releases/0.1.0.md#L13)). No protocol opens it
+([`docs/releases/0.1.0.md:13`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/releases/0.1.0.md#L13)). No protocol opens it
 yet; a run starts it with `scripts/run-trial.sh <run> --bugfix <seed dir>`.
 
 <ActionFlow id="sdc.bugfix" />

@@ -32,7 +32,7 @@ export interface Layer {
 
 const sdc = (path: string, lines?: string): Cite => ({
   label: lines ? `${path}:${lines}` : path,
-  href: `https://github.com/beyond10x/sdc/blob/0.1.1/${path}${lines ? `#L${lines.replace('-', '-L')}` : ''}`,
+  href: `https://github.com/beyond10x/runbook/blob/0.1.1/${path}${lines ? `#L${lines.replace('-', '-L')}` : ''}`,
 });
 
 const readme = (repo: string, lines: string): Cite => ({
@@ -61,7 +61,7 @@ export const COMPONENTS: Component[] = [
   {
     id: 'sdc',
     name: 'Runbook',
-    repo: 'https://github.com/beyond10x/sdc',
+    repo: 'https://github.com/beyond10x/runbook',
     is: 'An application on Loom. It holds the protocols, the action-to-tool data and the exit-code tables; it must not hold a runtime of its own.',
     isCite: sdc('docs/layers.md', '51'),
     use: 'used',

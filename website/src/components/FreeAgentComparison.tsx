@@ -75,7 +75,7 @@ export interface Model {
   timelines: Map<string, Tl>;
 }
 
-const SDC_WRITEUP = 'https://github.com/beyond10x/sdc/blob/main/docs/llm-is-not-the-runtime.md';
+const SDC_WRITEUP = 'https://github.com/beyond10x/runbook/blob/main/docs/llm-is-not-the-runtime.md';
 
 function fromPrimary(p: any): Stat | null {
   return p && typeof p.median === 'number' ? {median: p.median, min: p.min, max: p.max, n: p.n} : null;

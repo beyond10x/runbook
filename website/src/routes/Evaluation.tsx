@@ -46,7 +46,7 @@ function Cite({path, lines, at = TAG}: {path: string; lines?: [number, number?];
   const anchor = lines ? `#L${lines[0]}${lines[1] ? `-L${lines[1]}` : ''}` : '';
   const label = lines ? `${path}:${lines[0]}${lines[1] ? `-${lines[1]}` : ''}` : path;
   return (
-    <a href={`https://github.com/beyond10x/sdc/blob/${at}/${path}${anchor}`}>
+    <a href={`https://github.com/beyond10x/runbook/blob/${at}/${path}${anchor}`}>
       <code>{label}</code>
     </a>
   );

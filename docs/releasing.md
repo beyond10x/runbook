@@ -62,8 +62,8 @@ absolute path of `../gates-policy/policy.json`.
 ```console
 git tag -l <version>
 git ls-remote --tags origin <version>
-b10x-gates --repository beyond10x/sdc --policy <policy> bot -- tag -a <version> -m "SDC <version>" <commit>
-b10x-gates --repository beyond10x/sdc --policy <policy> bot -- push origin <version>
+b10x-gates --repository beyond10x/runbook --policy <policy> bot -- tag -a <version> -m "SDC <version>" <commit>
+b10x-gates --repository beyond10x/runbook --policy <policy> bot -- push origin <version>
 ```
 
 The first two print nothing when the tag does not exist yet. The release is created with
@@ -73,8 +73,8 @@ and writes the response to a file:
 ```console
 jq -n --arg tag <version> --arg name <version> --rawfile body docs/releases/<version>.md \
   '{tag_name: $tag, name: $name, body: $body}' > <scratch>/release.json
-b10x-gates --repository beyond10x/sdc --policy <policy> api --method POST \
-  --path /repos/beyond10x/sdc/releases --input <scratch>/release.json --output <scratch>/release-response.json
+b10x-gates --repository beyond10x/runbook --policy <policy> api --method POST \
+  --path /repos/beyond10x/runbook/releases --input <scratch>/release.json --output <scratch>/release-response.json
 ```
 
 ## Completion

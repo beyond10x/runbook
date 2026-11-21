@@ -15,7 +15,7 @@ admissible action, records the result as Canon evidence and evaluates again. An 
 the executor of one action; its output is an artifact revision, never evidence and never the next
 state. Decisions that belong to a person stop the run and print the command that takes them.
 
-The [documentation site](https://beyond10x.github.io/sdc/) shows the flow, every protocol drawn
+The [documentation site](https://beyond10x.github.io/runbook/) shows the flow, every protocol drawn
 from its YAML, what Runbook is built on, the evaluation per release and one run step by step.
 
 ## State
