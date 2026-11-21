@@ -67,6 +67,7 @@
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
 #   autopilot-close, autopilot-close-a3   runs/trial-3-haiku-5: the close in autopilot (D140)
+#   review-no-rework-prompt  after a merge.approve rejection the review gets no rejection as rework (D138)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -98,7 +99,7 @@ ctx_rework=no
 jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
-  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
+  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection review-no-rework-prompt)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
 expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
@@ -795,6 +796,21 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     echo "rework-pending-rejection: checks pass (a pending rejection: the writer called with in/rejection.json, the own-default skip not taken)"
   else
     echo "rework-pending-rejection: FAILED (exit ${pc:-none}: $(tail -n 1 <<< "${out:-}" | cut -c1-200))"
+  fi
+  # review-no-rework-prompt (ruling D138): as decider-rework (merge.approve rejected once, then
+  # approved) with change.review on the fixture adapter. The review after the rejection is a review,
+  # not a rework: passes when its call record has no in/rejection.json in its cwd and no "Rework."
+  # line in its prompt (before D138 it got the merge.approve rejection as rework).
+  trial review-no-rework-prompt SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.review \
+    SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{"merge.approve": {"rounds": [$j, $a]}}')"
+  code=$?
+  r=$s/runs/review-no-rework-prompt
+  r2=$(jq -rs '[.[] | select(.action == "change.review")] | .[1].record // empty' "$r/llm-calls.jsonl" 2>/dev/null)
+  if (( code == 0 )) && jq -e '[.[] | .decision] == ["reject", "approve"]' <<< "$(attempts "$r" merge.approve)" >/dev/null &&
+     [[ -n $r2 && -f $r2/prompt.md && ! -e $r2/cwd/in/rejection.json ]] && ! grep -q '^Rework\.' "$r2/prompt.md"; then
+    echo "review-no-rework-prompt: checks pass (merge.approve rejected, then approved; the review after the rejection got no in/rejection.json and no Rework. line)"
+  else
+    echo "review-no-rework-prompt: FAILED (exit $code; second review: ${r2:-no record}, in/rejection.json $([[ -n $r2 && -e $r2/cwd/in/rejection.json ]] && echo present || echo absent), Rework. lines $(grep -c '^Rework\.' "$r2/prompt.md" 2>/dev/null || echo 0))"
   fi
 fi
 # decider-later-obligation: runs/trial-3-mixed-3's refused release. The autopilot cycle's decider
