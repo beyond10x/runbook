@@ -1,0 +1,187 @@
+format: sdc.releases/1
+input:
+  name: todo-app
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+  description: a shared to-do list web app that works offline
+settings:
+- id: haiku
+  label: All Haiku
+  note: Haiku everywhere, decider too
+  match:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+- id: mixed
+  label: Sonnet work, Haiku decider
+  note: Haiku on the other nodes
+  match:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+- id: strong
+  label: Sonnet work, Opus decider
+  note: Sonnet on every node
+  match:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+- id: sonnet
+  label: All Sonnet, Haiku decider
+  note: Sonnet on every node
+  match:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-haiku-5-5
+- id: opus
+  label: Opus work, Haiku decider
+  note: Opus on every node
+  match:
+    models.writer.model: claude-opus-5-5
+    models.implement.model: claude-opus-5-5
+    models.other.model: claude-opus-5-5
+    decider.model: claude-haiku-5-5
+limits:
+- 'No run starts the delivered product and no oracle check runs: a clean pass is a Canon outcome closed by rule, not a product seen working.'
+- Every run so far used the canon binary of the canon checkout at run time, which no record pins.
+- 'Every run so far is registered retrospectively: the records were written after the runs, so none of them decides anything.'
+entries:
+- id: attempts
+  kind: pre-release
+  label: Attempts 1-5
+  short: 5 trees
+  date: 2026-11-21
+  tree: several
+  tree_note: trial/3 at cedd691 to trial/3b at ea2f111, each attempt on a tree with the fixes of the attempt before
+  experiments:
+  - trial-3-attempts
+  changes:
+  - commit: f74c68b
+    line: under autopilot the decider is told it is final (after attempt 1)
+    effect: unmeasured
+  - commit: 7f5ef7c
+    line: repeated findings dropped, no re-derivation for own defaults (after attempt 2)
+    effect: unmeasured
+  - commit: 37fba0b
+    line: the driver says what sent a spent writer back (after attempt 2)
+    effect: unmeasured
+  - commit: 073c173
+    line: what only a later step can meet is not an open condition (after attempt 4)
+    effect: unmeasured
+  limits:
+  - 'Each attempt ran on a different tree: the nine runs are a sequence of defect finds, not samples of one setting.'
+- id: acd6f12
+  kind: pre-release
+  label: acd6f12
+  short: batch tree
+  date: 2026-11-21
+  tree: acd6f12c4924e7a552d0ab518287d1c873618915
+  tree_note: trial/3b, ea2f111 with fix/attempt5-intake and fix/attempt5-close; the review step was a program stub
+  experiments:
+  - trial-3-batch-1
+  changes:
+  - commit: 102ce99
+    line: requirement citations checked at write; decisions not refused for faults they did not write
+    effect: unmeasured
+  - commit: 83d3cbf
+    line: rule:autopilot closes a terminable root, the decider is not asked
+    effect: unmeasured
+  limits:
+  - trial-3-mixed-5 started on 3663770 and was rebuilt in place to acd6f12 during its first round.
+- id: 8db4b93
+  kind: pre-release
+  label: 8db4b93
+  short: review node
+  date: 2026-11-21
+  tree: 8db4b9338f1d8d32c85b9cb2e014dac56980fac0
+  tree_note: main at 8db4b93, the first tree on which change.review calls a model
+  experiments:
+  - trial-3-main-1
+  changes:
+  - commit: 8f4f7a9
+    line: change.review is a model call of class review, checked by a program (impl/review-node)
+    effect: unmeasured
+  - commit: dfe4a3f
+    line: only writer and implement nodes look up a pending rejection
+    effect: unmeasured
+  - commit: f11d0e2
+    line: the requester agent decides the requester-side classes (not used by these runs)
+    effect: none
+  - commit: a1892e3
+    line: live view layout and stopped runs
+    effect: none
+  - commit: a5dd03f
+    line: planning stories for the canon simulate findings
+    effect: none
+  - commit: 8db4b93
+    line: scripted cycle review-no-rework-prompt
+    effect: none
+  limits:
+  - 'Three of the four runs stopped at their first review call, whose reply the check could not read: the figures measure that defect, not the workflow.'
+- id: '1001970'
+  kind: pre-release
+  label: '1001970'
+  short: review reply fix
+  date: 2026-11-21
+  tree: 1001970d83d872d1d0dcb80372cd22a8115c9359
+  tree_note: trial/main-2, main 8db4b93 with fix/review-reply 49b0a87
+  experiments:
+  - trial-3-main-2
+  changes:
+  - commit: 49b0a87
+    line: the review class runs on a schema adapter; a run that cannot is refused
+    effect: unmeasured
+- id: 0.1.0
+  kind: release
+  version: 0.1.0
+  label: 0.1.0
+  short: hermetic decider, effort set
+  date: 2026-11-21
+  tree: null
+  tree_note: not tagged yet; prepared on release/prepare-0.1.0 at 8b3abd4, which holds main 8db4b93, fix/review-reply and the merges below
+  experiments: []
+  changes:
+  - commit: f747085
+    line: hermetic claude-cli adapter; every node class has an explicit default effort
+    effect: unmeasured
+  - commit: a43cce9
+    line: reject and cap routes audited; a question reject, a rework allowance, a spec review rework
+    effect: unmeasured
+  - commit: 0598a26
+    line: a decision that replaces an answer supersedes it; what a close reads
+    effect: unmeasured
+  - commit: 6c7ba78
+    line: trace scope decisions applied; a re-raised finding stops the run
+    effect: unmeasured
+  - commit: f6d23b8
+    line: one bug fix, red first, as its own protocol sdc.bugfix (not run by the to-do idea)
+    effect: none
+  - commit: b48bd78
+    line: workflow-builder skill
+    effect: none
+  - commit: b58a8db
+    line: triage of the 71 canon simulate findings
+    effect: none
+  - commit: babed52
+    line: planning stories for the bug-fix cycle
+    effect: none
+  - commit: fea0936
+    line: scripted cycle decider-input reads the close from autopilot-close-a3
+    effect: none
+  - commit: 4332c03
+    line: scripted cycles read a program's output before grep -q
+    effect: none
+  - commit: 5062b2f
+    line: trial 3 report
+    effect: none
+  - commit: 6ef7de6
+    line: the release process and one version for the repository
+    effect: none
+  - commit: 6bf251a
+    line: 0.1.0 changelog and release notes
+    effect: none
+  limits:
+  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is the first step of the improvement loop.'

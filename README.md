@@ -30,6 +30,15 @@ A prototype. Nothing is released and no interface is stable.
 - `eval/`: eval runner, adversaries and personas; `docs/`: design notes and results.
 - `.engineering/planning/`: the planning store (AEP).
 
+## Progress
+
+How often one idea runs with no person to a closed, delivered app, per release and model setting.
+Each dot is one run; the figures come from the experiment records and are written by
+`sdc-experiment progress`. Every figure, its experiment and the limits of each measurement:
+[docs/progress.md](docs/progress.md). How an entry is added: [docs/improving.md](docs/improving.md).
+
+![Clean passes of ended runs per release and model setting, with the median cost and wall time of a clean pass](docs/img/progress.svg)
+
 ## Requirements
 
 A Canon checkout with a built `canon` binary (`CANON_DIR`, default `$HOME/beyond10x/canon`),

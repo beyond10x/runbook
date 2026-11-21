@@ -225,6 +225,10 @@ Commands (`sdc-experiment.rs`):
   `experiment.json` once run-trial.sh has made the run directory, adds the run to the record and
   sets `running`. Started again, it skips runs that have `experiment.json`. `--print` shows the
   units, variables and commands and starts nothing.
+- `progress [--experiments <dir>]`: the progress ledger, `docs/progress.md`, `docs/progress.json`
+  and `docs/img/progress.svg`, from the release table `experiments/releases.yaml` and the records
+  it names (`sdc-experiment/progress.rs`, the image `sdc-experiment/chart.rs`). `report` writes it
+  too; `check --all` fails on a stale one. The loop around it: `docs/improving.md`.
 - `status <id>`: each run with its unit state, cost, wall seconds and end. `stop <id> --reason
   <text> [--run <name>]`: `run-trial.sh <run> --stop <reason>` for each open run, then the unit is
   stopped; without `--run` the record becomes `abandoned` with `stopped` (at, by, reason).

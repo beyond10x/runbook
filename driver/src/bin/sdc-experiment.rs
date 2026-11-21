@@ -8,6 +8,7 @@
 //! sdc-experiment check --all [--experiments <dir>]
 //! sdc-experiment report <record.yaml | id> [--runs-dir <dir>] [--print]
 //! sdc-experiment index [--experiments <dir>]
+//! sdc-experiment progress [--experiments <dir>]
 //! sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>]
 //!                    [--stagger <seconds>] [--print]
 //! sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
@@ -29,7 +30,9 @@
 //! n runs as transient systemd user units with the environment taken from the record only, names
 //! them `<id>.<variant>.<n>` and writes `experiment.json` into each run directory. `status` lists
 //! the runs of a record; `stop` stops them with run-trial.sh's stop command and a reason.
-//! An id is read as `experiments/<id>.yaml`; `--runs-dir` defaults to `runs`. Exit 0, 1 a record
+//! `progress` writes the progress ledger from `experiments/releases.yaml` and the records
+//! (`sdc-experiment/progress.rs`); `report` rewrites it too, and `check --all` fails when it is
+//! stale. An id is read as `experiments/<id>.yaml`; `--runs-dir` defaults to `runs`. Exit 0, 1 a record
 //! that fails its check (or a refused launch), 2 a run directory or a record that cannot be read,
 //! 64 usage.
 
@@ -49,10 +52,16 @@ mod run_metrics;
 
 use run_metrics::{choose, flat_metrics, metric_of, summary};
 
+#[path = "sdc-experiment/chart.rs"]
+mod chart;
+#[path = "sdc-experiment/progress.rs"]
+mod progress;
+
 const USAGE: &str = "usage: sdc-experiment compare (--group <label>=<run dir>[,...])... | --by <key> --runs <dir>,... [--metrics <prefix>,...] [--include-open] --out <md> [--json <file>]
        sdc-experiment check <record.yaml | id> [--runs-dir <dir>] | --all [--experiments <dir>]
        sdc-experiment report <record.yaml | id> [--runs-dir <dir>] [--print]
        sdc-experiment index [--experiments <dir>]
+       sdc-experiment progress [--experiments <dir>]
        sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--print]
        sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
        sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]";
@@ -1164,7 +1173,9 @@ fn render_report(r: &Y, loaded: &Loaded, result: &J) -> String {
 
 fn record_paths(exp: &Path) -> Result<Vec<PathBuf>, String> {
     let mut v: Vec<PathBuf> = fs::read_dir(exp).map_err(|e| format!("cannot read {}: {e}", exp.display()))?
-        .flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "yaml")).collect();
+        .flatten().map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "yaml") && p.file_name().is_none_or(|n| n != progress::RELEASES))
+        .collect();
     v.sort();
     Ok(v)
 }
@@ -1239,6 +1250,7 @@ fn check_all(exp: &Path) -> Result<(Vec<String>, Vec<String>), String> {
         Ok(_) => problems.push(format!("{}: stale; run sdc-experiment index", index.display())),
         Err(_) => problems.push(format!("{}: missing; run sdc-experiment index", index.display())),
     }
+    problems.extend(progress::check(exp)?);
     Ok((problems, notes))
 }
 
@@ -1379,6 +1391,10 @@ fn report(args: &[String]) -> Result<ExitCode, Usage> {
     match written {
         Ok(()) => {
             println!("wrote {}, {} and {}", path.display(), report_path.display(), exp.join("INDEX.md").display());
+            match progress::write(&exp) {
+                Ok(log) => log.iter().for_each(|l| println!("{l}")),
+                Err(m) => println!("progress ledger not written: {m}"),
+            }
             Ok(ExitCode::SUCCESS)
         }
         Err(m) => {
@@ -1405,6 +1421,32 @@ fn index(args: &[String]) -> Result<ExitCode, Usage> {
         Err(m) => {
             eprintln!("sdc-experiment: {m}");
             Ok(ExitCode::from(2))
+        }
+    }
+}
+
+fn progress_cmd(args: &[String]) -> Result<ExitCode, Usage> {
+    let mut exp = PathBuf::from("experiments");
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--experiments" => exp = PathBuf::from(it.next().ok_or_else(|| Usage("--experiments needs a directory".into()))?),
+            x => return Err(Usage(format!("unknown argument {x}"))),
+        }
+    }
+    if !exp.join(progress::RELEASES).is_file() {
+        eprintln!("sdc-experiment: no {}", exp.join(progress::RELEASES).display());
+        return Ok(ExitCode::from(2));
+    }
+    match progress::write(&exp) {
+        Ok(log) => {
+            log.iter().for_each(|l| println!("{l}"));
+            println!("progress ledger: ok");
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(m) => {
+            println!("{m}");
+            Ok(ExitCode::from(1))
         }
     }
 }
@@ -1878,7 +1920,8 @@ fn main() -> ExitCode {
         Some("run") => run_cmd(&args[1..]),
         Some("status") => status_cmd(&args[1..]),
         Some("stop") => stop_cmd(&args[1..]),
-        _ => Err(Usage("a subcommand: compare, check, report, index, run, status or stop".into())),
+        Some("progress") => progress_cmd(&args[1..]),
+        _ => Err(Usage("a subcommand: compare, check, report, index, progress, run, status or stop".into())),
     };
     match res {
         Ok(c) => c,
