@@ -3987,20 +3987,20 @@
       "variants": [
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 3,
           "id": "haiku",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
-          "clean_passes": 0,
-          "ended": 0,
+          "clean_passes": 1,
+          "ended": 3,
           "id": "mixed",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "descriptive",
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
@@ -4187,18 +4187,18 @@
           "clean_passes": 0,
           "ended": 0,
           "id": "xhigh",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
           "clean_passes": 0,
           "ended": 0,
           "id": "medium",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "inconclusive",
       "why": "too few ended runs with the metric: xhigh 0 and medium 0, the rule needs 3 each"
     },
     {
@@ -4756,7 +4756,31 @@
     },
     {
       "path": "experiments/build-constraints.yaml",
-      "sha256": "22bfe3edefa0a8f4cf2d881bcce5f6128ff06a9e0df009eb651d367f10d41d2b"
+      "sha256": "52ea96a0507cc3b7f5f61232645071e4ce2a817cb8efbd5a31f6609bf22fb34b"
+    },
+    {
+      "path": "experiments/build-constraints/runs/build-constraints.haiku.1.json",
+      "sha256": "909ee555aa08605aef8cd04107134ae711c1d11bd83e3dbca256854a73e2851a"
+    },
+    {
+      "path": "experiments/build-constraints/runs/build-constraints.haiku.2.json",
+      "sha256": "af95643f5c3444d5b1a71bbdbb5fb8fee136e49ef52a944b436eb4ebbd18971e"
+    },
+    {
+      "path": "experiments/build-constraints/runs/build-constraints.haiku.3.json",
+      "sha256": "f67fe8a4ad3f04223b991f068f253f5b0219a938264c256d87dce4766153c884"
+    },
+    {
+      "path": "experiments/build-constraints/runs/build-constraints.mixed.1.json",
+      "sha256": "ad7c4e5b40f71104bfb3d6929c9004680f91edffd001a7f2275284e841250487"
+    },
+    {
+      "path": "experiments/build-constraints/runs/build-constraints.mixed.2.json",
+      "sha256": "63bcde4594e02d2397f07c5143235bd93cfaa1b7447eec56ffadf173132a9aa0"
+    },
+    {
+      "path": "experiments/build-constraints/runs/build-constraints.mixed.3.json",
+      "sha256": "ff76619e0fbc168a93d0a436595d224c939eca9af25d116da4f2cab5683c8a46"
     },
     {
       "path": "experiments/decider-haiku-vs-opus.yaml",
@@ -4808,7 +4832,7 @@
     },
     {
       "path": "experiments/effort-decider-mixed.yaml",
-      "sha256": "ee631814e05fd4fb10d50044552a2b61f7748e9e037773ae8f5cd76dd44a62a4"
+      "sha256": "a66ee321fd912bac57e8f8fd05c63e2367a1a69299e8974559806b08984bda69"
     },
     {
       "path": "experiments/effort-implement-levels.yaml",

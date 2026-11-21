@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: build-constraints
 kind: prospective
-status: planned
+status: complete
 created: 2026-11-21
 title: Build constraints known to every stage (fix/superseded-answers on 0.1.2, 3ca26fe), Haiku and mixed against the release-0.1.2 runs
 purpose: Whether one run file of build constraints, read by the writers and the decider and held by requirements.check and the decider's answer check, raises the Haiku setting's clean passes and lowers change.implement reruns against the same settings on 0.1.2.
@@ -29,7 +29,10 @@ variants:
     models.review.model: claude-haiku-5-5
     models.other.model: claude-haiku-5-5
     decider.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - build-constraints.haiku.1
+  - build-constraints.haiku.2
+  - build-constraints.haiku.3
 - id: mixed
   settings:
     models.writer.model: claude-sonnet-5-5
@@ -37,7 +40,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-haiku-5-5
     decider.model: claude-haiku-5-5
-  runs: []
+  runs:
+  - build-constraints.mixed.1
+  - build-constraints.mixed.2
+  - build-constraints.mixed.3
 runs_per_variant: 3
 pass_rule: clean-delivery
 control:
@@ -100,3 +106,18 @@ links:
 - 'experiments/release-0.1.2.yaml: the control arm'
 - 'experiments/baseline-0.1.0/losses.md: haiku-1''s q9 and the loss this change addresses (1.220 USD, 976 s)'
 - story:build-constraints-every-stage, story:default-answers-within-build-constraints
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 3
+    id: haiku
+    listed: 3
+    without_summary: []
+  - clean_passes: 1
+    ended: 3
+    id: mixed
+    listed: 3
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'
