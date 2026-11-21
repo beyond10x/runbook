@@ -1,0 +1,15 @@
+items:
+  - id: d1
+    type: wish
+    span: Bill customers with invoices
+  - id: d2
+    type: wish
+    span: email them when an invoice is created
+  - id: d3
+    type: unknown
+    span: invoices
+    note: which states an invoice goes through
+  - id: d4
+    type: dark_spot
+    span: customers
+    note: who may cancel an invoice

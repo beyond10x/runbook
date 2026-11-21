@@ -419,6 +419,7 @@ attempt}; one response JSON on stdout; the session's exit):
 | `metaharness` | `metaharness run claude --frame <sealed metaharness.frame/1> --decisions frame --cwd <cwd> --scratch-cwd --model M --max-turns N --max-budget-usd B --retain-dir <record>/transcripts -p <prompt>`: Claude Code with the operator's login, its tool calls decided per call against the frame's operations. Record: `frame.json`, `argv.json`, `events.jsonl` (`metaharness.event/1`), `transcripts/` |
 | `claude-cli` | `claude -p … --tools <operations> --allowedTools <operations> --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --setting-sources "" --strict-mcp-config --permission-mode acceptEdits --output-format stream-json` in a fresh config home, hermetic (below), the fallback |
 | a path | any program with the same contract |
+| `driver/target/debug/sdc-replay` (a path, set by `run-trial.sh --recorded`) | a recorded run's reply at this place, for work nodes and the decider ("Recorded replay" below) |
 | `tools/llm-adapter-fixture.sh` (a path) | tests, no LLM: writes the node's `stub-file` output into `out/`, so the apply step runs as on a real reply. With `SDC_LLM_NODES="<node> …"` only the named nodes go to the adapter, the rest run their stub (`scope-changed` cycle). `SDC_FIXTURE_STUB='{"<node>": [<fixture>, <artifact>]}'` gives a node without a `stub-file` stub one (`plan-in-project` cycle). `llm-node.sh` and `sdc-tool.sh` call `aep … --root .`: the case store keeps aep's own lifecycles even inside a project with another profile |
 
 metaharness 0.30.0 can do one bounded non-interactive call: `run claude -p` with `--max-turns`,
@@ -678,6 +679,129 @@ the case and the fix it waits on; the interval before a `rule:` stop is not coun
   through Substrate: a new adapter program set as `SDC_LLM_ADAPTER=<path>`, same request and
   response. Such an adapter needs its own file tool loop or a single-shot output format, since
   `llm` "never runs a tool" (README).
+
+## Recorded replay (2026-11-21, `story:recorded-run-replay`)
+
+The operator, 2026-11-21: "If the LLM nodes are successful for a certain eval, we could also just
+record it and then replay it, very quickly and fast, and simulate: given the LLM would respond in
+that way at that place, change conditions, timeouts, retries, stuff like that, and see how the
+system behaves and whether it would produce better metrics or not."
+
+`scripts/run-trial.sh <new run> --autopilot --recorded <source>` drives a fresh case tree with the
+real driver and the real programs. At every model call the reply comes from what the source
+recorded at that place. The source is a run directory (`runs/<name>`) or a recording made by
+`sdc-replay pack` (`driver/examples/sdc/fixtures/recorded/stub/`). `sdc-replay prepare` writes
+`<run>/replay/plan.json` and names the run's environment: `driver/src/bin/sdc-replay.rs` is
+`SDC_LLM_ADAPTER` and `SDC_DECIDER_ADAPTER` (an adapter program, one argument `request.json`, like
+any other), and the run takes the source's decider kind, per-class models, caps, `SDC_LLM_NODES`,
+the principal its aep store names, the idea and the goals. A variable the caller sets wins. The
+first line of the console names the source's tree and the re-driving tree (`run-settings.jsonl`
+now records `tree: {commit, dirty}`). If they differ, it says that code changes alone can make a
+call diverge. `sdc-replay` is not `sdc-drive replay`: that re-evaluates a finished store against
+its log, this re-runs the run.
+
+**What is real and what is recorded.** Real: the driver, Canon, every bound program (the gates,
+`tests.run` with its cargo build and tests, the checks, `aep`, `sdc-findings`, `sdc-reply`, the
+decider's validation), `llm-node.sh`'s input building and apply step. Recorded: the model's reply
+(the call's `out/` tree, the decider's and the review's structured output) and its duration,
+cost, tokens and turns. `--take-recorded <action,…|all>` also takes a program's exit and log from
+the source (the n-th run of the action in the case) instead of running it. It reproduces no file
+the program wrote, so an action whose output files later steps read (`spec.gate`'s
+`.sdc/gate/ir.json`) must run for real. It needs a run directory: a recording holds no logs.
+
+**The key.** A work call is keyed `case/node@arrival.try[.attempt]`. The arrival is counted as
+the driver counts it for `max_runs`: `revised` events no agent action of the case wrote (the case
+opening, a write from another case, a person's edit). The try is the node's runs since that
+arrival plus one, counted as `max_runs` counts them: no program error, no `not_called`. The
+attempt is `change.review`'s `review_attempt`. A decider call is keyed `case/decision@asking.try`:
+the decision is the question id, finding id, action or `close`, the asking is the n-th time it is
+asked in the case, the try is the decider's attempt. All of these come from the records:
+`request.json` (`case`, `node`, `review_attempt`), the case's `events.jsonl` (for a source call,
+the k-th record of a node in a case is its k-th run that reached the adapter), and
+`decide-request.json`. A retry the source never made, or a re-ask after a rework, gets a key of
+its own instead of a neighbour's reply. An injection counts `#n` as the n-th call of a name in its
+case (with `<case>/`) or in the run.
+
+**The input check.** Each call keeps one sha256 per file of its `in/` and the request without its
+paths (`prompt_file`, `cwd`, `record_dir`, `case_dir`, `json_schema`) and ordinals (`attempt`,
+`review_attempt`). Before hashing, the run directories become `<run>`, home paths `<path>`, RFC 3339
+and `diff` instants `<instant>`, `t<16 hex>` revisions `<rev>` (aep `move` writes the wall time into
+the stories' `transitions`, so the aep tree's revision differs in every run), and seconds `<s>`.
+Test harness lines (`test x ... ok`) are sorted in place, because threads finish in any order.
+A call whose key exists but whose digests differ is a divergence that names each file and
+request field that differs. A changed prompt is noted (`prompt_changed`, counted in the status),
+not a mismatch: prompts change with code, and an experiment that changed a prompt must not pass for
+one that changed a condition. In a recorded decider reply, each revision the source was shown
+(`citable_artifacts`, the requester's subject) is replaced by the current revision of the same
+artifact (`revisions_mapped` in the call record).
+
+**Divergence** (`--on-divergence`):
+
+| Policy | When the source has no call at the key, or the digests differ |
+|---|---|
+| `stop` (default) | `replay/diverged.json` (`sdc.replay-divergence/1`: place, difference, summary); a work node exits 75 (`terminal_reason: recording_diverged`), so the driver records nothing and stops. The decider gets no reply. The run ends with exit 9 and, under autopilot, a stop record by `rule:autopilot` with cause `recording_diverged` naming the place and the difference |
+| `nearest` | the recorded reply of the same node or decision in the same case: same arrival at the nearest try (an earlier one first), else the latest earlier arrival; marked `reused`. Nothing to reuse: as `stop` |
+| `live` | the real adapter for this one call (`--live-adapter`, default `metaharness`; `dry` for tests), marked `live`, counted and capped by `--live-cap` (default 5); a spent cap ends the run as `stop` |
+
+Every call record has `replay.json` (`sdc.replay-call/1`: key, mode `recorded`, `reused`, `live`
+or `diverged`, source record, differences, fault, virtual milliseconds, `prompt_changed`). The
+response's `adapter` is the mode (`source_adapter` keeps the recorded one). At the end
+`sdc-replay seal` writes `replay/summary.json` (`sdc.replay-status/1`) and copies it as `replay`
+into `status.json` and `run-stopped.json`: label (`re-driven: recorded replies only`, `… with reused
+replies`, `… with live model calls`), counts (`recorded`, `reused`, `live`, `diverged`, `paid`,
+`faults`, `prompt_changed`), program runs (real, recorded, check failures), both trees, policy,
+injections, conditions, virtual seconds. `sdc-replay compare <run>` lists each case's actions
+(action, exit, result) and the end against the source, exit 1 when they differ.
+
+**Clock.** The model's share of the time is virtual: a recorded call takes no time, and its
+recorded `duration_ms` stays in `duration_ms` of the response, `llm-calls.jsonl` and
+`decisions.jsonl` (each line gets `replay: {mode, key, clock: "virtual", virtual_ms, …}`).
+`rounds.jsonl` gets `real_seconds`, `virtual_seconds` (the recorded work calls of the round; decider calls fall between rounds, as in a real run),
+`seconds` = both and `clock: "virtual"`; the rounds' epochs stay wall time. `cost_usd` stays the
+recorded cost, what the call would have cost; `calls.paid` counts the live calls that reached a
+model (0 for `dry`). A work call whose recorded duration reaches the action's `timeout_s` times out
+on the virtual clock. The driver passes `SDC_TIMEOUT_S` and `SDC_VIRTUAL_TIMEOUT`; the adapter writes
+nothing and puts the reason in that file, and the driver records exit `timeout`, "killed after N s
+(virtual clock: …)", as for a real kill.
+
+**Changed conditions** (`--set <k>=<v>`, recorded in `run-settings.jsonl` `replay.conditions`):
+`max_runs.<node|class>` and `timeout.<node|class|action>` (classes of `tools/node-classes.json`)
+go into `replay/conditions.json` (`sdc.conditions/1`), which `sdc-drive` applies over each case's
+`bindings.json` when `SDC_CONDITIONS` names it (`bindings_of`). `max_llm_calls`,
+`max_decider_calls`, `max_wall_seconds`, `max_rejections` (`SDC_MAX_REJECTIONS`, the rework limit,
+default 2), `decider_retries` (`SDC_DECIDER_RETRIES`, default 2) and `review_retries`
+(`SDC_REVIEW_RETRIES`) go into the environment.
+
+**Injected faults** (`--inject`, repeatable; place `[<case>/]<name>#<n>`):
+
+| Fault | Effect |
+|---|---|
+| `timeout@<case>/<node>#<n>` | the call times out on the virtual clock: nothing written, exit `timeout`, the action's `timeout_s` on the clock |
+| `invalid-reply@…` | a work node writes nothing (its apply step fails); `change.review` and the decider get `{"invalid": …}`, which their program checks refuse, so their retry paths run |
+| `exit@…=<code>` | the adapter exits `<code>` with nothing written; 75 is an API error (the driver stops, resume later) |
+| `reject@<decision>#<n>[=<reason>]` | the decider's recorded reply becomes `reject` with the reason (default: "a reject injected by sdc-replay …") |
+| `check-fail@<action>#<n>` | the program runs for real, then its run is recorded as exit 1 with a line saying so (`sdc.conditions/1` `wrap` puts `sdc-replay program` before the binding's argv) |
+
+**What cannot be replayed.** A call that the source made under other code: the prompt can differ
+(noted), but changed inputs or a node that was a program then (`change.review` before
+`story:review-node-is-a-model`) diverge. A reused reply cannot address a rejection or a failed
+check: it writes the same revision, so the writer is sent back until `max_runs` (`writer_spent`).
+Programs that call no model run for real, so a cargo build or test can differ on another machine.
+The source's own timeouts reproduce only when the source recorded the call. Live calls cost money
+unless the live adapter is `dry`.
+
+**Proofs.** Cycles in `scripts/run-finding-cycles.sh` re-drive the committed recording
+`fixtures/recorded/stub` (a stub run through the fixture adapters, packed: digests, `out/` trees,
+structured outputs, event logs with `<run>`/`<path>`, no prompt, transcript or absolute path):
+`replay-unchanged`, `replay-reject-stop`, `replay-reject-nearest`, `replay-timeout`,
+`replay-live-dry`, `replay-check-fail`, `replay-recording-clean`. Re-recording it after a change to
+a node's inputs: `scripts/run-trial.sh` with the fixture adapters (the cycle's comment names the
+environment), then `sdc-replay pack runs/<run> driver/examples/sdc/fixtures/recorded/stub`.
+
+A changed effort is a changed request and diverges: a recording made before effort-per-class (SDC
+0.1.0, `f747085`) diverges at its first call on 0.1.1 and later (`request.effort null -> "high"`).
+Recordings are re-packed after a change to the request shape; `fixtures/recorded/stub` was
+re-packed on the 0.1.1 tree (14 calls: the close is taken by `rule:autopilot`, not the decider).
 
 ## Action-to-tool bindings
 
