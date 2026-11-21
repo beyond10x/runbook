@@ -178,7 +178,32 @@ out/questions.yaml with one top-level key \`questions\`, a list. Each question h
 - default: the recommended answer, one of the options, the simplest that fits the idea
 - scope_changing: true when the answer adds or removes a user-visible capability, a kind of user
   or a component; else false
-- status: open" ;;
+- status: open
+A question with scope_changing: true has three more keys, so that a person can answer it without
+reading anything else; a question with scope_changing: false has none of them:
+- excerpt: the words of the idea (in/idea.yaml, field \`text\`) the question is about, copied
+  character by character, as one string
+- default_reason: one sentence: why the default is the recommended answer, citing the idea
+- consequences: a list with exactly one entry per option, in the order of options. Each entry has
+  exactly two keys, both one sentence in plain words: \`does\` (what is built, or not built, if that
+  option is chosen) and \`cost\` (what that option costs: build size, upkeep, or what is given up)
+Example of a scope-changing question (idea: 'A recipe box for my family'):
+- id: q1
+  item: d2
+  excerpt: for my family
+  question: Should family members have their own sign-in?
+  options:
+  - No sign-in; one shared recipe box
+  - Each family member signs in
+  default: No sign-in; one shared recipe box
+  default_reason: The idea names one box for the family and no account for anyone.
+  consequences:
+  - does: Builds one recipe box that anyone with the link opens; no sign-in is built.
+    cost: The smallest build; anyone holding the link can change recipes.
+  - does: Builds sign-in and a recipe box that only signed-in family members open.
+    cost: Accounts and a way to invite and remove members must be built and kept.
+  scope_changing: true
+  status: open" ;;
 questions.answer)
   input idea.yaml; input dissection.yaml; input questions.yaml; seed questions.yaml; out=questions.yaml
   task="Answer the interview. out/questions.yaml is a copy of the current interview: edit it in place.

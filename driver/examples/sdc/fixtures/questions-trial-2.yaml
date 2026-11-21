@@ -1,0 +1,65 @@
+questions:
+  - id: q1
+    item: d3
+    excerpt: "for me and my partner"
+    question: "Should you and your partner share one list, or have a separate list each that you can share items from?"
+    options:
+      - "One shared list for both of us"
+      - "A private list for each of us, plus sharing"
+    default: "One shared list for both of us"
+    default_reason: "The idea speaks of one to-do list for two people, so one shared list is the simplest fit."
+    consequences:
+      - does: "Builds one list that both partners see and edit; no per-person lists or sharing controls are built."
+        cost: "The smallest build; both partners see every item."
+      - does: "Builds a personal list for each partner and a way to share items between them."
+        cost: "Two kinds of list and sharing controls must be built and kept working together."
+    scope_changing: true
+    status: open
+  - id: q2
+    item: d4
+    excerpt: "works on the train without a connection"
+    question: "When you and your partner both change the same item offline, which version should win when you reconnect?"
+    options:
+      - "The most recent change wins, with no prompt"
+      - "Both versions are kept and you pick which to keep"
+    default: "The most recent change wins, with no prompt"
+    default_reason: "The idea asks only for offline use, so the simplest rule that keeps the app working without extra screens is last change wins."
+    consequences:
+      - does: "Builds sync where the newest change overwrites the older one; no conflict screen is built."
+        cost: "An edit made on one device can silently overwrite the partner's edit."
+      - does: "Builds a conflict screen that shows both versions so a person chooses which to keep."
+        cost: "More interface to build and test, and the partners must act when conflicts occur."
+    scope_changing: true
+    status: open
+  - id: q3
+    item: d5
+    excerpt: "for me and my partner"
+    question: "How should you and your partner sign in to reach the list?"
+    options:
+      - "No sign-in; anyone with the link can open the list"
+      - "Each partner signs in with their own account"
+    default: "No sign-in; anyone with the link can open the list"
+    default_reason: "The idea names no sign-in or accounts, so the simplest build leaves them out."
+    consequences:
+      - does: "Builds no accounts; anyone with the link can open and change the list."
+        cost: "The smallest build, but no privacy: anyone holding the link has full access."
+      - does: "Builds accounts and sign-in so only the two partners can open the list."
+        cost: "Accounts, sign-in and account recovery must be built and kept secure."
+    scope_changing: true
+    status: open
+  - id: q4
+    item: d6
+    excerpt: "web app"
+    question: "Should the app be installable to the home screen, or only open in a browser?"
+    options:
+      - "Opens in a browser only; no install"
+      - "Installable to the home screen"
+    default: "Opens in a browser only; no install"
+    default_reason: "The idea says only that it is a web app, so a plain page in a modern browser is the simplest fit."
+    consequences:
+      - does: "Builds a web page that opens in a browser; no home-screen install is built."
+        cost: "The smallest build; users open it from a link or bookmark."
+      - does: "Builds an install manifest, icons and an install prompt so it can be added to the home screen."
+        cost: "Install metadata and icons must be built and checked on each platform."
+    scope_changing: true
+    status: open

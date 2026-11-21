@@ -706,10 +706,23 @@ fn amend_one(
         s("default"),
         f.get("default").cloned().unwrap_or(Value::Null),
     );
-    q.insert(
-        s("scope_changing"),
-        Value::Bool(is_person(decided_by) || is_decider(decided_by)),
-    );
+    let scope_changing = is_person(decided_by) || is_decider(decided_by);
+    q.insert(s("scope_changing"), Value::Bool(scope_changing));
+    if scope_changing {
+        // A scope-changing question carries the keys questions.check requires of one
+        // (story:interview-question-context): the raiser's own, else what the finding itself says.
+        let own = |k: &str| f.get(k).filter(|v| v.as_str().is_some_and(|x| !x.trim().is_empty())).cloned();
+        q.insert(s("excerpt"), own("excerpt").unwrap_or_else(|| s(st(f, "says"))));
+        q.insert(s("default_reason"), own("default_reason").unwrap_or_else(|| s(&format!("the default of finding {fid}: {basis}"))));
+        let own_c = f.get("consequences").filter(|c| c.as_sequence().is_some_and(|c| c.len() == strs(f, "options").len())).cloned();
+        let c = own_c.unwrap_or_else(|| Value::Sequence(strs(f, "options").iter().map(|o| {
+            let mut e = Mapping::new();
+            e.insert(s("does"), s(&format!("Takes the option \"{o}\" as the decision.")));
+            e.insert(s("cost"), s("The raiser of the finding did not state a cost."));
+            Value::Mapping(e)
+        }).collect()));
+        q.insert(s("consequences"), c);
+    }
     q.insert(
         s("status"),
         s(if decision == st(f, "default") {
@@ -1177,5 +1190,73 @@ fn main() -> ExitCode {
             eprintln!("sdc-findings: {e}");
             ExitCode::from(if e.starts_with("usage") { 64 } else { 1 })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn work() -> Work {
+        let qs = "questions:\n- id: q1\n  item: d3\n  question: Which states?\n  default: a\n  scope_changing: false\n  status: accepted\n  answer: a\n";
+        Work {
+            req: serde_yaml::from_str("requirements:\n- id: r1\n  text: Bill customers.\n  cites: [d1]\n").unwrap(),
+            qs: serde_yaml::from_str(qs).unwrap(),
+            diss: Value::Mapping(Mapping::new()),
+            ctx: Value::Mapping(Mapping::new()),
+            fd: Value::Mapping(Mapping::new()),
+            rules: vec![],
+        }
+    }
+
+    fn last_question(w: &Work) -> Value {
+        w.qs["questions"].as_sequence().unwrap().last().unwrap().clone()
+    }
+
+    /// A question a finding's decision adds is scope-changing when a person or a decider decided it,
+    /// so it carries what `questions.check` requires of such a question
+    /// (`story:interview-question-context`).
+    fn assert_context_keys(decided_by: &str) {
+        let f: Value = serde_yaml::from_str(
+            "id: f1\ntype: ambiguity\nraised_by: llm\ncites: [r1]\nsays: r1 names the clerk only\noptions: [only the clerk, the customer too]\ndefault: only the clerk\nscope_changing: true\n",
+        )
+        .unwrap();
+        let mut w = work();
+        amend_one(&mut w, &f, "the customer too", decided_by, "decided").unwrap();
+        let q = last_question(&w);
+        assert_eq!(q["scope_changing"], Value::Bool(true));
+        assert!(q["excerpt"].as_str().is_some_and(|x| !x.trim().is_empty()), "excerpt: {q:?}");
+        assert!(q["default_reason"].as_str().is_some_and(|x| !x.trim().is_empty()), "default_reason: {q:?}");
+        let c = q["consequences"].as_sequence().expect("consequences");
+        assert_eq!(c.len(), 2);
+        for e in c {
+            assert!(e["does"].as_str().is_some_and(|x| !x.trim().is_empty()), "does: {e:?}");
+            assert!(e["cost"].as_str().is_some_and(|x| !x.trim().is_empty()), "cost: {e:?}");
+        }
+    }
+
+    #[test]
+    fn a_question_added_from_a_person_decided_finding_carries_the_context_keys() {
+        assert_context_keys("person:operator");
+    }
+
+    #[test]
+    fn a_question_added_from_a_decider_decided_finding_carries_the_context_keys() {
+        assert_context_keys("decider:claude");
+    }
+
+    /// The raiser's own `excerpt`, `default_reason` and `consequences` are kept when it wrote them.
+    #[test]
+    fn the_raisers_own_context_keys_are_kept() {
+        let f: Value = serde_yaml::from_str(
+            "id: f1\ntype: ambiguity\nraised_by: llm\ncites: [r1]\nsays: r1 names the clerk only\noptions: [a, b]\ndefault: a\nscope_changing: true\nexcerpt: Bill customers\ndefault_reason: simplest\nconsequences:\n- {does: builds a, cost: small}\n- {does: builds b, cost: large}\n",
+        )
+        .unwrap();
+        let mut w = work();
+        amend_one(&mut w, &f, "b", "person:operator", "a person decided").unwrap();
+        let q = last_question(&w);
+        assert_eq!(q["excerpt"].as_str(), Some("Bill customers"));
+        assert_eq!(q["default_reason"].as_str(), Some("simplest"));
+        assert_eq!(q["consequences"][1]["cost"].as_str(), Some("large"));
     }
 }
