@@ -43,6 +43,9 @@
 #   autopilot       --autopilot: closed with 0 person principals and L7 0 (A5, escalate final)
 #   autopilot-person --autopilot refuses SDC_DECIDER=person (exit 64)
 #   autopilot-stop  a stop that needs a person ends an autopilot run (exit 7, rule:autopilot)
+#   decider-cite-address, decider-cite-retry, decider-invalid-approval, decider-invalid-scope
+#                   autopilot decider replies: an entry and lines cited; an invalid reply asked
+#                   again; three invalid: approved_on_checks, the default
 #   principals      the scripted person records person:stand-in (run labelled stand_in); a
 #                   decision with no principal is not applied
 #   models          three dry runs: binding models, SDC_LLM_MODEL, SDC_LLM_MODEL_<CLASS>; each call
@@ -402,6 +405,57 @@ if (( code == 7 )) && jq -e '.format == "sdc.run-stopped/1" and .by == "rule:aut
   echo "autopilot-stop: checks pass (a stop that needs a person ends the run: exit 7, stopped by rule:autopilot)"
 else
   echo "autopilot-stop: FAILED (exit $code, or no stop record by rule:autopilot)"
+fi
+# Decider replies under autopilot (fixture adapter, scripted replies by key; a list is taken by
+# attempt). cite-address: context.approve cites an entry and lines of context.yaml: accepted.
+# cite-retry: the first reply cites an unknown id, the second is valid: accepted after 1 retry.
+# invalid-approval: three invalid replies at context.approve, every check true: approved_on_checks.
+# invalid-scope: three invalid replies to q2 at scope.answer: its default (invalid_reply_default).
+bad='{"decision": "approve", "answer": null, "reasons": ["fixture: cites what is not there"], "cites": ["context.nope"], "best": null}'
+good='{"decision": "approve", "answer": null, "reasons": ["fixture: the context fits"], "cites": ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], "best": null}'
+attempts() { jq -s --arg a "$2" '[.[] | select(.action == $a)]' "$1/decisions.jsonl"; }
+trial decider-cite-address SDC_DECIDER_REPLIES="$(jq -cn --argjson g "$good" '{"context.approve": $g}')"
+code=$?
+a=$(attempts "$s/runs/decider-cite-address" context.approve)
+if (( code == 0 )) && jq -e 'length == 1 and .[0].decision == "approve" and .[0].valid == true
+     and ([.[0].citations[].form] == ["artifact_revision", "path_line", "id"])' <<< "$a" >/dev/null; then
+  echo "decider-cite-address: checks pass (an entry and lines of context.yaml resolve; approved on the first reply)"
+else
+  echo "decider-cite-address: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
+fi
+trial decider-cite-retry SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" --argjson g "$good" '{"context.approve": [$b, $g]}')"
+code=$?
+r=$s/runs/decider-cite-retry
+a=$(attempts "$r" context.approve)
+if (( code == 0 )) && jq -e 'length == 2 and .[0].decision == "invalid_reply" and (.[0].invalid_reason | test("context.nope"))
+     and .[1].decision == "approve" and .[1].attempts == 2' <<< "$a" >/dev/null &&
+   (( $(ls -d "$r"/decider/*-context.approve | wc -l) == 2 )) &&
+   grep -q 'context.nope' "$(ls -d "$r"/decider/*-context.approve | tail -n 1)/prompt.md"; then
+  echo "decider-cite-retry: checks pass (refused once, asked again with the reason, approved; 2 decider calls)"
+else
+  echo "decider-cite-retry: FAILED (exit $code: $(jq -c '[.[] | {decision, attempts, invalid_reason}]' <<< "$a" 2>/dev/null))"
+fi
+trial decider-invalid-approval SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" '{"context.approve": [$b, $b, $b]}')"
+code=$?
+r=$s/runs/decider-invalid-approval
+a=$(attempts "$r" context.approve)
+if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "invalid_reply", "invalid_reply", "approve"]
+     and .[3].fallback == "approved_on_checks"' <<< "$a" >/dev/null && (( $(ls -d "$r"/decider/*-context.approve | wc -l) == 3 )); then
+  echo "decider-invalid-approval: checks pass (3 invalid replies, approved_on_checks, the run goes on and closes)"
+else
+  echo "decider-invalid-approval: FAILED (exit $code: $(jq -c '[.[] | {decision, fallback}]' <<< "$a" 2>/dev/null))"
+fi
+badq='{"decision": "approve", "answer": "fixture", "reasons": ["fixture: cites what is not there"], "cites": ["context.idea_excerpt"], "best": null}'
+trial decider-invalid-scope SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$badq" '{q2: [$b, $b, $b]}')"
+code=$?
+r=$s/runs/decider-invalid-scope
+a=$(jq -s '[.[] | select(.question == "q2")]' "$r/decisions.jsonl")
+if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "invalid_reply", "invalid_reply", "approve"]
+     and .[3].fallback == "invalid_reply_default"' <<< "$a" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/questions.yaml" | jq -e '.questions[] | select(.id == "q2") | .answer == .default and .answered_by == "decider:haiku"' >/dev/null; then
+  echo "decider-invalid-scope: checks pass (3 invalid replies to q2, its default taken as invalid_reply_default)"
+else
+  echo "decider-invalid-scope: FAILED (exit $code: $(jq -c '[.[] | {decision, fallback}]' <<< "$a" 2>/dev/null))"
 fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted

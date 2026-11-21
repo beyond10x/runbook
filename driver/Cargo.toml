@@ -16,6 +16,10 @@ path = "src/bin/sdc-findings.rs"
 name = "sdc-finding-kpis"
 path = "src/bin/sdc-finding-kpis.rs"
 
+[[bin]]
+name = "sdc-reply"
+path = "src/bin/sdc-reply.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 regex = "1"

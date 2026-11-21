@@ -174,6 +174,11 @@ such as `roadmap.valid`, `tests.pass`) are named in its reasons but are not cita
 should become `evidence_record` grounds (`record_id` of the evidence behind each claim, or
 `artifact_revision`). And a close needs the case revision in its request.
 
+Since `sdc-reply` (`driver.md`, "Decider replies") the decider cites in three of these forms: an
+id (the claims it is given included), `artifact_revision` with an entry (`context@<rev>#platform`)
+and `path_line` (`context.yaml:13-14`); each is resolved before the reply is taken. Claims are
+still ids, not `evidence_record` grounds.
+
 ## How the parts use it
 
 - **Driver** (`sdc-drive`). Where `run` stops with `awaiting_authority` or `awaiting_person`

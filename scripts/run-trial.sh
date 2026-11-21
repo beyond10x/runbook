@@ -311,9 +311,18 @@ waiting() {
 # One decider decision. Arguments: a request JSON (type, case_dir, action, capability, subject,
 # path, revision, question, outcome). Sets $dec (the effective decision: approve or reject; empty
 # when it waits on a person) and $ans (a question's answer); appends to decisions.jsonl.
+# An invalid reply (not JSON, a cite that does not resolve, a wrong shape) is asked again with the
+# check's reason, at most 2 retries, each a decider call of its own (counted against
+# SDC_MAX_DECIDER_CALLS, recorded in decider/ and as `invalid_reply` in decisions.jsonl). Still
+# invalid: with a person (escalate stop) it waits on the person; under final the fallback is
+# taken, recorded as `fallback`: a question or a finding takes its default (invalid_reply_default);
+# an approval or a close is approved when every claim it turns on is true and no obligation is
+# open but the one it discharges (approved_on_checks), else rejected with the failing checks
+# (rejected_on_checks).
 decide() {
-  local req=$1 key rec n reply line before
+  local req=$1 key rec n reply before attempt=1 why="" kind fallback=""
   key=$(jq -r '[(.case_dir | split("/") | last), .action, (.question.id // .finding.id // ""), .revision] | join("|")' <<< "$req")
+  kind=$(jq -r .type <<< "$req")
   dec="" ans=""
   if [[ $escalate_mode != final && -f $out/decisions.jsonl ]] &&
      jq -e --arg k "$key" --arg p "decider:$decider" 'select(.principal == $p and .decision == "escalate"
@@ -321,18 +330,6 @@ decide() {
     echo "  decider:$decider escalated $key before: a person decides"
     return 0
   fi
-  if [[ $decider == haiku ]]; then
-    n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
-    (( n <= max_decider )) || { echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
-    rec=$out/decider/$(printf '%03d' "$n")-$(jq -r '.question.id // .action' <<< "$req")
-  else
-    rec=$out/decider/rule
-  fi
-  mkdir -p "$rec"
-  jq --arg rec "$rec" '. + {record_dir: $rec}' <<< "$req" > "$rec/decide-request.json"
-  before=$(dry_lines)
-  reply=$("$ex/tools/decider.sh" "$decider" "$rec/decide-request.json")
-  print_dry "$before"
   line() { # $1 decision, $2 extra object
     local x=${2:-}
     [[ -n $x ]] || x='{}'
@@ -341,39 +338,98 @@ decide() {
       class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
       question: ($q.question.id // null), finding: ($q.finding.id // null), capability: $q.capability, outcome: $q.outcome,
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
-      cites: $r.cites, model: $r.model, adapter: $r.adapter, tokens: $r.usage, cost_usd: $r.cost_usd,
-      duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
-      dry: ($r.dry // false), record: $r.record} + $x' >> "$out/decisions.jsonl"
+      cites: $r.cites, citations: ($r.citations // null), model: $r.model, adapter: $r.adapter, tokens: $r.usage,
+      cost_usd: $r.cost_usd, duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
+      schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record} + $x' >> "$out/decisions.jsonl"
   }
+  while :; do
+    if [[ $decider == haiku ]]; then
+      n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
+      (( n <= max_decider )) || { echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
+      rec=$out/decider/$(printf '%03d' "$n")-$(jq -r '.question.id // .finding.id // .action' <<< "$req")
+    else
+      rec=$out/decider/rule
+    fi
+    mkdir -p "$rec"
+    jq --arg rec "$rec" --argjson a "$attempt" --arg why "$why" '. + {record_dir: $rec}
+      + (if $a > 1 then {retry: {attempt: $a, invalid_reason: $why}} else {} end)' <<< "$req" > "$rec/decide-request.json"
+    before=$(dry_lines)
+    reply=$("$ex/tools/decider.sh" "$decider" "$rec/decide-request.json")
+    print_dry "$before"
+    [[ $(jq -r .valid <<< "$reply") == false && $decider == haiku ]] || break
+    why=$(jq -r '.invalid_reason // "invalid"' <<< "$reply")
+    (( attempt <= 2 )) || break
+    line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
+    echo "  decider:$decider reply refused by the check ($why): asked again ($attempt of 2 retries)"
+    attempt=$((attempt + 1))
+  done
   dec=$(jq -r .decision <<< "$reply")
   ans=$(jq -r '.answer // ""' <<< "$reply")
-  if [[ $dec == escalate && $escalate_mode == final ]]; then
+  if [[ $(jq -r .valid <<< "$reply") == false && $decider == haiku && $escalate_mode == final ]]; then
+    # Still invalid after the retries, and nobody else decides: the fallback of the decision kind.
+    line invalid_reply "$(jq -cn --argjson a "$attempt" '{attempt: $a}')"
+    case $kind in
+      question|finding)
+        fallback=invalid_reply_default dec=approve
+        ans=$(jq -r 'if .type == "question" then .question.default else .finding.default end' <<< "$req")
+        reply=$(jq -c --arg a "$ans" --arg why "$why" '.answer = $a | .valid = true
+          | .reasons = ["invalid decider reply after 2 retries (\($why)): the default taken"]' <<< "$reply") ;;
+      *)
+        local failing
+        failing=$(checks_failing "$req")
+        if [[ $failing == "[]" ]]; then
+          fallback=approved_on_checks dec=approve
+          reply=$(jq -c --arg why "$why" '.valid = true | .reasons = ["invalid decider reply after 2 retries (\($why)): approved on the checks, every claim this decision turns on is true and no other obligation is open"]' <<< "$reply")
+        else
+          fallback=rejected_on_checks dec=reject
+          reply=$(jq -c --arg why "$why" --argjson f "$failing" '.valid = true | .reasons = ["invalid decider reply after 2 retries (\($why)): rejected on the checks: \($f | join(", "))"]' <<< "$reply")
+        fi ;;
+    esac
+    line "$dec" "$(jq -cn --arg f "$fallback" --argjson a "$attempt" '{fallback: $f, attempts: $a}')"
+  elif [[ $dec == escalate && $escalate_mode == final ]]; then
     line escalation_suppressed
-    if [[ $(jq -r .type <<< "$req") == question ]]; then
+    if [[ $kind == question ]]; then
       # A scope-changing question takes its default.
       dec=approve ans=$(jq -r .question.default <<< "$req")
       reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); the default taken"] + .reasons
         | .usage = null | .cost_usd = null' <<< "$reply")
-    elif [[ $(jq -r .type <<< "$req") == finding ]]; then
+    elif [[ $kind == finding ]]; then
       # A finding takes the decider's best answer, else its default.
       dec=approve ans=$(jq -r --argjson q "$req" '.best // $q.finding.default' <<< "$reply")
       reply=$(jq -c --arg a "$ans" '.answer = $a | .reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); "
         + (if .best then "best answer" else "the default" end) + " taken"] + .reasons | .usage = null | .cost_usd = null' <<< "$reply")
     else
+      # A valid escalate under final carries `best` (decider.sh checks it).
       dec=$(jq -r '.best // "reject"' <<< "$reply")
       reply=$(jq -c '.reasons = ["escalation suppressed (SDC_DECIDER_ESCALATE=final); best decision taken"] + .reasons
         | .usage = null | .cost_usd = null' <<< "$reply")
     fi
     line "$dec" '{"suppressed": true}'
   else
-    line "$dec"
+    line "$dec" "$( (( attempt > 1 )) && jq -cn --argjson a "$attempt" '{attempts: $a}' || echo '{}')"
   fi
-  echo "  decider:$decider $dec $key$( [[ -n $ans ]] && echo " answer: $ans"): $(jq -r '.reasons | join(" ")' <<< "$reply")"
+  echo "  decider:$decider $dec $key$( [[ -n $ans ]] && echo " answer: $ans")${fallback:+ ($fallback)}: $(jq -r '.reasons | join(" ")' <<< "$reply")"
   case $dec in
     approve) ;;
     reject) echo "refused by decider:$decider (recorded in $out/decisions.jsonl); a person decides how to go on"; exit 6 ;;
     *) dec="" ;;
   esac
+}
+
+
+# The checks that keep a decision from being taken on the checks alone, as a JSON list (empty:
+# the checks justify approving). An approval turns on its action's precondition (the claims that
+# must be true; one the decision settles is no failure), a close on its outcome's condition and on
+# every obligation being discharged. Obligations of later steps do not keep an approval back.
+checks_failing() {
+  local req=$1 ir
+  ir=$(jq -r .case_dir <<< "$req")/ir.json
+  jq -c --slurpfile ir "$ir" '. as $q | $ir[0] as $ir
+    | (if $q.type == "close" then [$ir.outcomes[$q.outcome].requires // {} | .. | objects | .claim? | objects | .id]
+       else [$ir.actions[$q.action].precondition // {} | .. | objects | .claim? | objects | select((.is // "true") == "true") | .id] end
+       | unique) as $reads
+    | [($reads[] | . as $c | ($q.position.claims[$c].value // "unknown") | select(. != "true") | "\($c) is \(.)"),
+       (if $q.type == "close" then ($q.position.open_obligations[]? | "obligation \(.) open") else empty end)]' <<< "$req"
 }
 
 # The open scope-changing questions of the interview in case $1, one decider decision each (action
