@@ -1,82 +1,113 @@
-# SDC
+<div align="center">
 
-A prototype of a software delivery cycle that runs on [Canon](https://github.com/beyond10x/canon)
-protocols. An idea goes through eight stages (idea, intake, direction, epic, spec, plan, story,
-release), each a Canon `protocol/1` case with child cases. The stage is derived from facts (files
-in the case's repository and recorded check results), never from a stored phase.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/runbook-logo-dark.svg">
+  <img alt="Runbook" src="docs/img/runbook-logo.svg" width="320">
+</picture>
 
-`sdc-drive` runs one case tree: it reads Canon's decision for the case, runs the tool bound to one
-admissible action, records the result as Canon evidence and evaluates again. An LLM is only ever
-the executor of one action; its output is an artifact revision, never evidence and never the next
-state. Decisions that belong to a person stop the run and print the command that takes them.
+Agentic runbooks: a fixed, checked way to handle a case.
 
-The [documentation site](https://beyond10x.github.io/sdc/) shows the flow, every protocol drawn
-from its YAML, what the SDC is built on, the evaluation per release and one run step by step.
+[Docs](https://beyond10x.github.io/runbook/) ·
+[How it works](https://beyond10x.github.io/runbook/docs/) ·
+[Evaluation](https://beyond10x.github.io/runbook/evaluation) ·
+[Releases](https://github.com/beyond10x/runbook/releases) ·
+[Changelog](CHANGELOG.md)
 
-## State
+</div>
 
-A prototype; no interface is stable. The latest release is 0.1.4 (2026-11-21), after 0.1.3, 0.1.2,
-0.1.1 and the first, 0.1.0; all are source releases at bare-version tags: see [CHANGELOG.md](CHANGELOG.md),
-[docs/releases/0.1.4.md](docs/releases/0.1.4.md), [docs/releases/0.1.3.md](docs/releases/0.1.3.md),
-[docs/releases/0.1.2.md](docs/releases/0.1.2.md),
-[docs/releases/0.1.1.md](docs/releases/0.1.1.md),
-[docs/releases/0.1.0.md](docs/releases/0.1.0.md) and [docs/releasing.md](docs/releasing.md).
+## What it is
 
-- Trial 1 (`docs/trial-1.md`): a to-do list idea run with a real LLM; round 1 stopped, as
-  designed, on three scope-changing questions for a person.
-- Trial 2 (`docs/trial-2.md`): a late-found ambiguity and the loop that repairs it; verified with
-  stub executors, the real-LLM run is recorded in its run notes.
-- Trial 3 (`docs/trial-3.md`, `docs/releases/0.1.0.md`): five of eight autopilot runs (two more with the review model call)
-  of the to-do idea closed delivered; the limits are in the release notes.
-- Recorded runs (`runs/`) are not in this repository.
+A runbook is a fixed, checked way to handle a case. A program decides the next step from recorded
+facts; a model carries out single steps. The first runbook is the software delivery cycle (SDC):
+it takes an idea to a built, tested product. Other runbooks are planned, not built: incident
+handling, investigations and ticket triage.
 
-## Layout
-
-- `protocol/`: the eight protocols of the cycle and `sdc-bugfix`; `cases/`: fixture cases with expected decisions.
-- `driver/`: the Rust crate `sdc-drive` and its tool bindings (`driver/examples/sdc/`).
-- `watch/`: file changes of a run; `ui/`: a live web view of a run; `goals/`: `sdc-goals`, checks of
-  `sdc.goals/1` documents (`docs/requester.md`).
-- `decision/`, `ess/`, `tools/`: the decision contract and its ESS specification.
-- `eval/`: eval runner, adversaries and personas; `docs/`: design notes and results.
-- `website/`: the documentation site; its protocol data is written by `sdc-protocol-site`.
-- `.engineering/planning/`: the planning store (AEP).
+Runbook is a prototype that runs on [Canon](https://github.com/beyond10x/canon) protocols.
 
 ## Progress
 
-How often one idea runs with no person to a closed, delivered app, per release and model setting.
-Each dot is one run; the figures come from the experiment records and are written by
-`sdc-experiment progress`. Every figure, its experiment and the limits of each measurement:
-[docs/progress.md](docs/progress.md). How an entry is added: [docs/improving.md](docs/improving.md).
-
 ![Clean passes of ended runs per release and model setting, with the median cost and wall time of a clean pass](docs/img/progress.svg)
 
-## Requirements
+How often one idea runs with no person to a closed, delivered app, per release and model setting.
+Each dot is one run. Every figure, its experiment and its limits are in
+[docs/progress.md](docs/progress.md) and on the
+[evaluation page](https://beyond10x.github.io/runbook/evaluation). The chart is written by
+`sdc-experiment progress`; how an entry is added: [docs/improving.md](docs/improving.md).
 
-A Canon checkout with a built `canon` binary (`CANON_DIR`, default `$HOME/beyond10x/canon`),
-Rust, `jq`, `yq` and Node 22 for `ui/`.
+## How it works
 
-## Checks
+- **Eight stages.** An idea goes through idea, intake, direction, epic, spec, plan, story and
+  release. Each stage is a Canon `protocol/1` case with child cases.
+  [The flow](https://beyond10x.github.io/runbook/docs/flow)
+- **No stored phase.** The stage is derived from facts: files in the case's repository and
+  recorded check results.
+  [The flow](https://beyond10x.github.io/runbook/docs/flow)
+- **One driver.** `sdc-drive` runs one case tree. It reads Canon's decision for the case, runs the
+  tool bound to one admissible action, records the result as Canon evidence and evaluates again.
+  [The LLM is not the runtime](https://beyond10x.github.io/runbook/llm-is-not-the-runtime)
+- **The model is an executor.** An LLM only carries out one action. Its output is an artifact
+  revision, never evidence and never the next state.
+  [Context](https://beyond10x.github.io/runbook/docs/context)
+- **People decide what is theirs.** A decision that belongs to a person stops the run and prints
+  the command that takes it. [docs/decisions.md](docs/decisions.md)
+- **Built on layers.** Canon gives the semantics; Loom is meant to give the runtime.
+  [What it is built on](https://beyond10x.github.io/runbook/docs/built-on)
+  and [docs/layers.md](docs/layers.md)
 
-```console
-scripts/check-protocols.sh
-scripts/check-bindings.sh
-scripts/evaluate-cases.sh
-(cd goals && cargo test)
-(cd watch && cargo test)
-```
+Every protocol drawn from its YAML is in the
+[protocol browser](https://beyond10x.github.io/runbook/protocols). Start in the repository with
+[docs/phases.md](docs/phases.md), [docs/driver.md](docs/driver.md) and
+[docs/orchestration.md](docs/orchestration.md).
 
-## Dry run
+## Try it
 
-Stub idea, stub executors write the artifacts, every LLM command is printed and none is run,
-approvals are scripted:
+Needs a Canon checkout with a built `canon` binary (`CANON_DIR`, default `$HOME/beyond10x/canon`),
+Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`.
+
+The dry run uses a stub idea and stub executors that write the artifacts, prints every LLM command
+and runs none, with scripted approvals:
 
 ```console
 scripts/run-trial.sh --dry trial-dry
 ```
 
-Start with `docs/phases.md`, `docs/driver.md` and `docs/orchestration.md`; `docs/layers.md` places
-the SDC on Canon and Loom.
+The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+
+## Repository layout
+
+| Path | Holds |
+|---|---|
+| `protocol/` | The eight SDC protocols and `sdc-bugfix` |
+| `cases/` | Fixture cases with expected decisions, run by `scripts/evaluate-cases.sh` |
+| `driver/` | The Rust crate `sdc-drive`, its tool bindings (`driver/examples/sdc/`) and other binaries |
+| `watch/` | `sdc-watch`: file changes of a run |
+| `goals/` | `sdc-goals`: checks of `sdc.goals/1` documents ([docs/requester.md](docs/requester.md)) |
+| `ui/` | A live web view of a run |
+| `decision/`, `ess/`, `tools/` | The decision contract, its ESS specification and its shell tools |
+| `eval/` | Eval runner, adversaries and personas |
+| `experiments/` | Experiment records, run summaries and reports |
+| `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
+| `docs/` | Design notes, results and release notes |
+| `scripts/` | Check, evaluate and trial scripts |
+| `skills/` | The `workflow-builder` agent skill |
+| `.engineering/planning/` | The planning store (AEP) |
+
+Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.md).
+
+## Status
+
+A prototype. No interface is stable. Releases are source releases at bare-version tags such as
+`0.2.1`; nothing is published to crates.io. The latest is 0.2.1 (2026-11-21).
+
+- Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
+  [docs/releasing.md](docs/releasing.md).
+- Three trials are written up: [Trial 1](docs/trial-1.md) (a real LLM; round 1 stopped, as
+  designed, on three scope-changing questions for a person), [Trial 2](docs/trial-2.md) (a
+  late-found ambiguity and the loop that repairs it; verified with stub executors, the real-LLM
+  run is in its run notes) and [Trial 3](docs/trial-3.md) (autopilot runs of the to-do idea:
+  five of the eight runs of the batch tree at `acd6f12` passed; the limits are in
+  [docs/releases/0.1.0.md](docs/releases/0.1.0.md)).
 
 ## Licence
 
-Apache-2.0.
+Apache-2.0, see [LICENSE](LICENSE).

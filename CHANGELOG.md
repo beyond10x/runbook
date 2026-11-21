@@ -7,6 +7,87 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-21
+
+A patch release of 0.2.0: two fixes of the documentation checks. The driver, protocols, bindings,
+tools and run inspector are unchanged apart from the version. The longer note is
+`docs/releases/0.2.1.md`.
+
+### Fixed
+
+- `website/tests/smoke.spec.ts` expected the evaluation page's list of releases without runs to be
+  exactly 0.1.1, 0.1.3 and 0.1.4, so the 0.2.0 entry made four smoke tests and `Documentation
+  validation` fail on the 0.2.0 tag commit. The assertion requires those three first and admits
+  later ones (`e46a237`). No run metric is affected.
+- `website/data/protocols/index.json` was stale on the 0.2.0 tree; it is written again with
+  `sdc-protocol-site write` (`e46a237`). No run metric is affected.
+
+### Changed
+
+- The approval record of 0.2.0 and the ledger tree of 0.2.0 (6cde564).
+- The three crates, their lock files and `ui/package.json` are at 0.2.1.
+
+## [0.2.0] - 2026-11-21
+
+The product is named Runbook and the repository moves to `beyond10x/runbook`; the software delivery
+cycle (SDC) is the first runbook and keeps its ids. With it come a fix of the spec gate, the results of
+the release-0.1.2 runs and a reworked documentation site. No protocol or binding changed; one tool's
+check got stricter. The longer note is `docs/releases/0.2.0.md`.
+
+### Changed
+
+- The product name people read is now Runbook (stage 1 of `story:project-rename`; the operator,
+  2026-11-21: "Yes, runbook. Agentic runbook."). Renamed in `README.md`, `AGENTS.md`, the
+  documentation site (title, tagline, navbar brand and mark, footer, page titles and descriptions,
+  the landing hero, "What it is", "What it is built on", "Run it", "The flow") and the run
+  inspector (page title, header, `ui/README.md`). The software delivery cycle keeps the name SDC
+  and is the first runbook; its protocols, trials and measurements still say SDC. The landing lede
+  is three short lines (`d03494d`, `a70640f`).
+- Not renamed yet: crate, binary and file names (`sdc-drive` and the others), `SDC_*` environment
+  names, `sdc.*` format and protocol ids (stage 2, with one `runbook` command and release binaries).
+  Release notes, trial notes and experiment records keep the names they were written with.
+- The repository is `beyond10x/runbook` (was `beyond10x/sdc`) and the documentation site is at
+  https://beyond10x.github.io/runbook/ (was `/sdc/`; stage 3 of `story:project-rename`). The old git
+  and web addresses of the repository redirect; the old site address does not, so a link to
+  `https://beyond10x.github.io/sdc/` no longer opens the site. Written addresses in the site, the
+  documentation, `AGENTS.md`, the Pages workflow and the protocol-site generator follow the new name
+  (`0418062`).
+- The evaluation page opens with headline tiles (clean passes, median cost and wall time per
+  setting, the cost target with the factor still to go, the blinded quality medians, the
+  conformance lower bound) and large charts (clean passes, cost with the target and the free agent's
+  median, wall time, where the cost of a run goes). Then come stops by cause, the improvement
+  experiments and every run. A chart column exists only for a release with committed runs.
+  `sdc-data` reads `experiments/targets.yaml` as targets (`c6880da`, `b42f34d`).
+- The navbar has four entries (How it works, Protocols, Evaluation, Run it) and GitHub as an icon
+  link; the docs sidebar carries the How it works group; `tests/navigation.spec.ts` (`12cba63`).
+- The progress ledger's 0.1.2 entry names `release-0.1.2` as its experiment: 7 of 9 clean passes
+  on the 0.1.2 tree, and the site's charts get the 0.1.2 column (`cebbf42`).
+- `experiments/baseline-0.1.0/inputs.md`, `costs.md` and the record `review-minimal-facts`: the
+  review is a reading session with `Glob`, `Read` and `Grep`, not one request (`39d2db3`).
+- The three crates, their lock files and `ui/package.json` are at 0.2.0.
+
+### Fixed
+
+- The spec gate requires the synthesized conformance suite to pass against ESS's interpreted target
+  (`sdc-tool.sh` `spec_conform`, used by `spec.synthesize` and `spec.gate`): an unsupported, failed
+  or errored scenario refuses the spec, and `spec.author` gets one line per such scenario through
+  the existing `spec_synthesis` feedback route. Before, a spec whose own suite did not pass reached
+  the story, where the implementing writer cannot change it (`release-0.1.2.mixed.1`, `writer_spent`
+  at `change.implement`). Cycle `spec-interp-unsupported`; the committed replay recording re-packed
+  because the review's `in/gate.txt` now ends with the interpreted run's line (`238c70d`,
+  `501d207`).
+
+### Added
+
+- A slider of three claims below the landing hero (what it does, why it is simple, why it is solid),
+  with numbers from committed data, and `tests/pitch.spec.ts` (`93a96a6`, `d51609c`).
+- A Context page (`/docs/context`) on what a model call is given, with two graphics and line
+  citations, and `tests/context.spec.ts` (`d7514a3`, `957bcae`).
+- The nine runs of `release-0.1.2` on tree 72a3eef: report, run summaries, timelines and
+  `notes.md` (strong 3 of 3 clean, mixed 2 of 3, Haiku 2 of 3) (`12e3069`, `74b6f1e`).
+- A logo (`docs/img/runbook-logo.svg`, `runbook-logo-dark.svg`) and a rewritten `README.md`: logo,
+  one-line summary, links, progress chart, how it works, the dry run, the layout and the status.
+
 ## [0.1.4] - 2026-11-21
 
 An observation, data and docs: the free-running agent comparison (its registered hypothesis

@@ -673,11 +673,37 @@
   ],
   "release": {
     "date": "2026-11-21",
-    "notes": "docs/releases/0.1.4.md",
-    "tag": "0.1.4",
-    "version": "0.1.4"
+    "notes": "docs/releases/0.2.1.md",
+    "tag": "0.2.1",
+    "version": "0.2.1"
   },
   "releases": [
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "Every limit of 0.2.0 stands: three runs per setting and tree; the story's `tests.run` repeats the interpreted suite; the conformance observation is off by default; no run has used the 0.1.3, 0.1.4, 0.2.0 or 0.2.1 tree; the binaries, environment names and protocol ids still say `sdc`; the driver's runtime parts are a temporary copy of what the Loom runtime must provide.",
+        "Tag 0.2.0 keeps both defects; tags are not moved."
+      ],
+      "notes": "docs/releases/0.2.1.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.2.1/docs/releases/0.2.1.md",
+      "summary": "A patch release of 0.2.0, the same day. It fixes two defects of the 0.2.0 tree that only the documentation checks see. The driver, the protocols, the bindings, the tools and the run inspector are those of 0.2.0 except for the version number, so nothing a run does changes. A source release at tag `0.2.1`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits. Read `docs/releases/0.2.0.md` for the release this one repairs.",
+      "version": "0.2.1"
+    },
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "Three runs per setting and tree; every claim above follows the record's rule.",
+        "The story's `tests.run` still runs the interpreted suite, so it repeats a check the spec stage now passes; removing it is a follow-up.",
+        "The conformance observation after close is off by default (0.1.4). The `release-0.1.2` runs used tree 72a3eef, which has no observation, so they carry no conformance figure.",
+        "No run has used the 0.1.3, 0.1.4 or 0.2.0 tree.",
+        "The binaries, environment names and protocol ids still say `sdc`; one `runbook` command is a later stage.",
+        "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
+      ],
+      "notes": "docs/releases/0.2.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.2.0/docs/releases/0.2.0.md",
+      "summary": "The first release under the name Runbook, the same day as 0.1.4. The product is now called Runbook; the software delivery cycle (SDC) is its first runbook and keeps its name and every id. The repository and the site move to the new name. The release also carries a fix of the spec gate, the results of the nine `release-0.1.2` runs and a reworked documentation site. No protocol or binding changed; one tool's check got stricter. A source release at tag `0.2.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
+      "version": "0.2.0"
+    },
     {
       "date": "2026-11-21",
       "limits": [
@@ -691,7 +717,7 @@
         "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
       ],
       "notes": "docs/releases/0.1.4.md",
-      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.4/docs/releases/0.1.4.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.1.4/docs/releases/0.1.4.md",
       "summary": "A patch release after 0.1.3, the same day: an observation, data and docs. No rule of a protocol changed. A source release at tag `0.1.4`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
       "version": "0.1.4"
     },
@@ -704,7 +730,7 @@
         "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
       ],
       "notes": "docs/releases/0.1.3.md",
-      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.3/docs/releases/0.1.3.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.1.3/docs/releases/0.1.3.md",
       "summary": "A patch release after 0.1.2, the same day: the documentation site and its generator. No protocol, binding or case changed, and the driver's behaviour did not change. A source release at tag `0.1.3`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
       "version": "0.1.3"
     },
@@ -717,7 +743,7 @@
         "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
       ],
       "notes": "docs/releases/0.1.2.md",
-      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.2/docs/releases/0.1.2.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.1.2/docs/releases/0.1.2.md",
       "summary": "A patch release after 0.1.1, the same day: corrections to the figures of 0.1.0, recorded replay, the timeline of a run, one rework cap, the LLM decider's principal renamed, and the root protocol's description. No rule of a protocol changed. A source release at tag `0.1.2`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
       "version": "0.1.2"
     },
@@ -730,7 +756,7 @@
         "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
       ],
       "notes": "docs/releases/0.1.1.md",
-      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.1/docs/releases/0.1.1.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.1.1/docs/releases/0.1.1.md",
       "summary": "A patch release after 0.1.0, the same day: the reject and cap routes of the audit, ways to keep a trial run going and to reopen it, a static route check and a pinned `canon simulate` step, workflow metrics with experiment records and a progress ledger, and the live view's run picker. No protocol of the nine changed. A source release at tag `0.1.1`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
       "version": "0.1.1"
     },
@@ -748,12 +774,12 @@
         "Release and operate are being split out of the cycle (branch `proto/cycle-ends-delivered`); that is not in this release."
       ],
       "notes": "docs/releases/0.1.0.md",
-      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.0/docs/releases/0.1.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.1.0/docs/releases/0.1.0.md",
       "summary": "The first release of the SDC prototype: eight Canon `protocol/1` protocols for the cycle from an idea to a built, tested product, a ninth for one bug fix, the driver that runs them, and a live view of a run. A source release at tag `0.1.0`; nothing is published to crates.io (`publish = false` in the three crates) and no interface is stable. Paths are relative to the repository; a figure marked \"run record\" comes from `runs/`, which is not in git, and is stated as recorded there (`docs/trial-3.md` is the account of trial 3).",
       "version": "0.1.0"
     }
   ],
-  "repository": "https://github.com/beyond10x/sdc",
+  "repository": "https://github.com/beyond10x/runbook",
   "roots": [
     "sdc",
     "sdc.bugfix"
@@ -761,7 +787,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "4ca85fffe5f5fc39efadaad000562b299b653fa71ddbedbf17b2869c327011f0"
+      "sha256": "bfc33da942f2c838532269a4c74cbddf260a81629e74f3bd2a77805d92a8f091"
     },
     {
       "path": "docs/check-output.txt",
@@ -786,6 +812,14 @@
     {
       "path": "docs/releases/0.1.4.md",
       "sha256": "fdc89da272c12cd35160d52a4650b18a67675ac2c7fd1fa7ca4be7800869fcf5"
+    },
+    {
+      "path": "docs/releases/0.2.0.md",
+      "sha256": "6c68baed412e1fd5926049ec90145118c525aa66e361b8fc0c0de05fcee1ffbd"
+    },
+    {
+      "path": "docs/releases/0.2.1.md",
+      "sha256": "2cd139fd0bee25b41610fb898d79b73918022c2e85a2f53073042cf2bfaaeaf1"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

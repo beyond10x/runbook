@@ -1,0 +1,11 @@
+format: sdc.targets/1
+targets:
+- id: fixture-cost-target
+  set: 2026-11-21
+  by: fixture
+  said: fixture target, not a decision
+  metric: run.cost_usd
+  input: todo-app
+  target: 1.25
+  basis: fixture value for the site tests
+  source_experiment: fixture-free-agent

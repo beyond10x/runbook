@@ -830,10 +830,10 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | direction | `context.check` | yq check | `valid`/`invalid` |
 | direction | `roadmap.validate` | `aep plan artifact validate --strict --store aep` | `valid`/`invalid` |
 | direction | `context.approve`, `vision.approve`, `roadmap.approve` | `manual`: `approve --action`, producer = principal | `approved` |
-| epic, plan, story, release | `spec.gate` | `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:`, `ess verify conform synthesize` with 0 refusals | `passed`/`failed` |
+| epic, plan, story, release | `spec.gate` | `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:`, `ess verify conform synthesize` with 0 refusals, then the suite against ESS's interpreter (`ess verify conform run --target interpreted --strict`) with every scenario passed | `passed`/`failed` |
 | epic | `spec.open`, `plan.open`, `stories.open`, `release.open` | driver: open child(ren); `stories` from `args_from: list-stories` (stories that deliver the epic) | `*_opened`, `case_outcome` |
 | spec | `spec.author` | `llm-node.sh`, `domain` from `args_from: spec-domain` (stub: copies `fixtures/billing-spec`, ESS `examples/billing`) | `spec_source=authored` |
-| spec | `spec.validate`, `spec.compile`, `spec.synthesize` | the `ess` commands above, one each | `valid`, `compiled`, `clean` |
+| spec | `spec.validate`, `spec.compile`, `spec.synthesize` | the `ess` commands above, one each (`spec.synthesize`: the synthesis and the interpreted run, as `spec.gate`; the scenarios that did not pass, with ESS's reason, end its log, which `spec.author` gets in `in/feedback.md`) | `valid`, `compiled`, `clean` (else `refused`) |
 | spec | `spec.scan`, `spec.trace` | `grep -rn UNMAPPED:`; every `system.yaml` domain cited by a requirement | `none`, `traced` |
 | spec | `spec.review` | reviewer stub (`test -f`), producer `reviewer-stub`, listed independent | `approved` |
 | story | `change.review` | `llm-node.sh change.review`, class REVIEW, producer `llm-review`, listed independent (see "The code review"); stub `test -s impl/README.md` | `approved`/`rejected` |

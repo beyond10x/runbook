@@ -1,6 +1,7 @@
-# SDC run inspector
+# Runbook run inspector
 
-A web view of an `sdc-drive` case store: where each case stands in the SDC phases and in its Canon
+The run inspector of Runbook: a web view of an `sdc-drive` case store. It shows where each case
+stands in the phases of the software delivery cycle (SDC), the first runbook, and in its Canon
 protocol, why (claims down to evidence records, excluded records and the revision that excluded
 them), what is admissible next, who acted (program, LLM, person, decider), what each agent step was
 allowed to do and did, and run metrics. It updates live while a run writes the store. With
