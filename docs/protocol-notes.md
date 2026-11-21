@@ -2,7 +2,7 @@
 
 The SDC is a family of eight Canon `protocol/1` documents under `protocol/`, one case per stage,
 composed with child cases. Sources: `docs/phases.md` (phase model), `docs/intake.md` (intake
-stages and evidence names), Canon 0.9.0 at commit 8f1f452.
+stages and evidence names), Canon 0.10.0 at commit 2c7a1ea6.
 
 | Protocol | File | Opens | Success outcome |
 |---|---|---|---|

@@ -305,7 +305,7 @@
       "protocol": "sdc.story",
       "protocol_revision": 7,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },
@@ -359,6 +359,12 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "change.implement": [],
+    "tests.run": [
+      "conformance_run"
+    ]
+  },
   "obligations": [
     {
       "id": "gate.required",
@@ -404,6 +410,18 @@
       ],
       "status": "blocked"
     }
+  },
+  "pending_decisions": {
+    "decisions": [
+      {
+        "case_revision": "c1",
+        "decision": "explicitly_dropped",
+        "options": [
+          "taken"
+        ],
+        "outcome": "dropped"
+      }
+    ]
   },
   "protocol": "sdc.story",
   "protocol_revision": 7

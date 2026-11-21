@@ -137,7 +137,8 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
 - The load check, with Loom's own loader, outside this repository (no Rust of Runbook's): a scratch
   binary crate that depends on `b10x-loom-bindings` by path in an export of Loom at `8a8fad3b`
   (`git -C ../loom archive 8a8fad3b Cargo.toml Cargo.lock crates generated protocols`, Loom's
-  `Cargo.lock` copied beside the crate) and on `b10x-canon` tag `0.9.0`. Per file it parses
+  `Cargo.lock` copied beside the crate) and on `b10x-canon` tag `0.10.0` (the run of 2026-11-21
+  below used `0.9.0`). Per file it parses
   `protocol/<name>.protocol.yaml` with `b10x_canon::model::parse`, then calls
   `b10x_loom_bindings::decode` on `bindings/<name>.yaml` and
   `b10x_loom_bindings::check(&document, "<name>@1", &protocol)`, and prints `ok` or the refusal.
