@@ -69,7 +69,7 @@ for (const s of scenarios) {
     // at a phone size the page scrolls vertically (D-006): what is below the fold is scrolled to, at
     // the cost of a glance 3 (not in view), and is then read or used where it is
     const pol = policy(vp);
-    const scrollTo = async (loc) => { if (!pol.pageScrollY || !(await loc.count())) return false; await loc.first().scrollIntoViewIfNeeded().catch(() => null); return true; };
+    const scrollTo = async (loc) => { if (!pol.pageScrollY || !(await loc.count())) return false; await loc.filter({visible: true}).first().evaluate((e) => e.scrollIntoView({block: 'center'}), null, {timeout: 5000}).catch(() => null); return true; };
     const read = async (scope, text) => {
       let ok = await visibleText(page, scope, text);
       if (!ok && await scrollTo(page.locator(scope).getByText(text, {exact: false}))) { ok = await visibleText(page, scope, text); if (ok) { u.looks.push(3); return true; } }
