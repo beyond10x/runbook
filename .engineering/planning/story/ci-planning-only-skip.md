@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:ci-planning-only-skip
 kind: story
-status: active
+status: implemented
 title: A planning-only change passes the required checks without building or testing
 summary: Classify changed files once; planning or prose skips build and test, docs-site runs the docs check only, code runs everything
 tags:
@@ -16,10 +16,11 @@ scope:
   path: .github/workflows/pages.yml
 - confidence: cited
   path: Taskfile.yml
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T21:47:10Z", actor: "human:operator", revision: 2, executor: "agent:ci-test-budget", correlation: "operator-standing-acceptance-2026-11-21"}
 - {from: "proposed", to: "active", at: "2026-11-21T21:47:10Z", actor: "human:operator", revision: 3, executor: "agent:ci-test-budget", correlation: "ci-test-budget"}
+- {from: "active", to: "implemented", at: "2026-11-21T22:35:05Z", actor: "human:operator", revision: 6, decided_on: {"asserted":{"test_result":1}}, executor: "agent:ci-test-budget", correlation: "ci-test-budget"}
 ---
 # Story: ci-planning-only-skip
 

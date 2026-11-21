@@ -77,6 +77,7 @@
   manner. It shouldn't end up messy."
 - No run is started by hand: `sdc-experiment run <id>` starts them, on the record's commit, with the
   record's settings (the operator, 2026-11-21, same words). Stop one with `sdc-experiment stop`.
+- CI classifies the changed files in one place, the step "Classify the changed files" of `.github/workflows/pages.yml` (planning, docs-site or code; a planning-only change builds and tests nothing); a change to that path list changes `task check:ci-paths` in the same commit.
 
 ## Commits
 

@@ -7,6 +7,8 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+- CI: a change of only planning or prose files passes `Documentation validation` without building or testing, and deploys nothing; a docs-site change skips the `sdc-protocol-site` unit tests (`story:ci-planning-only-skip`).
+
 ## [0.2.1] - 2026-11-21
 
 A patch release of 0.2.0: two fixes of the documentation checks. The driver, protocols, bindings,

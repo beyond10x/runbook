@@ -7,12 +7,53 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch and goals; bindings, fixture cases and the planning store.
+    desc: Build, test and lint driver, watch and goals; bindings, fixture cases, the CI change classifier and the planning store.
     cmds:
+      - task: check:ci-paths
       - for c in driver watch goals; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
+
+  check:ci-paths:
+    silent: true
+    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty."
+    cmds:
+      - |
+        set -eu
+        step=$(awk '
+          /- name: Classify the changed files$/ { f = 1; next }
+          f && !r && /run: \|$/ { r = 1; i = match($0, /[^ ]/); next }
+          r && /^ *$/ { print ""; next }
+          r { j = match($0, /[^ ]/); if (j <= i) exit; print substr($0, i + 2) }
+        ' .github/workflows/pages.yml)
+        test -n "$step" || { echo "no classifier step in .github/workflows/pages.yml"; exit 1; }
+        fail=0 n=0
+        while IFS='|' read -r want files; do
+          n=$((n + 1))
+          got=$(printf '%s' "$files" | tr ' ' '\n' | CHANGED_FILES= GITHUB_OUTPUT=/dev/stdout bash -c "$step" | sed -n 's/^class=//p')
+          if [ "$got" = "$want" ]; then echo "ok   $want <- ${files:-(none)}"; else echo "FAIL $want <- ${files:-(none)}: got ${got:-nothing}"; fail=1; fi
+        done <<'CASES'
+        planning|.engineering/planning/story/x.md
+        planning|.engineering/planning/project.yaml
+        planning|README.md AGENTS.md docs/driver.md ui/README.md
+        docs-site|website/docs/index.md
+        docs-site|website/src/pages/index.tsx
+        docs-site|CHANGELOG.md
+        docs-site|docs/releases/0.2.1.md
+        docs-site|experiments/INDEX.md experiments/releases.yaml
+        docs-site|docs/progress.json docs/img/progress.svg docs/check-output.txt
+        docs-site|.engineering/planning/story/x.md README.md website/docs/run-it.md
+        code|driver/src/main.rs
+        code|Taskfile.yml
+        code|.github/workflows/pages.yml
+        code|docs/img/other.svg
+        code|README.md driver/src/lib.rs
+        code|website/docs/index.md scripts/run-trial.sh
+        code|
+        CASES
+        echo "$n cases"
+        exit $fail
 
   check:protocols:
     desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).
