@@ -1,0 +1,15 @@
+target/
+node_modules/
+.claude/settings.local.json
+.engineering/drafts/
+.sdc-drive.lock
+runs/
+eval/runs/
+eval/reports/*-runs/
+ui/screenshots/
+ui/test/fixtures/
+ui/test-results/
+ui/playwright-report/
+ui/ux/rounds/*/shots/
+eval/**/blobs/
+eval/**/cwd/

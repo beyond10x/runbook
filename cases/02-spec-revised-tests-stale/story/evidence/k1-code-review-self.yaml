@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: k1
+kind: code_review
+result: approved
+subject: change
+subject_revision: c2
+producer: implementer-agent
+observed_at: 2026-11-20T10:45:00Z

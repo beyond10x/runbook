@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: v1
+kind: spec_validation
+result: valid
+subject: spec
+subject_revision: s1
+producer: tool:ess@0.96.0
+observed_at: 2026-11-20T09:05:00Z

@@ -1,0 +1,4 @@
+format: sdc.goals/1
+layer: product
+entries:
+  - {id: product/p1, kind: preference, priority: 1, statement: "Use a mail service.", sources: ["person:operator"], valid_from: 2026-11-21, overrides: company/c2}

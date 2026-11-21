@@ -1,0 +1,178 @@
+format: protocol/1
+
+protocol:
+  id: sdc.story
+  revision: 1
+  description: >-
+    Deliver one story of an approved ESS specification: plan it, design it, implement it, have it
+    reviewed by a principal other than its implementer, test it against the current specification
+    revision and merge it under authority. A revised specification invalidates the plan, the
+    design review and the test results observed against the earlier specification revision. The
+    case ends delivered, or dropped on an explicit decision.
+
+independence_dimensions:
+  different_principal:
+    description: the producer is another principal than the one who implemented the change
+
+artifacts:
+  spec:
+    description: the story's slice of the ESS specification; its revision follows the parent case
+  plan:
+    description: the intended steps that realize the story
+  design:
+    description: the design of the change, written against the plan and the specification
+  change:
+    description: a revision of the code that realizes the design
+
+evidence_kinds:
+  plan_record:
+    description: >-
+      the record that a plan revision was written against a specification revision
+  design_review:
+    description: >-
+      a review of a design revision against the specification; its result is approved or rejected
+  test_result:
+    description: >-
+      the result of running the tests, the ESS conformance suite among them, against a change
+      revision; its result is pass or fail
+  code_review:
+    description: a review of a change revision; its result is approved or rejected
+  merge_record:
+    description: the record that a change revision was merged into the mainline
+
+claims:
+  plan.current:
+    description: a plan was written for the current plan revision against the current specification
+    true_when:
+      evidence:
+        kind: plan_record
+        subject: plan
+  design.approved:
+    description: the current design revision is approved against the current specification
+    true_when:
+      evidence:
+        kind: design_review
+        result: approved
+        subject: design
+  tests.pass:
+    description: the tests pass for the current change revision and the current specification
+    true_when:
+      evidence:
+        kind: test_result
+        result: pass
+        subject: change
+  change.reviewed:
+    description: >-
+      the current change revision is approved by a reviewer the case lists as another principal
+      than the implementer
+    true_when:
+      evidence:
+        kind: code_review
+        result: approved
+        subject: change
+        independent_on: [different_principal]
+  change.verified:
+    description: the current change revision passes its tests and is independently reviewed
+    true_when:
+      all:
+        - claim: tests.pass
+        - claim: change.reviewed
+  change.merged:
+    description: the current change revision is merged
+    true_when:
+      evidence:
+        kind: merge_record
+        subject: change
+
+obligations:
+  plan.required:
+    description: the plan is current against the specification
+    discharged_when:
+      claim: plan.current
+  design.required:
+    description: the design is approved against the specification
+    discharged_when:
+      claim: design.approved
+  tests.required:
+    description: the tests pass for the current change and specification
+    discharged_when:
+      claim: tests.pass
+  review.required:
+    description: the current change is independently reviewed
+    discharged_when:
+      claim: change.reviewed
+
+actions:
+  plan.write:
+    description: write or revise the plan against the current specification revision
+    effect: write
+    may_produce:
+      - evidence: plan_record
+  design.write:
+    description: write or revise the design; moves the design to a new revision
+    effect: write
+    precondition:
+      claim: plan.current
+  design.review:
+    description: review the current design revision against the specification
+    effect: read
+    precondition:
+      claim: plan.current
+    may_produce:
+      - evidence: design_review
+  change.implement:
+    description: change the code; moves the change to a new revision
+    effect: write
+    precondition:
+      claim: design.approved
+  tests.run:
+    description: run the tests and the ESS conformance suite against the current change revision
+    effect: read
+    may_produce:
+      - evidence: test_result
+  change.review:
+    description: review the current change revision
+    effect: read
+    may_produce:
+      - evidence: code_review
+  change.merge:
+    description: >-
+      merge the current change revision; needs it verified, the plan current, the design approved
+      and authority to merge
+    effect: write
+    precondition:
+      all:
+        - claim: plan.current
+        - claim: design.approved
+        - claim: change.verified
+    requires:
+      - capability: change.merge
+    may_produce:
+      - evidence: merge_record
+
+outcomes:
+  delivered:
+    description: >-
+      the current change revision is merged and verified against a current plan and an approved
+      design
+    requires:
+      all:
+        - claim: plan.current
+        - claim: design.approved
+        - claim: change.verified
+        - claim: change.merged
+  dropped:
+    description: the story was explicitly dropped
+    requires:
+      decision: explicitly_dropped
+
+invalidation:
+  spec.revised:
+    description: >-
+      a plan record, design review or test result observed against an earlier specification
+      revision no longer supports its claim
+    upstream: spec
+    invalidates:
+      - plan.current
+      - design.approved
+      - tests.pass

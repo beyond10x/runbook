@@ -1,0 +1,13 @@
+requirements:
+  - id: r1
+    text: A billing clerk creates, issues, pays and cancels invoices.
+    cites: [d1, q1, q2]
+    spec_domains: [billing.invoice]
+  - id: r2
+    text: The customer is emailed when an invoice is created.
+    cites: [d2]
+    spec_domains: [billing.email]
+  - id: r3
+    text: A billing clerk can draft invoices without a network connection.
+    cites: [d1]
+    spec_domains: [billing.invoice]

@@ -1,0 +1,9 @@
+format: canon-case/1
+id: REL-1
+protocol: sdc.release
+revision: c2
+artifacts:
+  spec:
+    revision: s2
+  release:
+    revision: 1.0.0

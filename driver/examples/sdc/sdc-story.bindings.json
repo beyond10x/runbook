@@ -1,0 +1,118 @@
+{
+  "$artifacts": {
+    "spec": "spec",
+    "change": "impl",
+    "findings": "findings.yaml",
+    "requirements": "requirements.yaml"
+  },
+  "$independence": {
+    "reviewer-stub": [
+      "different_principal"
+    ]
+  },
+  "spec.gate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "ess-gate"
+    ],
+    "produces": "ess_gate",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  },
+  "change.implement": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "change.implement"
+    ],
+    "produces": "implementation_change",
+    "subject": "change",
+    "upstream": [
+      "spec"
+    ],
+    "producer": "llm-node",
+    "results": {
+      "0": null
+    },
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 40,
+      "max_budget_usd": 2,
+      "stub": [
+        "stub-tree",
+        "impl",
+        "impl"
+      ]
+    },
+    "retry_when": {
+      "conformance_run": [
+        "failed"
+      ],
+      "code_review": [
+        "rejected"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 1500
+  },
+  "tests.run": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "story-tests",
+      "impl"
+    ],
+    "produces": "conformance_run",
+    "subject": "change",
+    "upstream": [
+      "spec"
+    ],
+    "producer": "ess",
+    "results": {
+      "0": "passed",
+      "5": "finding",
+      "*": "failed"
+    }
+  },
+  "change.review": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "review-change"
+    ],
+    "produces": "code_review",
+    "subject": "change",
+    "producer": "reviewer-stub",
+    "results": {
+      "0": "approved",
+      "*": "rejected"
+    }
+  },
+  "change.merge": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "merge"
+    ],
+    "produces": "merge_record",
+    "subject": "change",
+    "producer": "sdc-drive.merge",
+    "results": {
+      "0": null
+    }
+  },
+  "amend.upstream": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "amend",
+      "story"
+    ],
+    "max_runs": 12,
+    "timeout_s": 300,
+    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
+    "handoff_when": [
+      "{dir}/tools/sdc-tool.sh",
+      "findings-wait"
+    ]
+  }
+}

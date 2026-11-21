@@ -1,0 +1,47 @@
+version: '3'
+
+tasks:
+  serve:
+    desc: Serve the run inspector on http://127.0.0.1:7490/
+    preconditions:
+      - sh: '[ -n "{{.CLI_ARGS}}" ] || [ -d ../runs/trial-todo-1/store ]'
+        msg: "missing run directory runs/trial-todo-1 (runs/ is git-ignored): pass a store, task serve -- <run>/store"
+    cmds:
+      - node server.mjs --port {{.PORT | default "7490"}} {{.CLI_ARGS | default "../runs/trial-todo-1/store ../runs/full-cycle-1/store"}}
+
+  decide:
+    desc: Serve with the Decisions drawer able to act, as PRINCIPAL (default operator)
+    preconditions:
+      - sh: '[ -n "{{.CLI_ARGS}}" ] || [ -d ../runs/trial-todo-1/store ]'
+        msg: "missing run directory runs/trial-todo-1 (runs/ is git-ignored): pass a store, task decide -- <run>/store"
+    cmds:
+      - node server.mjs --port {{.PORT | default "7490"}} --write --principal {{.PRINCIPAL | default "operator"}} {{.CLI_ARGS | default "../runs/trial-todo-1/store"}}
+
+  now:
+    desc: Test the now band, what changed, the KPI strip and file changes against played fixture runs, with screenshots
+    cmds:
+      - slot npx playwright test test/now-model.spec.mjs test/now.spec.mjs test/meaning-model.spec.mjs test/changes.spec.mjs --workers=2
+
+  ux:
+    desc: UI loop fast loop (L0 to L3 at the gating viewports), then the ratchet against ux/baseline.json
+    cmds:
+      - slot npx playwright test -c ux/playwright.config.mjs --workers=2
+      - node ux/core/ratchet.mjs --viewports 1600x1000,1366x768
+
+  ux:update:
+    desc: Take improvements and new metrics into ux/baseline.json (a worse value needs DECISION=D-nnn)
+    cmds:
+      - node ux/core/ratchet.mjs --viewports 1600x1000,1366x768 --update {{if .DECISION}}--decision {{.DECISION}}{{end}}
+
+  ux:round:
+    desc: "Measure a UI loop round at every viewport: ux/rounds/ROUND/report.md, round.json, shots, trend.md (ROUND=R-nn)"
+    requires:
+      vars: [ROUND]
+    cmds:
+      - node ux/core/round.mjs {{.ROUND}} --gating 1600x1000,1366x768
+
+  screenshots:
+    desc: Take screenshots of every view from a running server
+    cmds:
+      - npm install --no-audit --no-fund
+      - slot npx playwright test --workers=2

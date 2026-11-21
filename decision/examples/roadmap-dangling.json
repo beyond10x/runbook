@@ -1,0 +1,177 @@
+{
+  "request": {
+    "request_id": "DR-IDEA-1.direction-roadmap.approve-1",
+    "state": "Open",
+    "case_id": "IDEA-1.direction",
+    "question_key": "IDEA-1.direction|roadmap.approve|",
+    "unblocks": {
+      "kind": "approval",
+      "action": "roadmap.approve",
+      "capability": "owner.approve"
+    },
+    "subject_artifact": "roadmap",
+    "subject_revision": "t2b3f8657120d0679",
+    "subject_path": "work/aep/initiative/roadmap.md",
+    "question": "Approve the roadmap at revision t2b3f8657120d0679 (one epic, todolist, covering r1 r2 r3)?",
+    "options": [
+      {
+        "letter": "A",
+        "does": "Approve: roadmap.approve produces roadmap_approval by the principal about this revision.",
+        "cost": "None; the epic case opens.",
+        "consequence": {
+          "admits": [
+            "roadmap.approve",
+            "roadmap.read"
+          ],
+          "blocks": [],
+          "grant": "granted",
+          "produces": "canon_evidence"
+        }
+      },
+      {
+        "letter": "B",
+        "does": "Reject: the owner.approve grant is denied at this case revision.",
+        "cost": "The direction case stops until the roadmap is revised.",
+        "consequence": {
+          "admits": [],
+          "blocks": [
+            "roadmap.approve"
+          ],
+          "grant": "denied",
+          "produces": "canon_authority"
+        }
+      },
+      {
+        "letter": "C",
+        "does": "Ask for a change: the roadmap is written again with feedback, a new revision is a new request.",
+        "cost": "One more LLM writer run and a new decision.",
+        "consequence": {
+          "admits": [
+            "roadmap.write"
+          ],
+          "blocks": [
+            "roadmap.approve"
+          ]
+        }
+      }
+    ],
+    "autonomy_level": "A0",
+    "eligible": [
+      "operator"
+    ],
+    "addressed_to": "operator",
+    "opened_at": "2026-11-21T12:00:00Z",
+    "recommendation_strength": "none",
+    "default_on_silence": false,
+    "grounds": [],
+    "decision_reasons": [],
+    "decision_class": "roadmap",
+    "holder": "person"
+  },
+  "proposal": {
+    "recommended_option": "A",
+    "strength": "strong",
+    "default_on_silence": false,
+    "proposed_by": "llm",
+    "grounds": [
+      {
+        "source": "vision",
+        "citation": {
+          "form": "path_line",
+          "value": {
+            "path": "work/aep/vision/product.md",
+            "line": 20,
+            "line_end": 27
+          }
+        },
+        "supports": "A",
+        "how": "The vision says the product runs as a daemon and stores items on the server."
+      },
+      {
+        "source": "requirement",
+        "citation": {
+          "form": "path_line",
+          "value": {
+            "path": "work/requirements.yaml",
+            "line": 2,
+            "line_end": 13
+          }
+        },
+        "supports": "A",
+        "how": "The epic covers r1, r2 and r3, every requirement there is."
+      },
+      {
+        "source": "evidence_record",
+        "citation": {
+          "form": "record_id",
+          "value": {
+            "store": "canon_evidence",
+            "record_id": "e0079-vision.approve"
+          }
+        },
+        "supports": "A",
+        "how": "operator approved the vision the roadmap is derived from."
+      },
+      {
+        "source": "evidence_record",
+        "citation": {
+          "form": "artifact_revision",
+          "value": {
+            "artifact": "vision",
+            "revision": "t1f6774e18a844d5d"
+          }
+        },
+        "supports": "A",
+        "how": "The approved vision revision is still the current one, so the roadmap rests on an approved vision."
+      },
+      {
+        "source": "policy",
+        "citation": {
+          "form": "path_line",
+          "value": {
+            "path": "docs/phases.md",
+            "line": 28
+          }
+        },
+        "supports": "A",
+        "how": "The roadmap is the outermost planning structure and is approved before any specification; the epic is the next step."
+      },
+      {
+        "source": "policy",
+        "citation": {
+          "form": "path_line",
+          "value": {
+            "path": "docs/phases.md",
+            "line": 460
+          }
+        },
+        "supports": "A",
+        "how": "A policy line that does not exist."
+      },
+      {
+        "source": "prior_decision",
+        "citation": {
+          "form": "record_id",
+          "value": {
+            "store": "canon_evidence",
+            "record_id": "e9999-roadmap.approve"
+          }
+        },
+        "supports": "A",
+        "how": "An approval record that was never written."
+      },
+      {
+        "source": "spec",
+        "citation": {
+          "form": "artifact_revision",
+          "value": {
+            "artifact": "roadmap",
+            "revision": "t0000000000000000"
+          }
+        },
+        "supports": "A",
+        "how": "A roadmap revision that is not the current one."
+      }
+    ]
+  }
+}

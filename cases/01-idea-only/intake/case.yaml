@@ -1,0 +1,15 @@
+format: canon-case/1
+id: INTAKE-1
+protocol: sdc.intake
+revision: c1
+artifacts:
+  idea:
+    revision: i1
+  dissection:
+    revision: none
+  questions:
+    revision: none
+  requirements:
+    revision: none
+  findings:
+    revision: none

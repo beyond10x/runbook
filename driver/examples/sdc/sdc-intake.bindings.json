@@ -1,0 +1,199 @@
+{
+  "$artifacts": {
+    "idea": "idea.yaml",
+    "dissection": "dissection.yaml",
+    "questions": "questions.yaml",
+    "requirements": "requirements.yaml",
+    "findings": "findings.yaml"
+  },
+  "idea.check": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "check-idea"
+    ],
+    "produces": "idea_shape",
+    "subject": "idea",
+    "producer": "sdc-check",
+    "results": {
+      "0": "valid",
+      "*": "invalid"
+    }
+  },
+  "idea.dissect": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "idea.dissect"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-file",
+        "dissection.yaml",
+        "dissection.yaml"
+      ]
+    },
+    "retry_when": {
+      "dissection_shape": [
+        "invalid"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "dissection.check": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "check-dissection"
+    ],
+    "produces": "dissection_shape",
+    "subject": "dissection",
+    "upstream": [
+      "idea"
+    ],
+    "producer": "sdc-check",
+    "results": {
+      "0": "valid",
+      "*": "invalid"
+    }
+  },
+  "questions.write": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "questions.write"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-file",
+        "questions-open.yaml",
+        "questions.yaml"
+      ]
+    },
+    "retry_when": {
+      "questions_shape": [
+        "invalid"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "questions.answer": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "questions.answer"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-file",
+        "questions-answered.yaml",
+        "questions.yaml"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "questions.check": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "check-questions"
+    ],
+    "produces": [
+      "questions_shape",
+      "questions_settled"
+    ],
+    "subject": "questions",
+    "upstream": [
+      "dissection"
+    ],
+    "producer": "sdc-check",
+    "results": {
+      "0": {
+        "questions_shape": "valid",
+        "questions_settled": "settled"
+      },
+      "1": {
+        "questions_shape": "valid",
+        "questions_settled": "open"
+      },
+      "3": {
+        "questions_shape": "valid",
+        "questions_settled": "needs_scope_answer"
+      },
+      "*": {
+        "questions_shape": "invalid",
+        "questions_settled": "open"
+      }
+    }
+  },
+  "requirements.normalise": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "requirements.normalise"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-file",
+        "requirements.yaml",
+        "requirements.yaml"
+      ]
+    },
+    "retry_when": {
+      "requirements_shape": [
+        "invalid"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "requirements.check": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "check-requirements"
+    ],
+    "produces": "requirements_shape",
+    "subject": "requirements",
+    "upstream": [
+      "questions"
+    ],
+    "producer": "sdc-check",
+    "results": {
+      "0": "valid",
+      "5": "finding",
+      "*": "invalid"
+    }
+  },
+  "amend.upstream": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "amend",
+      "requirements"
+    ],
+    "max_runs": 12,
+    "timeout_s": 300,
+    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
+    "handoff_when": [
+      "{dir}/tools/sdc-tool.sh",
+      "findings-wait"
+    ]
+  },
+  "scope.answer": {
+    "manual": true,
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "scope-answer",
+      "{principal}"
+    ],
+    "max_runs": 8,
+    "subject": "questions"
+  }
+}

@@ -1,0 +1,143 @@
+---
+format: aep.planning-md/3
+id: approval-record:operator-approval-drafts-2026-11-21
+kind: approval-record
+status: draft
+title: Operator approval of all draft epics and stories, 2026-11-21
+tags:
+- operator-approval
+- session-sdc
+relations:
+- decides: epic:area-board
+- decides: epic:brownfield-entry
+- decides: epic:concurrent-child-cases
+- decides: epic:decisions-a-person-can-take-cold
+- decides: epic:flow-limits
+- decides: epic:kernel-and-runtime-uptake
+- decides: epic:orchestrate-area-case
+- decides: epic:requester-side-and-goals-context
+- decides: story:area-admission-strip
+- decides: story:area-board-flow-kpis
+- decides: story:area-board-shell
+- decides: story:area-intake-strip
+- decides: story:area-orchestrator-panel
+- decides: story:bindings-to-loom-bindings-1
+- decides: story:canon-slice-bound-uptake
+- decides: story:concurrency-limit
+- decides: story:concurrent-sibling-drive
+- decides: story:constraint-consistency-rules
+- decides: story:decision-cold-read
+- decides: story:decision-contract-goals-grounds
+- decides: story:decision-request-from-question
+- decides: story:epic-stories-to-portfolio
+- decides: story:ess-ratchet-gate
+- decides: story:eval-requester-persona
+- decides: story:flow-kpis
+- decides: story:goals-format-check
+- decides: story:goals-root-input
+- decides: story:import-approvals
+- decides: story:intake-reconstruct
+- decides: story:interview-derived-from-goals
+- decides: story:interview-question-context
+- decides: story:kpi-decisions-returned-for-context
+- decides: story:limits-changed-event
+- decides: story:loom-concurrent-children
+- decides: story:orchestrate-backlog-survey
+- decides: story:orchestrate-intake-triage
+- decides: story:orchestrate-protocol-adopt
+- decides: story:orchestrate-standing-horizon
+- decides: story:orchestrate-wave-admit
+- decides: story:orchestrate-wave-approve
+- decides: story:orchestrate-wave-integrate
+- decides: story:orchestrate-wave-propose
+- decides: story:per-case-lock
+- decides: story:per-story-worktree
+- decides: story:plan-partial-activation
+- decides: story:protocol-imports-uptake
+- decides: story:requester-decider
+- decides: story:requester-decider-loom
+- decides: story:requester-kpis
+- decides: story:roadmap-kind-adopt
+- decides: story:roadmap-reconstruct
+- decides: story:root-outcome-delivered
+- decides: story:standing-wakeup
+- decides: story:stop-message-prints-request
+- decides: story:story-merge-step
+- decides: story:ui-concurrent-writers
+- decides: story:ui-decision-request
+- decides: story:ui-goal-grounds
+- decides: story:wip-limits-admission
+- decides: story:wip-sweep-eval
+revision: 2
+---
+# Operator approval of the drafted orchestration plan
+
+- Stop: acceptance of every draft epic and story in the store, in the sdc session.
+- Approver: the operator, in session `sdc`.
+- Date: 2026-11-21.
+- Statement, verbatim: "I'm approving all the drafts you have created according to my requirements."
+- Scope: every epic and story in draft at this date; all were drafted on 2026-11-21 from his requirements.
+- Not covered: `upstream-blocker` artifacts (unchanged, still open); starting any work (nothing moves to active; implementation order stays as AGENTS.md "Work order").
+- Lifecycle note: the epic and story lifecycles in this store have no `accepted` status (draft, proposed, active, ...). Acceptance is recorded as the move to `proposed`; this record is its ground.
+
+## Artifacts covered
+- epic:area-board
+- epic:brownfield-entry
+- epic:concurrent-child-cases
+- epic:decisions-a-person-can-take-cold
+- epic:flow-limits
+- epic:kernel-and-runtime-uptake
+- epic:orchestrate-area-case
+- epic:requester-side-and-goals-context
+- story:area-admission-strip
+- story:area-board-flow-kpis
+- story:area-board-shell
+- story:area-intake-strip
+- story:area-orchestrator-panel
+- story:bindings-to-loom-bindings-1
+- story:canon-slice-bound-uptake
+- story:concurrency-limit
+- story:concurrent-sibling-drive
+- story:constraint-consistency-rules
+- story:decision-cold-read
+- story:decision-contract-goals-grounds
+- story:decision-request-from-question
+- story:epic-stories-to-portfolio
+- story:ess-ratchet-gate
+- story:eval-requester-persona
+- story:flow-kpis
+- story:goals-format-check
+- story:goals-root-input
+- story:import-approvals
+- story:intake-reconstruct
+- story:interview-derived-from-goals
+- story:interview-question-context
+- story:kpi-decisions-returned-for-context
+- story:limits-changed-event
+- story:loom-concurrent-children
+- story:orchestrate-backlog-survey
+- story:orchestrate-intake-triage
+- story:orchestrate-protocol-adopt
+- story:orchestrate-standing-horizon
+- story:orchestrate-wave-admit
+- story:orchestrate-wave-approve
+- story:orchestrate-wave-integrate
+- story:orchestrate-wave-propose
+- story:per-case-lock
+- story:per-story-worktree
+- story:plan-partial-activation
+- story:protocol-imports-uptake
+- story:requester-decider
+- story:requester-decider-loom
+- story:requester-kpis
+- story:roadmap-kind-adopt
+- story:roadmap-reconstruct
+- story:root-outcome-delivered
+- story:standing-wakeup
+- story:stop-message-prints-request
+- story:story-merge-step
+- story:ui-concurrent-writers
+- story:ui-decision-request
+- story:ui-goal-grounds
+- story:wip-limits-admission
+- story:wip-sweep-eval

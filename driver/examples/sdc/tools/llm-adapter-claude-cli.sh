@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# LLM adapter: `claude -p` directly, for when metaharness cannot be used. Same contract as
+# llm-adapter-metaharness.sh. The neutral operations map to Claude Code tool names, passed as an
+# explicit --allowedTools list; everything else is disallowed.
+set -uo pipefail
+for p in jq claude; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-claude-cli.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
+req=$(cat "$1")
+r() { jq -r "$1" <<< "$req"; }
+rec=$(r .record_dir)
+mkdir -p "$rec"
+tools=$(jq -r '[.operations[] | {"file.read": "Read", "file.write": "Write", "file.edit": "Edit",
+  "dir.list": "Glob", "search": "Grep", "shell": "Bash"}[.] // empty] | join(",")' <<< "$req")
+argv=("${CLAUDE:-claude}" -p "$(cat "$(r .prompt_file)")" --model "$(r .model)"
+  --max-turns "$(r .max_turns)" --max-budget-usd "$(r .max_budget_usd)"
+  --allowedTools "$tools" --disallowedTools "Bash,WebFetch,WebSearch,Task,Skill"
+  --permission-mode acceptEdits --output-format stream-json --verbose --no-session-persistence)
+printf '%s\0' "${argv[@]}" | jq -Rs 'split("\u0000") | .[0:2] + ["<prompt_file>"] + .[3:-1]' > "$rec/argv.json"
+start=$(date +%s%3N)
+(cd "$(r .cwd)" && "${argv[@]}" < /dev/null > "$rec/events.jsonl" 2> "$rec/stderr.txt")
+code=$?
+end=$(date +%s%3N)
+jq -s --arg model "$(r .model)" --argjson code "$code" --argjson ms "$((end - start))" '
+  (map(select(.type == "result")) | last) as $e
+  | {adapter: "claude-cli", model: $model, exit: $code, duration_ms: ($e.duration_ms // $ms), wall_ms: $ms,
+     cost_usd: $e.total_cost_usd, num_turns: $e.num_turns, usage: $e.usage, is_error: $e.is_error,
+     tool_calls: [.[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")
+       | {name, input: (.input | tostring | .[0:300])}]}' "$rec/events.jsonl" 2>/dev/null \
+  || jq -n --argjson code "$code" '{adapter: "claude-cli", exit: $code, error: "no readable output"}'
+exit $code

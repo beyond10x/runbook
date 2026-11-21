@@ -1,0 +1,149 @@
+{
+  "format": "sdc-consistency-rules/1",
+  "rules": [
+    {
+      "id": "storage-location",
+      "type": "contradiction",
+      "a": {
+        "items": [
+          "context.deployment",
+          "context.platform",
+          "context.kind"
+        ],
+        "pattern": "\\bdaemon\\b|\\bserver\\b|\\bdatabase\\b|data file|JSON API"
+      },
+      "b": {
+        "items": [
+          "requirements"
+        ],
+        "pattern": "(in |into )?(the )?(browser storage|browser's storage|local ?storage|IndexedDB|client[- ]side storage|the browser)"
+      },
+      "says": "the context keeps the data on a server, while the requirement keeps it in the browser",
+      "options": {
+        "a": "keep the data on the server, as the context says",
+        "b": "keep the data in the browser, as the requirement says"
+      },
+      "replace": {
+        "a": "static web pages; the data stays in the browser",
+        "b": "on the server, in the service's data file"
+      }
+    },
+    {
+      "id": "interface-kind",
+      "type": "contradiction",
+      "a": {
+        "items": [
+          "context.kind"
+        ],
+        "pattern": "^\\s*CLI\\s*$|command[- ]line"
+      },
+      "b": {
+        "items": [
+          "requirements"
+        ],
+        "pattern": "web (UI|application|app|page|interface)|in a browser"
+      },
+      "says": "the context makes it a command-line tool, while the requirement asks for a web interface",
+      "options": {
+        "a": "a command-line tool, as the context says",
+        "b": "a web interface, as the requirement says"
+      },
+      "replace": {
+        "a": "service",
+        "b": "command-line interface"
+      }
+    },
+    {
+      "id": "user-count",
+      "type": "contradiction",
+      "a": {
+        "items": [
+          "requirements"
+        ],
+        "pattern": "single[- ]user|only one user|exactly one user|one user only|no other user"
+      },
+      "b": {
+        "items": [
+          "requirements",
+          "context.audience"
+        ],
+        "pattern": "\\bteams?\\b|shared (with|between)|several users|multiple users|multi[- ]user|collaborat|multi[- ]tenant"
+      },
+      "says": "one item allows a single user, another shares the product between several users",
+      "options": {
+        "a": "a single user, as the first item says",
+        "b": "several users, as the second item says"
+      },
+      "replace": {
+        "a": "several users",
+        "b": "a single user"
+      }
+    },
+    {
+      "id": "offline-hosted",
+      "type": "contradiction",
+      "a": {
+        "items": [
+          "requirements"
+        ],
+        "pattern": "\\boffline\\b|without (a |an |any )?(network|connection|internet)|no (network|connection|internet)"
+      },
+      "b": {
+        "items": [
+          "context.deployment",
+          "context.platform"
+        ],
+        "pattern": "\\bcloud\\b|\\bhosted\\b|\\bSaaS\\b|\\bserver\\b|web service"
+      },
+      "says": "a requirement works without a network, while the context runs the product on a server",
+      "options": {
+        "a": "works offline, as the requirement says",
+        "b": "hosted, as the context says"
+      },
+      "replace": {
+        "a": "with a network connection",
+        "b": "on the user's own machine"
+      },
+      "unless": {
+        "items": [
+          "context.offline",
+          "context.deployment",
+          "context.platform"
+        ],
+        "pattern": "\\blocal copy\\b|works (offline|without (a |an )?(network |internet )?connection)|offline[- ]first|\\bsync(s|ed|ing|hronis(es|ed))?\\b|^\\s*yes\\b"
+      }
+    },
+    {
+      "id": "shared-local",
+      "type": "contradiction",
+      "a": {
+        "items": [
+          "requirements"
+        ],
+        "pattern": "\\bshared? (it |them |a list |lists |the list )?(with|between)\\b|several users|multiple users|multi[- ]user|\\bpartner\\b"
+      },
+      "b": {
+        "items": [
+          "context.deployment"
+        ],
+        "pattern": "own (machine|computer|device)|local only|single (machine|device)|one (machine|device)"
+      },
+      "unless": {
+        "items": [
+          "context.offline",
+          "context.deployment"
+        ],
+        "pattern": "\\blocal copy\\b|works (offline|without (a |an )?(network |internet )?connection)|offline[- ]first|\\bsync(s|ed|ing|hronis(es|ed))?\\b|^\\s*yes\\b"
+      },
+      "says": "a requirement shares data between people, while the context keeps it on one user's machine with no way for copies to meet",
+      "options": {
+        "a": "shared between users, as the requirement says",
+        "b": "on one machine, as the context says"
+      },
+      "replace": {
+        "a": "a hosted service the users share",
+        "b": "for one user only"
+      }
+    }
+  ]
+}

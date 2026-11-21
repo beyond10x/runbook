@@ -1,0 +1,414 @@
+{
+  "actions": {
+    "plan.open": {
+      "case_open": {
+        "protocol": "sdc.plan",
+        "subject": "epic"
+      },
+      "description": "open the sdc.plan case once the specification case ended passed",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "plan_opened"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.opened",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.opened",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "release.open": {
+      "case_open": {
+        "protocol": "sdc.release",
+        "subject": "epic"
+      },
+      "description": "open the sdc.release case once every story case ended passed",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "release_opened"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.opened",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "stories.opened",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "roadmap.read": {
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "roadmap_approval"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "spec.gate": {
+      "description": "run the ESS gate over the current specification revision",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "ess_gate"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      },
+      "requires": []
+    },
+    "spec.open": {
+      "case_open": {
+        "protocol": "sdc.spec",
+        "subject": "spec"
+      },
+      "description": "open the sdc.spec case for the epic",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "spec_opened"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.opened",
+              "is": "unknown"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "stories.open": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "stories": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "stories"
+        ],
+        "type": "object"
+      },
+      "case_open": {
+        "protocol": "sdc.story",
+        "subject": "spec"
+      },
+      "description": "open one sdc.story case per AEP story, once the planning case ended passed",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "stories_opened"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.opened",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "stories.opened",
+              "is": "unknown"
+            }
+          }
+        ]
+      },
+      "requires": []
+    }
+  },
+  "artifacts": {
+    "epic": {
+      "description": "the AEP epic"
+    },
+    "roadmap": {
+      "description": "the roadmap the epic belongs to"
+    },
+    "spec": {
+      "description": "the epic's ESS specification; its revision is its spec digest"
+    }
+  },
+  "claims": {
+    "children.passed": {
+      "description": "every child case ended passed",
+      "true_when": {
+        "children": {
+          "in": [
+            "passed"
+          ]
+        }
+      }
+    },
+    "gate.passed": {
+      "description": "the ESS gate passes on the current specification revision",
+      "true_when": {
+        "evidence": {
+          "kind": "ess_gate",
+          "result": "passed",
+          "subject": "spec"
+        }
+      }
+    },
+    "plan.opened": {
+      "description": "the planning case was opened for the current epic revision",
+      "true_when": {
+        "evidence": {
+          "kind": "plan_opened",
+          "result": null,
+          "subject": "epic"
+        }
+      }
+    },
+    "release.opened": {
+      "description": "the release case was opened for the current epic revision",
+      "true_when": {
+        "evidence": {
+          "kind": "release_opened",
+          "result": null,
+          "subject": "epic"
+        }
+      }
+    },
+    "roadmap.approved": {
+      "description": "the current roadmap revision is approved",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "spec.opened": {
+      "description": "the specification case was opened for the current epic revision",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_opened",
+          "result": null,
+          "subject": "epic"
+        }
+      }
+    },
+    "stories.opened": {
+      "description": "the story cases were opened for the current epic revision",
+      "true_when": {
+        "evidence": {
+          "kind": "stories_opened",
+          "result": null,
+          "subject": "epic"
+        }
+      }
+    }
+  },
+  "evidence_kinds": {
+    "case_outcome": {
+      "description": "the outcome of one child case, one record per child: passed or another outcome of the child's protocol, open while the child runs"
+    },
+    "ess_gate": {
+      "description": "the ESS gate over a specification revision: `ess specify validate --strict-requires`, `ess specify compile`, `ess verify conform synthesize` with 0 refusals and no `UNMAPPED:` marker, run as one program; passed only when all four pass, failed otherwise"
+    },
+    "plan_opened": {
+      "description": "the record that the planning case was opened for an epic revision"
+    },
+    "release_opened": {
+      "description": "the record that the release case was opened for an epic revision"
+    },
+    "roadmap_approval": {
+      "description": "a person's approval of a roadmap revision; its result is approved"
+    },
+    "spec_opened": {
+      "description": "the record that the specification case was opened for an epic revision"
+    },
+    "stories_opened": {
+      "description": "the record that one story case per AEP story was opened for an epic revision"
+    }
+  },
+  "format": "canon-ir/1",
+  "obligations": {
+    "gate.required": {
+      "description": "the ESS gate passes on the current specification revision",
+      "discharged_when": {
+        "claim": {
+          "id": "gate.passed",
+          "is": "true"
+        }
+      }
+    },
+    "release.required": {
+      "description": "the release case was opened and every child ended passed",
+      "discharged_when": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.opened",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "roadmap.required": {
+      "description": "the roadmap is approved",
+      "discharged_when": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      }
+    }
+  },
+  "outcomes": {
+    "abandoned": {
+      "description": "the epic was explicitly abandoned",
+      "requires": {
+        "decision": "explicitly_abandoned"
+      }
+    },
+    "passed": {
+      "description": "the release case was opened, every child ended passed, and the ESS gate passes on the current specification revision",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "children.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "release.opened",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "protocol": {
+    "description": "Deliver one epic of the approved roadmap (docs/phases.md steps 7 to 10). The epic case opens child cases in order, each once every earlier child ended passed: sdc.spec (the ESS specification, authored, reused or reconstructed, until the ESS gate passes), sdc.plan (the AEP stories), one sdc.story case per story (opened together), then sdc.release. No action is admissible before the roadmap is approved, and none after the specification stage before the ESS gate passes on the current specification revision. The case ends passed once the release case ended passed and the gate still passes, or abandoned on an explicit decision.",
+    "id": "sdc.epic",
+    "revision": 2
+  }
+}

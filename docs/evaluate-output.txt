@@ -1,0 +1,9 @@
+pass cases/01-idea-only
+pass cases/01-idea-only/intake
+pass cases/02-spec-revised-tests-stale/spec
+pass cases/02-spec-revised-tests-stale/story
+pass cases/03-ready-to-release/approved
+pass cases/03-ready-to-release
+pass cases/04-roadmap-awaiting-approval/direction
+pass cases/04-roadmap-awaiting-approval/epic
+exit 0

@@ -1,0 +1,5 @@
+format: sdc.goals/1
+layer: company
+entries:
+  - {id: company/c1, kind: principle, priority: 1, statement: "One.", sources: ["person:operator"], valid_from: 2026-11-21}
+  - {id: company/c1, kind: principle, priority: 2, statement: "Two.", sources: ["person:operator"], valid_from: 2026-11-21}

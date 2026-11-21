@@ -1,0 +1,16 @@
+format: canon-case/1
+id: SPEC-1
+protocol: sdc.spec
+revision: c4
+artifacts:
+  roadmap:
+    revision: r1
+  spec:
+    revision: s2
+  findings:
+    revision: none
+  requirements:
+    revision: q1
+independence:
+  spec-author-agent: []
+  reviewer-2: [different_principal]

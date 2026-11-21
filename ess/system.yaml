@@ -1,0 +1,6 @@
+format: ess/37
+system: sdc
+version: v1
+
+domains:
+  - sdc.decision

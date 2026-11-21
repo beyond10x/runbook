@@ -1,0 +1,82 @@
+{
+  "level": "L3",
+  "node": "spec.author",
+  "model": "claude-haiku-5-5",
+  "chooser": "deterministic",
+  "tools": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Write",
+      "Edit",
+      "ess_validate",
+      "ess_compile",
+      "ess_synthesize",
+      "grep_unmapped"
+    ],
+    "deny": [
+      "Bash"
+    ]
+  },
+  "write_scope": [
+    "spec/**"
+  ],
+  "egress": "none",
+  "budget": {
+    "max_tokens": 300000,
+    "max_turns": 50,
+    "max_budget_micro_usd": 500000
+  },
+  "output": "files",
+  "submits": 1,
+  "domain_tools": {
+    "ess_validate": [
+      "ess",
+      "specify",
+      "validate",
+      "--path",
+      "spec",
+      "--strict-requires"
+    ],
+    "ess_compile": [
+      "ess",
+      "specify",
+      "compile",
+      "--path",
+      "spec",
+      "--out",
+      ".sdc/agent-ir.json"
+    ],
+    "ess_synthesize": [
+      "ess",
+      "verify",
+      "conform",
+      "synthesize",
+      "--path",
+      "spec",
+      "--suite-format",
+      "5",
+      "--out",
+      ".sdc/agent-suite.json"
+    ],
+    "grep_unmapped": [
+      "grep",
+      "-rn",
+      "UNMAPPED:",
+      "spec"
+    ]
+  },
+  "llm": {
+    "model": "claude-haiku-5-5",
+    "operations": [
+      "dir.list",
+      "file.edit",
+      "file.read",
+      "file.write",
+      "search"
+    ],
+    "max_turns": 50,
+    "max_budget_usd": 0.5
+  }
+}

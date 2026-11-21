@@ -1,0 +1,32 @@
+valid: protocol `sdc.direction` revision 2
+checked: protocol `sdc.direction` revision 2: 49152 states, 0 properties, 0 findings
+valid: protocol `sdc.epic` revision 2
+checked: protocol `sdc.epic` revision 2: 36864 states, 0 properties, 0 findings
+valid: protocol `sdc.intake` revision 4
+checked: protocol `sdc.intake` revision 4: 65536 states, 0 properties, 0 findings
+valid: protocol `sdc.plan` revision 4
+checked: protocol `sdc.plan` revision 4: 65536 states, 0 properties, 0 findings
+valid: protocol `sdc` revision 4
+checked: protocol `sdc` revision 4: 4608 states, 0 properties, 0 findings
+valid: protocol `sdc.release` revision 3
+checked: protocol `sdc.release` revision 3: 24576 states, 0 properties, 0 findings
+valid: protocol `sdc.spec` revision 3
+checked: protocol `sdc.spec` revision 3: 65536 states, 0 properties, 0 findings
+valid: protocol `sdc.story` revision 3
+checked: protocol `sdc.story` revision 3: 12288 states, 0 properties, 0 findings
+unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
+checked: protocol `sdc.spec` revision 3: 65536 states, 0 properties, 1 finding
+gate property holds: sdc-spec
+unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
+checked: protocol `sdc.plan` revision 4: 65536 states, 0 properties, 1 finding
+gate property holds: sdc-plan
+unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
+checked: protocol `sdc.epic` revision 2: 36864 states, 0 properties, 1 finding
+gate property holds: sdc-epic
+unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
+checked: protocol `sdc.story` revision 3: 12288 states, 0 properties, 1 finding
+gate property holds: sdc-story
+unreachable-outcome: outcome `probe.passed_without_gate` is legitimate in no state
+checked: protocol `sdc.release` revision 3: 24576 states, 0 properties, 1 finding
+gate property holds: sdc-release
+exit 0

@@ -1,0 +1,142 @@
+format: protocol/1
+protocol:
+  id: sdc
+  revision: 4
+  description: >-
+    Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md). The case stores no phase: where it stands is what its facts make true. The root case holds no work of its own. It opens child cases, each worked by another party: sdc.intake (dissection, interview, requirements list), then sdc.direction (project context defaults, vision, roadmap, each approved), then one sdc.epic case per roadmap epic, once the roadmap is approved (ESS specification, AEP plan, stories, release). Every child reports passed when it succeeds. The case ends operating once every epic of the approved roadmap ended passed, or abandoned on an explicit decision. A revised idea makes intake and direction openable again; a revised roadmap makes its epics openable again.
+artifacts:
+  idea:
+    description: the idea as the person gave it, from three words to a short paragraph
+  roadmap:
+    description: the approved roadmap and the epics it names
+evidence_kinds:
+  case_outcome:
+    description: >-
+      the outcome of one child case this case opened, one record per child: passed, abandoned or another outcome of the child's protocol, open while the child runs
+  intake_opened:
+    description: the record that the intake case was opened for an idea revision
+  direction_opened:
+    description: the record that the direction case was opened for an idea revision
+  epics_opened:
+    description: the record that one epic case per roadmap epic was opened for a roadmap revision
+  roadmap_approval:
+    description: >-
+      a person's approval of a roadmap revision, recorded by the roadmap.approve action of sdc.direction under the authority owner.approve; its result is approved
+claims:
+  intake.opened:
+    description: the intake case was opened for the current idea revision
+    true_when:
+      evidence:
+        kind: intake_opened
+        subject: idea
+  direction.opened:
+    description: the direction case was opened for the current idea revision
+    true_when:
+      evidence:
+        kind: direction_opened
+        subject: idea
+  epics.opened:
+    description: the epic cases were opened for the current roadmap revision
+    true_when:
+      evidence:
+        kind: epics_opened
+        subject: roadmap
+  roadmap.approved:
+    description: the current roadmap revision is approved
+    true_when:
+      evidence:
+        kind: roadmap_approval
+        result: approved
+        subject: roadmap
+  children.passed:
+    description: every child case ended passed
+    true_when:
+      children:
+        in: [passed]
+obligations:
+  intake.required:
+    description: the intake case was opened for the current idea
+    discharged_when:
+      claim: intake.opened
+  direction.required:
+    description: the current roadmap is approved
+    discharged_when:
+      claim: roadmap.approved
+  epics.required:
+    description: the epic cases of the current roadmap were opened and every child ended passed
+    discharged_when:
+      all:
+        - claim: epics.opened
+        - claim: children.passed
+actions:
+  roadmap.read:
+    description: >-
+      copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with
+    effect: read
+    may_produce:
+      - evidence: roadmap_approval
+  intake.open:
+    description: open the sdc.intake case for the current idea revision
+    effect: write
+    precondition:
+      claim: intake.opened
+      is: unknown
+    case_open:
+      protocol: sdc.intake
+      subject: idea
+    may_produce:
+      - evidence: intake_opened
+  direction.open:
+    description: open the sdc.direction case once the intake case ended passed
+    effect: write
+    precondition:
+      all:
+        - claim: intake.opened
+        - claim: children.passed
+        - claim: direction.opened
+          is: unknown
+    case_open:
+      protocol: sdc.direction
+      subject: idea
+    may_produce:
+      - evidence: direction_opened
+  epics.open:
+    description: >-
+      open one sdc.epic case per epic of the approved roadmap, once intake and direction ended passed; no epic is opened before the roadmap is approved
+    effect: write
+    precondition:
+      all:
+        - claim: direction.opened
+        - claim: children.passed
+        - claim: roadmap.approved
+        - claim: epics.opened
+          is: unknown
+    case_open:
+      protocol: sdc.epic
+      subject: roadmap
+    may_produce:
+      - evidence: epics_opened
+    arguments:
+      type: object
+      properties:
+        epics:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+      required: [epics]
+      additionalProperties: false
+outcomes:
+  operating:
+    description: >-
+      the current roadmap is approved, its epic cases were opened, and every child case ended passed
+    requires:
+      all:
+        - claim: roadmap.approved
+        - claim: epics.opened
+        - claim: children.passed
+  abandoned:
+    description: the idea was explicitly abandoned
+    requires:
+      decision: explicitly_abandoned

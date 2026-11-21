@@ -1,0 +1,131 @@
+{
+  "$artifacts": {
+    "roadmap": "aep/initiative/roadmap.md",
+    "spec": "spec",
+    "plan": "aep",
+    "findings": "findings.yaml",
+    "requirements": "requirements.yaml"
+  },
+  "roadmap.read": {
+    "copy": {
+      "kind": "roadmap_approval",
+      "from": "sdc.direction"
+    }
+  },
+  "spec.gate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "ess-gate"
+    ],
+    "produces": "ess_gate",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  },
+  "plan.decompose": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "plan.decompose"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-decompose"
+      ]
+    },
+    "retry_when": {
+      "plan_validation": [
+        "invalid"
+      ],
+      "decomposition_coverage": [
+        "uncovered"
+      ],
+      "stories_scoped": [
+        "unassessed"
+      ],
+      "story_states": [
+        "draft"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "plan.validate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "plan-validate"
+    ],
+    "produces": "plan_validation",
+    "subject": "plan",
+    "upstream": [
+      "spec"
+    ],
+    "producer": "aep",
+    "results": {
+      "0": "valid",
+      "*": "invalid"
+    }
+  },
+  "plan.cover": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "plan-cover"
+    ],
+    "produces": "decomposition_coverage",
+    "subject": "plan",
+    "upstream": [
+      "spec"
+    ],
+    "producer": "sdc-check",
+    "results": {
+      "0": "covered",
+      "5": "finding",
+      "*": "uncovered"
+    }
+  },
+  "plan.scope": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "plan-scope"
+    ],
+    "produces": "stories_scoped",
+    "subject": "plan",
+    "producer": "aep",
+    "results": {
+      "0": "scoped",
+      "*": "unassessed"
+    }
+  },
+  "plan.status": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "plan-status"
+    ],
+    "produces": "story_states",
+    "subject": "plan",
+    "producer": "aep",
+    "results": {
+      "0": "active",
+      "*": "draft"
+    }
+  },
+  "amend.upstream": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "amend",
+      "plan"
+    ],
+    "max_runs": 12,
+    "timeout_s": 300,
+    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
+    "handoff_when": [
+      "{dir}/tools/sdc-tool.sh",
+      "findings-wait"
+    ]
+  }
+}

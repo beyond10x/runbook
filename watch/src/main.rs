@@ -1,0 +1,128 @@
+//! sdc-watch: records every effective file change in an SDC run directory, attributed to the
+//! driver action and the agent tool call that caused it. Record format: docs/fs-changes.md.
+
+mod attrib;
+mod layout;
+mod store;
+mod timefmt;
+mod watch;
+
+use clap::{Parser, Subcommand};
+use std::fs;
+use std::io::Read;
+use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+use std::time::Instant;
+
+#[derive(Parser)]
+#[command(name = "sdc-watch", about = "Record every effective file change of an SDC run, with its attribution")]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Watch until SIGTERM or SIGINT; append to <out>/changes.jsonl.
+    Run {
+        run_dir: PathBuf,
+        /// Output dir (default <run-dir>/fs).
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Write <out>/snapshot.json and the blobs of every tracked file, once; records nothing.
+    Scan {
+        run_dir: PathBuf,
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+}
+
+fn dirs(run_dir: &Path, out: Option<PathBuf>) -> Result<(PathBuf, PathBuf), String> {
+    let run = fs::canonicalize(run_dir).map_err(|e| format!("{}: {e}", run_dir.display()))?;
+    let out = out.unwrap_or_else(|| run.join("fs"));
+    fs::create_dir_all(out.join("blobs")).map_err(|e| format!("{}: {e}", out.display()))?;
+    let out = fs::canonicalize(&out).map_err(|e| e.to_string())?;
+    Ok((run, out))
+}
+
+fn alive(pid: i32) -> bool {
+    pid > 0 && unsafe { libc::kill(pid, 0) } == 0
+}
+
+fn run(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
+    let (run, out) = dirs(run_dir, out)?;
+    let pid_file = out.join("sdc-watch.pid");
+    if let Some(pid) = fs::read_to_string(&pid_file).ok().and_then(|s| s.trim().parse::<i32>().ok()) {
+        if alive(pid) && pid != std::process::id() as i32 {
+            return Err(format!("already watched by pid {pid} ({})", pid_file.display()));
+        }
+    }
+    let (mut sig_r, sig_w) = UnixStream::pair().map_err(|e| e.to_string())?;
+    sig_r.set_nonblocking(true).map_err(|e| e.to_string())?;
+    for s in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
+        let w = sig_w.try_clone().map_err(|e| e.to_string())?;
+        signal_hook::low_level::pipe::register(s, w).map_err(|e| e.to_string())?;
+    }
+    let mut w = watch::Watcher::start(run.clone(), out.clone()).map_err(|e| e.to_string())?;
+    let (files, watches) = w.tracked();
+    fs::write(&pid_file, format!("{}\n", std::process::id())).map_err(|e| e.to_string())?;
+    eprintln!("sdc-watch: watching {} ({files} files, {watches} dirs), record {}", run.display(),
+        out.join("changes.jsonl").display());
+    loop {
+        let timeout = match w.next_wake() {
+            None => -1,
+            Some(t) => t.saturating_duration_since(Instant::now()).as_millis().min(i32::MAX as u128) as i32,
+        };
+        let mut fds = [
+            libc::pollfd { fd: w.fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: sig_r.as_raw_fd(), events: libc::POLLIN, revents: 0 },
+        ];
+        let n = unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) };
+        if n < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return Err(format!("poll: {}", std::io::Error::last_os_error()));
+        }
+        if fds[1].revents != 0 {
+            let mut b = [0u8; 16];
+            let _ = sig_r.read(&mut b);
+            break;
+        }
+        if fds[0].revents != 0 {
+            w.drain();
+        }
+        w.flush(false);
+        w.write(false);
+        w.late();
+    }
+    w.finish();
+    let _ = fs::remove_file(&pid_file);
+    eprintln!("sdc-watch: stopped; {} changes recorded this session, next seq {}", w.written, w.seq);
+    Ok(())
+}
+
+fn scan(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
+    let (run, out) = dirs(run_dir, out)?;
+    let blobs = store::Blobs { dir: out.join("blobs") };
+    let (_, seq) = store::replay(&out, &run, &blobs);
+    let snap = watch::snapshot(&run, &out, &blobs);
+    store::write_snapshot(&out, &run, &snap, seq).map_err(|e| e.to_string())?;
+    println!("{} files, snapshot {}", snap.len(), out.join("snapshot.json").display());
+    Ok(())
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    let r = match cli.cmd {
+        Cmd::Run { run_dir, out } => run(&run_dir, out),
+        Cmd::Scan { run_dir, out } => scan(&run_dir, out),
+    };
+    match r {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("sdc-watch: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}

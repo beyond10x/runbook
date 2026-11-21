@@ -1,0 +1,111 @@
+{
+  "format": "sdc-eval-baseline/1",
+  "suite": "sdc-free",
+  "at": "20261120T232046Z",
+  "layers": {
+    "canon": "8945ad968b97bf41",
+    "sdc-drive": "0e667d8c91e916a4",
+    "bindings": "476ee9e49c113aed",
+    "protocols": "6e5c84d814a26c6b",
+    "ess": "ess 0.96.0",
+    "aep": "aep 0.80.0"
+  },
+  "kpis": {
+    "S1.sdc.direction": {
+      "value": 49152,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.direction": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc.epic": {
+      "value": 36864,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.epic": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc.intake": {
+      "value": 65536,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.intake": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc.plan": {
+      "value": 65536,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.plan": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc": {
+      "value": 4608,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc.release": {
+      "value": 24576,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.release": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc.spec": {
+      "value": 65536,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.spec": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "S1.sdc.story": {
+      "value": 12288,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "S3-7.findings.sdc.story": {
+      "value": 0,
+      "dir": "eq0",
+      "gate": "gate"
+    },
+    "R17.adversary_assertions_held": {
+      "value": 9,
+      "of": 10,
+      "dir": "up",
+      "gate": "ratchet"
+    },
+    "R2.scripted_false_done": {
+      "value": 1,
+      "dir": "down",
+      "gate": "ratchet"
+    },
+    "R9.baseline_driver_steps": {
+      "value": 65,
+      "dir": "down",
+      "gate": "advisory"
+    }
+  }
+}

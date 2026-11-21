@@ -1,0 +1,30 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "dissection.check": "admissible",
+    "idea.check": "admissible",
+    "idea.dissect": "admissible",
+    "questions.answer": "blocked",
+    "questions.check": "admissible",
+    "questions.write": "blocked",
+    "requirements.check": "admissible",
+    "requirements.normalise": "blocked",
+    "scope.answer": "blocked"
+  },
+  "claims": {
+    "dissection.valid": "unknown",
+    "idea.shaped": "true",
+    "questions.settled": "unknown",
+    "questions.shaped": "unknown",
+    "requirements.valid": "unknown"
+  },
+  "obligations": {
+    "dissection.required": "open",
+    "idea.required": "discharged",
+    "interview.required": "open",
+    "requirements.required": "open"
+  },
+  "outcomes": {
+    "passed": "blocked"
+  }
+}

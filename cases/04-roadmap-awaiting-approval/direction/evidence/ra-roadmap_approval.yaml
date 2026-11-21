@@ -1,0 +1,10 @@
+format: canon-evidence/1
+id: ra
+kind: roadmap_approval
+result: approved
+subject: roadmap
+subject_revision: r1
+producer: operator
+observed_at: 2026-11-20T09:25:00Z
+upstream_revisions:
+  vision: v1

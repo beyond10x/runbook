@@ -1,0 +1,46 @@
+{
+  "level": "L1",
+  "node": "spec.author",
+  "model": "claude-haiku-5-5",
+  "chooser": "deterministic",
+  "tools": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Bash",
+      "Grep",
+      "Glob",
+      "WebFetch",
+      "WebSearch",
+      "Task"
+    ],
+    "deny": []
+  },
+  "write_scope": [
+    "**"
+  ],
+  "egress": "open",
+  "budget": {
+    "max_tokens": 2000000,
+    "max_turns": 200,
+    "max_budget_micro_usd": 500000
+  },
+  "output": "files",
+  "submits": 1,
+  "llm": {
+    "model": "claude-haiku-5-5",
+    "operations": [
+      "dir.list",
+      "file.edit",
+      "file.read",
+      "file.write",
+      "search",
+      "shell.exec",
+      "process.run",
+      "web.read"
+    ],
+    "max_turns": 200,
+    "max_budget_usd": 0.5
+  }
+}

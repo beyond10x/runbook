@@ -1,0 +1,5 @@
+format: sdc.goals/1
+layer: product
+requester: operator
+entries:
+  - {id: product/p3, kind: principle, priority: 1, statement: "Sign-in is by a shared household passphrase.", sources: ["person:operator"], valid_from: 2026-11-21, valid_until: 2027-01-01T00:00:00Z, overrides: company/c3}

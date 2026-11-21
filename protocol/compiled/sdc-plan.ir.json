@@ -1,0 +1,395 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "description": "resolve the open findings while the coverage check is not covered: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the plan is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "claim": {
+          "id": "plan.covers_spec",
+          "is": "false"
+        }
+      },
+      "requires": []
+    },
+    "plan.cover": {
+      "description": "join the compiled commands and synthesized scenarios to the story bodies",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "decomposition_coverage"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "plan.decompose": {
+      "description": "write one story per group of commands under the epic through `aep plan artifact new`, each with `## ESS first` and `## Acceptance`; moves the plan to a new revision; not once the current plan covers the specification",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "all": [
+          {
+            "any": [
+              {
+                "claim": {
+                  "id": "plan.covers_spec",
+                  "is": "false"
+                }
+              },
+              {
+                "claim": {
+                  "id": "plan.covers_spec",
+                  "is": "unknown"
+                }
+              }
+            ]
+          },
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "plan.scope": {
+      "description": "run aep plan artifact waves --kind story",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "stories_scoped"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "plan.status": {
+      "description": "read the AEP status of the epic and its stories",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "story_states"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "plan.validate": {
+      "description": "run aep plan artifact validate",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "plan_validation"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "roadmap.read": {
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "roadmap_approval"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "spec.gate": {
+      "description": "run the ESS gate over the current specification revision",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "ess_gate"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      },
+      "requires": []
+    }
+  },
+  "artifacts": {
+    "findings": {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution"
+    },
+    "plan": {
+      "description": "the AEP epic and its stories; its revision is the planning store's commit"
+    },
+    "requirements": {
+      "description": "the requirements list from sdc.intake, amended by resolved findings"
+    },
+    "roadmap": {
+      "description": "the roadmap the epic belongs to"
+    },
+    "spec": {
+      "description": "the ESS specification; its revision is its spec digest"
+    }
+  },
+  "claims": {
+    "gate.passed": {
+      "description": "the ESS gate passes on the current specification revision",
+      "true_when": {
+        "evidence": {
+          "kind": "ess_gate",
+          "result": "passed",
+          "subject": "spec"
+        }
+      }
+    },
+    "plan.active": {
+      "description": "the epic and every story of the current plan are active in AEP",
+      "true_when": {
+        "evidence": {
+          "kind": "story_states",
+          "result": "active",
+          "subject": "plan"
+        }
+      }
+    },
+    "plan.covers_spec": {
+      "description": "the current plan covers every command and scenario of the current specification",
+      "true_when": {
+        "evidence": {
+          "kind": "decomposition_coverage",
+          "result": "covered",
+          "subject": "plan"
+        }
+      }
+    },
+    "plan.scoped": {
+      "description": "every story of the current plan declares the surfaces it lands on",
+      "true_when": {
+        "evidence": {
+          "kind": "stories_scoped",
+          "result": "scoped",
+          "subject": "plan"
+        }
+      }
+    },
+    "plan.valid": {
+      "description": "the current plan validates, against the current specification revision",
+      "true_when": {
+        "evidence": {
+          "kind": "plan_validation",
+          "result": "valid",
+          "subject": "plan"
+        }
+      }
+    },
+    "roadmap.approved": {
+      "description": "the current roadmap revision is approved",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    }
+  },
+  "evidence_kinds": {
+    "decomposition_coverage": {
+      "description": "every command of the compiled specification claimed by exactly one story and every synthesized scenario named by at least one; its result is covered, uncovered or finding (an open finding)"
+    },
+    "ess_gate": {
+      "description": "the ESS gate over a specification revision, the four checks run as one program; passed or failed"
+    },
+    "plan_validation": {
+      "description": "the result of `aep plan artifact validate`, valid or invalid"
+    },
+    "roadmap_approval": {
+      "description": "a person's approval of a roadmap revision; its result is approved"
+    },
+    "stories_scoped": {
+      "description": "`aep plan artifact waves --kind story`; its result is scoped (0 unassessed) or unassessed"
+    },
+    "story_states": {
+      "description": "the AEP status of the epic and each of its stories, read by `aep plan artifact list`; its result is active when every one is active, otherwise the least advanced status (draft, proposed, rejected)"
+    }
+  },
+  "format": "canon-ir/1",
+  "invalidation": {
+    "spec.revised": {
+      "description": "a plan validation or coverage record observed against an earlier specification revision no longer applies",
+      "invalidates": [
+        "plan.covers_spec",
+        "plan.valid"
+      ],
+      "upstream": "spec"
+    }
+  },
+  "obligations": {
+    "activation.required": {
+      "description": "the epic and its stories are active",
+      "discharged_when": {
+        "claim": {
+          "id": "plan.active",
+          "is": "true"
+        }
+      }
+    },
+    "gate.required": {
+      "description": "the ESS gate passes on the current specification revision",
+      "discharged_when": {
+        "claim": {
+          "id": "gate.passed",
+          "is": "true"
+        }
+      }
+    },
+    "plan.required": {
+      "description": "the plan validates and covers the specification",
+      "discharged_when": {
+        "all": [
+          {
+            "claim": {
+              "id": "plan.covers_spec",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.valid",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "scope.required": {
+      "description": "every story declares its scope",
+      "discharged_when": {
+        "claim": {
+          "id": "plan.scoped",
+          "is": "true"
+        }
+      }
+    }
+  },
+  "outcomes": {
+    "passed": {
+      "description": "the roadmap is approved, the ESS gate passes, and the current plan validates, covers the specification, is scoped and active",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "gate.passed",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.active",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.covers_spec",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.scoped",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "plan.valid",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "protocol": {
+    "description": "Decompose the epic's complete ESS specification into AEP stories under the epic. The plan is the AEP planning store's epic and its stories; every result is a program's: `aep plan artifact validate`, the decomposition coverage check (every command of the compiled specification claimed by exactly one story, every synthesized scenario named by one), `aep plan artifact waves --kind story` and the AEP status of the epic and its stories. No plan evidence comes from an LLM. No action is admissible before the roadmap is approved or while the ESS gate does not pass on the current specification revision. A revised specification invalidates the validation and coverage records observed against the earlier revision. The case ends passed. Late findings (docs/trial-2.md, \"The late-finding loop\"): the coverage check also reads the open findings and is not covered while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the plan is re-derived.",
+    "id": "sdc.plan",
+    "revision": 5
+  }
+}

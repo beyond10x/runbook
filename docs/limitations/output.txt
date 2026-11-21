@@ -1,0 +1,40 @@
+$ canon check --path docs/limitations/story-with-derived-verified-claim.protocol.yaml
+error[state-space-bound]: protocol `sdc.story` revision 1 has 196608 states, more than the bound of 65536: evidence kind `code_review` about `change` with upstream `spec` with producers independent on [`different_principal`] 16, evidence kind `design_review` about `design` with upstream `spec` 16, evidence kind `merge_record` about `change` 2, evidence kind `plan_record` about `plan` with upstream `spec` 4, evidence kind `test_result` about `change` with upstream `spec` 16, capability `change.merge` 3, decision `explicitly_dropped` 2
+exit 1
+
+$ canon check --path docs/limitations/monolith.protocol.yaml
+error[state-space-bound]: protocol `sdc.probe.monolith` revision 1 has 2654208 states, more than the bound of 65536: evidence kind `acceptance_result` about `release` with upstream `spec` 16, evidence kind `case_outcome` 8, evidence kind `health_observation` about `release` 4, evidence kind `release_record` about `release` 2, evidence kind `spec_review` about `spec` with producers independent on [`different_principal`] 4, evidence kind `spec_validation` about `spec` 4, capability `case.open` 3, capability `release.approve` 3, decision `explicitly_abandoned` 2, history of evidence kind `case_outcome` 9
+exit 1
+
+$ canon check --path docs/limitations/intake-with-abandon.protocol.yaml
+error[state-space-bound]: protocol `sdc.intake` revision 2 has 131072 states, more than the bound of 65536: evidence kind `dissection_shape` about `dissection` with upstream `idea` 16, evidence kind `idea_shape` about `idea` 4, evidence kind `questions_settled` about `questions` with upstream `dissection` 16, evidence kind `questions_shape` about `questions` 4, evidence kind `requirements_shape` about `requirements` with upstream `questions` 16, decision `explicitly_abandoned` 2
+exit 1
+
+$ canon check --path docs/limitations/epic-imported-evidence.protocol.yaml
+unproduced-evidence: claim `roadmap.approved` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: obligation `roadmap.required` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: action `plan.open` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: action `release.open` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: action `spec.gate` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: action `spec.open` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: action `stories.open` reads evidence kind `roadmap_approval`, which no action may produce
+unproduced-evidence: outcome `passed` reads evidence kind `roadmap_approval`, which no action may produce
+checked: protocol `sdc.epic` revision 1: 36864 states, 0 properties, 8 findings
+exit 1
+
+$ canon check --path docs/limitations/story-with-four-gate-kinds.protocol.yaml
+error[state-space-bound]: protocol `sdc.story` revision 3 has 786432 states, more than the bound of 65536: evidence kind `code_review` about `change` with producers independent on [`different_principal`] 4, evidence kind `conformance_run` about `change` with upstream `spec` 16, evidence kind `implementation_change` about `change` with upstream `spec` 4, evidence kind `merge_record` about `change` 2, evidence kind `open_markers` about `spec` 4, evidence kind `spec_compile` about `spec` 4, evidence kind `spec_synthesis` about `spec` 4, evidence kind `spec_validation` about `spec` 4, capability `change.merge` 3, decision `explicitly_dropped` 2
+exit 1
+
+$ canon validate --path docs/limitations/child-outcomes-invalidated.protocol.yaml
+error[inert-invalidation]: invalidation rule `spec.revised` invalidates claim `stories.delivered`, which reaches no evidence match
+exit 1
+
+$ canon evaluate --ir protocol/compiled/sdc.ir.json --case docs/limitations/missing-artifact/case.yaml --evidence docs/limitations/missing-artifact/evidence
+error[missing-artifact]: case `IDEA-1` does not give the current revision of artifact `roadmap`
+exit 1
+
+$ canon evaluate --ir protocol/compiled/sdc.ir.json --case cases/01-idea-only/case.yaml --evidence docs/limitations/evidence-with-gitkeep/evidence
+error[unreadable]: docs/limitations/evidence-with-gitkeep/evidence/.gitkeep: not an evidence record: the evidence directory holds only `*.yaml` and `*.json` files
+exit 2
+

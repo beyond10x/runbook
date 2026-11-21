@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: g2
+kind: ess_gate
+result: passed
+subject: spec
+subject_revision: s2
+producer: tool:ess@0.96.0
+observed_at: 2026-11-20T11:00:00Z

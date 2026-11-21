@@ -1,0 +1,29 @@
+{
+  "claims": {
+    "gate.passed": "true",
+    "release.accepted": "true",
+    "release.built": "true",
+    "release.healthy": "unknown",
+    "release.published": "unknown",
+    "rollback.complete": "unknown"
+  },
+  "obligations": {
+    "acceptance.required": "discharged",
+    "gate.required": "discharged",
+    "health.required": "open",
+    "provenance.required": "discharged"
+  },
+  "actions": {
+    "acceptance.run": "admissible",
+    "release.build": "admissible",
+    "release.observe": "blocked",
+    "release.publish": "approval-required",
+    "release.rollback": "blocked",
+    "spec.gate": "admissible"
+  },
+  "outcomes": {
+    "passed": "blocked",
+    "rolled_back": "blocked",
+    "withheld": "blocked"
+  }
+}

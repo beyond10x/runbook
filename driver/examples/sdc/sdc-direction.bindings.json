@@ -1,0 +1,153 @@
+{
+  "$artifacts": {
+    "requirements": "requirements.yaml",
+    "context": "context.yaml",
+    "vision": "aep/vision/product.md",
+    "roadmap": "aep/initiative/roadmap.md",
+    "findings": "findings.yaml",
+    "questions": "questions.yaml"
+  },
+  "context.default": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "context.default"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-file",
+        "context.yaml",
+        "context.yaml"
+      ]
+    },
+    "retry_when": {
+      "context_defaults": [
+        "invalid"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "context.check": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "check-context"
+    ],
+    "produces": "context_defaults",
+    "subject": "context",
+    "upstream": [
+      "requirements"
+    ],
+    "producer": "sdc-check",
+    "results": {
+      "0": "valid",
+      "5": "finding",
+      "*": "invalid"
+    }
+  },
+  "context.approve": {
+    "manual": true,
+    "argv": [
+      "true"
+    ],
+    "produces": "context_approval",
+    "subject": "context",
+    "producer": "{principal}",
+    "results": {
+      "0": "approved"
+    }
+  },
+  "vision.write": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "vision.write"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-vision"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "vision.approve": {
+    "manual": true,
+    "argv": [
+      "true"
+    ],
+    "produces": "vision_approval",
+    "subject": "vision",
+    "producer": "{principal}",
+    "results": {
+      "0": "approved"
+    }
+  },
+  "roadmap.write": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "roadmap.write"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 15,
+      "max_budget_usd": 0.5,
+      "stub": [
+        "stub-roadmap"
+      ]
+    },
+    "retry_when": {
+      "roadmap_validation": [
+        "invalid"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
+  },
+  "roadmap.validate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "roadmap-validate"
+    ],
+    "produces": "roadmap_validation",
+    "subject": "roadmap",
+    "producer": "aep",
+    "results": {
+      "0": "valid",
+      "*": "invalid"
+    }
+  },
+  "roadmap.approve": {
+    "manual": true,
+    "argv": [
+      "true"
+    ],
+    "produces": "roadmap_approval",
+    "subject": "roadmap",
+    "upstream": [
+      "vision"
+    ],
+    "producer": "{principal}",
+    "results": {
+      "0": "approved"
+    }
+  },
+  "amend.upstream": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "amend",
+      "context"
+    ],
+    "max_runs": 12,
+    "timeout_s": 300,
+    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
+    "handoff_when": [
+      "{dir}/tools/sdc-tool.sh",
+      "findings-wait"
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+format: protocol/1
+
+protocol:
+  id: sdc.probe.monolith
+  revision: 1
+  description: the parent sdc protocol with the release and operate stages folded in, no release child
+
+independence_dimensions:
+  different_principal: {}
+
+artifacts:
+  idea: {}
+  spec: {}
+  release: {}
+
+evidence_kinds:
+  spec_validation: {}
+  spec_review: {}
+  case_outcome: {}
+  acceptance_result: {}
+  release_record: {}
+  health_observation:
+    max_age: 30m
+
+claims:
+  spec.valid:
+    true_when:
+      evidence: {kind: spec_validation, result: valid, subject: spec}
+  spec.approved:
+    true_when:
+      evidence: {kind: spec_review, result: approved, subject: spec, independent_on: [different_principal]}
+  stories.delivered:
+    true_when:
+      children:
+        in: [delivered]
+  release.accepted:
+    true_when:
+      evidence: {kind: acceptance_result, result: pass, subject: release}
+  release.published:
+    true_when:
+      evidence: {kind: release_record, subject: release}
+  release.healthy:
+    true_when:
+      evidence: {kind: health_observation, result: healthy, subject: release}
+
+actions:
+  spec.validate:
+    may_produce: [{evidence: spec_validation}]
+  spec.review:
+    may_produce: [{evidence: spec_review}]
+  story.open:
+    precondition: {all: [{claim: spec.valid}, {claim: spec.approved}]}
+    requires: [{capability: case.open}]
+    case_open: {protocol: sdc.story, subject: spec}
+  acceptance.run:
+    may_produce: [{evidence: acceptance_result}]
+  release.publish:
+    precondition: {all: [{claim: stories.delivered}, {claim: release.accepted}]}
+    requires: [{capability: release.approve}]
+    may_produce: [{evidence: release_record}]
+  release.observe:
+    may_produce: [{evidence: health_observation}]
+
+outcomes:
+  operating:
+    requires:
+      all:
+        - claim: stories.delivered
+        - claim: release.published
+        - claim: release.healthy
+  abandoned:
+    requires:
+      decision: explicitly_abandoned
+
+invalidation:
+  spec.revised:
+    upstream: spec
+    invalidates: [release.accepted]

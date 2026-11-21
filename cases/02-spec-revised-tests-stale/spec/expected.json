@@ -1,0 +1,38 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "roadmap.read": "admissible",
+    "spec.author": "admissible",
+    "spec.compile": "admissible",
+    "spec.reconstruct": "admissible",
+    "spec.reuse": "admissible",
+    "spec.review": "admissible",
+    "spec.scan": "admissible",
+    "spec.synthesize": "admissible",
+    "spec.trace": "admissible",
+    "spec.validate": "admissible"
+  },
+  "claims": {
+    "roadmap.approved": "true",
+    "spec.approved": "true",
+    "spec.compiled": "true",
+    "spec.complete": "true",
+    "spec.done": "true",
+    "spec.sourced": "true",
+    "spec.synthesized": "true",
+    "spec.traced": "true",
+    "spec.unmarked": "true",
+    "spec.valid": "true"
+  },
+  "obligations": {
+    "gate.required": "discharged",
+    "review.required": "discharged",
+    "roadmap.required": "discharged",
+    "source.required": "discharged",
+    "trace.required": "discharged"
+  },
+  "outcomes": {
+    "abandoned": "blocked",
+    "passed": "legitimate"
+  }
+}

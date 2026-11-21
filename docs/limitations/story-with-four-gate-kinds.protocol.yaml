@@ -1,0 +1,176 @@
+format: protocol/1
+protocol:
+  id: sdc.story
+  revision: 4
+  description: >-
+    Deliver one AEP story of an approved ESS specification: implement it against the current specification revision, verify it with the ESS conformance run against the implementation, have it reviewed by a principal other than its implementer, and merge it under authority. The ESS gate must pass on the current specification revision before anything is implemented and for the story to be delivered. A revised specification invalidates the implementation record and the conformance run observed against the earlier revision. The case ends passed (delivered), or dropped on an explicit decision. Late findings (docs/trial-2.md, "The late-finding loop"): the conformance run also reads the open findings and is not passed while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the change is re-derived.
+independence_dimensions:
+  different_principal:
+    description: the producer is another principal than the one who implemented the change
+artifacts:
+  requirements:
+    description: the requirements list from sdc.intake, amended by resolved findings
+  findings:
+    description: >-
+      findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution
+  spec:
+    description: the ESS specification; its revision is its spec digest, as in the parent case
+  change:
+    description: a revision of the code that realizes the story; its revision is the commit
+evidence_kinds:
+  implementation_change:
+    description: >-
+      the record, read from version control, that the change moved to a new revision, with the specification revision it was built against
+  conformance_run:
+    description: >-
+      `ess verify conform run --target <implementation> --strict` of the specification's suite against a change revision; its result is passed, failed, inconclusive or finding (an open finding)
+  code_review:
+    description: a review of a change revision; its result is approved or rejected
+  merge_record:
+    description: the record that a change revision was merged into the mainline
+  spec_validation: {}
+  spec_compile: {}
+  open_markers: {}
+  spec_synthesis: {}
+claims:
+  gate.passed:
+    description: the ESS gate passes on the current specification revision
+    true_when:
+      all:
+        - evidence:
+            kind: spec_validation
+            result: valid
+            subject: spec
+        - evidence:
+            kind: spec_compile
+            result: compiled
+            subject: spec
+        - evidence:
+            kind: open_markers
+            result: none
+            subject: spec
+        - evidence:
+            kind: spec_synthesis
+            result: clean
+            subject: spec
+  change.built:
+    description: the current change revision was built against the current specification revision
+    true_when:
+      evidence:
+        kind: implementation_change
+        subject: change
+  tests.pass:
+    description: >-
+      the conformance run of the current specification passes on the current change revision
+    true_when:
+      evidence:
+        kind: conformance_run
+        result: passed
+        subject: change
+  change.reviewed:
+    description: >-
+      the current change revision is approved by a reviewer the case lists as another principal than the implementer
+    true_when:
+      evidence:
+        kind: code_review
+        result: approved
+        subject: change
+        independent_on: [different_principal]
+  change.merged:
+    description: the current change revision is merged
+    true_when:
+      evidence:
+        kind: merge_record
+        subject: change
+obligations:
+  gate.required:
+    description: the ESS gate passes on the current specification revision
+    discharged_when:
+      claim: gate.passed
+  implementation.required:
+    description: the current change was built against the current specification
+    discharged_when:
+      claim: change.built
+  tests.required:
+    description: the conformance run passes for the current change and specification
+    discharged_when:
+      claim: tests.pass
+  review.required:
+    description: the current change is independently reviewed
+    discharged_when:
+      claim: change.reviewed
+actions:
+  spec.gate:
+    description: run the ESS gate over the current specification revision
+    effect: read
+    may_produce:
+      - evidence: spec_validation
+      - evidence: spec_compile
+      - evidence: open_markers
+      - evidence: spec_synthesis
+  change.implement:
+    description: >-
+      change the code against the current specification revision; moves the change to a new revision, recorded with the specification revision
+    effect: write
+    precondition:
+      claim: gate.passed
+    may_produce:
+      - evidence: implementation_change
+  tests.run:
+    description: run the specification's conformance suite against the current change revision
+    effect: read
+    precondition:
+      claim: change.built
+    may_produce:
+      - evidence: conformance_run
+  change.review:
+    description: review the current change revision
+    effect: read
+    precondition:
+      claim: change.built
+    may_produce:
+      - evidence: code_review
+  change.merge:
+    description: >-
+      merge the current change revision; needs the gate, a current build, a passing conformance run, an independent review and authority to merge
+    effect: write
+    precondition:
+      all:
+        - claim: gate.passed
+        - claim: change.built
+        - claim: tests.pass
+        - claim: change.reviewed
+    requires:
+      - capability: change.merge
+    may_produce:
+      - evidence: merge_record
+  amend.upstream:
+    description: >-
+      resolve the open findings while the conformance run is not passed: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the change is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it
+    effect: write
+    precondition:
+      claim: tests.pass
+      is: "false"
+outcomes:
+  passed:
+    description: >-
+      the current change revision, built against the current specification revision, passes its conformance run, is independently reviewed and merged, and the ESS gate passes
+    requires:
+      all:
+        - claim: gate.passed
+        - claim: change.built
+        - claim: tests.pass
+        - claim: change.reviewed
+        - claim: change.merged
+  dropped:
+    description: the story was explicitly dropped
+    requires:
+      decision: explicitly_dropped
+invalidation:
+  spec.revised:
+    description: >-
+      an implementation record or conformance run observed against an earlier specification revision no longer applies
+    upstream: spec
+    invalidates:
+      - change.built
+      - tests.pass

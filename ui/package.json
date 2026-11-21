@@ -1,0 +1,14 @@
+{
+  "name": "sdc-ui",
+  "private": true,
+  "type": "module",
+  "description": "Read-only live inspector for sdc-drive case stores",
+  "scripts": {
+    "start": "node server.mjs",
+    "screenshots": "playwright test --workers=2"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "1.65.0"
+  }
+}

@@ -1,0 +1,460 @@
+{
+  "actions": {
+    "backlog.survey": {
+      "description": "program survey of the current portfolio revision",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "backlog_state"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "health.observe": {
+      "description": "program observation of the operated release",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "health"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "ideas.dispatch": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "ideas": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "ideas"
+        ],
+        "type": "object"
+      },
+      "case_open": {
+        "protocol": "sdc",
+        "subject": "intake"
+      },
+      "description": "open one sdc case per idea of the current intake revision",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "ideas_dispatched"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "ideas.dispatched",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "intake.triaged",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "intake.check": {
+      "description": "program check that every entry of the current intake revision is routed",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "triage"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "intake.route": {
+      "description": "LLM: classify each entry of the intake (idea, story, bug, finding, advisory) and file each one that is not an idea as a draft artifact in the planning store citing the entry; moves intake and portfolio to new revisions",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "claim": {
+          "id": "intake.triaged",
+          "is": "unknown"
+        }
+      },
+      "requires": []
+    },
+    "wave.admit": {
+      "description": "program admission of the current wave revision: aep waves, collisions, unassessed scope, dependency order, free build slots and budget",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "admission"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "wave.approve": {
+      "description": "approve the current wave revision; held by a person or a decider per autonomy level",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "wave_approval"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "wave.admitted",
+          "is": "true"
+        }
+      },
+      "requires": [
+        {
+          "capability": "wave.approve"
+        }
+      ]
+    },
+    "wave.dispatch": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "stories": {
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          }
+        },
+        "required": [
+          "stories"
+        ],
+        "type": "object"
+      },
+      "case_open": {
+        "protocol": "sdc.story",
+        "subject": "wave"
+      },
+      "description": "open one sdc.story case per story of the admitted, approved wave revision",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "wave_dispatched"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "wave.admitted",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "wave.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "wave.dispatched",
+              "is": "unknown"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "wave.integrate": {
+      "description": "program: once every story case of the wave ended, merge those that passed serially, run the gate once on the integration branch, file every failure and finding into intake",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "wave_result"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "wave.dispatched",
+          "is": "true"
+        }
+      },
+      "requires": []
+    },
+    "wave.propose": {
+      "description": "LLM: rank the accepted, ready stories of the planning store and write the next wave; only while no wave is in flight; moves the wave to a new revision",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "all": [
+          {
+            "any": [
+              {
+                "claim": {
+                  "id": "wave.delivered",
+                  "is": "false"
+                }
+              },
+              {
+                "claim": {
+                  "id": "wave.delivered",
+                  "is": "true"
+                }
+              },
+              {
+                "claim": {
+                  "id": "wave.dispatched",
+                  "is": "unknown"
+                }
+              }
+            ]
+          },
+          {
+            "claim": {
+              "id": "backlog.drained",
+              "is": "false"
+            }
+          },
+          {
+            "claim": {
+              "id": "intake.triaged",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    }
+  },
+  "artifacts": {
+    "intake": {
+      "description": "the queue of entries not yet routed (idea text, ticket, planning-store id, bug report, late finding filed by a child case or by wave integration, advisory, health alert); its revision is its digest, so every new entry is a new revision"
+    },
+    "portfolio": {
+      "description": "the AEP planning store and the ESS specifications of the area; its revision is the store digest"
+    },
+    "release": {
+      "description": "the release that is operated; standing cases only"
+    },
+    "wave": {
+      "description": "the proposed next wave: ranked story ids, the reason for each, the worktree count; its revision is its digest"
+    }
+  },
+  "case": {
+    "inputs": {
+      "horizon": {
+        "description": "bounded: the case ends done once its scope is delivered; standing: the product is operated and the case never ends done",
+        "values": [
+          "bounded",
+          "standing"
+        ]
+      }
+    }
+  },
+  "claims": {
+    "backlog.drained": {
+      "description": "the current portfolio revision has nothing accepted and undelivered",
+      "true_when": {
+        "evidence": {
+          "kind": "backlog_state",
+          "result": "drained",
+          "subject": "portfolio"
+        }
+      }
+    },
+    "ideas.dispatched": {
+      "description": "the ideas of the current intake revision have their sdc cases",
+      "true_when": {
+        "evidence": {
+          "kind": "ideas_dispatched",
+          "result": null,
+          "subject": "intake"
+        }
+      }
+    },
+    "intake.triaged": {
+      "description": "the current intake revision is triaged",
+      "true_when": {
+        "evidence": {
+          "kind": "triage",
+          "result": null,
+          "subject": "intake"
+        }
+      }
+    },
+    "release.healthy": {
+      "description": "the operated release was observed healthy within the last hour",
+      "true_when": {
+        "evidence": {
+          "kind": "health",
+          "result": "healthy",
+          "subject": "release"
+        }
+      }
+    },
+    "wave.admitted": {
+      "description": "the current wave revision is admitted",
+      "true_when": {
+        "evidence": {
+          "kind": "admission",
+          "result": "admitted",
+          "subject": "wave"
+        }
+      }
+    },
+    "wave.approved": {
+      "description": "the current wave revision is approved",
+      "true_when": {
+        "evidence": {
+          "kind": "wave_approval",
+          "result": null,
+          "subject": "wave"
+        }
+      }
+    },
+    "wave.delivered": {
+      "description": "the current wave revision is integrated and the gate passed on the integration branch",
+      "true_when": {
+        "evidence": {
+          "kind": "wave_result",
+          "result": "delivered",
+          "subject": "wave"
+        }
+      }
+    },
+    "wave.dispatched": {
+      "description": "the story cases of the current wave revision were opened",
+      "true_when": {
+        "evidence": {
+          "kind": "wave_dispatched",
+          "result": null,
+          "subject": "wave"
+        }
+      }
+    }
+  },
+  "evidence_kinds": {
+    "admission": {
+      "description": "the program check of a wave revision: every story is accepted and in one wave that `aep plan artifact waves --kind story --status active` derives, with no collision, none unassessed, every depends_on terminal, and no more stories than free build slots and budget allow; result admitted or refused"
+    },
+    "backlog_state": {
+      "description": "the program survey of a portfolio revision: `aep plan artifact validate` passes, no accepted story is undelivered, no planning child case is open; result drained or pending"
+    },
+    "health": {
+      "description": "an observation of the operated release (health check, advisory scan, error budget); result healthy or unhealthy; applies for one hour",
+      "max_age": "1h"
+    },
+    "ideas_dispatched": {
+      "description": "the record that one sdc case was opened per idea of an intake revision"
+    },
+    "triage": {
+      "description": "the program check of an intake revision, written only when every entry is routed (an idea to ideas.dispatch, anything else filed as a draft artifact in the planning store citing the entry); an unrouted entry leaves no record, so intake.route stays admissible"
+    },
+    "wave_approval": {
+      "description": "the approval of a wave revision, recorded only by wave.approve under the capability wave.approve; a refusal is the capability denied, not a record"
+    },
+    "wave_dispatched": {
+      "description": "the record that one sdc.story case was opened per story of a wave revision"
+    },
+    "wave_result": {
+      "description": "the program result of a dispatched wave, written once every story case of the wave ended: the stories that passed merged serially onto the integration branch, the gate run once on it, every dropped or failed story and every finding filed into intake; result delivered when the gate passed, failed otherwise"
+    }
+  },
+  "format": "canon-ir/1",
+  "obligations": {
+    "delivery.required": {
+      "description": "the current portfolio revision has nothing accepted and undelivered",
+      "discharged_when": {
+        "claim": {
+          "id": "backlog.drained",
+          "is": "true"
+        }
+      }
+    },
+    "health.required": {
+      "applicable_when": {
+        "input": {
+          "id": "horizon",
+          "in": [
+            "standing"
+          ]
+        }
+      },
+      "description": "the operated release is observed healthy",
+      "discharged_when": {
+        "claim": {
+          "id": "release.healthy",
+          "is": "true"
+        }
+      }
+    },
+    "triage.required": {
+      "description": "the current intake revision is triaged",
+      "discharged_when": {
+        "claim": {
+          "id": "intake.triaged",
+          "is": "true"
+        }
+      }
+    }
+  },
+  "outcomes": {
+    "done": {
+      "description": "a bounded case: the current intake revision is triaged and the current portfolio revision has nothing accepted and undelivered",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "backlog.drained",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "intake.triaged",
+              "is": "true"
+            }
+          },
+          {
+            "input": {
+              "id": "horizon",
+              "in": [
+                "bounded"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "retired": {
+      "description": "the area of activity is explicitly retired; no further work is taken",
+      "requires": {
+        "decision": "explicitly_retired"
+      }
+    }
+  },
+  "protocol": {
+    "description": "DRAFT (docs/orchestration.md). The front agent's own case: one case per area of activity (a repository or a group of repositories with one AEP planning store and its ESS specifications). It governs no single work item. It triages what arrives (ideas, tickets, bug reports, late findings, dependency advisories, failed health checks), opens one sdc case per new idea, and delivers accepted stories of the planning store in waves: an LLM proposes and ranks the next wave, a program admits it (scope overlap, dependency order, free build slots and budget), the holder of wave.approve approves it, the runtime opens one sdc.story case per story, and a program integrates the wave (serial merge of the stories that passed, the gate on the integration branch) and records one result for the whole wave. The state space does not grow with the number of work items: each item is a child case, and this case reads one aggregate record per wave and per intake revision, never one record per item. A bounded case (one idea, one ticket, one backlog) ends done once intake is triaged and the backlog is drained. A standing case has no done outcome: it is quiescent while intake is triaged, the backlog is drained and the operated release is observed healthy, and new evidence (a new intake revision, a new accepted story, an expired or unhealthy health observation) makes it active again. Both end retired only on an explicit decision.",
+    "id": "sdc.orchestrate",
+    "revision": 1
+  }
+}

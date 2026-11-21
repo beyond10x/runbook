@@ -1,0 +1,2 @@
+$ canon evaluate --ir protocol/compiled/sdc-epic.ir.json --case docs/limitations/copied-record-upstream/case.json --evidence docs/limitations/copied-record-upstream/evidence --at 2026-11-20T13:00:00Z
+error[undeclared-artifact]: evidence `e0062-roadmap.approve` records a revision of upstream artifact `vision`, which the protocol does not declare

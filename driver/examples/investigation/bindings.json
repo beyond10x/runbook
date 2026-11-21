@@ -1,0 +1,21 @@
+{
+  "inspect": {
+    "argv": ["sh", "-c", "test -s explanation.md"],
+    "produces": "supporting_observation",
+    "subject": "explanation",
+    "producer": "sdc-drive.inspect",
+    "results": {"0": null}
+  },
+  "attempt_falsification": {
+    "argv": ["sh", "-c", "! grep -qi refuted explanation.md"],
+    "produces": "falsification_attempt",
+    "subject": "explanation",
+    "producer": "sdc-drive.falsifier",
+    "results": {"0": "survived", "1": "refuted"}
+  },
+  "publish_finding": {
+    "argv": ["sh", "-c", "cp explanation.md published.md"],
+    "produces": null,
+    "results": {}
+  }
+}

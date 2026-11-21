@@ -1,0 +1,300 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "change.implement": {
+      "status": "admissible"
+    },
+    "change.merge": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "change.review": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
+    "spec.gate": {
+      "status": "admissible"
+    },
+    "tests.run": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "case": "STORY-1",
+  "claims": {
+    "change.built": {
+      "excluded_evidence": [
+        {
+          "evidence": "i1",
+          "reason": "invalidated"
+        }
+      ],
+      "value": "unknown"
+    },
+    "change.merged": {
+      "value": "unknown"
+    },
+    "change.reviewed": {
+      "excluded_evidence": [
+        {
+          "evidence": "k1",
+          "reason": "not_independent"
+        }
+      ],
+      "value": "true"
+    },
+    "gate.passed": {
+      "value": "true"
+    },
+    "tests.pass": {
+      "excluded_evidence": [
+        {
+          "evidence": "t1",
+          "reason": "invalidated"
+        }
+      ],
+      "value": "unknown"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "change.merge": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "change.review": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
+      "tests.run": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "change.built": {
+        "because": [
+          {
+            "evidence": "i1",
+            "reason": "invalidated",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      },
+      "change.merged": {
+        "because": [
+          {
+            "kind": "merge_record",
+            "status": "absent",
+            "subject": "change"
+          }
+        ],
+        "value": "unknown"
+      },
+      "tests.pass": {
+        "because": [
+          {
+            "evidence": "t1",
+            "reason": "invalidated",
+            "status": "excluded"
+          }
+        ],
+        "value": "unknown"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "change": {
+            "revision": "c2"
+          },
+          "findings": {
+            "revision": "none"
+          },
+          "requirements": {
+            "revision": "q1"
+          },
+          "spec": {
+            "revision": "s2"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "STORY-1",
+        "independence": {
+          "implementer-agent": [],
+          "reviewer-2": [
+            "different_principal"
+          ]
+        },
+        "protocol": "sdc.story",
+        "revision": "c3"
+      },
+      "evidence": [
+        "g2",
+        "i1",
+        "k1",
+        "k2",
+        "t1"
+      ],
+      "protocol": "sdc.story",
+      "protocol_revision": 4,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "obligations": {
+      "implementation.required": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      },
+      "tests.required": {
+        "because": [
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "open"
+      }
+    },
+    "outcomes": {
+      "dropped": {
+        "because": [
+          {
+            "decision": "explicitly_dropped",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "passed": {
+        "because": [
+          {
+            "claim": "change.built",
+            "value": "unknown"
+          },
+          {
+            "claim": "change.merged",
+            "value": "unknown"
+          },
+          {
+            "claim": "tests.pass",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "gate.required",
+      "status": "discharged"
+    },
+    {
+      "id": "implementation.required",
+      "status": "open"
+    },
+    {
+      "id": "review.required",
+      "status": "discharged"
+    },
+    {
+      "id": "tests.required",
+      "status": "open"
+    }
+  ],
+  "outcomes": {
+    "dropped": {
+      "reasons": [
+        {
+          "decision": "explicitly_dropped",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "passed": {
+      "reasons": [
+        {
+          "claim": "change.built",
+          "value": "unknown"
+        },
+        {
+          "claim": "change.merged",
+          "value": "unknown"
+        },
+        {
+          "claim": "tests.pass",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    }
+  },
+  "protocol": "sdc.story",
+  "protocol_revision": 4
+}

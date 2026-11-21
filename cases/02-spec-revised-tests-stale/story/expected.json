@@ -1,0 +1,27 @@
+{
+  "actions": {
+    "amend.upstream": "blocked",
+    "change.implement": "admissible",
+    "change.merge": "blocked",
+    "change.review": "blocked",
+    "spec.gate": "admissible",
+    "tests.run": "blocked"
+  },
+  "claims": {
+    "change.built": "unknown",
+    "change.merged": "unknown",
+    "change.reviewed": "true",
+    "gate.passed": "true",
+    "tests.pass": "unknown"
+  },
+  "obligations": {
+    "gate.required": "discharged",
+    "implementation.required": "open",
+    "review.required": "discharged",
+    "tests.required": "open"
+  },
+  "outcomes": {
+    "dropped": "blocked",
+    "passed": "blocked"
+  }
+}

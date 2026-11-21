@@ -1,0 +1,235 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "reasons": [
+        {
+          "claim": "spec.traced",
+          "value": "true"
+        }
+      ],
+      "status": "blocked"
+    },
+    "roadmap.read": {
+      "status": "admissible"
+    },
+    "spec.author": {
+      "status": "admissible"
+    },
+    "spec.compile": {
+      "status": "admissible"
+    },
+    "spec.reconstruct": {
+      "status": "admissible"
+    },
+    "spec.reuse": {
+      "status": "admissible"
+    },
+    "spec.review": {
+      "status": "admissible"
+    },
+    "spec.scan": {
+      "status": "admissible"
+    },
+    "spec.synthesize": {
+      "status": "admissible"
+    },
+    "spec.trace": {
+      "status": "admissible"
+    },
+    "spec.validate": {
+      "status": "admissible"
+    }
+  },
+  "case": "SPEC-1",
+  "claims": {
+    "roadmap.approved": {
+      "value": "true"
+    },
+    "spec.approved": {
+      "excluded_evidence": [
+        {
+          "evidence": "r2",
+          "reason": "not_independent"
+        }
+      ],
+      "value": "true"
+    },
+    "spec.compiled": {
+      "value": "true"
+    },
+    "spec.complete": {
+      "excluded_evidence": [
+        {
+          "evidence": "v1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "spec.done": {
+      "excluded_evidence": [
+        {
+          "evidence": "r2",
+          "reason": "not_independent"
+        },
+        {
+          "evidence": "src1",
+          "reason": "revision_mismatch"
+        },
+        {
+          "evidence": "v1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "spec.sourced": {
+      "excluded_evidence": [
+        {
+          "evidence": "src1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    },
+    "spec.synthesized": {
+      "value": "true"
+    },
+    "spec.traced": {
+      "value": "true"
+    },
+    "spec.unmarked": {
+      "value": "true"
+    },
+    "spec.valid": {
+      "excluded_evidence": [
+        {
+          "evidence": "v1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "true"
+    }
+  },
+  "explanation": {
+    "actions": {
+      "amend.upstream": {
+        "because": [
+          {
+            "claim": "spec.traced",
+            "value": "true"
+          }
+        ],
+        "status": "blocked"
+      }
+    },
+    "claims": {
+      "spec.traced": {
+        "because": [
+          {
+            "evidence": "t2",
+            "status": "applied"
+          }
+        ],
+        "value": "true"
+      }
+    },
+    "computed_from": {
+      "case": {
+        "artifacts": {
+          "findings": {
+            "revision": "none"
+          },
+          "requirements": {
+            "revision": "q1"
+          },
+          "roadmap": {
+            "revision": "r1"
+          },
+          "spec": {
+            "revision": "s2"
+          }
+        },
+        "format": "canon-case/1",
+        "id": "SPEC-1",
+        "independence": {
+          "reviewer-2": [
+            "different_principal"
+          ],
+          "spec-author-agent": []
+        },
+        "protocol": "sdc.spec",
+        "revision": "c4"
+      },
+      "evidence": [
+        "a1",
+        "c2",
+        "m2",
+        "r2",
+        "r3",
+        "src1",
+        "src2",
+        "t2",
+        "v1",
+        "v2",
+        "y2"
+      ],
+      "protocol": "sdc.spec",
+      "protocol_revision": 4,
+      "semantics": {
+        "canon": "0.9.0",
+        "format": "canon-decision/1"
+      }
+    },
+    "outcomes": {
+      "abandoned": {
+        "because": [
+          {
+            "decision": "explicitly_abandoned",
+            "present": false
+          }
+        ],
+        "status": "blocked"
+      }
+    }
+  },
+  "format": "canon-decision/1",
+  "obligations": [
+    {
+      "id": "gate.required",
+      "status": "discharged"
+    },
+    {
+      "id": "review.required",
+      "status": "discharged"
+    },
+    {
+      "id": "roadmap.required",
+      "status": "discharged"
+    },
+    {
+      "id": "source.required",
+      "status": "discharged"
+    },
+    {
+      "id": "trace.required",
+      "status": "discharged"
+    }
+  ],
+  "outcomes": {
+    "abandoned": {
+      "reasons": [
+        {
+          "decision": "explicitly_abandoned",
+          "present": false
+        }
+      ],
+      "status": "blocked"
+    },
+    "passed": {
+      "status": "legitimate"
+    }
+  },
+  "protocol": "sdc.spec",
+  "protocol_revision": 4
+}

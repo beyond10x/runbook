@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: src1
+kind: spec_source
+result: authored
+subject: spec
+subject_revision: s1
+producer: sdc-runtime
+observed_at: 2026-11-20T09:00:00Z

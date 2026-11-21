@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: t2
+kind: scope_trace
+result: traced
+subject: spec
+subject_revision: s2
+producer: tool:sdc-trace
+observed_at: 2026-11-20T10:38:00Z

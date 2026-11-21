@@ -1,0 +1,553 @@
+{
+  "actions": {
+    "amend.upstream": {
+      "description": "resolve the open findings while the trace check is not traced: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the specification is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it",
+      "effect": "write",
+      "may_produce": [],
+      "precondition": {
+        "claim": {
+          "id": "spec.traced",
+          "is": "false"
+        }
+      },
+      "requires": []
+    },
+    "roadmap.read": {
+      "description": "copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "roadmap_approval"
+        }
+      ],
+      "precondition": {
+        "all": []
+      },
+      "requires": []
+    },
+    "spec.author": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "domain": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "domain"
+        ],
+        "type": "object"
+      },
+      "description": "an LLM writes the specification from the requirements list (states, actions, events); moves the specification to a new revision, recorded with source authored",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "spec_source"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      },
+      "requires": []
+    },
+    "spec.compile": {
+      "description": "run ess specify compile",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "spec_compile"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.valid",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "spec.reconstruct": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "enum": [
+              "rfc",
+              "openapi",
+              "system"
+            ],
+            "type": "string"
+          },
+          "origin": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "description": "derive the specification from an RFC, an OpenAPI document or an observed system (the ess:retrofitting skill); moves the specification to a new revision, recorded with source reconstructed",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "spec_source"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      },
+      "requires": []
+    },
+    "spec.reuse": {
+      "arguments": {
+        "additionalProperties": false,
+        "properties": {
+          "origin": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin"
+        ],
+        "type": "object"
+      },
+      "description": "take an existing specification from another repository or a public place; moves the specification to a new revision, recorded with source reused",
+      "effect": "write",
+      "may_produce": [
+        {
+          "evidence": "spec_source"
+        }
+      ],
+      "precondition": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      },
+      "requires": []
+    },
+    "spec.review": {
+      "description": "review the specification once it is complete",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "spec_review"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.complete",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "spec.scan": {
+      "description": "scan the specification for UNMAPPED markers",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "open_markers"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.sourced",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "spec.synthesize": {
+      "description": "run ess verify conform synthesize",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "spec_synthesis"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.compiled",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "spec.trace": {
+      "description": "join every change id the specification adds to the requirements list",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "scope_trace"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.valid",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    },
+    "spec.validate": {
+      "description": "run ess specify validate --strict-requires",
+      "effect": "read",
+      "may_produce": [
+        {
+          "evidence": "spec_validation"
+        }
+      ],
+      "precondition": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.sourced",
+              "is": "true"
+            }
+          }
+        ]
+      },
+      "requires": []
+    }
+  },
+  "artifacts": {
+    "findings": {
+      "description": "findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution"
+    },
+    "requirements": {
+      "description": "the requirements list from sdc.intake, amended by resolved findings"
+    },
+    "roadmap": {
+      "description": "the roadmap the epic belongs to"
+    },
+    "spec": {
+      "description": "the ESS specification tree; its revision is its spec digest"
+    }
+  },
+  "claims": {
+    "roadmap.approved": {
+      "description": "the current roadmap revision is approved",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap"
+        }
+      }
+    },
+    "spec.approved": {
+      "description": "the current specification revision is approved by a reviewer the case lists as another principal than its author",
+      "true_when": {
+        "evidence": {
+          "independent_on": [
+            "different_principal"
+          ],
+          "kind": "spec_review",
+          "result": "approved",
+          "subject": "spec"
+        }
+      }
+    },
+    "spec.compiled": {
+      "description": "the current specification revision compiles",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_compile",
+          "result": "compiled",
+          "subject": "spec"
+        }
+      }
+    },
+    "spec.complete": {
+      "description": "the ESS gate passes at the current specification revision",
+      "true_when": {
+        "all": [
+          {
+            "claim": {
+              "id": "spec.compiled",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.synthesized",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.unmarked",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.valid",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "spec.done": {
+      "description": "the current revision is sourced, complete, traced and independently approved",
+      "true_when": {
+        "all": [
+          {
+            "claim": {
+              "id": "spec.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.complete",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.sourced",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.traced",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    },
+    "spec.sourced": {
+      "description": "the current specification revision has a recorded source",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_source",
+          "result": null,
+          "subject": "spec"
+        }
+      }
+    },
+    "spec.synthesized": {
+      "description": "the conformance suite synthesizes from the current revision with 0 refusals",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_synthesis",
+          "result": "clean",
+          "subject": "spec"
+        }
+      }
+    },
+    "spec.traced": {
+      "description": "every change id the current revision adds cites a requirement",
+      "true_when": {
+        "evidence": {
+          "kind": "scope_trace",
+          "result": "traced",
+          "subject": "spec"
+        }
+      }
+    },
+    "spec.unmarked": {
+      "description": "the current specification revision holds no UNMAPPED marker",
+      "true_when": {
+        "evidence": {
+          "kind": "open_markers",
+          "result": "none",
+          "subject": "spec"
+        }
+      }
+    },
+    "spec.valid": {
+      "description": "the current specification revision validates with --strict-requires",
+      "true_when": {
+        "evidence": {
+          "kind": "spec_validation",
+          "result": "valid",
+          "subject": "spec"
+        }
+      }
+    }
+  },
+  "evidence_kinds": {
+    "open_markers": {
+      "description": "`grep -rn 'UNMAPPED:' spec`; its result is none (grep exits 1) or present, the markers in the body"
+    },
+    "roadmap_approval": {
+      "description": "a person's approval of a roadmap revision; its result is approved"
+    },
+    "scope_trace": {
+      "description": "`ess verify diff` of the specification joined to the requirements list: every added change id cites a requirement; its result is traced, untraced or finding (an open finding)"
+    },
+    "spec_compile": {
+      "description": "the result of `ess specify compile --path spec`, compiled or refused"
+    },
+    "spec_review": {
+      "description": "a review of the specification against the requirements; approved or rejected"
+    },
+    "spec_source": {
+      "description": "where the current specification revision came from; its result is authored, reused or reconstructed, and its body names the origin (repository, URL, RFC, OpenAPI document or system)"
+    },
+    "spec_synthesis": {
+      "description": "`ess verify conform synthesize --path spec --suite-format 5`; its result is clean (0 refusals) or refused"
+    },
+    "spec_validation": {
+      "description": "`ess specify validate --path spec --strict-requires`; its result is valid or invalid"
+    }
+  },
+  "format": "canon-ir/1",
+  "independence_dimensions": {
+    "different_principal": {
+      "description": "the producer is another principal than the one who wrote the specification"
+    }
+  },
+  "obligations": {
+    "gate.required": {
+      "description": "the specification is complete",
+      "discharged_when": {
+        "claim": {
+          "id": "spec.complete",
+          "is": "true"
+        }
+      }
+    },
+    "review.required": {
+      "description": "the specification is independently approved",
+      "discharged_when": {
+        "claim": {
+          "id": "spec.approved",
+          "is": "true"
+        }
+      }
+    },
+    "roadmap.required": {
+      "description": "the roadmap is approved",
+      "discharged_when": {
+        "claim": {
+          "id": "roadmap.approved",
+          "is": "true"
+        }
+      }
+    },
+    "source.required": {
+      "description": "the current specification revision has a recorded source",
+      "discharged_when": {
+        "claim": {
+          "id": "spec.sourced",
+          "is": "true"
+        }
+      }
+    },
+    "trace.required": {
+      "description": "the specification traces to the requirements",
+      "discharged_when": {
+        "claim": {
+          "id": "spec.traced",
+          "is": "true"
+        }
+      }
+    }
+  },
+  "outcomes": {
+    "abandoned": {
+      "description": "the specification work was explicitly abandoned",
+      "requires": {
+        "decision": "explicitly_abandoned"
+      }
+    },
+    "passed": {
+      "description": "the specification is sourced, complete, traced and independently approved",
+      "requires": {
+        "all": [
+          {
+            "claim": {
+              "id": "roadmap.approved",
+              "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "spec.done",
+              "is": "true"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "protocol": {
+    "description": "Get the epic's ESS specification to complete (docs/phases.md steps 8 and 9). The specification comes from one of three sources, recorded as evidence on it: authored from the requirements list, reused from another repository or a public place, or reconstructed from an RFC, an OpenAPI document or an observed system. All three converge on the same ESS gate. The specification is complete when the gate passes at its current revision: `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:` marker, `ess verify conform synthesize` with 0 refusals. Every added change id must trace to a requirement, and a reviewer other than its author must approve it. No action is admissible before the roadmap is approved. The case ends passed, or abandoned on an explicit decision. Late findings (docs/trial-2.md, \"The late-finding loop\"): the trace check also reads the open findings and is not traced while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the specification is re-derived.",
+    "id": "sdc.spec",
+    "revision": 4
+  }
+}

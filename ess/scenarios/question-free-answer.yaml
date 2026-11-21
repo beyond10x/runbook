@@ -1,0 +1,158 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: question-free-answer
+summary: "A free answer to a scope question, grounded in a goals entry, is taken at A3; an approval takes none."
+
+timeline:
+  - at: 2026-11-21T12:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+      case_id: "IDEA-1.intake"
+      question_key: "IDEA-1.intake|questions.answer|q1"
+      unblocks: {kind: question, action: "questions.answer", question_id: "q1"}
+      subject_artifact: "questions"
+      subject_revision: "tq0001"
+      subject_path: "work/questions.yaml"
+      question: "Should you and your partner share one single to-do list, or keep separate lists that you can share with each other?"
+      options:
+        - letter: "A"
+          does: "One shared list for both of us."
+          cost: "The default; one list, no per-user data."
+          consequence: {admits: ["questions.check"], blocks: [], answer: "One shared list for both of us", produces: artifact_revision}
+        - letter: "B"
+          does: "Separate lists, each shareable with the other."
+          cost: "Sharing per list."
+          consequence: {admits: ["questions.check"], blocks: [], answer: "Separate lists, each shareable with the other", produces: artifact_revision}
+      autonomy_level: A3
+      decision_class: scope_changing_answer
+      holder: decider
+      eligible: ["decider:requester", "operator"]
+      addressed_to: "decider:requester"
+      opened_at: 2026-11-21T12:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+          case_id: "IDEA-1.intake"
+          subject_artifact: "questions"
+          subject_revision: "tq0001"
+
+  - at: 2026-11-21T12:01:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+      recommended_answer: "Neither option as asked: each user has several lists of their own; no shared list."
+      strength: strong
+      default_on_silence: false
+      grounds:
+        - source: goals
+          citation: {form: artifact_revision, value: {artifact: "goals", revision: "tg0001", case: "IDEA-1", entry: "product/p1", digest: "sha256:c48f4e97c95e7083fedcc8ab5220a60090d683da9ad8ea306a19332cfa86ceb1"}}
+          how: "product/p1 states that each of us keeps our own to-dos in several lists, which neither option gives."
+      proposed_by: llm
+      check_verdict: verified
+      check_report: "1 grounds, all resolve"
+    outcome: recommended
+    events:
+      - event: sdc.decision.RecommendationRecorded
+        payload:
+          request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+          recommended_answer: "Neither option as asked: each user has several lists of their own; no shared list."
+          strength: strong
+
+  - at: 2026-11-21T12:02:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+      option: "B"
+      answer: "Separate lists, never shared."
+      principal: "decider:requester"
+      principal_kind: decider
+      decided_at: 2026-11-21T12:02:00Z
+      reasons: ["Both an option and an answer."]
+    outcome: option-or-answer
+
+  - at: 2026-11-21T12:03:00Z
+    command: sdc.decision.TakeRecommendation
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+      principal: "decider:requester"
+      principal_kind: decider
+      decided_at: 2026-11-21T12:03:00Z
+      reasons: ["product/p1 states the answer."]
+    outcome: taken
+    events:
+      - event: sdc.decision.RecommendationTaken
+        payload:
+          request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+          principal: "decider:requester"
+
+  - at: 2026-11-21T12:04:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+      produced: {document: artifact_revision, record: "questions@tq0002", case_revision: "c13"}
+    outcome: recorded
+    events:
+      - event: sdc.decision.ProducedRecordRecorded
+        payload:
+          request_id: "DR-IDEA-1.intake-questions.answer-q1-1"
+          produced: {document: artifact_revision, record: "questions@tq0002", case_revision: "c13"}
+
+  - at: 2026-11-21T12:05:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.direction-roadmap.approve-1"
+      case_id: "IDEA-1.direction"
+      question_key: "IDEA-1.direction|roadmap.approve|"
+      unblocks: {kind: approval, action: "roadmap.approve", capability: "owner.approve"}
+      subject_artifact: "roadmap"
+      subject_revision: "tr0001"
+      question: "Approve the roadmap at revision tr0001?"
+      options:
+        - letter: "A"
+          does: "Approve."
+          cost: "None."
+          consequence: {admits: ["roadmap.approve"], blocks: [], grant: granted, produces: canon_evidence}
+        - letter: "B"
+          does: "Reject."
+          cost: "The roadmap is written again."
+          consequence: {admits: [], blocks: ["roadmap.approve"], grant: denied, produces: canon_authority}
+      autonomy_level: A3
+      decision_class: roadmap
+      holder: person
+      eligible: ["operator"]
+      addressed_to: "operator"
+      opened_at: 2026-11-21T12:05:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-1.direction-roadmap.approve-1"
+          case_id: "IDEA-1.direction"
+          subject_artifact: "roadmap"
+          subject_revision: "tr0001"
+
+  - at: 2026-11-21T12:06:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Person
+    input:
+      request_id: "DR-IDEA-1.direction-roadmap.approve-1"
+      answer: "Approve, but drop the second epic."
+      principal: "operator"
+      principal_kind: person
+      decided_at: 2026-11-21T12:06:00Z
+      reasons: ["An approval is option-only."]
+    outcome: answer-not-allowed
+
+assert:
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "questions"}
+    contains: {request_id: "DR-IDEA-1.intake-questions.answer-q1-1", state: Decided, decided_answer: "Neither option as asked: each user has several lists of their own; no shared list.", decided_by: "decider:requester", produced_record: {document: artifact_revision, record: "questions@tq0002", case_revision: "c13"}}

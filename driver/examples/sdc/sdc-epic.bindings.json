@@ -1,0 +1,81 @@
+{
+  "$artifacts": {
+    "roadmap": "aep/initiative/roadmap.md",
+    "spec": "spec"
+  },
+  "roadmap.read": {
+    "copy": {
+      "kind": "roadmap_approval",
+      "from": "sdc.direction"
+    }
+  },
+  "spec.gate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "ess-gate"
+    ],
+    "produces": "ess_gate",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "passed",
+      "*": "failed"
+    }
+  },
+  "spec.open": {
+    "produces": "spec_opened",
+    "subject": "epic",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "name": "spec",
+      "protocol": "{dir}/../../../protocol/sdc-spec.protocol.yaml",
+      "bindings": "{dir}/sdc-spec.bindings.json"
+    }
+  },
+  "plan.open": {
+    "produces": "plan_opened",
+    "subject": "epic",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "name": "plan",
+      "protocol": "{dir}/../../../protocol/sdc-plan.protocol.yaml",
+      "bindings": "{dir}/sdc-plan.bindings.json"
+    }
+  },
+  "stories.open": {
+    "produces": "stories_opened",
+    "subject": "epic",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "each": "stories",
+      "protocol": "{dir}/../../../protocol/sdc-story.protocol.yaml",
+      "bindings": "{dir}/sdc-story.bindings.json"
+    },
+    "args_from": [
+      "{dir}/tools/sdc-tool.sh",
+      "list-stories"
+    ]
+  },
+  "release.open": {
+    "produces": "release_opened",
+    "subject": "epic",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "name": "release",
+      "protocol": "{dir}/../../../protocol/sdc-release.protocol.yaml",
+      "bindings": "{dir}/sdc-release.bindings.json"
+    }
+  }
+}

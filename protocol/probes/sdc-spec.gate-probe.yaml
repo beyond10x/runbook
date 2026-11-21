@@ -1,0 +1,282 @@
+format: protocol/1
+protocol:
+  id: sdc.spec
+  revision: 4
+  description: >-
+    Get the epic's ESS specification to complete (docs/phases.md steps 8 and 9). The specification comes from one of three sources, recorded as evidence on it: authored from the requirements list, reused from another repository or a public place, or reconstructed from an RFC, an OpenAPI document or an observed system. All three converge on the same ESS gate. The specification is complete when the gate passes at its current revision: `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:` marker, `ess verify conform synthesize` with 0 refusals. Every added change id must trace to a requirement, and a reviewer other than its author must approve it. No action is admissible before the roadmap is approved. The case ends passed, or abandoned on an explicit decision. Late findings (docs/trial-2.md, "The late-finding loop"): the trace check also reads the open findings and is not traced while one is open; amend.upstream resolves them by amending the questions and the requirements list upstream, and the specification is re-derived.
+independence_dimensions:
+  different_principal:
+    description: the producer is another principal than the one who wrote the specification
+artifacts:
+  requirements:
+    description: the requirements list from sdc.intake, amended by resolved findings
+  findings:
+    description: >-
+      findings.yaml: the typed findings (ambiguity, contradiction, missing decision) any stage raised, each citing the items it conflicts with, with its status and its resolution
+  roadmap:
+    description: the roadmap the epic belongs to
+  spec:
+    description: the ESS specification tree; its revision is its spec digest
+evidence_kinds:
+  roadmap_approval:
+    description: a person's approval of a roadmap revision; its result is approved
+  spec_source:
+    description: >-
+      where the current specification revision came from; its result is authored, reused or reconstructed, and its body names the origin (repository, URL, RFC, OpenAPI document or system)
+  spec_validation:
+    description: >-
+      `ess specify validate --path spec --strict-requires`; its result is valid or invalid
+  spec_compile:
+    description: the result of `ess specify compile --path spec`, compiled or refused
+  open_markers:
+    description: >-
+      `grep -rn 'UNMAPPED:' spec`; its result is none (grep exits 1) or present, the markers in the body
+  spec_synthesis:
+    description: >-
+      `ess verify conform synthesize --path spec --suite-format 5`; its result is clean (0 refusals) or refused
+  scope_trace:
+    description: >-
+      `ess verify diff` of the specification joined to the requirements list: every added change id cites a requirement; its result is traced, untraced or finding (an open finding)
+  spec_review:
+    description: a review of the specification against the requirements; approved or rejected
+claims:
+  roadmap.approved:
+    description: the current roadmap revision is approved
+    true_when:
+      evidence:
+        kind: roadmap_approval
+        result: approved
+        subject: roadmap
+  spec.sourced:
+    description: the current specification revision has a recorded source
+    true_when:
+      evidence:
+        kind: spec_source
+        subject: spec
+  spec.valid:
+    description: the current specification revision validates with --strict-requires
+    true_when:
+      evidence:
+        kind: spec_validation
+        result: valid
+        subject: spec
+  spec.compiled:
+    description: the current specification revision compiles
+    true_when:
+      evidence:
+        kind: spec_compile
+        result: compiled
+        subject: spec
+  spec.unmarked:
+    description: the current specification revision holds no UNMAPPED marker
+    true_when:
+      evidence:
+        kind: open_markers
+        result: none
+        subject: spec
+  spec.synthesized:
+    description: the conformance suite synthesizes from the current revision with 0 refusals
+    true_when:
+      evidence:
+        kind: spec_synthesis
+        result: clean
+        subject: spec
+  spec.complete:
+    description: the ESS gate passes at the current specification revision
+    true_when:
+      all:
+        - claim: spec.valid
+        - claim: spec.compiled
+        - claim: spec.unmarked
+        - claim: spec.synthesized
+  spec.traced:
+    description: every change id the current revision adds cites a requirement
+    true_when:
+      evidence:
+        kind: scope_trace
+        result: traced
+        subject: spec
+  spec.approved:
+    description: >-
+      the current specification revision is approved by a reviewer the case lists as another principal than its author
+    true_when:
+      evidence:
+        kind: spec_review
+        result: approved
+        subject: spec
+        independent_on: [different_principal]
+  spec.done:
+    description: the current revision is sourced, complete, traced and independently approved
+    true_when:
+      all:
+        - claim: spec.sourced
+        - claim: spec.complete
+        - claim: spec.traced
+        - claim: spec.approved
+  probe.gate:
+    description: the ESS gate evidence, read directly
+    true_when:
+      "all": [{"evidence": {"kind": "spec_validation", "result": "valid", "subject": "spec"}}, {"evidence": {"kind": "spec_compile", "result": "compiled", "subject": "spec"}}, {"evidence": {"kind": "open_markers", "result": "none", "subject": "spec"}}, {"evidence": {"kind": "spec_synthesis", "result": "clean", "subject": "spec"}}]
+obligations:
+  roadmap.required:
+    description: the roadmap is approved
+    discharged_when:
+      claim: roadmap.approved
+  source.required:
+    description: the current specification revision has a recorded source
+    discharged_when:
+      claim: spec.sourced
+  gate.required:
+    description: the specification is complete
+    discharged_when:
+      claim: spec.complete
+  trace.required:
+    description: the specification traces to the requirements
+    discharged_when:
+      claim: spec.traced
+  review.required:
+    description: the specification is independently approved
+    discharged_when:
+      claim: spec.approved
+actions:
+  roadmap.read:
+    description: >-
+      copy the roadmap approval record of the sdc.direction case into this case, unchanged; it approves nothing, and the record keeps the producer and roadmap revision it was approved with
+    effect: read
+    may_produce:
+      - evidence: roadmap_approval
+  spec.author:
+    description: >-
+      an LLM writes the specification from the requirements list (states, actions, events); moves the specification to a new revision, recorded with source authored
+    effect: write
+    precondition:
+      claim: roadmap.approved
+    may_produce:
+      - evidence: spec_source
+    arguments:
+      type: object
+      properties:
+        domain:
+          type: string
+          minLength: 1
+      required: [domain]
+      additionalProperties: false
+  spec.reuse:
+    description: >-
+      take an existing specification from another repository or a public place; moves the specification to a new revision, recorded with source reused
+    effect: write
+    precondition:
+      claim: roadmap.approved
+    may_produce:
+      - evidence: spec_source
+    arguments:
+      type: object
+      properties:
+        origin:
+          type: string
+          minLength: 1
+      required: [origin]
+      additionalProperties: false
+  spec.reconstruct:
+    description: >-
+      derive the specification from an RFC, an OpenAPI document or an observed system (the ess:retrofitting skill); moves the specification to a new revision, recorded with source reconstructed
+    effect: write
+    precondition:
+      claim: roadmap.approved
+    may_produce:
+      - evidence: spec_source
+    arguments:
+      type: object
+      properties:
+        from:
+          type: string
+          enum: [rfc, openapi, system]
+        origin:
+          type: string
+          minLength: 1
+      required: [from, origin]
+      additionalProperties: false
+  spec.validate:
+    description: run ess specify validate --strict-requires
+    effect: read
+    precondition:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.sourced
+    may_produce:
+      - evidence: spec_validation
+  spec.compile:
+    description: run ess specify compile
+    effect: read
+    precondition:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.valid
+    may_produce:
+      - evidence: spec_compile
+  spec.scan:
+    description: scan the specification for UNMAPPED markers
+    effect: read
+    precondition:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.sourced
+    may_produce:
+      - evidence: open_markers
+  spec.synthesize:
+    description: run ess verify conform synthesize
+    effect: read
+    precondition:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.compiled
+    may_produce:
+      - evidence: spec_synthesis
+  spec.trace:
+    description: join every change id the specification adds to the requirements list
+    effect: read
+    precondition:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.valid
+    may_produce:
+      - evidence: scope_trace
+  spec.review:
+    description: review the specification once it is complete
+    effect: read
+    precondition:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.complete
+    may_produce:
+      - evidence: spec_review
+  amend.upstream:
+    description: >-
+      resolve the open findings while the trace check is not traced: a finding that changes no scope takes its default decision (an agent, recorded as an assumption with its reason), a scope-changing one waits for a person's decision; the decision amends the questions and the requirements list, and the specification is marked as derived from an earlier requirements revision (a new revision), so Canon sets aside every record about the old one and the writer re-derives it
+    effect: write
+    precondition:
+      claim: spec.traced
+      is: "false"
+outcomes:
+  passed:
+    description: the specification is sourced, complete, traced and independently approved
+    requires:
+      all:
+        - claim: roadmap.approved
+        - claim: spec.done
+  abandoned:
+    description: the specification work was explicitly abandoned
+    requires:
+      decision: explicitly_abandoned
+  probe.passed_without_gate:
+    description: passed while the ESS gate evidence is not TRUE
+    requires:
+      all:
+        - all:
+            - claim: roadmap.approved
+            - claim: spec.done
+        - any:
+            - claim: probe.gate
+              is: "false"
+            - claim: probe.gate
+              is: unknown

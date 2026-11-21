@@ -1,0 +1,36 @@
+{
+  "level": "L5",
+  "node": "spec.author",
+  "model": "claude-haiku-5-5",
+  "chooser": "deterministic",
+  "tools": {
+    "allow": [
+      "submit_spec"
+    ],
+    "deny": [
+      "*"
+    ]
+  },
+  "write_scope": [],
+  "egress": "none",
+  "budget": {
+    "max_tokens": 100000,
+    "max_turns": 6,
+    "max_budget_micro_usd": 500000
+  },
+  "output": "typed",
+  "submits": 3,
+  "submit_schema": "eval/levels/submit_spec.schema.json (to write; D5 option a)",
+  "render": [
+    "ess-render-from-submit (to write)"
+  ],
+  "feedback": "failing ESS gate check ids",
+  "llm": {
+    "model": "claude-haiku-5-5",
+    "operations": [
+      "submit_spec"
+    ],
+    "max_turns": 6,
+    "max_budget_usd": 0.5
+  }
+}

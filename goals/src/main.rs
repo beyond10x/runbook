@@ -1,0 +1,156 @@
+//! sdc-goals: checks, digests and resolves `sdc.goals/1` documents (docs/requester.md § 2).
+
+mod check;
+
+use clap::{Parser, Subcommand, ValueEnum};
+use serde_json::{json, Value};
+use std::fs;
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+#[derive(Parser)]
+#[command(
+    name = "sdc-goals",
+    about = "Check, digest and resolve sdc.goals/1 goals documents"
+)]
+struct Cli {
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Clone, ValueEnum)]
+enum Format {
+    Text,
+    Json,
+}
+
+#[derive(Subcommand)]
+enum Cmd {
+    /// Validate goals documents; with several files, also the rules across their layers.
+    /// Findings go to stderr, one per line: `<file>:<id>: <code>: <message>`.
+    /// Exit 0 valid, 1 findings, 2 usage or unreadable file.
+    Check {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// text: findings on stderr only; json: also a report on stdout.
+        #[arg(long, value_enum, default_value = "text")]
+        format: Format,
+    },
+    /// Print the digest of one entry, `sha256:<hex>`: what a ground citation
+    /// `goals@<rev>#<id>` carries. Exit 1 when the entry is not in the file.
+    Digest { file: PathBuf, id: String },
+    /// Print as JSON the entries of the given layers that apply at an instant, each with its
+    /// layer and digest. Checks the files first; exit 1 with findings and no output.
+    Resolve {
+        /// YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ; no clock is read.
+        #[arg(long, value_parser = parse_instant)]
+        at: String,
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+    },
+}
+
+fn parse_instant(s: &str) -> Result<String, String> {
+    check::instant(s).ok_or_else(|| format!("`{s}` is not YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ"))
+}
+
+fn main() -> ExitCode {
+    match Cli::parse().cmd {
+        Cmd::Check { files, format } => run_check(&files, format),
+        Cmd::Digest { file, id } => run_digest(&file, &id),
+        Cmd::Resolve { at, files } => run_resolve(&at, &files),
+    }
+}
+
+fn read_all(files: &[PathBuf]) -> Result<Vec<(String, String)>, ExitCode> {
+    let mut docs = Vec::new();
+    for p in files {
+        match fs::read_to_string(p) {
+            Ok(t) => docs.push((p.display().to_string(), t)),
+            Err(e) => {
+                eprintln!("sdc-goals: cannot read {}: {e}", p.display());
+                return Err(ExitCode::from(2));
+            }
+        }
+    }
+    Ok(docs)
+}
+
+/// The entry's fields as parsed, with its layer and digest added.
+fn entry_json(e: &check::Entry, with_file: bool) -> Value {
+    let mut v = e.raw.clone();
+    if let Some(m) = v.as_object_mut() {
+        if with_file {
+            m.insert("file".into(), json!(e.file));
+        }
+        m.insert("layer".into(), json!(e.layer));
+        m.insert("digest".into(), json!(e.digest()));
+    }
+    v
+}
+
+fn print_findings(report: &check::Report) {
+    for f in &report.findings {
+        eprintln!("{}:{}: {}: {}", f.file, f.id, f.code, f.message);
+    }
+}
+
+fn run_check(files: &[PathBuf], format: Format) -> ExitCode {
+    let docs = match read_all(files) {
+        Ok(d) => d,
+        Err(c) => return c,
+    };
+    let report = check::check(&docs);
+    print_findings(&report);
+    if let Format::Json = format {
+        let findings: Vec<Value> = report
+            .findings
+            .iter()
+            .map(|f| json!({"file": f.file, "id": f.id, "code": f.code, "message": f.message}))
+            .collect();
+        let out = json!({
+            "valid": report.findings.is_empty(),
+            "files": docs.iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            "entries": report.entries.iter().map(|e| entry_json(e, true)).collect::<Vec<_>>(),
+            "findings": findings,
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    }
+    ExitCode::from(u8::from(!report.findings.is_empty()))
+}
+
+fn run_digest(file: &PathBuf, id: &str) -> ExitCode {
+    let docs = match read_all(std::slice::from_ref(file)) {
+        Ok(d) => d,
+        Err(c) => return c,
+    };
+    match check::raw_entry(&docs[0].1, id) {
+        Some(raw) => {
+            println!("{}", check::digest_of(&raw));
+            ExitCode::SUCCESS
+        }
+        None => {
+            eprintln!("{}:{id}: no_entry: no entry with this id", docs[0].0);
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn run_resolve(at: &str, files: &[PathBuf]) -> ExitCode {
+    let docs = match read_all(files) {
+        Ok(d) => d,
+        Err(c) => return c,
+    };
+    let report = check::check(&docs);
+    if !report.findings.is_empty() {
+        print_findings(&report);
+        return ExitCode::from(1);
+    }
+    let entries: Vec<Value> = check::resolve(&report.entries, at)
+        .into_iter()
+        .map(|e| entry_json(e, false))
+        .collect();
+    let out = json!({"format": check::FORMAT, "at": at, "entries": entries});
+    println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    ExitCode::SUCCESS
+}

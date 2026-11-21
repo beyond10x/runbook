@@ -1,0 +1,28 @@
+{
+  "claims": {
+    "children.passed": "unknown",
+    "gate.passed": "unknown",
+    "plan.opened": "unknown",
+    "release.opened": "unknown",
+    "roadmap.approved": "unknown",
+    "spec.opened": "unknown",
+    "stories.opened": "unknown"
+  },
+  "obligations": {
+    "gate.required": "open",
+    "release.required": "open",
+    "roadmap.required": "open"
+  },
+  "actions": {
+    "plan.open": "blocked",
+    "release.open": "blocked",
+    "spec.gate": "blocked",
+    "spec.open": "blocked",
+    "stories.open": "blocked",
+    "roadmap.read": "admissible"
+  },
+  "outcomes": {
+    "abandoned": "blocked",
+    "passed": "blocked"
+  }
+}

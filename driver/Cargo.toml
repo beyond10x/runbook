@@ -1,0 +1,26 @@
+[package]
+name = "sdc-drive"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "sdc-drive"
+path = "src/main.rs"
+
+[[bin]]
+name = "sdc-findings"
+path = "src/bin/sdc-findings.rs"
+
+[[bin]]
+name = "sdc-finding-kpis"
+path = "src/bin/sdc-finding-kpis.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+regex = "1"
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+
+[workspace]

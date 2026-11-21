@@ -1,0 +1,7 @@
+roadmap.read:
+  description: >-
+    copy the roadmap approval record of the sdc.direction case into this case, unchanged; it
+    approves nothing, and the record keeps the producer and roadmap revision it was approved with
+  effect: read
+  may_produce:
+    - evidence: roadmap_approval

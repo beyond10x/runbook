@@ -1,0 +1,181 @@
+format: protocol/1
+protocol:
+  id: sdc.release
+  revision: 3
+  description: >-
+    Release and operate the result of a specification whose stories are delivered: build a release with provenance, run the ESS conformance suite of the current specification revision against it, publish it on a person's approval, and observe it running. The ESS gate must pass on the current specification revision. A revised specification invalidates the conformance runs observed against the earlier revision. The case ends passed (operating), rolled back on a complete rollback result, or withheld on an explicit decision.
+artifacts:
+  spec:
+    description: the ESS specification; its revision is its spec digest, as in the parent case
+  release:
+    description: the versioned, deployable unit
+evidence_kinds:
+  ess_gate:
+    description: >-
+      the ESS gate over a specification revision, the four checks run as one program; passed or failed
+  build_provenance:
+    description: the record of how a release revision was built from the merged changes
+  release_conformance:
+    description: >-
+      `ess verify conform run --target <release> --strict` of the specification's suite against a release revision; its result is passed, failed or inconclusive
+  release_record:
+    description: the record that a release revision was published
+  health_observation:
+    description: >-
+      an observation of the running release; its result is healthy or unhealthy, and it applies for 30 minutes after it is observed
+    max_age: 30m
+  rollback_result:
+    description: the result of returning to the release before this one; complete or partial
+claims:
+  gate.passed:
+    description: the ESS gate passes on the current specification revision
+    true_when:
+      evidence:
+        kind: ess_gate
+        result: passed
+        subject: spec
+  release.built:
+    description: the current release revision carries build provenance
+    true_when:
+      evidence:
+        kind: build_provenance
+        subject: release
+  release.accepted:
+    description: the conformance suite of the current specification passes on the current release
+    true_when:
+      evidence:
+        kind: release_conformance
+        result: passed
+        subject: release
+  release.published:
+    description: the current release revision is published
+    true_when:
+      evidence:
+        kind: release_record
+        subject: release
+  release.healthy:
+    description: the published release is observed healthy within the last 30 minutes
+    true_when:
+      evidence:
+        kind: health_observation
+        result: healthy
+        subject: release
+  rollback.complete:
+    description: a rollback of the current release revision is complete
+    true_when:
+      evidence:
+        kind: rollback_result
+        result: complete
+        subject: release
+  probe.gate:
+    description: the ESS gate evidence, read directly
+    true_when:
+      "evidence":
+        "kind": "ess_gate"
+        "result": "passed"
+        "subject": "spec"
+obligations:
+  gate.required:
+    description: the ESS gate passes on the current specification revision
+    discharged_when:
+      claim: gate.passed
+  provenance.required:
+    description: the release carries build provenance
+    discharged_when:
+      claim: release.built
+  acceptance.required:
+    description: the conformance suite passes on the release
+    discharged_when:
+      claim: release.accepted
+  health.required:
+    description: the release is observed healthy
+    discharged_when:
+      claim: release.healthy
+actions:
+  spec.gate:
+    description: run the ESS gate over the current specification revision
+    effect: read
+    may_produce:
+      - evidence: ess_gate
+  release.build:
+    description: build a release revision from the merged changes
+    effect: write
+    precondition:
+      claim: gate.passed
+    may_produce:
+      - evidence: build_provenance
+  acceptance.run:
+    description: run the specification's conformance suite against the release
+    effect: read
+    precondition:
+      claim: release.built
+    may_produce:
+      - evidence: release_conformance
+  release.publish:
+    description: publish and deploy the current release revision; needs a person's approval
+    effect: external
+    precondition:
+      all:
+        - claim: gate.passed
+        - claim: release.built
+        - claim: release.accepted
+    requires:
+      - capability: release.approve
+    may_produce:
+      - evidence: release_record
+  release.observe:
+    description: observe the running release
+    effect: read
+    precondition:
+      claim: release.published
+    may_produce:
+      - evidence: health_observation
+  release.rollback:
+    description: return to the previous release; needs the same release authority
+    effect: external
+    precondition:
+      claim: release.published
+    requires:
+      - capability: release.approve
+    may_produce:
+      - evidence: rollback_result
+outcomes:
+  passed:
+    description: >-
+      the ESS gate passes, and the current release is built, accepted, published and observed healthy
+    requires:
+      all:
+        - claim: gate.passed
+        - claim: release.built
+        - claim: release.accepted
+        - claim: release.published
+        - claim: release.healthy
+  rolled_back:
+    description: the release was rolled back completely
+    requires:
+      claim: rollback.complete
+  withheld:
+    description: the release was explicitly withheld
+    requires:
+      decision: explicitly_withheld
+  probe.passed_without_gate:
+    description: passed while the ESS gate evidence is not TRUE
+    requires:
+      all:
+        - all:
+            - claim: gate.passed
+            - claim: release.built
+            - claim: release.accepted
+            - claim: release.published
+            - claim: release.healthy
+        - any:
+            - claim: probe.gate
+              is: "false"
+            - claim: probe.gate
+              is: unknown
+invalidation:
+  spec.revised:
+    description: a conformance run observed against an earlier specification revision no longer applies
+    upstream: spec
+    invalidates:
+      - release.accepted

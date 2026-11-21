@@ -1,0 +1,191 @@
+format: protocol/1
+
+protocol:
+  id: sdc.intake
+  revision: 2
+  description: >-
+    Turn an idea into a requirements list (docs/phases.md steps 1 to 3). The idea record is
+    checked against its schema; the idea is dissected into typed items (fact, wish, belief,
+    unknown, ambiguity, dark spot), each citing its span of the idea; every open item becomes an
+    interview question with a default answer, accepted as is or changed, every scope-changing one
+    by a human; the answers are normalised into a requirements list. Every result is a program's
+    exit status, never an LLM's word. A revised idea invalidates the dissection check, a revised
+    dissection the interview check, a revised interview the requirements check. The case ends
+    passed, or abandoned on an explicit decision.
+
+artifacts:
+  idea:
+    description: idea.yaml, an sdc.intake.Idea instance; its revision is the file's sha256
+  dissection:
+    description: >-
+      dissection.yaml, the idea's typed items: fact, wish, belief, unknown, ambiguity, dark spot
+  questions:
+    description: >-
+      questions.yaml, the interview: one question per open item, each with a default answer and
+      its answer, accepted or changed
+  requirements:
+    description: >-
+      requirements.yaml, the structural, product-level list of what should be built, each entry
+      citing a fact, a wish or an answer
+
+evidence_kinds:
+  idea_shape:
+    description: >-
+      `ess generate schema validate` over idea.yaml; its result is valid or invalid
+  dissection_shape:
+    description: >-
+      the dissection check: schema-valid, every item one of the six types, every span a substring
+      of the idea text; its result is valid or invalid
+  questions_shape:
+    description: >-
+      `ess generate schema validate` over questions.yaml, every question with a default answer;
+      its result is valid or invalid
+  questions_settled:
+    description: >-
+      the interview check: every open item (belief, unknown, ambiguity, dark spot) has exactly one
+      question, every question is answered accepted or changed, every scope-changing one by a
+      human; its result is settled, open or needs_human
+  requirements_shape:
+    description: >-
+      the requirements check: schema-valid, every requirement cites a fact, a wish or an answer;
+      its result is valid or invalid
+
+claims:
+  idea.shaped:
+    description: the current idea record is a valid sdc.intake.Idea
+    true_when:
+      evidence:
+        kind: idea_shape
+        result: valid
+        subject: idea
+  dissection.valid:
+    description: the current dissection is valid, made from the current idea revision
+    true_when:
+      evidence:
+        kind: dissection_shape
+        result: valid
+        subject: dissection
+  questions.shaped:
+    description: the current interview is valid, every question with a default answer
+    true_when:
+      evidence:
+        kind: questions_shape
+        result: valid
+        subject: questions
+  questions.settled:
+    description: every open item of the current dissection has a settled question
+    true_when:
+      evidence:
+        kind: questions_settled
+        result: settled
+        subject: questions
+  requirements.valid:
+    description: the current requirements list is valid, normalised from the current interview
+    true_when:
+      evidence:
+        kind: requirements_shape
+        result: valid
+        subject: requirements
+
+obligations:
+  idea.required:
+    description: the idea record is valid
+    discharged_when:
+      claim: idea.shaped
+  dissection.required:
+    description: the idea is dissected into typed items
+    discharged_when:
+      claim: dissection.valid
+  interview.required:
+    description: every open item is asked and settled
+    discharged_when:
+      all:
+        - claim: questions.shaped
+        - claim: questions.settled
+  requirements.required:
+    description: the requirements list is valid
+    discharged_when:
+      claim: requirements.valid
+
+actions:
+  idea.check:
+    description: check idea.yaml against its schema
+    effect: read
+    may_produce:
+      - evidence: idea_shape
+  idea.dissect:
+    description: >-
+      an LLM splits the idea into typed items, each citing its span; moves the dissection to a new
+      revision
+    effect: write
+    precondition:
+      claim: idea.shaped
+  dissection.check:
+    description: check the dissection
+    effect: read
+    may_produce:
+      - evidence: dissection_shape
+  questions.write:
+    description: >-
+      an LLM writes one question per open item, with options and a default answer; moves the
+      questions to a new revision
+    effect: write
+    precondition:
+      claim: dissection.valid
+  questions.answer:
+    description: >-
+      accept each default or change it: a human for every scope-changing question; moves the
+      questions to a new revision
+    effect: write
+    precondition:
+      claim: questions.shaped
+  questions.check:
+    description: check the interview's shape and whether it is settled
+    effect: read
+    may_produce:
+      - evidence: questions_shape
+      - evidence: questions_settled
+  requirements.normalise:
+    description: >-
+      normalise the facts, wishes and answers into the requirements list; moves the requirements
+      to a new revision
+    effect: write
+    precondition:
+      claim: questions.settled
+  requirements.check:
+    description: check the requirements list
+    effect: read
+    may_produce:
+      - evidence: requirements_shape
+
+outcomes:
+  passed:
+    description: the idea is dissected, the interview settled and the requirements list valid
+    requires:
+      all:
+        - claim: idea.shaped
+        - claim: dissection.valid
+        - claim: questions.shaped
+        - claim: questions.settled
+        - claim: requirements.valid
+  abandoned:
+    description: the intake was explicitly abandoned
+    requires:
+      decision: explicitly_abandoned
+
+invalidation:
+  idea.revised:
+    description: a dissection check observed against an earlier idea revision no longer applies
+    upstream: idea
+    invalidates:
+      - dissection.valid
+  dissection.revised:
+    description: an interview check observed against an earlier dissection no longer applies
+    upstream: dissection
+    invalidates:
+      - questions.settled
+  questions.revised:
+    description: a requirements check observed against an earlier interview no longer applies
+    upstream: questions
+    invalidates:
+      - requirements.valid

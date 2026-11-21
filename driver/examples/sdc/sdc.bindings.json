@@ -1,0 +1,58 @@
+{
+  "$artifacts": {
+    "idea": "idea.yaml",
+    "roadmap": "aep/initiative/roadmap.md"
+  },
+  "roadmap.read": {
+    "copy": {
+      "kind": "roadmap_approval",
+      "from": "sdc.direction"
+    }
+  },
+  "intake.open": {
+    "produces": "intake_opened",
+    "subject": "idea",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "name": "intake",
+      "protocol": "{dir}/../../../protocol/sdc-intake.protocol.yaml",
+      "bindings": "{dir}/sdc-intake.bindings.json"
+    }
+  },
+  "direction.open": {
+    "produces": "direction_opened",
+    "subject": "idea",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "name": "direction",
+      "protocol": "{dir}/../../../protocol/sdc-direction.protocol.yaml",
+      "bindings": "{dir}/sdc-direction.bindings.json"
+    }
+  },
+  "epics.open": {
+    "produces": "epics_opened",
+    "subject": "roadmap",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "each": "epics",
+      "protocol": "{dir}/../../../protocol/sdc-epic.protocol.yaml",
+      "bindings": "{dir}/sdc-epic.bindings.json",
+      "revisions": {
+        "epic": "{name}"
+      }
+    },
+    "args_from": [
+      "{dir}/tools/sdc-tool.sh",
+      "list-epics"
+    ]
+  }
+}

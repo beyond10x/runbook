@@ -1,0 +1,157 @@
+{
+  "$artifacts": {
+    "roadmap": "aep/initiative/roadmap.md",
+    "spec": "spec",
+    "findings": "findings.yaml",
+    "requirements": "requirements.yaml"
+  },
+  "$independence": {
+    "reviewer-stub": [
+      "different_principal"
+    ]
+  },
+  "roadmap.read": {
+    "copy": {
+      "kind": "roadmap_approval",
+      "from": "sdc.direction"
+    }
+  },
+  "spec.author": {
+    "argv": [
+      "{dir}/tools/llm-node.sh",
+      "spec.author"
+    ],
+    "produces": "spec_source",
+    "subject": "spec",
+    "producer": "llm-node",
+    "results": {
+      "0": "authored"
+    },
+    "args_from": [
+      "{dir}/tools/sdc-tool.sh",
+      "spec-domain"
+    ],
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 40,
+      "max_budget_usd": 2,
+      "stub": [
+        "stub-tree",
+        "billing-spec",
+        "spec"
+      ]
+    },
+    "retry_when": {
+      "spec_validation": [
+        "invalid"
+      ],
+      "spec_compile": [
+        "refused"
+      ],
+      "open_markers": [
+        "present"
+      ],
+      "spec_synthesis": [
+        "refused"
+      ],
+      "scope_trace": [
+        "untraced"
+      ]
+    },
+    "max_runs": 4,
+    "timeout_s": 1500
+  },
+  "spec.validate": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "spec-validate"
+    ],
+    "produces": "spec_validation",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "valid",
+      "*": "invalid"
+    }
+  },
+  "spec.compile": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "spec-compile"
+    ],
+    "produces": "spec_compile",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "compiled",
+      "*": "refused"
+    }
+  },
+  "spec.scan": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "spec-scan"
+    ],
+    "produces": "open_markers",
+    "subject": "spec",
+    "producer": "grep",
+    "results": {
+      "0": "none",
+      "*": "present"
+    }
+  },
+  "spec.synthesize": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "spec-synthesize"
+    ],
+    "produces": "spec_synthesis",
+    "subject": "spec",
+    "producer": "ess",
+    "results": {
+      "0": "clean",
+      "*": "refused"
+    }
+  },
+  "spec.trace": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "spec-trace"
+    ],
+    "produces": "scope_trace",
+    "subject": "spec",
+    "producer": "sdc-check",
+    "results": {
+      "0": "traced",
+      "5": "finding",
+      "*": "untraced"
+    }
+  },
+  "spec.review": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "review-spec"
+    ],
+    "produces": "spec_review",
+    "subject": "spec",
+    "producer": "reviewer-stub",
+    "results": {
+      "0": "approved",
+      "*": "rejected"
+    }
+  },
+  "amend.upstream": {
+    "argv": [
+      "{dir}/tools/sdc-tool.sh",
+      "amend",
+      "spec"
+    ],
+    "max_runs": 12,
+    "timeout_s": 300,
+    "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
+    "handoff_when": [
+      "{dir}/tools/sdc-tool.sh",
+      "findings-wait"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: rv
+kind: roadmap_validation
+result: valid
+subject: roadmap
+subject_revision: r1
+producer: tool:aep@0.80.0
+observed_at: 2026-11-20T09:20:00Z

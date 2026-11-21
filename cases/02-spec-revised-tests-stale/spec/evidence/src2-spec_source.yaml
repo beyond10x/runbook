@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: src2
+kind: spec_source
+result: reused
+subject: spec
+subject_revision: s2
+producer: sdc-runtime
+observed_at: 2026-11-20T10:30:00Z

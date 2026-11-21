@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: r2
+kind: spec_review
+result: approved
+subject: spec
+subject_revision: s2
+producer: spec-author-agent
+observed_at: 2026-11-20T10:40:00Z

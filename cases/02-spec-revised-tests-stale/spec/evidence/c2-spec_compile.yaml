@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: c2
+kind: spec_compile
+result: compiled
+subject: spec
+subject_revision: s2
+producer: tool:ess@0.96.0
+observed_at: 2026-11-20T10:36:00Z

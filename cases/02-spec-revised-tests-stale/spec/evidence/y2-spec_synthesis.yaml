@@ -1,0 +1,8 @@
+format: canon-evidence/1
+id: y2
+kind: spec_synthesis
+result: clean
+subject: spec
+subject_revision: s2
+producer: tool:ess@0.96.0
+observed_at: 2026-11-20T10:37:00Z

@@ -1,0 +1,17 @@
+{
+  "artifacts": {
+    "epic": {
+      "revision": "billing"
+    },
+    "roadmap": {
+      "revision": "ta20bf9965fee8991"
+    },
+    "spec": {
+      "revision": "tf05b4d39751336fd"
+    }
+  },
+  "format": "canon-case/1",
+  "id": "IDEA-1.billing",
+  "protocol": "sdc.epic",
+  "revision": "c2"
+}

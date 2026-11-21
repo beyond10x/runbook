@@ -1,0 +1,6 @@
+format: canon-case/1
+id: IDEA-1
+protocol: sdc
+revision: c1
+artifacts:
+  idea: {revision: i1}

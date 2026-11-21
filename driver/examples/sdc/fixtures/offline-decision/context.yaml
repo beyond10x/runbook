@@ -1,0 +1,7 @@
+audience: {value: billing clerks of one company, status: default}
+source_language: {value: en, status: default}
+target_language: {value: en, status: default}
+platform: {value: web browsers, status: default}
+kind: {value: service, status: default}
+deployment: {value: a hosted web server reachable over the internet, status: default}
+licence: {value: proprietary, status: default}

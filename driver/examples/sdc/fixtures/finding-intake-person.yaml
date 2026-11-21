@@ -1,0 +1,21 @@
+node: requirements.normalise
+findings:
+  - key: intake-agent-1
+    type: missing_decision
+    cites: [q1, r1]
+    says: q1 names the invoice states but not whether a paid invoice can still be cancelled
+    options:
+      - a paid invoice cannot be cancelled
+      - a paid invoice can be cancelled with a credit note
+    default: a paid invoice cannot be cancelled
+    scope_changing: false
+  - key: customer-cancel-ambiguity
+    type: ambiguity
+    cites: [q2, r1]
+    says: q2's answer lets the customer cancel, but r1 names only the billing clerk as the one who acts on invoices
+    options:
+      - only the billing clerk acts on invoices
+      - the customer cancels their own invoices too
+      - the customer asks, the billing clerk cancels
+    default: only the billing clerk acts on invoices
+    scope_changing: true

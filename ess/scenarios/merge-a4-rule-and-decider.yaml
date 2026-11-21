@@ -1,0 +1,175 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: merge-a4-rule-and-decider
+summary: "At A4 merge (R∧D→P) the decider takes the rule's verdict, or vetoes through Escalate and the holder becomes P."
+
+timeline:
+  - at: 2026-11-21T10:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+      case_id: "IDEA-1.billing.invoices"
+      question_key: "IDEA-1.billing.invoices|change.merge|"
+      unblocks: {kind: approval, action: "change.merge", capability: "change.merge"}
+      subject_artifact: "change"
+      subject_revision: "t0c1"
+      subject_path: "impl/"
+      question: "Merge the change at revision t0c1 into mainline?"
+      options:
+        - letter: "A"
+          does: "Grant change.merge at this case revision."
+          cost: "None beyond the merge."
+          consequence: {admits: ["change.merge"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny change.merge."
+          cost: "The story stops until the change is revised."
+          consequence: {admits: [], blocks: ["change.merge"], grant: denied, produces: canon_authority}
+      autonomy_level: A4
+      decision_class: merge
+      holder: rule_and_decider
+      eligible: ["operator", "decider:haiku"]
+      addressed_to: "operator"
+      opened_at: 2026-11-21T10:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+          case_id: "IDEA-1.billing.invoices"
+          subject_artifact: "change"
+          subject_revision: "t0c1"
+
+  - at: 2026-11-21T10:01:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+      recommended_option: "A"
+      strength: strong
+      default_on_silence: false
+      grounds:
+        - source: evidence_record
+          citation: {form: record_id, value: {store: canon_evidence, record_id: "e0120-change.review"}}
+          supports: "A"
+          how: "The merge rule holds (docs/autonomy-levels.md:261-267): code_review approved by an independent principal; the rule's verdict is this recommendation."
+      proposed_by: rule
+      check_verdict: verified
+      check_report: "1 ground, 1 resolves"
+    outcome: recommended
+    events:
+      - event: sdc.decision.RecommendationRecorded
+        payload:
+          request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+          recommended_option: "A"
+          strength: strong
+
+  - at: 2026-11-21T10:02:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+      option: "B"
+      principal: "decider:haiku"
+      principal_kind: decider
+      decided_at: 2026-11-21T10:02:00Z
+      reasons: ["I would rather deny."]
+    outcome: decider-under-rule
+
+  - at: 2026-11-21T10:03:00Z
+    command: sdc.decision.TakeRecommendation
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+      principal: "decider:haiku"
+      principal_kind: decider
+      decided_at: 2026-11-21T10:03:00Z
+      reasons: ["The recommendation is strong and its ground resolves."]
+    outcome: taken
+    events:
+      - event: sdc.decision.RecommendationTaken
+        payload:
+          request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+          principal: "decider:haiku"
+
+  - at: 2026-11-21T10:04:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+      produced: {document: canon_authority, record: "change.merge@c7", case_revision: "c7"}
+    outcome: recorded
+    events:
+      - event: sdc.decision.ProducedRecordRecorded
+        payload:
+          request_id: "DR-IDEA-1.billing.invoices-change.merge-1"
+          produced: {document: canon_authority, record: "change.merge@c7", case_revision: "c7"}
+
+  - at: 2026-11-21T11:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-1.billing.payments-change.merge-1"
+      case_id: "IDEA-1.billing.payments"
+      question_key: "IDEA-1.billing.payments|change.merge|"
+      unblocks: {kind: approval, action: "change.merge", capability: "change.merge"}
+      subject_artifact: "change"
+      subject_revision: "t0p1"
+      subject_path: "impl/"
+      question: "Merge the change at revision t0p1 into mainline?"
+      options:
+        - letter: "A"
+          does: "Grant change.merge at this case revision."
+          cost: "None beyond the merge."
+          consequence: {admits: ["change.merge"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny change.merge."
+          cost: "The story stops until the change is revised."
+          consequence: {admits: [], blocks: ["change.merge"], grant: denied, produces: canon_authority}
+      autonomy_level: A4
+      decision_class: merge
+      holder: rule_and_decider
+      eligible: ["operator", "decider:haiku"]
+      addressed_to: "decider:haiku"
+      opened_at: 2026-11-21T11:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-1.billing.payments-change.merge-1"
+          case_id: "IDEA-1.billing.payments"
+          subject_artifact: "change"
+          subject_revision: "t0p1"
+
+  - at: 2026-11-21T11:01:00Z
+    command: sdc.decision.Escalate
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-1.billing.payments-change.merge-1"
+      escalate_to: "operator"
+      reason: "Veto: the diff touches the payment provider adapter, which the merge rule does not read."
+    outcome: escalated
+    events:
+      - event: sdc.decision.DecisionEscalated
+        payload:
+          request_id: "DR-IDEA-1.billing.payments-change.merge-1"
+          escalate_to: "operator"
+
+  - at: 2026-11-21T11:02:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-1.billing.payments-change.merge-1"
+      option: "B"
+      principal: "decider:haiku"
+      principal_kind: decider
+      decided_at: 2026-11-21T11:02:00Z
+      reasons: ["After the veto the request is the person's."]
+    outcome: person-only
+
+assert:
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "change"}
+    contains: {request_id: "DR-IDEA-1.billing.invoices-change.merge-1", state: Decided, decided_option: "A", decided_by: "decider:haiku", produced_record: {document: canon_authority, record: "change.merge@c7", case_revision: "c7"}}
+  - view: sdc.decision.DecisionRequests
+    contains: {request_id: "DR-IDEA-1.billing.payments-change.merge-1", state: Escalated, holder: person, addressed_to: "operator"}

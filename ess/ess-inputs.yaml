@@ -1,0 +1,9 @@
+format: ess-inputs/2
+requires: ess 0.96
+specification:
+  - system.yaml
+  - domains/decision.yaml
+scenarios:
+  - scenarios/merge-a4-rule-and-decider.yaml
+  - scenarios/merge-a5-veto.yaml
+  - scenarios/question-free-answer.yaml
