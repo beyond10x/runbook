@@ -373,6 +373,25 @@ node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The 
 not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
 `models` per class (`model`, `source`, and per node).
 
+**Reasoning effort per node** (2026-11-21). The same way as the model: `SDC_LLM_EFFORT_WRITER`,
+`_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_OTHER`, else `SDC_LLM_EFFORT` for every node and the decider
+(per class wins), else unset: the adapter's own default. Accepted: `low`, `medium`, `high`,
+`xhigh`, `max` (`claude --help`; list in `tools/node-classes.json`). `scripts/run-trial.sh` refuses
+any other value with exit 64 and the list, because both CLIs ignore an unknown one with a warning
+and run at their default. The requester takes `SDC_LLM_EFFORT_REQUESTER` first. The value reaches
+`request.json` (`effort`, null when unset) and each adapter as `--effort <level>`
+(`tools/llm-adapter-metaharness.sh:38` to `metaharness run claude --effort`, which passes it to
+Claude Code's `--effort`; `tools/llm-adapter-claude-cli.sh:17` to `claude -p --effort`). Each call
+line, decider record and adapter response names its `effort` (`"default"` when unset);
+`run-settings.jsonl` records `efforts` per class (`effort`, `source`). Unset, neither adapter
+passes the flag (recorded argv, a recorded call's `argv.json`), so the
+level is Claude Code's own: under `metaharness` `--setting-sources ""` and a fresh config home
+switch the host's `effortLevel` off (`../metaharness/crates/metaharness-claude/src/launch.rs:1353`),
+so it is the model's built-in default, `high` per metaharness's own note
+(`../metaharness/crates/metaharness-protocol/src/spec.rs:390`, *inferred*, not recorded in any
+event); under `claude-cli` the host's `effortLevel` in `~/.claude/settings.json`, else the same
+built-in default. A model may silently lower a level it does not offer.
+
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
 attempt}; one response JSON on stdout; the session's exit):

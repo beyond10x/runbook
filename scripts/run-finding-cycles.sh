@@ -83,7 +83,7 @@ expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answ
   story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
-  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models)
+  decider-escalate-nobest decider-release-a3 requester-decider requester-no-ground principals models efforts)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
 # context.approve cannot record `rejected`, else decider-rework-context; decider-rework and
 # decider-rework-spent where merge.approve exists.
@@ -941,6 +941,52 @@ if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
   echo "models: checks pass (binding default, one model for all, one per class; each call names its model; run settings per class)"
 else
   echo "models: FAILED"
+fi
+# efforts: the reasoning effort per LLM node is a run setting like the model (SDC_LLM_EFFORT_<CLASS>,
+# SDC_LLM_EFFORT; unset = the adapter's own default, recorded as "default"). Four dry runs: no
+# setting; SDC_LLM_EFFORT for every node; one effort per class; an unknown value, refused at the
+# start with exit 64 and the accepted values. Passes when every line of llm-calls.jsonl and
+# decisions.jsonl names the expected effort, the dry argv carries `--effort` only for a set effort,
+# and run-settings.jsonl records the effective effort per class.
+eexpect() { # <run> <jq program over {node, class} giving the expected effort> <decider effort>
+  local r=$s/runs/$1
+  jq -se --slurpfile c "$sdc/driver/examples/sdc/tools/node-classes.json" '
+    def class($n): [$c[0].classes | to_entries[] | select(.value | index($n)) | .key] | first // "other";
+    length > 0 and all(.[]; .effort == ({node: .action, class: class(.action)} | '"$2"'))' "$r/llm-calls.jsonl" >/dev/null &&
+  jq -se --arg d "$3" 'length > 0 and all(.[]; .effort == $d)' "$r/decisions.jsonl" >/dev/null
+}
+eargv() { # <run> <node> <expected effort or default>: the dry argv of the node's first call
+  local a e=$3
+  a=$(ls -d "$s/runs/$1"/llm/*-"$2" | head -n 1)/argv.json
+  if [[ $e == default ]]; then jq -e 'index("--effort") == null' "$a" >/dev/null
+  else jq -e --arg e "$e" '.[index("--effort") + 1] == $e' "$a" >/dev/null; fi
+}
+dry efforts-default
+e1=$?
+dry efforts-all SDC_LLM_EFFORT=low
+e2=$?
+dry efforts-class SDC_LLM_EFFORT=low SDC_LLM_EFFORT_WRITER=high SDC_LLM_EFFORT_IMPLEMENT=xhigh \
+  SDC_LLM_EFFORT_REVIEW=medium SDC_LLM_EFFORT_DECIDER=max SDC_LLM_EFFORT_OTHER=medium
+e3=$?
+rm -rf "$s/runs/efforts-bad"
+env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_DECIDER=haiku SDC_LLM_EFFORT_WRITER=bogus \
+  "$sdc/scripts/run-trial.sh" --dry efforts-bad > "$s/efforts-bad.txt" 2>&1
+e4=$?
+echo "efforts: dry exits $e1 $e2 $e3, unknown value exit $e4"
+if (( e1 == 0 && e2 == 0 && e3 == 0 && e4 == 64 )) &&
+   eexpect efforts-default '"default"' default &&
+   eexpect efforts-all '"low"' low &&
+   eexpect efforts-class '{writer: "high", implement: "xhigh", other: "medium"}[.class]' max &&
+   eargv efforts-default spec.author default && eargv efforts-all spec.author low &&
+   eargv efforts-class spec.author high && eargv efforts-class idea.dissect medium &&
+   grep -q "low, medium, high, xhigh, max" "$s/efforts-bad.txt" && [[ ! -e $s/runs/efforts-bad/run-settings.jsonl ]] &&
+   jq -se 'last.efforts | [.writer, .implement, .review, .decider, .other] | all(.effort == "default")' "$s/runs/efforts-default/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.efforts | .writer.effort == "high" and .implement.effort == "xhigh" and .review.effort == "medium"
+     and .decider.effort == "max" and .other.effort == "medium" and .writer.source == "SDC_LLM_EFFORT_WRITER"' "$s/runs/efforts-class/run-settings.jsonl" >/dev/null &&
+   jq -se 'last.efforts | all(.[]; .effort == "low" and .source == "SDC_LLM_EFFORT")' "$s/runs/efforts-all/run-settings.jsonl" >/dev/null; then
+  echo "efforts: checks pass (default, one effort for all, one per class; each call names its effort; the dry argv carries it; run settings per class; an unknown value exits 64)"
+else
+  echo "efforts: FAILED"
 fi
 } | tee "$s/cycles.log"
 summary "$s/cycles.log"

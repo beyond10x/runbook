@@ -44,7 +44,7 @@ All paths are relative to the run directory.
 | rework revisions | `revised.artifacts` in every case's `events.jsonl` | per artifact distinct non-`none` revisions minus 1, summed over the tree: L6 of `docs/kpis.md`, `sdc-finding-kpis.rs` (`:395`) |
 | oracle check | `oracle.json` (or `store/oracle.json`), the oracle file of `docs/eval-design.md` (oracle file): `held`, `contradicted` or `unknown` per check | `none` when absent; `held (n of n checks)`; else the worst result and the three counts (`:460`). No run writes this file yet: `eval/oracle-spec.sh` prints one line for a spec directory, and trial 3 must save its result as `oracle.json` *(inferred)* |
 | replay | `replay.json` (`scripts/run-trial.sh:160`) | `<n> of <m> cases match` (state and decision both match the log) or `not recorded` (`:483`). The tool never runs `sdc-drive replay` (it needs Canon; no library call exists) |
-| setting | last line of `run-settings.jsonl` (`sdc.run-settings/1`) | `autonomy`, `stand-in`, decider kind and model, and `models` / `model` as written when present (the per-step model setting of `story:model-per-node-variable`, shape not yet fixed) (`:490`) |
+| setting | last line of `run-settings.jsonl` (`sdc.run-settings/1`) | `autonomy`, `stand-in`, decider kind and model, and `models` / `efforts` / `model` as written when present (the per-class model and reasoning-effort settings, `story:model-per-node-variable`) (`:490`) |
 
 A person is a principal that is not empty, `decider:*`, `rule:*`, `program*`, `dry-run*`, `agent*`,
 `non-interactive` or `derived`: so `person:<id>`, and the bare id or `human` older drivers wrote

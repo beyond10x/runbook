@@ -31,6 +31,9 @@
 # change.review: no LLM yet), SDC_LLM_MODEL_OTHER (every other node), else SDC_LLM_MODEL for all
 # nodes, else each binding's `llm.model` (claude-haiku-5-5); the decider SDC_LLM_MODEL_DECIDER,
 # else SDC_DECIDER_MODEL. run-settings.jsonl `models` records the effective model per class.
+# Reasoning effort per class, the same way: SDC_LLM_EFFORT_<CLASS> (WRITER, IMPLEMENT, REVIEW, DECIDER,
+# OTHER), else SDC_LLM_EFFORT, else unset = the adapter's own default; low, medium, high, xhigh or max,
+# anything else exits 64. run-settings.jsonl `efforts` records it per class (unset: "default").
 #
 # Decider (SDC_DECIDER): who takes the decisions that wait on a person: the pending approvals, the
 # open scope-changing interview questions, and closing the root.
@@ -145,6 +148,14 @@ if [[ -f $stopped ]]; then
 fi
 
 case $decider in person|approve|reject|haiku) ;; *) echo "SDC_DECIDER: person, approve, reject or haiku, not $decider"; exit 64 ;; esac
+
+# The reasoning effort per node class (SDC_LLM_EFFORT_<CLASS>, SDC_LLM_EFFORT): an unknown value is
+# refused here, before anything is created. The adapters' CLIs ignore one with a warning.
+accepted=$(jq -r '.efforts | join(", ")' "$ex/tools/node-classes.json")
+for v in SDC_LLM_EFFORT SDC_LLM_EFFORT_REQUESTER $(jq -r '.classes | keys[] | "SDC_LLM_EFFORT_" + ascii_upcase' "$ex/tools/node-classes.json"); do
+  [[ -z ${!v:-} ]] || jq -e --arg e "${!v}" '.efforts | index($e)' "$ex/tools/node-classes.json" > /dev/null ||
+    { echo "$v: '${!v}' is not a reasoning effort; accepted: $accepted (unset: the adapter's own default)"; exit 64; }
+done
 
 # The run mode (docs/autonomy-levels.md § 3.3): SDC_AUTONOMY, or --autopilot for A5. A0 is the
 # person (SDC_DECIDER=person); A5 is autopilot: the decider (haiku unless SDC_DECIDER names another)
@@ -274,8 +285,16 @@ models=$(jq -cn --slurpfile c "$ex/tools/node-classes.json" \
   + {decider: (if $dclass != "" then {model: $dclass, source: "SDC_LLM_MODEL_DECIDER"}
       elif $dmodel != "" then {model: $dmodel, source: "SDC_DECIDER_MODEL"}
       else {model: "claude-haiku-5-5", source: "default"} end)}')
+# The effective effort per node class: SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT, else "default"
+# (the adapter's own).
+efforts=$(for c in $(jq -r '.classes | keys[]' "$ex/tools/node-classes.json"); do
+  v=SDC_LLM_EFFORT_${c^^}
+  jq -cn --arg c "$c" --arg v "${!v:-}" --arg n "$v" --arg all "${SDC_LLM_EFFORT:-}" '{($c): (
+    if $v != "" then {effort: $v, source: $n} elif $all != "" then {effort: $all, source: "SDC_LLM_EFFORT"}
+    else {effort: "default", source: "default"} end)}'
+done | jq -cs add)
 jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$model" --arg esc "$escalate_mode" \
-  --argjson models "$models" \
+  --argjson models "$models" --argjson efforts "$efforts" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
   --arg stand "$stand_in" --arg rq "${SDC_REQUESTER_DECIDER:-}" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
@@ -284,7 +303,7 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
     requester_decider: (if $rq == "" then null else {kind: $rq, principal: "decider:requester", classes: "the requester side of decision-classes.json"} end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, efforts: $efforts, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
   echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
 else
@@ -408,7 +427,7 @@ decide() {
       class: ({question: "scope_changing_answer", finding: "finding"}[$q.type] // $q.type), action: $q.action,
       question: ($q.question.id // null), finding: ($q.finding.id // null), capability: $q.capability, outcome: $q.outcome,
       revision: $q.revision, decision: $d, answer: $r.answer, principal: $p, reasons: $r.reasons,
-      cites: $r.cites, citations: ($r.citations // null), model: $r.model, adapter: $r.adapter, tokens: $r.usage,
+      cites: $r.cites, citations: ($r.citations // null), model: $r.model, effort: $r.effort, adapter: $r.adapter, tokens: $r.usage,
       cost_usd: $r.cost_usd, duration_ms: $r.duration_ms, valid: $r.valid, invalid_reason: $r.invalid_reason,
       schema_constrained: ($r.schema_constrained // false), dry: ($r.dry // false), record: $r.record, side: ($q.side // null),
       no_ground_in_goals: $r.no_ground_in_goals, strength: ($r.strength // null), grounds: ($r.grounds // null)} + $x' >> "$out/decisions.jsonl"

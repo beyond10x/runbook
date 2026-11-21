@@ -22,7 +22,8 @@
 # questions) and context fields it cites.
 #
 # haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
-# metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5), at most
+# metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5),
+# reasoning effort SDC_LLM_EFFORT_DECIDER, else SDC_LLM_EFFORT (unset: the adapter's own default), at most
 # SDC_DECIDER_MAX_TURNS (8) turns and SDC_DECIDER_MAX_BUDGET_USD (0.25). The LLM reads in/ and
 # writes out/decision.json; a program validates it, and an invalid or missing reply is `escalate`.
 # Under the dry adapter the command is printed, nothing is called, and the `approve` rule decides
@@ -68,7 +69,7 @@ validate() {
   local why out=$cwd/out/decision.json acode res='[]' cites=()
   need_reply
   acode=$(jq '.exit // 0' "$rec/response.json" 2>/dev/null || echo 0)
-  meta=$(jq -c --arg k haiku --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, adapter, usage,
+  meta=$(jq -c --arg k haiku --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, effort, adapter, usage,
     cost_usd, duration_ms, exit: $acode, record: $rec, schema_constrained: (.schema_constrained // false),
     schema_note: (.schema_note // null)}' "$rec/response.json" 2>/dev/null || echo '{}')
   if [[ -s $out ]] && jq -e . "$out" > /dev/null 2>&1; then
@@ -221,15 +222,16 @@ requester_call() {
     echo "When the file is written, reply with the single word: done."
   } > "$prompt"
   model=${SDC_LLM_MODEL_REQUESTER:-${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}}
+  effort=${SDC_LLM_EFFORT_REQUESTER:-${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-}}}
   node=requester.$(r '.question.id // .action')
-  jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
-    --arg case "$(jq -r '.id // ""' "$case_dir/case.json")" --arg case_dir "$case_dir" '{model: $model, prompt_file: $prompt, cwd: $cwd,
+  jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg effort "$effort" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
+    --arg case "$(jq -r '.id // ""' "$case_dir/case.json")" --arg case_dir "$case_dir" '{model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd,
     record_dir: $rec, node: $node, attempt: $attempt, case: $case, case_dir: $case_dir, operations: ["dir.list", "file.read", "file.write"],
     max_turns: ($ENV.SDC_DECIDER_MAX_TURNS // "8" | tonumber), max_budget_usd: ($ENV.SDC_DECIDER_MAX_BUDGET_USD // "0.25" | tonumber)}' > "$rec/request.json"
   "$adapter_bin" "$rec/request.json" > "$rec/response.json"
   acode=$?
   jq -e 'type == "object"' "$rec/response.json" > /dev/null 2>&1 || echo '{}' > "$rec/response.json"
-  meta=$(jq -c --arg rec "$rec" --argjson acode "$acode" '{kind: "requester", model, adapter, usage, cost_usd, duration_ms, exit: $acode,
+  meta=$(jq -c --arg rec "$rec" --argjson acode "$acode" '{kind: "requester", model, effort, adapter, usage, cost_usd, duration_ms, exit: $acode,
     record: $rec}' "$rec/response.json" 2>/dev/null || echo '{"kind": "requester"}')
   if [[ $adapter == dry ]]; then
     rule approve "dry run: no LLM was called; the approve rule decided" true | jq -c --argjson m "$meta" '. + $m + {dry: true}'
@@ -475,10 +477,11 @@ prompt=$rec/prompt.md
 } > "$prompt"
 
 model=${SDC_LLM_MODEL_DECIDER:-${SDC_DECIDER_MODEL:-claude-haiku-5-5}}
+effort=${SDC_LLM_EFFORT_DECIDER:-${SDC_LLM_EFFORT:-}}
 node=decide.$(r .action)
-jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
+jq -n --argjson attempt "$(r '.retry.attempt // 1')" --arg model "$model" --arg effort "$effort" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
   --arg case "$(jq -r '.id // ""' "$(r .case_dir)/case.json" 2>/dev/null)" --arg case_dir "$(r .case_dir)" '{
-  model: $model, prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node,
+  model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node,
   attempt: $attempt, json_schema: ($rec + "/reply-schema.json"),
   case: $case, case_dir: $case_dir,
   operations: ["dir.list", "file.read", "file.write"],
@@ -503,7 +506,7 @@ jq --argjson acode "$acode" '.exit = $acode' "$rec/response.json" > "$rec/respon
 
 if [[ $adapter == dry ]]; then
   rule approve "dry run: no LLM was called; the approve rule decided" true | jq -c --arg rec "$rec" \
-    --slurpfile m "$rec/response.json" '. + {kind: "haiku", model: $m[0].model, adapter: "dry", exit: $m[0].exit, record: $rec, dry: true}'
+    --slurpfile m "$rec/response.json" '. + {kind: "haiku", model: $m[0].model, effort: $m[0].effort, adapter: "dry", exit: $m[0].exit, record: $rec, dry: true}'
   exit 0
 fi
 validate

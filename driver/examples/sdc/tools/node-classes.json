@@ -1,5 +1,6 @@
 {
   "format": "sdc.node-classes/1",
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
   "classes": {
     "writer": ["spec.author", "plan.decompose"],
     "implement": ["change.implement"],
