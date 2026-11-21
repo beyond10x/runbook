@@ -65,6 +65,8 @@ check got stricter. The longer note is `docs/releases/0.2.0.md`.
   citations, and `tests/context.spec.ts` (`d7514a3`, `957bcae`).
 - The nine runs of `release-0.1.2` on tree 72a3eef: report, run summaries, timelines and
   `notes.md` (strong 3 of 3 clean, mixed 2 of 3, Haiku 2 of 3) (`12e3069`, `74b6f1e`).
+- A logo (`docs/img/runbook-logo.svg`, `runbook-logo-dark.svg`) and a rewritten `README.md`: logo,
+  one-line summary, links, progress chart, how it works, the dry run, the layout and the status.
 
 ## [0.1.4] - 2026-11-21
 

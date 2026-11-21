@@ -21,7 +21,7 @@ or when the planning store does not validate.
 
 | Step | Who | How |
 |---|---|---|
-| 1. Release preparation: the version in the files above, the `CHANGELOG.md` entry moved out of `[Unreleased]`, `docs/releases/<version>.md`, `README.md` § State | bot commit | one commit by `b10x-bot[bot]`, `b10x-gates bot -- commit -F <message file>`, merged through the merge queue |
+| 1. Release preparation: the version in the files above, the `CHANGELOG.md` entry moved out of `[Unreleased]`, `docs/releases/<version>.md`, `README.md` § Status | bot commit | one commit by `b10x-bot[bot]`, `b10x-gates bot -- commit -F <message file>`, merged through the merge queue |
 | 2. Gates on that commit | bot, any session | `task check`, `scripts/check-protocols.sh` (about 12 minutes, in the background), `task release:check VERSION=<version>`, `b10x-gates check --receipt <file>`; the CI `Shared source gates` check green on `main` |
 | 3. The tag | operator's decision | an annotated tag by the bot on the merged commit, after the operator's word to release |
 | 4. The GitHub Release | operator's decision | created by the bot with the notes `docs/releases/<version>.md`, after the tag |
