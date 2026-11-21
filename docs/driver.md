@@ -113,7 +113,9 @@ Each step does the following, with nothing else as input:
   person's decision gives every writer a fresh allowance.
 - A writer that would be useful but has spent its allowance ends the run with the verdict
   `writer_spent` (exit 4, event `writer_spent` with `spent`: action, runs, `max_runs`, the
-  arrival's event index, last exit and last log line). Order of the stops when nothing is
+  arrival's event index, last exit and last log line, and `sent_back`: per counted run, the
+  first other action after it that exited non-zero and its last log line, also in the message;
+  `runs/trial-3-haiku-2` stopped with "last exit 0:" and nothing else). Order of the stops when nothing is
   useful: a legitimate outcome; a person's own action (`manual`) or a due `handoff`; with a
   spent writer, a pending approval (`scope.answer` after `questions.answer` refused a changed
   answer), else `writer_spent`; an approval; `stuck`. A `handoff` is due only while its
