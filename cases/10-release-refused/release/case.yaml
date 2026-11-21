@@ -1,0 +1,9 @@
+format: canon-case/1
+id: IDEA-10.app.release
+protocol: sdc.release
+revision: c2
+artifacts:
+  spec:
+    revision: s1
+  release:
+    revision: 1.0.0

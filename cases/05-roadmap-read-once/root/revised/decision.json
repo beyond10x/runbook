@@ -188,7 +188,7 @@
         "a1"
       ],
       "protocol": "sdc",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -237,6 +237,19 @@
         ],
         "status": "blocked"
       },
+      "not_delivered": {
+        "because": [
+          {
+            "claim": "children.passed",
+            "value": "unknown"
+          },
+          {
+            "claim": "direction.opened",
+            "value": "unknown"
+          }
+        ],
+        "status": "blocked"
+      },
       "operating": {
         "because": [
           {
@@ -254,7 +267,7 @@
         ],
         "status": "blocked"
       },
-      "stopped": {
+      "refused": {
         "because": [
           {
             "claim": "children.passed",
@@ -290,6 +303,19 @@
       ],
       "status": "blocked"
     },
+    "not_delivered": {
+      "reasons": [
+        {
+          "claim": "children.passed",
+          "value": "unknown"
+        },
+        {
+          "claim": "direction.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "operating": {
       "reasons": [
         {
@@ -307,7 +333,7 @@
       ],
       "status": "blocked"
     },
-    "stopped": {
+    "refused": {
       "reasons": [
         {
           "claim": "children.passed",
@@ -318,5 +344,5 @@
     }
   },
   "protocol": "sdc",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

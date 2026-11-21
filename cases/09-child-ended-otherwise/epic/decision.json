@@ -232,7 +232,7 @@
         "s1"
       ],
       "protocol": "sdc.epic",
-      "protocol_revision": 4,
+      "protocol_revision": 5,
       "semantics": {
         "canon": "0.9.0",
         "format": "canon-decision/1"
@@ -264,6 +264,15 @@
           {
             "decision": "explicitly_abandoned",
             "present": false
+          }
+        ],
+        "status": "blocked"
+      },
+      "not_released": {
+        "because": [
+          {
+            "claim": "release.opened",
+            "value": "unknown"
           }
         ],
         "status": "blocked"
@@ -304,6 +313,18 @@
       ],
       "status": "blocked"
     },
+    "not_delivered": {
+      "status": "legitimate"
+    },
+    "not_released": {
+      "reasons": [
+        {
+          "claim": "release.opened",
+          "value": "unknown"
+        }
+      ],
+      "status": "blocked"
+    },
     "passed": {
       "reasons": [
         {
@@ -312,11 +333,8 @@
         }
       ],
       "status": "blocked"
-    },
-    "stopped": {
-      "status": "legitimate"
     }
   },
   "protocol": "sdc.epic",
-  "protocol_revision": 4
+  "protocol_revision": 5
 }

@@ -25,7 +25,8 @@
   },
   "outcomes": {
     "abandoned": "blocked",
-    "passed": "blocked",
-    "stopped": "legitimate"
+    "not_delivered": "legitimate",
+    "not_released": "blocked",
+    "passed": "blocked"
   }
 }

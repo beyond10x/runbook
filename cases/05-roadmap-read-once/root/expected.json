@@ -1,4 +1,10 @@
 {
+  "actions": {
+    "direction.open": "blocked",
+    "epics.open": "blocked",
+    "intake.open": "admissible",
+    "roadmap.read": "blocked"
+  },
   "claims": {
     "children.passed": "unknown",
     "direction.opened": "unknown",
@@ -12,15 +18,10 @@
     "epics.required": "open",
     "intake.required": "open"
   },
-  "actions": {
-    "direction.open": "blocked",
-    "epics.open": "blocked",
-    "intake.open": "admissible",
-    "roadmap.read": "blocked"
-  },
   "outcomes": {
     "abandoned": "blocked",
+    "not_delivered": "blocked",
     "operating": "blocked",
-    "stopped": "blocked"
+    "refused": "blocked"
   }
 }
