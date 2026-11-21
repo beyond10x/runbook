@@ -673,11 +673,28 @@
   ],
   "release": {
     "date": "2026-11-21",
-    "notes": "docs/releases/0.1.3.md",
-    "tag": "0.1.3",
-    "version": "0.1.3"
+    "notes": "docs/releases/0.1.4.md",
+    "tag": "0.1.4",
+    "version": "0.1.4"
   },
   "releases": [
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "The started product is not confined: it runs on the host as the operator's user, from a copy of the delivered tree with a cleared environment.",
+        "Events are built from the response body, so event checks test the table as much as the product.",
+        "Each table is a model's reading of the product. Several tables make a disagreement visible but do not resolve it, and a table can still pass a scenario the product fails.",
+        "Only products with an HTTP JSON surface can be observed.",
+        "A capture reads only what the product prints.",
+        "No run has used the 0.1.2, 0.1.3 or 0.1.4 tree.",
+        "Nobody started the delivered product by hand.",
+        "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
+      ],
+      "notes": "docs/releases/0.1.4.md",
+      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.4/docs/releases/0.1.4.md",
+      "summary": "A patch release after 0.1.3, the same day: an observation, data and docs. No rule of a protocol changed. A source release at tag `0.1.4`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
+      "version": "0.1.4"
+    },
     {
       "date": "2026-11-21",
       "limits": [
@@ -744,7 +761,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "ec78f46914e85b504301bfcb58167b3459ae3fd6c70c9333a7ac81bdecff458f"
+      "sha256": "5ae8e8b76b78510df6150db5ac08b287f3105b61f9d36b6fe173ef0a43a8b5d2"
     },
     {
       "path": "docs/check-output.txt",
@@ -765,6 +782,10 @@
     {
       "path": "docs/releases/0.1.3.md",
       "sha256": "86ed62d1c3ea3ec493b209ff8a5835ea0aa42402f5facd7adc554664ad3888da"
+    },
+    {
+      "path": "docs/releases/0.1.4.md",
+      "sha256": "df8361c09932a62dbaf1736eff09aa300a83abb72e8b95697bb834c5b5430e02"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

@@ -18,6 +18,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - | - |
 | [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | no experiment yet | no run | - | - |
 | [0.1.3](#013) | release | 2026-11-21 | `99390b9` | no experiment yet | no run | - | - |
+| [0.1.4](#014) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -278,6 +279,25 @@ Limits of this measurement:
 
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
 - A check of the delivered product against its specification is in work and not in this release.
+
+## 0.1.4
+
+Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-12 merges below, on top of 0.1.3 (99390b9).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `7c9e34b` | the 0.1.0 baseline analysed (losses, costs, inputs, models), the cost target, three records registered before their runs | no run metric affected |
+| `9195563` | the conformance observation of a delivered product (sdc-conform, ESS 0.97.0 pinned); the free-agent comparison, its hypothesis contradicted; the charts on the site | no run metric affected |
+| `e1dd70a` | the conformance observation after close is off by default (SDC_CONFORMANCE=observe turns it on) | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- The conformance figure is a lower bound judged against each run's own specification; the quality evaluation of the free agent's products is running and not in this release.
 
 ## Experiments in no entry
 

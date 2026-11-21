@@ -1082,8 +1082,8 @@
   },
   "source": {
     "path": "protocol/sdc-plan.protocol.yaml",
-    "tag": "0.1.3",
-    "url": "https://github.com/beyond10x/sdc/blob/0.1.3/protocol/sdc-plan.protocol.yaml"
+    "tag": "0.1.4",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.4/protocol/sdc-plan.protocol.yaml"
   },
   "stem": "sdc-plan",
   "summary": "Decompose the epic's complete ESS specification into AEP stories under the epic.",

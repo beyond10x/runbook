@@ -7,8 +7,24 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-11-21
+
+An observation, data and docs: the free-running agent comparison (its registered hypothesis
+contradicted), the conformance observation of a delivered product, and the cost target set from
+them. No rule of a protocol changed. The longer note is `docs/releases/0.1.4.md`.
+
 ### Added
 
+- `sdc-free-agent` and the record `free-agent-0.1.0`: one confined free-running agent session
+  (Sonnet) given the same idea and deliverables as the SDC, three runs, with run summaries,
+  timelines, product sizes (`sizes.json`) and conformance; `docs/llm-is-not-the-runtime.md`
+  (`3ad3391`, `fd3a673`, `4baca16`, `8c75540`, `87ccaf4`). The registered hypothesis, that the free
+  agent costs more than the SDC on 0.1.0, is contradicted on all four pairs.
+- The analysis of the 0.1.0 baseline (`experiments/baseline-0.1.0/losses.md`, `costs.md`,
+  `inputs.md`, `models.md`), the cost target in `experiments/targets.yaml` (checked by
+  `sdc-experiment check --all`) and `docs/improving.md` "What the 0.1.0 baseline says" and
+  "Target"; the records `build-constraints`, `review-haiku-replay` and `review-minimal-facts`,
+  registered before any run (`d315e05`, `26c5423`, `110ab2e`).
 - Conformance observation after close (`docs/conformance.md`, `story:conformance-observe-after-close`):
   `sdc-conform observe runs/<run>` holds the delivered product to the conformance suite of the
   run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
@@ -63,6 +79,24 @@ The crates are `publish = false`; releases are source releases at bare-version t
   the first paragraph, the timelines on one time axis and cost scale, medians, the hypothesis and
   its verdict per pair, product sizes, conformance of both sides, what the SDC run records that the
   free run does not, what was held equal and the confounds; quality evaluation pending.
+
+### Changed
+
+- The conformance observation after close is off by default: `scripts/run-trial.sh` runs it only
+  when `SDC_CONFORMANCE=observe`, because it costs about 1 to 3 USD of model calls per run; an
+  experiment record turns it on with the launch setting `conformance: observe` (`e1dd70a`).
+- The three crates, their lock files and `ui/package.json` are at 0.1.4.
+
+### Known limits
+
+- The conformance figure is a lower bound judged against each run's own specification; the
+  started product is not confined, events are built from the response body, each table is a
+  model's reading, and only products with an HTTP JSON surface are observed (`docs/conformance.md`).
+- The conformance tests need the pinned ess installed (`sdc-conform ess-install`); CI does not run
+  them.
+- A blind quality evaluation of the free agent's and the SDC's products is running and not in this
+  release.
+- No run has used the 0.1.2, 0.1.3 or 0.1.4 tree.
 
 ## [0.1.3] - 2026-11-21
 
