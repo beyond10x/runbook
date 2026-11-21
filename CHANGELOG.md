@@ -76,6 +76,10 @@ bare-version tags (`docs/releasing.md`).
 - The six runs of `effort-decider-mixed` on tree 72a3eef: report and run summaries, xhigh 3 of 3
   clean passes, medium 2 of 3; `run.wall_s` xhigh 3032 [1913, 3677] (3), medium 1831 [1424, 2191]
   (3); inconclusive, the ranges overlap (`experiments/effort-decider-mixed/report.md`).
+- `bindings/`: the nine bindings files in Loom's `loom.bindings/1`, beside the JSON files the
+  driver still runs from, each accepted by Loom's loader at Loom `8a8fad3b`; `bindings/PENDING.md`
+  lists what the format cannot express yet, and `scripts/check-bindings.sh` checks the YAML files
+  against the JSON files and the protocols (`docs/loom-bindings.md`).
 
 ### Changed
 

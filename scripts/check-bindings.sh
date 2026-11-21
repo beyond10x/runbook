@@ -2,7 +2,9 @@
 # Check every driver/examples/sdc/<protocol>.bindings.json against its compiled protocol: every
 # bound action is declared, every produced kind is in the action's may_produce, every placed
 # artifact is declared, a `child` binding is on a `case_open` action, and every action that may
-# produce evidence or opens a case is bound or is a person's (unbound) action. Run
+# produce evidence or opens a case is bound or is a person's (unbound) action; and its
+# bindings/<protocol>.yaml (loom.bindings/1) binds the same actions, less those in
+# bindings/PENDING.md, and no action the protocol does not declare. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
 # (sdc-check-routes) against docs/reject-routes.md. Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
@@ -29,6 +31,20 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
   ' "$b")
   unbound=$(jq -r --slurpfile ir "$ir" '. as $b | $ir[0].actions | to_entries[]
     | select($b[.key] == null) | .key' "$b" | paste -sd' ')
+  # The loom.bindings/1 file beside it (docs/loom-bindings.md): every action bound here is bound
+  # there or has a line in bindings/PENDING.md, and every action bound there is declared.
+  y=$sdc/bindings/$name.yaml
+  if [[ ! -f $y ]]; then
+    findings+=${findings:+$'\n'}"no bindings/$name.yaml"
+  else
+    ya=$(yq -o=json '[.actions[].action]' "$y")
+    for a in $(jq -r --argjson y "$ya" 'keys[] | select(startswith("$") | not) | select(. as $a | $y | index($a) | not)' "$b"); do
+      grep -qE "^- \`$name\\.bindings\\.json:[0-9]+\` \`${a//./\\.}\`" "$sdc/bindings/PENDING.md" 2>/dev/null ||
+        findings+=${findings:+$'\n'}"action $a is bound in the JSON file, not in bindings/$name.yaml, and has no line in bindings/PENDING.md"
+    done
+    findings+=$(jq -r --slurpfile ir "$ir" '.[] | select($ir[0].actions[.] == null) | "\nbindings/'"$name"'.yaml binds undeclared action \(.)"' <<< "$ya")
+    findings=${findings#$'\n'}
+  fi
   if [[ -n $findings ]]; then
     echo "FAIL $name"; echo "$findings" | sed 's/^/  /'; fail=1
   else

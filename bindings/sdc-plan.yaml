@@ -1,0 +1,86 @@
+format: loom.bindings/1
+protocol: sdc-plan@1
+artifacts:
+  roadmap: aep/initiative/roadmap.md
+  spec: spec
+  plan: aep
+  findings: findings.yaml
+  requirements: requirements.yaml
+actions:
+  - action: roadmap.read
+    executor:
+      kind: copy
+      evidence: roadmap_approval
+      from: sdc-direction@1
+  - action: spec.gate
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, ess-gate]
+    timeout_seconds: 1800
+    evidence:
+      - kind: ess_gate
+        subject: spec
+        producer: ess
+        from: exit
+        results: {"0": passed, "*": failed}
+  - action: plan.decompose
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/llm-node.sh, plan.decompose]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      plan_validation: [invalid]
+      decomposition_coverage: [uncovered]
+      stories_scoped: [unassessed]
+      story_states: [draft]
+  - action: plan.validate
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-validate]
+    evidence:
+      - kind: plan_validation
+        subject: plan
+        producer: aep
+        from: exit
+        results: {"0": valid, "*": invalid}
+        upstream: [spec]
+  - action: plan.cover
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-cover]
+    timeout_seconds: 1800
+    evidence:
+      - kind: decomposition_coverage
+        subject: plan
+        producer: sdc-check
+        from: exit
+        results: {"0": covered, "5": finding, "*": uncovered}
+        upstream: [spec]
+  - action: plan.scope
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-scope]
+    evidence:
+      - kind: stories_scoped
+        subject: plan
+        producer: aep
+        from: exit
+        results: {"0": scoped, "*": unassessed}
+  - action: plan.status
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, plan-status]
+    evidence:
+      - kind: story_states
+        subject: plan
+        producer: aep
+        from: exit
+        results: {"0": active, "*": draft}
+  - action: amend.upstream
+    executor:
+      kind: program
+      argv: [../driver/examples/sdc/tools/sdc-tool.sh, amend, plan]
+    budget: {max_runs: 12}
+    timeout_seconds: 300
+    handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"
