@@ -26,6 +26,9 @@
     "retry_when": {
       "context_defaults": [
         "invalid"
+      ],
+      "context_approval": [
+        "rejected"
       ]
     },
     "max_runs": 3,
@@ -57,7 +60,8 @@
     "subject": "context",
     "producer": "{principal}",
     "results": {
-      "0": "approved"
+      "0": "approved",
+      "6": "rejected"
     }
   },
   "vision.write": {
@@ -74,7 +78,12 @@
       ]
     },
     "max_runs": 3,
-    "timeout_s": 900
+    "timeout_s": 900,
+    "retry_when": {
+      "vision_approval": [
+        "rejected"
+      ]
+    }
   },
   "vision.approve": {
     "manual": true,
@@ -85,7 +94,8 @@
     "subject": "vision",
     "producer": "{principal}",
     "results": {
-      "0": "approved"
+      "0": "approved",
+      "6": "rejected"
     }
   },
   "roadmap.write": {
@@ -104,6 +114,9 @@
     "retry_when": {
       "roadmap_validation": [
         "invalid"
+      ],
+      "roadmap_approval": [
+        "rejected"
       ]
     },
     "max_runs": 3,
@@ -134,7 +147,8 @@
     ],
     "producer": "{principal}",
     "results": {
-      "0": "approved"
+      "0": "approved",
+      "6": "rejected"
     }
   },
   "amend.upstream": {

@@ -2,11 +2,15 @@ format: protocol/1
 
 protocol:
   id: sdc.story
-  revision: 5
+  revision: 6
   description: >-
     Deliver one AEP story of an approved ESS specification: implement it against the current
     specification revision, verify it with the ESS conformance run against the implementation,
-    have it reviewed by a principal other than its implementer, and merge it under authority. The
+    have it reviewed by a principal other than its implementer, and merge it once a person with the
+    merge authority approved that change revision. The merge approval is decided once per change
+    revision, approved or rejected; after a rejection change.implement is admissible, and its new
+    change revision leaves the build record, the conformance run, the review and the rejection
+    behind, so they are taken again. The
     ESS gate must pass on the current specification revision before anything is implemented and
     for the story to be delivered. A revised specification invalidates the implementation record
     and the conformance run observed against the earlier revision. The case ends passed (delivered), or
@@ -43,6 +47,10 @@ evidence_kinds:
       against a change revision; its result is passed, failed, inconclusive or finding (an open finding)
   code_review:
     description: a review of a change revision; its result is approved or rejected
+  merge_approval:
+    description: >-
+      a person's decision to merge a change revision; its result is approved or rejected (the
+      reasons of a rejection are the step's log, handed to change.implement)
   merge_record:
     description: the record that a change revision was merged into the mainline
 
@@ -84,6 +92,20 @@ claims:
         result: approved
         subject: change
         independent_on: [different_principal]
+  merge.approved:
+    description: a person approved merging the current change revision
+    true_when:
+      evidence:
+        kind: merge_approval
+        result: approved
+        subject: change
+  merge.decided:
+    description: >-
+      a merge decision is recorded about the current change revision, whatever its result
+    true_when:
+      evidence:
+        kind: merge_approval
+        subject: change
   change.merged:
     description: the current change revision is merged
     true_when:
@@ -138,7 +160,8 @@ actions:
   change.implement:
     description: >-
       change the code against the current specification revision; moves the change to a new
-      revision, recorded with the specification revision
+      revision, recorded with the specification revision; the writer after a failed conformance
+      run, a rejected review or a rejected merge
     effect: write
     precondition:
       claim: gate.passed
@@ -169,10 +192,11 @@ actions:
           is: unknown
     may_produce:
       - evidence: code_review
-  change.merge:
+  merge.approve:
     description: >-
-      merge the current change revision; needs the gate, a current build, a passing conformance
-      run, an independent review and authority to merge
+      a person with the merge authority approves or rejects merging the current change revision,
+      once it has the gate, a current build, a passing conformance run and an independent review;
+      decided once per change revision: only while no merge decision is recorded about it
     effect: write
     precondition:
       all:
@@ -180,8 +204,24 @@ actions:
         - claim: change.built
         - claim: tests.pass
         - claim: change.reviewed
+        - claim: merge.decided
+          is: unknown
     requires:
       - capability: change.merge
+    may_produce:
+      - evidence: merge_approval
+  change.merge:
+    description: >-
+      merge the current change revision; needs the gate, a current build, a passing conformance
+      run, an independent review and a person's merge approval of that revision
+    effect: write
+    precondition:
+      all:
+        - claim: gate.passed
+        - claim: change.built
+        - claim: tests.pass
+        - claim: change.reviewed
+        - claim: merge.approved
     may_produce:
       - evidence: merge_record
 
@@ -219,7 +259,10 @@ invalidation:
   spec.revised:
     description: >-
       an implementation record or conformance run observed against an earlier specification
-      revision no longer applies
+      revision no longer applies; a merge decision needs no entry here: it is bound to the change
+      revision, and change.merge also needs change.built, so the merge waits for a new change
+      revision, which leaves the decision behind (an entry would multiply the state space by 4,
+      past the bound)
     upstream: spec
     invalidates:
       - change.built

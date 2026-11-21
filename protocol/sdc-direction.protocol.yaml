@@ -2,13 +2,15 @@ format: protocol/1
 
 protocol:
   id: sdc.direction
-  revision: 6
+  revision: 7
   description: >-
     Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every
     project context default (audience, source and target language, platform and operating systems,
     kind of thing, deployment and licence) is recorded as an assumption and checked; the context,
     the vision and the roadmap are each approved by a person. An approval is a record bound to the
-    revision it approved, produced only by an action that needs the authority owner.approve. A
+    revision it decided, approved or rejected, produced only by an action that needs the authority
+    owner.approve, once per revision; after a rejection the artifact's writer is admissible and its
+    new revision is checked and approved again. A
     revised requirements list invalidates the context check; a revised vision invalidates the
     roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or
     specifications happens before that. Late findings (docs/trial-2.md, "The late-finding loop"): the context check
@@ -48,15 +50,21 @@ evidence_kinds:
       status, no consistency rule firing between the context and the requirements list, and no
       open finding; its result is valid, invalid or finding
   context_approval:
-    description: a person's approval of a context revision; its result is approved
+    description: >-
+      a person's decision on a context revision; its result is approved or rejected (the reasons
+      of a rejection are the step's log, handed to the writer)
   vision_approval:
-    description: a person's approval of a vision revision; its result is approved
+    description: >-
+      a person's decision on a vision revision; its result is approved or rejected (the reasons
+      of a rejection are the step's log, handed to the writer)
   roadmap_validation:
     description: >-
       the result of `aep plan artifact validate` over the store holding the vision and the
       roadmap, valid or invalid
   roadmap_approval:
-    description: a person's approval of a roadmap revision; its result is approved
+    description: >-
+      a person's decision on a roadmap revision; its result is approved or rejected (the reasons
+      of a rejection are the step's log, handed to the writer)
 
 claims:
   context.valid:
@@ -81,12 +89,24 @@ claims:
         kind: context_approval
         result: approved
         subject: context
+  context.decided:
+    description: an approval decision is recorded about the current context revision, whatever its result
+    true_when:
+      evidence:
+        kind: context_approval
+        subject: context
   vision.approved:
     description: the current vision revision is approved
     true_when:
       evidence:
         kind: vision_approval
         result: approved
+        subject: vision
+  vision.decided:
+    description: an approval decision is recorded about the current vision revision, whatever its result
+    true_when:
+      evidence:
+        kind: vision_approval
         subject: vision
   roadmap.valid:
     description: the current roadmap validates in the planning store
@@ -107,6 +127,14 @@ claims:
       evidence:
         kind: roadmap_approval
         result: approved
+        subject: roadmap
+  roadmap.decided:
+    description: >-
+      an approval decision is recorded about the current roadmap revision, against the current
+      vision revision, whatever its result
+    true_when:
+      evidence:
+        kind: roadmap_approval
         subject: roadmap
 
 obligations:
@@ -132,20 +160,22 @@ actions:
     description: >-
       fill every context field from the requirements list or its default, each recorded as an
       assumption; moves the context to a new revision; not once the current context revision is
-      approved (a person changes an approved context with context.change)
+      approved (a person changes an approved context with context.change). Admissible on a
+      context whose approval was refused, valid or not: a refused approval is left only by a new
+      revision
     effect: write
     precondition:
-      all:
-        - any:
-            - claim: context.approved
-              is: "false"
+      any:
+        - claim: context.approved
+          is: "false"
+        - all:
             - claim: context.approved
               is: unknown
-        - any:
-            - claim: context.valid
-              is: "false"
-            - claim: context.valid
-              is: unknown
+            - any:
+                - claim: context.valid
+                  is: "false"
+                - claim: context.valid
+                  is: unknown
   context.change:
     description: change one context assumption; moves the context to a new revision
     effect: write
@@ -172,10 +202,15 @@ actions:
     may_produce:
       - evidence: context_defaults
   context.approve:
-    description: a person approves the current context revision
+    description: >-
+      a person approves or rejects the current context revision; decided once per context
+      revision: only while no approval decision is recorded about it
     effect: write
     precondition:
-      claim: context.valid
+      all:
+        - claim: context.valid
+        - claim: context.decided
+          is: unknown
     requires:
       - capability: owner.approve
     may_produce:
@@ -183,7 +218,7 @@ actions:
   vision.write:
     description: >-
       write the vision with `aep plan artifact new vision`; moves the vision to a new revision;
-      not once the current vision revision is approved
+      not once the current vision revision is approved, admissible after a rejection
     effect: write
     precondition:
       all:
@@ -195,12 +230,16 @@ actions:
             - claim: vision.approved
               is: unknown
   vision.approve:
-    description: a person approves the current vision revision, not while a finding is open
+    description: >-
+      a person approves or rejects the current vision revision, not while a finding is open; decided once per
+      vision revision: only while no approval decision is recorded about it
     effect: write
     precondition:
       all:
         - claim: context.valid
         - claim: context.approved
+        - claim: vision.decided
+          is: unknown
     requires:
       - capability: owner.approve
     may_produce:
@@ -208,7 +247,7 @@ actions:
   roadmap.write:
     description: >-
       write the roadmap naming its epics; moves the roadmap to a new revision; not once the
-      current roadmap revision is approved
+      current roadmap revision is approved, admissible after a rejection
     effect: write
     precondition:
       all:
@@ -231,13 +270,18 @@ actions:
     may_produce:
       - evidence: roadmap_validation
   roadmap.approve:
-    description: a person approves the current roadmap revision, not while a finding is open
+    description: >-
+      a person approves or rejects the current roadmap revision, not while a finding is open; decided once
+      per roadmap revision against the current vision revision: only while no approval decision
+      is recorded about it
     effect: write
     precondition:
       all:
         - claim: context.valid
         - claim: vision.approved
         - claim: roadmap.valid
+        - claim: roadmap.decided
+          is: unknown
     requires:
       - capability: owner.approve
     may_produce:
@@ -277,3 +321,4 @@ invalidation:
     upstream: vision
     invalidates:
       - roadmap.approved
+      - roadmap.decided

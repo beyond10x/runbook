@@ -98,10 +98,12 @@ else
 fi
 "$kpis" "$s/runs/scope-changed" | sed 's/^/  /'
 # intake-decision: runs/trial-2-train's second stop (docs/trial-2.md, "Run notes"). As
-# scope-changed, plus: at the first stop one questions.check runs without yq on PATH, the person
-# edits q2 and resumes before taking scope.answer, requirements.normalise raises an agent finding
-# and a scope-changing one, and the person picks option 3 of the latter (not the default). Passes
-# when the cycle ends operating, the check without yq recorded nothing, questions.write ran once,
+# scope-changed, plus: at the first stop the person edits q2, one questions.check runs without yq
+# on PATH at the new interview revision (the check runs once per revision, so only after the
+# edit), the person resumes before taking scope.answer, requirements.normalise raises an agent
+# finding and a scope-changing one, and the person picks option 3 of the latter (not the default).
+# Passes when the cycle ends operating, the check without yq exited 127 and recorded nothing, a
+# questions.check after it recorded (a 127 run leaves the check admissible), questions.write ran once,
 # and the interview keeps q2 and the decision (option 3), both person:stand-in.
 decision="the customer asks, the billing clerk cancels"
 cycle intake-decision SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
@@ -116,12 +118,14 @@ if (( code == 0 )) &&
      | select((.id == "q2" and .answer == $a and .answered_by == "person:stand-in")
        or (.answer == $d and .answered_by == "person:stand-in" and .status == "changed"))] | length == 2' >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished")] as $f
+     | ([$f | to_entries[] | select(.value.action == "questions.check" and .value.exit == "127") | .key]) as $k
      | ([$f[] | select(.action == "questions.write")] | length) == 1
-       and ([$f[] | select(.exit == "127")] | length) == 1
-       and ([$f[] | select(.exit == "127") | .evidence[]] | length) == 0' "$ev" >/dev/null; then
-  echo "intake-decision: checks pass (no record without yq; questions.write once; q2 and the decision (option 3) person:stand-in)"
+       and ($k | length) == 1
+       and ([$f[] | select(.exit == "127") | .evidence[]] | length) == 0
+       and ([$f[$k[0] + 1:][] | select(.action == "questions.check" and .exit != "127" and (.evidence | length) > 0)] | length) >= 1' "$ev" >/dev/null; then
+  echo "intake-decision: checks pass (questions.check without yq exits 127 and records nothing, the check is admitted again and records; questions.write once; q2 and the decision (option 3) person:stand-in)"
 else
-  echo "intake-decision: FAILED (cycle exit $code, or a record without yq, a rewritten interview, or a lost answer)"
+  echo "intake-decision: FAILED (cycle exit $code, or no single 127 check, a record without yq, no recording check after it, a rewritten interview, or a lost answer)"
 fi
 "$kpis" "$s/runs/intake-decision" | sed 's/^/  /'
 # offline-sync: the context hosts a server and says the client keeps a local copy and syncs

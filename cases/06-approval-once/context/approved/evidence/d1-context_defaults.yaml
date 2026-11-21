@@ -1,0 +1,10 @@
+format: canon-evidence/1
+id: d1
+kind: context_defaults
+result: valid
+subject: context
+subject_revision: x1
+producer: tool:sdc-context
+observed_at: 2026-11-20T09:00:00Z
+upstream_revisions:
+  requirements: q1

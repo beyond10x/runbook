@@ -56,6 +56,11 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `04-roadmap-awaiting-approval/epic` | sdc.epic | no roadmap approval: every epic action blocked except `roadmap.read` |
 | `05-roadmap-read-once/{root,epic,spec,plan}` | sdc, sdc.epic, sdc.spec, sdc.plan | a roadmap approval record at r1, roadmap at r1: `roadmap.read` blocked (`roadmap.copied` true) |
 | `05-roadmap-read-once/*/revised` | same | same record, roadmap at r2: the record is set aside, `roadmap.read` admissible again |
+| `06-approval-once/{context,vision,roadmap}/approved` | sdc.direction | approval `approved`: the approve action blocked, the next stage's writer admissible |
+| `06-approval-once/{context,vision,roadmap}/rejected` | sdc.direction | approval `rejected`: approve blocked, the writer (`context.default`, `vision.write`, `roadmap.write`) admissible |
+| `06-approval-once/{context,vision,roadmap}/revised` | sdc.direction | rejected at revision 1, artifact at revision 2: the check due (`context.check`, `roadmap.validate`; vision has none, so `vision.approve` admissible) |
+| `06-approval-once/{context,roadmap}/rechecked` | sdc.direction | as revised with the check valid at revision 2: approve admissible again |
+| `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -97,8 +102,44 @@ reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
   `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.release
   `spec.gate`, `acceptance.run`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
   `change.review`.
-- Not guarded (acts, not observations): the approvals of sdc.direction (`effect: write`,
-  `requires: owner.approve`) and `release.rollback` (`effect: external`).
+- Not guarded: `release.publish` and `release.rollback` (`effect: external`, acts under
+  `release.approve`). The approvals follow their own rule below.
+
+## An approval is decided once per revision
+
+An approval kind has two results, `approved` and `rejected`; `<artifact>.approved` is true only on
+`approved`, `<artifact>.decided` reads the kind without a result. Every approval action is
+admissible only while `<artifact>.decided` is unknown, so it is decided once per revision of the
+artifact it approves. After `rejected` the artifact's writer is admissible; its new revision leaves
+the checks and the rejection behind (revision binding), the checks run again, and the approval is
+admissible again. Nothing else waits on the rejection itself. How many times an artifact was
+rejected is not the protocol's business.
+
+| Protocol | Approval action (authority) | Kind | Writer after `rejected` | Checks due at the new revision |
+|---|---|---|---|---|
+| sdc.direction | `context.approve` (`owner.approve`) | `context_approval` | `context.default` | `context.check` |
+| sdc.direction | `vision.approve` (`owner.approve`) | `vision_approval` | `vision.write` | none |
+| sdc.direction | `roadmap.approve` (`owner.approve`) | `roadmap_approval` | `roadmap.write` | `roadmap.validate` |
+| sdc.story | `merge.approve` (`change.merge`) | `merge_approval` | `change.implement` | `tests.run`, `change.review` |
+
+`change.merge` now needs `merge.approved` instead of the capability: the capability `change.merge`
+is decided once per case (Canon refuses it twice), so a rejection could not be a capability
+denial. A merge decision is not in `spec.revised`'s invalidation: it is bound to the change
+revision, `change.merge` also needs `change.built`, and an entry would give `merge_approval` an
+upstream (16 values), putting sdc.story at 196608 states. `roadmap.decided` is invalidated with
+`roadmap.approved` by a revised vision.
+
+Bindings: each approval binding records `results: {"0": "approved", "6": "rejected"}`; the driver's
+`approve --action <a> --result rejected --reasons <file>` records `rejected` and keeps the reasons
+file as the step's log. Each writer's `retry_when` names its approval kind with `rejected`, so the
+driver sends the writer back while the rejection is about the current revision and hands it the
+log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
+
+sdc.release keeps `release.approve` as a capability of `release.publish`: the same treatment
+(`release_approval`, a manual `release.approve`) gives 98304 states, past the bound.
+
+Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
+`06-approval-once/vision/{approved,rejected,revised}`.
 
 ## Evidence kinds and the action that produces each
 
@@ -115,7 +156,7 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.intake | `questions_shape`, `questions_settled` | `questions.check` | schema check, interview check |
 | sdc.intake | `requirements_shape` | `requirements.check` | schema check, citation check |
 | sdc.direction | `context_defaults` | `context.check` | schema check |
-| sdc.direction | `context_approval`, `vision_approval`, `roadmap_approval` | `context.approve`, `vision.approve`, `roadmap.approve`, each `requires: owner.approve` | person |
+| sdc.direction | `context_approval`, `vision_approval`, `roadmap_approval` (approved, rejected) | `context.approve`, `vision.approve`, `roadmap.approve`, each `requires: owner.approve` | person |
 | sdc.direction | `roadmap_validation` | `roadmap.validate` | `aep plan artifact validate` |
 | sdc.epic | `spec_opened`, `plan_opened`, `stories_opened`, `release_opened` | `spec.open`, `plan.open`, `stories.open`, `release.open` | runtime |
 | sdc.epic | `case_outcome` | the four opening actions | runtime, from the child case |
@@ -134,7 +175,8 @@ An LLM only writes artifacts (actions with no `may_produce`, such as `idea.disse
 | sdc.story | `implementation_change` | `change.implement` | version control, with the spec revision built against |
 | sdc.story | `conformance_run` | `tests.run` | `ess verify conform run --target <implementation> --strict` |
 | sdc.story | `code_review` | `change.review` | person or another agent, `independent_on: [different_principal]` |
-| sdc.story | `merge_record` | `change.merge`, `requires: change.merge` | version control |
+| sdc.story | `merge_approval` (approved, rejected) | `merge.approve`, `requires: change.merge` | person |
+| sdc.story | `merge_record` | `change.merge`, on `merge.approved` | version control |
 | sdc.release | `build_provenance` | `release.build` | build system |
 | sdc.release | `release_conformance` | `acceptance.run` | `ess verify conform run --target <release> --strict` |
 | sdc.release | `release_record` | `release.publish`, `requires: release.approve` | deploy |
@@ -200,7 +242,7 @@ are in `docs/limitations/`.
    Consequences: eight protocols; the gate is one composite kind outside sdc.spec; abandon lives
    at the root for intake and plan; sdc.spec and sdc.plan sit exactly at 65536
    (states per protocol in `docs/check-output.txt`: sdc 4608, intake 49152, direction 49152,
-   epic 36864, spec 65536, plan 65536, story 12288, release 24576); every child
+   epic 36864, spec 65536, plan 65536, story 49152, release 24576); every child
    reports `passed`, so a parent's `children` form lists one outcome (two would cost 16 times 17).
 2. **Invalidation reaches every match of a claim built on an invalidated claim.** A derived claim
    `change.verified = tests.pass AND change.reviewed` gave `code_review` upstream variants too:
@@ -225,9 +267,9 @@ are in `docs/limitations/`.
    tell that copy from a forgery (producer is "recorded as given: Canon does not prove it",
    documents.md).
 6. **Authority decisions are not bound to a revision.** A `canon-authority/1` entry is a capability
-   and granted or denied, nothing more (documents.md). Approvals of context, vision and roadmap are
-   therefore evidence records bound to the approved revision, produced only by actions that
-   `require: owner.approve`; `canon check`'s authority-bypass check finds no outcome that holds on
+   and granted or denied, nothing more (documents.md). Approvals of context, vision, roadmap and
+   merge are therefore evidence records bound to the decided revision, produced only by actions
+   that require `owner.approve` or `change.merge`; `canon check`'s authority-bypass check finds no outcome that holds on
    them without authority (0 findings in every protocol).
 7. **Every declared artifact needs a revision, even before it exists.** `canon evaluate` with a case
    that omits one → `error[missing-artifact]: case `IDEA-1` does not give the current revision of

@@ -13,7 +13,7 @@
       "requires": []
     },
     "context.approve": {
-      "description": "a person approves the current context revision",
+      "description": "a person approves or rejects the current context revision; decided once per context revision: only while no approval decision is recorded about it",
       "effect": "write",
       "may_produce": [
         {
@@ -21,10 +21,20 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "context.valid",
-          "is": "true"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "context.decided",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "context.valid",
+              "is": "true"
+            }
+          }
+        ]
       },
       "requires": [
         {
@@ -84,18 +94,28 @@
       "requires": []
     },
     "context.default": {
-      "description": "fill every context field from the requirements list or its default, each recorded as an assumption; moves the context to a new revision; not once the current context revision is approved (a person changes an approved context with context.change)",
+      "description": "fill every context field from the requirements list or its default, each recorded as an assumption; moves the context to a new revision; not once the current context revision is approved (a person changes an approved context with context.change). Admissible on a context whose approval was refused, valid or not: a refused approval is left only by a new revision",
       "effect": "write",
       "may_produce": [],
       "precondition": {
-        "all": [
+        "any": [
           {
-            "any": [
+            "all": [
               {
-                "claim": {
-                  "id": "context.approved",
-                  "is": "false"
-                }
+                "any": [
+                  {
+                    "claim": {
+                      "id": "context.valid",
+                      "is": "false"
+                    }
+                  },
+                  {
+                    "claim": {
+                      "id": "context.valid",
+                      "is": "unknown"
+                    }
+                  }
+                ]
               },
               {
                 "claim": {
@@ -106,27 +126,17 @@
             ]
           },
           {
-            "any": [
-              {
-                "claim": {
-                  "id": "context.valid",
-                  "is": "false"
-                }
-              },
-              {
-                "claim": {
-                  "id": "context.valid",
-                  "is": "unknown"
-                }
-              }
-            ]
+            "claim": {
+              "id": "context.approved",
+              "is": "false"
+            }
           }
         ]
       },
       "requires": []
     },
     "roadmap.approve": {
-      "description": "a person approves the current roadmap revision, not while a finding is open",
+      "description": "a person approves or rejects the current roadmap revision, not while a finding is open; decided once per roadmap revision against the current vision revision: only while no approval decision is recorded about it",
       "effect": "write",
       "may_produce": [
         {
@@ -139,6 +149,12 @@
             "claim": {
               "id": "context.valid",
               "is": "true"
+            }
+          },
+          {
+            "claim": {
+              "id": "roadmap.decided",
+              "is": "unknown"
             }
           },
           {
@@ -178,7 +194,7 @@
       "requires": []
     },
     "roadmap.write": {
-      "description": "write the roadmap naming its epics; moves the roadmap to a new revision; not once the current roadmap revision is approved",
+      "description": "write the roadmap naming its epics; moves the roadmap to a new revision; not once the current roadmap revision is approved, admissible after a rejection",
       "effect": "write",
       "may_produce": [],
       "precondition": {
@@ -216,7 +232,7 @@
       "requires": []
     },
     "vision.approve": {
-      "description": "a person approves the current vision revision, not while a finding is open",
+      "description": "a person approves or rejects the current vision revision, not while a finding is open; decided once per vision revision: only while no approval decision is recorded about it",
       "effect": "write",
       "may_produce": [
         {
@@ -236,6 +252,12 @@
               "id": "context.valid",
               "is": "true"
             }
+          },
+          {
+            "claim": {
+              "id": "vision.decided",
+              "is": "unknown"
+            }
           }
         ]
       },
@@ -246,7 +268,7 @@
       ]
     },
     "vision.write": {
-      "description": "write the vision with `aep plan artifact new vision`; moves the vision to a new revision; not once the current vision revision is approved",
+      "description": "write the vision with `aep plan artifact new vision`; moves the vision to a new revision; not once the current vision revision is approved, admissible after a rejection",
       "effect": "write",
       "may_produce": [],
       "precondition": {
@@ -328,6 +350,16 @@
         }
       }
     },
+    "context.decided": {
+      "description": "an approval decision is recorded about the current context revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "context_approval",
+          "result": null,
+          "subject": "context"
+        }
+      }
+    },
     "context.valid": {
       "description": "the current context is valid, derived from the current requirements list",
       "true_when": {
@@ -358,6 +390,16 @@
         }
       }
     },
+    "roadmap.decided": {
+      "description": "an approval decision is recorded about the current roadmap revision, against the current vision revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "roadmap_approval",
+          "result": null,
+          "subject": "roadmap"
+        }
+      }
+    },
     "roadmap.valid": {
       "description": "the current roadmap validates in the planning store",
       "true_when": {
@@ -377,23 +419,33 @@
           "subject": "vision"
         }
       }
+    },
+    "vision.decided": {
+      "description": "an approval decision is recorded about the current vision revision, whatever its result",
+      "true_when": {
+        "evidence": {
+          "kind": "vision_approval",
+          "result": null,
+          "subject": "vision"
+        }
+      }
     }
   },
   "evidence_kinds": {
     "context_approval": {
-      "description": "a person's approval of a context revision; its result is approved"
+      "description": "a person's decision on a context revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to the writer)"
     },
     "context_defaults": {
       "description": "the context check: schema-valid, every field present and recorded as an assumption with its status, no consistency rule firing between the context and the requirements list, and no open finding; its result is valid, invalid or finding"
     },
     "roadmap_approval": {
-      "description": "a person's approval of a roadmap revision; its result is approved"
+      "description": "a person's decision on a roadmap revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to the writer)"
     },
     "roadmap_validation": {
       "description": "the result of `aep plan artifact validate` over the store holding the vision and the roadmap, valid or invalid"
     },
     "vision_approval": {
-      "description": "a person's approval of a vision revision; its result is approved"
+      "description": "a person's decision on a vision revision; its result is approved or rejected (the reasons of a rejection are the step's log, handed to the writer)"
     }
   },
   "format": "canon-ir/1",
@@ -409,7 +461,8 @@
     "vision.revised": {
       "description": "a roadmap approval given against an earlier vision revision no longer applies",
       "invalidates": [
-        "roadmap.approved"
+        "roadmap.approved",
+        "roadmap.decided"
       ],
       "upstream": "vision"
     }
@@ -503,8 +556,8 @@
     }
   },
   "protocol": {
-    "description": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every project context default (audience, source and target language, platform and operating systems, kind of thing, deployment and licence) is recorded as an assumption and checked; the context, the vision and the roadmap are each approved by a person. An approval is a record bound to the revision it approved, produced only by an action that needs the authority owner.approve. A revised requirements list invalidates the context check; a revised vision invalidates the roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or specifications happens before that. Late findings (docs/trial-2.md, \"The late-finding loop\"): the context check also runs the consistency rules of the context against the requirements list and reads the open findings, and is not valid while one is open; no vision or roadmap is written or approved then. amend.upstream resolves an open finding by amending the questions and the requirements list, which moves the requirements to a new revision, so the context check is observed again.",
+    "description": "Fix the project context, the vision and the roadmap (docs/phases.md steps 4 to 6). Every project context default (audience, source and target language, platform and operating systems, kind of thing, deployment and licence) is recorded as an assumption and checked; the context, the vision and the roadmap are each approved by a person. An approval is a record bound to the revision it decided, approved or rejected, produced only by an action that needs the authority owner.approve, once per revision; after a rejection the artifact's writer is admissible and its new revision is checked and approved again. A revised requirements list invalidates the context check; a revised vision invalidates the roadmap approval. The case ends passed once the roadmap is approved; nothing about epics or specifications happens before that. Late findings (docs/trial-2.md, \"The late-finding loop\"): the context check also runs the consistency rules of the context against the requirements list and reads the open findings, and is not valid while one is open; no vision or roadmap is written or approved then. amend.upstream resolves an open finding by amending the questions and the requirements list, which moves the requirements to a new revision, so the context check is observed again.",
     "id": "sdc.direction",
-    "revision": 6
+    "revision": 7
   }
 }

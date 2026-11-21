@@ -4,6 +4,7 @@
     "change.implement": "admissible",
     "change.merge": "blocked",
     "change.review": "blocked",
+    "merge.approve": "blocked",
     "spec.gate": "blocked",
     "tests.run": "blocked"
   },
@@ -14,6 +15,8 @@
     "change.reviewed": "true",
     "gate.checked": "true",
     "gate.passed": "true",
+    "merge.approved": "unknown",
+    "merge.decided": "unknown",
     "tests.pass": "unknown",
     "tests.run_recorded": "unknown"
   },
