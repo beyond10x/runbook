@@ -35,9 +35,12 @@ const config = {write: false, writeOnly: new Set(), principal: 'operator'};
 const paths = [];
 // --runs DIR (repeatable): every DIR/<run>/store is a source, and a run that appears later joins live
 const runsDirs = [];
+// --experiments DIR (repeatable): the experiment records (DIR/<id>.yaml); default experiments/ of the checkout served
+const expDirs = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
   else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
+  else if (args[i] === '--experiments') expDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--write') config.write = true;
   else if (args[i] === '--write-only') { config.write = true; config.writeOnly.add(path.resolve(args[++i])); }
   else if (args[i] === '--principal') config.principal = args[++i];
@@ -46,6 +49,7 @@ for (let i = 0; i < args.length; i++) {
 if (!/^[A-Za-z0-9._-]+$/.test(config.principal)) { console.error('--principal: letters, digits, . _ - only'); process.exit(2); }
 if (config.principal === 'non-interactive') { console.error('--principal: non-interactive is the agent\'s own answerer; name a person'); process.exit(2); }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
+if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
 if (!paths.length && !runsDirs.length) {
   // the default store is a recorded run; runs/ is git-ignored, so a fresh clone has none
   const d = path.join(sdc, 'runs/full-cycle-1/store');
@@ -122,7 +126,80 @@ function programOf(runDir) {
 }
 // when the run last wrote: its directory, its settings, calls and log, its store
 const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }));
-const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s)});
+const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s), experiments: experimentsOf(runDirOf(s))});
+
+// ---- experiments: which experiment, variant and ordinal a run belongs to -----------------------------
+// A run directory's experiment.json (sdc.experiment-run/1, written by sdc-experiment run) says it; a run
+// registered without one is found in an experiment record's variants[].runs (experiments/<id>.yaml,
+// sdc.experiment/1), its ordinal the place in that list. A run may be in more than one record. The
+// records are read with a reader for the few keys used here (the server has no YAML dependency).
+const yamlScalar = (v) => {
+  v = String(v ?? '').trim();
+  if (/^'.*'$/.test(v)) return v.slice(1, -1).replace(/''/g, "'");
+  if (/^".*"$/.test(v)) { try { return JSON.parse(v); } catch { return v.slice(1, -1); } }
+  v = v.replace(/\s+#.*$/, '');
+  return v === '' || v === '~' || v === 'null' ? null : v;
+};
+// {id, title, purpose, variants: [{id, runs}]} from the record's top-level keys and its variants list
+function experimentRecord(text) {
+  const rec = {format: null, id: null, title: null, purpose: null, variants: []};
+  let inVariants = false, listInd = -1, v = null, inRuns = false;
+  for (const raw of text.split('\n')) {
+    if (!raw.trim() || /^\s*#/.test(raw)) continue;
+    const ind = raw.length - raw.trimStart().length, line = raw.trim();
+    if (ind === 0 && !line.startsWith('- ')) {
+      inVariants = false; inRuns = false;
+      const m = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
+      if (m && m[1] === 'variants') { inVariants = true; listInd = -1; v = null; }
+      else if (m && ['format', 'id', 'title', 'purpose'].includes(m[1])) rec[m[1]] = yamlScalar(m[2]);
+      continue;
+    }
+    if (!inVariants) continue;
+    if (listInd < 0 && line.startsWith('- ')) listInd = ind;
+    let body = line, bInd = ind;
+    if (ind === listInd && line.startsWith('- ')) { v = {id: null, runs: []}; rec.variants.push(v); inRuns = false; body = line.slice(2).trim(); bInd = ind + 2; }
+    if (!v) continue;
+    if (inRuns && body === line && line.startsWith('- ') && bInd >= listInd + 2) { const n = yamlScalar(line.slice(2)); if (n) v.runs.push(n); continue; }
+    if (bInd !== listInd + 2) continue;
+    inRuns = false;
+    const k = /^([\w-]+):\s*(.*)$/.exec(body);
+    if (!k) continue;
+    if (k[1] === 'id') v.id = yamlScalar(k[2]);
+    else if (k[1] === 'runs') { const val = k[2].trim(); if (val.startsWith('[')) v.runs = val.slice(1, val.lastIndexOf(']')).split(',').map(yamlScalar).filter(Boolean); else if (!val) inRuns = true; }
+  }
+  return rec;
+}
+let expCache = {sig: null, records: new Map(), byRun: new Map()};
+function experimentIndex() {
+  const files = expDirs.flatMap((d) => listDir(d).filter((n) => /\.ya?ml$/.test(n)).map((n) => path.join(d, n)));
+  const sig = files.map((f) => `${f}:${statSig(f)}`).join('|');
+  if (expCache.sig === sig) return expCache;
+  const records = new Map(), byRun = new Map();
+  for (const f of files) {
+    const rec = experimentRecord(readText(f) || '');
+    const id = rec.id || path.basename(f).replace(/\.ya?ml$/, '');
+    if (rec.format && rec.format !== 'sdc.experiment/1') continue;
+    if (records.has(id)) continue;
+    records.set(id, {id, title: rec.title, purpose: rec.purpose, variants: rec.variants.map((x) => x.id).filter(Boolean)});
+    rec.variants.forEach((x, vi) => x.runs.forEach((run, i) => {
+      if (!byRun.has(run)) byRun.set(run, []);
+      byRun.get(run).push({id, variant: x.id, ordinal: i + 1, vi, from: 'record'});
+    }));
+  }
+  expCache = {sig, records, byRun};
+  return expCache;
+}
+// [{id, title, purpose, variant, vi (the variant's place in its record, null without one), ordinal, from, ...}]
+function experimentsOf(runDir) {
+  const ix = experimentIndex();
+  const meta = (e) => { const r = ix.records.get(e.id); const vi = r ? r.variants.indexOf(e.variant) : -1; return {...e, title: r?.title ?? null, purpose: r?.purpose ?? null, vi: vi >= 0 ? vi : null}; };
+  const j = readJson(path.join(runDir, 'experiment.json'));
+  if (j && j.format === 'sdc.experiment-run/1' && typeof j.experiment === 'string' && j.experiment) {
+    return [meta({id: j.experiment, variant: typeof j.variant === 'string' ? j.variant : null, ordinal: Number.isInteger(j.ordinal) ? j.ordinal : null, from: 'experiment.json',
+      run: j.run ?? null, commit: typeof j.tree_commit === 'string' ? j.tree_commit : null, startedAt: j.started_at ?? null, retrospective: j.retrospective === true})];
+  }
+  return (ix.byRun.get(path.basename(runDir)) || []).map(meta);
+}
 
 // ---- the run picker's rows (decision D-009): what each run is, read in one request ----------------
 // From status.json (sdc.run-status/1: closed, outcome, delivered; forced, unstuck and reopens when it

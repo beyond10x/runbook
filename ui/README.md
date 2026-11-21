@@ -49,12 +49,22 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
 - **Run picker** (header, decision D-009): the button shows the run on screen with its state as a
   shape and a word. It opens a panel with a search field (focus on open) and the runs, most recent
   first: "Running now", then "Recent", and stub and fixture runs in their own group, collapsed
-  unless the run on screen is one of them. Each row has the run's name, its state (running; closed
+  unless the run on screen is one of them. When any run belongs to an experiment, "Recent" holds one
+  collapsible group per experiment (most recent first; open: the most recent one and the one of the
+  run on screen) and "Unassigned" for the runs of none. An experiment's head gives its id, its
+  purpose (the record's `purpose` or `title`), its variants with their number of runs ("low ×3 ·
+  high ×2", or "3 variants × 3") and how many of its ended runs passed clean (closed and delivered,
+  nothing forced or unstuck); its rows go by variant, then ordinal, each tagged "variant #n". A run
+  belongs to an experiment by its `experiment.json` (`sdc.experiment-run/1`: `experiment`,
+  `variant`, `ordinal`, `tree_commit`, …) or by its directory name in an experiment record's
+  `variants[].runs` (`experiments/<id>.yaml` of the checkout served; `--experiments DIR`,
+  repeatable, reads others); a run in two records is a row in each. Each row has the run's name, its state (running; closed
   with its outcome; closed, not delivered; stopped with its cause; not running), when it started
   (absolute on hover), how long it ran (ticking while it runs), cost and LLM calls, the models in
   short ("decider Opus · work Sonnet") and reopen, forced and unstuck counts from `status.json`.
-  The search filters on name, state, outcome, stop cause and model, every word must match; arrow
-  keys and Enter pick, Escape closes. The pick goes into the URL (`?source=N&run=<name>`; `run`
+  The search filters on name, state, outcome, stop cause, model, experiment id and variant, every
+  word must match, and opens the experiments it matches in; arrow keys and Enter pick (Enter on an
+  experiment's head opens or closes it), Escape closes. The pick goes into the URL (`?source=N&run=<name>`; `run`
   wins when both are given). The rows come from `/api/sources` (`run` per source), one request.
   On a phone the panel is a full-width sheet.
 - **Now** (top band): every action in flight in the case tree, each with its case, who runs it (LLM
@@ -223,6 +233,10 @@ viewports: `screenshots/{1600x1000,1366x768}-{stopped,stopped-drawer,held,autopi
 (running with a live driver, closed delivered, closed not delivered, stopped, not running, stub) and
 checks the run fields of `/api/sources`, the picker's groups, rows, search and keyboard, its fit in
 the operator tile and the phone sheet: `screenshots/{1600x1000,805x1270,390x844}-run-picker.png`.
+`test/run-picker-experiments.spec.mjs` (port 7538, `SDC_UI_EXPERIMENTS_PORT`) serves eight played runs
+and two experiment records (`--experiments`): the experiments in `/api/sources` from `experiment.json`
+and from the records, the groups, their heads and order, a run in two records, search by experiment
+and variant, and the keyboard on a head.
 `test/stall-model.spec.mjs` tests the stalled case (a wait on `amend.upstream` with no finding for a
 person names the writer that used its runs and its last error).
 `test/paths.spec.mjs` (port 7526, `SDC_UI_PATHS_PORT`) fails when a file git would commit under
@@ -342,3 +356,24 @@ had switched on at `max-width: 900px`, so any narrow desktop window got the phon
   with an ellipsis and a title, and the run picker's button narrows to its choice (at most 230 px).
 - The phone sizes are measured as phones (touch and a coarse pointer: `isMobile`, `hasTouch`), in
   the loop, `test/mobile.spec.mjs` and `test/stub-runs.spec.mjs`, which also checks the tile.
+
+### Run picker (decision D-009)
+
+The operator, 2026-11-21: "the select box for the individual runs… that's for sure not scaling, so
+we should just show the most recent ones and make it a custom UI element where we have autocomplete,
+a nice search, and maybe also some visual indication on when this has been run, what the outcome
+was, the duration… So we can actually reason about what to select there." And, on the experiment
+records: "organize these trials in a scientific, manageable and scaling manner".
+
+- The store select is the run picker (see Use). Its button (`#runpick`) is always visible at every
+  gating viewport; its list scrolls inside its own box (`#pk-list`, a D-001 exception); on a phone
+  its panel is a sheet (`phone.sheet_picker`).
+- `ux/specs/loop.spec.mjs` opens it with the keyboard alone in the closed scenario, finds another
+  run by a part of its name and opens it: `picker.tabs_to_button`, `picker.hidden`,
+  `picker.axe_serious`, `picker.rows_out_of_view` (of the first 8 rows) and `picker.keys_to_open`
+  at each gating viewport, new keys taken under D-009.
+- The state word in the button has the width of the longest one ("not delivered"), so a run whose
+  driver detaches does not move the header (it had raised decider `layout_shift.per_minute` at
+  1366x768 from 0.03 to 0.056).
+- The played scenarios belong to no experiment, so the measured page lists them without experiment
+  groups.

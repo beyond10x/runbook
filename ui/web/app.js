@@ -9,7 +9,7 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
-import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleRows, renderPickerList} from './picker.js';
+import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
@@ -93,7 +93,9 @@ const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; 
 // ---- the run picker (decision D-009): a button, a search field and the runs as a listbox -------------
 // The search field keeps the focus while the arrow keys move through the rows (aria-activedescendant);
 // Enter opens the row's run, Escape closes, a click outside or a focus that leaves the panel closes.
-const PK = {open: false, q: '', active: null, stubs: false};
+const PK = {open: false, q: '', active: null, stubs: false, exp: {}};
+const pkGroups = () => pickerGroups(S.sources, PK.q, PK.stubs, {cur: S.src, expOpen: PK.exp});
+const pkActive = () => (PK.active ? document.getElementById(PK.active) : null);
 const runNow = () => Date.now() + S.offset;
 function renderPicker(src = S.sources[S.src]) {
   const btn = $('#runpick');
@@ -104,9 +106,9 @@ function renderPicker(src = S.sources[S.src]) {
   $('#pk-panel').hidden = !PK.open;
   document.documentElement.classList.toggle('pk-open', PK.open);
   if (!PK.open) return;
-  const g = pickerGroups(S.sources, PK.q, PK.stubs);
-  const rows = visibleRows(g);
-  if (!rows.some((s) => s.index === PK.active)) PK.active = rows.find((s) => s.index === S.src)?.index ?? rows[0]?.index ?? null;
+  const g = pkGroups();
+  const items = visibleItems(g);
+  if (!items.some((x) => x.id === PK.active)) PK.active = items.find((x) => x.index === S.src)?.id ?? items[0]?.id ?? null;
   const out = renderPickerList(g, {cur: S.src, active: PK.active, now: runNow()});
   patch($('#pk-list'), out.list);
   patch($('#pk-none'), out.none);
@@ -114,7 +116,7 @@ function renderPicker(src = S.sources[S.src]) {
   t.hidden = !out.toggle;
   if (t.textContent !== out.toggle) t.textContent = out.toggle;
   t.setAttribute('aria-expanded', g.stubsOpen ? 'true' : 'false');
-  $('#pk-q').setAttribute('aria-activedescendant', PK.active != null ? `pk-o-${PK.active}` : '');
+  $('#pk-q').setAttribute('aria-activedescendant', PK.active || '');
 }
 async function openPicker() {
   // the stub group opens with the panel when the run on screen is one of them
@@ -124,7 +126,7 @@ async function openPicker() {
   $('#pk-q').focus();
   // the rows' cost, calls and times as they are now
   S.sources = await api('/api/sources').catch(() => S.sources);
-  if (PK.open) { renderPicker(); $(`#pk-o-${PK.active}`)?.scrollIntoView({block: 'nearest'}); }
+  if (PK.open) { renderPicker(); pkActive()?.scrollIntoView({block: 'nearest'}); }
 }
 function closePicker(focusButton = true) {
   if (!PK.open) return;
@@ -133,13 +135,22 @@ function closePicker(focusButton = true) {
   if (focusButton) $('#runpick').focus();
 }
 function moveActive(d) {
-  const rows = visibleRows(pickerGroups(S.sources, PK.q, PK.stubs));
-  if (!rows.length) return;
-  const i = rows.findIndex((s) => s.index === PK.active);
-  const k = d === 'first' ? 0 : d === 'last' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, (i < 0 ? -1 : i) + d));
-  PK.active = rows[k].index;
+  const items = visibleItems(pkGroups());
+  if (!items.length) return;
+  const i = items.findIndex((x) => x.id === PK.active);
+  const k = d === 'first' ? 0 : d === 'last' ? items.length - 1 : Math.max(0, Math.min(items.length - 1, (i < 0 ? -1 : i) + d));
+  PK.active = items[k].id;
   renderPicker();
-  $(`#pk-o-${PK.active}`)?.scrollIntoView({block: 'nearest'});
+  pkActive()?.scrollIntoView({block: 'nearest'});
+}
+// an experiment's head opens or closes its group; the keyboard stays on the head
+function toggleExp(id) {
+  const x = pkGroups().groups.find((y) => y.exp?.id === id);
+  if (!x) return;
+  PK.exp[id] = !x.open;
+  PK.active = x.hid;
+  renderPicker();
+  pkActive()?.scrollIntoView({block: 'nearest'});
 }
 // open a run: the page reloads its data; the URL names the run (source index and name), so a link opens it
 async function selectSource(i) {
@@ -158,6 +169,8 @@ document.addEventListener('click', (ev) => {
   if (t.closest('#runpick')) { if (PK.open) closePicker(); else openPicker(); return; }
   if (t.closest('#pk-close')) { closePicker(); return; }
   if (t.closest('#pk-stubs')) { PK.stubs = !PK.stubs; renderPicker(); $('#pk-q').focus(); return; }
+  const e = t.closest('[data-exp]');
+  if (e) { toggleExp(e.dataset.exp); $('#pk-q').focus(); return; }
   const o = t.closest('[data-pick]');
   if (o) { selectSource(Number(o.dataset.pick)); return; }
   if (PK.open && !t.closest('#picker')) closePicker(false);
@@ -171,7 +184,11 @@ document.addEventListener('keydown', (ev) => {
   const k = {ArrowDown: 1, ArrowUp: -1, PageDown: 8, PageUp: -8}[ev.key];
   if (k) { ev.preventDefault(); moveActive(k); return; }
   if ((ev.key === 'Home' || ev.key === 'End') && ev.ctrlKey) { ev.preventDefault(); moveActive(ev.key === 'Home' ? 'first' : 'last'); return; }
-  if (ev.key === 'Enter' && PK.active != null) { ev.preventDefault(); selectSource(PK.active); }
+  if (ev.key === 'Enter' && PK.active) {
+    ev.preventDefault();
+    const el = pkActive();
+    if (el?.dataset.exp) toggleExp(el.dataset.exp); else if (el?.dataset.pick) selectSource(Number(el.dataset.pick));
+  }
 }, true);
 
 function render() {

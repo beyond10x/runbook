@@ -2,8 +2,10 @@
 // a panel with a search field and the runs, most recent first. Each row says what the run is at a
 // glance: its state with a shape and a word (never colour alone), when it started, how long it ran,
 // cost and calls, the models in short, and reopen or forced counts when the run records them. Running
-// runs are on top, then the recent ones; stub and fixture runs (D-007) in a group of their own,
-// collapsed until opened or matched by a search. Rows come from /api/sources (server.mjs runSummary).
+// runs are on top, then the recent ones, grouped by the experiment they belong to when any does (its
+// head: purpose, variants × runs, clean passes of the ended runs); stub and fixture runs (D-007) in a group
+// of their own, collapsed until opened or matched by a search. Rows come from /api/sources (server.mjs
+// runSummary, experimentsOf).
 import {esc} from './lenses.js';
 import {fmtDur, fmtAgo} from './now.js';
 
@@ -32,26 +34,78 @@ export const pickerTitle = (s) => (s ? `${s.name}: ${runState(s).text}${isStub(s
 
 // most recent: when the run last wrote (its files), else when it ended or last recorded an event
 const lastOf = (s) => s.lastWrite || s.run?.ended || s.run?.last || 0;
-// what a search matches: the name, the state and its cause, the outcome, the models, who closed or stopped it
-const hay = (s) => [s.name, runState(s).text, s.run?.outcome, s.run?.cause, s.run?.setting, s.run?.stopBy, s.run?.closedBy, s.run?.autonomy === 'A5' ? 'autopilot' : '', isStub(s) ? 'stub fixture' : ''].map(words).join(' ').toLowerCase();
-export function pickerGroups(sources, q = '', showStubs = false) {
+// what a search matches: the name, the state and its cause, the outcome, the models, who closed or stopped it,
+// the experiments and variants it belongs to
+const exps = (s) => (Array.isArray(s?.experiments) ? s.experiments.filter((e) => e && e.id) : []);
+const hay = (s) => [s.name, runState(s).text, s.run?.outcome, s.run?.cause, s.run?.setting, s.run?.stopBy, s.run?.closedBy, s.run?.autonomy === 'A5' ? 'autopilot' : '', isStub(s) ? 'stub fixture' : '',
+  ...exps(s).map((e) => `${e.id} ${e.variant || ''}`)].map(words).join(' ').toLowerCase();
+const recentFirst = (a, b) => lastOf(b) - lastOf(a) || a.name.localeCompare(b.name);
+// an experiment's head: its purpose, its variants with their number of runs, and how many of its ended runs
+// passed clean (closed and delivered, nothing forced or unstuck), over all its real runs whatever the search
+function expHead(id, all) {
+  const runs = all.map((s) => ({s, e: exps(s).find((e) => e.id === id)})).filter((x) => x.e);
+  const e0 = runs[0]?.e || {};
+  const n = new Map();
+  for (const {e} of [...runs].sort((a, b) => (a.e.vi ?? 1e9) - (b.e.vi ?? 1e9) || String(a.e.variant).localeCompare(String(b.e.variant)))) n.set(e.variant || 'no variant', (n.get(e.variant || 'no variant') || 0) + 1);
+  const counts = [...n.values()];
+  const variants = counts.length > 1 && counts.every((c) => c === counts[0]) ? `${counts.length} variants × ${counts[0]}` : [...n].map(([v, c]) => `${v} ×${c}`).join(' · ');
+  const ended = runs.filter(({s}) => s.run?.state === 'closed' || s.run?.state === 'stopped');
+  const clean = ended.filter(({s}) => s.run.state === 'closed' && s.run.delivered && !s.run.forced && !s.run.unstuck).length;
+  return {id, purpose: e0.purpose || e0.title || null, variants, passes: `${clean} clean ${clean === 1 ? 'pass' : 'passes'} of ${ended.length} ended`, last: Math.max(0, ...runs.map(({s}) => lastOf(s)))};
+}
+// the groups shown: running now; then the recent runs, by experiment when any run belongs to one (each a
+// collapsible group, its rows by variant then ordinal; the runs of none under Unassigned), else in one group;
+// then the stub and fixture runs. Each row and experiment head gets the id its option has in the list.
+// expOpen: the experiments opened or closed by hand; by default the one of the run on screen and the most
+// recent are open, and a search opens every experiment it matches in.
+export function pickerGroups(sources, q = '', showStubs = false, {cur = null, expOpen = {}} = {}) {
   const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
   const hit = (s) => terms.every((t) => hay(s).includes(t));
   const shown = sources.filter(hit);
   const real = shown.filter((s) => !isStub(s));
   const running = real.filter((s) => s.run?.state === 'running').sort((a, b) => (b.run?.started ?? 0) - (a.run?.started ?? 0) || a.name.localeCompare(b.name));
-  const recent = real.filter((s) => s.run?.state !== 'running').sort((a, b) => lastOf(b) - lastOf(a) || a.name.localeCompare(b.name));
-  const stubs = shown.filter(isStub).sort((a, b) => lastOf(b) - lastOf(a) || a.name.localeCompare(b.name));
+  const recent = real.filter((s) => s.run?.state !== 'running').sort(recentFirst);
+  const stubs = shown.filter(isStub).sort(recentFirst);
   const allStubs = sources.filter(isStub).length;
-  return {terms, stubCount: terms.length ? stubs.length : allStubs, stubsOpen: showStubs || terms.length > 0,
-    groups: [{key: 'running', label: 'Running now', rows: running}, {key: 'recent', label: 'Recent', rows: recent}, {key: 'stub', label: 'Stub and fixture runs (no model calls)', rows: stubs}]};
+  const allReal = sources.filter((s) => !isStub(s));
+  const groups = [{key: 'running', label: 'Running now', rows: running}];
+  const ids = [...new Set(allReal.filter((s) => s.run?.state !== 'running').flatMap((s) => exps(s).map((e) => e.id)))];
+  if (ids.length) {
+    const heads = ids.map((id) => expHead(id, allReal)).sort((a, b) => b.last - a.last || a.id.localeCompare(b.id));
+    heads.forEach((h, n) => {
+      const rows = recent.filter((s) => exps(s).some((e) => e.id === h.id)).sort((a, b) => {
+        const x = exps(a).find((e) => e.id === h.id), y = exps(b).find((e) => e.id === h.id);
+        return (x.vi ?? 1e9) - (y.vi ?? 1e9) || String(x.variant).localeCompare(String(y.variant)) || (x.ordinal ?? 1e9) - (y.ordinal ?? 1e9) || a.name.localeCompare(b.name);
+      });
+      const open = expOpen[h.id] ?? (terms.length > 0 || rows.some((s) => s.index === cur) || n === 0);
+      groups.push({key: `x-${n}`, label: `Experiment ${h.id}`, exp: h, open, rows});
+    });
+    groups.push({key: 'unassigned', label: 'Unassigned', rows: recent.filter((s) => !exps(s).length)});
+  } else groups.push({key: 'recent', label: 'Recent', rows: recent});
+  groups.push({key: 'stub', label: 'Stub and fixture runs (no model calls)', rows: stubs});
+  // option ids: a run's first row is pk-o-<index>, a further row of it (another experiment) pk-o-<index>-<n>
+  const seen = new Map();
+  for (const x of groups) {
+    if (x.exp) x.hid = `pk-e-${x.key.slice(2)}`;
+    x.items = x.rows.map((s) => { const k = (seen.get(s.index) || 0) + 1; seen.set(s.index, k); return {id: k === 1 ? `pk-o-${s.index}` : `pk-o-${s.index}-${k}`, s}; });
+  }
+  return {terms, stubCount: terms.length ? stubs.length : allStubs, stubsOpen: showStubs || terms.length > 0, grouped: ids.length > 0, groups};
 }
-// the options the keyboard moves through, in the order shown
-export const visibleRows = (g) => g.groups.filter((x) => x.key !== 'stub' || g.stubsOpen).flatMap((x) => x.rows);
+const shownGroups = (g) => g.groups.filter((x) => x.rows.length && (x.key !== 'stub' || g.stubsOpen));
+// the options the keyboard moves through, in the order shown: {id, index} for a run, {id, exp} for an experiment's head
+export const visibleItems = (g) => shownGroups(g).flatMap((x) => [...(x.exp ? [{id: x.hid, exp: x.exp.id, open: x.open}] : []), ...(x.exp && !x.open ? [] : x.items.map((it) => ({id: it.id, index: it.s.index})))]);
 
 const usd = (v) => (v == null ? null : `$${v < 10 ? v.toFixed(2) : v.toFixed(0)}`);
 const when = (t) => new Date(t).toLocaleString([], {year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit'});
-function row(s, {cur, act, now}) {
+// the experiment tag of a row: in its experiment's group the variant and ordinal, elsewhere the experiment too
+function expTag(s, inExp) {
+  const e = inExp ? exps(s).find((x) => x.id === inExp) : exps(s)[0];
+  if (!e) return '';
+  const t = `${e.variant || 'no variant'}${e.ordinal != null ? ` #${e.ordinal}` : ''}`;
+  const title = `experiment ${e.id}, variant ${e.variant || 'not named'}${e.ordinal != null ? `, run ${e.ordinal}` : ''}${e.commit ? `, tree ${e.commit.slice(0, 12)}` : ''}${e.retrospective ? ', registered after the fact' : ''} (${e.from === 'experiment.json' ? 'experiment.json' : `experiments/${e.id}.yaml`})`;
+  return `<span class="pk-var" title="${esc(title)}">${esc(inExp ? t : `${e.id} · ${t}`)}</span>`;
+}
+function row(s, {id, cur, act, now, inExp}) {
   const r = s.run || {};
   const st = runState(s);
   const bits = [];
@@ -63,14 +117,29 @@ function row(s, {cur, act, now}) {
   if (r.setting) bits.push(`<span class="pk-set" title="models (run-settings.jsonl)">${esc(r.setting)}</span>`);
   for (const [k, n] of [['reopens', r.reopens], ['forced', r.forced], ['unstuck', r.unstuck]]) if (n) bits.push(`<span class="pk-n" title="status.json: ${k}">${n} ${k === 'reopens' && n === 1 ? 'reopen' : k}</span>`);
   const title = [s.name, st.text, isStub(s) ? 'stub run: canned content, not a model\'s work' : '', r.setting].filter(Boolean).join(' · ');
-  return `<div role="option" id="pk-o-${s.index}" class="pk-row${act ? ' act' : ''}" data-key="o${s.index}" data-pick="${s.index}" aria-selected="${cur ? 'true' : 'false'}" title="${esc(title)}">`
-    + `<div class="pk-r1"><span class="pk-rn">${esc(s.name)}</span>${isStub(s) ? '<span class="pk-stub">stub</span>' : ''}${mark(st)}</div>`
+  return `<div role="option" id="${id}" class="pk-row${act ? ' act' : ''}" data-key="${id}" data-pick="${s.index}" aria-selected="${cur ? 'true' : 'false'}" title="${esc(title)}">`
+    + `<div class="pk-r1"><span class="pk-rn">${esc(s.name)}</span>${isStub(s) ? '<span class="pk-stub">stub</span>' : ''}${expTag(s, inExp)}${mark(st)}</div>`
     + `<div class="pk-r2">${bits.join('<span class="pk-sep" aria-hidden="true"> · </span>') || '<span>nothing recorded yet</span>'}</div></div>`;
+}
+// an experiment's head: an option that opens or closes its group (Enter or a click), never a run
+function expRow(x, act) {
+  const h = x.exp;
+  return `<div role="option" id="${x.hid}" class="pk-eh${act ? ' act' : ''}${x.open ? ' open' : ''}" data-key="${x.hid}" data-exp="${esc(h.id)}" aria-selected="false" title="${esc(`${h.id}${h.purpose ? `: ${h.purpose}` : ''} (${x.open ? 'close' : 'open'} the group)`)}">`
+    + `<div class="pk-r1"><i class="pk-chev" aria-hidden="true"></i><span class="pk-en">${esc(h.id)}</span><span class="pk-vh">${x.open ? 'open' : 'closed'}, ${x.rows.length} ${x.rows.length === 1 ? 'run' : 'runs'}</span>`
+    + `<span class="pk-ec">${esc(h.passes)}</span></div>`
+    + `<div class="pk-r2">${h.purpose ? `<span class="pk-ep">${esc(h.purpose)}</span><span class="pk-sep" aria-hidden="true"> · </span>` : ''}<span>${esc(h.variants)}</span></div></div>`;
 }
 // the list (role listbox, groups of options) and the stub group's toggle below it
 export function renderPickerList(g, {cur, active, now}) {
-  const groups = g.groups.filter((x) => x.rows.length && (x.key !== 'stub' || g.stubsOpen));
-  const list = groups.map((x) => `<div role="group" class="pk-g g-${x.key}" data-key="g-${x.key}" aria-label="${esc(x.label)}"><div class="pk-gh" aria-hidden="true">${esc(x.label)} <b>${x.rows.length}</b></div>${x.rows.map((s) => row(s, {cur: s.index === cur, act: s.index === active, now})).join('')}</div>`).join('');
+  const groups = shownGroups(g);
+  let recentHead = false;
+  const list = groups.map((x) => {
+    // the experiments and Unassigned stand under one "Recent" heading
+    const sh = g.grouped && (x.exp || x.key === 'unassigned') && !recentHead ? (recentHead = true, '<div class="pk-sh" data-key="sh" aria-hidden="true">Recent</div>') : '';
+    const rows = x.exp && !x.open ? '' : x.items.map((it) => row(it.s, {id: it.id, cur: it.s.index === cur, act: it.id === active, now, inExp: x.exp?.id})).join('');
+    const head = x.exp ? expRow(x, x.hid === active) : `<div class="pk-gh" aria-hidden="true">${esc(x.label)} <b>${x.rows.length}</b></div>`;
+    return `${sh}<div role="group" class="pk-g g-${x.exp ? 'exp' : x.key}" data-key="g-${x.key}" aria-label="${esc(x.label)}">${head}${rows}</div>`;
+  }).join('');
   const none = !groups.length ? `<p class="pk-none">${g.terms.length ? `No run matches “${esc(g.terms.join(' '))}”` : 'No runs'}</p>` : '';
   return {list, none, toggle: g.stubCount && !g.terms.length ? `${g.stubsOpen ? 'Hide' : 'Show'} stub and fixture runs (${g.stubCount})` : ''};
 }
