@@ -1315,6 +1315,50 @@
       "why": "too few ended runs with the metric: haiku 5 and opus 2, the rule needs 3 each; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing"
     },
     {
+      "hypothesis": "With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s.",
+      "id": "effort-decider-mixed",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "unstick",
+          "note": "run.unstick is on with an Opus model in both variants (scripts/run-trial.sh:377-385; not a launch setting); it is the same in both arms, and a run it touched is not clean."
+        },
+        {
+          "key": "canon",
+          "note": "the canon binary of the canon checkout at run time, not pinned; the same for both arms when they run in one launch."
+        },
+        {
+          "key": "quality",
+          "note": "no oracle judges the decider's decisions; a lower effort that approves what xhigh would reject (trial-0.1.0-mixed-2's merge rejection of IDEA-1.list.items caught an offline requirement the review had passed) is seen only through run.rework_takes, run.delivered and the decision counts in the report, not as a fault rate."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "run.wall_s",
+        "min_effect": 300.0
+      },
+      "purpose": "Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass.",
+      "tree": "72a3eef",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "xhigh",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "medium",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: xhigh 0 and medium 0, the rule needs 3 each"
+    },
+    {
       "hypothesis": "With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5.",
       "id": "effort-implement-levels",
       "kind": "prospective",
@@ -1351,6 +1395,57 @@
       ],
       "verdict": "planned, no run yet",
       "why": "too few ended runs with the metric: low 0 and high 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": null,
+      "id": "release-0.1.2",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "unstick",
+          "note": "run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh:377-385); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick that baseline-0.1.0 did not have. An unstuck run is not a clean pass, so a stop the routes turn into an unstick counts against P1 and for P2."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins; baseline-0.1.0 had the same confound."
+        },
+        {
+          "key": "launcher",
+          "note": "baseline-0.1.0 was started by a scheduler script with the same settings; these runs are started by sdc-experiment run, with experiment.json."
+        },
+        {
+          "key": "decider-kind",
+          "note": "decider.kind is model here and haiku in baseline-0.1.0; 0.1.2 made haiku an alias of model and sdc-experiment counts them as one setting (CHANGELOG 0.1.2)."
+        }
+      ],
+      "primary": null,
+      "purpose": "Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0.",
+      "tree": "72a3eef",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "mixed",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "haiku",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
       "hypothesis": null,
@@ -1627,8 +1722,16 @@
       "sha256": "f1cc615a9cb9e4c450cc7938b3fe6d0159689554e5a09686c4469dff02a69597"
     },
     {
+      "path": "experiments/effort-decider-mixed.yaml",
+      "sha256": "ee631814e05fd4fb10d50044552a2b61f7748e9e037773ae8f5cd76dd44a62a4"
+    },
+    {
       "path": "experiments/effort-implement-levels.yaml",
       "sha256": "e8c25a7980bd05b201f24e34b14dc200c04e79520ba4bd55a525efa3ba808a80"
+    },
+    {
+      "path": "experiments/release-0.1.2.yaml",
+      "sha256": "c2e7d4c9fa21149f9f8420106371cd8370440feee0d6771d952cd362ccd365ac"
     },
     {
       "path": "experiments/small-idea-1.yaml",

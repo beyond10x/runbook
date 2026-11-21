@@ -1,0 +1,114 @@
+format: sdc.experiment/1
+id: release-0.1.2
+kind: prospective
+status: planned
+created: 2026-11-21
+title: Release 0.1.2 on main 72a3eef, the to-do idea in the three baseline settings
+purpose: Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: 72a3eefb20e0edff50dc8ad12fcf561f8e0790e3
+fixed:
+  decider.kind: model
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  review.adapter: claude-cli
+variants:
+- id: strong
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+  runs: []
+- id: mixed
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs: []
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: claude-haiku-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs: []
+runs_per_variant: 3
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: 'The tree is the variable, which one record cannot hold (docs/improving.md step 4), so sdc-experiment reports this record as descriptive and the comparison with baseline-0.1.0 (same input, same settings, tree 4468bfd) is made per setting with the registered predictions below and the default rule: n = 3 against n = 3, a difference is claimed only when the two ranges separate completely in the registered direction (exact one-sided p = 1/20); overlapping ranges claim no effect. Primary: the Haiku setting''s run.clean, baseline 0 of 3; held only at 3 of 3 clean; 1 or 2 of 3 is inconclusive and is reported as such; 0 of 3 is no move. Every end counts; no run is repaired, reopened or forced. A refuted or inconclusive result is published as such.'
+predictions:
+- id: P1
+  setting: haiku
+  metric: run.clean
+  baseline: 0 of 3 (0, 0, 0)
+  direction: increase
+  why: R3 puts a refused finding decision to the decider again with the refusal (haiku-2 ended decision_not_takeable on exactly that); R7 caps a writer's runs per retry kind (haiku-1 and haiku-3 ended writer_spent across several kinds); R9 and R13 feed a failed run and a failed check's output to the writer.
+- id: P2
+  setting: haiku
+  metric: run.furthest_stage_index
+  baseline: 6 [4, 6] (3)
+  direction: increase
+  why: the same routes; this metric is not blocked by the unstick confound below, run.clean is.
+- id: P3
+  setting: haiku
+  metric: run.end
+  baseline: stopped decision_not_takeable 1 of 3
+  direction: decrease
+  why: R3.
+- id: P4
+  setting: strong, mixed
+  metric: run.clean
+  baseline: 3 of 3 each
+  direction: none
+  why: guard; nothing of 0.1.1 or 0.1.2 should cost a clean pass.
+- id: P5
+  setting: strong, mixed
+  metric: run.cost_usd, run.wall_s, run.rework_takes, edge story change.review:rejected -> change.implement count
+  baseline: strong 5.50 [5.43, 6.19] USD, 1247 [1075, 1430] s; mixed 2.55 [2.50, 3.88] USD, 1489 [1480, 2091] s
+  direction: none
+  why: no route change of 0.1.1 or 0.1.2 touches the review rejection, the decider effort or the implement node, which hold the largest losses of the baseline; a separation here is reported as unexplained.
+- id: P0
+  setting: all
+  metric: all of the above
+  baseline: baseline-0.1.0
+  direction: none
+  why: the honest alternative, that nothing moves. The three Haiku stops of the baseline had causes the routes do not reach (haiku-3 put the named format fix in the wrong file; haiku-1's Postgres default was accepted by the non-interactive rule, not by a decider; see the facts), and run.unstick now continues a stop under an Opus model, which makes the run not clean.
+registered_guards:
+- run.clean of strong and mixed stays 3 of 3
+- run.cost_usd of strong and mixed does not separate upward from baseline-0.1.0
+cost_estimate: 'From the baseline-0.1.0 medians: 3 x (5.50 + 2.55 + 0.28) = 25.0 USD; from its maxima 3 x (6.19 + 3.88 + 2.15) = 36.7 USD; plus the Opus unstick calls of Haiku runs, unmeasured (inferred under 1 USD per run). About 1.5 to 2 hours at 3 runs at a time (longest baseline run 3790 s).'
+launch:
+  max_parallel: 3
+  stagger_s: 30
+  principal: agent:sdc-experiment
+known_confounds:
+- key: unstick
+  note: run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh:377-385); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick that baseline-0.1.0 did not have. An unstuck run is not a clean pass, so a stop the routes turn into an unstick counts against P1 and for P2.
+- key: canon
+  note: every run uses the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins; baseline-0.1.0 had the same confound.
+- key: launcher
+  note: baseline-0.1.0 was started by a scheduler script with the same settings; these runs are started by sdc-experiment run, with experiment.json.
+- key: decider-kind
+  note: decider.kind is model here and haiku in baseline-0.1.0; 0.1.2 made haiku an alias of model and sdc-experiment counts them as one setting (CHANGELOG 0.1.2).
+facts:
+- 'Route changes since the baseline tree (CHANGELOG 0.1.1 Fixed, 0.1.2 Changed): R9 5297ef0, R7 a2f363e, R13 97024ce, R2 a919898, R3 306fde9, keep-going, run.unstick, one rework cap D184 9940eed (value 2, as before).'
+- 'Checked from the run files before this record: trial-0.1.0-haiku-1 q9 "Postgres database" was a finding of spec.author (f8) accepted with answered_by non-interactive (work/questions.yaml), not a decision of the decider; its list.shared implement was sent back by change.review twice (r1 against q9, an EditTitle divergence) and by tests.run failed once (E0308).'
+- 'trial-0.1.0-haiku-3: spec.validate refused four times (unreachable_branch, conflicting_declaration, then twice unsupported_format_version with the hint "declare `format: ess/18`"); the last spec.author wrote format ess/18 into spec/domains/list.yaml and left spec/system.yaml at ess/1 (llm/014-spec.author), so the fix was applied to the wrong file, not ignored.'
+- 'trial-0.1.0-haiku-2: run-stopped.json names f11, the decider''s amendment refused by the program check (context.deployment and context.platform against r6); R3 of 0.1.1 is the route for it.'
+links:
+- 'experiments/baseline-0.1.0.yaml: the baseline this record is compared with'
