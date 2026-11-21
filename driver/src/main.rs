@@ -913,6 +913,11 @@ fn close(canon: &str, dir: &Path, at: &str, outcome: &str) -> R<Value> {
             "child_closed",
             json!({"child_case": case["id"], "outcome": outcome, "evidence": rec["id"]}),
         )?;
+        // Every state write is followed by an evaluation: the rewritten record is part of the
+        // parent's state digest, and a run that stops in a sibling before the parent's next step
+        // would leave its last `evaluated` event behind the store (replay failed on
+        // runs/trial-3-haiku-4's IDEA-1.todo).
+        evaluate(canon, &parent, at)?;
     }
     Ok(json!({"case": case["id"], "terminated": outcome, "outcomes": d["outcomes"]}))
 }

@@ -197,7 +197,9 @@ case/
 - Revisioned: each artifact revision is a content digest computed by the driver, and the case
   revision is a counter. Evidence and evaluations are append-only, except one rewrite per
   child: its `case_outcome` record goes from `open` to the child's outcome (Canon reads one
-  record per child).
+  record per child). The parent is evaluated right after that rewrite (`child_closed`, then
+  `evaluated`), so a run that stops in a sibling still replays (`runs/trial-3-haiku-4`'s
+  `IDEA-1.todo` failed replay without it).
 - Replay: `sdc-drive replay` re-runs `canon evaluate` on every case of the tree with the `at`
   of its last `evaluated` event and compares the state and decision digests with the logged
   ones. Full-cycle run: all 8 cases match. Canon's guarantee: the same inputs give the same
