@@ -7,6 +7,11 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-21
+
+The documentation site and its generator. No protocol, binding or case changed. The longer note is
+`docs/releases/0.1.3.md`.
+
 ### Added
 
 - The documentation site, `website/` (Docusaurus with the beyond10x docs-system theme), published
@@ -23,6 +28,18 @@ The crates are `publish = false`; releases are source releases at bare-version t
   cause; null where the run summary has none) (`c45bc91`).
 - `task docs`, `docs:generate`, `docs:build`, `docs:test`: the site's data check, build and smoke
   test (every page at 1440 and 390 px in both themes, axe, internal links).
+- Two experiment records registered before their runs, on the 0.1.2 tree: `release-0.1.2` (the
+  baseline of 0.1.2 against `baseline-0.1.0`) and `effort-decider-mixed` (the mixed setting's Haiku
+  decider at effort medium against xhigh) (`f619fd4`). Both are planned; no run has been made.
+
+### Changed
+
+- The three crates, their lock files and `ui/package.json` are at 0.1.3.
+
+### Known limits
+
+- No run has used the 0.1.2 or the 0.1.3 tree; the two registered records are planned, not run.
+- A check of the delivered product against its specification is in work and not in this release.
 
 ## [0.1.2] - 2026-11-21
 

@@ -17,6 +17,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - |
 | [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | no experiment yet | no run | - |
+| [0.1.3](#013) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -242,6 +243,24 @@ What changed:
 | `9e0492f` | sdc-run-timeline, the timeline of one run | no run metric affected |
 | `1109656` | the root protocol's description says software delivery cycle; no rule changed | no run metric affected |
 | `20fa990` | the LLM decider is decider:model (D149); one rework cap, recorded in run-settings and read by driver and rework prompt (D184) | not measured: no experiment has tested this change |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- A check of the delivered product against its specification is in work and not in this release.
+
+## 0.1.3
+
+Release, 2026-11-21. Tree: not tagged yet; prepared on main after the batch-11 merges below, on top of 0.1.2 (72a3eef).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `0dd42eb` | two experiment records registered before their runs (release-0.1.2, effort-decider-mixed) | no run metric affected |
+| `925addd` | the documentation site, its generator sdc-protocol-site, and per-run metrics in the progress data | no run metric affected |
 
 Tested by: no experiment yet. No run used this tree, so there is no figure for it.
 

@@ -1038,8 +1038,8 @@
   },
   "source": {
     "path": "protocol/sdc-bugfix.protocol.yaml",
-    "tag": "0.1.2",
-    "url": "https://github.com/beyond10x/sdc/blob/0.1.2/protocol/sdc-bugfix.protocol.yaml"
+    "tag": "0.1.3",
+    "url": "https://github.com/beyond10x/sdc/blob/0.1.3/protocol/sdc-bugfix.protocol.yaml"
   },
   "stem": "sdc-bugfix",
   "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes.",
