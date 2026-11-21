@@ -6,6 +6,7 @@
 // the morph applies in place (CSS transitions animate the colours).
 import {layeredLayout} from './vendor/graph-layout.js';
 import {actorOf, predicateRefs, ACTOR_LABEL, seqOfEvidence} from './model.js';
+import {actorLabel} from './principal.js';
 import {patch} from './morph.js';
 import {fmtDur} from './now.js';
 
@@ -142,7 +143,7 @@ export function renderGraph(host, c, ev, opts) {
     const cls = ['node', lv ? `live lv-${lv.kind} lv-${lv.verb}` : '', `k-${n.kind}`, st ? `s-${st}` : '', n.actor ? `a-${n.actor.kind}` : '', frontier ? 'frontier' : '', n.kind === 'evidence' && count ? 'has' : '', p.id === sel ? 'sel' : '', sel && !near.has(p.id) ? 'dim' : ''].filter(Boolean).join(' ');
     const tx = n.kind === 'claim' ? 26 : n.kind === 'action' ? 14 : 12;
     const fit = (s, px, cw) => { const m = Math.floor(px / cw); return s.length > m ? s.slice(0, Math.max(1, m - 1)) + '…' : s; };
-    const chipW = n.actor ? ACTOR_LABEL[n.actor.kind].length * 6.2 + 12 : 0;
+    const chipW = n.actor ? actorLabel(n.actor.kind, ACTOR_LABEL).length * 6.2 + 12 : 0;
     const label = fit(n.name, w - tx - 10, 7.4);
     sub = fit(sub, w - tx - (chipW ? chipW + 14 : 10), 6.1);
     let inner = (lv ? `<rect class="livering" x="-5" y="-5" width="${w + 10}" height="${h + 10}" rx="13"/>` : '') + (frontier && !lv ? `<rect class="glow" x="-3" y="-3" width="${w + 6}" height="${h + 6}" rx="11"/>` : '') + shape(n.kind, w, h);
@@ -151,7 +152,7 @@ export function renderGraph(host, c, ev, opts) {
     const subEl = lv ? `<text class="nsub lvsub" x="${tx}" y="38">${esc(lv.verb)} <tspan${lv.since != null ? ` data-since="${lv.since}"` : ''}>${lv.since != null ? fmtDur(opts.now - lv.since) : ''}</tspan></text>` : `<text class="nsub" x="${tx}" y="38">${esc(sub)}</text>`;
     inner += `<text class="nname" x="${tx}" y="21">${esc(label)}</text>${subEl}`;
     if (n.actor) {
-      const t = ACTOR_LABEL[n.actor.kind];
+      const t = actorLabel(n.actor.kind, ACTOR_LABEL);
       const bw = chipW;
       inner += `<g class="chip c-${n.actor.kind}"><rect x="${w - bw - 8}" y="27" width="${bw}" height="16" rx="8"/><text x="${w - bw / 2 - 8}" y="38.5" text-anchor="middle">${esc(t)}</text></g>`;
     }

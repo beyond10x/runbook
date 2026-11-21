@@ -16,6 +16,13 @@
 //            unparsable story, a decider decision); the steps of `two` stay in flight
 //   decider  a case awaiting a person while the decider (an LLM) decides in its place
 //   person   a case awaiting a person, nothing running
+//   stopped  the person stop of `person`, then stopped on purpose: run-stopped.json (sdc.run-stopped/1,
+//            by the operator 11 minutes ago, 19 minutes into the wait) and run-settings.jsonl giving
+//            the decisions to a decider (haiku), so the wait is a failure of the run (should be 0)
+//   autopilot  `decider` in autopilot: run-settings.jsonl with autonomy A5 and stand_in true, and no
+//            person principal anywhere (every recorded principal and answered_by is decider:haiku)
+//   human    the person stop of `person` as a legacy run: every principal and answered_by is "human",
+//            without an id
 // Static scenarios (nothing is played; two cases have an action started and never finished):
 //   gone         driver.json names a pid that is not running
 //   gone-nofile  no driver.json, while observed.jsonl exists
@@ -43,6 +50,9 @@ const SCEN = {
   changes: {...TWO},
   decider: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 109, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], signals: true},
   person: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction']},
+  autopilot: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 109, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], signals: true, principal: 'decider:haiku'},
+  human: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction'], principal: 'human'},
+  stopped: {cut: {'IDEA-1': 11, 'IDEA-1.direction': 20, 'IDEA-1.todolist': 'drop'}, active: ['IDEA-1.direction']},
   gone: {...TWO, still: 'dead-driver'},
   'gone-nofile': {...TWO, still: 'observed-only'},
   legacy: {...TWO, still: 'none'},
@@ -88,10 +98,31 @@ for (const [id, cut] of Object.entries(sc.cut)) {
   // records of later steps wait aside until the step that wrote them is played
   for (const f of fs.readdirSync(path.join(d, 'evidence'))) { const m = /^e(\d+)-/.exec(f); if (m && Number(m[1]) > cut && later.has(f.replace(/\.json$/, ''))) { stash.set(`${id}/${f.replace(/\.json$/, '')}`, fs.readFileSync(path.join(d, 'evidence', f))); fs.rmSync(path.join(d, 'evidence', f)); } }
 }
+// every recorded principal and answer as one kind (autopilot: the decider; human: the legacy record)
+if (sc.principal) {
+  const swap = (p) => (/^(decider|rule):|^(non-interactive|derived|dry-run)$/.test(p) ? p : sc.principal);
+  for (const d of caseDirs.values()) {
+    const ev = path.join(d, 'events.jsonl');
+    if (fs.existsSync(ev)) fs.writeFileSync(ev, lines(ev).map((l) => { const e = JSON.parse(l); if (e.principal) e.principal = swap(e.principal); return JSON.stringify(e); }).join('\n') + '\n');
+  }
+  const q = path.join(part, 'store/IDEA-1/work/questions.yaml');
+  if (fs.existsSync(q)) fs.writeFileSync(q, fs.readFileSync(q, 'utf8').replace(/answered_by: .*/g, `answered_by: ${sc.principal}`));
+}
+if (scenario === 'autopilot') {
+  const sec = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, 'Z');
+  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(Date.now() - 600000), leg: 'started', autonomy: 'A5', stand_in: true, decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'final', max_decider_calls: 20}, adapter: 'metaharness', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
+}
 // cases that did not move during the scenario get a past mtime, so nothing reads as just written
 const past = new Date(Date.now() - 9 * 60000);
 for (const [id, d] of caseDirs) if (fs.existsSync(d) && !sc.active.includes(id)) fs.utimesSync(path.join(d, 'events.jsonl'), past, past);
 if (scenario === 'person') { const t = new Date(Date.now() - 252000); fs.utimesSync(path.join(caseDirs.get('IDEA-1.direction'), 'events.jsonl'), t, t); }
+if (scenario === 'stopped') {
+  const waitAt = Date.now() - 30 * 60000, stopAt = Date.now() - 11 * 60000;
+  fs.utimesSync(path.join(caseDirs.get('IDEA-1.direction'), 'events.jsonl'), new Date(waitAt), new Date(waitAt));
+  const sec = (t) => new Date(t).toISOString().replace(/\.\d+Z$/, 'Z');
+  fs.writeFileSync(path.join(part, 'run-settings.jsonl'), JSON.stringify({format: 'sdc.run-settings/1', at: sec(waitAt - 20 * 60000), leg: 'started', decider: {kind: 'haiku', model: 'claude-haiku-5-5', escalate: 'stop', max_decider_calls: 20}, adapter: 'metaharness', max_llm_calls: 45, max_wall_seconds: 5400, llm_calls_before: 0}) + '\n');
+  fs.writeFileSync(path.join(part, 'run-stopped.json'), JSON.stringify({format: 'sdc.run-stopped/1', at: sec(stopAt), by: 'operator', reason: 'stopped to look at the context before the decider takes it', verdict_at_stop: 'awaiting_person', case: 'IDEA-1.direction'}, null, 2) + '\n');
+}
 
 // ---- what the driver now writes: observed.jsonl, driver.json -------------------------------------------
 const iso = (t) => new Date(t).toISOString();
@@ -271,7 +302,7 @@ if (scenario === 'agent') {
   change(W, 'aep/story/broken.md', '---\nkind: story\nrelations: [unclosed\n---\n', exact('IDEA-1.todolist.plan', 'plan.status'));
   const d = fs.existsSync(path.join(SRC, 'decisions.jsonl')) ? lines(path.join(SRC, 'decisions.jsonl')).find((l) => l.includes('001-roadmap.approve')) : null;
   if (d) fs.appendFileSync(path.join(target, 'decisions.jsonl'), rel(d) + '\n');
-} else if (scenario === 'decider') {
+} else if (scenario === 'decider' || scenario === 'autopilot') {
   change(W, 'aep/initiative/roadmap.md', MEANING.roadmap(), exact('IDEA-1.direction', 'roadmap.write'));
   change(W, 'aep/initiative/roadmap.md', MEANING.roadmap2(), exact('IDEA-1.direction', 'roadmap.write'));
   await playRecord('decider', '001-roadmap.approve', {caseId: 'IDEA-1.direction'});

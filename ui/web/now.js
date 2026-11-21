@@ -13,6 +13,7 @@ import {PHASES, esc} from './lenses.js';
 import {highlightLine, langOf, LANG_LABEL} from './highlight.js';
 import {classify, CLASS_LABEL} from './meaning.js';
 import {holderOf, takenText, fieldsOf, fieldCounts} from './holder.js';
+import {autopilot, principalOf} from './principal.js';
 
 export const KIND_LABEL = {llm: 'LLM agent', program: 'Program', review: 'Review program', copy: 'Copy', driver: 'Driver', person: 'Person', decider: 'Decider'};
 const at = (e) => { const t = Date.parse(e?.at); return isNaN(t) ? null : t; };
@@ -132,7 +133,7 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
       const record = claim(pool, (r) => r.kind === 'decider' && r.case === c.id && (!a.action || r.action === a.action), since);
       const entry = {c, ...a, verdict: w.verdict, event: w.event, since: since ?? record?.started ?? null, approx: since == null ? at(w.event) : null,
         kind: record ? 'decider' : 'person', record};
-      entry.holder = holderOf(entry, run?.decisions);
+      entry.holder = holderOf(entry, run?.decisions, run?.settings);
       waiting.push(entry);
     }
   }
@@ -144,9 +145,11 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
     const l = c.events[c.events.length - 1];
     return l && !c.events.some((e) => e.event === 'terminated') && !lastVerdictish(c) && !running.some((r) => r.c === c) && !gone.some((r) => r.c === c);
   });
-  let mode = running.length ? 'running' : gone.length ? 'gone' : waiting.length ? 'waiting' : stalled.length ? 'stalled' : term ? 'closed' : stuck.length ? 'stuck' : terminable.length ? 'terminable' : between.length ? 'between' : 'idle';
+  // a run stopped on purpose (run-stopped.json): said as such, whatever it was doing at the stop
+  const stopped = run?.stopped && !isNaN(Date.parse(run.stopped.at)) ? {...run.stopped, t: Date.parse(run.stopped.at)} : null;
+  let mode = stopped ? 'stopped' : running.length ? 'running' : gone.length ? 'gone' : waiting.length ? 'waiting' : stalled.length ? 'stalled' : term ? 'closed' : stuck.length ? 'stuck' : terminable.length ? 'terminable' : between.length ? 'between' : 'idle';
   const lastT = Math.max(0, ...cases.map((c) => Math.max(0, ...Object.values(c.times || {}))));
-  return {mode, running, gone, driver, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
+  return {mode, stopped, autopilot: autopilot(run?.settings), running, gone, driver, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
     steps: cases.reduce((n, c) => n + c.events.filter((e) => e.event === 'action_finished').length, 0)};
 }
 function lastVerdictish(c) {
@@ -180,7 +183,7 @@ export function recentSteps(cases, run, n = 4) {
         const discarded = c.events.some((x) => x.event === 'discarded' && x.action === e.action && x.seq > (s?.seq ?? -1) && x.seq < e.seq);
         const result = (e.evidence || []).map((id) => { const r = c.evidence?.[id]; return r ? `${r.kind}${r.result != null ? ' = ' + (typeof r.result === 'object' ? JSON.stringify(r.result) : r.result) : ''}` : id; }).join(', ');
         all.push({c, start: s, end: e, t: t1, tApprox: at(e), dur, durSrc, discarded, exit: String(e.exit), result: result || (Object.keys(e.revises || {}).length ? `revised ${Object.keys(e.revises).join(', ')}` : 'no evidence'),
-          kind: e.principal ? (/^decider:/.test(e.principal) ? 'decider' : 'person') : executorOf(c, s || {action: e.action}).kind});
+          kind: e.principal ? ({person: 'person', decider: 'decider', rule: 'decider'}[principalOf(e.principal).kind] || 'driver') : executorOf(c, s || {action: e.action}).kind});
         started = null;
       }
     }
@@ -208,6 +211,7 @@ export function phaseOf(c, action) {
 // phase id -> what is active in it, for the phase strip
 export function activePhases(st) {
   const m = new Map();
+  if (st.stopped) return m;
   for (const r of st.running) { const p = phaseOf(r.c, r.action); if (p && !m.has(p)) m.set(p, {kind: r.kind, verb: 'running', action: r.action, case: r.c.id}); }
   for (const w of st.waiting) if (w.kind === 'decider') { const p = phaseOf(w.c, w.action); if (p && !m.has(p)) m.set(p, {kind: 'decider', verb: 'deciding', action: w.action, case: w.c.id}); }
   return m;
@@ -216,8 +220,9 @@ export function activePhases(st) {
 // action -> {kind, verb, since} for one case's graph
 export function graphLive(st, c) {
   const m = new Map();
-  for (const r of st.running) if (r.c === c) m.set(r.action, {kind: r.kind, verb: 'running', since: r.since ?? r.approx});
-  for (const w of st.waiting) if (w.c === c && w.action) m.set(w.action, {kind: w.kind, verb: w.kind === 'decider' ? 'deciding' : 'waiting', since: w.since ?? w.approx});
+  // a stopped run: the node says so, its clock stands at the stop (the page's clock is the stop time)
+  for (const r of st.running) if (r.c === c) m.set(r.action, {kind: r.kind, verb: st.stopped ? 'stopped' : 'running', since: r.since ?? r.approx});
+  for (const w of st.waiting) if (w.c === c && w.action) m.set(w.action, {kind: w.kind, verb: st.stopped ? 'stopped' : w.kind === 'decider' ? 'deciding' : 'waiting', since: w.since ?? w.approx});
   return m;
 }
 
@@ -259,6 +264,7 @@ const ICON = {
   driver: '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2" fill="currentColor"/><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2.6 2.2"/></svg>',
   done: '<svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   stuck: '<svg viewBox="0 0 16 16"><path d="M8 4v5M8 11.6v.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+  stopped: '<svg viewBox="0 0 16 16"><rect x="4.2" y="4.2" width="7.6" height="7.6" rx="1.4" fill="currentColor"/></svg>',
   idle: '<svg viewBox="0 0 16 16"><path d="M5.5 4v8M10.5 4v8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
 };
 const orb = (kind, spin) => `<span class="orb k-${kind}${spin ? ' spin' : ''}"><span class="orb-i">${ICON[kind] || ICON.program}</span></span>`;
@@ -361,17 +367,19 @@ function waitCard(w, now, item) {
   // who holds the decision (UXF-011): the decider deciding now, else the person, with why
   const who = w.kind === 'decider'
     ? `<span class="nc-hk">Held by</span>${tag('decider', `Decider ${rec.model || ''}`.trim())}<span class="nc-dim">${esc(h.note)}${rec.type ? ` · ${esc(rec.type)}` : ''}</span>`
-    : `<span class="nc-hk">Held by</span>${tag(h.who === 'rule' ? 'decider' : 'person', h.label)}<span class="nc-dim nc-hn" title="${esc(h.note)}">${esc(h.note)}</span>`;
-  const verb = w.kind === 'decider' ? 'Deciding' : w.verdict === 'awaiting_authority' ? 'Awaiting authority' : 'Awaiting a person';
+    : `<span class="nc-hk">Held by</span>${tag(h.who === 'person' ? 'person' : 'decider', h.label)}<span class="nc-dim nc-hn" title="${esc(h.note)}">${esc(h.note)}</span>`;
+  const verb = w.kind === 'decider' ? 'Deciding' : h.who !== 'person' ? 'Open decision' : w.verdict === 'awaiting_authority' ? 'Awaiting authority' : 'Awaiting a person';
   // one decision over several fields (UXF-012), and what taking it does
   const one = fields ? `<span class="nc-one"><b>1 decision over ${fields.length} fields</b> · ${esc(fieldCounts(fields))}</span>` : '';
-  return `<div class="nc wait k-${w.kind}" data-key="wait:${esc(w.c.rel)}:${esc(w.action)}:${w.event.seq}" data-goto="${esc(w.c.rel)}"${w.action ? ` data-node="action:${esc(w.action)}"` : ''} title="${esc(`${w.c.id}: ${w.verdict.replace('_', ' ')}\n${w.decides}\nheld by ${h.label}${h.note ? `: ${h.note}` : ''}${rec ? `\nrecord ${rec.rel}` : ''}`)}">
-    ${orb(w.kind, w.kind === 'decider')}
+  // a decision no person holds is drawn as the decider's
+  const kc = w.kind === 'person' && h.who !== 'person' ? 'decider' : w.kind;
+  return `<div class="nc wait k-${kc}" data-key="wait:${esc(w.c.rel)}:${esc(w.action)}:${w.event.seq}" data-goto="${esc(w.c.rel)}"${w.action ? ` data-node="action:${esc(w.action)}"` : ''} title="${esc(`${w.c.id}: ${w.verdict.replace('_', ' ')}\n${w.decides}\nheld by ${h.label}${h.note ? `: ${h.note}` : ''}${rec ? `\nrecord ${rec.rel}` : ''}`)}">
+    ${orb(kc, w.kind === 'decider')}
     <div class="nc-main">
       <div class="nc-1"><span class="nc-verb">${verb}</span><b class="nc-act">${esc(w.action || w.verdict.replace('_', ' '))}</b><span class="nc-in">in</span><span class="nc-case">${esc(w.c.id)}</span></div>
       <div class="nc-2 nc-hold">${who}</div>
       <div class="nc-2 nc-what">${one}${what}<span class="nc-taken">${esc(takenText(w))}</span></div>
-      ${w.kind === 'decider' ? `<div class="nc-3">${progress(rec)}</div>${turnBar(rec)}` : `<div class="nc-3"><span class="nc-why">${esc(w.handoff ? w.decides.replace(/ in \/\S+/, '') : w.decides.replace(/ \(read \/.*\)$/, ''))}</span>${w.kind === 'person' ? '<button class="btn sm nc-btn" data-open-drawer="1">Decide</button>' : ''}</div>`}
+      ${w.kind === 'decider' ? `<div class="nc-3">${progress(rec)}</div>${turnBar(rec)}` : `<div class="nc-3"><span class="nc-why">${esc(w.handoff ? w.decides.replace(/ in \/\S+/, '') : w.decides.replace(/ \(read \/.*\)$/, ''))}</span>${w.kind === 'person' && h.who === 'person' ? '<button class="btn sm nc-btn" data-open-drawer="1">Decide</button>' : ''}</div>`}
       ${w.questions?.length ? `<div class="nc-qs">${w.questions.slice(0, 3).map((q) => `<div class="nc-q" data-qid="${esc(q.id)}"><b>${esc(q.id)}</b><span>${esc(q.question)}</span>${q.awaiting ? '' : `<i>answered: ${esc(q.answer)} · ${esc(q.answered_by)}</i>`}</div>`).join('')}${w.questions.length > 3 ? `<div class="nc-q more">and ${w.questions.length - 3} more</div>` : ''}</div>` : ''}
     </div>
     <div class="nc-time">${t != null ? since(t, now) : '<span class="tk">—</span>'}<span class="nc-since">${w.since != null ? `${w.kind === 'decider' ? 'waiting' : 'waiting'} since ${clock(w.since)}` : ''}</span></div>
@@ -387,6 +395,16 @@ export function stallText(stall) {
 
 function restCard(st, now) {
   const root = st.root;
+  if (st.mode === 'stopped') {
+    const s = st.stopped;
+    const was = wasLines(st);
+    return `<div class="nc idle k-stopped" data-key="rest:stopped" data-goto="${esc(root.rel)}" title="${esc(`run-stopped.json: stopped by ${s.by || 'not recorded'} at ${s.at}\nverdict at the stop: ${s.verdict_at_stop || 'not recorded'}${s.case ? ` in ${s.case}` : ''}`)}">${orb('stopped')}<div class="nc-main">
+      <div class="nc-1"><span class="nc-verb">Stopped</span><span class="nc-in">by</span><b class="nc-act">${esc(s.by || 'not recorded')}</b><span class="nc-in">at</span><span class="nc-case">${esc(clock(s.t))}</span></div>
+      <div class="nc-2"><span class="nc-x">${esc(s.reason || 'No reason recorded.')}</span></div>
+      ${was.map((w) => `<div class="nc-3 nc-was"${w.rel ? ` data-goto="${esc(w.rel)}" data-seq="${w.seq}"` : ''}><span class="nc-why">${esc(w.text[0].toUpperCase() + w.text.slice(1))}${w.ms != null ? ` (${esc(fmtDur(w.ms))} until the stop)` : ''}</span></div>`).join('')}
+      <div class="nc-3"><span class="nc-dim">Nothing runs and nothing is decided until the run is resumed.</span></div></div>
+      <div class="nc-time"><span class="tk">${esc(clock(s.t))}</span><span class="nc-since">stopped</span></div></div>`;
+  }
   if (st.mode === 'stalled') {
     return st.stalled.map(({c, stall, since: t}) => `<div class="nc idle k-stuck" data-key="rest:stalled:${esc(c.rel)}" data-goto="${esc(c.rel)}" title="${esc(`the driver recorded awaiting_person with next amend.upstream; findings.yaml has no finding with status needs_person`)}">${orb('stuck')}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Stopped</span><b class="nc-act">${esc(c.id)}</b><span class="nc-out bad">no step can run</span></div>
       <div class="nc-2 nc-what"><span class="nc-x">${esc(stallText(stall))}</span></div>
@@ -444,13 +462,42 @@ function stuckReason(c) {
   return open.length ? `open: ${open.slice(0, 3).join(', ')}${open.length > 3 ? ` and ${open.length - 3} more` : ''}` : 'nobody is asked to decide';
 }
 
+// What a stopped run was doing at the stop, in the past tense: the file's verdict and case first,
+// the waits and steps the store still shows open after them.
+const PAST = {awaiting_person: 'waiting on a person', awaiting_authority: 'awaiting authority', stuck: 'stuck', terminable: 'terminable', terminated: 'closed', step_budget_spent: 'out of steps', llm_budget_spent: 'out of LLM calls', wall_time_spent: 'out of time'};
+export function wasLines(st) {
+  const s = st.stopped || {};
+  const out = [];
+  const past = (v) => (st.autopilot && v === 'awaiting_person' ? 'waiting on a decision' : PAST[v] || String(v).replace(/_/g, ' '));
+  for (const w of st.waiting) out.push({text: `was ${past(w.verdict)}${w.action ? ` for ${w.action}` : ''} in ${w.c.id}${w.since != null ? ` since ${clock(w.since)}` : ''}`, rel: w.c.rel, seq: w.event.seq, ms: w.since != null ? s.t - w.since : null});
+  for (const r of [...st.running, ...st.gone]) out.push({text: `was running ${r.action} in ${r.c.id}${r.since != null ? ` since ${clock(r.since)}` : ''}`, rel: r.c.rel, seq: r.start.seq, ms: r.since != null ? s.t - r.since : null});
+  for (const x of st.stalled) out.push({text: `could run no step in ${x.c.id}: ${stallText(x.stall).replace(/^No step can run: /, '')}`, rel: x.c.rel, seq: x.event.seq, ms: null});
+  if (!out.length && s.verdict_at_stop) out.push({text: `was ${past(s.verdict_at_stop)}${s.case ? ` in ${s.case}` : ''}`, rel: null, seq: null, ms: null});
+  // the file's own case first
+  return out.sort((a, b) => (b.text.includes(` in ${s.case}`) ? 1 : 0) - (a.text.includes(` in ${s.case}`) ? 1 : 0));
+}
+function wasText(st) {
+  const w = wasLines(st);
+  return w.length ? `It ${w[0].text}${w.length > 1 ? ` (and ${w.length - 1} more)` : ''}` : 'Nothing was running or waiting';
+}
+
 // The band's head: what is true now, in words.
 export function nowSay(st) {
   const n = st.waiting.length;
-  const mine = st.waiting.filter((w) => w.kind !== 'decider' && w.holder?.who !== 'rule').length;
+  const mine = st.waiting.filter((w) => w.kind !== 'decider' && w.holder?.who !== 'rule' && w.holder?.who !== 'decider').length;
+  if (st.mode === 'stopped') {
+    const s = st.stopped;
+    return {head: `Stopped by ${s.by || 'someone (not recorded)'} at ${clock(s.t)}${s.reason ? `: ${s.reason}` : ''}`, sub: wasText(st)};
+  }
+  if (st.mode === 'waiting' && st.autopilot) {
+    // autopilot: never "waiting on you"
+    if (st.waiting.some((w) => w.kind === 'decider')) return {head: 'The decider is deciding', sub: n > 1 ? `${n} decisions open` : ''};
+    return {head: 'No decision is pending: the decider takes the next one when the run continues', sub: ''};
+  }
   if (st.mode === 'waiting') {
     if (mine) return {head: `Waiting on you: nothing runs until ${mine > 1 ? `these ${mine} are` : 'this is'} decided`, sub: n > mine ? `${n - mine} held by a decider` : ''};
-    return {head: 'Decider deciding: the run goes on when it decides', sub: n > 1 ? `${n} waiting` : ''};
+    if (st.waiting.some((w) => w.kind === 'decider')) return {head: 'Decider deciding: the run goes on when it decides', sub: n > 1 ? `${n} waiting` : ''};
+    return {head: `Held by the ${st.waiting[0].holder?.who === 'rule' ? 'rule decider' : 'decider'}: it decides when the run continues`, sub: n > 1 ? `${n} waiting` : ''};
   }
   if (st.mode === 'stuck') {
     const c = st.stuck[0];
@@ -462,16 +509,16 @@ export function nowSay(st) {
   if (st.mode === 'stalled') return {head: stallText(st.stalled[0].stall), sub: st.stalled.length > 1 ? `${st.stalled.length} cases` : ''};
   if (st.mode === 'closed') return {head: `Closed${st.term?.outcome ? `: ended ${st.term.outcome}` : ''}`, sub: ''};
   const head = {running: `${st.running.length} running`, gone: 'Nothing running', terminable: 'Nothing running', between: 'Between steps', idle: 'Nothing running'}[st.mode];
-  const sub = st.mode === 'gone' ? `a started step has no live driver${n ? ` · ${n} waiting` : ''}` : st.mode === 'running' && n ? `${n} waiting${mine ? ` on you` : ''}` : '';
+  const sub = st.mode === 'gone' ? `a started step has no live driver${n ? ` · ${n} waiting` : ''}` : st.mode === 'running' && n ? `${n} waiting${mine && !st.autopilot ? ` on you` : ''}` : '';
   return {head, sub};
 }
 
 export function renderNow(st, now, items = []) {
   const {head, sub} = nowSay(st);
   const itemOf = (w) => (items || []).find((i) => i.case === w.c.id && (i.action === w.action || i.approval?.action === w.action));
-  const cards = st.running.map((r) => runCard(r, now)).join('') + st.gone.map((r) => goneCard(r, now)).join('') + st.waiting.map((w) => waitCard(w, now, itemOf(w))).join('') + (st.running.length || st.gone.length || st.waiting.length ? '' : restCard(st, now));
+  const cards = st.mode === 'stopped' ? restCard(st, now) : st.running.map((r) => runCard(r, now)).join('') + st.gone.map((r) => goneCard(r, now)).join('') + st.waiting.map((w) => waitCard(w, now, itemOf(w))).join('') + (st.running.length || st.gone.length || st.waiting.length ? '' : restCard(st, now));
   return `<div class="now-h" data-key="h"><span class="now-l">Now</span><span class="now-s m-${st.mode}"><i></i>${esc(head)}</span>${sub ? `<span class="now-sub">${esc(sub)}</span>` : ''}${driverChip(st)}</div>
-    <div class="now-cards n${Math.min(3, st.running.length + st.gone.length + st.waiting.length || 1)}" data-key="cards">${cards}</div>${trail(st, now)}`;
+    <div class="now-cards n${st.mode === 'stopped' ? 1 : Math.min(3, st.running.length + st.gone.length + st.waiting.length || 1)}" data-key="cards">${cards}</div>${trail(st, now)}`;
 }
 
 // ---- file changes of the run ----------------------------------------------------------------------
