@@ -51,6 +51,13 @@ tasks:
         code|docs/img/other.svg
         code|README.md driver/src/lib.rs
         code|website/docs/index.md scripts/run-trial.sh
+        planning|docs/x.md
+        code|instructions/x.md
+        code|instructions/golden/decider/x.md README.md
+        code|bindings/tools/llm-node.sh
+        code|bindings/PENDING.md
+        code|cycles/suite.yaml
+        code|views/sdc.view.json
         code|
         CASES
         echo "$n cases"
@@ -140,17 +147,19 @@ tasks:
     desc: "Wait for the forge runs of one commit of beyond10x/runbook and exit non-zero unless every run succeeded: task ci:watch SHA=<commit>."
     requires:
       vars: [SHA]
+    env:
+      SHA: '{{.SHA}}'
     cmds:
       - |
         set -eu
-        printf '%s' "{{.SHA}}" | grep -qE '^[0-9a-f]{40}$' || { echo "SHA must be a full 40-character commit id"; exit 1; }
-        runs=$(gh run list --repo beyond10x/runbook --commit "{{.SHA}}" --limit 100 --json databaseId --jq '.[].databaseId')
-        test -n "$runs" || { echo "no workflow runs for {{.SHA}} in beyond10x/runbook"; exit 1; }
+        printf '%s' "$SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "SHA must be a full 40-character commit id"; exit 1; }
+        runs=$(gh run list --repo beyond10x/runbook --commit "$SHA" --limit 100 --json databaseId --jq '.[].databaseId')
+        test -n "$runs" || { echo "no workflow runs for $SHA in beyond10x/runbook"; exit 1; }
         fail=0
         for id in $runs; do
           gh run watch "$id" --repo beyond10x/runbook --exit-status > /dev/null || true
           conclusion=$(gh run view "$id" --repo beyond10x/runbook --json conclusion --jq .conclusion)
           echo "run $id: ${conclusion:-unknown}"
-          test "$conclusion" = success || fail=1
+          case "$conclusion" in success | skipped) ;; *) fail=1 ;; esac
         done
         exit $fail

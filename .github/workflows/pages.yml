@@ -54,6 +54,7 @@ jobs:
               '') ;;
               .engineering/*) planning=1 ;;
               website/* | experiments/* | docs/releases/* | docs/progress.json | docs/img/progress.svg | docs/check-output.txt | CHANGELOG.md) site=1 ;;
+              instructions/* | bindings/* | cycles/* | views/*) code=1 ;;
               *.md) planning=1 ;;
               *) code=1 ;;
             esac
@@ -79,8 +80,8 @@ jobs:
         run: |
           set -euo pipefail
           pin=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
-          got=$(rustc --version | cut -d' ' -f2)
-          test -n "$pin" && test "$got" = "$pin" || { echo "rustc $got does not match the pin $pin in rust-toolchain.toml"; exit 1; }
+          used=$(sed -n 's/^ *toolchain: *//p' .github/workflows/pages.yml | tr -d "\"'" | sort -u)
+          test -n "$pin" && test "$used" = "$pin" || { echo "the workflow installs rustc '$used' and rust-toolchain.toml pins '$pin'"; exit 1; }
       - name: Check the site's protocol data is current
         if: steps.changes.outputs.class != 'planning'
         env:
