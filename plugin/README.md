@@ -26,7 +26,7 @@ For a local checkout, give the path of the checkout instead of `beyond10x/runboo
 
 `harden` and `record` work today inside a checkout of this repository: their commands are the
 scripts and binaries here (`scripts/check-protocols.sh`, `scripts/check-bindings.sh`,
-`sdc-check-routes`, `sdc-experiment`), and they need a Canon checkout (`CANON_DIR`).
+`sdc-check-routes`, `sdc-experiment`), and they need the pinned `canon` binary (`CANON`, else the cached install of the commit in `driver/canon-pin.json`).
 
 ## Planned
 
