@@ -157,6 +157,8 @@ render() {
   local -n _o=$1
   local _f=$repo_root/instructions/decider/$2 _t _out="" _m _k _kv
   local -A _v=()
+  [[ $2 == *.md && $2 != /* && ! $2 =~ (^|/)\.\.(/|$) ]] ||
+    { echo "decider.sh: the instruction path $2 is not <...>.md under instructions/decider/ without a .. segment" >&2; exit 126; }
   shift 2
   [[ -f $_f ]] || { echo "decider.sh: the instruction file ${_f#"$repo_root"/} is missing" >&2; exit 126; }
   for _kv; do _v[${_kv%%=*}]=${_kv#*=}; done

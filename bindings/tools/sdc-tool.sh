@@ -304,6 +304,11 @@ impl-gate)
   ess specify compile --path spec --out .sdc/impl-gate-ir.json >/dev/null || { no "commands: spec does not compile"; exit 1; }
   all=$(jq -r '.commands | keys[]' .sdc/impl-gate-ir.json)
   story=$(cut -d. -f3 <<< "${SDC_CASE:-}") sf=""
+  # Loom mode: the names Loom gave the cases, not a cut of the case id (a repeated case is IDEA.epic.2).
+  if [[ -n ${LOOM_CASE:-} ]]; then
+    if [[ -n ${LOOM_PARENT_CASE_NAME:-} ]]; then story=${LOOM_CASE_NAME:-$story}
+    elif [[ -n ${LOOM_CASE_NAME:-} ]]; then story=""; fi
+  fi
   [[ -n $story ]] && sf=aep/story/$story.md
   if [[ -n $sf && -f $sf ]]; then
     summary=$(yq --front-matter=extract -r '.summary // ""' "$sf")
@@ -376,6 +381,8 @@ list-epics)
 list-stories)
   # the stories that deliver this case's epic (case id IDEA.<epic>[...])
   epic=$(cut -d. -f2 <<< "$SDC_CASE")
+  # Loom mode: the epic is the name Loom gave the epic case (LOOM_CASE_NAME) or the parent's name.
+  if [[ -n ${LOOM_CASE:-} ]]; then epic=${LOOM_PARENT_CASE_NAME:-${LOOM_CASE_NAME:-$epic}}; fi
   aep plan artifact list --store aep --format json | jq -c --arg e "epic:$epic" \
     '{stories: [.[] | select(.kind == "story" and any(.relations[]?; .relation == "delivers" and .target == $e))
       | .id | sub("^story:"; "")]}' ;;

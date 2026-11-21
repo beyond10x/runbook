@@ -74,9 +74,12 @@ if [[ -n ${LOOM_CASE:-} ]]; then
     + (if $mt == "" then {} else {max_turns: ($mt | tonumber)} end)
     + (if $usd == "" then {} else {max_budget_usd: ($usd | tonumber)} end)
     + (if $ops == "" then {} else {operations: ($ops | split(","))} end)
-    + (if $ins == "" then {} else {instructions: ($ins | fromjson)} end)
+    + (if $ins == "" then {} else {instructions: ($ins | fromjson | if type == "object" then . else error("not an object") end)} end)
     + (if $stub == "" then {} else {stub: $ARGS.positional} end)' --args "$@") ||
-    { echo "llm-node: $node could not run: --max-turns and --max-budget-usd take numbers" >&2; exit 64; }
+    { echo "llm-node: $node could not run: $(for _o in --max-turns --max-budget-usd; do
+        [[ -z ${opt[$_o]:-} ]] || jq -en --arg v "${opt[$_o]}" '$v | tonumber' > /dev/null 2>&1 || { echo "$_o takes a number, got ${opt[$_o]}"; break; }; done)$(
+        [[ -z ${opt[--instructions]:-} ]] || jq -e 'type == "object"' <<< "${opt[--instructions]}" > /dev/null 2>&1 ||
+        echo "--instructions takes a JSON object, got ${opt[--instructions]}")" >&2; exit 64; }
   SDC_REPLY=$(sibling sdc-reply)
   export SDC_LLM_NODE SDC_REPLY SDC_CASE=$LOOM_CASE SDC_ACTION=$node
   [[ -n ${opt[--adapter]:-} ]] && export SDC_LLM_ADAPTER=${opt[--adapter]}
@@ -90,10 +93,10 @@ if [[ -n ${LOOM_CASE:-} ]]; then
       { echo "llm-node: $node could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document" >&2; exit 126; }
     fbd=$PWD/.sdc/loom-feedback/$(sha256sum < "$LOOM_RETRY_FEEDBACK" | cut -c1-16)
     mkdir -p "$fbd"
-    jq -r '.logs[].blob_sha256 | select(test("^[0-9a-f]{64}$"))' "$LOOM_RETRY_FEEDBACK" | while read -r b; do
+    jq -r '.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$LOOM_RETRY_FEEDBACK" | while read -r b; do
       jq -j --arg b "$b" '[.logs[] | select(.blob_sha256 == $b)][0].tail' "$LOOM_RETRY_FEEDBACK" > "$fbd/$b"
     done
-    jq --arg d "$fbd" '[.logs[].blob_sha256] as $logged | [.records[] | {kind, result, subject, action: null, exit: null,
+    jq --arg d "$fbd" '[.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))] as $logged | [.records[] | {kind, result, subject, action: null, exit: null,
       log: (.blob_sha256 as $b | if $b != null and ($logged | index($b)) != null then "\($d)/\($b)" else null end)}]' \
       "$LOOM_RETRY_FEEDBACK" > "$fbd/feedback.json" && SDC_FEEDBACK=$fbd/feedback.json
   fi
@@ -348,6 +351,11 @@ trap 'c=$?; [[ $c == 0 ]] && call_status finished 0 || call_status failed "$c"' 
 attempt=$(( $(find "$rec_root" -mindepth 1 -maxdepth 1 -type d -name "*-$node" | wc -l) ))
 epic=$(cut -d. -f2 <<< "${SDC_CASE:-}")
 story=$(cut -d. -f3 <<< "${SDC_CASE:-}")
+# Loom mode: the names Loom gave the cases, not a cut of the case id (a repeated case is IDEA.epic.2).
+if [[ -n ${LOOM_CASE:-} ]]; then
+  if [[ -n ${LOOM_PARENT_CASE_NAME:-} ]]; then epic=$LOOM_PARENT_CASE_NAME story=${LOOM_CASE_NAME:-$story}
+  elif [[ -n ${LOOM_CASE_NAME:-} ]]; then epic=$LOOM_CASE_NAME story=""; fi
+fi
 
 # Copy one declared input from work/ into in/ (a missing one is listed as absent).
 inputs=()
@@ -386,6 +394,8 @@ render() {
   local -n _o=$1
   local _f=$repo_root/$2 _t _out="" _m _k _kv
   local -A _v=()
+  [[ $2 == instructions/*.md && $2 != /* && ! $2 =~ (^|/)\.\.(/|$) ]] ||
+    { echo "llm-node: $node could not run: the instruction path $2 is not instructions/<...>.md without a .. segment" >&2; exit 126; }
   shift 2
   [[ -f $_f ]] || { echo "llm-node: $node could not run: the instruction file ${_f#"$repo_root"/} is missing" >&2; exit 126; }
   for _kv; do _v[${_kv%%=*}]=${_kv#*=}; done

@@ -51,6 +51,26 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
     acts=$(yq -o=json '.actions' "$y")
     findings+=$(jq -r '.[] | .action as $a | ((.executor.argv // []), (.arguments_from // []))[]
       | select(test("(^|/)\\.\\.(/|$)")) | "\nbindings/'"$name"'.yaml \($a) names \(.): a path with .."' <<< "$acts")
+    # The instruction files of an agent action (docs/driver.md, "Instructions") are named twice:
+    # --instructions in bindings/<name>.yaml and llm.instructions in the JSON file. The two name the
+    # same files per action; the value of --instructions is parsed, and every file named is
+    # instructions/<...>.md without a `..` segment and exists.
+    findings+=$(jq -r --slurpfile j "$b" '
+      def ins: (.executor.argv // []) as $v | [range(0; ($v | length) - 1) | select($v[.] == "--instructions") | $v[. + 1]][0];
+      .[] | .action as $a
+      | (ins | if . == null then null else (try fromjson catch "bad") end) as $y
+      | ($j[0][$a].llm.instructions // null) as $d
+      | if $y == "bad" then "\nbindings/'"$name"'.yaml \($a): --instructions is not a JSON object"
+        elif $j[0][$a] == null then empty
+        elif $y != $d then "\nbindings/'"$name"'.yaml \($a): --instructions \($y | tojson) differs from llm.instructions \($d | tojson) of '"$name"'.bindings.json"
+        else empty end' <<< "$acts")
+    while IFS= read -r p; do
+      [[ $p =~ ^instructions/.+\.md$ && ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
+        findings+=$'\n'"$name: instruction file $p is not an existing instructions/<...>.md without .."
+    done < <(
+      jq -r '(.[] | (.executor.argv // []) as $v | [range(0; ($v | length) - 1) | select($v[.] == "--instructions") | $v[. + 1]][]
+          | (try fromjson catch {}) | if type == "object" then .[] else empty end)' <<< "$acts"
+      jq -r 'to_entries[] | select(.key | startswith("$") | not) | .value.llm.instructions // {} | .[]' "$b")
     while IFS=$'\t' read -r a m p; do
       [[ $p == */* ]] || continue
       [[ $p =~ ^tools/[^/]+$ && -f $sdc/bindings/$p && -x $sdc/bindings/$p ]] ||

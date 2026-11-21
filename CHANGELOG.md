@@ -94,6 +94,7 @@ bare-version tags (`docs/releasing.md`).
   driver still runs from, each accepted by Loom's loader at Loom `8a8fad3b`; `bindings/PENDING.md`
   lists what the format cannot express yet, and `scripts/check-bindings.sh` checks the YAML files
   against the JSON files and the protocols (`docs/loom-bindings.md`).
+- In Loom mode `llm-node.sh` and `sdc-tool.sh` take the epic and the story of a case from `LOOM_PARENT_CASE_NAME` and `LOOM_CASE_NAME` (the names Loom gave the cases) and fall back to the cut of the case id when neither is set, so a story under a repeated epic (`IDEA-1.billing.2.story-a`) is `story-a` (`docs/loom-bindings.md`, `bindings/PENDING.md`).
 
 ### Changed
 
@@ -149,6 +150,14 @@ bare-version tags (`docs/releasing.md`).
   ran itself in a case tree: the conformance line of a story's `tests.run` log then names 0.97.1,
   so `in/tests.txt` and the replay cycles depended on the installed ess (`f82aa7c`). It restores
   the release of every committed recording and record; not measured otherwise.
+
+### Security
+
+- `llm-node.sh` and `decider.sh` refuse an instruction path that is not `instructions/<...>.md` or
+  has a `..` segment (exit 126), and `llm-node.sh` in Loom mode reads a retry feedback log only for a
+  blob digest of 64 hex digits, so a binding value or a feedback record cannot read a file outside
+  `instructions/` or the feedback directory into a prompt; `scripts/check-bindings.sh` parses the
+  `--instructions` value.
 
 ## [0.2.1] - 2026-11-21
 

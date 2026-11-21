@@ -318,8 +318,16 @@ mod loom_mode {
 
     /// Loom's start: `PATH`, `LOOM_CASE`, `LOOM_RETRY_FEEDBACK` when given, the arguments on stdin.
     fn loom(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>) -> Run {
+        loom_named(root, tool, argv, case, arguments, feedback, &[])
+    }
+
+    /// Loom's start with the names it gave the case: `LOOM_CASE_NAME`, `LOOM_PARENT_CASE_NAME`.
+    fn loom_named(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>, names: &[(&str, &str)]) -> Run {
         let mut c = Command::new(tools().join(tool));
         c.args(argv).env_clear().env("PATH", path()).env("LOOM_CASE", case);
+        for (k, v) in names {
+            c.env(k, v);
+        }
         if let Some(f) = feedback {
             c.env("LOOM_RETRY_FEEDBACK", f);
         }
@@ -387,6 +395,103 @@ mod loom_mode {
         let l = loom(&r.1, "sdc-tool.sh", &["list-stories", "--action", "stories.open"], "IDEA-1.billing", "{}", None);
         assert_eq!((d.code, d.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{d:#?}");
         same("list-stories", &d, &l);
+    }
+
+    /// An epic case: the epic is `LOOM_CASE_NAME`, whatever the case id looks like.
+    #[test]
+    fn list_stories_in_an_epic_case_reads_the_epic_from_loom_case_name() {
+        let r = roots("list-stories-named");
+        let aep = |args: &[&str]| {
+            let o = Command::new("aep").args(args).args(["--store", "aep", "--root", "."]).current_dir(r.1.join("work")).output().unwrap();
+            assert!(o.status.success(), "aep {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        };
+        aep(&["plan", "artifact", "new", "epic", "billing", "--title", "Billing", "--summary", "invoices"]);
+        aep(&["plan", "artifact", "new", "story", "invoices", "--title", "Invoices", "--summary", "covers billing.invoice.Create", "--relate", "delivers:epic:billing"]);
+        let l = loom_named(&r.1, "sdc-tool.sh", &["list-stories", "--action", "stories.open"], "IDEA-1.unrelated", "{}", None, &[("LOOM_CASE_NAME", "billing")]);
+        assert_eq!((l.code, l.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{l:#?}");
+        let l = loom_named(&r.1, "sdc-tool.sh", &["list-stories", "--action", "stories.open"], "IDEA-1.billing.2", "{}", None, &[("LOOM_CASE_NAME", "billing")]);
+        assert_eq!((l.code, l.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{l:#?}");
+    }
+
+    /// The prompt llm-node wrote on the dry adapter for `node`, under Loom with `names`.
+    fn named_prompt(name: &str, node: &str, case: &str, names: &[(&str, &str)]) -> String {
+        let r = roots(name);
+        let cfg = if node == "plan.decompose" { "plan.decompose" } else { "change.implement" };
+        let instructions = if node == "plan.decompose" {
+            r#"{"task":"instructions/plan.decompose.md","inputs":"instructions/plan.decompose.inputs.md"}"#
+        } else {
+            r#"{"task":"instructions/change.implement.md","coverage":"instructions/change.implement.coverage.md","coverage_inputs":"instructions/change.implement.coverage.inputs.md"}"#
+        };
+        let argv = [cfg, "--model", "claude-haiku-5-5", "--max-turns", "15", "--max-budget-usd", "0.5", "--instructions", instructions, "--adapter", "dry", "--stub", "stub-tree", "impl", "impl"];
+        let l = loom_named(&r.1, "llm-node.sh", &argv, case, "{}", None, names);
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        l.files[&format!(".sdc/llm/001-{node}/prompt.md")].clone()
+    }
+
+    /// A story case takes its story from `LOOM_CASE_NAME` and its epic from `LOOM_PARENT_CASE_NAME`,
+    /// not from the case id: under a repeated epic the id is `IDEA-1.billing.2.story-a`.
+    #[test]
+    fn a_story_case_takes_story_and_epic_from_the_names_loom_gave() {
+        let p = named_prompt("named-story", "change.implement", "IDEA-1.billing.2.story-a", &[("LOOM_CASE_NAME", "story-a"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("aep/story/story-a.md") && !p.contains("aep/story/2.md"), "{p}");
+        let p = named_prompt("named-story-ids", "change.implement", "IDEA-1.x.y", &[("LOOM_CASE_NAME", "story-a"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("aep/story/story-a.md"), "{p}");
+        let p = named_prompt("named-plan", "plan.decompose", "IDEA-1.billing.2.plan", &[("LOOM_CASE_NAME", "plan"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("Decompose epic 'billing'"), "{p}");
+        let p = named_prompt("named-plan-ids", "plan.decompose", "IDEA-1.x.plan", &[("LOOM_CASE_NAME", "plan"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("Decompose epic 'billing'"), "{p}");
+    }
+
+    /// Without the names (a Loom before its wave 2) the tools cut the case id, as in driver mode.
+    #[test]
+    fn without_the_names_loom_mode_cuts_the_case_id() {
+        let p = named_prompt("unnamed-story", "change.implement", "IDEA-1.billing.story-a", &[]);
+        assert!(p.contains("aep/story/story-a.md"), "{p}");
+        let p = named_prompt("unnamed-plan", "plan.decompose", "IDEA-1.billing.plan", &[]);
+        assert!(p.contains("Decompose epic 'billing'"), "{p}");
+    }
+
+    /// A feedback record whose blob digest is not 64 hex digits is not a log path: the file it
+    /// would name (`<loom-feedback>/x` for `../x`) is not read into `in/feedback.md`.
+    #[test]
+    fn a_retry_feedback_record_with_a_path_for_a_digest_reads_no_file() {
+        let r = roots("retry-traversal");
+        for f in ["idea.yaml", "dissection.yaml"] {
+            put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
+        }
+        put(&r, "questions.yaml", "questions: []\n");
+        put(&r, ".sdc/loom-feedback/x", "SECRET-OUTSIDE-THE-LOG-DIRECTORY\n");
+        let doc = serde_json::json!({"format": "loom.retry-feedback/1", "case": "IDEA-1.intake", "action": "questions.write",
+            "records": [{"evidence_id": "e1", "kind": "questions_shape", "subject": "questions", "subject_revision": "r1",
+                "result": "invalid", "producer": "sdc-check", "observed_at": "2026-11-21T00:00:00Z", "blob_sha256": "../x"}],
+            "logs": [{"blob_sha256": "../x", "tail": "the tail"}]});
+        let doc_path = r.1.join("store-feedback.json");
+        fs::write(&doc_path, doc.to_string()).unwrap();
+        let stub = ["stub-file", "questions-open.yaml", "questions.yaml"];
+        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let feedback = &l.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
+        assert!(feedback.contains("## questions_shape = invalid") && !feedback.contains("SECRET-OUTSIDE"), "{feedback}");
+    }
+
+    /// The named option, not a guess: each bad option value says which option it was.
+    #[test]
+    fn a_bad_option_value_names_the_option() {
+        let r = roots("bad-options");
+        let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
+        for (extra, want) in [
+            (vec!["--max-turns", "many"], "--max-turns takes a number"),
+            (vec!["--max-budget-usd", "lots"], "--max-budget-usd takes a number"),
+            (vec!["--instructions", "{not json"], "--instructions takes a JSON object"),
+        ] {
+            let mut argv = vec!["idea.dissect"];
+            argv.extend_from_slice(&extra);
+            argv.extend_from_slice(&["--stub"]);
+            argv.extend_from_slice(&stub);
+            let l = loom(&r.1, "llm-node.sh", &argv, "IDEA-1.intake", "{}", None);
+            assert_eq!(l.code, Some(64), "{extra:?}: {l:#?}");
+            assert!(l.stderr.contains(want), "{extra:?}: {}", l.stderr);
+        }
     }
 
     #[test]

@@ -1043,7 +1043,7 @@ be inside this driver binding"; `story:instructions-as-files`).
   and the fragments they are made of.
 - A variable part is a placeholder `{{name}}` (lower case and `_`). The tool fills each placeholder
   from a value it computes, in one pass; a placeholder without a value, or a missing file, is a
-  program error (exit 126).
+  program error (exit 126). So is a path that is not `instructions/<...>.md` or has a `..` segment.
 
 A binding names the files of its action in the `llm` object, `instructions`: `task` is required, the
 other keys name the parts the action has.
@@ -1059,7 +1059,7 @@ directory sits. `bindings/*.yaml` (`loom.bindings/1`) names no instruction file;
 `bindings/PENDING.md` says what brings it.
 
 The prompt each action and decider writes is held byte for byte by `driver/tests/bugfix_prompt.rs`
-against `instructions/golden/` (36 prompts on stub inputs; `SDC_BLESS_PROMPTS=1 cargo test --test
+against `instructions/golden/` (40 prompts on stub inputs, among them the retry texts, the writer's own failure and a case with no gate command; a golden no test reads and an instruction file no golden reaches fail `bugfix_prompt`; `SDC_BLESS_PROMPTS=1 cargo test --test
 bugfix_prompt` rewrites them, after a change of an instruction that is meant). Not in files: the
 text `sdc-reply implement-run` writes for `SDC_IMPLEMENT_MODE=request` (Rust), and the heading lines
 of `in/feedback.md`, which is a record of check results.
