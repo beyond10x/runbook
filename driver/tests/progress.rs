@@ -108,3 +108,30 @@ fn a_table_problem_writes_nothing_and_fails() {
     assert!(say(&o).contains("`effect` must be measured, unmeasured or none"), "{}", say(&o));
     assert!(!root.join("docs/progress.md").exists());
 }
+
+/// D149: the LLM decider is `decider.kind: model`; `haiku` is its old name. A record that says
+/// haiku checks against a run that recorded model and the other way round, and a release table
+/// setting matches variants by either name.
+#[test]
+fn decider_kind_haiku_and_model_are_one_setting() {
+    let root = repo("decider-kind");
+    let e = root.join("experiments");
+    let rec = e.join("e1.yaml");
+    fs::write(&rec, fs::read_to_string(&rec).unwrap().replace("fixed: {decider.model: h}", "fixed: {decider.model: h, decider.kind: haiku}")).unwrap();
+    for (r, kind) in [("h1", "model"), ("h2", "haiku"), ("s1", "model")] {
+        let p = e.join(format!("e1/runs/{r}.json"));
+        let mut d: serde_json::Value = serde_json::from_str(&fs::read_to_string(&p).unwrap()).unwrap();
+        d["settings"]["decider.kind"] = json!(kind);
+        fs::write(&p, d.to_string()).unwrap();
+    }
+    let t = e.join("releases.yaml");
+    fs::write(&t, fs::read_to_string(&t).unwrap().replace("match: {models.writer.model: h, decider.model: h}",
+        "match: {models.writer.model: h, decider.model: h, decider.kind: model}")).unwrap();
+    let o = exp(&root, &["check", "experiments/e1.yaml"]);
+    assert!(o.status.success(), "{}", say(&o));
+    assert!(!say(&o).contains("decider.kind"), "{}", say(&o));
+    let o = exp(&root, &["progress"]);
+    assert!(o.status.success(), "{}", say(&o));
+    let md = fs::read_to_string(root.join("docs/progress.md")).unwrap();
+    assert!(md.contains("| All Haiku | `e1` | a |"), "{md}");
+}

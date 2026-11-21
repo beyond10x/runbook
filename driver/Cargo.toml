@@ -1,6 +1,6 @@
 [package]
 name = "sdc-drive"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 publish = false
 
@@ -51,6 +51,14 @@ path = "src/bin/sdc-experiment.rs"
 [[bin]]
 name = "sdc-protocol-site"
 path = "src/bin/sdc-protocol-site.rs"
+
+[[bin]]
+name = "sdc-replay"
+path = "src/bin/sdc-replay.rs"
+
+[[bin]]
+name = "sdc-run-timeline"
+path = "src/bin/sdc-run-timeline.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

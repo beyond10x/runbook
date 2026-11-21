@@ -99,7 +99,7 @@
       "simulate_findings": 1,
       "states": 4608,
       "stem": "sdc",
-      "summary": "Take an idea, from three words to a short paragraph, through the software development cycle (docs/phases.md)."
+      "summary": "Take an idea, from three words to a short paragraph, through the software delivery cycle (docs/phases.md)."
     },
     {
       "action_order": [
@@ -673,11 +673,24 @@
   ],
   "release": {
     "date": "2026-11-21",
-    "notes": "docs/releases/0.1.1.md",
-    "tag": "0.1.1",
-    "version": "0.1.1"
+    "notes": "docs/releases/0.1.2.md",
+    "tag": "0.1.2",
+    "version": "0.1.2"
   },
   "releases": [
+    {
+      "date": "2026-11-21",
+      "limits": [
+        "No run has used the 0.1.2 tree. The baseline is still `experiments/baseline-0.1.0` (three runs per setting on the 0.1.0 tree `4468bfd`): 6 of 9 clean passes. Strong 3 of 3, median 5.50 USD and 1,247 s; mixed 3 of 3, median 2.55 USD and 1,489 s; Haiku 0 of 3 (`experiments/baseline-0.1.0/report.md`).",
+        "A check of the delivered product against its specification is in work and not in this release.",
+        "Nobody started the delivered product.",
+        "The driver's runtime parts are a temporary copy of what the Loom runtime must provide."
+      ],
+      "notes": "docs/releases/0.1.2.md",
+      "notes_url": "https://github.com/beyond10x/sdc/blob/0.1.2/docs/releases/0.1.2.md",
+      "summary": "A patch release after 0.1.1, the same day: corrections to the figures of 0.1.0, recorded replay, the timeline of a run, one rework cap, the LLM decider's principal renamed, and the root protocol's description. No rule of a protocol changed. A source release at tag `0.1.2`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits.",
+      "version": "0.1.2"
+    },
     {
       "date": "2026-11-21",
       "limits": [
@@ -718,7 +731,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "d396e689714428151c558843ddbcd414cb1bb5dc15acb605e4e4d0a1aac56ebd"
+      "sha256": "6cd32cbdd430a822961ce03e0423ec3f5592505bc9d33fb677d286383abcbcd4"
     },
     {
       "path": "docs/check-output.txt",
@@ -731,6 +744,10 @@
     {
       "path": "docs/releases/0.1.1.md",
       "sha256": "09a48d1ecbabd12810b13ab8790809921514dae2004af1e67f2e1e413f707fe0"
+    },
+    {
+      "path": "docs/releases/0.1.2.md",
+      "sha256": "3fdfe7715187272a6bacb882a89c1c0b3d4e1c616a56cd66dfecb2802870abec"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
@@ -810,7 +827,7 @@
     },
     {
       "path": "protocol/sdc.protocol.yaml",
-      "sha256": "ab0a842119c30fcd6b1f55d7ad4f510bceb5c939c9319027dead742951b855de"
+      "sha256": "9dd7d3fc143d17ad80da776566c4cf397690f464d18528fe9cc577664ebad3fa"
     },
     {
       "path": "protocol/simulate/CANON_REV",

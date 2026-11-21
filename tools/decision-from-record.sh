@@ -36,7 +36,7 @@ jq -n --slurpfile q "$q" --arg cid "$cid" --arg lv "$level" --arg h "$holder" --
             {letter: "B", does: "leave it untaken", cost: "", consequence: {admits: [], blocks: [$q.action]}}]
       else [{letter: "A", does: "approve", cost: "", consequence: {admits: [$q.action], blocks: [], grant: "granted", produces: "canon_authority"}},
             {letter: "B", does: "reject", cost: "", consequence: {admits: [], blocks: [$q.action], grant: "denied", produces: "canon_authority"}}] end),
-    autonomy_level: $lv, holder: $h, eligible: ["decider:haiku"], addressed_to: "decider:haiku",
+    autonomy_level: $lv, holder: $h, eligible: ["decider:model"], addressed_to: "decider:model",
     opened_at: "2026-11-21T00:00:00Z", recommendation_strength: "none", default_on_silence: false, grounds: [], decision_reasons: []},
   proposal: {recommended_option: (if $opt == "null" then null else $opt end), strength: "moderate", default_on_silence: false,
     proposed_by: "llm", grounds: $gs}}'

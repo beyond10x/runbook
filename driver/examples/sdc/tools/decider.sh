@@ -7,7 +7,8 @@
 #   decider.sh <kind> <request.json>
 #
 # kind: approve (rule: approve every approval, accept every question's default, close),
-#       reject (rule: refuse every decision), haiku (one bounded LLM call per decision),
+#       reject (rule: refuse every decision), model (one bounded LLM call per decision; `haiku` is
+#       its old name, an alias, D149),
 #       requester (the requester agent, decider:requester: below, "The requester agent").
 # request: {type: approval|question|finding|close, case_dir, action, capability, subject, path,
 #           revision, question (the question object, for type question), finding (the finding
@@ -21,7 +22,7 @@
 # `escalate`. Its in/decision.json adds `touches`: the requirements, prior decisions (answered
 # questions) and context fields it cites.
 #
-# haiku: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
+# model: through the LLM adapters of llm-node.sh (SDC_DECIDER_ADAPTER, else SDC_LLM_ADAPTER:
 # metaharness default, claude-cli, dry, or a path), model SDC_LLM_MODEL_DECIDER, else SDC_DECIDER_MODEL (default claude-haiku-5-5),
 # reasoning effort SDC_LLM_EFFORT_DECIDER, else SDC_LLM_EFFORT, else node-classes.json default_efforts (xhigh), at most
 # SDC_DECIDER_MAX_TURNS (8) turns and SDC_DECIDER_MAX_BUDGET_USD (0.25). The LLM reads in/ and
@@ -37,7 +38,8 @@
 set -uo pipefail
 for p in jq yq; do command -v "$p" >/dev/null 2>&1 || { echo "decider.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 here=$(cd "$(dirname "$0")" && pwd)
-kind=${1:?usage: decider.sh <approve|reject|haiku> <request.json>}
+kind=${1:?usage: decider.sh <approve|reject|model> <request.json>}
+[[ $kind == haiku ]] && kind=model
 req=$(cat "${2:?usage: decider.sh <kind> <request.json>}")
 r() { jq -r "$1" <<< "$req"; }
 type=$(r .type)
@@ -69,7 +71,7 @@ validate() {
   local why out=$cwd/out/decision.json acode res='[]' cites=()
   need_reply
   acode=$(jq '.exit // 0' "$rec/response.json" 2>/dev/null || echo 0)
-  meta=$(jq -c --arg k haiku --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, effort, adapter, usage,
+  meta=$(jq -c --arg k model --arg rec "$rec" --argjson acode "$acode" '{kind: $k, model, effort, adapter, usage,
     cost_usd, duration_ms, exit: $acode, record: $rec, schema_constrained: (.schema_constrained // false),
     schema_note: (.schema_note // null)}' "$rec/response.json" 2>/dev/null || echo '{}')
   if [[ -s $out ]] && jq -e . "$out" > /dev/null 2>&1; then
@@ -115,8 +117,8 @@ case $kind in
   approve) rule approve "rule decider: approve every pending approval, accept every question's default, close at the legitimate outcome"; exit 0 ;;
   reject) rule reject "rule decider: refuse every decision"; exit 0 ;;
   validate) validate; exit 0 ;; # re-check a recorded reply (record_dir) without a call
-  haiku|requester) need_reply ;;
-  *) echo "decider: unknown kind $kind (approve, reject, haiku, requester, validate)" >&2; exit 64 ;;
+  model|requester) need_reply ;;
+  *) echo "decider: unknown kind $kind (approve, reject, model, requester, validate)" >&2; exit 64 ;;
 esac
 
 adapter=${SDC_DECIDER_ADAPTER:-${SDC_LLM_ADAPTER:-metaharness}}
@@ -552,7 +554,7 @@ jq --argjson acode "$acode" '.exit = $acode' "$rec/response.json" > "$rec/respon
 
 if [[ $adapter == dry ]]; then
   rule approve "dry run: no LLM was called; the approve rule decided" true | jq -c --arg rec "$rec" \
-    --slurpfile m "$rec/response.json" '. + {kind: "haiku", model: $m[0].model, effort: $m[0].effort, adapter: "dry", exit: $m[0].exit, record: $rec, dry: true}'
+    --slurpfile m "$rec/response.json" '. + {kind: "model", model: $m[0].model, effort: $m[0].effort, adapter: "dry", exit: $m[0].exit, record: $rec, dry: true}'
   exit 0
 fi
 validate

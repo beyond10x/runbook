@@ -405,7 +405,7 @@ fn build(exp: &Path) -> Result<Option<Built>, String> {
         let mut cells = vec![];
         for (v, rs, missing) in &loaded {
             let hits: Vec<usize> = ledger.settings.iter().enumerate()
-                .filter(|(_, s)| s.matches.iter().all(|(k, x)| v.settings.get(k) == Some(x)))
+                .filter(|(_, s)| s.matches.iter().all(|(k, x)| v.settings.get(k).is_some_and(|y| super::same_setting(k, y, x))))
                 .map(|(i, _)| i).collect();
             cells.push((hits, Cell { setting: 0, experiment: id.clone(), variant: v.id.clone(), runs: rs.iter().map(run_fig).collect(), open: missing.clone() }));
         }

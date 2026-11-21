@@ -136,7 +136,7 @@ runs it with `--doc docs/reject-routes.md`, and fails unless its findings equal 
 adds one, in the same commit.
 
 `rule-ends.json` holds the autopilot rules that lived only in code. `run-trial.sh` reads two of
-them: the rework limit (`rework_limit`, which was the literal 2) and the ends for a refusal (`approvals.*.reject`, which was
+them: the rework limit (`rework_limit`, which was the literal 2; the default of the one effective rework cap, D184: `SDC_MAX_REJECTIONS` overrides it, run-settings.jsonl records `rework_limit: {value, source}`, and the driver and the writer's rework prompt in `llm-node.sh` read that value) and the ends for a refusal (`approvals.*.reject`, which was
 the `refusal_end` array). The check reads all of them. The `driver` entries state facts of the
 driver and of `llm-node.sh`: which effects are capped, whether the cap holds per kind (R7),
 whether a rejection is an arrival (R6), and whether the writer's own failure and a rejection log that is not a document
