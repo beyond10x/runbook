@@ -299,7 +299,8 @@ save() {
 # need a person, a cap, stuck, a refusal) is stopped with a record by rule:autopilot.
 # The record names the step (action, case as a run-relative id), the cause (end_cause, also the
 # record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path, rework_spent,
-# decider_budget_spent, decision_not_takeable (a stop no holder of this run can take: the program
+# decider_budget_spent, finding_reraised (a program finding raised again after its decision was
+# applied), decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
 # driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent).
 end_reason="" end_cause="" end_action="" end_case="" wait_why=""
@@ -396,6 +397,7 @@ decide() {
     if [[ $decider == haiku ]]; then
       n=$(( $(find "$out/decider" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) + 1 ))
       (( n <= max_decider )) || { end_cause=decider_budget_spent end_action=$(jq -r .action <<< "$req") end_case=${key%%|*}
+        end_reason="$end_action in $end_case: decider_budget_spent ($max_decider LLM decider calls, SDC_MAX_DECIDER_CALLS; the last request: $(jq -r '.question.id // .finding.id // .action' <<< "$req")): it waits on a higher cap or a fix of what spent it, then --reopen"
         echo "decider budget spent: $max_decider LLM decider calls (SDC_MAX_DECIDER_CALLS)"; exit 5; }
       rec=$out/decider/$(printf '%03d' "$n")-$(jq -r '.question.id // .finding.id // .action' <<< "$req")
     else
@@ -610,6 +612,20 @@ decide_findings() {
     [[ -n $f ]] || continue
     found=yes
     fid=$(jq -r .id <<< "$f")
+    # A program finding raised again after the decision on it was applied (sdc-findings `reraised`):
+    # a defect of that apply, never a new question (runs/trial-3-small-sonnet-1: p-trace-r5 asked
+    # 8 times until the decider budget was spent). The run stops finding_reraised.
+    if jq -e '.reraised' <<< "$f" > /dev/null; then
+      wait_why="$fid raised again after $(jq -r '.reraised.decided_by // "?"' <<< "$f")'s decision \"$(jq -r '.reraised.decision // ""' <<< "$f" | cut -c1-160)\" was applied ($(jq -r '.reraised.says // ""' <<< "$f" | cut -c1-160))"
+      if [[ $autonomy == A5 ]]; then
+        end_cause=finding_reraised end_action=$act end_case=$(basename "$cdir")
+        end_reason="$act in $end_case: finding_reraised: $wait_why: the apply of that decision did not take effect; it waits on a fix of that apply, then --reopen"
+        echo "$end_reason"
+        exit 7
+      fi
+      echo "  $wait_why: a person decides"
+      return 1
+    fi
     if jq -e '.refused_decision' <<< "$f" > /dev/null; then
       wait_why="$fid: the program check refused $(jq -r .refused_decision.decided_by <<< "$f")'s decision ($(jq -r .refused_decision.why <<< "$f"))"
       if [[ $autonomy == A5 ]]; then echo "  $wait_why"; else echo "  $wait_why: a person decides"; fi

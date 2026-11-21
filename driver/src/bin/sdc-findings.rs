@@ -448,6 +448,49 @@ fn trace_options(rid: &str) -> Vec<String> {
     ]
 }
 
+/// The scope a decision on the trace finding of `rid` takes: `constraint` or `dropped` when it is
+/// that option, or starts with it (runs/trial-3-small-sonnet-1: the decider answered "r5 is a
+/// constraint, not behaviour: mark r5 as a constraint outside the specification", which matched no
+/// option exactly, so nothing was recorded and the gap came back eight times); else empty.
+fn trace_kind(rid: &str, decision: &str) -> &'static str {
+    if rid.is_empty() {
+        return "";
+    }
+    let opts = trace_options(rid);
+    let d = decision.trim();
+    let is = |o: &str| d == o || d.strip_prefix(o).is_some_and(|rest| rest.starts_with([':', '.', ';', ',', ' ']));
+    if is(&opts[1]) {
+        "constraint"
+    } else if is(&opts[2]) {
+        "dropped"
+    } else {
+        ""
+    }
+}
+
+/// A resolved program finding raised again (`h`, the hit as computed now): the decision on it was
+/// applied and should have removed it, so this is a defect of that apply, never a new question.
+/// The finding waits (needs_person, decision taken off) with `reraised` {decision, decided_by,
+/// says}; scripts/run-trial.sh stops the run `finding_reraised` on it.
+fn reraise(f: &mut Value, h: &Value) {
+    let mut r = Mapping::new();
+    r.insert(s("decision"), f.get("decision").cloned().unwrap_or(Value::Null));
+    r.insert(s("decided_by"), f.get("decided_by").cloned().unwrap_or(Value::Null));
+    r.insert(s("says"), h.get("says").cloned().unwrap_or(Value::Null));
+    f["reraised"] = Value::Mapping(r);
+    f["status"] = s("needs_person");
+    f["basis"] = s(&format!(
+        "raised again after the decision \"{}\" ({}) was applied: a defect of that apply",
+        scalar(f.get("decision").unwrap_or(&Value::Null)),
+        st(f, "decided_by")
+    ));
+    if let Some(m) = f.as_mapping_mut() {
+        for k in ["decision", "decided_by", "resolution"] {
+            m.remove(k);
+        }
+    }
+}
+
 /// The trace of every requirement against the compiled spec `ir` and the writer's `traces`
 /// document (None: no spec/traces.json; Err: it does not parse). Pure: no file is read.
 fn trace_of(req: &Value, ir: &serde_json::Value, traces: Option<Result<serde_json::Value, String>>) -> Trace {
@@ -940,30 +983,41 @@ fn amend_one(
     // D141: a contradiction's decision replaces each cited answer it differs from. That answer is
     // superseded; each requirement citing it drops the cite and the sentence the answer wrote
     // ("Decision qX: <answer>.") and cites the new decision instead (below, `carry`).
+    // A finding decided again (a trace gap reopened after its first decision) replaces the earlier
+    // answers to it the same way (runs/trial-3-small-sonnet-1: q5 "specify r5 in the spec" stayed
+    // beside the decision that r5 is a constraint).
     let mut carry: Vec<String> = vec![];
+    let mut replaced: Vec<String> = seq(&w.qs, "questions")
+        .iter()
+        .filter(|q| st(q, "item") == fid && st(q, "id") != qid)
+        .map(|q| st(q, "id").to_string())
+        .collect();
     if st(f, "type") == "contradiction" {
-        for c in strs(f, "cites") {
-            let Some(q) = w.question_mut(&c) else { continue };
-            let answer = scalar(q.get("answer").unwrap_or(&Value::Null));
-            if !matches!(st(q, "status"), "accepted" | "changed") || answer == decision {
+        replaced.extend(strs(f, "cites").into_iter().filter(|c| {
+            w.question(c).is_some_and(|q| scalar(q.get("answer").unwrap_or(&Value::Null)) != decision)
+        }));
+    }
+    for c in replaced {
+        let Some(q) = w.question_mut(&c) else { continue };
+        let answer = scalar(q.get("answer").unwrap_or(&Value::Null));
+        if !matches!(st(q, "status"), "accepted" | "changed") {
+            continue;
+        }
+        q["status"] = s("superseded");
+        q["superseded_by"] = s(&qid);
+        amended.push(c.clone());
+        let sentence = re(&format!(r"\s*Decision {}: {}\.", regex::escape(&c), regex::escape(&answer)))?;
+        for r in w.req.get_mut("requirements").and_then(Value::as_sequence_mut).into_iter().flatten() {
+            if !strs(r, "cites").contains(&c) {
                 continue;
             }
-            q["status"] = s("superseded");
-            q["superseded_by"] = s(&qid);
-            amended.push(c.clone());
-            let sentence = re(&format!(r"\s*Decision {}: {}\.", regex::escape(&c), regex::escape(&answer)))?;
-            for r in w.req.get_mut("requirements").and_then(Value::as_sequence_mut).into_iter().flatten() {
-                if !strs(r, "cites").contains(&c) {
-                    continue;
-                }
-                if let Some(cs) = r["cites"].as_sequence_mut() {
-                    cs.retain(|x| scalar(x) != c);
-                }
-                r["text"] = s(sentence.replace_all(st(r, "text"), "").trim());
-                let rid = st(r, "id").to_string();
-                if !carry.contains(&rid) {
-                    carry.push(rid);
-                }
+            if let Some(cs) = r["cites"].as_sequence_mut() {
+                cs.retain(|x| scalar(x) != c);
+            }
+            r["text"] = s(sentence.replace_all(st(r, "text"), "").trim());
+            let rid = st(r, "id").to_string();
+            if !carry.contains(&rid) {
+                carry.push(rid);
             }
         }
     }
@@ -1270,16 +1324,17 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
                 changed = true;
             }
             Some(f) if st(f, "status") == "resolved" => {
-                let attempts = f.get("attempts").and_then(Value::as_u64).unwrap_or(0) + 1;
-                f["status"] = s("open");
-                f["attempts"] = Value::from(attempts);
+                // The amendment that resolved it made the rule stop firing (verify); firing again
+                // is a defect of an apply, never a new question.
+                reraise(f, &h);
                 changed = true;
             }
             Some(_) => {}
         }
     }
     // The requirement trace's gaps, as the rule hits: a new gap is opened, a resolved one that
-    // still holds is reopened (attempts + 1), with its current text.
+    // still holds is reopened (attempts + 1), with its current text, when the agent resolved it
+    // (the writer sent back); one a person or a decider resolved is re-raised (`reraise`).
     let trace_hits = if stage == "spec" { trace(&w)?.map(|t| t.hits).unwrap_or_default() } else { vec![] };
     for h in trace_hits {
         let id = st(&h, "id").to_string();
@@ -1289,6 +1344,12 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
                 e.insert(s("stage"), s(stage));
                 e.insert(s("status"), s("open"));
                 w.findings_mut().push(Value::Mapping(e));
+                changed = true;
+            }
+            // The agent's decision sends the writer back once (`classify`); any later decision was
+            // a person's or a decider's, and the gap coming back means it did not take effect.
+            Some(f) if st(f, "status") == "resolved" && st(f, "decided_by") != "agent" => {
+                reraise(f, &h);
                 changed = true;
             }
             Some(f) if st(f, "status") == "resolved" => {
@@ -1409,8 +1470,7 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
         // recorded on the requirement, where the trace reads it.
         if f.get("trace").is_some() {
             let rid = st(&f, "trace").to_string();
-            let opts = trace_options(&rid);
-            let kind = if decision == opts[1] { "constraint" } else if decision == opts[2] { "dropped" } else { "" };
+            let kind = trace_kind(&rid, &decision);
             if !kind.is_empty() {
                 if let Some(r) = w.req_mut(&rid) {
                     r["behaviour"] = s(kind);
@@ -1760,5 +1820,50 @@ mod tests {
         assert!(blocking(&w, "story").unwrap().iter().any(|b| b.contains("superseded by q11")));
         let v = verify(&before, &ctx, &BTreeSet::new(), &w, &f, DATA_FILE, "q11", true).unwrap();
         assert!(v.is_some_and(|v| v.contains("superseded by q11")));
+    }
+
+    const SONNET_R5: &str = "r5 is a constraint, not behaviour: mark r5 as a constraint outside the specification.";
+
+    /// runs/trial-3-small-sonnet-1: the decider's answer to p-trace-r5 extends the option's text.
+    #[test]
+    fn a_trace_decision_that_starts_with_the_constraint_option_is_a_constraint() {
+        assert_eq!(trace_kind("r5", SONNET_R5), "constraint");
+        assert_eq!(trace_kind("r5", "r5 is a constraint, not behaviour"), "constraint");
+        assert_eq!(trace_kind("r5", "drop r5 from this epic's scope: it is not wanted"), "dropped");
+        assert_eq!(trace_kind("r5", &trace_options("r5")[0]), "");
+        assert_eq!(trace_kind("r5", "r5 is a constraint, not behaviourally tested"), "");
+        assert_eq!(trace_kind("", SONNET_R5), "");
+    }
+
+    /// runs/trial-3-small-sonnet-1: q5 "specify r5 in the spec" (the agent's first decision on
+    /// p-trace-r5) is superseded by the decision taken when the gap came back.
+    #[test]
+    fn a_finding_decided_again_supersedes_its_earlier_answer() {
+        let mut w = work();
+        w.diss = serde_yaml::from_str("items:\n- {id: d4, type: fact}\n").unwrap();
+        let specify = trace_options("r5")[0].clone();
+        w.qs = serde_yaml::from_str(&format!("questions:\n- {{id: q5, item: p-trace-r5, status: accepted, answer: '{specify}', answered_by: non-interactive, default: '{specify}', scope_changing: false}}\n")).unwrap();
+        w.req = serde_yaml::from_str(&format!("requirements:\n- id: r5\n  text: 'The tool uses only the standard library. Decision q5: {specify}.'\n  cites: [d4, q5]\n  spec_domains: [wc.cli]\n")).unwrap();
+        let mut f = trace_of(&w.req, &json!({"commands": {}, "domains": {"wc.cli": {"commands": [], "views": []}}}), None).hits.remove(0);
+        f["attempts"] = Value::from(1u64);
+        amend_one(&mut w, &f, SONNET_R5, "decider:haiku", "decider:haiku decided").unwrap();
+        let q5 = w.question("q5").unwrap();
+        assert_eq!((st(q5, "status"), st(q5, "superseded_by")), ("superseded", "q6"));
+        let r5 = &w.req["requirements"][0];
+        assert_eq!(strs(r5, "cites"), vec!["d4", "q6"]);
+        assert!(!st(r5, "text").contains("specify r5"), "{}", st(r5, "text"));
+        assert_eq!(citation_fault(&w, r5), None);
+    }
+
+    /// A resolved program finding raised again waits with `reraised` and its decision taken off.
+    #[test]
+    fn a_resolved_program_finding_raised_again_is_reraised() {
+        let mut f: Value = serde_yaml::from_str(&format!("id: p-trace-r5\ntrace: r5\nstatus: resolved\ndecision: '{SONNET_R5}'\ndecided_by: decider:haiku\nresolution: {{amends: [q6]}}\n")).unwrap();
+        let h: Value = serde_yaml::from_str("says: 'r5: traces to no behaviour'\n").unwrap();
+        reraise(&mut f, &h);
+        assert_eq!(st(&f, "status"), "needs_person");
+        assert_eq!(st(&f["reraised"], "decision"), SONNET_R5);
+        assert_eq!(st(&f["reraised"], "decided_by"), "decider:haiku");
+        assert!(f.get("decision").is_none() && f.get("resolution").is_none());
     }
 }

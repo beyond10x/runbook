@@ -37,6 +37,8 @@
 #   trace-gap       a requirement traced to a domain with no command: finding, writer sent back, traced
 #   trace-gap-drop  the writer never specifies it: a scope decision (the person drops it)
 #   trace-constraint a requirement marked a constraint with its reason passes and is counted
+#   trace-constraint-decided the person answers a trace gap in runs/trial-3-small-sonnet-1's words:
+#                   r3 a constraint, the earlier send-back answer superseded
 # and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
@@ -51,6 +53,8 @@
 #   autopilot       --autopilot: closed with 0 person principals and L7 0 (A5, escalate final)
 #   decider-input   the autopilot run's decider records: the close reads published/README.md, no
 #                   aep/; Cargo.lock copied; final-mode prompt lines (runs/trial-3-haiku-5)
+#   trace-reraised  a decider's decision on a trace gap applied without effect: finding_reraised
+#   decider-budget-reason the decider_budget_spent stop names the step and the cap
 #   autopilot-person --autopilot refuses SDC_DECIDER=person (exit 64)
 #   autopilot-stop  a stop no holder can take ends an autopilot run (exit 7, rule:autopilot,
 #                   cause decision_not_takeable, no message naming a person, L7 0)
@@ -82,8 +86,8 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
   scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent superseded-answer
-  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
-  decider-finding-refused run-stop run-stop-decider autopilot decider-input autopilot-person autopilot-stop
+  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint trace-constraint-decided decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  decider-finding-refused run-stop run-stop-decider autopilot decider-input trace-reraised decider-budget-reason autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 principals models)
 # The rejection cycles follow what the protocols give: decider-reject (no rework path) while
@@ -351,6 +355,24 @@ if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work
 else
   echo "trace-constraint: FAILED (cycle exit $code, or the constraint was not counted)"
 fi
+# trace-constraint-decided: runs/trial-3-small-sonnet-1. As trace-gap-drop, but the person answers
+# in the decider's words of that run, the constraint option with more text after it. Passes when the
+# cycle ends operating, r3 is `behaviour: constraint` and counted as one, and the agent's first answer
+# to p-trace-r3 ("specify r3 in the spec") is superseded by the person's, so r3 cites only the latter.
+said="r3 is a constraint, not behaviour: mark r3 as a constraint outside the specification."
+cycle trace-constraint-decided SDC_STUB_FIXTURES="$fx/trace-gap-drop" FINDING_DECISION="$said"
+code=$?
+w=$s/store-trace-constraint-decided/IDEA-1/work
+if (( code == 0 )) && yq -e '.requirements[] | select(.id == "r3") | .behaviour == "constraint"' "$w/requirements.yaml" >/dev/null &&
+   tracelog trace-constraint-decided | tail -n 1 | grep -q '1 constraint (r3), 0 dropped, 0 untraced' &&
+   yq -o=json "$w/questions.yaml" | jq -e --slurpfile r <(yq -o=json "$w/requirements.yaml") '
+     [.questions[] | select(.item == "p-trace-r3")] as $qs
+     | ($qs | length) == 2 and $qs[0].status == "superseded" and $qs[0].superseded_by == $qs[1].id
+       and ($r[0].requirements[] | select(.id == "r3") | (.cites | index($qs[0].id)) == null and (.cites | index($qs[1].id)) != null)' >/dev/null; then
+  echo "trace-constraint-decided: checks pass (the constraint answer applied, r3 counted a constraint; the send-back answer superseded)"
+else
+  echo "trace-constraint-decided: FAILED (cycle exit $code, or r3 not a constraint, or the earlier answer not superseded)"
+fi
 
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the
 # decider on tools/llm-adapter-fixture.sh (scripted replies, SDC_DECIDER_REPLIES), no LLM ---------
@@ -551,6 +573,37 @@ if [[ -n $close_d && -f $close_d/cwd/in/published/README.md && ! -e $close_d/cwd
 else
   echo "decider-input: FAILED (close ${close_d:-none}, Cargo.lock ${lock_d:-none}, roadmap ${aep_d:-none}: an input or a prompt line is wrong)"
 fi
+# trace-reraised: runs/trial-3-small-sonnet-1 (17 of 20 decider calls on p-trace-r5 and p-trace-r7).
+# The writer never specifies r3 (fixtures/trace-gap-drop); the decider answers p-trace-r3 "specify
+# r3 in the spec", so its decision is applied (the writer sent back) without effect. Passes when the
+# run stops finding_reraised (exit 7) by rule:autopilot with a reason naming p-trace-r3 and the
+# decision, after one decider call on p-trace-r3, not decider_budget_spent.
+specify="specify r3 in the spec: name in spec/traces.json the commands or views that deliver it"
+targs=(--autopilot)
+trial trace-reraised SDC_STUB_FIXTURES="$fx/trace-gap-drop" SDC_DECIDER_REPLIES="$(jq -cn --arg a "$specify" '{"p-trace-r3":
+  {decision: "approve", answer: $a, reasons: ["fixture: the writer can name the views that deliver r3"], cites: ["r3"], best: null}}')"
+code=$?
+r=$s/runs/trace-reraised
+if (( code == 7 )) && jq -e '.cause == "finding_reraised" and .by == "rule:autopilot"
+     and (.reason | test("finding_reraised: p-trace-r3 raised again after decider:haiku.s decision \"specify r3"))' "$r/run-stopped.json" >/dev/null &&
+   [[ $(jq -s '[.[] | select(.finding == "p-trace-r3" and .decision == "approve")] | length' "$r/decisions.jsonl") == 1 ]]; then
+  echo "trace-reraised: checks pass (stopped finding_reraised on the second raise, naming p-trace-r3 and the decision; one decider call)"
+else
+  echo "trace-reraised: FAILED (exit $code: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
+# decider-budget-reason: the stop record of decider_budget_spent names the step and the cap
+# (runs/trial-3-small-sonnet-1's record said only "autopilot: "). SDC_MAX_DECIDER_CALLS=1 on two open
+# scope-changing questions: the second has no call left.
+trial decider-budget-reason SDC_STUB_FIXTURES="$fx/scope-two" SDC_MAX_DECIDER_CALLS=1
+code=$?
+r=$s/runs/decider-budget-reason
+if (( code != 0 )) && jq -e '.cause == "decider_budget_spent"
+     and (.reason | test("^autopilot: scope.answer in IDEA-1.intake: decider_budget_spent \\(1 LLM decider calls"))' "$r/run-stopped.json" >/dev/null; then
+  echo "decider-budget-reason: checks pass (the stop reason names scope.answer in IDEA-1.intake and the cap)"
+else
+  echo "decider-budget-reason: FAILED (exit $code: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
+targs=(--autopilot)
 trial autopilot-person SDC_DECIDER=person
 code=$?
 (( code == 64 )) && [[ ! -d $s/runs/autopilot-person/store ]] &&
