@@ -30,7 +30,7 @@ it, so its revision changes no state count of `canon check` and sets no record a
 Commands (from `../canon`; `cargo` is the slot shim):
 
 ```console
-scripts/check-protocols.sh   # validate, compile and check all eight, then the ESS gate probes
+scripts/check-protocols.sh   # validate, compile and check all eight, the ESS gate probes, then simulate
 scripts/evaluate-cases.sh    # canon evaluate every case run, compare with expected.json
 ```
 
@@ -263,6 +263,29 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
   `driver/src/main.rs:770`) and rewrites its result when the child ends, so a real case never
   holds `intake_opened` without it. The same holds for `direction.open`, `epics.open` and
   sdc.epic's opening actions.
+
+## Simulate
+
+`scripts/check-protocols.sh` ends with a simulate step: `canon simulate --path` on each
+`protocol/*.protocol.yaml`, its stdout compared byte for byte with the pinned report
+`protocol/simulate/<name>.txt`. Any difference fails with a unified diff and
+`simulate: <protocol>: findings changed (was N, now M)`; one line per protocol gives reachable,
+terminable, waiting and findings. The released Canon 0.9.0 has no `simulate`, so the step uses
+the unreleased commit in `protocol/simulate/CANON_REV` (Canon PR 27, decision D151), built once
+by `cargo install --locked --root` into `${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/`
+(outside the repository, not on `PATH`, not the binary of `CANON_DIR`); every other check keeps
+the released binary.
+
+- Re-pin after a deliberate protocol change: `scripts/check-protocols.sh --repin` (or
+  `SDC_SIMULATE_REPIN=1`), review `git diff protocol/simulate/`, commit the reports with the
+  protocol and the reason in the commit body.
+- A new Canon commit: edit `CANON_REV`, then `--repin`; Canon's next two waves change simulate's
+  output, so the reports move with them. A Canon release replaces the pin.
+- `SDC_SIMULATE=off` skips the step with a printed line (no network).
+- The pinned reports are a ratchet, not a verdict: every protocol still exits 1 with findings
+  (the triage is on branch `plan/simulate-triage`). The limits Canon named: the walk adds one record per
+  step (a step that produces two records, such as `case_open`, is walked as one), and it has no
+  revise step, so a failed check on an artifact a protocol revises reads as a stuck state.
 
 ## Evidence kinds and the action that produces each
 

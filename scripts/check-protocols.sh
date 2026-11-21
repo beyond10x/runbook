@@ -55,4 +55,60 @@ probe sdc-spec "$spec_gate"
 for name in sdc-plan sdc-epic sdc-story sdc-release; do
   probe "$name" "$ess_gate"
 done
+
+# Simulate: `canon simulate` on every protocol with the pinned Canon commit (protocol/simulate/CANON_REV,
+# built outside the repository, never on PATH), compared byte for byte with protocol/simulate/<name>.txt.
+# A different finding set fails with a diff. `--repin` (or SDC_SIMULATE_REPIN=1) rewrites the pinned
+# reports for a deliberate change; SDC_SIMULATE=off skips the step (no network).
+simulate_dir=$sdc/protocol/simulate
+simulate_rev=$(tr -d '[:space:]' < "$simulate_dir/CANON_REV")
+simulate_root=${SDC_SIMULATE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/$simulate_rev}
+simulate_bin=$simulate_root/bin/canon
+
+simulate_count() { sed -n 's/^simulated: .*, \([0-9]*\) findings\{0,1\}\( (.*)\)\{0,1\}$/\1/p' "$1"; }
+simulate_field() { sed -n "s/^simulated: .*[ ,:] *\([0-9][0-9]*\) $2.*/\1/p" "$1" | head -1; }
+simulate_waiting() { simulate_field "$1" waiting | grep . || echo 0; }
+
+simulate_step() {
+  if [[ ${SDC_SIMULATE:-on} == off ]]; then
+    echo "simulate: skipped (SDC_SIMULATE=off)"
+    return 0
+  fi
+  if [[ ! -x $simulate_bin ]]; then
+    echo "simulate: installing canon $simulate_rev into $simulate_root"
+    cargo install --locked --root "$simulate_root" \
+      --git https://github.com/beyond10x/canon --rev "$simulate_rev" canon-cli \
+      || { echo "simulate: install of canon $simulate_rev failed"; return 1; }
+  fi
+  local repin=0 bad=0 report
+  [[ ${1:-} == --repin || ${SDC_SIMULATE_REPIN:-} == 1 ]] && repin=1
+  report=$(mktemp -d)
+  for f in "$sdc"/protocol/*.protocol.yaml; do
+    local name code=0 now was
+    name=$(basename "$f" .protocol.yaml)
+    "$simulate_bin" simulate --path "$f" > "$report/$name.txt" 2> "$report/$name.err" || code=$?
+    if (( code > 1 )) || [[ -s $report/$name.err ]]; then
+      echo "simulate: $name: canon simulate exit $code"; cat "$report/$name.err"; bad=1; continue
+    fi
+    now=$(simulate_count "$report/$name.txt")
+    printf 'simulate: %s: reachable %s, terminable %s, waiting %s, findings %s\n' "$name" \
+      "$(simulate_field "$report/$name.txt" 'reachable')" "$(simulate_field "$report/$name.txt" 'terminable')" \
+      "$(simulate_waiting "$report/$name.txt")" "${now:-?}"
+    if (( repin )); then
+      cp "$report/$name.txt" "$simulate_dir/$name.txt"
+    elif [[ ! -f $simulate_dir/$name.txt ]]; then
+      echo "simulate: $name: no pinned report (run with --repin)"; bad=1
+    elif ! cmp -s "$simulate_dir/$name.txt" "$report/$name.txt"; then
+      was=$(simulate_count "$simulate_dir/$name.txt")
+      diff -u --label "pinned/$name.txt" --label "now/$name.txt" "$simulate_dir/$name.txt" "$report/$name.txt" || true
+      echo "simulate: $name: findings changed (was ${was:-?}, now ${now:-?})"
+      bad=1
+    fi
+  done
+  rm -rf "$report"
+  if (( repin )); then echo "simulate: pinned reports rewritten in protocol/simulate/"; fi
+  return $bad
+}
+
+simulate_step "$@" || fail=1
 exit $fail
