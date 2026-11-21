@@ -29,6 +29,8 @@
 #   story-spent     change.implement raises a new finding on every run: `writer_spent`
 #   story-late-person the spent writer's last finding needs a person: `awaiting_person`, then a
 #                   fresh allowance
+#   superseded-answer a build contradiction replaces the spec agent's answer: it is superseded, r1
+#                   cites only the new decision (D141)
 #   spec-duplicate  spec.author raises the same finding twice: the repeat is not added
 #   spec-own-default spec.author (apply path) raises a new agent finding on every LLM call: the
 #                   amendment records its default, no LLM re-derivation, no writer_spent
@@ -77,7 +79,7 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 # "<name>: checks pass" and no "<name>: FAILED"; one without (exit_only) when its exit line shows
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
-  scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent
+  scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent superseded-answer
   story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
@@ -263,6 +265,23 @@ if (( code == 0 )) && jq -se '([.[] | select(.event == "awaiting_person")] | len
   echo "story-late-person: checks pass (person stop on the late finding, then a fresh allowance)"
 else
   echo "story-late-person: FAILED (cycle exit $code, or writer_spent instead of the person stop)"
+fi
+# superseded-answer: runs/trial-3-haiku-5's r1 (D141). spec.author's stub raises a missing decision
+# answered by the agent's default "Postgres" (q3, on r1); change.implement's stub raises a
+# contradiction citing q3 and r1, answered by the agent's default "the data file" (q4). Passes when
+# the cycle ends operating, q3 is superseded by q4, r1 cites q4 and not q3, and r1's text names no
+# Postgres and no q3.
+cycle superseded-answer SDC_STUB_FINDINGS="$fx/finding-superseded-spec.yaml:$fx/finding-superseded-story.yaml"
+code=$?
+w=$s/store-superseded-answer/IDEA-1/work
+if (( code == 0 )) &&
+   yq -o=json "$w/questions.yaml" | jq -e '[.questions[] | select(.id == "q3" or .id == "q4")]
+     | (.[0].status == "superseded" and .[0].superseded_by == "q4" and (.[1].answer | test("data file")))' >/dev/null &&
+   yq -o=json "$w/requirements.yaml" | jq -e '.requirements[] | select(.id == "r1")
+     | ((.cites | index("q4")) != null and (.cites | index("q3")) == null and (.text | test("Postgres|q3") | not))' >/dev/null; then
+  echo "superseded-answer: checks pass (q3 superseded by q4; r1 cites q4 only, no Postgres text)"
+else
+  echo "superseded-answer: FAILED (cycle exit $code, or q3 not superseded, or r1 still cites q3 or names Postgres)"
 fi
 # spec-duplicate: runs/trial-3-haiku-2 (f10-f13 = f6-f9, f15 = f14). spec.author raises a finding,
 # then raises it again with no key (fixtures/finding-spec-duplicate.yaml). Passes when the cycle ends

@@ -142,7 +142,7 @@ fn main() -> ExitCode {
         .as_mapping()
         .map(|m| m.values().filter(|v| v.is_mapping()).collect())
         .unwrap_or_default();
-    let answered = |q: &Value| matches!(st(q, "status"), "accepted" | "changed");
+    let answered = |q: &Value| matches!(st(q, "status"), "accepted" | "changed" | "superseded");
     let answers = [
         (
             "questions",

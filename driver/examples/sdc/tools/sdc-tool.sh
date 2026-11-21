@@ -118,7 +118,7 @@ check-questions)
   yq -e '([.questions[] | select(.scope_changing == true and .status != "open"
     and ((.answered_by // "") == "" or .answered_by == "non-interactive"))] | length) == 0' \
     questions.yaml >/dev/null || exit 3
-  yq -e '([.questions[] | select(.status != "accepted" and .status != "changed")] | length) == 0' \
+  yq -e '([.questions[] | select(.status != "accepted" and .status != "changed" and .status != "superseded")] | length) == 0' \
     questions.yaml >/dev/null || exit 1 ;;
 check-requirements-shape)
   # The citation rule, the same program the amendment check uses (sdc-findings citation_fault):
