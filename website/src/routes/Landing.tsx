@@ -16,7 +16,6 @@ interface Props {
 
 export default function Landing({index, progressSvg, pitch}: Props): ReactNode {
   const release = index.releases[0];
-  const stages = index.protocols.filter((p) => p.id !== 'sdc.bugfix').length;
   return (
     <Layout title="Runbook: agentic runbooks" description="Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next step from recorded facts; a model carries out single steps." wrapperClassName="b10x-product-page">
       <main id="b10x-product-main">
@@ -26,15 +25,12 @@ export default function Landing({index, progressSvg, pitch}: Props): ReactNode {
           promise={['A fixed, checked way to handle a case,', 'one admissible action at a time.']}
           lede={
             <>
-              Runbook: agentic runbooks. A runbook is a fixed, checked way to handle a case. A program decides the next
-              step from recorded facts; a model carries out single steps. The first runbook is the software delivery cycle
-              (SDC): it takes an idea to a built, tested product through{' '}
-              {stages} protocols (idea, intake, direction, epic, spec, plan, story, release), each a <code>protocol/1</code>{' '}
-              case with child cases. Where a case stands is derived from facts, the files in its repository and the recorded
-              check results, never from a stored phase. A driver runs the tool bound to one admissible action at a time, and a
-              language model is only ever one action's executor: its output is an artifact revision, never evidence and
-              never the next state. Other runbooks are planned, not built: incident handling, investigations and ticket
-              triage.
+              A runbook is a fixed, checked way to handle a case: a program decides the next step from recorded facts,
+              and a model carries out single steps.
+              <br />
+              First runbook: the software delivery cycle (SDC), from an idea to a built, tested product.
+              <br />
+              Planned: incident handling, investigations, ticket triage.
             </>
           }
           actions={[
