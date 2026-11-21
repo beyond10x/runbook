@@ -13,6 +13,7 @@ bare-version tags (`docs/releasing.md`).
   `scripts/run-finding-cycles.sh` as data, what cannot be said declaratively listed per cycle as
   `unexpressed`, and `task check:cycles-suite` holding it equal to the script's cycle ids and states
   (`docs/cycles-suite.md`).
+- The local gate and CI read one pinned rustc (`rust-toolchain.toml`, 1.99.1), `.cargo/config.toml` drops debug info from the dev and test profiles, and `task ci:watch SHA=<commit>` exits non-zero unless every forge run of a commit succeeded (`story:local-gate-equals-forge`).
 - `change.implement` as one request (`story:implement-one-request`), behind the run setting
   `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
   `run-settings.jsonl`, a launch setting of `sdc-experiment`). `sdc-reply implement-run` assembles
