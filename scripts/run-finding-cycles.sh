@@ -359,15 +359,19 @@ code=$?
 d=$s/store-review-reject-once/${story%/events.jsonl}
 rv=$(reviews review-reject-once)
 lg=$(jq -r '.[0].log // ""' <<< "$rv")
+# D138: the second change.review call is a fresh review, not a rework: no in/rejection.json in its
+# cwd and no "Rework." line in its prompt.
+r2=$(jq -rs '[.[] | select(.action == "change.review")] | .[1].record // empty' "$s/store-review-reject-once/IDEA-1/work/.sdc/llm/calls.jsonl" 2>/dev/null)
 if (( code == 0 )) && jq -e '[.[] | .result] == ["rejected", "approved"] and all(.producer == "llm-review")' <<< "$rv" >/dev/null &&
    jq -e '.format == "sdc.rejection/1" and .approval == "change.review" and (.principal | startswith("llm-review:"))
      and .citations == [{"at": "impl/README.md:1", "violates": "r1", "kind": "violation", "in_diff": true}] and .count == 1' "$d/blobs/$lg" >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] | length == 2' "$d/events.jsonl" >/dev/null &&
    jq -se '[.[] | select(.event == "action_started" and .action == "change.implement")] | last | .retry_of == ["code_review"]' "$d/events.jsonl" >/dev/null &&
-   grep -q 'impl/README.md:1' "$d/work/impl/.rework"; then
-  echo "review-reject-once: checks pass (rejected with a cited finding, reworked with the rejection, approved, both by llm-review)"
+   grep -q 'impl/README.md:1' "$d/work/impl/.rework" &&
+   [[ -n $r2 && -f $r2/prompt.md && ! -e $r2/cwd/in/rejection.json ]] && ! grep -q '^Rework\.' "$r2/prompt.md"; then
+  echo "review-reject-once: checks pass (rejected with a cited finding, reworked with the rejection, approved, both by llm-review; the second review got no rejection)"
 else
-  echo "review-reject-once: FAILED (cycle exit $code: $(jq -c 'map({result, producer})' <<< "$rv" 2>/dev/null))"
+  echo "review-reject-once: FAILED (cycle exit $code: $(jq -c 'map({result, producer})' <<< "$rv" 2>/dev/null); second review: ${r2:-no record}, in/rejection.json $([[ -n $r2 && -e $r2/cwd/in/rejection.json ]] && echo present || echo absent), Rework. lines $(grep -c '^Rework\.' "$r2/prompt.md" 2>/dev/null || echo 0))"
 fi
 # review-invalid: every reply rejects with a finding at a line the README does not have. Passes when
 # the reply was asked again twice with the check's reason (SDC_REVIEW_RETRIES), the one change.review

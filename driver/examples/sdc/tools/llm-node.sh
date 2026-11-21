@@ -125,8 +125,12 @@ fi
 # write by another action moved the subject's revision, so the rejected record is no longer
 # current): the case's last rejected approval with no run of this writer after it that exited 0
 # and was not `not_called`. It is addressed as if fed back, and the skip rule below does not apply.
+# Only a node of class writer or implement (the classes that write the rejected artifact) looks it
+# up: a review node never gets a rejection as rework, its own or an approval's of the same subject.
+# The node's class (tools/node-classes.json); it also picks SDC_LLM_MODEL_<CLASS> below.
+class=$(jq -r --arg n "$node" '[.classes | to_entries[] | select(.value | index($n)) | .key] | first // "other"' "$here/node-classes.json")
 cd_=${SDC_CASE_DIR:-}
-if [[ -z $rejection && -n $cd_ && -f $cd_/events.jsonl ]]; then
+if [[ ( $class == writer || $class == implement ) && -z $rejection && -n $cd_ && -f $cd_/events.jsonl ]]; then
   rejection=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished")] as $f
     | ([$f | to_entries[] | select(.value.result == "rejected") | .key] | last) as $k
     | if $k == null or any($f[$k + 1:][]; .action == $n and .exit == "0" and (.not_called | type) != "string") then empty
@@ -473,8 +477,7 @@ prompt=$rec/prompt.md
 } > "$prompt"
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
-# writer, implement, review, other), else SDC_LLM_MODEL, else the binding's llm.model.
-class=$(jq -r --arg n "$node" '[.classes | to_entries[] | select(.value | index($n)) | .key] | first // "other"' "$here/node-classes.json")
+# writer, implement, review, other; $class, set above), else SDC_LLM_MODEL, else the binding's llm.model.
 cvar=SDC_LLM_MODEL_${class^^}
 model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
