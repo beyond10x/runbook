@@ -25,6 +25,10 @@ use std::process::ExitCode;
 use serde_json::{json, Value as J};
 use serde_yaml::Value as Y;
 
+#[path = "../run_metrics.rs"]
+#[allow(dead_code)]
+mod run_metrics;
+
 const USAGE: &str = "usage: sdc-run-compare --run <label>=<run dir> [--run <label>=<run dir> ...] --out <report.md> [--json <report.json>]";
 const NOT_RECORDED: &str = "not recorded";
 
@@ -426,6 +430,10 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
         None => json_opt(&dir.join("store").join("oracle.json"))?,
     };
     metrics.push(("oracle check".into(), text(oracle.as_ref().map_or("none".to_string(), oracle_summary))));
+    // The conformance observation after close (docs/conformance.md):
+    // `spec scenarios proven passed: k of n (lower bound); …`.
+    let conformance = oracle.as_ref().map(|o| &o["conformance"]).filter(|c| c["result"].is_string());
+    metrics.push(("conformance".into(), text(conformance.map_or("not observed".to_string(), conformance_cell))));
     let replay = json_opt(&dir.join("replay.json"))?;
     metrics.push(("replay".into(), text(replay.as_ref().map_or(NOT_RECORDED.to_string(), replay_summary))));
 
@@ -513,6 +521,11 @@ fn fix_gap(r: &Round, n: &Round, reopened: &[i64]) -> Option<i64> {
 
 /// `held`, `contradicted` or `unknown` per check (docs/eval-design.md, oracle file): the checks
 /// are an array of `{id, result}`, a map id -> result, or the file holds one `result`.
+/// The figure of `sdc-conform` (`docs/conformance.md`, `run_metrics::conformance_figure`).
+fn conformance_cell(c: &J) -> String {
+    run_metrics::conformance_figure(c)
+}
+
 fn oracle_summary(o: &J) -> String {
     let one = |v: &J| -> String {
         let r = v.as_str().map(String::from).unwrap_or_else(|| ["result", "status", "verdict"].iter().find_map(|k| v[*k].as_str()).unwrap_or("").to_string());

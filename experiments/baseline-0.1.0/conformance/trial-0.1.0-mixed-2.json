@@ -1,0 +1,70 @@
+{
+  "agreement": 16,
+  "cause": null,
+  "d": 0,
+  "ess": "0.97.0",
+  "f": 8,
+  "format": "sdc.conformance-summary/1",
+  "k": 2,
+  "measured": true,
+  "n": 16,
+  "node_cost_usd": 2.989569,
+  "node_sessions": 9,
+  "p": 8,
+  "recomputed": true,
+  "result": "contradicted",
+  "run": "trial-0.1.0-mixed-2",
+  "scenario_causes": {
+    "failed:precondition_not_in_spec": 8
+  },
+  "suite_sha256": "b1fccfdb8881e237298b39d360bbf4136126cfcbd3a90fd135d04680aee52dd0",
+  "summary": "spec scenarios proven passed: 2 of 16 (lower bound); 8 failed, of which 8 refused for a precondition the specification does not model; 6 not measurable; tables agree on 16 of 16",
+  "tables": [
+    {
+      "attempts": 3,
+      "cause": null,
+      "cost_usd": 0.986884,
+      "counted": true,
+      "e": 0,
+      "f": 8,
+      "k": 2,
+      "one_more_session": true,
+      "precondition_not_in_spec": 8,
+      "retried_after_run": true,
+      "slot": 1,
+      "u": 6
+    },
+    {
+      "attempts": 3,
+      "cause": null,
+      "cost_usd": 1.00107,
+      "counted": true,
+      "e": 0,
+      "f": 8,
+      "k": 2,
+      "one_more_session": true,
+      "precondition_not_in_spec": 8,
+      "retried_after_run": true,
+      "slot": 2,
+      "u": 6
+    },
+    {
+      "attempts": 3,
+      "cause": null,
+      "cost_usd": 1.001615,
+      "counted": true,
+      "e": 0,
+      "f": 8,
+      "k": 2,
+      "one_more_session": true,
+      "precondition_not_in_spec": 8,
+      "retried_after_run": true,
+      "slot": 3,
+      "u": 6
+    }
+  ],
+  "tables_counted": 3,
+  "tables_written": 3,
+  "u": 6,
+  "written_by": "sdc-conform summary"
+}

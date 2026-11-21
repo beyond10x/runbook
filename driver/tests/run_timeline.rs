@@ -314,3 +314,281 @@ fn the_same_run_gives_the_same_bytes_and_a_missing_run_is_exit_2() {
     let out = Command::new(env!("CARGO_BIN_EXE_sdc-run-timeline")).arg(run.join("nothing")).output().unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
+
+/// A free-running agent's run (sdc-free-agent): the stream of `claude -p` with partial messages,
+/// in the shape the CLI writes it. Seconds: init 0.0; request 1 sent 0.5 (status requesting),
+/// first token 1.0, a Read tool call 2.0-2.5 while it streams, stop 3.0; request 2 sent 3.2
+/// (the tool result was at 2.5, the status line says 3.2), stop 5.0; result at 5.2.
+fn free_run(run: &Path, outcome: Option<Value>) {
+    let ev = |t: u64, e: Value| (t, e);
+    let usage = |i: i64, o: i64, cr: i64, cw: i64| json!({"input_tokens": i, "output_tokens": o, "cache_read_input_tokens": cr, "cache_creation_input_tokens": cw});
+    let lines = vec![
+        ev(0, json!({"type": "system", "subtype": "init", "cwd": "/opt/private-tree/work"})),
+        ev(500, json!({"type": "system", "subtype": "status", "status": "requesting"})),
+        ev(1000, json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m1", "model": "claude-sonnet-5-5", "usage": usage(2, 16, 0, 5000)}}})),
+        ev(2000, json!({"type": "assistant", "message": {"id": "m1", "content": [{"type": "tool_use", "id": "u1", "name": "Read", "input": {"file_path": "/opt/private-tree/secret"}}]}})),
+        ev(2500, json!({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "u1", "content": "file text that must not leak"}]}})),
+        ev(2900, json!({"type": "stream_event", "event": {"type": "message_delta", "usage": usage(2, 300, 0, 5000)}})),
+        ev(3000, json!({"type": "stream_event", "event": {"type": "message_stop"}})),
+        ev(3200, json!({"type": "system", "subtype": "status", "status": "requesting"})),
+        ev(3600, json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m2", "model": "claude-sonnet-5-5", "usage": usage(2, 10, 5000, 400)}}})),
+        ev(4900, json!({"type": "stream_event", "event": {"type": "message_delta", "usage": usage(2, 50, 5000, 400)}})),
+        ev(5000, json!({"type": "stream_event", "event": {"type": "message_stop"}})),
+        ev(5200, json!({"type": "result", "subtype": "success", "is_error": false, "total_cost_usd": 0.42, "num_turns": 2,
+            "usage": usage(4, 350, 5000, 5400), "result": "a reply that must not leak",
+            "modelUsage": {"claude-sonnet-5-5": {"inputTokens": 4, "outputTokens": 350, "cacheReadInputTokens": 5000, "cacheCreationInputTokens": 5400, "costUSD": 0.42}}})),
+    ];
+    jsonl(&run.join("events.jsonl"), &lines.iter().map(|(_, e)| e.clone()).collect::<Vec<_>>());
+    jsonl(&run.join("received.jsonl"), &lines.iter().enumerate().map(|(i, (t, _))| json!({"index": i, "received_at": at(*t)})).collect::<Vec<_>>());
+    write_json(&run.join("free-agent.json"), &json!({"format": "sdc.free-agent-run/1", "run": "free-1", "end": "completed", "capped": null, "exit": 0,
+        "model": "claude-sonnet-5-5", "effort": "high", "adapter": "claude-cli", "tools": ["Read", "Bash"],
+        "caps": {"max_usd": 25.0, "max_wall_s": 5400, "max_turns": 1000}, "started_at": at(0), "ended_at": at(5300),
+        "confinement": {"summary": "bubblewrap", "argv": []}}));
+    if let Some(o) = outcome {
+        write_json(&run.join("outcome.json"), &o);
+    }
+}
+
+#[test]
+fn a_free_agent_run_is_one_model_span_per_request_and_one_tool_span_per_call() {
+    let run = scratch("free").join("free-1");
+    free_run(&run, None);
+    let (code, doc, err) = timeline(&run, &["--check"]);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(doc["kind"], "free-agent");
+    assert_eq!(doc["settings"]["model"], "claude-sonnet-5-5");
+    let models = lane(&doc, "model");
+    assert_eq!(models.len(), 2);
+    assert!(close(&models[0]["t0_s"], 0.5) && close(&models[0]["t1_s"], 3.0));
+    assert!(close(&models[0]["ttft_s"], 0.5));
+    assert_eq!(models[0]["tokens"], json!({"input": 2, "output": 300, "cache_read": 0, "cache_write": 5000}));
+    assert_eq!(models[0]["tool_calls"], json!({"Read": 1}));
+    assert!(models[0]["cost_usd"].is_null());
+    assert!(close(&models[1]["t0_s"], 3.2) && close(&models[1]["t1_s"], 5.0));
+    let tools = lane(&doc, "tool");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0]["action"], "Read");
+    assert!(close(&tools[0]["t0_s"], 2.0) && close(&tools[0]["t1_s"], 2.5));
+    let t = &doc["totals"];
+    assert!(close(&t["cost_usd"], 0.42));
+    assert_eq!(t["api_requests"], 2);
+    assert_eq!(t["model_tool_calls"], 1);
+    assert_eq!(t["tokens"], json!({"input": 4, "output": 350, "cache_read": 5000, "cache_write": 5400}));
+    assert!(close(&t["wall_s"], 5.3));
+    // 0-0.5 before the first request, 3.0-3.2 between requests, 5.0-5.3 after the last.
+    assert!(close(&t["idle_s"], 1.0), "{}", t["idle_s"]);
+    assert!(close(&t["overlap_s"], 0.5), "the tool ran while its response streamed");
+    assert_eq!(doc["session"]["usage_beyond_streamed_requests"], json!({"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}));
+    let text = doc.to_string();
+    assert!(!text.contains("/opt/private-tree") && !text.contains("must not leak"), "{text}");
+}
+
+fn sha(text: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A prospective record comparing runners: the free agent against two SDC variants whose runs
+/// another record made (`from`), on two primary metrics.
+fn runner_record(free_settings: &str) -> String {
+    let idea = "A to-do list.";
+    format!(r#"format: sdc.experiment/1
+id: cmp
+kind: prospective
+status: running
+created: 2026-11-21
+title: Free agent against the SDC
+purpose: Whether one free agent session costs more than the SDC.
+hypothesis: A free-running agent costs more (run.cost_usd and run.tokens_total) than the SDC.
+inputs:
+- name: todo
+  kind: idea
+  text: {idea}
+  sha256: {}
+tree_commit: 0123456789abcdef0123456789abcdef01234567
+target:
+  kind: run
+  name: run.cost_usd
+variable: runner
+known_confounds:
+- key: decider
+  note: the SDC settings differ in the decider
+variants:
+- id: strong
+  from: base
+  settings:
+    models.writer.model: s
+    models.implement.model: s
+    models.review.model: s
+    models.other.model: s
+    decider.kind: haiku
+    decider.model: claude-opus-5-5
+    decider.escalate: final
+    decider.max_decider_calls: '40'
+    adapter: metaharness
+    max_llm_calls: '150'
+    autonomy: A5
+  runs: [sdc-a]
+- id: mixed
+  from: base
+  settings:
+    models.writer.model: s
+    models.implement.model: s
+    models.review.model: s
+    models.other.model: h
+    decider.kind: haiku
+    decider.model: claude-opus-5-5
+    decider.escalate: final
+    decider.max_decider_calls: '40'
+    adapter: metaharness
+    max_llm_calls: '150'
+    autonomy: A5
+  runs: [sdc-b]
+- id: sonnet
+  runner: free-agent
+  run_name: free-{{n}}
+  settings:
+{free_settings}
+  runs: [free-1]
+baseline: [strong, mixed]
+treatment: sonnet
+runs_per_variant: 1
+pass_rule: clean-delivery
+primary:
+- metric: run.cost_usd
+  direction: increase
+  min_effect: 0
+- metric: run.tokens_total
+  direction: increase
+  min_effect: 0
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+decision_rule:
+  rule: complete-separation
+  text: held when on both metrics against both SDC variants every free run lies above every SDC run.
+adoption:
+  decision: pending
+  commit: null
+"#, sha(idea))
+}
+
+const FREE_SETTINGS: &str = "    free.model: claude-sonnet-5-5\n    free.effort: high\n    free.adapter: claude-cli\n    free.max_usd: '25'\n    free.max_wall_s: '5400'\n    free.max_turns: '1000'";
+
+#[test]
+fn a_runner_comparison_record_is_checked_launched_from_its_free_variant_only_and_reported_per_baseline() {
+    let base = scratch("runner-record");
+    let runs = base.join("runs");
+    let exp = base.join("experiments");
+    fs::create_dir_all(&exp).unwrap();
+    for (name, other) in [("sdc-a", "s"), ("sdc-b", "h")] {
+        sdc_run(&runs.join(name));
+        jsonl(&runs.join(name).join("run-settings.jsonl"), &[json!({"format": "sdc.run-settings/1", "at": at_whole(0), "adapter": "metaharness",
+            "autonomy": "A5", "max_llm_calls": 150,
+            "decider": {"kind": "haiku", "model": "claude-opus-5-5", "escalate": "final", "max_decider_calls": 40},
+            "models": {"writer": {"model": "s"}, "implement": {"model": "s"}, "review": {"model": "s"}, "other": {"model": other}, "decider": {"model": "claude-opus-5-5"}}})]);
+    }
+    free_run(&runs.join("free-1"), Some(json!({"ended_by_itself": true, "delivered": true})));
+    fs::write(exp.join("cmp.yaml"), runner_record(FREE_SETTINGS)).unwrap();
+    let exe = env!("CARGO_BIN_EXE_sdc-experiment");
+    let o = Command::new(exe).args(["check"]).arg(exp.join("cmp.yaml")).arg("--runs-dir").arg(&runs).output().unwrap();
+    assert!(o.status.success(), "{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    // Only the free variant is launched, under its run_name, by sdc-free-agent.
+    let o = Command::new(exe).args(["run"]).arg(exp.join("cmp.yaml")).args(["--print", "--runs-dir"]).arg(&runs).output().unwrap();
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{text}");
+    assert!(text.contains("free-1 (") && text.contains("sdc-free-agent run") && text.contains("--max-usd 25"), "{text}");
+    assert!(!text.contains("cmp.strong"), "{text}");
+    // A free variant with an SDC setting is refused.
+    fs::write(exp.join("cmp.yaml"), runner_record(&format!("{FREE_SETTINGS}\n    autonomy: A5"))).unwrap();
+    let o = Command::new(exe).args(["check"]).arg(exp.join("cmp.yaml")).output().unwrap();
+    assert!(String::from_utf8_lossy(&o.stdout).contains("autonomy is no free-agent launch setting"));
+    fs::write(exp.join("cmp.yaml"), runner_record(FREE_SETTINGS)).unwrap();
+    // The report: per metric and baseline; the free run here is cheaper, so contradicted.
+    let o = Command::new(exe).args(["report"]).arg(exp.join("cmp.yaml")).arg("--runs-dir").arg(&runs).output().unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{out}{}", String::from_utf8_lossy(&o.stderr));
+    let rec: serde_yaml::Value = serde_yaml::from_str(&fs::read_to_string(exp.join("cmp.yaml")).unwrap()).unwrap();
+    let res = &rec["result"];
+    assert_eq!(res["verdict"].as_str(), Some("contradicted"), "{out}");
+    let comps = res["comparisons"].as_sequence().unwrap();
+    assert_eq!(comps.len(), 4);
+    assert!(comps.iter().all(|c| c["separation"].as_str() == Some("reversed")));
+    let report = fs::read_to_string(exp.join("cmp/report.md")).unwrap();
+    assert!(report.contains("`run.tokens_total` (increase), sonnet against mixed: contradicted"), "{report}");
+    let summary = fs::read_to_string(exp.join("cmp/runs/free-1.json")).unwrap();
+    assert!(summary.contains("sdc.free-agent-metrics/1") && !summary.contains("/home/"));
+    let o = Command::new(exe).args(["check", "--all", "--experiments"]).arg(&exp).output().unwrap();
+    let all = String::from_utf8_lossy(&o.stdout);
+    assert!(!all.contains("cmp.yaml") && !all.contains("cmp/report.md"), "{all}");
+}
+
+#[test]
+fn a_free_agent_run_is_reported_in_the_metric_shape_once_its_outcome_is_measured() {
+    let base = scratch("free-exp");
+    free_run(&base.join("free-1"), None);
+    // Without outcome.json the run is not finished; with it, delivered as measured.
+    let rec = |dir: &Path| -> Value {
+        let out = Command::new(env!("CARGO_BIN_EXE_sdc-run-timeline")).arg(dir).args(["--metrics", "-"]).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        serde_json::from_slice(&out.stdout).unwrap()
+    };
+    let m = rec(&base.join("free-1"));
+    assert_eq!(m["metrics"]["finished"], false);
+    free_run(&base.join("free-2"), Some(json!({"ended_by_itself": true, "delivered": true})));
+    let m = rec(&base.join("free-2"));
+    assert_eq!(m["metrics"]["finished"], true);
+    assert_eq!(m["metrics"]["delivered"], true);
+    assert_eq!(m["metrics"]["clean"], true);
+    assert!(close(&m["metrics"]["cost_usd"], 0.42));
+    assert_eq!(m["settings"]["free.max_usd"], "25");
+    assert_eq!(m["metrics"]["tokens"]["cache_creation"], 5400);
+}
+
+#[test]
+fn a_product_tree_is_sized_by_its_tests_its_product_lines_and_whether_its_readme_says_how_to_start_it() {
+    let p = scratch("size").join("product");
+    fs::create_dir_all(p.join("src")).unwrap();
+    fs::create_dir_all(p.join("tests")).unwrap();
+    fs::create_dir_all(p.join("target/debug")).unwrap();
+    fs::write(p.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    fs::write(
+        p.join("src/lib.rs"),
+        "// a comment\n\npub fn add(a: u32, b: u32) -> u32 {\n    a + b\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn adds() {\n        assert_eq!(add(1, 2), 3);\n    }\n}\n",
+    )
+    .unwrap();
+    fs::write(p.join("src/main.rs"), "fn main() {\n    println!(\"{}\", demo::add(1, 1));\n}\n").unwrap();
+    fs::write(p.join("tests/api.rs"), "#[test]\nfn one() {\n    assert!(true);\n}\n\n#[test]\nfn two() {}\n").unwrap();
+    fs::write(p.join("target/debug/junk.rs"), "#[test]\nfn not_counted() {}\n").unwrap();
+    fs::write(p.join("src/index.html"), "<html>\n\n<body></body>\n</html>\n").unwrap();
+    fs::write(p.join("src/sw.js"), "self.addEventListener('fetch', () => {});\n").unwrap();
+    fs::write(p.join("target/debug/x.js"), "not counted\n").unwrap();
+    fs::write(p.join("README.md"), "# Demo\n\n## Run\n\n    cargo run --locked -- 8080\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-free-agent")).arg("size").arg(&p).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["format"], "sdc.product-size/1");
+    assert_eq!(v["rust_files"], 3);
+    assert_eq!(v["tests"], 3);
+    // lib.rs outside its test module: 3 lines (the comment and blank lines do not count); main.rs: 3.
+    assert_eq!(v["product_lines"], 6);
+    // lib.rs's test module (8 lines, from #[cfg(test)] to its closing brace) and tests/api.rs (6).
+    assert_eq!(v["test_lines"], 14);
+    // Web assets kept beside the Rust (a product may embed them in Rust strings instead).
+    assert_eq!(v["asset_lines"], 4);
+    // Files of the tree outside target/: Cargo.toml, README.md, 3 .rs, index.html, sw.js.
+    assert_eq!(v["files"], 7);
+    assert_eq!(v["requirements"], Value::Null);
+    let req = p.parent().unwrap().join("requirements.yaml");
+    fs::write(&req, "requirements:\n- id: r1\n  text: one\n- id: r2\n  text: two\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-free-agent")).arg("size").arg(&p).arg("--requirements").arg(&req).output().unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["requirements"], 2);
+    assert_eq!(v["readme"], true);
+    assert_eq!(v["readme_says_how_to_start"], true);
+    fs::write(p.join("README.md"), "# Demo\n\nA demo.\n").unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-free-agent")).arg("size").arg(&p).output().unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["readme_says_how_to_start"], false);
+}

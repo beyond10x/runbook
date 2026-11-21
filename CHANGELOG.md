@@ -7,6 +7,63 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- Conformance observation after close (`docs/conformance.md`, `story:conformance-observe-after-close`):
+  `sdc-conform observe runs/<run>` holds the delivered product to the conformance suite of the
+  run's own spec through `ess verify conform run --target process` and the generic HTTP adapter
+  `sdc-conform-adapter`, with route tables written after the run by the node `conformance.table`
+  (read-only, response schema, program check, two retries) and writes `runs/<run>/oracle.json`:
+  `conformance: spec scenarios proven passed: k of n (lower bound); f failed; u not measurable;
+  tables agree on a of n`.
+  The suite runs once per table (`--tables`, default 3); a scenario passes only when every counted
+  table that reached it passed it, fails only when every one failed it, and is disputed when they
+  disagree (cause `disputed` when nothing failed). Several statuses may mean one outcome
+  (`status: [409, 404]`). The check refuses a literal in an event payload or error field, and a
+  check of a field filled from the input is recorded unverified (`unverified_checks`). The start
+  command cites the README or manifest line that states it (`start.from`; `cargo run` and `go run`
+  refused), and an argument or header a README describes as a test, demo or mock mode is refused.
+  A refusal of a command on an id the scenario never created is read by the adapter as the
+  command's unknown-instance answer (ESS: not-found, else `wrong_state`), and 404 for an id it
+  created never; a start value the README leaves to the operator can come from the scenario
+  (`start.args`, `from_scenario`); a slot refused after its retry gets one more session (five per
+  slot). The figure goes into a release as an observation: `passed` is a lower bound, judged against
+  the run's own specification; nothing else is claimed. A table whose run shows its own fault (a capture
+  that never appears, a request naming a value the scenario leaves out, 401 or 403) is refused and
+  asked again once with that evidence. `held` only when k = n > 0 (u > 0 is never held); a run
+  without a counted table is `unknown` with a named cause and prints no counts
+  (`not measured (<cause>), n scenarios`). A scenario is not
+  measurable when it needs what the table declares `none` of kind
+  `not_reachable_over_the_interface`; `not_implemented` fails. The table can capture values the
+  product prints at start (`captures`), send them in paths, headers and bodies, and bind them to a
+  spec input (`bindings`). `scripts/run-trial.sh` runs it after a close (`SDC_CONFORMANCE=off`).
+  Observation only: no gate. A scenario one counted table saw fail and the others declared
+  unreachable counts failed. When every slot's table is refused only for the product's 401 or 403 in
+  the same scenarios, none of which had a success before its refusal (a sign-in the specification
+  does not model), those scenarios count failed with cause `precondition_not_in_spec`
+  ("f failed, of which p refused for a precondition the specification does not model").
+  `sdc-conform recompute` takes the figure again from stored table runs, `sdc-conform summary`
+  prints the sanitized summary the progress ledger reads from
+  `experiments/<id>/conformance/<run>.json`; the ledger shows conformance always (`not observed`
+  where a run has none), with the baseline-0.1.0 figures. One text form in oracle.json,
+  run-metrics, run-compare and the ledger. About 1 to 3 USD of node cost per observed product.
+  A recorded re-drive (`run-trial.sh --recorded`) skips the observation: its recording holds no
+  table call, and each one counted as a divergence.
+- `driver/ess-pin.json`: ess 0.97.0 pinned by archive and binary sha256 per platform, resolved
+  through `ESS_BIN` or a cache path (`sdc-conform ess-install`); the `ess` on PATH is not used.
+- The row `conformance` in `sdc-run-compare`, `metrics.conformance*` and the text line in
+  `sdc-run-metrics`; a conformance column, line and per-run figure in the progress ledger.
+- Site, Evaluation: the chart "Spec scenarios proven passed (lower bound)" per release and setting
+  (median, min to max, n; a run without an observation is "not observed", never 0), the
+  observer's line and the failed count with failures for a precondition the specification does not
+  model split out per run, and three cited sentences on what is checked, why it is a lower bound and
+  what it costs.
+- Site, "The LLM is not the runtime": the comparison of record `free-agent-0.1.0` drawn from the
+  committed record, run summaries, timelines, `sizes.json` and conformance summaries: the result in
+  the first paragraph, the timelines on one time axis and cost scale, medians, the hypothesis and
+  its verdict per pair, product sizes, conformance of both sides, what the SDC run records that the
+  free run does not, what was held equal and the confounds; quality evaluation pending.
+
 ## [0.1.3] - 2026-11-21
 
 The documentation site and its generator. No protocol, binding or case changed. The longer note is

@@ -40,6 +40,31 @@ export interface LedgerRun {
   cost_usd: number | null;
   wall_s: number | null;
   metrics?: RunMetrics | null;
+  conformance?: Conformance | null;
+}
+
+/** The conformance observation of one run (`docs/conformance.md`); null when the run was not observed. */
+export interface Conformance {
+  measured: boolean;
+  result: string | null;
+  cause: string | null;
+  n: number | null;
+  k: number | null;
+  f: number | null;
+  p: number | null;
+  d: number | null;
+  u: number | null;
+  agreement: number | null;
+  node_cost_usd: number | null;
+  node_sessions: number | null;
+  summary: string;
+}
+
+/** The share of spec scenarios proven passed, k of n; null when the run has no measured figure. */
+export function provenShare(r: LedgerRun): number | null {
+  const c = r.conformance;
+  if (!c || !c.measured || typeof c.k !== 'number' || typeof c.n !== 'number' || c.n <= 0) return null;
+  return c.k / c.n;
 }
 
 export interface LedgerCell {
@@ -144,6 +169,10 @@ export interface MetricDef {
   direction: string;
   get: Getter;
   format: (x: number) => string;
+  /** What a setting whose runs have no value shows instead of a dot, such as "not observed". */
+  missing?: (runs: LedgerRun[]) => string;
+  /** A tag printed beside the title, such as "lower bound". */
+  tag?: string;
 }
 
 const usd = (x: number) => `$${x.toFixed(2)}`;
@@ -155,7 +184,20 @@ const share = (x: number) => `${Math.round(x * 100)} %`;
 const m = (r: LedgerRun) => r.metrics ?? null;
 const node = (r: LedgerRun, n: string) => m(r)?.nodes?.[n] ?? null;
 
+export const CONFORMANCE: MetricDef = {
+  id: 'conformance',
+  title: 'Spec scenarios proven passed',
+  tag: 'lower bound',
+  unit: 'share',
+  better: 'higher',
+  direction: 'Higher is better. Per run k of n scenarios of its own specification; a run without an observation is "not observed", never 0.',
+  get: provenShare,
+  format: share,
+  missing: (runs) => (runs.some((r) => r.conformance) ? 'not measured' : 'not observed'),
+};
+
 export const METRICS: MetricDef[] = [
+  CONFORMANCE,
   {id: 'cost', title: 'Cost per run', unit: 'USD', better: 'lower', direction: 'Lower is better.', get: (r) => m(r)?.cost_usd ?? r.cost_usd, format: usd},
   {id: 'wall', title: 'Wall time per run', unit: 'time', better: 'lower', direction: 'Lower is better.', get: (r) => m(r)?.wall_s ?? r.wall_s, format: minutes},
   {id: 'llm', title: 'Model calls per run', unit: 'calls', better: 'lower', direction: 'Lower is better: fewer calls for the same end.', get: (r) => m(r)?.llm_calls, format: int},

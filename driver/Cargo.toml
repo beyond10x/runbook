@@ -49,6 +49,18 @@ name = "sdc-experiment"
 path = "src/bin/sdc-experiment.rs"
 
 [[bin]]
+name = "sdc-conform"
+path = "src/bin/sdc-conform.rs"
+
+[[bin]]
+name = "sdc-conform-adapter"
+path = "src/bin/sdc-conform-adapter.rs"
+
+[[example]]
+name = "conformance-stub-product"
+path = "examples/conformance-stub-product.rs"
+
+[[bin]]
 name = "sdc-protocol-site"
 path = "src/bin/sdc-protocol-site.rs"
 
@@ -59,6 +71,10 @@ path = "src/bin/sdc-replay.rs"
 [[bin]]
 name = "sdc-run-timeline"
 path = "src/bin/sdc-run-timeline.rs"
+
+[[bin]]
+name = "sdc-free-agent"
+path = "src/bin/sdc-free-agent.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

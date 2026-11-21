@@ -1,0 +1,10 @@
+format: ess/1
+system: chores
+version: v1
+
+summary: >-
+  A list of chores that can be added and done, and done chores reported to a remote board that
+  may be out of reach.
+
+domains:
+  - chores.list

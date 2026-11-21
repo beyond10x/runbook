@@ -1,0 +1,140 @@
+domain: chores.list
+
+summary: Chores that are added, then done, and reported to a remote board.
+
+types:
+  - name: chores.list.ChoreId
+    kind: newtype
+    of: Uuid
+
+entities:
+  - name: chores.list.Chore
+
+    identity:
+      name: chore_id
+      type: chores.list.ChoreId
+
+    fields:
+      - name: title
+        type: String
+
+    lifecycle:
+      initial: Open
+      states: [Open, Done]
+      terminal: [Done]
+      transitions:
+        - name: finish
+          from: [Open]
+          to: Done
+
+errors:
+  - name: chores.list.BoardUnreachable
+    summary: The remote board cannot be reached, so the chore stays open.
+
+  - name: chores.list.ChoreStateConflict
+    summary: The chore is not open, so nothing moved.
+    fields:
+      - name: state
+        type: chores.list.Chore.State
+
+commands:
+  - name: chores.list.AddChore
+
+    input:
+      - name: title
+        type: String
+      - name: note
+        type: Optional<String>
+
+    outcomes:
+      - name: added
+        creates: chores.list.Chore
+        instance: chore_id
+        emits:
+          - chores.list.ChoreAdded
+        payload:
+          chores.list.ChoreAdded:
+            title: input.title
+        sets:
+          title: input.title
+        summary: The chore is added, still open.
+
+  - name: chores.list.FinishChore
+
+    input:
+      - name: chore_id
+        type: chores.list.ChoreId
+
+    outcomes:
+      - name: finished
+        moves: chores.list.Chore.finish
+        instance: chore_id
+        emits:
+          - chores.list.ChoreFinished
+        payload:
+          chores.list.ChoreFinished:
+            chore_id: input.chore_id
+        summary: The chore is done and reported.
+
+      - name: unreachable
+        external: the remote board cannot be reached
+        error: chores.list.BoardUnreachable
+
+      - name: wrong-state
+        wrong_state: true
+        error: chores.list.ChoreStateConflict
+        summary: The chore is already done.
+
+  - name: chores.list.OpenBoard
+
+    input:
+      - name: code
+        type: String
+
+    outcomes:
+      - name: opened
+        emits:
+          - chores.list.BoardOpened
+        payload:
+          chores.list.BoardOpened:
+            code: input.code
+        summary: The board behind the code is opened.
+
+events:
+  - name: chores.list.BoardOpened
+    fields:
+      - name: code
+        type: String
+
+  - name: chores.list.ChoreAdded
+    fields:
+      - name: chore_id
+        type: chores.list.ChoreId
+      - name: title
+        type: String
+
+  - name: chores.list.ChoreFinished
+    fields:
+      - name: chore_id
+        type: chores.list.ChoreId
+
+views:
+  - name: chores.list.OpenChores
+    source: chores.list.Chore
+    consistency: read_your_writes
+    filter: state == Open
+    fields:
+      - name: chore_id
+        type: chores.list.ChoreId
+      - name: title
+        type: String
+
+  - name: chores.list.DoneChores
+    source: chores.list.Chore
+    consistency: read_your_writes
+    filter: state == Done
+    fields:
+      - name: chore_id
+        type: chores.list.ChoreId
+      - name: title
+        type: String

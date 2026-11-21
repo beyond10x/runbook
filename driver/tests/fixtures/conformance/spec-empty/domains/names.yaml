@@ -1,0 +1,8 @@
+domain: quiet.names
+
+summary: One declared name.
+
+types:
+  - name: quiet.names.NameId
+    kind: newtype
+    of: Uuid

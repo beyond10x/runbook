@@ -1,7 +1,7 @@
 //! Timeline of one recorded run (docs/llm-is-not-the-runtime.md).
 //!
 //! ```text
-//! sdc-run-timeline <run dir> [--json <file>|-] [--text <file>|-] [--check]
+//! sdc-run-timeline <run dir> [--json <file>|-] [--text <file>|-] [--check] [--metrics <file>|-]
 //! sdc-run-timeline --check-doc <timeline.json>
 //! ```
 //!
@@ -12,7 +12,8 @@
 //! rule, tool, idle), sanitized (no prompt, reply, file content or absolute path). Without
 //! `--json` and `--text` it prints the totals line. `--check` also holds the totals to the sum of
 //! the spans and, for an SDC run, the cost to `sdc-run-metrics`' run cost; `--check-doc` holds a
-//! written document's totals to its spans. Deterministic. Exit 0, 1 a failed check, 2 a run
+//! written document's totals to its spans. `--metrics` writes a free-agent run's metrics in the
+//! shape `sdc-experiment` compares (`sdc.free-agent-metrics/1`). Deterministic. Exit 0, 1 a failed check, 2 a run
 //! directory or document that cannot be read, 64 usage.
 
 use std::fs;
@@ -23,19 +24,21 @@ use std::process::ExitCode;
 #[allow(dead_code)]
 mod run_metrics;
 #[path = "../run_timeline.rs"]
+#[allow(dead_code)]
 mod run_timeline;
 
-const USAGE: &str = "usage: sdc-run-timeline <run dir> [--json <file>|-] [--text <file>|-] [--check]
+const USAGE: &str = "usage: sdc-run-timeline <run dir> [--json <file>|-] [--text <file>|-] [--check] [--metrics <file>|-]
        sdc-run-timeline --check-doc <timeline.json>";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (mut run, mut json_out, mut text_out, mut check, mut check_doc): (Option<PathBuf>, Option<String>, Option<String>, bool, Option<String>) =
         (None, None, None, false, None);
+    let mut metrics_out: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
-            "--json" | "--text" | "--check-doc" => {
+            "--json" | "--text" | "--check-doc" | "--metrics" => {
                 let Some(v) = it.next() else {
                     eprintln!("sdc-run-timeline: {a} needs a value\n{USAGE}");
                     return ExitCode::from(64);
@@ -43,6 +46,7 @@ fn main() -> ExitCode {
                 match a.as_str() {
                     "--json" => json_out = Some(v.clone()),
                     "--text" => text_out = Some(v.clone()),
+                    "--metrics" => metrics_out = Some(v.clone()),
                     _ => check_doc = Some(v.clone()),
                 }
             }
@@ -103,6 +107,28 @@ fn main() -> ExitCode {
                     failed = true;
                 }
             }
+        }
+    }
+    if let Some(dest) = &metrics_out {
+        match run_timeline::free_metrics(&run) {
+            Ok(Some(m)) => {
+                let body = serde_json::to_string_pretty(&m).unwrap_or_default() + "\n";
+                if dest == "-" { print!("{body}") } else if let Err(e) = fs::write(dest, body) {
+                    eprintln!("sdc-run-timeline: cannot write {dest}: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+            Ok(None) => {
+                eprintln!("sdc-run-timeline: --metrics reads a free-agent run (free-agent.json)");
+                return ExitCode::from(2);
+            }
+            Err(run_metrics::Fail(m)) => {
+                eprintln!("sdc-run-timeline: {m}");
+                return ExitCode::from(2);
+            }
+        }
+        if json_out.is_none() && text_out.is_none() {
+            return if failed { ExitCode::from(1) } else { ExitCode::SUCCESS };
         }
     }
     if json_out.is_none() && text_out.is_none() {

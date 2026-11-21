@@ -248,3 +248,31 @@ fn usage_errors_exit_64() {
     let dup = [run_arg("a", &fixture("trial-2-train")), run_arg("a", &fixture("trial-2b-fresh")), vec!["--out".into(), md]].concat();
     assert_eq!(tool(&dup).status.code(), Some(64), "labels are distinct");
 }
+
+#[test]
+fn the_conformance_figure_is_its_own_row() {
+    let d = scratch("conformance-run");
+    let cp = Command::new("cp").arg("-r").arg(fixture("autopilot-closed")).arg(&d).status().unwrap();
+    assert!(cp.success());
+    let run = d.join("autopilot-closed");
+    fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1", "run": "autopilot-closed",
+        "checks": [{"id": "conformance", "result": "contradicted", "k": 13, "f": 3, "d": 0, "u": 1, "n": 17, "agreement": 15, "tables_counted": 3, "cause": null}],
+        "conformance": {"result": "contradicted", "k": 13, "f": 3, "d": 0, "u": 1, "n": 17, "agreement": 15, "tables_counted": 3, "cause": null}}).to_string()).unwrap();
+    let (code, err, md, js) = compare(&run, &fixture("autopilot-stopped"), "conformance");
+    assert_eq!(code, 0, "{err}");
+    let row = "spec scenarios proven passed: 13 of 17 (lower bound); 3 failed; 1 not measurable; tables agree on 15 of 17";
+    assert_eq!(text(&js, 0, "conformance"), row);
+    assert_eq!(text(&js, 1, "conformance"), "not observed");
+    assert_eq!(text(&js, 0, "oracle check"), "contradicted (held 0, contradicted 1, unknown 0)");
+    assert!(md.contains(&format!("\n| conformance | {row} | not observed | differs |\n")), "{md}");
+    fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1",
+        "checks": [{"id": "conformance", "result": "unknown", "k": 6, "f": 0, "d": 0, "u": 1, "n": 7, "agreement": 7, "tables_counted": 1, "cause": "not_measurable"}],
+        "conformance": {"result": "unknown", "k": 6, "f": 0, "d": 0, "u": 1, "n": 7, "agreement": 7, "tables_counted": 1, "cause": "not_measurable"}}).to_string()).unwrap();
+    let (_, _, _, js) = compare(&run, &fixture("autopilot-stopped"), "conformance-u");
+    assert_eq!(text(&js, 0, "conformance"), "spec scenarios proven passed: 6 of 7 (lower bound); 0 failed; 1 not measurable; 1 table");
+    fs::write(run.join("oracle.json"), serde_json::json!({"format": "sdc.oracle/1",
+        "checks": [{"id": "conformance", "result": "unknown", "k": null, "f": null, "d": null, "u": null, "n": 32, "agreement": null, "tables_counted": 0, "cause": "table_missing"}],
+        "conformance": {"result": "unknown", "k": null, "f": null, "d": null, "u": null, "n": 32, "agreement": null, "tables_counted": 0, "cause": "table_missing"}}).to_string()).unwrap();
+    let (_, _, _, js) = compare(&run, &fixture("autopilot-stopped"), "conformance-none");
+    assert_eq!(text(&js, 0, "conformance"), "not measured (table_missing), 32 scenarios");
+}

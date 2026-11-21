@@ -1,0 +1,371 @@
+format: sdc.experiment/1
+id: free-agent-0.1.0
+kind: prospective
+status: complete
+created: 2026-11-21
+title: One free-running agent session against the SDC of release 0.1.0, the to-do idea
+purpose: Whether the SDC, where the LLM is not the runtime, costs less than one agent doing the whole cycle in one go with its own tool calls.
+hypothesis: A free-running agent given the same idea and the same list of deliverables costs more (run.cost_usd and run.tokens_total) than the SDC run on 0.1.0.
+expectation: For wall time (run.wall_s) the operator expects that the free agent may be faster; it is reported beside the verdict and decides nothing.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: 3ad339130d8b4edc8b88f63a072ada4e6adc6c82
+trees:
+- the free runs on 3ad3391 (feat/run-timeline, on main 7c5dd5e of 0.1.1); the SDC runs on 4468bfd (release 0.1.0), from experiments/baseline-0.1.0.yaml
+target:
+  kind: run
+  name: run.cost_usd
+variable: runner
+known_confounds:
+- key: decider
+  note: the SDC's strong setting decides through an Opus decider (effort xhigh), the mixed setting through a Haiku decider with Haiku also on the other class; the free agent has no decider and answers its own questions
+- key: shell
+  note: the free agent has a shell and builds and tests its own code; the SDC's model nodes have no shell and programs check what they write
+- key: adapter
+  note: the SDC's work nodes ran through metaharness (review and decider through claude-cli); the free agent runs claude -p directly with the claude-cli adapter's hermetic flags plus --include-partial-messages; the same Claude Code binary 2.1.330
+- key: delivery
+  note: the SDC delivers by closing operating after its gates (requirement trace, ESS gate with compile and synthesize, plan cover, story tests, review, merge, release); the free agent is measured by program only as far as ended by itself, ess specify validate --strict-requires, cargo build and cargo test --locked of a copy, and the five deliverables present; conformance not measured unless stated in the facts
+- key: tree
+  note: the SDC runs are on 4468bfd, the free runs on 3ad3391; the free prompt is driver/examples/sdc/free-agent/prompt.md (the cycle's deliverables and implementation constraints in one prompt); the example spec fixture is unchanged since 4468bfd
+- key: builds
+  note: the free agent's cargo jobs run through slot in a confinement with a fresh cargo home, no network and no compiler cache wrapper; the SDC's builds ran through slot with the host's cargo configuration
+- key: wall
+  note: an SDC run's wall time runs from its first case event to its last; a free run's from the launcher's start to the session's end
+- key: login-and-network
+  note: the free session can read its own login (the copy in its home) and reach the network through its shell; no SDC node can (the implementing node has no shell, and programs run what is built)
+- key: size
+  note: the two sides may deliver products of different size; both are counted by the same program (sdc-free-agent size, added after tree_commit as measurement only) on the SDC run's published tree (store/IDEA-1/work/published, the same bytes as release) with its requirements.yaml and spec, and on the free run's work/impl, requirements.yaml and spec, as product lines, web asset lines, tests, requirements, scenarios that ess 0.96.0 synthesizes from the spec, files, and whether the README says how to start it (experiments/free-agent-0.1.0/sizes.json); the counts are reported and decide nothing
+variants:
+- id: strong
+  from: baseline-0.1.0
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+    decider.kind: haiku
+    decider.escalate: final
+    decider.max_decider_calls: '40'
+    decider.adapter: claude-cli
+    review.adapter: claude-cli
+    adapter: metaharness
+    autonomy: A5
+    max_llm_calls: '150'
+    max_wall_seconds: '5400'
+  runs:
+  - trial-0.1.0-strong-1
+  - trial-0.1.0-strong-2
+  - trial-0.1.0-strong-3
+- id: mixed
+  from: baseline-0.1.0
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+    decider.kind: haiku
+    decider.escalate: final
+    decider.max_decider_calls: '40'
+    decider.adapter: claude-cli
+    review.adapter: claude-cli
+    adapter: metaharness
+    autonomy: A5
+    max_llm_calls: '150'
+    max_wall_seconds: '5400'
+  runs:
+  - trial-0.1.0-mixed-1
+  - trial-0.1.0-mixed-2
+  - trial-0.1.0-mixed-3
+- id: sonnet
+  runner: free-agent
+  run_name: free-agent-0.1.0-sonnet-{n}
+  settings:
+    free.model: claude-sonnet-5-5
+    free.effort: high
+    free.adapter: claude-cli
+    free.max_usd: '25'
+    free.max_wall_s: '5400'
+    free.max_turns: '1000'
+  runs:
+  - free-agent-0.1.0-sonnet-1
+  - free-agent-0.1.0-sonnet-2
+  - free-agent-0.1.0-sonnet-3
+baseline:
+- strong
+- mixed
+treatment: sonnet
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+- metric: run.cost_usd
+  direction: increase
+  min_effect: 0
+- metric: run.tokens_total
+  direction: increase
+  min_effect: 0
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+decision_rule:
+  rule: complete-separation
+  text: n = 3 per variant. Held when, on run.cost_usd and on run.tokens_total, every free run lies above every run of strong and above every run of mixed (four pairs, each complete separation, exact one-sided p = 1/20 per pair); contradicted when any pair separates the other way; inconclusive otherwise. Every free run that ends counts, capped or failed, with its cost so far; a capped run counts as not delivered. No run is helped, repaired or rerun. run.wall_s and delivery are reported and decide nothing.
+launch:
+  max_parallel: 2
+  stagger_s: 60
+  principal: agent:sdc-experiment
+procedure:
+- sdc-experiment run free-agent-0.1.0 --runs-dir <repository>/runs, in the background; it builds tree_commit once and starts free-agent-0.1.0-sonnet-1..3 as systemd user units, at most 2 at a time, each running sdc-free-agent run with the record's settings.
+- 'Caps per run: 25 USD (--max-budget-usd, the CLI ends the session) and 90 minutes (5400 s, the launcher kills the confinement); max_turns 1000 is no cap in practice. A capped run is reported as capped and counts as not delivered.'
+- After each run ends, sdc-free-agent measure <run> writes outcome.json; then sdc-run-timeline writes the run's timeline, and sdc-experiment report free-agent-0.1.0 writes the summaries and the verdict.
+facts:
+- 'Confinement of every free run (sdc-free-agent, bubblewrap): new mount, PID, IPC and UTS namespaces, killed with the launcher; writable only <run>/work (the working directory), <run>/home (HOME and the config home with a copy of the login, removed at the end) and <run>/cargo-home; /usr, /etc and the resolver stub /run/systemd/resolve read only; the Rust toolchain, claude, ess 0.96.0 and the cargo shim read only under /opt; the rest of the root an empty read-only tmpfs, so no repository checkout and no other run is visible; an empty environment plus PATH, HOME, the config home and cargo''s. The session keeps the network (the model API needs it). cargo build, test, check, clippy and doc go through a broker to slot run, in a confinement of the same view without network and without the login. Probed before the runs with a Haiku session: writes to /etc, /usr, /opt and the run directory outside work/ fail, the other runs are not visible, cargo test runs through slot.'
+- 'Removal of the login home: the launcher of tree_commit removes the copied login file when it ends on its own path. Because a launcher killed by a signal runs no destructor, each run also had its own systemd user guard unit (sdc-exp-home-guard-<n>, started at 15:08Z beside the runs, outside the launcher), which waits for the run unit to stop for any reason and then removes <run>/home whole. Later trees remove <run>/home in the launcher and in the run unit''s ExecStopPost. Each run''s work/ (spec and product) is kept in its run directory.'
+- 'Conformance, observed after the verdict and deciding nothing: sdc-conform observe (feat/conformance-observe at df11e56, 3 tables, table node Sonnet at effort high) on copies of the free trees laid out as store/IDEA-1/work/{spec,published}; proven passed of the own spec''s scenarios: sonnet-1 6 of 8 (2 failed), sonnet-2 10 of 11 (1 failed, 2 tables counted), sonnet-3 10 of 13 (3 failed); table cost 1.48 USD. Summaries in experiments/free-agent-0.1.0/conformance/; the baseline products'' figures are in that branch''s docs/conformance.md.'
+- After the last run, no run directory runs/free-agent-0.1.0-*/ held a home directory or anything in one (find printed nothing). The sk-ant- prefix, the login's tokens and the word .credentials count 0 in every event stream, outcome, run summary, timeline and conformance summary of the three runs.
+result:
+  comparisons:
+  - baseline: strong
+    baseline_values:
+      max: 6.193657
+      median: 5.502947
+      min: 5.431995
+      n: 3
+      values:
+        trial-0.1.0-strong-1: 5.431995
+        trial-0.1.0-strong-2: 6.193657
+        trial-0.1.0-strong-3: 5.502947
+    direction: increase
+    median_difference: -5.0328516
+    metric: run.cost_usd
+    min_effect: 0.0
+    p_one_sided: 0.05
+    separation: reversed
+    treatment: sonnet
+    treatment_values:
+      max: 0.47788110000000006
+      median: 0.4700954000000001
+      min: 0.413731
+      n: 3
+      values:
+        free-agent-0.1.0-sonnet-1: 0.4700954000000001
+        free-agent-0.1.0-sonnet-2: 0.413731
+        free-agent-0.1.0-sonnet-3: 0.47788110000000006
+    verdict: contradicted
+    why: ranges separate against the expected direction (median difference -5.0329)
+  - baseline: mixed
+    baseline_values:
+      max: 3.883006
+      median: 2.548789
+      min: 2.496802
+      n: 3
+      values:
+        trial-0.1.0-mixed-1: 2.496802
+        trial-0.1.0-mixed-2: 3.883006
+        trial-0.1.0-mixed-3: 2.548789
+    direction: increase
+    median_difference: -2.0786936000000003
+    metric: run.cost_usd
+    min_effect: 0.0
+    p_one_sided: 0.05
+    separation: reversed
+    treatment: sonnet
+    treatment_values:
+      max: 0.47788110000000006
+      median: 0.4700954000000001
+      min: 0.413731
+      n: 3
+      values:
+        free-agent-0.1.0-sonnet-1: 0.4700954000000001
+        free-agent-0.1.0-sonnet-2: 0.413731
+        free-agent-0.1.0-sonnet-3: 0.47788110000000006
+    verdict: contradicted
+    why: ranges separate against the expected direction (median difference -2.0787)
+  - baseline: strong
+    baseline_values:
+      max: 4705034.0
+      median: 3260861.0
+      min: 3182911.0
+      n: 3
+      values:
+        trial-0.1.0-strong-1: 3182911.0
+        trial-0.1.0-strong-2: 4705034.0
+        trial-0.1.0-strong-3: 3260861.0
+    direction: increase
+    median_difference: -2847429.0
+    metric: run.tokens_total
+    min_effect: 0.0
+    p_one_sided: 0.05
+    separation: reversed
+    treatment: sonnet
+    treatment_values:
+      max: 435634.0
+      median: 413432.0
+      min: 405147.0
+      n: 3
+      values:
+        free-agent-0.1.0-sonnet-1: 405147.0
+        free-agent-0.1.0-sonnet-2: 413432.0
+        free-agent-0.1.0-sonnet-3: 435634.0
+    verdict: contradicted
+    why: ranges separate against the expected direction (median difference -2847429)
+  - baseline: mixed
+    baseline_values:
+      max: 4191346.0
+      median: 3046058.0
+      min: 2556660.0
+      n: 3
+      values:
+        trial-0.1.0-mixed-1: 2556660.0
+        trial-0.1.0-mixed-2: 4191346.0
+        trial-0.1.0-mixed-3: 3046058.0
+    direction: increase
+    median_difference: -2632626.0
+    metric: run.tokens_total
+    min_effect: 0.0
+    p_one_sided: 0.05
+    separation: reversed
+    treatment: sonnet
+    treatment_values:
+      max: 435634.0
+      median: 413432.0
+      min: 405147.0
+      n: 3
+      values:
+        free-agent-0.1.0-sonnet-1: 405147.0
+        free-agent-0.1.0-sonnet-2: 413432.0
+        free-agent-0.1.0-sonnet-3: 435634.0
+    verdict: contradicted
+    why: ranges separate against the expected direction (median difference -2632626)
+  computed_by: sdc-experiment report
+  guards:
+  - baseline: strong
+    baseline_values:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 3
+      values:
+        trial-0.1.0-strong-1: 1.0
+        trial-0.1.0-strong-2: 1.0
+        trial-0.1.0-strong-3: 1.0
+    metric: run.delivered
+    state: holds
+    treatment_values:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 3
+      values:
+        free-agent-0.1.0-sonnet-1: 1.0
+        free-agent-0.1.0-sonnet-2: 1.0
+        free-agent-0.1.0-sonnet-3: 1.0
+    worsening: 0.0
+  - baseline: mixed
+    baseline_values:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 3
+      values:
+        trial-0.1.0-mixed-1: 1.0
+        trial-0.1.0-mixed-2: 1.0
+        trial-0.1.0-mixed-3: 1.0
+    metric: run.delivered
+    state: holds
+    treatment_values:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 3
+      values:
+        free-agent-0.1.0-sonnet-1: 1.0
+        free-agent-0.1.0-sonnet-2: 1.0
+        free-agent-0.1.0-sonnet-3: 1.0
+    worsening: 0.0
+  guards_ok: true
+  recommendation: 'none: a comparison of runners, nothing to adopt'
+  variants:
+  - clean_passes: 3
+    ended: 3
+    id: strong
+    listed: 3
+    primaries:
+      run.cost_usd:
+        max: 6.193657
+        median: 5.502947
+        min: 5.431995
+        n: 3
+        values:
+          trial-0.1.0-strong-1: 5.431995
+          trial-0.1.0-strong-2: 6.193657
+          trial-0.1.0-strong-3: 5.502947
+      run.tokens_total:
+        max: 4705034.0
+        median: 3260861.0
+        min: 3182911.0
+        n: 3
+        values:
+          trial-0.1.0-strong-1: 3182911.0
+          trial-0.1.0-strong-2: 4705034.0
+          trial-0.1.0-strong-3: 3260861.0
+    without_summary: []
+  - clean_passes: 3
+    ended: 3
+    id: mixed
+    listed: 3
+    primaries:
+      run.cost_usd:
+        max: 3.883006
+        median: 2.548789
+        min: 2.496802
+        n: 3
+        values:
+          trial-0.1.0-mixed-1: 2.496802
+          trial-0.1.0-mixed-2: 3.883006
+          trial-0.1.0-mixed-3: 2.548789
+      run.tokens_total:
+        max: 4191346.0
+        median: 3046058.0
+        min: 2556660.0
+        n: 3
+        values:
+          trial-0.1.0-mixed-1: 2556660.0
+          trial-0.1.0-mixed-2: 4191346.0
+          trial-0.1.0-mixed-3: 3046058.0
+    without_summary: []
+  - clean_passes: 3
+    ended: 3
+    id: sonnet
+    listed: 3
+    primaries:
+      run.cost_usd:
+        max: 0.47788110000000006
+        median: 0.4700954000000001
+        min: 0.413731
+        n: 3
+        values:
+          free-agent-0.1.0-sonnet-1: 0.4700954000000001
+          free-agent-0.1.0-sonnet-2: 0.413731
+          free-agent-0.1.0-sonnet-3: 0.47788110000000006
+      run.tokens_total:
+        max: 435634.0
+        median: 413432.0
+        min: 405147.0
+        n: 3
+        values:
+          free-agent-0.1.0-sonnet-1: 405147.0
+          free-agent-0.1.0-sonnet-2: 413432.0
+          free-agent-0.1.0-sonnet-3: 435634.0
+    without_summary: []
+  verdict: contradicted
+  why: 'held on every pair of primary metric and baseline is required for held; run.cost_usd, sonnet against strong: contradicted (ranges separate against the expected direction (median difference -5.0329)); run.cost_usd, sonnet against mixed: contradicted (ranges separate against the expected direction (median difference -2.0787)); run.tokens_total, sonnet against strong: contradicted (ranges separate against the expected direction (median difference -2847429)); run.tokens_total, sonnet against mixed: contradicted (ranges separate against the expected direction (median difference -2632626))'
+adoption:
+  decision: pending
+  commit: null
+  note: a comparison of runners; nothing is adopted on this record.

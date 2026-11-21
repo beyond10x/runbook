@@ -1068,6 +1068,10 @@ pub fn load(dir: &Path) -> Res<J> {
     let last_settings = settings.last().cloned().unwrap_or(J::Null);
     let mut flat = BTreeMap::new();
     flat_settings(&last_settings, "", &mut flat);
+    // The conformance observation after close (docs/conformance.md): `oracle.json` `conformance`.
+    let conformance = json_opt(&dir.join("oracle.json"))?.map(|o| o["conformance"].clone()).filter(|c| c["result"].is_string());
+    let conf = |k: &str| conformance.as_ref().map_or(J::Null, |c| c[k].clone());
+    let measured = conformance.as_ref().map(|c| c["measured"].as_bool().unwrap_or(c["k"].is_u64()));
 
     let run = json!({
         "end": end, "end_kind": end_kind, "closed": end_kind == "closed", "outcome": closed_outcome, "delivered": delivered,
@@ -1089,6 +1093,16 @@ pub fn load(dir: &Path) -> Res<J> {
         "wall_s": wall_s, "waiting_on_person_s": wait,
         "findings_raised": raised,
     });
+    let mut run = run;
+    let conf_fields = json!({
+        "conformance": conformance.as_ref().map_or_else(|| "not observed".to_string(), conformance_figure),
+        "conformance_k": conf("k"), "conformance_f": conf("f"), "conformance_p": conf("p"), "conformance_d": conf("d"), "conformance_u": conf("u"), "conformance_n": conf("n"),
+        "conformance_agreement": conf("agreement"), "conformance_tables": conf("tables_counted"),
+        "conformance_result": conf("result"), "conformance_cause": conf("cause"), "conformance_measured": measured,
+    });
+    for (key, v) in conf_fields.as_object().into_iter().flatten() {
+        run[key] = v.clone();
+    }
     Ok(json!({
         "format": FORMAT, "run": name, "settings": flat, "metrics": run,
         "stages": stage_docs, "nodes": node_docs, "edges": edge_docs,
@@ -1130,6 +1144,11 @@ pub fn flat_metrics(doc: &J) -> BTreeMap<String, f64> {
         if let Some(x) = num(&doc["metrics"][f]) {
             out.insert(format!("run.{f}"), x);
         }
+    }
+    // All tokens of the run, the four kinds summed (input, output, cache read, cache creation).
+    let t = &doc["metrics"]["tokens"];
+    if let (Some(a), Some(b), Some(c), Some(d)) = (t["input"].as_f64(), t["output"].as_f64(), t["cache_read"].as_f64(), t["cache_creation"].as_f64()) {
+        out.insert("run.tokens_total".into(), a + b + c + d);
     }
     for n in doc["nodes"].as_array().into_iter().flatten() {
         let node = js(&n["node"]);
@@ -1186,6 +1205,47 @@ fn opt(v: &J) -> String {
     if v.is_null() { "-".into() } else { js(v) }
 }
 
+/// The figure of one conformance record (`oracle.json` `conformance`), the one text `sdc-conform`,
+/// run-metrics, run-compare and the progress ledger show (docs/conformance.md):
+/// `spec scenarios proven passed: k of n (lower bound); f failed[, of which p refused for a
+/// precondition the specification does not model][; d disputed]; u not measurable; tables agree on
+/// a of n` (`; 1 table` for one), ` (held)` only when k = n; `not measured (<cause>), n scenarios`
+/// when no table was counted. A run with no record is `not observed`, never 0.
+pub fn conformance_figure(c: &J) -> String {
+    let cause = c["cause"].as_str().unwrap_or("no cause");
+    let n = c["n"].as_u64();
+    let (Some(k), Some(f), Some(u), Some(n)) = (c["k"].as_u64(), c["f"].as_u64(), c["u"].as_u64(), n) else {
+        return match n {
+            Some(n) => format!("not measured ({cause}), {n} scenarios"),
+            None => format!("not measured ({cause})"),
+        };
+    };
+    let d = c["d"].as_u64().unwrap_or(0);
+    let p = c["p"].as_u64().unwrap_or(0);
+    let mut text = format!("spec scenarios proven passed: {k} of {n} (lower bound); {f} failed");
+    if p > 0 {
+        text.push_str(&format!(", of which {p} refused for a precondition the specification does not model"));
+    }
+    if d > 0 {
+        text.push_str(&format!("; {d} disputed"));
+    }
+    text.push_str(&format!("; {u} not measurable"));
+    match (c["tables_counted"].as_u64(), c["agreement"].as_u64()) {
+        (Some(1), _) => text.push_str("; 1 table"),
+        (Some(_), Some(a)) => text.push_str(&format!("; tables agree on {a} of {n}")),
+        _ => {}
+    }
+    if k == n {
+        text.push_str(" (held)");
+    }
+    text
+}
+
+/// The conformance figure of a run's metrics, `not observed` when the run has none.
+pub fn conformance_text(m: &J) -> String {
+    m["conformance"].as_str().unwrap_or("not observed").to_string()
+}
+
 /// A short text form of one run's metrics.
 pub fn text(doc: &J) -> String {
     let m = &doc["metrics"];
@@ -1198,6 +1258,7 @@ pub fn text(doc: &J) -> String {
     let _ = writeln!(s, "  driver {} s, wall {} s, waiting on a person {} s; takes {} real {} rework {} not called {}",
         opt(&m["driver_s"]), opt(&m["wall_s"]), opt(&m["waiting_on_person_s"]), m["takings"], m["real_takes"], m["rework_takes"], m["not_called"]);
     let _ = writeln!(s, "  writers: looping factor {}, first-pass yield {}", opt(&m["looping_factor"]), opt(&m["first_pass_yield"]));
+    let _ = writeln!(s, "  conformance: {}", conformance_text(m));
     let mut nodes: Vec<&J> = doc["nodes"].as_array().into_iter().flatten()
         .filter(|n| n["rework_takes"].as_u64().unwrap_or(0) > 0 && n["kind"] != "check").collect();
     nodes.sort_by(|a, b| b["looping_factor"].as_f64().unwrap_or(0.0).total_cmp(&a["looping_factor"].as_f64().unwrap_or(0.0))

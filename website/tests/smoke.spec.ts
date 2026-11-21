@@ -74,8 +74,20 @@ async function checkFlow(page: Page, width: number): Promise<void> {
 
 async function checkEvaluation(page: Page): Promise<void> {
   await expect(page.locator('#metric-clean-passes')).toBeVisible();
-  expect(await page.locator('.sdc-metric').count()).toBeGreaterThanOrEqual(17);
-  await expect(page.locator('#metric-conformance svg')).toHaveCount(0);
+  expect(await page.locator('.sdc-metric').count()).toBeGreaterThanOrEqual(18);
+  const conf = page.locator('#metric-conformance');
+  await expect(conf.locator('svg')).toBeVisible();
+  await expect(conf.locator('figcaption')).toContainText('lower bound');
+  await expect(conf.locator('figcaption')).toContainText('Higher is better');
+  await expect(conf.locator('.sdc-metric__missing').first()).toHaveText('not observed');
+  const confLabel = (await conf.locator('svg').getAttribute('aria-label')) ?? '';
+  expect(confLabel).toMatch(/0\.1\.0: All Haiku not observed; Sonnet work, Haiku decider median 32 %, min 13 %, max 79 %, n 3/);
+  await expect(page.locator('#conformance')).toBeAttached();
+  await expect(page.locator('a[href*="docs/conformance.md#L18-L19"]')).toBeAttached();
+  const runs010 = page.locator('section[aria-labelledby="runs-0.1.0"]');
+  await expect(runs010).toContainText('spec scenarios proven passed: 2 of 16 (lower bound)');
+  await expect(runs010).toContainText('of which 8: precondition not in the specification');
+  await expect(runs010).toContainText('not observed');
   for (const id of ['metric-cost', 'metric-wall', 'metric-llm', 'metric-decider', 'metric-loop-change-implement', 'metric-fpy-spec-author', 'metric-conformance']) {
     await expect(page.locator(`#${id}`)).toBeAttached();
   }
@@ -89,6 +101,26 @@ async function checkLlm(page: Page): Promise<void> {
   const timeline = page.locator('.sdc-tl');
   const pending = page.getByText('Timeline pending');
   expect((await timeline.count()) > 0 || (await pending.count()) > 0).toBe(true);
+  await expect(page.getByText('Runs pending')).toHaveCount(0);
+  const lede = page.locator('#result');
+  await expect(lede).toContainText('about 12 and 5 times cheaper');
+  await expect(lede).toContainText('about 8 and 9 times faster');
+  await expect(lede).toContainText('smaller product');
+  await expect(lede).toContainText('contradicted');
+  await expect(page.locator('.sdc-compare .sdc-tl')).toHaveCount(3);
+  const medians = page.locator('#free-medians');
+  for (const s of ['0.470 [0.414, 0.478] (n=3)', '5.503 [', '2.549 [', '413,432 [', '3,260,861 [', '3,046,058 [', '164.4 [', '1,247 [', '1,489 [', '13 [13, 13] (n=3)']) {
+    await expect(medians).toContainText(s);
+  }
+  await expect(page.locator('#free-verdict tbody tr')).toHaveCount(4);
+  await expect(page.locator('#free-verdict tbody td strong')).toHaveText(['contradicted', 'contradicted', 'contradicted', 'contradicted']);
+  await expect(page.locator('#free-sizes')).toContainText('1,263.5');
+  await expect(page.locator('#free-sizes tbody tr')).toHaveCount(11);
+  await expect(page.locator('#free-conformance')).toContainText('spec scenarios proven passed: 6 of 8 (lower bound)');
+  await expect(page.locator('#free-conformance')).toContainText('spec scenarios proven passed: 16 of 17 (lower bound)');
+  await expect(page.locator('#free-records')).toContainText('5 in 3 of 3 runs');
+  await expect(page.locator('.sdc-confounds li')).toHaveCount(9);
+  await expect(page.locator('#quality')).toContainText('Quality evaluation: pending.');
 }
 
 test('every internal link resolves', async ({page, request, baseURL}) => {

@@ -1,6 +1,6 @@
 # Progress
 
-Written by `sdc-experiment progress` from `experiments/releases.yaml`, the experiment records `experiments/<id>.yaml` and their run summaries `experiments/<id>/runs/*.json`; `sdc-experiment check --all` fails when this file, `docs/progress.json` or `docs/img/progress.svg` is stale. Nothing here is written by hand. The loop that adds an entry: `docs/improving.md`.
+Written by `sdc-experiment progress` from `experiments/releases.yaml`, the experiment records `experiments/<id>.yaml`, their run summaries `experiments/<id>/runs/*.json` and conformance summaries `experiments/<id>/conformance/*.json`; `sdc-experiment check --all` fails when this file, `docs/progress.json` or `docs/img/progress.svg` is stale. Nothing here is written by hand. The loop that adds an entry: `docs/improving.md`.
 
 ![Clean passes of ended runs per release and model setting, with the median cost and wall time of a clean pass](img/progress.svg)
 
@@ -8,16 +8,16 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 
 ## Summary
 
-| entry | kind | date | tree | tested by | clean passes of ended runs | by setting |
-|---|---|---|---|---|---|---|
-| [Attempts 1-5](#attempts-1-5) | pre-release | 2026-11-21 | several | `trial-3-attempts` | 0 of 9 | haiku 0 of 5; mixed 0 of 4 |
-| [acd6f12](#acd6f12) | pre-release | 2026-11-21 | `acd6f12` | `trial-3-batch-1` | 5 of 8 | haiku 1 of 2; mixed 1 of 2; strong 2 of 2; sonnet 0 of 1; opus 1 of 1 |
-| [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
-| [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
-| [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
-| [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - |
-| [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | no experiment yet | no run | - |
-| [0.1.3](#013) | release | 2026-11-21 | `99390b9` | no experiment yet | no run | - |
+| entry | kind | date | tree | tested by | clean passes of ended runs | conformance, scenarios (observed runs) | by setting |
+|---|---|---|---|---|---|---|---|
+| [Attempts 1-5](#attempts-1-5) | pre-release | 2026-11-21 | several | `trial-3-attempts` | 0 of 9 | not observed | haiku 0 of 5; mixed 0 of 4 |
+| [acd6f12](#acd6f12) | pre-release | 2026-11-21 | `acd6f12` | `trial-3-batch-1` | 5 of 8 | not observed | haiku 1 of 2; mixed 1 of 2; strong 2 of 2; sonnet 0 of 1; opus 1 of 1 |
+| [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | not observed | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
+| [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | not observed | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
+| [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | spec scenarios proven passed: 53 of 103 (lower bound); 31 failed, of which 8 refused for a precondition the specification does not model; 19 not measurable (6 of 9 runs) | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
+| [0.1.1](#011) | release | 2026-11-21 | `d79975d` | no experiment yet | no run | - | - |
+| [0.1.2](#012) | release | 2026-11-21 | `72a3eef` | no experiment yet | no run | - | - |
+| [0.1.3](#013) | release | 2026-11-21 | `99390b9` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -54,6 +54,8 @@ Tested by, primary metric and verdict:
 
 Clean passes of ended runs, all settings: **0 of 9** (`trial-3-attempts`); rate: 0 %.
 
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): not observed on any of the 9 ended runs.
+
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
 | All Haiku | `trial-3-attempts` | haiku | 0 of 5 | 0 % | - | - | trial-3-haiku (stopped: awaiting_authority in IDEA-1.direction), trial-3-haiku-2 (stopped: writer_spent in IDEA-1.list.spec), trial-3-haiku-3 (stopped: rejected_without_rework_path in IDEA-1.app.release), trial-3-haiku-4 (stopped: writer_spent in IDEA-1.todo.list), trial-3-haiku-5 (closed: operating) |
@@ -83,6 +85,8 @@ Tested by, primary metric and verdict:
 - [`trial-3-batch-1`](../experiments/trial-3-batch-1/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
 
 Clean passes of ended runs, all settings: **5 of 8** (`trial-3-batch-1`); rate: 62 %.
+
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): not observed on any of the 8 ended runs.
 
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
@@ -121,6 +125,8 @@ Tested by, primary metric and verdict:
 
 Clean passes of ended runs, all settings: **0 of 4** (`trial-3-main-1`); rate: 0 %.
 
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): not observed on any of the 4 ended runs.
+
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
 | All Haiku | `trial-3-main-1` | haiku | 0 of 1 | none given, n 1 < 3 | - | - | trial-3-haiku-8 (stopped: writer_spent in IDEA-1.list.access) |
@@ -149,6 +155,8 @@ Tested by, primary metric and verdict:
 - [`trial-3-main-2`](../experiments/trial-3-main-2/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
 
 Clean passes of ended runs, all settings: **2 of 4** (`trial-3-main-2`); rate: 50 %.
+
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): not observed on any of the 4 ended runs.
 
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
@@ -191,11 +199,13 @@ Tested by, primary metric and verdict:
 
 Clean passes of ended runs, all settings: **6 of 9** (`baseline-0.1.0`); rate: 67 %.
 
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): **spec scenarios proven passed: 53 of 103 (lower bound); 31 failed, of which 8 refused for a precondition the specification does not model; 19 not measurable** over 6 runs, held (every scenario proven passed) on 0; tables agree on 102 of 103; not observed 3 of 9 ended runs; node cost of the tables 8.50 USD over 6 observed runs.
+
 | setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
 |---|---|---|---|---|---|---|---|
 | All Haiku | `baseline-0.1.0` | haiku | 0 of 3 | 0 % | - | - | trial-0.1.0-haiku-1 (stopped: writer_spent in IDEA-1.list.shared), trial-0.1.0-haiku-2 (stopped: decision_not_takeable in IDEA-1.list.add), trial-0.1.0-haiku-3 (stopped: writer_spent in IDEA-1.todo.spec) |
-| Sonnet work, Haiku decider | `baseline-0.1.0` | mixed | 3 of 3 | 100 % | 2.55 [2.50, 3.88] (3) | 1489 [1480, 2091] (3) | **trial-0.1.0-mixed-1**, **trial-0.1.0-mixed-2**, **trial-0.1.0-mixed-3** |
-| Sonnet work, Opus decider | `baseline-0.1.0` | strong | 3 of 3 | 100 % | 5.50 [5.43, 6.19] (3) | 1247 [1075, 1430] (3) | **trial-0.1.0-strong-1**, **trial-0.1.0-strong-2**, **trial-0.1.0-strong-3** |
+| Sonnet work, Haiku decider | `baseline-0.1.0` | mixed | 3 of 3 | 100 % | 2.55 [2.50, 3.88] (3) | 1489 [1480, 2091] (3) | **trial-0.1.0-mixed-1** (conformance spec scenarios proven passed: 6 of 19 (lower bound); 5 failed; 8 not measurable; tables agree on 19 of 19), **trial-0.1.0-mixed-2** (conformance spec scenarios proven passed: 2 of 16 (lower bound); 8 failed, of which 8 refused for a precondition the specification does not model; 6 not measurable; tables agree on 16 of 16), **trial-0.1.0-mixed-3** (conformance spec scenarios proven passed: 11 of 14 (lower bound); 2 failed; 1 not measurable; tables agree on 14 of 14) |
+| Sonnet work, Opus decider | `baseline-0.1.0` | strong | 3 of 3 | 100 % | 5.50 [5.43, 6.19] (3) | 1247 [1075, 1430] (3) | **trial-0.1.0-strong-1** (conformance spec scenarios proven passed: 16 of 17 (lower bound); 1 failed; 0 not measurable; tables agree on 17 of 17), **trial-0.1.0-strong-2** (conformance spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 not measurable; tables agree on 16 of 17), **trial-0.1.0-strong-3** (conformance spec scenarios proven passed: 7 of 20 (lower bound); 13 failed; 0 not measurable; tables agree on 20 of 20) |
 
 Limits of this measurement:
 
@@ -280,6 +290,7 @@ Records of other inputs, of settings across trees, and planned ones. Inconclusiv
 | [`decider-haiku-vs-opus`](../experiments/decider-haiku-vs-opus/report.md) | retrospective | several | Whether the decider model changes how often a rejected merge sends a story back to the implementer, read from the trial-3 runs that exist. | With claude-opus-5-5 instead of claude-haiku-5-5 as the decider and the work on claude-sonnet-5-5, the edge story: merge.approve:rejected -> change.implement occurs at least 1 time fewer per run (median count). | haiku 1 of 7; opus 2 of 2 | `edge.story: merge.approve:rejected -> change.implement.count`: haiku 2 [0, 2] (5); opus 0 [0, 0] (2) | inconclusive |
 | [`effort-decider-mixed`](../experiments/effort-decider-mixed/report.md) | prospective | 72a3eef | Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass. | With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s. | xhigh 0 ended of 0; medium 0 ended of 0 | `run.wall_s`: xhigh -; medium - | planned, no run yet |
 | [`effort-implement-levels`](../experiments/effort-implement-levels/report.md) | prospective | - | Whether more reasoning effort on the implement class lowers how often change.implement is sent back, three runs per level, as the operator described. | With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5. | low 0 ended of 0; medium 0 ended of 0; high 0 ended of 0 | `node.story/change.implement.looping_factor`: low -; medium -; high - | planned, no run yet |
+| [`free-agent-0.1.0`](../experiments/free-agent-0.1.0/report.md) | prospective | 3ad3391 | Whether the SDC, where the LLM is not the runtime, costs less than one agent doing the whole cycle in one go with its own tool calls. | A free-running agent given the same idea and the same list of deliverables costs more (run.cost_usd and run.tokens_total) than the SDC run on 0.1.0. | strong 3 of 3; mixed 3 of 3; sonnet 3 of 3 | ``: strong -; mixed -; sonnet - | contradicted |
 | [`release-0.1.2`](../experiments/release-0.1.2/report.md) | prospective | 72a3eef | Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0. | - | strong 0 ended of 0; mixed 0 ended of 0; haiku 0 ended of 0 | - | planned, no run yet |
 | [`review-haiku-replay`](../experiments/review-haiku-replay/report.md) | prospective | 72a3eef | Whether the review class can move from Sonnet to Haiku (0.75 to about 0.04 USD per strong run) without changing a review decision, tested on recorded inputs before any full run. | - | haiku-review 0 ended of 0 | - | planned, no run yet |
 | [`review-minimal-facts`](../experiments/review-minimal-facts/report.md) | prospective | - | Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input. | - | minimal-facts 0 ended of 0 | - | planned, no run yet |

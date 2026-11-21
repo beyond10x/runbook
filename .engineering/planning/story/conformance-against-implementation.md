@@ -8,6 +8,7 @@ tags:
 - conductor-succession
 relations:
 - decomposes: epic:conductor-succession
+- depends_on: story:conformance-observe-after-close
 scope:
 - confidence: inferred
   path: driver/examples/sdc/sdc-story.bindings.json

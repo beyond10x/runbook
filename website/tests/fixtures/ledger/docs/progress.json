@@ -89,6 +89,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.026364,
               "end": "stopped: awaiting_authority in IDEA-1.direction",
               "metrics": {
@@ -122,6 +123,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.21119,
               "end": "stopped: writer_spent in IDEA-1.list.spec",
               "metrics": {
@@ -161,6 +163,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.46857,
               "end": "stopped: rejected_without_rework_path in IDEA-1.app.release",
               "metrics": {
@@ -218,6 +221,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.669446,
               "end": "stopped: writer_spent in IDEA-1.todo.list",
               "metrics": {
@@ -275,6 +279,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.778985,
               "end": "closed: operating",
               "metrics": {
@@ -347,6 +352,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.026938,
               "end": "stopped: awaiting_authority in IDEA-1.direction",
               "metrics": {
@@ -380,6 +386,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.886328,
               "end": "stopped: awaiting_authority in IDEA-1.list.items",
               "metrics": {
@@ -437,6 +444,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 1.487034,
               "end": "closed: not_delivered",
               "metrics": {
@@ -494,6 +502,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.042208,
               "end": "stopped: decision_not_takeable in IDEA-1.intake",
               "metrics": {
@@ -533,6 +542,23 @@
       ],
       "totals": {
         "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 9,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
         "ended": 9,
         "not_ended": 0,
         "rate": 0.0,
@@ -650,6 +676,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.559681,
               "end": "closed: not_delivered",
               "metrics": {
@@ -707,6 +734,7 @@
             },
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 1.033701,
               "end": "closed: operating",
               "metrics": {
@@ -789,6 +817,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 1.587871,
               "end": "closed: not_delivered",
               "metrics": {
@@ -846,6 +875,7 @@
             },
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 1.858643,
               "end": "closed: operating",
               "metrics": {
@@ -928,6 +958,7 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 2.925945,
               "end": "closed: operating",
               "metrics": {
@@ -985,6 +1016,7 @@
             },
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 2.996362,
               "end": "closed: operating",
               "metrics": {
@@ -1057,6 +1089,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 1.882091,
               "end": "stopped: decider_budget_spent in IDEA-1.todo.access",
               "metrics": {
@@ -1139,6 +1172,7 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 5.088,
               "end": "closed: operating",
               "metrics": {
@@ -1202,6 +1236,23 @@
       ],
       "totals": {
         "clean_passes": 5,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 8,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
         "ended": 8,
         "not_ended": 0,
         "rate": 0.625,
@@ -1314,6 +1365,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.346306,
               "end": "stopped: writer_spent in IDEA-1.list.access",
               "metrics": {
@@ -1380,6 +1432,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.709498,
               "end": "stopped: review_invalid in IDEA-1.todo.access",
               "metrics": {
@@ -1452,6 +1505,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 1.828023,
               "end": "stopped: review_invalid in IDEA-1.todo.access",
               "metrics": {
@@ -1509,6 +1563,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 1.697361,
               "end": "stopped: review_invalid in IDEA-1.todo.list",
               "metrics": {
@@ -1572,6 +1627,23 @@
       ],
       "totals": {
         "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 4,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
         "ended": 4,
         "not_ended": 0,
         "rate": 0.0,
@@ -1653,6 +1725,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.87758,
               "end": "stopped: writer_spent in IDEA-1.list.tasks",
               "metrics": {
@@ -1725,6 +1798,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 1.271916,
               "end": "stopped: rework_spent in IDEA-1.todo.access",
               "metrics": {
@@ -1807,6 +1881,7 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 5.33771,
               "end": "closed: operating",
               "metrics": {
@@ -1864,6 +1939,7 @@
             },
             {
               "clean_pass": true,
+              "conformance": null,
               "cost_usd": 4.05488,
               "end": "closed: operating",
               "metrics": {
@@ -1927,6 +2003,23 @@
       ],
       "totals": {
         "clean_passes": 2,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 4,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
         "ended": 4,
         "not_ended": 0,
         "rate": 0.5,
@@ -2095,6 +2188,7 @@
           "runs": [
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 2.153426,
               "end": "stopped: writer_spent in IDEA-1.list.shared",
               "metrics": {
@@ -2152,6 +2246,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.205089,
               "end": "stopped: decision_not_takeable in IDEA-1.list.add",
               "metrics": {
@@ -2203,6 +2298,7 @@
             },
             {
               "clean_pass": false,
+              "conformance": null,
               "cost_usd": 0.282868,
               "end": "stopped: writer_spent in IDEA-1.todo.spec",
               "metrics": {
@@ -2267,6 +2363,21 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 19,
+                "cause": null,
+                "d": 0,
+                "f": 5,
+                "k": 6,
+                "measured": true,
+                "n": 19,
+                "node_cost_usd": 0.885231,
+                "node_sessions": 4,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 6 of 19 (lower bound); 5 failed; 8 not measurable; tables agree on 19 of 19",
+                "u": 8
+              },
               "cost_usd": 2.496802,
               "end": "closed: operating",
               "metrics": {
@@ -2324,6 +2435,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 16,
+                "cause": null,
+                "d": 0,
+                "f": 8,
+                "k": 2,
+                "measured": true,
+                "n": 16,
+                "node_cost_usd": 2.989569,
+                "node_sessions": 9,
+                "p": 8,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 2 of 16 (lower bound); 8 failed, of which 8 refused for a precondition the specification does not model; 6 not measurable; tables agree on 16 of 16",
+                "u": 6
+              },
               "cost_usd": 3.883006,
               "end": "closed: operating",
               "metrics": {
@@ -2381,6 +2507,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 14,
+                "cause": null,
+                "d": 0,
+                "f": 2,
+                "k": 11,
+                "measured": true,
+                "n": 14,
+                "node_cost_usd": 1.054595,
+                "node_sessions": 6,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 11 of 14 (lower bound); 2 failed; 1 not measurable; tables agree on 14 of 14",
+                "u": 1
+              },
               "cost_usd": 2.548789,
               "end": "closed: operating",
               "metrics": {
@@ -2463,6 +2604,21 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 17,
+                "cause": null,
+                "d": 0,
+                "f": 1,
+                "k": 16,
+                "measured": true,
+                "n": 17,
+                "node_cost_usd": 0.821563,
+                "node_sessions": 4,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 16 of 17 (lower bound); 1 failed; 0 not measurable; tables agree on 17 of 17",
+                "u": 0
+              },
               "cost_usd": 5.431995,
               "end": "closed: operating",
               "metrics": {
@@ -2520,6 +2676,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 16,
+                "cause": null,
+                "d": 0,
+                "f": 2,
+                "k": 11,
+                "measured": true,
+                "n": 17,
+                "node_cost_usd": 1.408824,
+                "node_sessions": 5,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 not measurable; tables agree on 16 of 17",
+                "u": 4
+              },
               "cost_usd": 6.193657,
               "end": "closed: operating",
               "metrics": {
@@ -2577,6 +2748,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 20,
+                "cause": null,
+                "d": 0,
+                "f": 13,
+                "k": 7,
+                "measured": true,
+                "n": 20,
+                "node_cost_usd": 1.343652,
+                "node_sessions": 5,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 7 of 20 (lower bound); 13 failed; 0 not measurable; tables agree on 20 of 20",
+                "u": 0
+              },
               "cost_usd": 5.502947,
               "end": "closed: operating",
               "metrics": {
@@ -2640,6 +2826,23 @@
       ],
       "totals": {
         "clean_passes": 6,
+        "conformance": {
+          "agreement": 102,
+          "agreement_of": 103,
+          "contradicted": 6,
+          "d": 0,
+          "f": 31,
+          "held": 0,
+          "k": 53,
+          "n": 103,
+          "no_figure": 0,
+          "node_cost_runs": 6,
+          "node_cost_usd": 8.503434,
+          "not_observed": 3,
+          "p": 8,
+          "u": 19,
+          "unknown": 0
+        },
         "ended": 9,
         "not_ended": 0,
         "rate": 0.666667,
@@ -2723,13 +2926,30 @@
       "settings": [],
       "totals": {
         "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
         "ended": 0,
         "not_ended": 0,
         "rate": null,
         "small_n": true
       },
-      "tree": null,
-      "tree_note": "not tagged yet; prepared on main after the batch-9 merges below, on top of 0.1.0 (4468bfd)",
+      "tree": "d79975dd70dcbdca1b8820b2bdb2774b28e76028",
+      "tree_note": "tag 0.1.1 at main d79975d: 0.1.0 (4468bfd) with the batch-9 merges below, recorded replay reverted (7c5dd5e), and the baseline of 0.1.0 (c798d1a)",
       "version": "0.1.1"
     },
     {
@@ -2842,6 +3062,21 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": null,
+                "cause": "table_missing",
+                "d": null,
+                "f": null,
+                "k": null,
+                "measured": false,
+                "n": 32,
+                "node_cost_usd": null,
+                "node_sessions": null,
+                "p": null,
+                "result": null,
+                "u": null,
+                "summary": "not measured (table_missing), 32 scenarios"
+              },
               "cost_usd": 1.5073982,
               "end": "closed: operating",
               "metrics": {
@@ -2899,6 +3134,21 @@
             },
             {
               "clean_pass": false,
+              "conformance": {
+                "agreement": null,
+                "cause": "table_missing",
+                "d": null,
+                "f": null,
+                "k": null,
+                "measured": false,
+                "n": 32,
+                "node_cost_usd": null,
+                "node_sessions": null,
+                "p": null,
+                "result": null,
+                "u": null,
+                "summary": "not measured (table_missing), 32 scenarios"
+              },
               "cost_usd": 0.14356229999999998,
               "end": "stopped: decision_not_takeable in IDEA-1.list.add",
               "metrics": {
@@ -2950,6 +3200,21 @@
             },
             {
               "clean_pass": false,
+              "conformance": {
+                "agreement": null,
+                "cause": "table_missing",
+                "d": null,
+                "f": null,
+                "k": null,
+                "measured": false,
+                "n": 32,
+                "node_cost_usd": null,
+                "node_sessions": null,
+                "p": null,
+                "result": null,
+                "u": null,
+                "summary": "not measured (table_missing), 32 scenarios"
+              },
               "cost_usd": 0.1980076,
               "end": "stopped: writer_spent in IDEA-1.todo.spec",
               "metrics": {
@@ -3014,6 +3279,21 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 19,
+                "cause": null,
+                "d": 0,
+                "f": 5,
+                "k": 8,
+                "measured": true,
+                "n": 19,
+                "node_cost_usd": 0.885231,
+                "node_sessions": 4,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 8 of 19 (lower bound); 5 failed; 6 not measurable; tables agree on 19 of 19",
+                "u": 6
+              },
               "cost_usd": 1.7477614000000001,
               "end": "closed: operating",
               "metrics": {
@@ -3071,6 +3351,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 16,
+                "cause": null,
+                "d": 0,
+                "f": 8,
+                "k": 4,
+                "measured": true,
+                "n": 16,
+                "node_cost_usd": 2.989569,
+                "node_sessions": 9,
+                "p": 8,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 4 of 16 (lower bound); 8 failed, of which 8 refused for a precondition the specification does not model; 4 not measurable; tables agree on 16 of 16",
+                "u": 4
+              },
               "cost_usd": 2.7181042,
               "end": "closed: operating",
               "metrics": {
@@ -3128,6 +3423,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 14,
+                "cause": null,
+                "d": 0,
+                "f": 1,
+                "k": 13,
+                "measured": true,
+                "n": 14,
+                "node_cost_usd": 1.054595,
+                "node_sessions": 6,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 13 of 14 (lower bound); 1 failed; 0 not measurable; tables agree on 14 of 14",
+                "u": 0
+              },
               "cost_usd": 1.7841523,
               "end": "closed: operating",
               "metrics": {
@@ -3210,6 +3520,21 @@
           "runs": [
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 17,
+                "cause": null,
+                "d": 0,
+                "f": 0,
+                "k": 17,
+                "measured": true,
+                "n": 17,
+                "node_cost_usd": 0.821563,
+                "node_sessions": 4,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 17 of 17 (lower bound); 0 failed; 0 not measurable; tables agree on 17 of 17",
+                "u": 0
+              },
               "cost_usd": 3.8023964999999995,
               "end": "closed: operating",
               "metrics": {
@@ -3267,6 +3592,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 17,
+                "cause": null,
+                "d": 0,
+                "f": 2,
+                "k": 13,
+                "measured": true,
+                "n": 17,
+                "node_cost_usd": 1.408824,
+                "node_sessions": 5,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 13 of 17 (lower bound); 2 failed; 2 not measurable; tables agree on 17 of 17",
+                "u": 2
+              },
               "cost_usd": 4.3355599,
               "end": "closed: operating",
               "metrics": {
@@ -3324,6 +3664,21 @@
             },
             {
               "clean_pass": true,
+              "conformance": {
+                "agreement": 20,
+                "cause": null,
+                "d": 0,
+                "f": 11,
+                "k": 9,
+                "measured": true,
+                "n": 20,
+                "node_cost_usd": 1.343652,
+                "node_sessions": 5,
+                "p": 0,
+                "result": "contradicted",
+                "summary": "spec scenarios proven passed: 9 of 20 (lower bound); 11 failed; 0 not measurable; tables agree on 20 of 20",
+                "u": 0
+              },
               "cost_usd": 3.8520628999999995,
               "end": "closed: operating",
               "metrics": {
@@ -3387,6 +3742,23 @@
       ],
       "totals": {
         "clean_passes": 7,
+        "conformance": {
+          "agreement": 102,
+          "agreement_of": 103,
+          "contradicted": 6,
+          "d": 0,
+          "f": 31,
+          "held": 0,
+          "k": 53,
+          "n": 103,
+          "no_figure": 0,
+          "node_cost_runs": 6,
+          "node_cost_usd": 8.503434,
+          "not_observed": 3,
+          "p": 8,
+          "u": 19,
+          "unknown": 0
+        },
         "ended": 9,
         "not_ended": 0,
         "rate": 0.666667,
@@ -3500,6 +3872,50 @@
       "why": "too few ended runs with the metric: haiku 5 and opus 2, the rule needs 3 each; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing"
     },
     {
+      "hypothesis": "With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s.",
+      "id": "effort-decider-mixed",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "unstick",
+          "note": "run.unstick is on with an Opus model in both variants (scripts/run-trial.sh:377-385; not a launch setting); it is the same in both arms, and a run it touched is not clean."
+        },
+        {
+          "key": "canon",
+          "note": "the canon binary of the canon checkout at run time, not pinned; the same for both arms when they run in one launch."
+        },
+        {
+          "key": "quality",
+          "note": "no oracle judges the decider's decisions; a lower effort that approves what xhigh would reject (trial-0.1.0-mixed-2's merge rejection of IDEA-1.list.items caught an offline requirement the review had passed) is seen only through run.rework_takes, run.delivered and the decision counts in the report, not as a fault rate."
+        }
+      ],
+      "primary": {
+        "direction": "decrease",
+        "metric": "run.wall_s",
+        "min_effect": 300.0
+      },
+      "purpose": "Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass.",
+      "tree": "72a3eef",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "xhigh",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "medium",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "too few ended runs with the metric: xhigh 0 and medium 0, the rule needs 3 each"
+    },
+    {
       "hypothesis": "With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5.",
       "id": "effort-implement-levels",
       "kind": "prospective",
@@ -3536,6 +3952,57 @@
       ],
       "verdict": "planned, no run yet",
       "why": "too few ended runs with the metric: low 0 and high 0, the rule needs 3 each"
+    },
+    {
+      "hypothesis": null,
+      "id": "release-0.1.2",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "unstick",
+          "note": "run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh:377-385); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick that baseline-0.1.0 did not have. An unstuck run is not a clean pass, so a stop the routes turn into an unstick counts against P1 and for P2."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins; baseline-0.1.0 had the same confound."
+        },
+        {
+          "key": "launcher",
+          "note": "baseline-0.1.0 was started by a scheduler script with the same settings; these runs are started by sdc-experiment run, with experiment.json."
+        },
+        {
+          "key": "decider-kind",
+          "note": "decider.kind is model here and haiku in baseline-0.1.0; 0.1.2 made haiku an alias of model and sdc-experiment counts them as one setting (CHANGELOG 0.1.2)."
+        }
+      ],
+      "primary": null,
+      "purpose": "Baseline of release 0.1.2 and the registered test of whether the reject and cap routes of 0.1.1 and 0.1.2 move the Haiku setting against baseline-0.1.0.",
+      "tree": "72a3eef",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "mixed",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "haiku",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
       "hypothesis": null,
@@ -3689,7 +4156,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "26d7e19619d3e8553a33ec949078a51852b765306d0ca533a2d3183d85de0370"
+      "sha256": "1d1d62ed9e7a0bcdbc3e7e2ba4708dfb02b5cdd0058ed67fbef276e3c85b880a"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
@@ -3730,6 +4197,30 @@
     {
       "path": "experiments/baseline-0.1.0/runs/trial-0.1.0-strong-3.json",
       "sha256": "4d6d7452134f37d395bb84bac2f693e7bb2f796396643532477f1aa6c5a902c9"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/conformance/trial-0.1.0-mixed-1.json",
+      "sha256": "75608f7901d14f995d58ecbb71c8dddb15af01c5e2146044a137d077fcc519e9"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/conformance/trial-0.1.0-mixed-2.json",
+      "sha256": "a58280d46d75e3ff44536d71f8eee5cf6c1a343bdad3567fe68665faea899df5"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/conformance/trial-0.1.0-mixed-3.json",
+      "sha256": "28e91d8c445f6f47f62e6dc993d1bb62cdfd3a8db709882ecaabbadf279830d1"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/conformance/trial-0.1.0-strong-1.json",
+      "sha256": "7fad5d3417c63cc3b0aa55f27879bb8f7428c2bd72fc2538c87f25e7c6931b2e"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/conformance/trial-0.1.0-strong-2.json",
+      "sha256": "9e8eb0fdea5f797587f9d8c2348977430207f37dde3a5b069f39e4fd634d72e8"
+    },
+    {
+      "path": "experiments/baseline-0.1.0/conformance/trial-0.1.0-strong-3.json",
+      "sha256": "6440f945629186d121235d9efa8ad5b782af0e4484058f986962d68beffb887f"
     },
     {
       "path": "experiments/bugfix-seeds-1.yaml",
@@ -3812,8 +4303,16 @@
       "sha256": "f1cc615a9cb9e4c450cc7938b3fe6d0159689554e5a09686c4469dff02a69597"
     },
     {
+      "path": "experiments/effort-decider-mixed.yaml",
+      "sha256": "ee631814e05fd4fb10d50044552a2b61f7748e9e037773ae8f5cd76dd44a62a4"
+    },
+    {
       "path": "experiments/effort-implement-levels.yaml",
       "sha256": "e8c25a7980bd05b201f24e34b14dc200c04e79520ba4bd55a525efa3ba808a80"
+    },
+    {
+      "path": "experiments/release-0.1.2.yaml",
+      "sha256": "c2e7d4c9fa21149f9f8420106371cd8370440feee0d6771d952cd362ccd365ac"
     },
     {
       "path": "experiments/small-idea-1.yaml",
