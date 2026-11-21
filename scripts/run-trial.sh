@@ -70,6 +70,10 @@ set -euo pipefail
 # `sdc-goals resolve` printed), copied unchanged to the root case's work/goals.yaml when the run
 # starts (artifact `goals` of sdc; intake and direction read it through the shared work/). A
 # resume keeps the file in work/; a person edits it there.
+# The build constraints (D154): SDC_BUILD_CONSTRAINTS (default driver/examples/sdc/build-constraints.yaml,
+# sdc.build-constraints/1) is copied to work/build-constraints.yaml when the run starts; every
+# writer reads it (tools/llm-node.sh) and requirements.check holds each requirement's `language` and
+# `dependencies` to it. run-settings.jsonl records its source and language.
 goals="" rest=()
 while (($#)); do
   if [[ $1 == --goals ]]; then
@@ -100,6 +104,8 @@ canon=${CANON:-$HOME/beyond10x/canon/target/debug/canon}
 drive=${DRIVE:-$sdc/driver/target/debug/sdc-drive}
 reply_bin=${SDC_REPLY:-$sdc/driver/target/debug/sdc-reply}
 ex=$sdc/driver/examples/sdc
+build_constraints=${SDC_BUILD_CONSTRAINTS:-$ex/build-constraints.yaml}
+[[ -f $build_constraints ]] || { echo "SDC_BUILD_CONSTRAINTS: no file $build_constraints"; exit 64; }
 out=${SDC_RUNS_DIR:-$sdc/runs}/$name
 store=$out/store
 root=$store/IDEA-1
@@ -244,6 +250,7 @@ if [[ ! -d $root ]]; then
     jq -n --arg t "$idea_text" '{text: $t}' | yq -P > "$root/work/idea.yaml"
   fi
   [[ -z $goals ]] || cp "$goals" "$root/work/goals.yaml"
+  cp "$build_constraints" "$root/work/build-constraints.yaml"
   echo "# the person's idea: $(cat "$root/work/idea.yaml")" >> "$log"
   leg=started
 else
@@ -278,12 +285,14 @@ jq -cn --arg at "$(now)" --arg leg "$leg" --arg kind "$decider" --arg model "$mo
   --argjson models "$models" \
   --argjson llm "$max_llm" --argjson dec "$max_decider" --argjson wall "$max_wall" --arg adapter "$SDC_LLM_ADAPTER" \
   --argjson calls "$(cat "$SDC_LLM_LOG" 2>/dev/null | wc -l)" --arg level "$autonomy" --arg lsrc "$autonomy_source" \
-  --arg stand "$stand_in" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
+  --arg stand "$stand_in" --arg bcs "${SDC_BUILD_CONSTRAINTS:-driver/examples/sdc/build-constraints.yaml}" \
+  --arg bcl "$(yq -r '.language // ""' "$root/work/build-constraints.yaml" 2>/dev/null)" '{format: "sdc.run-settings/1", at: $at, leg: $leg,
     autonomy: (if $level == "" then null else $level end), autonomy_source: $lsrc,
     per_class_routing: (if ($level | IN("A1", "A2", "A3", "A4")) then "not built: every decision goes to the decider" else null end),
     decider: {kind: $kind, model: (if $model == "" then null else $model end), escalate: $esc,
       max_decider_calls: $dec}, adapter: $adapter, max_llm_calls: $llm, max_wall_seconds: $wall,
-    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end)}' >> "$out/run-settings.jsonl"
+    llm_calls_before: $calls, models: $models, stand_in: ($stand != ""), stand_in_by: (if $stand == "" then null else $stand end),
+    build_constraints: (if $bcl == "" then null else {source: $bcs, language: $bcl} end)}' >> "$out/run-settings.jsonl"
 if [[ $leg == started ]]; then
   echo "started $name: adapter $SDC_LLM_ADAPTER, decider $decider${model:+ ($model)}, escalate $escalate_mode, LLM call cap $max_llm, idea: $(yq -r .text "$root/work/idea.yaml")"
 else
@@ -300,7 +309,7 @@ save() {
 # The record names the step (action, case as a run-relative id), the cause (end_cause, also the
 # record's `cause`) and the fix it waits on; no absolute path. Causes: rejected_without_rework_path, rework_spent,
 # decider_budget_spent, finding_reraised (a program finding raised again after its decision was
-# applied), decision_not_takeable (a stop no holder of this run can take: the program
+# applied, or an agent's contradiction against such a decision's answer), decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
 # driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent).
 end_reason="" end_cause="" end_action="" end_case="" wait_why=""
@@ -614,9 +623,10 @@ decide_findings() {
     fid=$(jq -r .id <<< "$f")
     # A program finding raised again after the decision on it was applied (sdc-findings `reraised`):
     # a defect of that apply, never a new question (runs/trial-3-small-sonnet-1: p-trace-r5 asked
-    # 8 times until the decider budget was spent). The run stops finding_reraised.
+    # 8 times until the decider budget was spent; runs/trial-3-small-haiku-1: f11 raised f9 again,
+    # citing f9's answer q17, `reraised.of`). The run stops finding_reraised.
     if jq -e '.reraised' <<< "$f" > /dev/null; then
-      wait_why="$fid raised again after $(jq -r '.reraised.decided_by // "?"' <<< "$f")'s decision \"$(jq -r '.reraised.decision // ""' <<< "$f" | cut -c1-160)\" was applied ($(jq -r '.reraised.says // ""' <<< "$f" | cut -c1-160))"
+      wait_why="$fid raised$(jq -r '.reraised.of // empty | " " + .' <<< "$f") again after $(jq -r '.reraised.decided_by // "?"' <<< "$f")'s decision \"$(jq -r '.reraised.decision // ""' <<< "$f" | cut -c1-160)\" was applied ($(jq -r '.reraised.says // ""' <<< "$f" | cut -c1-160))"
       if [[ $autonomy == A5 ]]; then
         end_cause=finding_reraised end_action=$act end_case=$(basename "$cdir")
         end_reason="$act in $end_case: finding_reraised: $wait_why: the apply of that decision did not take effect; it waits on a fix of that apply, then --reopen"

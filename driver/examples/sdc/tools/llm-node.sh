@@ -225,11 +225,27 @@ input() {
 }
 # An output edited in place starts as a copy of the current artifact.
 seed() { [[ -e $work/$1 ]] && mkdir -p "$cwd/out/$(dirname "$1")" && cp -r "$work/$1" "$cwd/out/$1"; true; }
+# The run's build constraints (D154): one data file, written into work/ when the run starts
+# (scripts/run-trial.sh and run-full-cycle.sh, from SDC_BUILD_CONSTRAINTS, default
+# ../build-constraints.yaml), the one source of what each writer is told about the build: every
+# writer from the dissection to the builder reads it, so no requirement and no specification asks
+# for what the build cannot use (runs/trial-3-small-haiku-1: r5 said Python 3 and the builder was
+# told Rust; runs/trial-3-haiku-5: the spec required Postgres, copied from the example's topology).
+# A run started before the file existed reads the shipped one.
+bc=$work/build-constraints.yaml
+[[ -f $bc ]] || bc=$here/../build-constraints.yaml
+build_constraints=$(yq -r '.text' "$bc")
+constraints() {
+  local deps
+  deps=$(yq -r '.dependencies[]?' "$bc" | paste -sd, - | sed 's/,/, /g')
+  cp "$bc" "$cwd/in/build-constraints.yaml"
+  inputs+=("in/build-constraints.yaml (the build constraints of this run, fixed: language $(yq -r .language "$bc"), dependencies allowed: ${deps:-none})")
+}
 
 ops='["dir.list","file.edit","file.read","file.write","search"]'
 case $node in
 idea.dissect)
-  input idea.yaml; out=dissection.yaml
+  input idea.yaml; constraints; out=dissection.yaml
   task="Split the idea (in/idea.yaml, field \`text\`) into typed items. Write out/dissection.yaml with
 one top-level key \`items\`, a list. Each item has exactly these keys:
 - id: d1, d2, ...
@@ -239,11 +255,14 @@ one top-level key \`items\`, a list. Each item has exactly these keys:
 - span: a non-empty, exact, case-sensitive substring of the idea text, copied character by
   character (for a dark_spot, the nearest words it is about)
 - note: one sentence: what is stated, or what is missing
-At least one wish. At most 8 items." ;;
+At least one wish. At most 8 items. in/build-constraints.yaml settles the language, the
+dependencies and how the product runs for this run: what it settles is no unknown, ambiguity or
+dark_spot." ;;
 questions.write)
-  input idea.yaml; input dissection.yaml; out=questions.yaml
+  input idea.yaml; input dissection.yaml; constraints; out=questions.yaml
   task="Write the interview. For every item in in/dissection.yaml whose type is belief, unknown,
-ambiguity or dark_spot, write exactly one question; no question for any other item. Write
+ambiguity or dark_spot, write exactly one question; no question for any other item. No option
+names a language, a runtime or a dependency that in/build-constraints.yaml rules out. Write
 out/questions.yaml with one top-level key \`questions\`, a list. Each question has exactly these keys:
 - id: q1, q2, ...
 - item: the dissection item id it is about
@@ -279,18 +298,19 @@ Example of a scope-changing question (idea: 'A recipe box for my family'):
   scope_changing: true
   status: open" ;;
 questions.answer)
-  input idea.yaml; input dissection.yaml; input questions.yaml; seed questions.yaml; out=questions.yaml
+  input idea.yaml; input dissection.yaml; input questions.yaml; constraints; seed questions.yaml; out=questions.yaml
   task="Answer the interview. out/questions.yaml is a copy of the current interview: edit it in place.
 For every question with scope_changing: false, set \`status: accepted\` and \`answer\` to its default,
-or \`status: changed\` and \`answer\` to a better answer when the default contradicts the idea, and
+or \`status: changed\` and \`answer\` to a better answer when the default contradicts the idea or
+names a language, a runtime or a dependency that in/build-constraints.yaml rules out, and
 set \`answered_by: non-interactive\`. Leave every question with scope_changing: true exactly as it is,
 whatever its status and answer (open, or already answered by a person): they are answered through
 scope.answer, by the principal that holds that capability. Change nothing else." ;;
 requirements.normalise)
-  input idea.yaml; input dissection.yaml; input questions.yaml; out=requirements.yaml
+  input idea.yaml; input dissection.yaml; input questions.yaml; constraints; out=requirements.yaml
   task="Normalise the idea's facts and wishes and the interview's answers into a requirements list.
 Write out/requirements.yaml with one top-level key \`requirements\`, a list. Each requirement has
-exactly these keys:
+these keys, and no other:
 - id: r1, r2, ...
 - text: one testable sentence: who does what, or what must hold
 - cites: the ids it comes from: dissection items of type fact or wish, and question ids
@@ -298,10 +318,21 @@ exactly these keys:
   another type (belief, unknown, ambiguity, dark_spot) only beside the question that asks about it
 - spec_domains: the specification domains it belongs to, each \`<system>.<domain>\` in lower case
   (for example todo.task). One system name for the whole list; 1 to 3 domains in total
+- language (only on a requirement that names a programming language): the language it names
+- dependencies (only on a requirement that names one): a list of what it needs beyond the
+  language's standard library: a library, a runtime, a database server, a network service
+- behaviour and behaviour_reason (only on a requirement that restates a build constraint):
+  \`behaviour: constraint\` and one sentence naming the constraint
+The build constraints (in/build-constraints.yaml) are fixed for this run and win over any input:
+a requirement names no other language, runtime or dependency, even where an answer does (an
+answer 'Python 3' becomes a requirement with \`language: $(yq -r .language "$bc")\`). A requirement that
+restates a constraint carries \`language\` or \`dependencies\` as the constraints write them and
+\`behaviour: constraint\`. requirements.check compares \`language\` and \`dependencies\` with
+in/build-constraints.yaml and sends the list back on a mismatch.
 Cite every fact, every wish and every answered question at least once. Keep the list short (at
 most 8)." ;;
 context.default)
-  input idea.yaml; input requirements.yaml; out=context.yaml
+  input idea.yaml; input requirements.yaml; constraints; out=context.yaml
   task="Write the project context defaults to out/context.yaml with exactly these top-level keys:
 audience, source_language, target_language, platform, kind, deployment, offline, licence. Each is a
 mapping with exactly the keys value (a short string), status (always \`default\`) and reason (one
@@ -309,7 +340,8 @@ sentence). source_language and target_language are human languages (for example 
 and of the product's text. kind is one of: service, multi-tenant application, CLI, library.
 offline says whether and how the product works without a network connection: \`no\`, or \`yes: \`
 and how (for example \`yes: the browser client keeps a local copy and syncs when connected\`).
-Pick the simplest defaults the requirements allow." ;;
+Pick the simplest defaults the requirements allow; platform, kind and deployment fit
+in/build-constraints.yaml (how the product is built and runs)." ;;
 vision.write)
   input idea.yaml; input requirements.yaml; input context.yaml; out=aep/vision/product.md
   task="Write the product vision. Write two files:
@@ -327,7 +359,7 @@ Also write out/roadmap.md, the roadmap's body, in markdown without a front matte
 ids it covers, for example r1 r2, and what done means), '## Sequence' (the order and why),
 '## Out of scope' (from the vision's 'does not do'). Every requirement id appears under one epic." ;;
 spec.author)
-  input idea.yaml; input requirements.yaml; input context.yaml; input spec; seed spec; out=spec
+  input idea.yaml; input requirements.yaml; input context.yaml; input spec; constraints; seed spec; out=spec
   mkdir -p "$cwd/in/example-spec" && cp -r "$fx/billing-spec/." "$cwd/in/example-spec/"
   inputs+=("in/example-spec (a complete, valid ESS example to copy the format from)")
   system=$(jq -r '.domain // "system"' <<< "${SDC_ARGS:-null}")
@@ -339,7 +371,8 @@ keys and constructs exactly, and change only the content. Required:
   listing exactly the spec_domains used in in/requirements.yaml
 - one file per domain under out/spec/domains/ (as in the example), with the entities, their
   states, the commands (with the refusals they can return) and the events the requirements need
-- components.yaml and topology.yaml as in the example, naming your domains
+- components.yaml and topology.yaml naming your domains: the example shows the form only; the
+  content follows the requirements and the build constraints below
 - out/spec/traces.json (as in the example): {\"traces\": {\"r1\": [...], ...}}, for every
   requirement of in/requirements.yaml the full names of the declarations that deliver it. Only
   behaviour counts: a command, a view, or an actor whose \`may\` names commands. A domain, an
@@ -349,7 +382,11 @@ keys and constructs exactly, and change only the content. Required:
   trace it to a domain or an actor: raise a finding about it (scope_changing: true)
 Keep it as small as the requirements allow: no construct the requirements do not need. Never
 write the text UNMAPPED: anywhere. If out/spec/ already holds a specification, fix it rather than
-starting over." ;;
+starting over.
+The build constraints (in/build-constraints.yaml): the implementation of this specification is
+built within them, so the specification requires nothing they rule out (a database server, a
+client library, a network service):
+$build_constraints" ;;
 plan.decompose)
   input requirements.yaml; input spec
   jq -r '.commands | keys[]' "$work/.sdc/gate/ir.json" > "$cwd/in/commands.txt" 2>/dev/null
@@ -360,14 +397,13 @@ plan.decompose)
 \"summary\": \"<one sentence, then: covers <command> <command> ...>\"}]}.
 Every line of in/commands.txt must appear, spelled exactly, in the summary of exactly one story." ;;
 change.implement)
-  input requirements.yaml; input context.yaml; input spec; input "aep/story/$story.md"; input impl; seed impl
+  input requirements.yaml; input context.yaml; input spec; input "aep/story/$story.md"; input impl; constraints; seed impl
   out=impl
   task="Implement story '$story' (in/aep/story/$story.md) of the specification in in/spec/, in
 out/impl/ (it holds the current implementation, if any: extend it, keep what earlier stories built).
-- Rust, edition 2021, standard library only: no dependencies in Cargo.toml (there is no network).
-  out/impl/Cargo.toml and code under out/impl/src/. A service is a daemon binary that serves its
-  web UI and a JSON API with std::net::TcpListener, takes its port and data file as arguments, and
-  can run as several instances side by side; a CLI parses std::env::args.
+The build constraints (in/build-constraints.yaml):
+$build_constraints
+- out/impl/Cargo.toml and code under out/impl/src/.
 - Keep the domain logic in a library (src/lib.rs) so tests call it directly.
 - Tests: #[test] functions in src (#[cfg(test)] modules) and/or out/impl/tests/*.rs, covering every
   command the story covers, including its refusals; they must pass without network access or a

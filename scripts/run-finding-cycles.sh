@@ -70,6 +70,7 @@
 #   rework-not-called, rework-pending-rejection, decider-later-obligation, replay-sibling,
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
 #   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
+#   lang-constraint  D154, runs/trial-3-small-haiku-1 (see the cycle)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -99,7 +100,7 @@ if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(dec
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
   expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
-expected+=(cite-dark-spot cite-fault-sent-back)
+expected+=(cite-dark-spot cite-fault-sent-back lang-constraint)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -913,6 +914,44 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
   echo "cite-fault-sent-back: checks pass (the decision applied; the writer sent back with the citation fault, then writer_spent)"
 else
   echo "cite-fault-sent-back: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
+# lang-constraint: the build constraints (D154; runs/trial-3-small-haiku-1: r5 said Python 3 and
+# the builder was told Rust). The interview answers q3 "Python 3" (fixtures/lang-constraint);
+# requirements.normalise first writes r3 with `language: Python 3` (requirements.yaml.0), then r3
+# in Rust with `behaviour: constraint`. requirements.normalise, spec.author and change.implement
+# run llm-node.sh's prompt and apply (tools/llm-adapter-fixture.sh). Passes when the run closes,
+# requirements.check sent the writer back once naming r3's language against build-constraints.yaml,
+# r3 ends `language: Rust`, `behaviour: constraint`, work/build-constraints.yaml is the shipped
+# file, every prompt of the three lists in/build-constraints.yaml, and spec.author's and
+# change.implement's carry the constraints' text (spec.author: the example's topology is form only).
+cycle lang-constraint SDC_STUB_FIXTURES="$fx/lang-constraint" SDC_LLM_ADAPTER="$fixture" \
+  SDC_LLM_NODES="requirements.normalise spec.author change.implement"
+code=$?
+lr=$s/store-lang-constraint/IDEA-1
+lc=$lr/children/IDEA-1.intake
+bcf=$sdc/driver/examples/sdc/build-constraints.yaml
+prompts_have() { # <node> <fixed text>: every prompt of <node> in the run holds it, and there is one
+  local p n=0
+  for p in "$lr"/work/.sdc/llm/*-"$1"/prompt.md; do
+    [[ -f $p ]] && grep -qF -- "$2" "$p" || return 1
+    n=$((n + 1))
+  done
+  (( n > 0 ))
+}
+if (( code == 0 )) &&
+   [[ $(jq -s '[.[] | select(.event == "action_finished" and .action == "requirements.normalise" and (.not_called | type) != "string")] | length' "$lc/events.jsonl") == 2 ]] &&
+   jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log // empty' "$lc/events.jsonl" |
+     while read -r b; do cat "$lc/blobs/$b"; done | grep -qF 'r3 names the language Python 3; the build constraints of this run (build-constraints.yaml) fix it to Rust' &&
+   yq -o=json "$lr/work/requirements.yaml" | jq -e '.requirements[] | select(.id == "r3") | .language == "Rust" and .behaviour == "constraint"' >/dev/null &&
+   cmp -s "$lr/work/build-constraints.yaml" "$bcf" &&
+   prompts_have requirements.normalise 'in/build-constraints.yaml (the build constraints of this run, fixed: language Rust, dependencies allowed: none)' &&
+   prompts_have spec.author "$(yq -r .text "$bcf" | head -n 1)" &&
+   prompts_have spec.author 'the example shows the form only' &&
+   prompts_have change.implement "$(yq -r .text "$bcf" | head -n 1)" &&
+   prompts_have change.implement 'in/build-constraints.yaml'; then
+  echo "lang-constraint: checks pass (r3 in Python 3 sent back by requirements.check, then Rust as a constraint; the run closed; the constraints in every writer's prompt)"
+else
+  echo "lang-constraint: FAILED (exit $code)"
 fi
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3

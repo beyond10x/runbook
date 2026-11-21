@@ -21,6 +21,8 @@
 # NO_YQ_STEP=<action>: at that first stop, after the person's edit, one `step --action <action>`
 # runs with yq removed from PATH (an environment failure, as the live view's check in
 # runs/trial-2-train).
+# SDC_BUILD_CONSTRAINTS: the run's build constraints, copied to work/build-constraints.yaml at the
+# start (default driver/examples/sdc/build-constraints.yaml; see scripts/run-trial.sh).
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 name=$1 store=$2
@@ -57,6 +59,7 @@ d() {
 root=$store/IDEA-1
 d "$root" init --protocol "$sdc/protocol/sdc.protocol.yaml" --id IDEA-1 --bindings "$ex/sdc.bindings.json"
 cp "$ex/fixtures/idea.yaml" "$root/work/idea.yaml"
+cp "${SDC_BUILD_CONSTRAINTS:-$ex/build-constraints.yaml}" "$root/work/build-constraints.yaml"
 echo "# the person's idea: $(cat "$root/work/idea.yaml")" >> "$log"
 
 for round in $(seq 1 30); do

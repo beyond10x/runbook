@@ -1,0 +1,10 @@
+format: sdc.build-constraints/1
+language: Rust
+edition: "2021"
+dependencies: []
+text: |-
+  - Rust, edition 2021, standard library only: no dependencies in Cargo.toml (there is no network).
+  - A service is a daemon binary that serves its web UI and a JSON API with std::net::TcpListener,
+    takes its port and data file as arguments, and can run as several instances side by side; a CLI
+    parses std::env::args. Data is kept in that data file: no database server, no client library,
+    no other network service.

@@ -46,7 +46,17 @@ export AEP_ACTOR=$aep_actor
 
 case $1 in
 # --- stub LLM executors: fixed drafts -------------------------------------------------------
-stub-file) f=$fx/$2; [[ -n ${SDC_STUB_FIXTURES:-} && -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2; cp "$f" "$3" ;;
+stub-file)
+  # As stub-tree: SDC_STUB_FIXTURES may hold <name>.<n> for the n-th call (from 0), else <name>.
+  f=$fx/$2
+  if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
+    c=${SDC_STUB_COUNTER:-.sdc}/stub-file.$2
+    mkdir -p "$(dirname "$c")"
+    n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
+    [[ -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
+    [[ -f $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
+  fi
+  cp "$f" "$3" ;;
 stub-tree)
   # SDC_STUB_FIXTURES may hold the tree too: <name>.<n> on the n-th call (from 0), else <name>.
   # The count is kept in SDC_STUB_COUNTER (default .sdc; the fixture adapter names work/.sdc).

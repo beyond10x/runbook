@@ -244,7 +244,25 @@ unchanged.
   resolved that comes back (the agent's send-back of the writer is the one designed reopen). It
   waits with `reraised` {decision, decided_by, says}, and under autopilot `run-trial.sh` stops the run
   `finding_reraised` naming the finding and the decision. The `decider_budget_spent` stop record
-  names the step and the cap (it read only "autopilot: ").
+  names the step and the cap (it read only "autopilot: "). An agent's contradiction that cites the
+  answer of a finding a person or a decider resolved raises that finding again the same way
+  (`reraised.of`; `runs/trial-3-small-haiku-1`: f9, r5's Python 3 against the builder's Rust, was
+  decided "Python 3"; the apply added that answer, q17, to r5, which already said Python, and the
+  builder's Rust came from its prompt, which no amendment reaches, so f11 contradicted q17 and was
+  decided "Python 3" again).
+- The build constraints are one data file of the run (D154, the operator, 2026-11-21,
+  `runs/trial-3-small-haiku-1`): `driver/examples/sdc/build-constraints.yaml`
+  (`sdc.build-constraints/1`: `language`, `edition`, `dependencies`, `text`), or
+  `SDC_BUILD_CONSTRAINTS`, copied to `work/build-constraints.yaml` when `run-trial.sh` or
+  `run-full-cycle.sh` starts a run (run-settings.jsonl `build_constraints`). It is an input of
+  idea.dissect, questions.write, questions.answer, requirements.normalise, context.default,
+  spec.author and change.implement (`llm-node.sh`); its `text` is the one wording of the build
+  that spec.author and change.implement are given (spec.author: the example's components and
+  topology show the form only). A requirement declares `language` and `dependencies` when it names
+  them; `requirements.check` (`sdc-findings` `constraint_fault`) refuses a `language` other than
+  the constraints' (equal or followed by a space, ignoring case), a dependency not in their list,
+  and either one without `behaviour: constraint`. Only the declared fields are read: a requirement
+  that names Python in its text alone passes.
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
@@ -389,6 +407,7 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `spec-own-default` (added 2026-11-21, `runs/trial-3-haiku-2`'s stop: `fixtures/finding-spec-rounds.yaml`, `spec.author` on `tools/llm-adapter-fixture.sh`) | 0 | a new agent finding on every LLM call: the amendment records the default the spec follows, no LLM re-derivation, `spec.author` 2 runs, 1 call. Before: exit 1, `writer_spent` after 4 runs and 4 calls |
 | `story-late-person` (added 2026-11-21, R8: `fixtures/finding-story-late-person.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s third run raises a scope-changing finding: `awaiting_person` (due `handoff_when`) rather than `writer_spent`, then a fresh allowance, `operating`. Before: exit 1, `stuck` after the person's decision |
 | `superseded-answer` (added 2026-11-21, D141, `runs/trial-3-haiku-5`: `SDC_STUB_FINDINGS=fixtures/finding-superseded-spec.yaml:fixtures/finding-superseded-story.yaml`) | 0 | `spec.author` raises a missing decision on r1, answered by the agent's default "Postgres" (q3); `change.implement` raises a contradiction citing q3 and r1, answered by the default "the data file" (q4): q3 `superseded` by q4, r1 cites q4 and not q3, its text names no Postgres; `operating`. Before: q3 and q4 both `accepted`, r1 cites both and states both |
+| `lang-constraint` (added 2026-11-21, D154, `runs/trial-3-small-haiku-1`: `SDC_STUB_FIXTURES=fixtures/lang-constraint`, `SDC_LLM_NODES="requirements.normalise spec.author change.implement"` through `tools/llm-adapter-fixture.sh`) | 0 | the interview answers q3 "Python 3"; the writer's r3 `language: Python 3` is refused by `requirements.check` ("r3 names the language Python 3; the build constraints of this run (build-constraints.yaml) fix it to Rust"), the writer is sent back once and writes r3 `language: Rust`, `behaviour: constraint`; `operating`; `work/build-constraints.yaml` is the shipped file and every prompt of the three nodes lists it, spec.author's and change.implement's with its text. Before: no constraints file, r3 in Python 3 passes `requirements.check` |
 | `decider-scope-answer` (added 2026-11-21, `runs/trial-2b-fresh`'s first stop: `scripts/run-trial.sh` with `SDC_DECIDER=haiku` on `tools/llm-adapter-fixture.sh`, `fixtures/scope-two`) | 0 | two scope-changing questions open at `scope.answer`; each goes to the decider on its own (text, options, default, dissection item, idea excerpt; `questions.settled` marked `settled_by_this_decision`): q2 by its default (`accepted`), q3 a free answer (`changed`), both `answered_by: decider:haiku`, class `scope_changing_answer` in `decisions.jsonl`; `scope.answer` taken as `decider:haiku`; closed, replay 8 of 8. Before: exit 3, the decider escalated the approval of `scope.answer` reading `questions.settled` false as a failed check |
 | `decider-scope-final` (added 2026-11-21, as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating q3) | 0 | q3 `escalation_suppressed`, its default taken. Before: exit 6 (the escalated approval had no `best`, counted as reject) |
 | `decider-finding` (added 2026-11-21, `story:decider-finding-decision`: `fixtures/finding-spec-person.yaml` under the decider) | 0 | f1 (scope-changing) goes to the decider as a finding request; it answers option 2; f1 resolved with `decided_by: decider:haiku`, the amendment's question `answered_by: decider:haiku`, class `finding` in `decisions.jsonl`; closed, replay 8 of 8. Before: exit 3, "nothing for decider:haiku at amend.upstream" |

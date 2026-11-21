@@ -19,7 +19,8 @@
 //!     person's decision, amend questions.yaml and requirements.yaml, verify the amendment, and
 //!     mark the stage's derived artifact as derived from earlier requirements
 //! sdc-findings --rules <…> check-requirements
-//!     the requirements' citation rule (`citation_fault`), one line per fault; exit 0 none, 1 some
+//!     the requirements' citation rule (`citation_fault`) and the run's build constraints
+//!     (`constraint_fault`, work/build-constraints.yaml, D154), one line per fault; exit 0 none, 1 some
 //! ```
 //!
 //! `findings.yaml`: `{findings: [{id, type, stage, raised_by, cites, says, options, default,
@@ -32,6 +33,9 @@
 //! and kept as `refused_decision` {decision, decided_by, why}, so the finding waits for a person.
 //! A contradiction's decision supersedes each cited answer it differs from (D141): the question gets
 //! `status: superseded` and `superseded_by`, and a requirement citing it is a citation fault.
+//! A finding whose applied decision did not take effect waits with `reraised` {decision,
+//! decided_by, says, of}: a resolved program finding that fires again, or an agent's contradiction
+//! citing the answer of a finding a person or a decider resolved (`reraised_of`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -151,6 +155,8 @@ struct Work {
     diss: Value,
     ctx: Value,
     fd: Value,
+    /// The run's build constraints (`build-constraints.yaml`, D154); empty when the run has none.
+    bc: Value,
     rules: Vec<serde_json::Value>,
 }
 
@@ -169,6 +175,7 @@ impl Work {
             diss: load("dissection.yaml"),
             ctx: load("context.yaml"),
             fd,
+            bc: load("build-constraints.yaml"),
             rules: doc["rules"].as_array().cloned().unwrap_or_default(),
         })
     }
@@ -489,6 +496,29 @@ fn reraise(f: &mut Value, h: &Value) {
             m.remove(k);
         }
     }
+}
+
+/// The earlier finding an agent's contradiction `f` raises again, or None: `f` cites the answer
+/// (a question whose `item` is that finding, not superseded) of a finding a person or a decider
+/// resolved. runs/trial-3-small-haiku-1: f9 (r5's Python 3 against the builder's Rust) was decided
+/// "Python 3"; the apply only added that answer (q17) to r5, which said Python already, and the
+/// builder's Rust came from its prompt, which no amendment reaches; f11 then contradicted q17. A
+/// contradiction against an applied decision is that decision not taking effect, as `reraise`.
+fn reraised_of(w: &Work, f: &Value) -> Option<Value> {
+    if st(f, "type") != "contradiction" || !st(f, "raised_by").starts_with("llm:") {
+        return None;
+    }
+    strs(f, "cites").iter().filter_map(|c| w.question(c)).filter(|q| st(q, "status") != "superseded").find_map(|q| {
+        w.findings()
+            .iter()
+            .find(|g| {
+                st(g, "id") == st(q, "item")
+                    && st(g, "id") != st(f, "id")
+                    && st(g, "status") == "resolved"
+                    && (is_person(st(g, "decided_by")) || is_decider(st(g, "decided_by")))
+            })
+            .cloned()
+    })
 }
 
 /// The trace of every requirement against the compiled spec `ir` and the writer's `traces`
@@ -1130,12 +1160,52 @@ fn superseded_cite(w: &Work, r: &Value) -> Option<String> {
     Some(format!("{} cites {}, an answer superseded by {by}: cite {by} instead", st(r, "id"), st(q, "id")))
 }
 
+/// D154: why `r` breaks the run's build constraints (`w.bc`, build-constraints.yaml), or None.
+/// Exact, on declared fields only: `language` other than the constraints' `language` (equal, or it
+/// followed by a space and more, ignoring case), a `dependencies` entry not in the constraints'
+/// `dependencies`, and a requirement declaring either without `behaviour: constraint` (it restates
+/// a constraint). No constraints file: no fault (a run started before D154).
+fn constraint_fault(w: &Work, r: &Value) -> Option<String> {
+    let lang = st(&w.bc, "language");
+    if lang.is_empty() {
+        return None;
+    }
+    let id = st(r, "id");
+    let named = scalar(r.get("language").unwrap_or(&Value::Null));
+    let n = named.trim().to_lowercase();
+    let l = lang.to_lowercase();
+    if !n.is_empty() && n != l && !n.starts_with(&format!("{l} ")) {
+        return Some(format!("{id} names the language {named}; the build constraints of this run (build-constraints.yaml) fix it to {lang}: write the requirement in {lang} with `language: {lang}` and `behaviour: constraint`, or leave the language out"));
+    }
+    let allowed = strs(&w.bc, "dependencies");
+    let deps: Vec<String> = match r.get("dependencies") {
+        Some(Value::Sequence(xs)) => xs.iter().map(scalar).collect(),
+        Some(v) if !scalar(v).is_empty() => vec![scalar(v)],
+        _ => vec![],
+    };
+    let extra: Vec<String> = deps
+        .iter()
+        .filter(|d| !allowed.iter().any(|a| a.eq_ignore_ascii_case(d.trim())))
+        .cloned()
+        .collect();
+    if !extra.is_empty() {
+        let ok = if allowed.is_empty() { "none".to_string() } else { allowed.join(", ") };
+        return Some(format!("{id} names the dependencies {}; the build constraints of this run (build-constraints.yaml) allow {ok}: build it with what they allow, or leave the requirement out", extra.join(", ")));
+    }
+    let declares = !n.is_empty() || !deps.is_empty();
+    if declares && st(r, "behaviour") != "constraint" {
+        return Some(format!("{id} restates a build constraint (`language` or `dependencies`): mark it `behaviour: constraint` with a `behaviour_reason`"));
+    }
+    None
+}
+
 /// `sdc-findings check-requirements`: the requirements' shape at write time (requirements.check):
-/// at least one requirement, each with an id and the citation rule (`citation_fault`). One line per
-/// fault; exit 0 none, 1 some.
+/// at least one requirement, each with an id, the citation rule (`citation_fault`) and the build
+/// constraints (`constraint_fault`, D154). One line per fault; exit 0 none, 1 some.
 fn check_requirements(w: &Work) -> u8 {
     let reqs = seq(&w.req, "requirements");
     let mut faults: Vec<String> = reqs.iter().filter_map(|r| citation_fault(w, r)).collect();
+    faults.extend(reqs.iter().filter_map(|r| constraint_fault(w, r)));
     if reqs.is_empty() {
         faults.push("requirements.yaml has no requirement".into());
     }
@@ -1245,6 +1315,7 @@ fn verify(
                 diss: Value::Null,
                 ctx: ctx_before.clone(),
                 fd: Value::Null,
+                bc: Value::Null,
                 rules: vec![],
             };
             let side = |items: &[String]| {
@@ -1393,6 +1464,17 @@ fn amend(rules: &str, stage: &str) -> R<u8> {
             }
             decided_by = by.to_string();
             basis = format!("{by} decided");
+        } else if let Some(g) = reraised_of(&w, &f) {
+            let mut e = f.clone();
+            e["decision"] = g.get("decision").cloned().unwrap_or(Value::Null);
+            e["decided_by"] = g.get("decided_by").cloned().unwrap_or(Value::Null);
+            let h = e.clone();
+            reraise(&mut e, &h);
+            e["reraised"]["of"] = s(st(&g, "id"));
+            println!("amend: {fid} needs a person: it raises {} again: {}", st(&g, "id"), st(&e, "basis"));
+            w.findings_mut()[i] = e;
+            changed = true;
+            continue;
         } else {
             let (scope, default, why) = classify(&w, &f);
             {
@@ -1598,6 +1680,7 @@ mod tests {
             diss: Value::Mapping(Mapping::new()),
             ctx: Value::Mapping(Mapping::new()),
             fd: Value::Mapping(Mapping::new()),
+            bc: Value::Mapping(Mapping::new()),
             rules: vec![],
         }
     }
@@ -1865,5 +1948,59 @@ mod tests {
         assert_eq!(st(&f["reraised"], "decision"), SONNET_R5);
         assert_eq!(st(&f["reraised"], "decided_by"), "decider:haiku");
         assert!(f.get("decision").is_none() && f.get("resolution").is_none());
+    }
+
+    /// D154: the run's build constraints, as driver/examples/sdc/build-constraints.yaml writes them.
+    fn constrained(req: &str) -> Work {
+        let mut w = work();
+        w.diss = serde_yaml::from_str("items:\n- {id: d1, type: wish}\n").unwrap();
+        w.bc = serde_yaml::from_str("format: sdc.build-constraints/1\nlanguage: Rust\ndependencies: []\n").unwrap();
+        w.req = serde_yaml::from_str(req).unwrap();
+        w
+    }
+
+    /// runs/trial-3-small-haiku-1: r5 named Python 3 and the builder was told Rust. A requirement
+    /// naming another language or a dependency is a fault of requirements.check.
+    #[test]
+    fn a_requirement_naming_another_language_or_a_dependency_breaks_the_constraints() {
+        let w = constrained("requirements:\n- id: r5\n  text: The tool is written in Python 3.\n  cites: [d1]\n  language: Python 3\n");
+        let why = constraint_fault(&w, &w.req["requirements"][0]).unwrap();
+        assert!(why.contains("r5 names the language Python 3") && why.contains("fix it to Rust"), "{why}");
+        assert_eq!(check_requirements(&w), 1);
+        let w = constrained("requirements:\n- id: r1\n  text: The list is kept in Postgres.\n  cites: [d1]\n  dependencies: [Postgres]\n");
+        let why = constraint_fault(&w, &w.req["requirements"][0]).unwrap();
+        assert!(why.contains("r1 names the dependencies Postgres") && why.contains("allow none"), "{why}");
+    }
+
+    /// A requirement that restates the constraint is marked `behaviour: constraint`; one that names
+    /// nothing is not checked, nor is any requirement in a run without a constraints file.
+    #[test]
+    fn a_requirement_restating_the_constraint_is_a_constraint() {
+        let w = constrained("requirements:\n- id: r5\n  text: The tool is written in Rust.\n  cites: [d1]\n  language: rust\n");
+        assert!(constraint_fault(&w, &w.req["requirements"][0]).unwrap().contains("behaviour: constraint"));
+        let w = constrained("requirements:\n- id: r5\n  text: The tool is written in Rust.\n  cites: [d1]\n  language: Rust 2021\n  behaviour: constraint\n  behaviour_reason: the build constraints fix the language\n- id: r1\n  text: Bill customers.\n  cites: [d1]\n");
+        assert_eq!(check_requirements(&w), 0);
+        let mut w = constrained("requirements:\n- id: r5\n  text: Python.\n  cites: [d1]\n  language: Python 3\n");
+        w.bc = Value::Mapping(Mapping::new());
+        assert_eq!(constraint_fault(&w, &w.req["requirements"][0]), None);
+    }
+
+    /// runs/trial-3-small-haiku-1: f11 contradicted q17, the answer of f9, which decider:haiku had
+    /// decided; f11 is f9 raised again, so it waits with `reraised` naming f9 and its decision.
+    #[test]
+    fn an_agent_contradiction_against_an_applied_decision_raises_it_again() {
+        let mut w = work();
+        w.qs = serde_yaml::from_str("questions:\n- {id: q17, item: f9, status: accepted, answer: Python 3, default: Rust, scope_changing: true}\n- {id: q7, item: d3, status: accepted, answer: a, default: a, scope_changing: false}\n").unwrap();
+        w.fd = serde_yaml::from_str("findings:\n- {id: f9, type: contradiction, status: resolved, decision: Implement in Python 3, decided_by: 'decider:haiku'}\n- {id: f10, type: contradiction, status: resolved, decision: Rust, decided_by: agent}\n").unwrap();
+        let f11: Value = serde_yaml::from_str("id: f11\ntype: contradiction\nraised_by: llm:change.implement\ncites: [r5, q17]\nsays: q17 says Python 3, the step says Rust\n").unwrap();
+        assert_eq!(st(&reraised_of(&w, &f11).unwrap(), "id"), "f9");
+        let mut amb = f11.clone();
+        amb["type"] = s("ambiguity");
+        assert!(reraised_of(&w, &amb).is_none());
+        let mut interview = f11.clone();
+        interview["cites"] = serde_yaml::from_str("[r5, q7]").unwrap();
+        assert!(reraised_of(&w, &interview).is_none());
+        w.question_mut("q17").unwrap()["status"] = s("superseded");
+        assert!(reraised_of(&w, &f11).is_none());
     }
 }

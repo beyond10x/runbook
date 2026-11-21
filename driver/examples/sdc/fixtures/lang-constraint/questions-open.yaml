@@ -1,0 +1,19 @@
+questions:
+  - id: q1
+    item: d3
+    question: Which states does an invoice go through?
+    default: draft, issued, paid, cancelled
+    scope_changing: false
+    status: open
+  - id: q2
+    item: d4
+    question: Who may cancel an invoice?
+    default: the billing clerk, before it is paid
+    scope_changing: false
+    status: open
+  - id: q3
+    item: d5
+    question: Which programming language is the billing tool written in?
+    default: Python 3
+    scope_changing: false
+    status: open
