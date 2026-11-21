@@ -159,6 +159,108 @@
       },
       "screen_only.decision_refused@1600x1000": {
         "value": 1
+      },
+      "keyboard.tabs_to_cue@390x844": {
+        "value": 10
+      },
+      "keyboard.tabs_to_decide@390x844": {
+        "value": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 0
+      },
+      "layout_shift.per_minute@390x844": {
+        "value": 0
+      },
+      "reading_load.max@390x844": {
+        "value": 107
+      },
+      "reading_load.median@390x844": {
+        "value": 107
+      },
+      "cue_churn.changes@390x844": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@390x844": {
+        "value": 0
+      },
+      "contract.scroll@390x844": {
+        "value": 0
+      },
+      "contract.hidden@390x844": {
+        "value": 0
+      },
+      "contract.axe_serious@390x844": {
+        "value": 0
+      },
+      "contract.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "completion.miss@390x844": {
+        "value": 0
+      },
+      "completion.false@390x844": {
+        "value": 0
+      },
+      "screen_only.decision_refused@390x844": {
+        "value": 1
+      },
+      "screen_only.actions@390x844": {
+        "value": 2
+      },
+      "screen_only.looks@390x844": {
+        "value": 10
+      },
+      "screen_only.steers@390x844": {
+        "value": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 1
+      },
+      "glance_cost.p95@390x844": {
+        "value": 3
+      },
+      "actions_per_fix.max@390x844": {
+        "value": 2
+      },
+      "actions_per_fix.median@390x844": {
+        "value": 2
+      },
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
+      },
+      "phone.sheet_drawer@390x844": {
+        "value": 0
       }
     },
     "agent": {
@@ -283,6 +385,105 @@
       },
       "actions_per_fix.median@1600x1000": {
         "value": 1
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 0
+      },
+      "layout_shift.per_minute@390x844": {
+        "value": 0.384
+      },
+      "reading_load.max@390x844": {
+        "value": 78
+      },
+      "reading_load.median@390x844": {
+        "value": 52
+      },
+      "cue_churn.changes@390x844": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@390x844": {
+        "value": 0
+      },
+      "contract.scroll@390x844": {
+        "value": 0
+      },
+      "contract.hidden@390x844": {
+        "value": 0
+      },
+      "contract.axe_serious@390x844": {
+        "value": 0
+      },
+      "contract.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "completion.miss@390x844": {
+        "value": 0
+      },
+      "completion.false@390x844": {
+        "value": 0
+      },
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 1
+      },
+      "screen_only.looks@390x844": {
+        "value": 7
+      },
+      "screen_only.steers@390x844": {
+        "value": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 1
+      },
+      "glance_cost.p95@390x844": {
+        "value": 3
+      },
+      "actions_per_fix.max@390x844": {
+        "value": 1
+      },
+      "actions_per_fix.median@390x844": {
+        "value": 1
+      },
+      "phone.sheet_diff@390x844": {
+        "value": 0
+      },
+      "phone.sheet_rail@390x844": {
+        "value": 0
+      },
+      "phone.graph@390x844": {
+        "value": 0
       }
     },
     "two": {
@@ -405,6 +606,96 @@
         "value": 0
       },
       "actions_per_fix.median@1600x1000": {
+        "value": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 0
+      },
+      "layout_shift.per_minute@390x844": {
+        "value": 4.829
+      },
+      "reading_load.max@390x844": {
+        "value": 126
+      },
+      "reading_load.median@390x844": {
+        "value": 89
+      },
+      "cue_churn.changes@390x844": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@390x844": {
+        "value": 0
+      },
+      "contract.scroll@390x844": {
+        "value": 0
+      },
+      "contract.hidden@390x844": {
+        "value": 0
+      },
+      "contract.axe_serious@390x844": {
+        "value": 0
+      },
+      "contract.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "completion.miss@390x844": {
+        "value": 0
+      },
+      "completion.false@390x844": {
+        "value": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 0
+      },
+      "screen_only.looks@390x844": {
+        "value": 4
+      },
+      "screen_only.steers@390x844": {
+        "value": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 1
+      },
+      "glance_cost.p95@390x844": {
+        "value": 1
+      },
+      "actions_per_fix.max@390x844": {
+        "value": 0
+      },
+      "actions_per_fix.median@390x844": {
+        "value": 0
+      },
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
         "value": 0
       }
     },
@@ -532,6 +823,96 @@
       },
       "actions_per_fix.median@1600x1000": {
         "value": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 1
+      },
+      "layout_shift.per_minute@390x844": {
+        "value": 1.698
+      },
+      "reading_load.max@390x844": {
+        "value": 105
+      },
+      "reading_load.median@390x844": {
+        "value": 105
+      },
+      "cue_churn.changes@390x844": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@390x844": {
+        "value": 0
+      },
+      "contract.scroll@390x844": {
+        "value": 0
+      },
+      "contract.hidden@390x844": {
+        "value": 0
+      },
+      "contract.axe_serious@390x844": {
+        "value": 0
+      },
+      "contract.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "completion.miss@390x844": {
+        "value": 0
+      },
+      "completion.false@390x844": {
+        "value": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 0
+      },
+      "screen_only.looks@390x844": {
+        "value": 4
+      },
+      "screen_only.steers@390x844": {
+        "value": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 1
+      },
+      "glance_cost.p95@390x844": {
+        "value": 1
+      },
+      "actions_per_fix.max@390x844": {
+        "value": 0
+      },
+      "actions_per_fix.median@390x844": {
+        "value": 0
+      },
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
       }
     },
     "closed": {
@@ -649,6 +1030,96 @@
         "value": 0
       },
       "actions_per_fix.median@1600x1000": {
+        "value": 0
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 0
+      },
+      "layout_shift.per_minute@390x844": {
+        "value": 0
+      },
+      "reading_load.max@390x844": {
+        "value": 39
+      },
+      "reading_load.median@390x844": {
+        "value": 39
+      },
+      "cue_churn.changes@390x844": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@390x844": {
+        "value": 0
+      },
+      "contract.scroll@390x844": {
+        "value": 0
+      },
+      "contract.hidden@390x844": {
+        "value": 0
+      },
+      "contract.axe_serious@390x844": {
+        "value": 0
+      },
+      "contract.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "completion.miss@390x844": {
+        "value": 0
+      },
+      "completion.false@390x844": {
+        "value": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 0
+      },
+      "screen_only.looks@390x844": {
+        "value": 3
+      },
+      "screen_only.steers@390x844": {
+        "value": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 1.5
+      },
+      "glance_cost.p95@390x844": {
+        "value": 2
+      },
+      "actions_per_fix.max@390x844": {
+        "value": 0
+      },
+      "actions_per_fix.median@390x844": {
+        "value": 0
+      },
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
         "value": 0
       }
     },
@@ -776,6 +1247,99 @@
       },
       "actions_per_fix.median@1600x1000": {
         "value": 1
+      },
+      "screen_only.time_to_act_steps.max@390x844": {
+        "value": 0
+      },
+      "layout_shift.per_minute@390x844": {
+        "value": 0
+      },
+      "reading_load.max@390x844": {
+        "value": 95
+      },
+      "reading_load.median@390x844": {
+        "value": 95
+      },
+      "cue_churn.changes@390x844": {
+        "value": 0
+      },
+      "cue_churn.flip_flops@390x844": {
+        "value": 0
+      },
+      "contract.scroll@390x844": {
+        "value": 0
+      },
+      "contract.hidden@390x844": {
+        "value": 0
+      },
+      "contract.axe_serious@390x844": {
+        "value": 0
+      },
+      "contract.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "completion.miss@390x844": {
+        "value": 0
+      },
+      "completion.false@390x844": {
+        "value": 0
+      },
+      "screen_only.actions@390x844": {
+        "value": 3
+      },
+      "screen_only.looks@390x844": {
+        "value": 12
+      },
+      "screen_only.steers@390x844": {
+        "value": 0
+      },
+      "glance_cost.median@390x844": {
+        "value": 1
+      },
+      "glance_cost.p95@390x844": {
+        "value": 3
+      },
+      "actions_per_fix.max@390x844": {
+        "value": 1
+      },
+      "actions_per_fix.median@390x844": {
+        "value": 1
+      },
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
+      },
+      "phone.sheet_diff@390x844": {
+        "value": 0
       }
     },
     "engine": {
@@ -789,6 +1353,126 @@
         "value": 0
       },
       "cue.inaccuracy_pct@1600x1000": {
+        "value": 0
+      }
+    },
+    "trial-2-train": {
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
+      },
+      "phone.sheet_drawer@390x844": {
+        "value": 0
+      },
+      "phone.graph@390x844": {
+        "value": 0
+      }
+    },
+    "trial-3-haiku": {
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
+      },
+      "phone.sheet_drawer@390x844": {
+        "value": 0
+      }
+    },
+    "trial-todo-1": {
+      "phone.hscroll_px@390x844": {
+        "value": 0
+      },
+      "phone.wide@390x844": {
+        "value": 0
+      },
+      "phone.small_targets@390x844": {
+        "value": 0
+      },
+      "phone.small_text@390x844": {
+        "value": 0
+      },
+      "phone.small_body_text@390x844": {
+        "value": 0
+      },
+      "phone.covered@390x844": {
+        "value": 0
+      },
+      "phone.truncated_hidden@390x844": {
+        "value": 0
+      },
+      "phone.scroll@390x844": {
+        "value": 0
+      },
+      "phone.hidden@390x844": {
+        "value": 0
+      },
+      "phone.kpi_reach@390x844": {
+        "value": 0
+      },
+      "phone.axe_serious@390x844": {
+        "value": 0
+      },
+      "phone.sheet_rail@390x844": {
+        "value": 0
+      },
+      "phone.graph@390x844": {
         "value": 0
       }
     }
