@@ -66,11 +66,11 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-question]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
     switches:
       SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-question
       SDC_LLM_NODES: questions.answer
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SCOPE_ANSWERS: '{"q2": "the billing clerk or the customer, before it is paid"}'
     expect:
       exit: 0
@@ -88,11 +88,11 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-question, driver/examples/sdc/fixtures/finding-intake-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
     switches:
       SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-question
       SDC_LLM_NODES: questions.answer
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SCOPE_ANSWERS: '{"q2": "the billing clerk or the customer, before it is paid"}'
       SCOPE_RESUME_FIRST: "1"
       NO_YQ_STEP: questions.check
@@ -142,11 +142,11 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: [driver/examples/sdc/fixtures/plan-stories.json]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
     switches:
       RUNS: "{scratch}/in-project/runs"
       SDC_LLM_NODES: plan.decompose
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SDC_FIXTURE_STUB: '{"plan.decompose":["plan-stories.json","stories.json"]}'
     setup:
       - {mkdir: ["{scratch}/in-project/.engineering", "{scratch}/in-project/runs"]}
@@ -240,11 +240,11 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: [driver/examples/sdc/fixtures/finding-spec-rounds.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
     switches:
       SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-rounds.yaml
       SDC_LLM_NODES: spec.author
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
     expect:
       exit: 0
       pass_line: "the writer's own default re-derived without an LLM call; spec.author 2 runs, 1 call"
@@ -329,14 +329,14 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: []
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         rounds:
           - {decision: rejected, summary: "fixture: the README does not say how to run it", findings: [{kind: violation, at: "impl/README.md:1", violates: r1, says: "fixture: the README names no command to run the service"}]}
           - {decision: approved, summary: "fixture: the rework addresses the finding", findings: []}
     switches:
       SDC_LLM_NODES: change.review
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SDC_REVIEW_REPLIES: "{rounds: [<rejected>, <approved>]}"
     expect:
       exit: 0
@@ -356,11 +356,11 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: []
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies: "as review-reject-once: rounds [rejected, approved]"
     switches:
       SDC_LLM_NODES: change.review
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SDC_REVIEW_MODE: facts
       SDC_REVIEW_REPLIES: "{rounds: [<rejected>, <approved>]}"
     expect:
@@ -381,13 +381,13 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: []
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         rounds:
           - {decision: rejected, summary: fixture, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "fixture: a line that does not exist"}]}
     switches:
       SDC_LLM_NODES: change.review
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SDC_REVIEW_REPLIES: "{rounds: [<invalid rejection>]}"
     expect:
       exit: 1
@@ -405,13 +405,13 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: []
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         rounds:
           - {decision: rejected, summary: "fixture: the README does not say how to run it", findings: [{kind: violation, at: "impl/README.md:1", violates: r1, says: "fixture: the README names no command to run the service"}]}
     switches:
       SDC_LLM_NODES: change.review
-      SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
       SDC_REVIEW_REPLIES: "{rounds: [<rejected>]}"
     expect:
       exit: 1
@@ -428,11 +428,11 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-two]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         scope.answer: {decision: escalate, answer: null, best: null, cites: [q2, q3, questions.settled], reasons: ["Questions q2 and q3 are scope-changing and still open.", "The claim questions.settled is false at the current revision."]}
         q3: {decision: approve, answer: "the billing clerk who issued it, as a copy", best: null, cites: [d5, d2], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
     expect:
       exit: 0
       pass_line: "q2 default, q3 free answer, both decider:model; class scope_changing_answer; questions.settled marked"
@@ -455,11 +455,11 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-two]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         scope.answer: {decision: escalate, answer: null, best: null, cites: [q2, q3, questions.settled], reasons: ["Questions q2 and q3 are scope-changing and still open."]}
         q3: {decision: approve, answer: "the billing clerk who issued it, as a copy", best: null, cites: [d5, d2], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_MODEL_DECIDER: claude-opus-5-5, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_MODEL_DECIDER: claude-opus-5-5, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
     expect:
       exit: 0
       pass_line: "SDC_DECIDER=haiku runs as decider:model (claude-opus-5-5): start line, run-settings, decisions, answers, log"
@@ -479,11 +479,11 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-two]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         scope.answer: {decision: escalate, answer: null, best: null, cites: [], reasons: ["The claim questions.settled is false."]}
         q3: {decision: escalate, answer: null, best: null, cites: [d5], reasons: ["Who else is emailed adds a kind of recipient the idea does not name."]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_ESCALATE: final, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_ESCALATE: final, SDC_DECIDER_REPLIES: "{stub.replies}"}
     expect:
       exit: 0
       pass_line: "q3 escalated, suppressed, its default taken"
@@ -503,10 +503,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/finding-spec-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         f1: {decision: approve, answer: "the customer and the billing clerk", best: null, cites: [r2], reasons: ["The clerk who issues an invoice is the one asked about it, so the clerk gets the email too."]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_DECIDER_REPLIES: "{stub.replies}"}
     expect:
       exit: 0
       pass_line: "f1 option 2 by decider:model, amended, class finding"
@@ -526,10 +526,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/finding-spec-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         f1: {decision: escalate, answer: null, best: null, cites: [r2], reasons: ["Who else is emailed is the requester's call."]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_DECIDER_ESCALATE: final, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_DECIDER_ESCALATE: final, SDC_DECIDER_REPLIES: "{stub.replies}"}
     expect:
       exit: 0
       pass_line: "f1 escalated, suppressed, its default taken"
@@ -549,8 +549,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/offline-decision]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
     arguments: [--autopilot]
     expect:
       exit: 3
@@ -568,7 +568,7 @@ cycles:
     state: expected
     protocol: sdc
     driver: trial
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: person, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: person, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off"}
     expect:
       exit: 3
       pass_line: "record written, events untouched, resume refused, L7 to the stop, reopen renames and goes on"
@@ -597,8 +597,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-two, driver/examples/sdc/fixtures/finding-spec-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -619,10 +619,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/trace-gap-drop]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         p-trace-r3: {decision: approve, answer: "specify r3 in the spec: name in spec/traces.json the commands or views that deliver it", reasons: ["fixture: the writer can name the views that deliver r3"], cites: [r3], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-gap-drop, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-gap-drop, SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 7
@@ -640,8 +640,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-two]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_MAX_DECIDER_CALLS: "1"}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_MAX_DECIDER_CALLS: "1"}
     arguments: [--autopilot]
     expect:
       exit: nonzero
@@ -655,7 +655,7 @@ cycles:
     state: expected
     protocol: sdc
     driver: trial
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: person, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: person, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off"}
     arguments: [--autopilot]
     expect:
       exit: 64
@@ -670,8 +670,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/offline-decision]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
     arguments: [--autopilot]
     expect:
       exit: 7
@@ -694,10 +694,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve: {decision: approve, answer: null, reasons: ["fixture: the context fits"], cites: ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -714,12 +714,12 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve:
           - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
           - {decision: approve, answer: null, reasons: ["fixture: the context fits"], cites: ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -738,13 +738,13 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve:
           - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
           - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
           - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -763,13 +763,13 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/scope-two]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         q2:
           - {decision: approve, answer: fixture, reasons: ["fixture: cites what is not there"], cites: [context.idea_excerpt], best: null}
           - {decision: approve, answer: fixture, reasons: ["fixture: cites what is not there"], cites: [context.idea_excerpt], best: null}
           - {decision: approve, answer: fixture, reasons: ["fixture: cites what is not there"], cites: [context.idea_excerpt], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -788,12 +788,12 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve:
           - {decision: escalate, answer: null, reasons: ["fixture: a person should say"], cites: [context.kind], best: null}
           - {decision: approve, answer: null, reasons: ["fixture: the context fits"], cites: ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -812,10 +812,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 6
@@ -839,10 +839,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 6
@@ -867,10 +867,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_LLM_NODES: context.default, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_LLM_NODES: context.default, SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 4
@@ -890,13 +890,13 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve:
           rounds:
             - {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
             - {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -932,10 +932,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve: {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 6
@@ -957,10 +957,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve: {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_MAX_REJECTIONS: "1", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_MAX_REJECTIONS: "1", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 6
@@ -986,13 +986,13 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/rework-not-called, driver/examples/sdc/fixtures/finding-story-rework.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve:
           rounds:
             - {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
             - {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/rework-not-called, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-rework.yaml, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/rework-not-called, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-rework.yaml, SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1029,13 +1029,13 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve:
           rounds:
             - {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
             - {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1067,8 +1067,8 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: [driver/examples/sdc/fixtures/plan-two-stories.json, driver/examples/sdc/fixtures/finding-story-second.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {RUNS: "{scratch}/runs", SDC_LLM_NODES: plan.decompose, SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_FIXTURE_STUB: '{"plan.decompose":["plan-two-stories.json","stories.json"]}', SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-second.yaml}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {RUNS: "{scratch}/runs", SDC_LLM_NODES: plan.decompose, SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_FIXTURE_STUB: '{"plan.decompose":["plan-two-stories.json","stories.json"]}', SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-second.yaml}
     expect:
       exit: 3
       pass_line: "one story closed, stopped in its sibling; replay exit 0"
@@ -1102,8 +1102,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/cite-dark-spot, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-dark-spot, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-dark-spot, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1124,8 +1124,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/cite-fault, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml}
     arguments: [--autopilot]
     expect:
       exit: 4
@@ -1150,10 +1150,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         close: {decision: reject, answer: null, reasons: ["fixture: the close is refused"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1174,10 +1174,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         close: {decision: reject, answer: null, reasons: ["fixture: the close is refused"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_AUTONOMY: A3, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_AUTONOMY: A3, SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: []
     expect:
       exit: 6
@@ -1197,10 +1197,10 @@ cycles:
     protocol: sdc
     driver: trial
     stub:
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         close: {decision: reject, answer: null, reasons: ["fixture: the close is refused"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_CONFORMANCE: observe, SDC_CONFORM_BIN: "{scratch}/conform-stub", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_CONFORMANCE: observe, SDC_CONFORM_BIN: "{scratch}/conform-stub", SDC_DECIDER_REPLIES: "{stub.replies}"}
     arguments: [--autopilot]
     setup:
       - {write_executable: {path: "{scratch}/conform-stub", content: "#!/usr/bin/env bash\necho \"$@\" > \"$2/conform-called\"\n"}}
@@ -1219,8 +1219,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on"}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1242,8 +1242,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", DRIVE: driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh, TAMPER_REAL: driver/target/debug/sdc-drive, TAMPER_MODE: result}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", DRIVE: driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh, TAMPER_REAL: driver/target/debug/sdc-drive, TAMPER_MODE: result}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1263,8 +1263,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", DRIVE: driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh, TAMPER_REAL: driver/target/debug/sdc-drive, TAMPER_MODE: revision}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", DRIVE: driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh, TAMPER_REAL: driver/target/debug/sdc-drive, TAMPER_MODE: revision}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1284,8 +1284,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off"}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1304,8 +1304,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", SDC_AUTONOMY: A3}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", SDC_AUTONOMY: A3}
     arguments: []
     expect:
       exit: 0
@@ -1341,11 +1341,11 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going, driver/examples/sdc/fixtures/finding-spec-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         f1: {decision: approve, answer: "the customer and the billing clerk", best: null, cites: [r2], reasons: ["fixture: the clerk gets the email too"]}
         merge.approve: {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot, --keep-going]
     expect:
       exit: 0
@@ -1375,9 +1375,9 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going, driver/examples/sdc/fixtures/finding-spec-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies: "as keep-going-three"
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<as keep-going-three>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<as keep-going-three>"}
     arguments: [--autopilot]
     expect:
       exit: 4
@@ -1395,8 +1395,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/offline-decision]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
     arguments: [--autopilot, --keep-going]
     expect:
       exit: 7
@@ -1419,11 +1419,11 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve: {decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}
         unstick: {rework_spent: {move: "end:dropped", defect_class: decider_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: end:dropped"]}}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_DECIDER_REPLIES: "<stub.replies.merge.approve as JSON under key merge.approve>", SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_DECIDER_REPLIES: "<stub.replies.merge.approve as JSON under key merge.approve>", SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1454,10 +1454,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         unstick: {writer_spent: {move: "rerun:requirements.normalise", defect_class: writer_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: rerun:requirements.normalise"]}}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1482,10 +1482,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/cite-fault, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         unstick: {"*": {move: "approve:nothing", defect_class: other, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: approve:nothing"]}}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 4
@@ -1508,10 +1508,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/cite-fault, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         unstick: {"*": {move: "rerun:requirements.normalise", defect_class: writer_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: rerun:requirements.normalise"]}}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 4
@@ -1533,10 +1533,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         unstick: {writer_spent: {move: "rerun:requirements.normalise", defect_class: writer_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: rerun:requirements.normalise"]}}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 4
@@ -1557,10 +1557,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/finding-spec-person.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         f1: {decision: approve, answer: "the customer and the billing clerk", best: null, cites: [r2], reasons: ["fixture: the clerk gets the email too"]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 7
@@ -1584,10 +1584,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         release.publish: {decision: reject, answer: null, reasons: ["fixture: the release notes name no version"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_AUTONOMY: A3, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_AUTONOMY: A3, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: []
     expect:
       exit: 6
@@ -1609,10 +1609,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         release.publish: {decision: reject, answer: null, reasons: ["fixture: the release notes name no version"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1638,8 +1638,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/trial-2, driver/examples/sdc/fixtures/trial-2/requester-replies.json, decision/examples/goals/trial-2.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_REQUESTER_DECIDER: haiku, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trial-2, SDC_AUTONOMY: A3, SDC_REQUESTER_REPLIES: driver/examples/sdc/fixtures/trial-2/requester-replies.json}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_REQUESTER_DECIDER: haiku, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trial-2, SDC_AUTONOMY: A3, SDC_REQUESTER_REPLIES: driver/examples/sdc/fixtures/trial-2/requester-replies.json}
     arguments: [--goals, decision/examples/goals/trial-2.yaml]
     expect:
       exit: 0
@@ -1661,9 +1661,9 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/trial-2, driver/examples/sdc/fixtures/trial-2/requester-replies.json, decision/examples/goals/trial-2.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies: "requester-replies.json with q3 replaced by {option: null, answer: null, reasons: [fixture: no entry covers sign-in], grounds: [], strength: weak, no_ground_in_goals: true}"
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_REQUESTER_DECIDER: haiku, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trial-2, SDC_REQUESTER_REPLIES: "<requester-replies.json with q3 replaced, as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_REQUESTER_DECIDER: haiku, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trial-2, SDC_REQUESTER_REPLIES: "<requester-replies.json with q3 replaced, as JSON>"}
     arguments: [--autopilot, --goals, decision/examples/goals/trial-2.yaml]
     expect:
       exit: 0
@@ -1703,7 +1703,7 @@ cycles:
       - {name: models-all, switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_MODEL: model-all}}
       - {name: models-class, switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_MODEL: model-all, SDC_LLM_MODEL_WRITER: model-writer, SDC_LLM_MODEL_IMPLEMENT: model-implement, SDC_LLM_MODEL_REVIEW: model-review, SDC_LLM_MODEL_DECIDER: model-decider, SDC_LLM_MODEL_OTHER: model-other}}
     stub:
-      fixtures: [driver/examples/sdc/tools/node-classes.json]
+      fixtures: [bindings/tools/node-classes.json]
     switches: {}
     arguments: [--dry]
     expect:
@@ -1724,12 +1724,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/scope-two]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         q2:
           - {decision: reject, answer: null, reasons: ["fixture: neither option fits"], cites: [d4], best: null}
           - {decision: approve, answer: "the billing clerk, before it is paid", reasons: ["fixture: the idea names only the clerk"], cites: [d4], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1749,10 +1749,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/rework-allowance]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve: {rounds: [{decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}, {decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}, {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/rework-allowance, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/rework-allowance, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1790,8 +1790,8 @@ cycles:
     driver: full-cycle
     stub:
       fixtures: [driver/examples/sdc/fixtures/spec-interp-unsupported, driver/examples/sdc/fixtures/billing-spec]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {RUNS: "{scratch}/runs", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/spec-interp-unsupported, SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_LLM_NODES: spec.author}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {RUNS: "{scratch}/runs", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/spec-interp-unsupported, SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_LLM_NODES: spec.author}
     arguments: []
     expect:
       exit: 0
@@ -1812,10 +1812,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/scope-unattributed]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         scope.answer: {decision: reject, answer: null, reasons: ["fixture: the answers were given by nobody who may give them"], cites: [d4], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-unattributed, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-unattributed, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1834,8 +1834,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/offline-decision]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
     arguments: [--autopilot]
     expect:
       exit: 7
@@ -1853,10 +1853,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         merge.approve: {decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1877,10 +1877,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1899,10 +1899,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         review: {rounds: [{decision: rejected, summary: fixture, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "fixture: a line that does not exist"}]}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, SDC_REVIEW_REPLIES: "<stub.replies.review as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, SDC_REVIEW_REPLIES: "<stub.replies.review as JSON>"}
     arguments: [--autopilot]
     expect:
       exit_not: 0
@@ -1920,8 +1920,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/own-error]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/own-error, SDC_LLM_NODES: questions.answer}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/own-error, SDC_LLM_NODES: questions.answer}
     arguments: [--autopilot]
     expect:
       pass_line: "the refused apply's log fed back to the next run as in/feedback.md"
@@ -1935,8 +1935,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/implement-percause]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/implement-percause}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/implement-percause}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1952,8 +1952,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/test-failure]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/test-failure}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/test-failure}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1967,8 +1967,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -1990,8 +1990,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl, driver/examples/sdc/fixtures/test-failure]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/test-failure}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/test-failure}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2010,7 +2010,7 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_REVIEW_REPLIES:
           rounds:
@@ -2020,7 +2020,7 @@ cycles:
           rounds:
             - stub
             - {files: [{path: README.md, content: "# billing\n\nRun the service: cargo run -- 8080 billing.json\nRun the tests: task check\n"}], note: "1. README.md:3 names the command that runs it", findings: [], remaining: []}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: "change.implement change.review"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: "change.implement change.review"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2040,12 +2040,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_IMPLEMENT_REPLIES:
           rounds:
             - [{files: [], note: "", findings: [], remaining: []}, stub]
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2062,12 +2062,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_IMPLEMENT_REPLIES:
           rounds:
             - [{files: [{path: src/lib.rs}], note: x, findings: [], remaining: []}]
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit_not: 0
@@ -2086,12 +2086,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_IMPLEMENT_REPLIES:
           rounds:
             - [{files: [{path: ../escape.rs, content: "fn main() {}\n"}], note: "", findings: [], remaining: []}, stub]
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2109,12 +2109,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_COVERAGE_REPLIES:
           rounds:
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: "change.implement change.review"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: "change.implement change.review"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2137,13 +2137,13 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_COVERAGE_REPLIES:
           rounds:
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: not_built, reason: "fixture: the email is not sent yet"}]}
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2167,13 +2167,13 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_COVERAGE_REPLIES:
           rounds:
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 999}], test: send_email}]}
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2192,13 +2192,13 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_COVERAGE_REPLIES:
           rounds:
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: email_is_sent}]}
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2217,12 +2217,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_COVERAGE_REPLIES:
           rounds:
             - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: not_built, reason: "fixture: the email is not sent yet"}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit_not: 0
@@ -2242,13 +2242,13 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_COVERAGE_REPLIES:
           rounds:
             - - {requirements: [{id: r1, status: built, at: [], test: create_invoice}, {id: r2, status: not_built, reason: x}]}
               - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2269,8 +2269,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, FAKE_MODEL_LOG: "{scratch}/review-real-path.model.jsonl"}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, FAKE_MODEL_LOG: "{scratch}/review-real-path.model.jsonl"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2296,8 +2296,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_MODE: facts, FAKE_MODEL_LOG: "{scratch}/review-real-path-facts.model.jsonl"}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_MODE: facts, FAKE_MODEL_LOG: "{scratch}/review-real-path-facts.model.jsonl"}
     arguments: [--autopilot]
     expect:
       exit: 0
@@ -2323,10 +2323,10 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         FAKE_MODEL_REPLY: {decision: rejected, summary: fake, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "a line that does not exist"}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, FAKE_MODEL_REPLY: "<the reply above as JSON>"}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, FAKE_MODEL_REPLY: "<the reply above as JSON>"}
     arguments: [--autopilot]
     expect:
       exit_not: 0
@@ -2348,8 +2348,8 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_ADAPTER: metaharness, FAKE_MODEL_LOG: "{scratch}/review-adapter-refused.model.jsonl"}
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_ADAPTER: metaharness, FAKE_MODEL_LOG: "{scratch}/review-adapter-refused.model.jsonl"}
     arguments: [--autopilot]
     expect:
       exit: 64
@@ -2364,7 +2364,7 @@ cycles:
     protocol: sdc
     driver: other
     stub:
-      fixtures: [driver/examples/sdc/tools/node-classes.json]
+      fixtures: [bindings/tools/node-classes.json]
     switches:
       efforts-default: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku}
       efforts-all: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_EFFORT: low}
@@ -2391,12 +2391,12 @@ cycles:
     driver: trial
     stub:
       fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
-      adapter: driver/examples/sdc/tools/llm-adapter-fixture.sh
+      adapter: bindings/tools/llm-adapter-fixture.sh
       replies:
         SDC_REVIEW_REPLIES:
           rounds:
             - {decision: rejected, summary: fake, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "a line that does not exist"}]}
-    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_ADAPTER: driver/examples/sdc/tools/llm-adapter-fixture.sh}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_ADAPTER: bindings/tools/llm-adapter-fixture.sh}
     arguments: [--autopilot]
     expect:
       checks:
@@ -2706,7 +2706,7 @@ cycles:
     driver: redrive
     stub:
       fixtures: [driver/examples/sdc/fixtures/recorded/stub]
-      adapter: driver/examples/sdc/tools/llm-adapter-dry.sh
+      adapter: bindings/tools/llm-adapter-dry.sh
     switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
     arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --inject, "reject@merge.approve#1", --on-divergence, live, --live-adapter, dry, --live-cap, "1"]
     expect:
