@@ -15,6 +15,11 @@
 # (`prior_rejections`), each round a reply or a list by attempt. The response names the model the
 # request named.
 #
+# change.review gets a scripted reply in out/review.json: SDC_REVIEW_REPLIES, `{"rounds": [...]}`
+# taken by the number of the case's earlier rejected reviews (sdc-reply rejections), the last round
+# after that, each round a reply or a list by the request's `review_attempt`; without one, approved
+# with no finding.
+#
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
 for p in jq; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-fixture.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
@@ -39,6 +44,16 @@ if [[ $node == decide.* ]]; then
         then (capture("^(?<a>[a-z_]+)@\\{rev\\}(?<rest>.*)$") | "\(.a)@\($rev[.a] // "none")\(.rest)") else . end) else . end' \
     "$cwd/out/decision.json" > "$cwd/out/decision.json.tmp" 2>/dev/null && mv "$cwd/out/decision.json.tmp" "$cwd/out/decision.json"
   rm -f "$cwd/out/decision.json.tmp"
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
+if [[ $node == change.review ]]; then
+  mkdir -p "$cwd/out"
+  p=$("${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" rejections --case-dir "$(jq -r .case_dir "$1")" --action change.review | jq length)
+  jq -n --argjson r "${SDC_REVIEW_REPLIES:-"{}"}" --argjson p "${p:-0}" --argjson n "$(jq '.review_attempt // 1' "$1")" '
+    ($r.rounds // [] | .[$p] // last) | if type == "array" then (.[$n - 1] // last) else . end
+    // {decision: "approved", summary: "fixture review: approved", findings: []}' > "$cwd/out/review.json" || exit 1
   jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
     cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
   exit 0

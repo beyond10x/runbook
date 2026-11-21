@@ -35,6 +35,10 @@
 #   trace-gap       a requirement traced to a domain with no command: finding, writer sent back, traced
 #   trace-gap-drop  the writer never specifies it: a scope decision (the person drops it)
 #   trace-constraint a requirement marked a constraint with its reason passes and is counted
+#   review-reject-once change.review (fixture adapter) rejects once with a cited finding: the
+#                   implementer reworks with in/rejection.json, the second review approves
+#   review-invalid  a rejection whose finding cites no line of the change: refused, never recorded
+#   review-spent    every review rejects: `writer_spent` on change.implement, sent back by change.review
 # and, through scripts/run-trial.sh with SDC_DECIDER=haiku on the fixture adapter (no LLM):
 #   decider-scope-answer the decider answers two open scope-changing questions one by one
 #                   (default, free answer) and takes scope.answer; the run closes
@@ -75,7 +79,8 @@ kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
 expected=(stub-cycle finding-agent finding-person-stop finding-person scope-answer finding-program
   scope-changed intake-decision offline-sync offline-decision plan-in-project story-decision story-spent
-  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint decider-scope-answer decider-scope-final decider-finding decider-finding-final
+  story-late-person spec-duplicate spec-own-default trace-gap trace-gap-drop trace-constraint
+  review-reject-once review-invalid review-spent decider-scope-answer decider-scope-final decider-finding decider-finding-final
   decider-finding-refused run-stop run-stop-decider autopilot autopilot-person autopilot-stop
   decider-cite-address decider-cite-retry decider-invalid-approval decider-invalid-scope
   decider-escalate-nobest decider-release-a3 principals models)
@@ -324,6 +329,67 @@ if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work
   echo "trace-constraint: checks pass (r3 a constraint with its reason: passes, counted)"
 else
   echo "trace-constraint: FAILED (cycle exit $code, or the constraint was not counted)"
+fi
+
+# change.review as a model call (story:review-node-is-a-model): the review goes through llm-node.sh
+# on the fixture adapter (scripted replies, SDC_REVIEW_REPLIES, no LLM) and the program check
+# (sdc-reply check-review); every other node runs its stub.
+# reviews <cycle>: the story case's code_review records, oldest first, as {result, producer, log}.
+reviews() { local d=$s/store-$1/${story%/events.jsonl}
+  for e in "$d"/evidence/*.json; do jq -c --slurpfile ev <(jq -c 'select(.event == "action_finished")' "$d/events.jsonl") '
+    select(.kind == "code_review") | .id as $id | {result, producer,
+      log: ([$ev[] | select(.evidence | index($id)) | .log] | first)}' "$e"; done | jq -s .; }
+review_env=(SDC_LLM_NODES=change.review SDC_LLM_ADAPTER="$sdc/driver/examples/sdc/tools/llm-adapter-fixture.sh")
+rej='{"decision": "rejected", "summary": "fixture: the README does not say how to run it", "findings": [{"kind": "violation", "at": "impl/README.md:1", "violates": "r1", "says": "fixture: the README names no command to run the service"}]}'
+app='{"decision": "approved", "summary": "fixture: the rework addresses the finding", "findings": []}'
+# review-reject-once: rejected once with a finding citing impl/README.md:1 and r1, then approved.
+# Passes when the cycle ends operating with two code_review records by llm-review, rejected then
+# approved, the rejection's log an sdc.rejection/1 citing that line and r1, and change.implement
+# run twice, the second time sent back by the review with the rejection (the stub's impl/.rework).
+cycle review-reject-once "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{rounds: [$j, $a]}')"
+code=$?
+d=$s/store-review-reject-once/${story%/events.jsonl}
+rv=$(reviews review-reject-once)
+lg=$(jq -r '.[0].log // ""' <<< "$rv")
+if (( code == 0 )) && jq -e '[.[] | .result] == ["rejected", "approved"] and all(.producer == "llm-review")' <<< "$rv" >/dev/null &&
+   jq -e '.format == "sdc.rejection/1" and .approval == "change.review" and (.principal | startswith("llm-review:"))
+     and .citations == [{"at": "impl/README.md:1", "violates": "r1", "kind": "violation", "in_diff": true}] and .count == 1' "$d/blobs/$lg" >/dev/null &&
+   jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] | length == 2' "$d/events.jsonl" >/dev/null &&
+   jq -se '[.[] | select(.event == "action_started" and .action == "change.implement")] | last | .retry_of == ["code_review"]' "$d/events.jsonl" >/dev/null &&
+   grep -q 'impl/README.md:1' "$d/work/impl/.rework"; then
+  echo "review-reject-once: checks pass (rejected with a cited finding, reworked with the rejection, approved, both by llm-review)"
+else
+  echo "review-reject-once: FAILED (cycle exit $code: $(jq -c 'map({result, producer})' <<< "$rv" 2>/dev/null))"
+fi
+# review-invalid: every reply rejects with a finding at a line the README does not have. Passes when
+# the reply was asked again twice with the check's reason (SDC_REVIEW_RETRIES), the one change.review
+# run exits 2 and records nothing (an observation runs once per case snapshot), the run ends stuck
+# (exit 1), and the check's reason names the line: never an approval, never a reasonless rejection.
+bad='{"decision": "rejected", "summary": "fixture", "findings": [{"kind": "violation", "at": "impl/README.md:9999", "violates": "r1", "says": "fixture: a line that does not exist"}]}'
+cycle review-invalid "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$bad" '{rounds: [$j]}')"
+code=$?
+d=$s/store-review-invalid/${story%/events.jsonl}
+rr=$(ls -d "$s"/store-review-invalid/IDEA-1/work/.sdc/llm/*-change.review 2>/dev/null | tail -n 1)
+if (( code == 1 )) && jq -e 'length == 0' <<< "$(reviews review-invalid)" >/dev/null &&
+   jq -se '[.[] | select(.event == "action_finished" and .action == "change.review") | .exit] == ["2"]' "$d/events.jsonl" >/dev/null &&
+   [[ -f $rr/reply.try2.json ]] && grep -q 'refused by the program check: invalid review reply' "$rr/prompt.md" &&
+   grep -q 'lines 9999-9999 outside impl/README.md' "$rr/review-check.err"; then
+  echo "review-invalid: checks pass (a rejection citing no line of the change: refused, nothing recorded, never approved)"
+else
+  echo "review-invalid: FAILED (cycle exit $code, or a review was recorded)"
+fi
+# review-spent: every review rejects with the valid finding. Passes when the run ends writer_spent on
+# change.implement with 3 runs, each sent back by change.review (exit 1), three rejected records.
+cycle review-spent "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" '{rounds: [$j]}')"
+code=$?
+if (( code == 1 )) && jq -se '(map(select(.event | test("^(stuck|awaiting_person|writer_spent)$"))) | last)
+     | .event == "writer_spent" and .spent[0].action == "change.implement" and .spent[0].runs == 3
+       and ([.spent[0].sent_back[].by] == ["change.review", "change.review", "change.review"])' \
+     "$s/store-review-spent/$story" >/dev/null &&
+   jq -e '[.[] | .result] == ["rejected", "rejected", "rejected"]' <<< "$(reviews review-spent)" >/dev/null; then
+  echo "review-spent: checks pass (three rejections: writer_spent on change.implement, sent back by change.review)"
+else
+  echo "review-spent: FAILED (cycle exit $code, or the stop is not writer_spent sent back by change.review)"
 fi
 
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=haiku, every node on its stub and the
@@ -779,7 +845,7 @@ echo "models: dry exits $c1 $c2 $c3"
 if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
    expect models-binding "$binding[.node]" claude-haiku-5-5 &&
    expect models-all '"model-all"' claude-haiku-5-5 &&
-   expect models-class '{writer: "model-writer", implement: "model-implement", other: "model-other"}[.class]' model-decider &&
+   expect models-class '{writer: "model-writer", implement: "model-implement", review: "model-review", other: "model-other"}[.class]' model-decider &&
    jq -se 'last.models | .writer.model == "model-writer" and .implement.model == "model-implement" and .review.model == "model-review"
      and .decider.model == "model-decider" and .other.model == "model-other" and .writer.source == "SDC_LLM_MODEL_WRITER"' "$s/runs/models-class/run-settings.jsonl" >/dev/null &&
    jq -se 'last.models | .writer.source == "binding" and .writer.nodes["spec.author"] == "claude-haiku-5-5" and .decider.model == "claude-haiku-5-5"' "$s/runs/models-binding/run-settings.jsonl" >/dev/null; then
