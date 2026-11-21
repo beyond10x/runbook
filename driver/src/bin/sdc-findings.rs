@@ -30,6 +30,8 @@
 //! applied (nothing records a person who did not act). A decider sets `decision` and `decided_by: decider:<kind>`; its
 //! amendment is checked as the agent's are, and a refused one is reverted, taken off the finding
 //! and kept as `refused_decision` {decision, decided_by, why}, so the finding waits for a person.
+//! A contradiction's decision supersedes each cited answer it differs from (D141): the question gets
+//! `status: superseded` and `superseded_by`, and a requirement citing it is a citation fault.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -206,6 +208,14 @@ impl Work {
     fn question(&self, id: &str) -> Option<&Value> {
         seq(&self.qs, "questions")
             .iter()
+            .find(|q| st(q, "id") == id)
+    }
+
+    fn question_mut(&mut self, id: &str) -> Option<&mut Value> {
+        self.qs
+            .get_mut("questions")?
+            .as_sequence_mut()?
+            .iter_mut()
             .find(|q| st(q, "id") == id)
     }
 
@@ -575,6 +585,12 @@ fn blocking(w: &Work, stage: &str) -> R<Vec<String>> {
             }
         }
     }
+    // D141: a requirement citing a superseded answer blocks every stage, whoever wrote the cite.
+    for r in seq(&w.req, "requirements") {
+        if let Some(why) = superseded_cite(w, r) {
+            out.push(format!("{} (citation): {why}", st(r, "id")));
+        }
+    }
     for fid in strs(&w.req, "open_findings") {
         let closed = matches!(
             status(&fid).as_deref(),
@@ -921,6 +937,36 @@ fn amend_one(
         .unwrap()
         .push(Value::Mapping(q));
     let mut amended = vec![qid.clone()];
+    // D141: a contradiction's decision replaces each cited answer it differs from. That answer is
+    // superseded; each requirement citing it drops the cite and the sentence the answer wrote
+    // ("Decision qX: <answer>.") and cites the new decision instead (below, `carry`).
+    let mut carry: Vec<String> = vec![];
+    if st(f, "type") == "contradiction" {
+        for c in strs(f, "cites") {
+            let Some(q) = w.question_mut(&c) else { continue };
+            let answer = scalar(q.get("answer").unwrap_or(&Value::Null));
+            if !matches!(st(q, "status"), "accepted" | "changed") || answer == decision {
+                continue;
+            }
+            q["status"] = s("superseded");
+            q["superseded_by"] = s(&qid);
+            amended.push(c.clone());
+            let sentence = re(&format!(r"\s*Decision {}: {}\.", regex::escape(&c), regex::escape(&answer)))?;
+            for r in w.req.get_mut("requirements").and_then(Value::as_sequence_mut).into_iter().flatten() {
+                if !strs(r, "cites").contains(&c) {
+                    continue;
+                }
+                if let Some(cs) = r["cites"].as_sequence_mut() {
+                    cs.retain(|x| scalar(x) != c);
+                }
+                r["text"] = s(sentence.replace_all(st(r, "text"), "").trim());
+                let rid = st(r, "id").to_string();
+                if !carry.contains(&rid) {
+                    carry.push(rid);
+                }
+            }
+        }
+    }
     let opts = strs(f, "options");
     let mut lose: Vec<String> = vec![];
     if let Some(rule) = w.rule(st(f, "rule")).cloned() {
@@ -956,7 +1002,8 @@ fn amend_one(
             }
         }
     }
-    let cites = strs(f, "cites");
+    let mut cites = strs(f, "cites");
+    cites.extend(carry.iter().filter(|r| !cites.contains(r)).cloned().collect::<Vec<_>>());
     for c in &cites {
         let Some(r) = w.req_mut(c) else { continue };
         if !r.get("cites").is_some_and(Value::is_sequence) {
@@ -993,8 +1040,12 @@ fn amend_one(
 /// Every cite is a fact or wish of the dissection, a question id, or an open item (belief,
 /// unknown, ambiguity, dark_spot: the items questions.check gives exactly one question each) that a
 /// cited question asks about (its `item`); at least one cite is a fact, a wish or a question, so an
-/// open item is never the only ground.
+/// open item is never the only ground. A question a later decision replaced (`status:
+/// superseded`, D141) is no ground: citing it is a fault.
 fn citation_fault(w: &Work, r: &Value) -> Option<String> {
+    if let Some(why) = superseded_cite(w, r) {
+        return Some(why);
+    }
     let cites = strs(r, "cites");
     let kind = |c: &str| seq(&w.diss, "items").iter().find(|i| st(i, "id") == c).map(|i| st(i, "type").to_string());
     let asked: BTreeSet<String> = cites.iter().filter_map(|c| w.question(c)).map(|q| st(q, "item").to_string()).collect();
@@ -1016,6 +1067,13 @@ fn citation_fault(w: &Work, r: &Value) -> Option<String> {
         }
     }
     None
+}
+
+/// D141: why `r` cites an answer a later decision superseded, or None.
+fn superseded_cite(w: &Work, r: &Value) -> Option<String> {
+    let q = strs(r, "cites").iter().filter_map(|c| w.question(c)).find(|q| st(q, "status") == "superseded")?;
+    let by = st(q, "superseded_by");
+    Some(format!("{} cites {}, an answer superseded by {by}: cite {by} instead", st(r, "id"), st(q, "id")))
 }
 
 /// `sdc-findings check-requirements`: the requirements' shape at write time (requirements.check):
@@ -1048,7 +1106,15 @@ fn verify(
 ) -> R<Option<String>> {
     // Only what the decision wrote can make it untakeable (D137, runs/trial-3-mixed-4): a citation
     // fault the requirement had before the amendment is the writer's, sent back by
-    // requirements.check; and the only question the amendment writes is its own.
+    // requirements.check; and the only question the amendment writes is its own. A cite of an
+    // answer this decision superseded (D141) is the decision's own fault, whatever came before.
+    for r in seq(&w.req, "requirements") {
+        if let Some(c) = strs(r, "cites").into_iter().find(|c| {
+            w.question(c).is_some_and(|q| st(q, "status") == "superseded" && st(q, "superseded_by") == new_q)
+        }) {
+            return Ok(Some(format!("{} cites {c}, an answer superseded by {new_q}", st(r, "id"))));
+        }
+    }
     for r in seq(&w.req, "requirements") {
         if let Some(why) = citation_fault(w, r).filter(|_| seq(before, "requirements").iter()
             .find(|b| st(b, "id") == st(r, "id")).is_none_or(|b| citation_fault(w, b).is_none())) {
@@ -1630,5 +1696,69 @@ mod tests {
         let ctx = w.ctx.clone();
         let q = amend_one(&mut w, &f, "a", "decider:haiku", "decided").unwrap()[0].clone();
         assert_eq!(verify(&before, &ctx, &BTreeSet::new(), &w, &f, "a", &q, true).unwrap(), None);
+    }
+
+    /// runs/trial-3-haiku-5: the spec stage's agent answered q10 "Postgres database for the list";
+    /// change.implement's contradiction f8 (cites q10 and r1) was answered "store the list in the
+    /// data file", and r1 kept citing both.
+    fn haiku5() -> (Work, Value) {
+        let mut w = work();
+        w.diss = serde_yaml::from_str("items:\n- {id: d1, type: wish}\n").unwrap();
+        w.qs = serde_yaml::from_str("questions:\n- {id: q10, item: f7, question: where is the list kept, options: [Postgres database for the list, hosted key-value store for the list], default: Postgres database for the list, scope_changing: false, status: accepted, answer: Postgres database for the list, answered_by: non-interactive}\n").unwrap();
+        w.req = serde_yaml::from_str("requirements:\n- id: r1\n  text: 'The app is a to-do list web app. Decision q10: Postgres database for the list.'\n  cites: [d1, q10]\n- id: r2\n  text: 'The list survives a restart. Decision q10: Postgres database for the list.'\n  cites: [d1, q10]\n").unwrap();
+        let f: Value = serde_yaml::from_str("id: f8\ntype: contradiction\nraised_by: llm:change.implement\ncites: [q10, r1]\nsays: q10 and r1 keep the list in Postgres, but the build has no Postgres client\noptions: [store the list in the data file (standard library only), implement the Postgres wire protocol by hand]\ndefault: store the list in the data file (standard library only)\nscope_changing: false\n").unwrap();
+        (w, f)
+    }
+
+    const DATA_FILE: &str = "store the list in the data file (standard library only)";
+
+    /// D141: a decision that replaces an earlier answer marks it superseded; every requirement that
+    /// cited it cites the new decision instead, and no sentence of the old answer is left.
+    #[test]
+    fn a_contradiction_decision_supersedes_the_answer_it_replaces() {
+        let (mut w, f) = haiku5();
+        let before = w.req.clone();
+        let ctx = w.ctx.clone();
+        let amended = amend_one(&mut w, &f, DATA_FILE, "agent", "changes no scope").unwrap();
+        let q10 = w.question("q10").unwrap();
+        assert_eq!(st(q10, "status"), "superseded");
+        assert_eq!(st(q10, "superseded_by"), "q11");
+        for (i, rid) in ["r1", "r2"].iter().enumerate() {
+            let r = &w.req["requirements"][i];
+            assert_eq!(strs(r, "cites"), vec!["d1", "q11"], "{rid}: {r:?}");
+            let t = st(r, "text");
+            assert!(!t.contains("q10") && !t.contains("Postgres"), "{rid}: {t}");
+            assert_eq!(t.matches(&format!("Decision q11: {DATA_FILE}.")).count(), 1, "{rid}: {t}");
+            assert!(amended.contains(&rid.to_string()), "{amended:?}");
+        }
+        assert!(amended.contains(&"q10".to_string()), "{amended:?}");
+        assert_eq!(verify(&before, &ctx, &BTreeSet::new(), &w, &f, DATA_FILE, "q11", true).unwrap(), None);
+    }
+
+    /// A contradiction decided for the cited answer replaces nothing.
+    #[test]
+    fn a_decision_that_keeps_the_cited_answer_supersedes_nothing() {
+        let (mut w, mut f) = haiku5();
+        f["options"] = serde_yaml::from_str("[Postgres database for the list, store the list in the data file]").unwrap();
+        amend_one(&mut w, &f, "Postgres database for the list", "agent", "kept").unwrap();
+        assert_eq!(st(w.question("q10").unwrap(), "status"), "accepted");
+        assert_eq!(strs(&w.req["requirements"][0], "cites"), vec!["d1", "q10", "q11"]);
+    }
+
+    /// D141: a requirement citing a superseded answer is a citation fault, for requirements.check,
+    /// for every stage's finding gate, and for the amendment that left it.
+    #[test]
+    fn a_requirement_citing_a_superseded_answer_is_a_citation_fault() {
+        let (mut w, f) = haiku5();
+        let before = w.req.clone();
+        let ctx = w.ctx.clone();
+        amend_one(&mut w, &f, DATA_FILE, "agent", "changes no scope").unwrap();
+        w.req["requirements"][0]["cites"].as_sequence_mut().unwrap().push(s("q10"));
+        let why = citation_fault(&w, &w.req["requirements"][0]).expect("a fault");
+        assert!(why.contains("r1 cites q10, an answer superseded by q11"), "{why}");
+        assert_eq!(check_requirements(&w), 1);
+        assert!(blocking(&w, "story").unwrap().iter().any(|b| b.contains("superseded by q11")));
+        let v = verify(&before, &ctx, &BTreeSet::new(), &w, &f, DATA_FILE, "q11", true).unwrap();
+        assert!(v.is_some_and(|v| v.contains("superseded by q11")));
     }
 }

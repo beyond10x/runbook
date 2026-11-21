@@ -85,18 +85,25 @@ fi
 post() {
   local raised=$1
   [[ $raises == yes ]] || return 0
-  if [[ -z $raised && -n ${SDC_STUB_FINDINGS:-} && -f $SDC_STUB_FINDINGS ]] &&
-    [[ $(yq -r '.node' "$SDC_STUB_FINDINGS") == "$node" ]]; then
-    raised=$SDC_STUB_FINDINGS
+  # SDC_STUB_FINDINGS: one fixture, or several separated by ':' (one per node); the one whose
+  # `node` is this node raises.
+  local sf="" f
+  if [[ -z $raised && -n ${SDC_STUB_FINDINGS:-} ]]; then
+    for f in ${SDC_STUB_FINDINGS//:/ }; do
+      [[ -f $f && $(yq -r '.node' "$f") == "$node" ]] && { sf=$f; break; }
+    done
+  fi
+  if [[ -n $sf ]]; then
+    raised=$sf
     # A fixture with `rounds:` raises rounds[n] on the node's n-th applied run (0-based), then none.
-    if yq -e 'has("rounds")' "$SDC_STUB_FINDINGS" >/dev/null 2>&1; then
+    if yq -e 'has("rounds")' "$sf" >/dev/null 2>&1; then
       mkdir -p "$work/.sdc"
       local c=$work/.sdc/stub-round.$node n
       n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
       raised=
-      if (( n < $(yq '.rounds | length' "$SDC_STUB_FINDINGS") )); then
+      if (( n < $(yq '.rounds | length' "$sf") )); then
         raised=$work/.sdc/stub-findings.$node.yaml
-        N=$n yq '{"node": .node, "findings": .rounds[env(N)]}' "$SDC_STUB_FINDINGS" > "$raised"
+        N=$n yq '{"node": .node, "findings": .rounds[env(N)]}' "$sf" > "$raised"
       fi
     fi
   fi

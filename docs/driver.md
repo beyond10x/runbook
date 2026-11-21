@@ -419,6 +419,19 @@ Moved per approval action of the eight protocols: `release.publish` health.requi
 roadmap.required; `vision.approve` roadmap.required; `merge.approve` no obligation (claim
 change.merged); none for `roadmap.approve`, `scope.answer`, `release.rollback`.
 
+**What the decider reads** (2026-11-21, `runs/trial-3-haiku-5`'s close: rejected because the
+roadmap's aep front matter said `status: draft` beside `roadmap.approved` true, and because eight
+decisions were "answered by decider:haiku, not a person"). Tree inputs keep `Cargo.lock` (the copy
+dropped it, and the decider doubted the `--locked` build the checks had recorded). A `close` reads
+`published/README.md` and no `aep/` file: it judges the result, and the roadmap's approval is a claim
+in `in/checks.json`. A prompt with `aep/` inputs says that `status` and `revision` in their front
+matter belong to the planning tool and say nothing about approval. Under `SDC_DECIDER_ESCALATE=final`
+the prompt says that a decider takes every decision a person would take, so an answer by
+`decider:<kind>` is the product owner's own and never a reason to reject or escalate; and in place
+of "escalate to a person" it says that no person can be asked: write `escalate`, say in `reasons`
+what cannot be told, and give `best`. Cycle `decider-input` checks the records of the `autopilot`
+cycle.
+
 **Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
 decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
 question and finding ids, `context.<key>`, the claims in `in/checks.json`), artifact revisions with

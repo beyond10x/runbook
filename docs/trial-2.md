@@ -224,6 +224,15 @@ unchanged.
   time): every cite is a fact, a wish, a question, or an open item (belief, unknown, ambiguity,
   dark spot: the items that get exactly one question) beside a cited question that asks about it
   (the question's `item`); at least one cite is a fact, a wish or a question.
+- A decision that replaces an earlier answer marks it superseded (D141, the operator, 2026-11-21,
+  `runs/trial-3-haiku-5`: the spec agent's q10 "Postgres database for the list" and the build's
+  q12 "store the list in the data file" were both accepted and both cited by r1). `sdc-findings`
+  `amend_one`: each question a contradiction finding cites whose answer differs from the decision
+  gets `status: superseded` and `superseded_by: <new question>`; each requirement citing it drops
+  the cite and its sentence `Decision qX: <answer>.` and cites the new decision. A requirement
+  citing a superseded question is a citation fault (`citation_fault`, so `requirements.check`),
+  refuses the amendment that left it (`verify`) and blocks every stage's finding gate (`blocking`).
+  `superseded` is an answered status for `questions.check` and the KPIs.
 - Keyword rules see only what their patterns name; the LLM findings cover the rest, and those are
   only as good as the agent's attention.
 - An approved vision is not re-derived when a later stage amends the requirements
@@ -364,6 +373,7 @@ cycles are equal. `sdc-drive`'s digest is unchanged (`9c7ee798…`).
 | `trace-constraint` (`fixtures/trace-constraint`) | 0 | r3 `behaviour: constraint` with its reason: passes, counted ("1 constraint (r3)") |
 | `spec-own-default` (added 2026-11-21, `runs/trial-3-haiku-2`'s stop: `fixtures/finding-spec-rounds.yaml`, `spec.author` on `tools/llm-adapter-fixture.sh`) | 0 | a new agent finding on every LLM call: the amendment records the default the spec follows, no LLM re-derivation, `spec.author` 2 runs, 1 call. Before: exit 1, `writer_spent` after 4 runs and 4 calls |
 | `story-late-person` (added 2026-11-21, R8: `fixtures/finding-story-late-person.yaml`, `FINDING_DECISION=option:2`) | 0 | `change.implement`'s third run raises a scope-changing finding: `awaiting_person` (due `handoff_when`) rather than `writer_spent`, then a fresh allowance, `operating`. Before: exit 1, `stuck` after the person's decision |
+| `superseded-answer` (added 2026-11-21, D141, `runs/trial-3-haiku-5`: `SDC_STUB_FINDINGS=fixtures/finding-superseded-spec.yaml:fixtures/finding-superseded-story.yaml`) | 0 | `spec.author` raises a missing decision on r1, answered by the agent's default "Postgres" (q3); `change.implement` raises a contradiction citing q3 and r1, answered by the default "the data file" (q4): q3 `superseded` by q4, r1 cites q4 and not q3, its text names no Postgres; `operating`. Before: q3 and q4 both `accepted`, r1 cites both and states both |
 | `decider-scope-answer` (added 2026-11-21, `runs/trial-2b-fresh`'s first stop: `scripts/run-trial.sh` with `SDC_DECIDER=haiku` on `tools/llm-adapter-fixture.sh`, `fixtures/scope-two`) | 0 | two scope-changing questions open at `scope.answer`; each goes to the decider on its own (text, options, default, dissection item, idea excerpt; `questions.settled` marked `settled_by_this_decision`): q2 by its default (`accepted`), q3 a free answer (`changed`), both `answered_by: decider:haiku`, class `scope_changing_answer` in `decisions.jsonl`; `scope.answer` taken as `decider:haiku`; closed, replay 8 of 8. Before: exit 3, the decider escalated the approval of `scope.answer` reading `questions.settled` false as a failed check |
 | `decider-scope-final` (added 2026-11-21, as above, `SDC_DECIDER_ESCALATE=final`, the decider escalating q3) | 0 | q3 `escalation_suppressed`, its default taken. Before: exit 6 (the escalated approval had no `best`, counted as reject) |
 | `decider-finding` (added 2026-11-21, `story:decider-finding-decision`: `fixtures/finding-spec-person.yaml` under the decider) | 0 | f1 (scope-changing) goes to the decider as a finding request; it answers option 2; f1 resolved with `decided_by: decider:haiku`, the amendment's question `answered_by: decider:haiku`, class `finding` in `decisions.jsonl`; closed, replay 8 of 8. Before: exit 3, "nothing for decider:haiku at amend.upstream" |

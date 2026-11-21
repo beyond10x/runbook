@@ -291,11 +291,19 @@ input() {
   local p=$1
   [[ -e $work/$p ]] || return 0
   mkdir -p "$cwd/in/$(dirname "$p")"
-  rsync -a --exclude target --exclude .git --exclude '*.lock' "$work/$p" "$cwd/in/$(dirname "$p")/"
+  # Cargo.lock is kept: without it the decider doubts a `--locked` build the checks recorded
+  # (runs/trial-3-haiku-5 release.publish, runs/trial-3-mixed-3 merge.approve and release.publish).
+  rsync -a --exclude target --exclude .git --include Cargo.lock --exclude '*.lock' "$work/$p" "$cwd/in/$(dirname "$p")/"
   inputs+=("in/$p")
 }
 input idea.yaml; input dissection.yaml; input questions.yaml; input requirements.yaml; input context.yaml
-input aep/vision/product.md; input aep/initiative/roadmap.md; input aep/epic
+# A close judges the result, not the plan: the published README instead of aep/ (runs/trial-3-haiku-5:
+# the close read the roadmap's aep `status: draft` as a disagreement with roadmap.approved).
+if [[ $type == close ]]; then
+  input published/README.md
+else
+  input aep/vision/product.md; input aep/initiative/roadmap.md; input aep/epic
+fi
 story=$(cut -d. -f3 <<< "$(jq -r .id "$(r .case_dir)/case.json")")
 [[ -n $story ]] && input "aep/story/$story.md"
 path=$(r '.path // ""')
@@ -415,6 +423,8 @@ fi
 prompt=$rec/prompt.md
 {
   echo "You take one decision in a governed software delivery cycle in place of the product owner."
+  [[ $final == yes ]] &&
+    echo "In this run a decider takes every decision a person would take: an answer with \`answered_by: decider:<kind>\` is the product owner's own decision, as binding as a person's, and is never a reason to reject or escalate."
   echo "Work only in the current directory. Read the inputs under in/; write only out/decision.json."
   echo "You have no shell. A program validates what you write; anything else in your reply is ignored."
   echo
@@ -428,10 +438,24 @@ prompt=$rec/prompt.md
   echo "makes true: its value now (false or unknown) is not a failed check."
   jq -e '.met_after_this_action' "$cwd/in/checks.json" > /dev/null 2>&1 &&
     echo "\`met_after_this_action\` in in/checks.json lists what can only be met by a step after $(r .action): not a condition of this decision, never a reason to reject it."
+  [[ -e $cwd/in/aep ]] &&
+    echo "\`status\` and \`revision\` in the front matter of in/aep/ files belong to the planning tool and say nothing about approval: an approval is its claim in in/checks.json."
   echo
-  echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
-  echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
-  echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
+  if [[ $final == yes ]]; then
+    case $type in
+      question) taken="the question's default is taken" ;;
+      finding) taken="give \`best\`, the answer that is then taken (without it, the finding's default)" ;;
+      *) taken="give \`best\`, the decision that is then taken" ;;
+    esac
+    echo "No person can be asked in this run, so escalating hands the decision to no one. When the decision"
+    echo "would change scope beyond the requirements (or, before requirements exist, beyond the idea), when"
+    echo "the evidence conflicts (checks disagree, the artifact contradicts an input), or when you cannot"
+    echo "tell: write \`escalate\`, say in \`reasons\` what cannot be told, and $taken."
+  else
+    echo "Escalate to a person, instead of approving or rejecting, when the decision would change scope"
+    echo "beyond the requirements (or, before requirements exist, beyond the idea), when the evidence"
+    echo "conflicts (checks disagree, the artifact contradicts an input), or when you cannot tell."
+  fi
   echo
   echo "Write out/decision.json, exactly these keys:"
   if [[ $type == finding || $type == question ]]; then
@@ -443,19 +467,13 @@ prompt=$rec/prompt.md
   fi
   echo ' "reasons": ["<one sentence each, at least one>"],'
   echo ' "cites": ["<what your reasons rest on, each in one of the forms below>"],'
+  # Final: what an escalate takes is said once, in the escalate paragraph above.
   if [[ $final == yes && $type == finding ]]; then
-    echo ' "best": <when decision is escalate: the answer you would take if no person could be asked; otherwise null>}'
-    echo
-    echo "No person is available in this run: on escalate, \`best\` is taken, else the finding's default."
+    echo ' "best": <when decision is escalate: the answer that is taken; otherwise null>}'
   elif [[ $final == yes && $type == question ]]; then
     echo ' "best": null}'
-    echo
-    echo "No person is available in this run: on escalate, the question's default is taken."
   elif [[ $final == yes ]]; then
-    echo ' "best": <when decision is escalate: "approve" or "reject", the decision you would take if no'
-    echo '          person could be asked; otherwise null>}'
-    echo
-    echo "No person is available in this run: on escalate, \`best\` is taken."
+    echo ' "best": <when decision is escalate: "approve" or "reject", the decision that is taken; otherwise null>}'
   else
     echo ' "best": null}'
   fi
