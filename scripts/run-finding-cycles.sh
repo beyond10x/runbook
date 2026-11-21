@@ -357,7 +357,7 @@ code=$?
 if (( code == 0 )) && yq -o=json "$s/store-trace-gap/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
      | .status == "resolved" and .decided_by == "agent" and .says == "r3: traces to no behaviour (cites billing.audit, which declares no command)"' >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished" and .action == "spec.author")] | length == 2' "$s/store-trace-gap/$spec" >/dev/null &&
-   tracelog trace-gap | tail -n 1 | grep -q '3 traced to behaviour, 0 constraint, 0 dropped, 0 untraced'; then
+   grep -q '3 traced to behaviour, 0 constraint, 0 dropped, 0 untraced' <<< "$(tracelog trace-gap | tail -n 1)"; then
   echo "trace-gap: checks pass (r3 traced to no behaviour: finding, writer sent back, then traced)"
 else
   echo "trace-gap: FAILED (cycle exit $code, or no p-trace-r3, or the writer was not sent back)"
@@ -370,7 +370,7 @@ code=$?
 if (( code == 0 )) && yq -o=json "$s/store-trace-gap-drop/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
      | .status == "resolved" and .decided_by == "person:stand-in" and .decision == "drop r3 from this epic'"'"'s scope" and .attempts == 1' >/dev/null &&
    yq -e '.requirements[] | select(.id == "r3") | .behaviour == "dropped"' "$s/store-trace-gap-drop/IDEA-1/work/requirements.yaml" >/dev/null &&
-   tracelog trace-gap-drop | tail -n 1 | grep -q '1 dropped (r3), 0 untraced'; then
+   grep -q '1 dropped (r3), 0 untraced' <<< "$(tracelog trace-gap-drop | tail -n 1)"; then
   echo "trace-gap-drop: checks pass (the gap went to a person after one send-back; r3 dropped by the person)"
 else
   echo "trace-gap-drop: FAILED (cycle exit $code, or the gap was waved through, or r3 not dropped)"
@@ -380,7 +380,7 @@ fi
 cycle trace-constraint SDC_STUB_FIXTURES="$fx/trace-constraint"
 code=$?
 if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work/findings.yaml" 2>/dev/null &&
-   tracelog trace-constraint | grep -q '2 traced to behaviour, 1 constraint (r3), 0 dropped, 0 untraced'; then
+   grep -q '2 traced to behaviour, 1 constraint (r3), 0 dropped, 0 untraced' <<< "$(tracelog trace-constraint)"; then
   echo "trace-constraint: checks pass (r3 a constraint with its reason: passes, counted)"
 else
   echo "trace-constraint: FAILED (cycle exit $code, or the constraint was not counted)"
@@ -394,7 +394,7 @@ cycle trace-constraint-decided SDC_STUB_FIXTURES="$fx/trace-gap-drop" FINDING_DE
 code=$?
 w=$s/store-trace-constraint-decided/IDEA-1/work
 if (( code == 0 )) && yq -e '.requirements[] | select(.id == "r3") | .behaviour == "constraint"' "$w/requirements.yaml" >/dev/null &&
-   tracelog trace-constraint-decided | tail -n 1 | grep -q '1 constraint (r3), 0 dropped, 0 untraced' &&
+   grep -q '1 constraint (r3), 0 dropped, 0 untraced' <<< "$(tracelog trace-constraint-decided | tail -n 1)" &&
    yq -o=json "$w/questions.yaml" | jq -e --slurpfile r <(yq -o=json "$w/requirements.yaml") '
      [.questions[] | select(.item == "p-trace-r3")] as $qs
      | ($qs | length) == 2 and $qs[0].status == "superseded" and $qs[0].superseded_by == $qs[1].id
@@ -616,7 +616,7 @@ r=$s/runs/decider-finding-refused
 SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_PRINCIPAL=agent:finding-cycles "$sdc/scripts/run-trial.sh" decider-finding-refused --stop "fixture: the finding waits for a person" > /dev/null 2>&1
 l7=$("$kpis" "$r" --json | jq -c .L7_waiting_on_person_seconds)
 if jq -e '.value >= 1 and .failure == true and .decider == "haiku"' <<< "$l7" >/dev/null &&
-   "$kpis" "$r" | grep -q '^L7_waiting_on_person_seconds: FAILED '; then
+   grep -q '^L7_waiting_on_person_seconds: FAILED ' <<< "$("$kpis" "$r")"; then
   echo "run-stop-decider: checks pass (a decider's run waiting on a person: L7 $(jq .value <<< "$l7") s, reported FAILED)"
 else
   echo "run-stop-decider: FAILED (L7 $l7)"
@@ -691,7 +691,7 @@ r=$s/runs/autopilot-stop
 if (( code == 7 )) && jq -e '.format == "sdc.run-stopped/1" and .by == "rule:autopilot" and .cause == "decision_not_takeable"
      and (.reason | test("amend.upstream in IDEA-1") and (test("person") | not) and (test("/home/|/tmp/") | not))
      and .verdict_at_stop == "awaiting_person"' "$r/run-stopped.json" >/dev/null &&
-   ! sed -n '/^round /,$p' "$s/autopilot-stop.txt" | sed 's/awaiting_person//g' | grep -qi 'person' &&
+   ! grep -qi 'person' <<< "$(sed -n '/^round /,$p' "$s/autopilot-stop.txt" | sed 's/awaiting_person//g')" &&
    "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0 and .failure == false' >/dev/null; then
   echo "autopilot-stop: checks pass (exit 7, rule:autopilot, cause decision_not_takeable; step named, no path, no person; L7 0)"
 else
@@ -768,7 +768,7 @@ code=$?
 r=$s/runs/decider-reject
 if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rejected_without_rework_path" and .case == "IDEA-1.direction"
      and (.reason | test("^autopilot: context.approve in IDEA-1.direction: ") and (test("person") | not) and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
-   ! sed -n '/^round /,$p' "$s/decider-reject.txt" | sed 's/awaiting_person//g' | grep -qi 'person' &&
+   ! grep -qi 'person' <<< "$(sed -n '/^round /,$p' "$s/decider-reject.txt" | sed 's/awaiting_person//g')" &&
    "$kpis" "$r" --json | jq -e '.L7_waiting_on_person_seconds | .value == 0 and .failure == false' >/dev/null; then
   echo "decider-reject: checks pass (exit 6, rejected_without_rework_path, step and case named, no person, L7 0)"
 else
@@ -841,7 +841,7 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rework_spent"
        and (.reason | test("^autopilot: merge.approve in IDEA-1[.][a-z]+[.][a-z]+: rework_spent") and test("1: .*2: .*3: ")
          and (test("person") | not) and (test("/home/|/tmp/") | not))' "$r/run-stopped.json" >/dev/null &&
-     ! sed -n '/^round /,$p' "$s/decider-rework-spent.txt" | sed 's/awaiting_person//g' | grep -qi 'person'; then
+     ! grep -qi 'person' <<< "$(sed -n '/^round /,$p' "$s/decider-rework-spent.txt" | sed 's/awaiting_person//g')"; then
     echo "decider-rework-spent: checks pass (three rejections: rework_spent by rule:autopilot, the three reasons named)"
   else
     echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
@@ -978,8 +978,8 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
    yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.says | test("cancelled invoice is shown"))
      | .status == "resolved" and .decided_by == "decider:haiku" and .refused_decision == null' >/dev/null &&
    jq -se '[.[] | select(.event == "action_finished" and .action == "requirements.check")] | last | .exit == "0"' "$ci/events.jsonl" >/dev/null &&
-   ! jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log // empty' "$ci/events.jsonl" |
-     xargs -I{} cat "$ci/blobs/{}" 2>/dev/null | grep -q ' cites '; then
+   ! grep -q ' cites ' <<< "$(jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log // empty' "$ci/events.jsonl" |
+     xargs -I{} cat "$ci/blobs/{}" 2>/dev/null)"; then
   echo "cite-dark-spot: checks pass (a dark spot beside its question accepted at write; the decider's decision applied; closed)"
 else
   echo "cite-dark-spot: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
