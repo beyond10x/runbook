@@ -216,7 +216,8 @@ fn epoch(t: &str) -> Option<i64> {
 /// a person when the next round starts in a new leg (a `run-settings.jsonl` line between the two:
 /// the script had ended and was started again), or when it is the last round and the run was not
 /// closed (`decision.json`): then it waits until the stop record's instant (`run-stopped.json`)
-/// or, while the run is neither closed nor stopped, until now (`ongoing`). Without
+/// or, while the run is neither closed nor stopped, until now (`ongoing`). A last stop whose
+/// record a rule wrote (`by: rule:autopilot`) waits on nobody and is not counted. Without
 /// run-settings.jsonl every round ending awaiting_person or awaiting_authority counts. At A3 and
 /// up (a decider holds the decisions: the last leg's `decider.kind` is not `person`) a value above
 /// 0 is a failure.
@@ -246,6 +247,9 @@ fn waiting(run: &Path) -> J {
                 (start, "resumed")
             }
             None if closed => continue,
+            // A stop record written by a rule (`rule:autopilot`) ends the run when it stops; the
+            // seconds before it (deciding, writing the record) are no wait on a person.
+            None if stopped.as_ref().and_then(|s| s["by"].as_str()).is_some_and(|b| b.starts_with("rule:")) => continue,
             None => match stopped.as_ref().and_then(|s| s["at"].as_str()).and_then(epoch) {
                 Some(at) => (at, "stopped"),
                 None => (now, "ongoing"),
