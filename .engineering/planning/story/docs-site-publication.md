@@ -11,10 +11,10 @@ relations:
 - decomposes: epic:public-docs-site
 scope:
 - confidence: cited
-  path: .github/publish/b10x-docs-site.yml
+  path: .github/workflows/b10x-docs-site.yml
 - confidence: cited
   path: .github/workflows/pages.yml
-revision: 4
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T15:09:50Z", actor: "human:operator", revision: 2, executor: "agent:sdc-docs-site", correlation: "operator-standing-acceptance-2026-11-21"}
 ---

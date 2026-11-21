@@ -158,7 +158,7 @@ export default function Evaluation({evaluation}: Props): ReactNode {
   return (
     <Layout title="Evaluation" description="The cases the SDC is measured on, every metric per release and setting, and every run.">
       <main className="container sdc-page sdc-eval">
-        {fixtures ? <p className="sdc-banner" role="note">Fixture build: these figures come from <code>website/tests/fixtures</code>, not from the repository's ledger.</p> : null}
+        {fixtures ? <p className="sdc-banner" role="note" data-sdc-fixture-build="true">Fixture build: these figures come from <code>website/tests/fixtures</code>, not from the repository's ledger.</p> : null}
         <header className="sdc-head">
           <p className="b10x-kicker">Evaluation</p>
           <h1>How the cycle performs, release by release</h1>
