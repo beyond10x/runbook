@@ -15,7 +15,8 @@ export default defineConfig({
   reporter: [['list']],
   projects: [
     {name: 'site', testMatch: 'smoke.spec.ts', use: {baseURL: site}},
-    {name: 'context', testMatch: 'context.spec.ts', use: {baseURL: site}},
+    {name: 'navigation', testMatch: 'navigation.spec.ts', use: {baseURL: site}},
+    {name: 'context',testMatch: 'context.spec.ts', use: {baseURL: site}},
     {name: 'fixture', testMatch: 'fixture.spec.ts', use: {baseURL: fixture}},
   ],
   webServer: process.env.SDC_SITE_URL

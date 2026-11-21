@@ -123,6 +123,10 @@ export default function LlmIsNotTheRuntime({timelines}: Props): ReactNode {
     <Layout title="The LLM is not the runtime" description="Canon decides what is legitimate; a program takes the step; a model executes one action. One run, step by step.">
       <main className="container sdc-page sdc-llm">
         {timelines.fixtures ? <p className="sdc-banner" role="note" data-sdc-fixture-build="true">Fixture build: the runs below come from <code>website/tests/fixtures</code>.</p> : null}
+        <nav className="sdc-crumbs" aria-label="How it works">
+          How it works: <Link to="/docs/">What Runbook is</Link> · <span aria-current="page">The LLM is not the runtime</span> ·{' '}
+          <Link to="/docs/flow">The flow</Link> · <Link to="/docs/context">Context</Link> · <Link to="/docs/built-on">Built on</Link>
+        </nav>
         <header className="sdc-head">
           <p className="b10x-kicker">Principle</p>
           <h1>The LLM is not the runtime</h1>

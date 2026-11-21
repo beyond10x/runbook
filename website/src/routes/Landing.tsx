@@ -58,11 +58,13 @@ export default function Landing({index, progressSvg}: Props): ReactNode {
         </ProductSection>
         <ProductSection id="read" number={2} eyebrow="Read on" title="What the pages cover.">
           <FeatureGrid label="Pages">
-            <Feature title="What it is" description="The definition, a run, autopilot and the decider, a clean pass." href="/docs/" />
+            <Feature title="What Runbook is" description="The definition, a run, autopilot and the decider, a clean pass." href="/docs/" />
             <Feature title="The LLM is not the runtime" description="Canon decides what is admissible; a model executes one action." href="/llm-is-not-the-runtime" />
             <Feature title="The flow" description="The main flow and its child cases, drawn from the protocols." href="/docs/flow" />
-            <Feature title="Protocol browser" description={`All ${index.protocols.length} protocols, rendered from their YAML.`} href="/protocols" />
-            <Feature title="What it is built on" description="Canon, Loom, Substrate, ESS, AEP and Gates: what each supplies today." href="/docs/built-on" />
+            <Feature title="Context" description="What a model call is given, how context passes between steps, how you change it." href="/docs/context" />
+            <Feature title="Built on" description="Canon, Loom, Substrate, ESS, AEP and Gates: what each supplies today." href="/docs/built-on" />
+            <Feature title="Protocols" description={`All ${index.protocols.length} protocols, rendered from their YAML.`} href="/protocols" />
+            <Feature title="Evaluation" description="How often a run ends in a delivered app with no person, per release and model." href="/evaluation" />
             <Feature title="Run it" description="The scripted checks and a dry run with stub executors." href="/docs/run-it" />
           </FeatureGrid>
         </ProductSection>
