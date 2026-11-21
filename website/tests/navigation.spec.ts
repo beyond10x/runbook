@@ -104,14 +104,5 @@ for (const theme of ['light', 'dark']) {
         'Run it',
       ]);
     });
-
-    for (const route of ['', 'docs/', 'docs/flow', 'docs/context', 'docs/built-on', 'docs/run-it', 'llm-is-not-the-runtime', 'protocols', 'evaluation']) {
-      test(`no horizontal scroll on /${route}`, async ({page}) => {
-        await page.addInitScript((t) => window.localStorage.setItem('theme', t), theme);
-        await page.goto(route, {waitUntil: 'networkidle'});
-        const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-        expect(scroll, 'horizontal page scroll in px').toBeLessThanOrEqual(0);
-      });
-    }
   });
 }

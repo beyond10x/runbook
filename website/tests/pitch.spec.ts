@@ -93,22 +93,24 @@ test.describe('pitch slider', () => {
   });
 
   test('it advances by itself, and not while the pointer is over it', async ({page}) => {
+    await page.clock.install();
     await page.mouse.move(5, 5);
     await open(page);
-    await page.waitForTimeout(WAIT_MS);
-    expect(await current(page), 'advanced by itself').toBe('1');
+    await page.clock.runFor(WAIT_MS);
+    await expect.poll(() => current(page), {message: 'advanced by itself'}).toBe('1');
     await page.locator('[data-pitch]').hover();
     const before = await current(page);
-    await page.waitForTimeout(WAIT_MS);
+    await page.clock.runFor(WAIT_MS);
     expect(await current(page), 'no advance while hovered').toBe(before);
   });
 
   test.describe('reduced motion', () => {
     test.use({reducedMotion: 'reduce'});
     test('does not advance by itself', async ({page}) => {
+      await page.clock.install();
       await page.mouse.move(5, 5);
       await open(page);
-      await page.waitForTimeout(WAIT_MS);
+      await page.clock.runFor(WAIT_MS);
       expect(await current(page)).toBe('0');
       await expect(page.locator('[data-pitch-play]')).toHaveCount(0);
     });

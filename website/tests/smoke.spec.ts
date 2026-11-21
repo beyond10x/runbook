@@ -50,7 +50,7 @@ for (const mode of MODES) {
         if (route === 'docs/flow') await checkFlow(page, mode.viewport.width);
         if (route === 'evaluation') await checkEvaluation(page);
         if (route === 'llm-is-not-the-runtime') await checkLlm(page);
-        const axe = await new AxeBuilder({page: page as never}).analyze();
+        const axe = await new AxeBuilder({page: page as never}).options({resultTypes: ['violations']}).analyze();
         const bad = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
         expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`), 'serious or critical axe violations').toEqual([]);
         expect(errors, 'console errors').toEqual([]);
@@ -188,14 +188,16 @@ async function checkLlm(page: Page): Promise<void> {
   await expect(page.getByText('Blinding did not hide the side')).toBeVisible();
 }
 
-test('every internal link resolves', async ({page, request, baseURL}) => {
+test('every internal link resolves', async ({request, baseURL}) => {
   const base = new URL(baseURL!);
   const seen = new Set<string>();
   const queue = [...ROUTES];
   const failures: string[] = [];
   for (const route of queue) {
-    await page.goto(route, {waitUntil: 'networkidle'});
-    const hrefs = await page.locator('a[href]').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
+    const res = await request.get(route);
+    expect(res.status(), `status of /${route}`).toBe(200);
+    const html = await res.text();
+    const hrefs = [...html.matchAll(/<a\s(?:[^>"']|"[^"]*"|'[^']*')*?\bhref=(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/g)].map((m) => new URL((m[1] ?? m[2] ?? m[3]).replace(/&amp;/g, '&'), res.url()).href);
     for (const h of hrefs) {
       const u = new URL(h);
       if (u.origin !== base.origin || !u.pathname.startsWith(base.pathname)) continue;

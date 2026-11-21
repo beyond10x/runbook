@@ -98,12 +98,13 @@ jobs:
       - name: Build the fixture site the tests use, outside the deployed directory
         if: steps.changes.outputs.class != 'planning'
         run: cd website && SDC_SITE_FIXTURES=tests/fixtures/ledger npx docusaurus build --out-dir build-fixture
+      - name: Install the test browser
+        if: steps.changes.outputs.class != 'planning'
+        run: cd website && npx playwright install --with-deps chromium
       - name: Smoke test every page, both themes, two widths, axe and internal links
         if: steps.changes.outputs.class != 'planning'
-        run: |
-          cd website
-          npx playwright install --with-deps chromium
-          npx playwright test --workers=2
+        timeout-minutes: 2
+        run: cd website && npx playwright test --workers=4
       - name: Bind the built site to its source commit
         if: steps.changes.outputs.class != 'planning'
         run: driver/target/debug/sdc-protocol-site site-manifest --out website/build --commit "$GITHUB_SHA"

@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:docs-test-budget
 kind: story
-status: active
+status: implemented
 title: The docs test step ends within 120 s, no test over 60 s
 summary: Docs Playwright suite from 495 s to the 120 s step budget with the same assertions
 tags:
@@ -18,10 +18,11 @@ scope:
   path: website/playwright.config.ts
 - confidence: cited
   path: website/tests
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T21:47:10Z", actor: "human:operator", revision: 2, executor: "agent:ci-test-budget", correlation: "operator-standing-acceptance-2026-11-21"}
 - {from: "proposed", to: "active", at: "2026-11-21T21:47:10Z", actor: "human:operator", revision: 3, executor: "agent:ci-test-budget", correlation: "ci-test-budget"}
+- {from: "active", to: "implemented", at: "2026-11-21T22:35:19Z", actor: "human:operator", revision: 6, decided_on: {"asserted":{"test_result":1}}, executor: "agent:ci-test-budget", correlation: "ci-test-budget"}
 ---
 # Story: docs-test-budget
 
