@@ -61,6 +61,7 @@
 #                   and decider record names its model, run-settings.jsonl the model per class
 #   rework-not-called, rework-pending-rejection, decider-later-obligation, replay-sibling,
 #   writer-not-called  runs/trial-3-haiku-4 and runs/trial-3-mixed-3 (see each cycle)
+#   cite-dark-spot, cite-fault-sent-back  runs/trial-3-mixed-4 (see each cycle)
 # Prints each run's exit code and its KPIs L1-L6, then `cycles: N expected, M as expected, K failed:
 # <names>`; exits 1 when a cycle missed its expectation.
 #
@@ -90,6 +91,7 @@ if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(dec
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
   expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
+expected+=(cite-dark-spot cite-fault-sent-back)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -777,6 +779,47 @@ if [[ -f $sc/bindings.json ]] && (( wc_ == 4 )) && jq -e '.verdict == "writer_no
   echo "writer-not-called: checks pass (not-called runs, uncounted, then the stop writer_not_called)"
 else
   echo "writer-not-called: FAILED (exit ${wc_:-none}: $(jq -r '.verdict // empty' <<< "${wo:-}" 2>/dev/null) $(tail -n 1 <<< "${wo:-}" | cut -c1-200))"
+fi
+# cite-dark-spot: runs/trial-3-mixed-4's stop. Under autopilot, requirements.normalise writes r1
+# citing q2 beside the dark spot d4 that q2 asks about (fixtures/cite-dark-spot) and raises a
+# scope-changing finding on r1 (fixtures/finding-intake-scope.yaml); the decider takes its default.
+# Passes when the citation is accepted at write time and the decision is applied (f1 resolved by
+# decider:haiku, no refused_decision) and the run closes (before: decision_not_takeable, exit 7).
+intake=IDEA-1/children/IDEA-1.intake
+trial cite-dark-spot SDC_STUB_FIXTURES="$fx/cite-dark-spot" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml"
+code=$?
+r=$s/runs/cite-dark-spot
+ci=$r/store/$intake
+if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
+   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.says | test("cancelled invoice is shown"))
+     | .status == "resolved" and .decided_by == "decider:haiku" and .refused_decision == null' >/dev/null &&
+   jq -se '[.[] | select(.event == "action_finished" and .action == "requirements.check")] | last | .exit == "0"' "$ci/events.jsonl" >/dev/null &&
+   ! jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log // empty' "$ci/events.jsonl" |
+     xargs -I{} cat "$ci/blobs/{}" 2>/dev/null | grep -q ' cites '; then
+  echo "cite-dark-spot: checks pass (a dark spot beside its question accepted at write; the decider's decision applied; closed)"
+else
+  echo "cite-dark-spot: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
+# cite-fault-sent-back: as cite-dark-spot, but r2 cites the unknown d3 without the question that
+# asks about it (fixtures/cite-fault), a fault the decision on r1 did not write. Passes when the
+# decision is still applied (not decision_not_takeable), requirements.check names the fault in its
+# log, and requirements.normalise is sent back with it until its 3 runs since the decision are
+# spent, then the run stops writer_spent naming requirements.normalise (the stub writes the same
+# requirements every time).
+trial cite-fault-sent-back SDC_STUB_FIXTURES="$fx/cite-fault" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml"
+code=$?
+r=$s/runs/cite-fault-sent-back
+ci=$r/store/$intake
+if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requirements.normalise in IDEA-1.intake"))' "$r/run-stopped.json" >/dev/null &&
+   yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.says | test("cancelled invoice is shown"))
+     | .status == "resolved" and .decided_by == "decider:haiku" and .refused_decision == null' >/dev/null &&
+   jq -se '[.[] | select(.event == "writer_spent")] | last | .spent[0] | .action == "requirements.normalise" and .runs == 3
+     and (.sent_back[0] | .by == "requirements.check" and (.line | test("r2 cites d3")))' "$ci/events.jsonl" >/dev/null &&
+   jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log' "$ci/events.jsonl" | tail -n 1 |
+     xargs -I{} grep -q 'r2 cites d3, an unknown that no question it cites asks about' "$ci/blobs/{}"; then
+  echo "cite-fault-sent-back: checks pass (the decision applied; the writer sent back with the citation fault, then writer_spent)"
+else
+  echo "cite-fault-sent-back: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3

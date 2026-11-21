@@ -18,6 +18,8 @@
 //!     resolve the open findings: classify each (agent or person), take the default or the
 //!     person's decision, amend questions.yaml and requirements.yaml, verify the amendment, and
 //!     mark the stage's derived artifact as derived from earlier requirements
+//! sdc-findings --rules <…> check-requirements
+//!     the requirements' citation rule (`citation_fault`), one line per fault; exit 0 none, 1 some
 //! ```
 //!
 //! `findings.yaml`: `{findings: [{id, type, stage, raised_by, cites, says, options, default,
@@ -987,6 +989,51 @@ fn amend_one(
     Ok(amended)
 }
 
+/// The citation rule of a requirement (D136; runs/trial-3-mixed-4): why `r` fails it, or None.
+/// Every cite is a fact or wish of the dissection, a question id, or an open item (belief,
+/// unknown, ambiguity, dark_spot: the items questions.check gives exactly one question each) that a
+/// cited question asks about (its `item`); at least one cite is a fact, a wish or a question, so an
+/// open item is never the only ground.
+fn citation_fault(w: &Work, r: &Value) -> Option<String> {
+    let cites = strs(r, "cites");
+    let kind = |c: &str| seq(&w.diss, "items").iter().find(|i| st(i, "id") == c).map(|i| st(i, "type").to_string());
+    let asked: BTreeSet<String> = cites.iter().filter_map(|c| w.question(c)).map(|q| st(q, "item").to_string()).collect();
+    let ground = cites.iter().any(|c| w.question(c).is_some() || matches!(kind(c).as_deref(), Some("fact" | "wish")));
+    if !ground {
+        return Some(format!("{} cites no fact, wish or question (cites: {})", st(r, "id"), cites.join(" ")));
+    }
+    let open = |t: &str| matches!(t, "belief" | "unknown" | "ambiguity" | "dark_spot");
+    for c in cites.iter().filter(|c| w.question(c).is_none()) {
+        match kind(c).as_deref() {
+            Some("fact" | "wish") => {}
+            Some(t) if open(t) && asked.contains(c) => {}
+            Some(t) if open(t) => {
+                let a = if t.starts_with(['a', 'u']) { "an" } else { "a" };
+                return Some(format!("{} cites {c}, {a} {t} that no question it cites asks about: cite the question that answers {c}, or leave {c} out", st(r, "id")));
+            }
+            Some(t) => return Some(format!("{} cites {c}, a {t}: a requirement cites facts, wishes and questions", st(r, "id"))),
+            None => return Some(format!("{} cites {c}, which is no dissection item and no question", st(r, "id"))),
+        }
+    }
+    None
+}
+
+/// `sdc-findings check-requirements`: the requirements' shape at write time (requirements.check):
+/// at least one requirement, each with an id and the citation rule (`citation_fault`). One line per
+/// fault; exit 0 none, 1 some.
+fn check_requirements(w: &Work) -> u8 {
+    let reqs = seq(&w.req, "requirements");
+    let mut faults: Vec<String> = reqs.iter().filter_map(|r| citation_fault(w, r)).collect();
+    if reqs.is_empty() {
+        faults.push("requirements.yaml has no requirement".into());
+    }
+    faults.extend(reqs.iter().filter(|r| st(r, "id").is_empty()).map(|_| "a requirement has no id".to_string()));
+    for f in &faults {
+        println!("requirements: {f}");
+    }
+    u8::from(!faults.is_empty())
+}
+
 /// Program check of an amendment: why it fails, or None.
 #[allow(clippy::too_many_arguments)]
 fn verify(
@@ -999,22 +1046,16 @@ fn verify(
     new_q: &str,
     agent: bool,
 ) -> R<Option<String>> {
-    let mut allowed: BTreeSet<String> = seq(&w.diss, "items")
-        .iter()
-        .filter(|i| matches!(st(i, "type"), "fact" | "wish"))
-        .map(|i| st(i, "id").to_string())
-        .collect();
-    allowed.extend(w.question_ids());
+    // Only what the decision wrote can make it untakeable (D137, runs/trial-3-mixed-4): a citation
+    // fault the requirement had before the amendment is the writer's, sent back by
+    // requirements.check; and the only question the amendment writes is its own.
     for r in seq(&w.req, "requirements") {
-        let cites = strs(r, "cites");
-        if cites.is_empty() || cites.iter().any(|c| !allowed.contains(c)) {
-            return Ok(Some(format!(
-                "{} cites an item that is neither a fact, a wish nor a question",
-                st(r, "id")
-            )));
+        if let Some(why) = citation_fault(w, r).filter(|_| seq(before, "requirements").iter()
+            .find(|b| st(b, "id") == st(r, "id")).is_none_or(|b| citation_fault(w, b).is_none())) {
+            return Ok(Some(why));
         }
     }
-    for q in seq(&w.qs, "questions") {
+    for q in seq(&w.qs, "questions").iter().filter(|q| st(q, "id") == new_q) {
         let status = st(q, "status");
         if !matches!(status, "accepted" | "changed" | "open") {
             return Ok(Some(format!("{} is not answered", st(q, "id"))));
@@ -1403,7 +1444,8 @@ fn run(args: &[String]) -> R<u8> {
         }
         [c, node, file] if c == "promote" => promote(&rules, node, file),
         [c, stage] if c == "amend" => amend(&rules, stage),
-        _ => Err("usage: sdc-findings --rules <file> consistency | trace | gate <stage> | promote <node> <file> | amend <stage>".into()),
+        [c] if c == "check-requirements" => Ok(check_requirements(&Work::open(&rules)?)),
+        _ => Err("usage: sdc-findings --rules <file> consistency | trace | gate <stage> | promote <node> <file> | amend <stage> | check-requirements".into()),
     }
 }
 
@@ -1548,5 +1590,45 @@ mod tests {
         assert_eq!(q["excerpt"].as_str(), Some("Bill customers"));
         assert_eq!(q["default_reason"].as_str(), Some("simplest"));
         assert_eq!(q["consequences"][1]["cost"].as_str(), Some("large"));
+    }
+
+    /// runs/trial-3-mixed-4: q3 asks about the dark spot d6; r3 cites both.
+    fn mixed4(cites: &str) -> Work {
+        let mut w = work();
+        w.diss = serde_yaml::from_str("items:\n- {id: d1, type: fact}\n- {id: d5, type: unknown}\n- {id: d6, type: dark_spot}\n").unwrap();
+        w.qs = serde_yaml::from_str("questions:\n- {id: q3, item: d6, status: accepted, answer: a, default: a, scope_changing: false}\n").unwrap();
+        w.req = serde_yaml::from_str(&format!("requirements:\n- id: r3\n  text: Anyone with the link opens it.\n  cites: {cites}\n")).unwrap();
+        w
+    }
+
+    fn r3(w: &Work) -> Value {
+        w.req["requirements"][0].clone()
+    }
+
+    #[test]
+    fn an_open_item_beside_the_question_that_asks_about_it_is_cited() {
+        let w = mixed4("[q3, d6]");
+        assert_eq!(citation_fault(&w, &r3(&w)), None);
+    }
+
+    #[test]
+    fn an_open_item_is_never_the_only_ground_nor_cited_without_its_question() {
+        let w = mixed4("[d6]");
+        assert!(citation_fault(&w, &r3(&w)).unwrap().contains("cites no fact, wish or question"));
+        let w = mixed4("[d1, d5]");
+        assert!(citation_fault(&w, &r3(&w)).unwrap().contains("r3 cites d5, an unknown that no question it cites asks about"));
+        let w = mixed4("[d1, d9]");
+        assert!(citation_fault(&w, &r3(&w)).unwrap().contains("no dissection item and no question"));
+    }
+
+    /// D137: a decision on r3 is not refused for a citation fault r3 had before it.
+    #[test]
+    fn a_fault_the_decision_did_not_write_does_not_refuse_it() {
+        let mut w = mixed4("[d1, d5]");
+        let f: Value = serde_yaml::from_str("id: f1\ntype: missing_decision\nraised_by: llm\ncites: [r3]\nsays: how is the link made\noptions: [a, b]\ndefault: a\nscope_changing: true\n").unwrap();
+        let before = w.req.clone();
+        let ctx = w.ctx.clone();
+        let q = amend_one(&mut w, &f, "a", "decider:haiku", "decided").unwrap()[0].clone();
+        assert_eq!(verify(&before, &ctx, &BTreeSet::new(), &w, &f, "a", &q, true).unwrap(), None);
     }
 }
