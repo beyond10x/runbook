@@ -33,6 +33,7 @@ All paths are relative to the run directory.
 | time inside the driver (s) | `rounds.jsonl` `seconds` | sum (`:262`; written by `scripts/run-trial.sh:289`) |
 | time outside the driver (s) | derived | elapsed minus inside |
 | time waiting on a person (s) | `rounds.jsonl`, `run-settings.jsonl` `at`, `run-stopped.json` `at` | `waiting` (`:428`), below |
+| time stopped for a fix (s) | `rounds.jsonl`, `run-stopped.<at>.json` `at` | from each reopened stop record to the next round; such a gap is not waiting on a person (`fix_gap`) |
 | decisions by a person | `action_finished` and `authority_recorded` `principal` in `events.jsonl`; `work/questions.yaml` `answered_by`; `work/findings.yaml` `decided_by`; `work/context.yaml` `status` | person actions (an authority record taken with an action at the same `at` counts once) + questions a person answered (`accepted`, `changed`) + resolved findings a person decided + context fields `changed` (`:327`) |
 | LLM calls, LLM cost (USD) | `llm-calls.jsonl` (`scripts/run-trial.sh` `SDC_LLM_LOG`; `llm-node.sh:425`) | lines, Σ `cost_usd` (`:332`) |
 | LLM calls / cost `[model]`, `[step kind]` | same | grouped by `model` and by `action` (the step kind); a model or step another run used reads 0 |
@@ -45,7 +46,9 @@ All paths are relative to the run directory.
 | oracle check | `oracle.json` (or `store/oracle.json`), the oracle file of `docs/eval-design.md` (oracle file): `held`, `contradicted` or `unknown` per check | `none` when absent; `held (n of n checks)`; else the worst result and the three counts (`:460`). No run writes this file yet: `eval/oracle-spec.sh` prints one line for a spec directory, and trial 3 must save its result as `oracle.json` *(inferred)* |
 | replay | `replay.json` (`scripts/run-trial.sh:160`) | `<n> of <m> cases match` (state and decision both match the log) or `not recorded` (`:483`). The tool never runs `sdc-drive replay` (it needs Canon; no library call exists) |
 | forced continuations | `defects.jsonl` (`sdc.run-defect/1`, keep-going, `docs/driver.md`) | lines with `forced: true`; `not recorded` without the file. A run with one forced is not a clean run |
-| defects | `defects.jsonl` | `<cause> at <action> in <case> (forced|stops)` per line, `none` for an empty file |
+| reopens | `run-stopped.<at>.json` files (a stop record a later leg reopened) | their number; a run with one is not a clean run |
+| clean run | `defects.jsonl`, `run-stopped.<at>.json` | `yes` only with no forced continuation and no reopen |
+| defects | `defects.jsonl` | `<cause> at <action> in <case> (forced or stops)` per line, `none` for an empty file |
 | setting | last line of `run-settings.jsonl` (`sdc.run-settings/1`) | `autonomy`, `stand-in`, decider kind and model, and `models` / `model` as written when present (the per-step model setting of `story:model-per-node-variable`, shape not yet fixed) (`:490`) |
 
 A person is a principal that is not empty, `decider:*`, `rule:*`, `program*`, `dry-run*`, `agent*`,

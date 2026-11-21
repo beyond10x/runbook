@@ -90,9 +90,9 @@ ctx_rework=no
 jq -e '."context.approve".results | any(.[]; . == "rejected")' "$sdc/driver/examples/sdc/sdc-direction.bindings.json" >/dev/null 2>&1 && ctx_rework=yes
 if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(decider-rework-context decider-rework-model); fi
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
-  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection)
+  expected+=(decider-rework decider-rework-spent rework-not-called rework-pending-rejection keep-going-three keep-going-off)
 expected+=(decider-later-obligation replay-sibling writer-not-called)
-expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3)
+expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 keep-going-repeat reopen-refused-decision)
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
@@ -817,7 +817,10 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
    jq -se '[.[] | select(.event == "writer_spent")] | last | .spent[0] | .action == "requirements.normalise" and .runs == 3
      and (.sent_back[0] | .by == "requirements.check" and (.line | test("r2 cites d3")))' "$ci/events.jsonl" >/dev/null &&
    jq -r 'select(.event == "action_finished" and .action == "requirements.check") | .log' "$ci/events.jsonl" | tail -n 1 |
-     xargs -I{} grep -q 'r2 cites d3, an unknown that no question it cites asks about' "$ci/blobs/{}"; then
+     xargs -I{} grep -q 'r2 cites d3, an unknown that no question it cites asks about' "$ci/blobs/{}" &&
+   [[ $(grep -o 'LLM calls so far [0-9]*' "$s/cite-fault-sent-back.txt" | tail -n 1 | grep -o '[0-9]*$') == \
+      "$(find "$r/store" -name events.jsonl -exec cat {} + | jq -s '([.[] | select(.event == "action_started" and .llm == true)] | length)
+        - ([.[] | select(.event == "action_finished" and (.not_called | type) == "string")] | length)')" ]]; then
   echo "cite-fault-sent-back: checks pass (the decision applied; the writer sent back with the citation fault, then writer_spent)"
 else
   echo "cite-fault-sent-back: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
@@ -871,7 +874,6 @@ kgreplies=$(jq -cn --arg o "$opt2" --argjson j "$mrej" '{f1: {decision: "approve
 kgenv=(SDC_STUB_FIXTURES="$fx/keep-going" SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_STUB_REFUSE_DECISION="$opt2"
   SDC_DECIDER_REPLIES="$kgreplies")
 if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
-  expected+=(keep-going-three keep-going-off)
   targs=(--autopilot --keep-going)
   trial keep-going-three "${kgenv[@]}"
   code=$?
@@ -899,7 +901,6 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
     echo "keep-going-off: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
 fi
-expected+=(keep-going-repeat)
 targs=(--autopilot --keep-going)
 trial keep-going-repeat SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
@@ -918,7 +919,6 @@ fi
 # exit 7. Leg 2, `--reopen` with the fault fixed (the variable unset): the stored decision is put
 # back and applied through the current check; f1 resolved with option 2 by decider:haiku, the run
 # closes (exit 0), the first stop record kept as run-stopped.<at>.json.
-expected+=(reopen-refused-decision)
 targs=(--autopilot)
 opt2="the customer and the billing clerk"
 rdreplies=$(jq -cn --arg o "$opt2" '{f1: {decision: "approve", answer: $o, best: null, cites: ["r2"], reasons: ["fixture: the clerk gets the email too"]}}')
@@ -933,8 +933,10 @@ if (( code == 7 && reopen == 0 )) && [[ ! -e $r/run-stopped.json ]] && ls "$r"/r
    jq -e '.cause == "decision_not_takeable"' "$(ls "$r"/run-stopped.*.json | head -n 1)" >/dev/null &&
    grep -q '^# reopen: 1 refused decision(s) in .* put back for the current check' "$r/run.log" &&
    yq -o=json "$r/store/IDEA-1/work/findings.yaml" | jq -e --arg o "$opt2" '.findings[] | select(.id == "f1") | .status == "resolved"
-     and .decided_by == "decider:haiku" and .decision == $o and .refused_decision == null' >/dev/null; then
-  echo "reopen-refused-decision: checks pass (refused, stopped; reopened with the check fixed: the decision applied, closed)"
+     and .decided_by == "decider:haiku" and .decision == $o and .refused_decision == null' >/dev/null &&
+   "$kpis" "$r" --json | jq -e '.stopped_for_fix.reopens == 1 and .clean_run.value == false
+     and .L7_waiting_on_person_seconds.value == 0 and .L7_waiting_on_person_seconds.failure == false' >/dev/null; then
+  echo "reopen-refused-decision: checks pass (refused, stopped; reopened with the check fixed: the decision applied, closed; KPIs: 1 reopen, not clean, L7 0)"
 else
   echo "reopen-refused-decision: FAILED (exit $code, reopen exit $reopen: $(tail -n 1 "$s/reopen-refused-decision-reopen.txt" | cut -c1-200))"
 fi

@@ -1050,15 +1050,24 @@ fn next_steps(canon: &str, dir: &Path, pos: &Value, bindings: &Value, ir: &Value
     Ok(next)
 }
 
-/// LLM calls started so far in the whole case tree (`action_started` of a binding with `llm`).
+/// LLM calls started so far in the whole case tree (`action_started` of a binding with `llm`),
+/// less the runs that ended `not_called` (llm-node.sh exited before any model call): the count
+/// of llm-calls.jsonl, which is what `--max-llm-calls` caps. The decider's calls are not driver
+/// actions and are counted apart (decisions.jsonl, decider/).
 fn llm_calls(dir: &Path) -> usize {
     all_cases(&tree_root(dir))
         .iter()
         .map(|c| {
-            events(c)
+            let evs = events(c);
+            let started = evs
                 .iter()
                 .filter(|e| e["event"] == "action_started" && e["llm"] == true)
-                .count()
+                .count();
+            let not_called = evs
+                .iter()
+                .filter(|e| e["event"] == "action_finished" && e["not_called"].is_string())
+                .count();
+            started.saturating_sub(not_called)
         })
         .sum()
 }
