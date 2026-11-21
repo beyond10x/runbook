@@ -138,8 +138,15 @@ file as the step's log. Each writer's `retry_when` names its approval kind with 
 driver sends the writer back while the rejection is about the current revision and hands it the
 log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
 
-sdc.release keeps `release.approve` as a capability of `release.publish`: the same treatment
-(`release_approval`, a manual `release.approve`) gives 98304 states, past the bound.
+**Stated limit, sdc.release.** `release.approve` stays a capability of `release.publish`, with no
+approval record and no `rejected` result: the same treatment (`release_approval` with a manual
+`release.approve`) gives 98,304 states, past the bound of 65,536. Dropping the capability to fit
+would leave authority resting on a manual record alone, which is not allowed. A refused release
+therefore records nothing in the case; the tools stop such a run with a named cause
+(`rejected_without_rework_path`), and the case's way out stays `withheld` on
+`explicitly_withheld` (the release case has no writer that answers a rejection: `release.build`
+rebuilds the same merged changes; the rework happens in the stories). Canon's state-space bound
+per slice (unreleased) is what lifts this limit.
 
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
@@ -193,6 +200,31 @@ for this section; c is fixed by the approval rule above.
   (`protocol/sdc.protocol.yaml:61-65`, `in: [passed]`) `false` for good, also after the new
   intake case ends `passed` (limitation 4; probed with `canon evaluate` on a root case at i2
   holding both child outcomes), so a reopened intake cannot lead to `operating`.
+- **A failed check another action revises (a1).** Left by a new revision, which the walk does not
+  make; the writer is admissible in each such state. A rejected approval is the same.
+- **A failed check only another case revises (a2 on `roadmap`, `spec`, 6 findings).** The child
+  waits on a revision another protocol writes; no change.
+- **A lasting denial (d).** The driver refuses a capability decided twice
+  (`driver/src/main.rs:1590-1597`), so a denial stands for the case. Per denial, what a real
+  case does next:
+  - sdc.direction, `owner.approve` denied (2 findings): no other holder and no outcome in the
+    case; the tree goes on through the root's `abandoned` decision, or a revised idea, which
+    opens a new direction case with its own authority (`protocol/sdc.protocol.yaml:6`). A
+    direction outcome of its own would need a decision, which doubles 49152 states past the bound
+    (as intake's abandon did, limitation 1), so the root keeps that role.
+  - sdc.story, `change.merge` denied (1): `merge.approve` stays approval-required; the case ends
+    `dropped` on `explicitly_dropped`, and sdc.epic ends `stopped` (section above).
+  - sdc.release, `release.approve` denied (1): the case ends `withheld` on
+    `explicitly_withheld`, and sdc.epic ends `stopped`.
+- **sdc `{intake_opened, roadmap_approval}` stuck (e, false).** Not a protocol defect, no
+  protocol change; the walk is Canon's to fix. `intake.open` produces two records, its
+  `intake_opened` and, through `case_open`, the child's `case_outcome`; its precondition
+  `intake.opened is unknown` closes it after the first. The walk adds one record per step, so the
+  state with `intake_opened` and no `case_outcome` has no step left. The runtime writes the
+  `case_outcome` record (`open`) in the same step that opens the child (`open_children`,
+  `driver/src/main.rs:770`) and rewrites its result when the child ends, so a real case never
+  holds `intake_opened` without it. The same holds for `direction.open`, `epics.open` and
+  sdc.epic's opening actions.
 
 ## Evidence kinds and the action that produces each
 
