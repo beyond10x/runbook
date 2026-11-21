@@ -111,6 +111,19 @@ Each step does the following, with nothing else as input:
   of this case produced: the opening, a person's edit in `work/` (a finding decision, an
   answer), a person's `approve --action`, a write from another case of the tree. So a
   person's decision gives every writer a fresh allowance.
+- A run that did nothing is not a run (2026-11-21, `runs/trial-3-haiku-4`: a "not called" run
+  of `change.implement` took the last of its 3, and the real failure after it ended
+  `writer_spent`). The driver gives each tool `SDC_NOT_CALLED`, a file; a tool that exits 0
+  without doing its work (`llm-node.sh`'s "not called" exits) writes why there, and the run's
+  `action_finished` carries `not_called` with that text. Such a run does not count toward
+  `max_runs`. A writer whose not-called run is the case's last step, at the current snapshot,
+  is not useful (it would see the same inputs); when nothing else is useful the run ends with
+  the verdict `writer_not_called` (exit 4, event `writer_not_called` with the action, the run
+  and the reason; `run-trial.sh` stops an autopilot run with that cause).
+- `llm-node.sh` re-derives with the LLM whenever a rejection of the writer's subject is pending:
+  the case's last rejected approval with no run of the writer after it that exited 0 and was not
+  `not_called`. It is given as `in/rejection.json` even when `SDC_FEEDBACK` does not carry it,
+  and the own-default skip ("the decisions since ... are the defaults it raised") does not apply.
 - A writer that would be useful but has spent its allowance ends the run with the verdict
   `writer_spent` (exit 4, event `writer_spent` with `spent`: action, runs, `max_runs`, the
   arrival's event index, last exit and last log line, and `sent_back`: per counted run, the
@@ -193,11 +206,13 @@ case/
 - Events: `opened`, `evaluated`, `action_started`, `revised`, `action_finished` (with
   `principal` for a person's action), `discarded`, `child_opened`, `child_closed`,
   `authority_recorded` (with principal), `terminable`, `awaiting_person`, `awaiting_authority`,
-  `writer_spent`, `stuck`, `step_budget_spent`, `terminated`.
+  `writer_spent`, `writer_not_called`, `stuck`, `step_budget_spent`, `terminated`.
 - Revisioned: each artifact revision is a content digest computed by the driver, and the case
   revision is a counter. Evidence and evaluations are append-only, except one rewrite per
   child: its `case_outcome` record goes from `open` to the child's outcome (Canon reads one
-  record per child).
+  record per child). The parent is evaluated right after that rewrite (`child_closed`, then
+  `evaluated`), so a run that stops in a sibling still replays (`runs/trial-3-haiku-4`'s
+  `IDEA-1.todo` failed replay without it).
 - Replay: `sdc-drive replay` re-runs `canon evaluate` on every case of the tree with the `at`
   of its last `evaluated` event and compares the state and decision digests with the logged
   ones. Full-cycle run: all 8 cases match. Canon's guarantee: the same inputs give the same
@@ -391,6 +406,18 @@ waiting at `amend.upstream` is put to it as a finding request (class `finding`) 
 written as `decision:` with `decided_by: decider:<kind>`, which `sdc-findings amend` checks as it
 checks the agent's amendments (`docs/trial-2.md`, "Limits"). `check-questions` takes any named
 principal for a scope-changing answer (`sdc.intake` r5).
+
+**What comes after the decision** (2026-11-21, `runs/trial-3-mixed-3`: the decider refused
+`release.publish` because `health.required` was open, though only `release.observe`, admissible
+after the publish, can meet it). `sdc-reply later --ir <ir.json> --action <a>` derives from the
+compiled protocol the actions that need a claim only `a` (or such actions) can make true, the
+claims only those actions make true, and the obligations only those claims discharge. `decider.sh`
+leaves them out of `claims` and `open_obligations` in `in/checks.json` and lists them under
+`met_after_this_action` ("met after <a>, not a condition of this decision"); the prompt says so.
+Moved per approval action of the eight protocols: `release.publish` health.required
+(release.healthy, release.observed, rollback.complete); `context.approve` vision.required,
+roadmap.required; `vision.approve` roadmap.required; `merge.approve` no obligation (claim
+change.merged); none for `roadmap.approve`, `scope.answer`, `release.rollback`.
 
 **Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
 decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,

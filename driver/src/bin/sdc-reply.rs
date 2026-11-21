@@ -5,6 +5,7 @@
 //!   sdc-reply schema  --cwd <call dir> --case-dir <case> --type approval|question|finding|close
 //!                     [--final] [--options '<JSON list>'] [--rule]
 //!   sdc-reply rejections --case-dir <case> --action <approval action>
+//!   sdc-reply later --ir <ir.json> --action <action>
 //!
 //! The call dir holds the inputs the model was shown (`in/`), as tools/decider.sh writes them.
 //! Citable (the forms of sdc.decision.Citation, ess/domains/decision.yaml, docs/decisions.md):
@@ -51,6 +52,68 @@ enum Cmd {
     /// The rejected records of an approval action in a case, oldest first, each with the reasons
     /// its step kept (the sdc.rejection/1 log blob of `approve --result rejected`).
     Rejections { #[arg(long)] case_dir: PathBuf, #[arg(long)] action: String },
+    /// What can only come after `action` (from the compiled protocol): the actions whose
+    /// precondition needs a claim only it or they make true, the claims only those actions make
+    /// true, and the obligations only those claims discharge. A decision about `action` must not
+    /// show them as open conditions (runs/trial-3-mixed-3: health.required before release.publish).
+    Later { #[arg(long)] ir: PathBuf, #[arg(long)] action: String },
+}
+
+/// The actions that may produce evidence `kind`.
+fn producers<'a>(ir: &'a Value, kind: &Value) -> Vec<&'a str> {
+    ir["actions"].as_object().into_iter().flatten()
+        .filter(|(_, a)| a["may_produce"].as_array().is_some_and(|m| m.iter().any(|p| &p["evidence"] == kind)))
+        .map(|(k, _)| k.as_str()).collect()
+}
+
+/// Claim `id` can be made true only through actions in `set`: its evidence has producers, all in
+/// `set`; a claim defined over claims is read as a formula; a children claim never.
+fn claim_needs(ir: &Value, id: &str, set: &BTreeSet<String>, depth: u8) -> bool {
+    let w = &ir["claims"][id]["true_when"];
+    if depth > 32 {
+        return false;
+    }
+    if w["evidence"].is_object() {
+        let p = producers(ir, &w["evidence"]["kind"]);
+        !p.is_empty() && p.iter().all(|a| set.contains(*a))
+    } else {
+        formula_needs(ir, w, set, depth + 1)
+    }
+}
+
+/// Formula `f` (a precondition, a discharge condition) holds only once a claim it requires true
+/// is made true, which only actions in `set` can do: `all` when one part needs that, `any` when
+/// every part does; a claim required to be anything but true (unknown, false) never needs it.
+fn formula_needs(ir: &Value, f: &Value, set: &BTreeSet<String>, depth: u8) -> bool {
+    if let Some(c) = f["claim"].as_object() {
+        c["is"] == "true" && c["id"].as_str().is_some_and(|id| claim_needs(ir, id, set, depth))
+    } else if let Some(all) = f["all"].as_array() {
+        all.iter().any(|g| formula_needs(ir, g, set, depth))
+    } else if let Some(any) = f["any"].as_array() {
+        !any.is_empty() && any.iter().all(|g| formula_needs(ir, g, set, depth))
+    } else {
+        false
+    }
+}
+
+/// `sdc-reply later`: see `Cmd::Later`.
+fn later(ir: &Value, action: &str) -> Value {
+    let mut reach: BTreeSet<String> = BTreeSet::from([action.to_string()]);
+    loop {
+        let add: Vec<String> = ir["actions"].as_object().into_iter().flatten()
+            .filter(|(k, a)| !reach.contains(*k) && formula_needs(ir, &a["precondition"], &reach, 0))
+            .map(|(k, _)| k.clone()).collect();
+        if add.is_empty() {
+            break;
+        }
+        reach.extend(add);
+    }
+    reach.remove(action);
+    let claims: Vec<&String> = ir["claims"].as_object().into_iter().flatten()
+        .filter(|(k, _)| claim_needs(ir, k, &reach, 0)).map(|(k, _)| k).collect();
+    let obligations: Vec<&String> = ir["obligations"].as_object().into_iter().flatten()
+        .filter(|(_, o)| formula_needs(ir, &o["discharged_when"], &reach, 0)).map(|(k, _)| k).collect();
+    json!({"action": action, "after_actions": reach, "claims": claims, "obligations": obligations})
 }
 
 /// The rejected records of `action` (the evidence kind its binding produces, result `rejected`)
@@ -311,5 +374,41 @@ fn main() -> ExitCode {
             println!("{}", rejections(&case_dir, &action));
             ExitCode::SUCCESS
         }
+        Cmd::Later { ir, action } => {
+            let ir = read_json(&ir);
+            if ir["actions"].get(&action).is_none() {
+                eprintln!("sdc-reply later: no action `{action}` in the protocol");
+                return ExitCode::from(64);
+            }
+            println!("{}", later(&ir, &action));
+            ExitCode::SUCCESS
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ir(name: &str) -> Value {
+        read_json(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../protocol/compiled").join(format!("{name}.ir.json")))
+    }
+
+    #[test]
+    fn health_is_met_after_release_publish() {
+        let l = later(&ir("sdc-release"), "release.publish");
+        assert_eq!(l["obligations"], json!(["health.required"]));
+        assert_eq!(l["claims"], json!(["release.healthy", "release.observed", "rollback.complete"]));
+        assert_eq!(l["after_actions"], json!(["release.observe", "release.rollback"]));
+    }
+
+    #[test]
+    fn what_the_action_itself_settles_is_not_later() {
+        // merge.approve makes merge.approved true itself (settled by the decision, not later);
+        // change.merge needs it, so change.merged comes after.
+        let l = later(&ir("sdc-story"), "merge.approve");
+        assert!(!l["claims"].as_array().unwrap().iter().any(|c| c == "merge.approved"), "{l}");
+        assert!(l["claims"].as_array().unwrap().iter().any(|c| c == "change.merged"), "{l}");
+        assert_eq!(l["obligations"], json!([]));
     }
 }
