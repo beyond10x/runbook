@@ -1,39 +1,32 @@
-// Lenses over the same data: SDC phases, autonomy, security, metrics.
+// Lenses over the same data: phases, autonomy, security, metrics.
 import {actorOf, ACTOR_LABEL, principalKind, caseState, evalAt, claimHistory, caseMetrics, describeEvent, seqOfEvidence} from './model.js';
 import {principalOf, autopilot, actorLabel, runSettings} from './principal.js';
+import {phaseItems, phaseStages, absentStages} from './view.js';
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (ch) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[ch]));
 const nr = (why) => `<span class="nr" title="${esc(why)}">not recorded yet</span>`;
 
-// ---- SDC phases (docs/phases.md), derived from Canon's claims, never from a stored phase --------
-export const PHASES = [
-  {id: 'input', label: 'Input', p: 'sdc.intake', claims: ['idea.shaped'], doc: '1'},
-  {id: 'dissection', label: 'Dissection', p: 'sdc.intake', claims: ['dissection.valid'], doc: '2'},
-  {id: 'interview', label: 'Interview', p: 'sdc.intake', claims: ['questions.shaped', 'questions.settled'], doc: '3'},
-  {id: 'requirements', label: 'Requirements', p: 'sdc.intake', claims: ['requirements.valid'], doc: '3'},
-  {id: 'context', label: 'Context defaults', short: 'Context', p: 'sdc.direction', claims: ['context.valid', 'context.approved'], doc: '4'},
-  {id: 'vision', label: 'Vision', p: 'sdc.direction', claims: ['vision.approved'], doc: '5'},
-  {id: 'roadmap', label: 'Roadmap', p: 'sdc.direction', claims: ['roadmap.valid', 'roadmap.approved'], doc: '6'},
-  {id: 'epics', label: 'Epics', p: 'sdc', claims: ['epics.opened'], doc: '7'},
-  {id: 'spec', label: 'Spec', p: 'sdc.spec', claims: ['spec.sourced'], doc: '8', hasSource: true},
-  {id: 'gate', label: 'ESS gate', p: 'sdc.spec', claims: ['spec.complete'], doc: '9'},
-  {id: 'specdone', label: 'Spec review', short: 'Spec review', p: 'sdc.spec', claims: ['spec.traced', 'spec.approved'], doc: '9'},
-  {id: 'plan', label: 'Plan', p: 'sdc.plan', claims: ['plan.valid', 'plan.covers_spec', 'plan.scoped', 'plan.active'], doc: '10'},
-  {id: 'stories', label: 'Stories', p: 'sdc.epic', claims: ['stories.opened'], doc: '10'},
-  {id: 'implement', label: 'Implement', p: 'sdc.story', claims: ['change.built'], doc: '10'},
-  {id: 'review', label: 'Review', p: 'sdc.story', claims: ['change.reviewed'], doc: '10'},
-  {id: 'test', label: 'Test (ESS conformance)', short: 'Test', p: 'sdc.story', claims: ['tests.pass'], doc: '10'},
-  {id: 'merge', label: 'Merge', p: 'sdc.story', claims: ['change.merged'], doc: '10'},
-  {id: 'release', label: 'Release', p: 'sdc.release', claims: ['release.built', 'release.accepted', 'release.published'], doc: '10'},
-  {id: 'operate', label: 'Operate', p: 'sdc.release', claims: ['release.healthy'], doc: '10', root: 'operating'},
-];
-const TICKET = ['fetch', 'research', 'breakdown'];
+// ---- phases, derived from Canon's claims, never from a stored phase --------------------------
+// The phases are the runbook's view (web/view.js, views/*.view.json). Without one, each protocol found
+// in the store is one phase over all its claims, in one stage: a flat list, no grouping.
+export function phaseDefs(cases) {
+  const items = phaseItems();
+  if (items.length) return items.map(({protocol, has_source, root_outcome, ...ph}) => ({...ph, p: protocol, hasSource: !!has_source, root: root_outcome, claims: ph.claims || []}));
+  const byP = new Map();
+  for (const c of cases) {
+    const p = c.case?.protocol || c.ir?.protocol?.id;
+    if (!p) continue;
+    if (!byP.has(p)) byP.set(p, new Set());
+    for (const cl of Object.keys(c.ir?.claims || {})) byP.get(p).add(cl);
+  }
+  return [...byP].map(([p, cl]) => ({id: p, label: p, p, claims: [...cl], stage: ''}));
+}
 
 export function phaseStates(cases) {
   const byP = {};
   for (const c of cases) (byP[c.case?.protocol || c.ir?.protocol?.id] ||= []).push(c);
   const openSeen = new Set();
-  return PHASES.map((ph) => {
+  return phaseDefs(cases).map((ph) => {
     const cs = byP[ph.p] || [];
     if (!cs.length) return {...ph, status: 'none', detail: `no ${ph.p} case yet`, cases: []};
     let truths = 0, total = 0, invalidated = 0;
@@ -69,25 +62,20 @@ export function phaseStates(cases) {
   });
 }
 
-const STAGES = [
-  ['Intake', ['input', 'dissection', 'interview', 'requirements']],
-  ['Direction', ['context', 'vision', 'roadmap']],
-  ['Specify & plan', ['epics', 'spec', 'gate', 'specdone', 'plan', 'stories']],
-  ['Build', ['implement', 'review', 'test', 'merge']],
-  ['Ship', ['release', 'operate']],
-];
 export function renderPhases(cases, active = new Map()) {
   const st = phaseStates(cases);
   const byId = new Map(st.map((p) => [p.id, p]));
   const firstOpen = st.find((p) => p.status !== 'done')?.id;
-  const ticket = cases.some((c) => /ticket/.test(c.case?.protocol || ''));
   const word = (p) => (p.status === 'none' ? '—' : p.status === 'done' ? 'done' : p.status === 'waiting' ? 'needs you' : p.status === 'stuck' ? 'stuck' : `${p.truths}/${p.total}`);
-  const stages = STAGES.map(([name, ids]) => {
+  const stages = (phaseItems().length ? phaseStages() : [['Protocols', st.map((p) => p.id)]]).map(([name, ids]) => {
     const ps = ids.map((id) => byId.get(id));
     const done = ps.filter((p) => p.status === 'done').length;
-    return `<div class="stage" data-key="st:${name}" style="flex-grow:${ps.length}"><div class="stage-h"><span>${esc(name)}</span><span class="stage-n">${done}/${ps.length}</span></div><div class="stage-row">${ps.map((p) => `<button data-key="ph:${p.id}" class="phase ph-${p.status}${p.id === firstOpen ? ' ph-front' : ''}${active.has(p.id) ? ` ph-live lk-${active.get(p.id).kind}` : ''}" data-phase="${p.id}" data-v="${p.status}:${p.truths}" title="${esc(`${p.label} — docs/phases.md step ${p.doc}\nDerived from ${p.p} claims: ${p.claims.join(', ')}\n${p.detail}${active.has(p.id) ? `\nnow ${active.get(p.id).verb} ${active.get(p.id).action} in ${active.get(p.id).case}` : ''}`)}"><span class="rail"><span class="pdot"></span></span><span class="pl">${esc(p.short || p.label)}</span><span class="ps">${active.has(p.id) ? `<span class="ps-live">${esc(active.get(p.id).verb)}</span>` : esc(p.source || word(p))}${p.invalidated ? `<span class="inv" title="a TRUE claim of this phase was invalidated ${p.invalidated}× by a revision"> ↺${p.invalidated}</span>` : ''}</span></button>`).join('')}</div></div>`;
+    return `<div class="stage" data-key="st:${name}" style="flex-grow:${ps.length}"><div class="stage-h"><span>${esc(name)}</span><span class="stage-n">${done}/${ps.length}</span></div><div class="stage-row">${ps.map((p) => `<button data-key="ph:${p.id}" class="phase ph-${p.status}${p.id === firstOpen ? ' ph-front' : ''}${active.has(p.id) ? ` ph-live lk-${active.get(p.id).kind}` : ''}" data-phase="${p.id}" data-v="${p.status}:${p.truths}" title="${esc(`${p.label}${p.doc ? ` — ${p.doc}` : ''}\nDerived from ${p.p} claims: ${p.claims.join(', ')}\n${p.detail}${active.has(p.id) ? `\nnow ${active.get(p.id).verb} ${active.get(p.id).action} in ${active.get(p.id).case}` : ''}`)}"><span class="rail"><span class="pdot"></span></span><span class="pl">${esc(p.short || p.label)}</span><span class="ps">${active.has(p.id) ? `<span class="ps-live">${esc(active.get(p.id).verb)}</span>` : esc(p.source || word(p))}${p.invalidated ? `<span class="inv" title="a TRUE claim of this phase was invalidated ${p.invalidated}× by a revision"> ↺${p.invalidated}</span>` : ''}</span></button>`).join('')}</div></div>`;
   }).join('');
-  const t = ticket ? '' : `<div class="ticket" data-key="ticket" title="A ticket run (&quot;SDC, implement this ticket&quot;) would show ${TICKET.join(', ')} here. This store holds no ticket protocol case."><span class="stage-h"><span>Ticket</span></span><span class="muted">${TICKET.join(' → ')}</span> ${nr('no ticket protocol case in this store')}</div>`;
+  const t = absentStages().map((x) => {
+    if (cases.some((c) => new RegExp(x.protocol_pattern).test(c.case?.protocol || ''))) return '';
+    return `<div class="ticket" data-key="${esc(x.stage.toLowerCase())}" title="${esc(x.note)}"><span class="stage-h"><span>${esc(x.stage)}</span></span><span class="muted">${x.steps.map(esc).join(' → ')}</span> ${nr(`no ${x.protocol_pattern} protocol case in this store`)}</div>`;
+  }).join('');
   return `<div class="stages" data-key="stages">${stages}</div>${t}`;
 }
 

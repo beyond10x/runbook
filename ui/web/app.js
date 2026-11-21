@@ -1,6 +1,7 @@
 import {renderGraph} from './graph.js';
 import {renderExplain} from './explain.js';
 import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates, esc} from './lenses.js';
+import {setView} from './view.js';
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
@@ -644,6 +645,7 @@ function connect() {
   if (named) S.src = named.index;
   else if (!q0.has('source')) S.src = defaultSource(S.sources);
   S.meta = await api('/api/meta');
+  setView(await api('/api/view').catch(() => null));
   await loadTree();
   await loadRun();
   await loadLive();

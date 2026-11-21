@@ -10,6 +10,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFile, execFileSync, spawn} from 'node:child_process';
 import {principalOf} from './web/principal.js';
+import {toolOwners} from './web/view.js';
 
 const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent', 'terminable'];
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -93,7 +94,7 @@ function pendingApprovals(c) {
 // ---- scope-changing questions and the approval that now goes with answering them -----------------------
 // The interview's scope-changing questions are answered through the action `scope.answer`, which
 // needs the capability `scope.answer` (docs/trial-2.md, "Scope-changing answers"): a named principal
-// takes it with `sdc-drive approve --capability scope.answer --principal P --action scope.answer`, and
+// takes it with the driver's `approve --capability scope.answer --principal P --action scope.answer`, and
 // the program refuses an answer whose answered_by is empty or `non-interactive`.
 //
 // The order that works (observed with the driver on a stub store): the person's answer goes into
@@ -305,21 +306,20 @@ export function onPath(p, env = process.env) {
   }
   return false;
 }
-// What sdc-tool.sh asks for per subcommand (its `need` lines); every tool needs yq and jq.
-const TOOL_NEEDS = [
-  [/^(ess-gate|spec-validate|spec-compile|spec-synthesize|plan-cover|plan-cover-shape)$/, ['ess']],
-  [/^(conform-run|story-tests|story-tests-run|impl-gate)$/, ['ess', 'slot']],
-  [/^(stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status)$/, ['aep']],
-];
+// The programs the runbook's tools need come from its view (web/view.js, tool_owners): `always` for every act,
+// `driver` for an act that starts the driver, `continue` for the whole run, and per tool (the program a
+// binding runs, matched on its first argument) the programs of each subcommand. Without a view only the
+// driver and canon binaries are looked for.
 // kind: approve (with the action it may take), answer, context, check (a driver step of `action`) or
 // continue (scripts/run-trial.sh: the whole trial). Returns the missing programs, [] when all are there.
 export function missingPrograms(ctx, {kind, c = null, action = null}, env = process.env) {
-  const need = new Set(['yq']);
+  const owners = toolOwners();
+  const need = new Set(owners?.always || []);
   if (kind !== 'answer' && kind !== 'context') {
-    for (const p of ['jq', ctx.drive, ctx.canon]) if (p) need.add(p);
-    if (kind === 'continue') for (const p of ['ess', 'aep']) need.add(p);
+    for (const p of [...(owners?.driver || []), ctx.drive, ctx.canon]) if (p) need.add(p);
+    if (kind === 'continue') for (const p of owners?.continue || []) need.add(p);
     const argv = action && c?.bindings?.[action]?.argv;
-    if (Array.isArray(argv) && /sdc-tool\.sh$/.test(argv[0] || '')) for (const [re, ps] of TOOL_NEEDS) if (re.test(argv[1] || '')) ps.forEach((p) => need.add(p));
+    if (Array.isArray(argv)) for (const t of owners?.tools || []) if (new RegExp(t.argv0).test(argv[0] || '')) for (const sc of t.subcommands || []) if (new RegExp(sc.match).test(argv[1] || '')) (sc.needs || []).forEach((p) => need.add(p));
   }
   return [...need].filter((p) => !onPath(p, env));
 }
@@ -395,7 +395,7 @@ export async function act(ctx, b, emit) {
   return refuse(`unknown act ${b.kind}`);
 }
 
-// Records an approval the way the driver does: `sdc-drive approve --capability C --principal P
+// Records an approval the way the driver does: its `approve --capability C --principal P
 // [--action A]`, logged to ui-actions.jsonl. For a manual action the driver also takes the action.
 async function approve(ctx, c, b, refuse, emit) {
   const pending = pendingApprovals(c).find((n) => n.action === b.action);
@@ -428,7 +428,7 @@ async function approve(ctx, c, b, refuse, emit) {
     const kerr = k.exit === 0 ? null : (k.stderr.trim().split('\n').at(-1) || '').slice(0, 400);
     audit(ctx, {action: 'check', case: c.id, target: SCOPE_CHECK, argv: checkArgv, exit: k.exit, ...(kerr ? {error: kerr} : {})});
     ctx.refresh();
-    if (k.exit !== 0) return {ok: false, exit: k.exit, argv: checkArgv, output: (k.stdout + k.stderr).slice(-6000), error: `sdc-drive step ${SCOPE_CHECK} exited ${k.exit}: ${kerr}`};
+    if (k.exit !== 0) return {ok: false, exit: k.exit, argv: checkArgv, output: (k.stdout + k.stderr).slice(-6000), error: `${path.basename(ctx.drive)} step ${SCOPE_CHECK} exited ${k.exit}: ${kerr}`};
   }
   const at = now();
   const argv = [ctx.drive, '--canon', ctx.canon, '--case-dir', c.dir, 'approve', '--at', at, '--capability', cap, '--principal', ctx.principal, ...(bind.manual ? ['--action', b.action] : [])];
@@ -437,7 +437,7 @@ async function approve(ctx, c, b, refuse, emit) {
   audit(ctx, {action: 'approve', case: c.id, target: b.action, capability: cap, subject: bind.subject, revision: b.revision, argv, exit: r.exit, ...(errLine ? {error: errLine} : {})});
   ctx.refresh();
   emit('act', {kind: 'approve', case: c.id, action: b.action, exit: r.exit});
-  return {ok: r.exit === 0, exit: r.exit, argv, output: (r.stdout + r.stderr).slice(-6000), error: r.exit === 0 ? null : `sdc-drive approve exited ${r.exit}: ${errLine}`};
+  return {ok: r.exit === 0, exit: r.exit, argv, output: (r.stdout + r.stderr).slice(-6000), error: r.exit === 0 ? null : `${path.basename(ctx.drive)} approve exited ${r.exit}: ${errLine}`};
 }
 
 // ---- continue the run: scripts/run-trial.sh <run>, output streamed --------------------------------

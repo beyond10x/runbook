@@ -9,6 +9,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needDriver} from './need-run.mjs';
 import {missingPrograms, onPath} from '../decisions.mjs';
+import {useSdcView} from './sdc-view.mjs';
+useSdcView();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');

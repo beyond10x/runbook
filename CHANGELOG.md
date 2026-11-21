@@ -9,6 +9,9 @@ bare-version tags (`docs/releasing.md`).
 
 ### Added
 
+- The run inspector reads its runbook's phases, file kinds and tool owners from a view file
+  (`views/sdc.view.json`, format `runbook.view/1`; `--view FILE`, `--no-view`; `ui/README.md`), so it
+  renders a runbook that is not SDC (`story:ui-view-data-per-runbook`).
 - `change.implement` as one request (`story:implement-one-request`), behind the run setting
   `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
   `run-settings.jsonl`, a launch setting of `sdc-experiment`). `sdc-reply implement-run` assembles
