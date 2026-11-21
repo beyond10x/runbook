@@ -14,7 +14,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [acd6f12](#acd6f12) | pre-release | 2026-11-21 | `acd6f12` | `trial-3-batch-1` | 5 of 8 | haiku 1 of 2; mixed 1 of 2; strong 2 of 2; sonnet 0 of 1; opus 1 of 1 |
 | [8db4b93](#8db4b93) | pre-release | 2026-11-21 | `8db4b93` | `trial-3-main-1` | 0 of 4 | haiku 0 of 1; mixed 0 of 1; strong 0 of 2 |
 | [1001970](#1001970) | pre-release | 2026-11-21 | `1001970` | `trial-3-main-2` | 2 of 4 | haiku 0 of 1; mixed 0 of 1; strong 2 of 2 |
-| [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | no experiment yet | no run | - |
+| [0.1.0](#010) | release | 2026-11-21 | `4468bfd` | `baseline-0.1.0` | 6 of 9 | haiku 0 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.1.1](#011) | release | 2026-11-21 | not tagged yet | no experiment yet | no run | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
@@ -183,11 +183,24 @@ What changed:
 | `6ef7de6` | CHANGELOG.md, docs/releasing.md, a root Taskfile.yml, and one version for the repository (ui/package.json at 0.1.0) | no run metric affected |
 | `6bf251a` | the 0.1.0 changelog and release notes (docs/releases/0.1.0.md) | no run metric affected |
 
-Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+Tested by, primary metric and verdict:
+
+- [`baseline-0.1.0`](../experiments/baseline-0.1.0/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
+
+Clean passes of ended runs, all settings: **6 of 9** (`baseline-0.1.0`); rate: 67 %.
+
+| setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
+|---|---|---|---|---|---|---|---|
+| All Haiku | `baseline-0.1.0` | haiku | 0 of 3 | 0 % | - | - | trial-0.1.0-haiku-1 (stopped: writer_spent in IDEA-1.list.shared), trial-0.1.0-haiku-2 (stopped: decision_not_takeable in IDEA-1.list.add), trial-0.1.0-haiku-3 (stopped: writer_spent in IDEA-1.todo.spec) |
+| Sonnet work, Haiku decider | `baseline-0.1.0` | mixed | 3 of 3 | 100 % | 2.55 [2.50, 3.88] (3) | 1489 [1480, 2091] (3) | **trial-0.1.0-mixed-1**, **trial-0.1.0-mixed-2**, **trial-0.1.0-mixed-3** |
+| Sonnet work, Opus decider | `baseline-0.1.0` | strong | 3 of 3 | 100 % | 5.50 [5.43, 6.19] (3) | 1247 [1075, 1430] (3) | **trial-0.1.0-strong-1**, **trial-0.1.0-strong-2**, **trial-0.1.0-strong-3** |
 
 Limits of this measurement:
 
-- No run has used this tree: the baseline on it (n of at least 3 per setting) is the first step of the improvement loop.
+- The baseline on this tree (3 runs per setting) was started by a scheduler script and not by sdc-experiment run; the file-change recorder was built once by hand before the later runs.
+- `baseline-0.1.0`, known confound `canon`: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins
+- `baseline-0.1.0`, known confound `launcher`: the runs were started by a scheduler script that copies the launcher's environment (env -i, the record's settings, no SDC_LLM_EFFORT variable, so the default efforts), not by sdc-experiment run, so they have no experiment.json; the first scheduler counted its own unit and ran two runs at once until 12:48Z
+- `baseline-0.1.0`, known confound `recorder`: trial-0.1.0-strong-1 and trial-0.1.0-mixed-1 waited about 2 minutes for the pool before their first event (the recorder's release build); the wall times in the report start at the first event and do not contain it
 
 ## 0.1.1
 
