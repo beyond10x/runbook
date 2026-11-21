@@ -1,0 +1,18 @@
+{
+  "name": "runbook",
+  "displayName": "Runbook",
+  "description": "Skills for building, recording and hardening a runbook: a protocol-driven workflow whose next step a program decides from recorded facts.",
+  "version": "0.1.4",
+  "author": {
+    "name": "Beyond10x"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/beyond10x/runbook",
+  "repository": "https://github.com/beyond10x/runbook",
+  "keywords": [
+    "runbook",
+    "protocol",
+    "workflow",
+    "agents"
+  ]
+}

@@ -7,6 +7,14 @@ The crates are `publish = false`; releases are source releases at bare-version t
 
 ## [Unreleased]
 
+### Added
+
+- The `runbook` plugin (`plugin/`, `.claude-plugin/marketplace.json`): skills `workflow-builder`
+  (moved from `skills/`), `harden` and `record`, for Claude Code and Codex. Its manifests carry the
+  repository version, which `task release:check` compares; `driver/tests/plugin.rs` checks the
+  versions, the marketplace entry and that every repository path a `SKILL.md` names exists
+  (`story:runbook-plugin`).
+
 ## [0.1.4] - 2026-11-21
 
 An observation, data and docs: the free-running agent comparison (its registered hypothesis

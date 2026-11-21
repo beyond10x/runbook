@@ -65,6 +65,11 @@ scripts/evaluate-cases.sh
 (cd watch && cargo test)
 ```
 
+## Plugin
+
+The repository carries a Claude Code and Codex plugin, `runbook`, with skills for building,
+recording and hardening a runbook. Install and skills: [plugin/README.md](plugin/README.md).
+
 ## Dry run
 
 Stub idea, stub executors write the artifacts, every LLM command is printed and none is run,

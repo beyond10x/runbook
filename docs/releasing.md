@@ -11,7 +11,9 @@ One version for the repository, written in these files and nowhere else:
 
 - `driver/Cargo.toml` (`sdc-drive`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
   (`sdc-goals`), and the `sdc-*` package entry of each crate's `Cargo.lock`;
-- `ui/package.json` and the root entry of `ui/package-lock.json`.
+- `ui/package.json` and the root entry of `ui/package-lock.json`;
+- `plugin/.claude-plugin/plugin.json` and `plugin/.codex-plugin/plugin.json` (the `runbook` plugin;
+  `.claude-plugin/marketplace.json` carries no version).
 
 `task release:check VERSION=<version>` fails when any of these differs from `<version>`, when
 `CHANGELOG.md` has no `## [<version>] - <date>` entry, when `docs/releases/<version>.md` is missing,

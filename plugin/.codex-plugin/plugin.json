@@ -1,0 +1,21 @@
+{
+  "name": "runbook",
+  "version": "0.1.4",
+  "description": "Skills for building, recording and hardening a runbook: a protocol-driven workflow whose next step a program decides from recorded facts.",
+  "author": {
+    "name": "Beyond10x"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/beyond10x/runbook",
+  "repository": "https://github.com/beyond10x/runbook",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Runbook",
+    "shortDescription": "Build, record and harden a protocol-driven runbook.",
+    "longDescription": "Skills for a runbook, a fixed and checked way to handle a case: build a protocol-driven workflow to its first clean pass, turn a manual session into a draft runbook, and check and harden a protocol with route checks, simulation and measured experiments.",
+    "developerName": "Beyond10x",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use the workflow-builder skill to build a runbook for this case."
+  }
+}
