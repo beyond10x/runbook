@@ -142,7 +142,8 @@ entries:
   date: 2026-11-21
   tree: 4468bfd60e9665c17d57d7ffbbc8e7811d2b4a84
   tree_note: tag 0.1.0 at main 4468bfd, which holds main 8db4b93, fix/review-reply and the merges below
-  experiments: []
+  experiments:
+  - baseline-0.1.0
   changes:
   - commit: f747085
     line: a hermetic claude-cli adapter with an explicit default effort per node class
@@ -187,7 +188,7 @@ entries:
     line: the 0.1.0 changelog and release notes (docs/releases/0.1.0.md)
     effect: none
   limits:
-  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is the first step of the improvement loop.'
+  - 'The baseline on this tree (3 runs per setting) was started by a scheduler script and not by sdc-experiment run; the file-change recorder was built once by hand before the later runs.'
 - id: 0.1.1
   kind: release
   version: 0.1.1
