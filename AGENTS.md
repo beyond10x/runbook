@@ -17,7 +17,8 @@
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
-- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`); bindings in `driver/examples/sdc/`.
+- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`); bindings in `driver/examples/sdc/`.
+- `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`.
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `decision/` decision-contract examples (`docs/decisions.md`).
@@ -63,6 +64,12 @@
   before the fixes are made in one batch. A forced run (`forced N` in `status.json` and the
   closed line) is evidence for defects and never counts as an end-to-end pass; the pass is a
   later run without the flag (the operator, 2026-11-21).
+- A real run belongs to an experiment record `experiments/<id>.yaml` (`docs/workflow-metrics.md`
+  § 7), whose report and `experiments/INDEX.md` account for it. The operator, 2026-11-21: "make
+  sure to organize these trials in a somewhat scientific and organized, manageable and scaling
+  manner. It shouldn't end up messy."
+- No run is started by hand: `sdc-experiment run <id>` starts them, on the record's commit, with the
+  record's settings (the operator, 2026-11-21, same words). Stop one with `sdc-experiment stop`.
 
 ## Commits
 

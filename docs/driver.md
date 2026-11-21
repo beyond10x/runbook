@@ -72,6 +72,8 @@ validate, waves, list, moves) in the case tree's own planning store. Run:
 Canon: no `canon` on PATH (`command not found`). `../canon/target/debug/canon`
 0.9.0 exists, and every run below used it. That answers intake gap G7.
 
+Per-node, per-edge and per-run metrics of a recorded run (`sdc-run-metrics`, `sdc-experiment`): `docs/workflow-metrics.md`.
+
 ## The loop
 
 Each step does the following, with nothing else as input:

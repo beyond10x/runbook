@@ -1,0 +1,83 @@
+format: sdc.experiment/1
+id: effort-implement-levels
+kind: prospective
+status: planned
+created: 2026-11-21
+title: Reasoning effort low, medium, high on the implement class, everything else fixed
+purpose: Whether more reasoning effort on the implement class lowers how often change.implement is sent back, three runs per level, as the operator described.
+hypothesis: With effort high instead of low on the implement class, the looping factor of story/change.implement falls by at least 0.5.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: null
+requires:
+- feat/effort-per-class on main (SDC_LLM_EFFORT_<CLASS>; llm-calls.jsonl `effort`; run-settings.jsonl `efforts`); then set tree_commit to that main commit and commit the record before the launch
+target:
+  kind: node
+  name: story/change.implement
+variable: efforts.implement.effort
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-sonnet-5-5
+  decider.kind: haiku
+  decider.model: claude-opus-5-5
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  efforts.writer.effort: high
+  efforts.review.effort: high
+  efforts.other.effort: high
+  efforts.decider.effort: xhigh
+  adapter: metaharness
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  autonomy: A5
+launch:
+  max_parallel: 3
+  stagger_s: 60
+  principal: agent:sdc-experiment
+procedure:
+- sdc-experiment run effort-implement-levels, in the background; it builds tree_commit once and starts low.1, medium.1, high.1, low.2, ... at most 3 at a time.
+- sdc-experiment status effort-implement-levels while it runs; sdc-experiment report effort-implement-levels when every run has ended, then commit the record, its report and summaries, and INDEX.md.
+- If the verdict is inconclusive with overlapping ranges, copy this record to effort-implement-levels-2 with the same settings and run it once more, as the operator described (the same thing three times per level, then again).
+variants:
+- id: low
+  settings:
+    efforts.implement.effort: low
+  runs: []
+- id: medium
+  settings:
+    efforts.implement.effort: medium
+  runs: []
+- id: high
+  settings:
+    efforts.implement.effort: high
+  runs: []
+baseline: low
+treatment: high
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+  metric: node.story/change.implement.looping_factor
+  direction: decrease
+  min_effect: 0.5
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+- metric: node.story/change.implement.cost_usd
+  worse: increase
+  max_worsening_ratio: 1.0
+- metric: run.cost_usd
+  worse: increase
+  max_worsening_ratio: 0.5
+decision_rule:
+  rule: complete-separation
+  text: held when low and high each have 3 ended runs that took change.implement, every high run's looping factor lies below every low run's (exact one-sided p = 1/20 = 0.05) and the medians differ by at least 0.5; contradicted when the ranges separate the other way or by less than 0.5; inconclusive otherwise. Medium is reported beside them for the shape of the curve. Adopt high on the implement class only when held and every guard holds.
+adoption:
+  decision: pending
+  commit: null
