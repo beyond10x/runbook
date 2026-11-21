@@ -17,13 +17,8 @@ protocol, `sdc.bugfix`, fixes one bug, red first
 
 ## The name
 
-The repository never spells the abbreviation out. Its README calls the project "a software
-delivery cycle" ([`README.md:3`](https://github.com/beyond10x/sdc/blob/0.1.1/README.md#L3)); the
-root protocol says it takes an idea "through the software development cycle"
-([`protocol/sdc.protocol.yaml:6`](https://github.com/beyond10x/sdc/blob/0.1.1/protocol/sdc.protocol.yaml#L6)).
-The project's name is postponed (`story:project-rename`,
-[`AGENTS.md:95`](https://github.com/beyond10x/sdc/blob/0.1.1/AGENTS.md#L95)), so SDC is a working
-name.
+SDC stands for software delivery cycle
+([`README.md:3`](https://github.com/beyond10x/sdc/blob/0.1.1/README.md#L3)).
 
 ## The LLM is not the runtime
 
