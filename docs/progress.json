@@ -2958,7 +2958,7 @@
         "min_effect": 0.3
       },
       "purpose": "Whether taking context.approve, roadmap.approve and release.publish by rule:autopilot when the program check guarding each passed at the exact revision lowers the Opus decider's cost per run without losing a clean pass or letting a merge or review rejection through. The mixed setting is the sibling record decider-program-approvals-mixed (one variable per record).",
-      "tree": "fe1c803",
+      "tree": "f2c503b",
       "variants": [
         {
           "clean_passes": 0,
@@ -3006,7 +3006,7 @@
         "min_effect": 60.0
       },
       "purpose": "Whether taking context.approve, roadmap.approve and release.publish by rule:autopilot when the program check guarding each passed at the exact revision removes decider time from the mixed setting's runs without losing a clean pass or letting a merge or review rejection through. The strong setting is the sibling record decider-program-approvals (one variable per record).",
-      "tree": "fe1c803",
+      "tree": "f2c503b",
       "variants": [
         {
           "clean_passes": 0,
@@ -3435,11 +3435,11 @@
     },
     {
       "path": "experiments/decider-program-approvals-mixed.yaml",
-      "sha256": "514e067f24b221f92572f779668e30e101e8c2e0e3cd3564007683ec641f4e7a"
+      "sha256": "7f338db38c43ddcb349f32f4fca70ace54e4faf1fba59d26fb588fcbd516c76b"
     },
     {
       "path": "experiments/decider-program-approvals.yaml",
-      "sha256": "22ef2607898271ecb015afdd55bf884ca91bc05a7de050d8fe424a17c603ae3d"
+      "sha256": "fa85b4dbaf37f4991001d57fe0de6abe0eadd298c24bcce9010b259bb96c6816"
     },
     {
       "path": "experiments/effort-decider-mixed.yaml",

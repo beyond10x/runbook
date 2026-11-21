@@ -11,7 +11,7 @@ inputs:
   kind: idea
   text: A to-do list web app for me and my partner that also works on the train without a connection
   sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
-tree_commit: fe1c803416e84bfeddf5f4f57e93164d5b39854b
+tree_commit: f2c503bc03d2d51bf563847efccff7a254893e97
 target:
   kind: run
   name: run.decider_s

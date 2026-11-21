@@ -6,7 +6,7 @@ Written by `sdc-experiment report decider-program-approvals-mixed` from `experim
 - Purpose: Whether taking context.approve, roadmap.approve and release.publish by rule:autopilot when the program check guarding each passed at the exact revision removes decider time from the mixed setting's runs without losing a clean pass or letting a merge or review rejection through. The strong setting is the sibling record decider-program-approvals (one variable per record).
 - Hypothesis: With SDC_RULE_APPROVALS on instead of off, run.decider_s of the mixed setting falls by at least 60 s per run.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
-- Tree: `fe1c803416e84bfeddf5f4f57e93164d5b39854b`
+- Tree: `f2c503bc03d2d51bf563847efccff7a254893e97`
 - Runs per variant: 3; pass rule: clean-delivery (closed, delivered, no reopen, forced step or unstick).
 - Decision rule (complete-separation): held when off and on each have 3 ended runs, every on run's run.decider_s lies below every off run's (exact one-sided p = 1/20 = 0.05) and the medians differ by at least 60 s; contradicted when the ranges separate the other way or by less than 60 s; inconclusive otherwise. Adopt the rule as the default under A5 only when held, every guard holds and the sibling record decider-program-approvals does not contradict it; a refuted or inconclusive result is published as such.
 
