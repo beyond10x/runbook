@@ -58,6 +58,12 @@ records with `sdc-experiment run <id>`
 
 ```console
 task docs:generate   # write website/data/protocols/ from the protocols
-task docs:build      # build the site into website/build
-task docs:test       # the smoke test: every page, both themes, two widths, axe
+task docs:build      # build the site into website/build, and the fixture build
+task docs:test       # the smoke test: every page, both themes, two widths, axe, links
+task docs            # all of it, after checking the protocol data is current
 ```
+
+Every protocol page, the flow and the index are generated from the protocol YAML and its bindings
+by `sdc-protocol-site` (`driver/src/bin/sdc-protocol-site.rs`); `scripts/check-bindings.sh` fails
+when the committed data is stale. The evaluation and the timeline read only committed files:
+`docs/progress.json`, `experiments/` and their timelines.
