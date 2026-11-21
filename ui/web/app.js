@@ -9,10 +9,12 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
+import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load
-const PHONE = matchMedia('(max-width: 900px)');
+// the phone layout's query, defined once in index.html (html.phone)
+const PHONE = matchMedia(window.SDC_PHONE);
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
@@ -84,20 +86,118 @@ function pickFollow() {
 // ---- render, once per animation frame -------------------------------------------------------------
 let raf = 0;
 // stub, fixture and dry runs (server.mjs programOf): listed apart, labelled, never the default
-const isStub = (s) => s?.program?.kind === 'stub';
 const byNewest = (a, b) => (b.lastWrite || 0) - (a.lastWrite || 0);
 const defaultSource = (list) => list.filter((s) => !isStub(s)).sort(byNewest)[0]?.index ?? 0;
 const schedule = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; render(); }); };
 
+// ---- the run picker (decision D-009): a button, a search field and the runs as a listbox -------------
+// The search field keeps the focus while the arrow keys move through the rows (aria-activedescendant);
+// Enter opens the row's run, Escape closes, a click outside or a focus that leaves the panel closes.
+const PK = {open: false, q: '', active: null, stubs: false, exp: {}};
+const pkGroups = () => pickerGroups(S.sources, PK.q, PK.stubs, {cur: S.src, expOpen: PK.exp});
+const pkActive = () => (PK.active ? document.getElementById(PK.active) : null);
+const runNow = () => Date.now() + S.offset;
+function renderPicker(src = S.sources[S.src]) {
+  const btn = $('#runpick');
+  patch(btn, renderPickerButton(src));
+  const title = pickerTitle(src);
+  if (btn.title !== title) btn.title = title;
+  btn.setAttribute('aria-expanded', PK.open ? 'true' : 'false');
+  $('#pk-panel').hidden = !PK.open;
+  document.documentElement.classList.toggle('pk-open', PK.open);
+  if (!PK.open) return;
+  const g = pkGroups();
+  const items = visibleItems(g);
+  if (!items.some((x) => x.id === PK.active)) PK.active = items.find((x) => x.index === S.src)?.id ?? items[0]?.id ?? null;
+  const out = renderPickerList(g, {cur: S.src, active: PK.active, now: runNow()});
+  patch($('#pk-list'), out.list);
+  patch($('#pk-none'), out.none);
+  const t = $('#pk-stubs');
+  t.hidden = !out.toggle;
+  if (t.textContent !== out.toggle) t.textContent = out.toggle;
+  t.setAttribute('aria-expanded', g.stubsOpen ? 'true' : 'false');
+  $('#pk-q').setAttribute('aria-activedescendant', PK.active || '');
+}
+async function openPicker() {
+  // the stub group opens with the panel when the run on screen is one of them
+  PK.open = true; PK.q = ''; PK.active = null; PK.stubs = isStub(S.sources[S.src]);
+  $('#pk-q').value = '';
+  renderPicker();
+  $('#pk-q').focus();
+  // the rows' cost, calls and times as they are now
+  S.sources = await api('/api/sources').catch(() => S.sources);
+  if (PK.open) { renderPicker(); pkActive()?.scrollIntoView({block: 'nearest'}); }
+}
+function closePicker(focusButton = true) {
+  if (!PK.open) return;
+  PK.open = false;
+  renderPicker();
+  if (focusButton) $('#runpick').focus();
+}
+function moveActive(d) {
+  const items = visibleItems(pkGroups());
+  if (!items.length) return;
+  const i = items.findIndex((x) => x.id === PK.active);
+  const k = d === 'first' ? 0 : d === 'last' ? items.length - 1 : Math.max(0, Math.min(items.length - 1, (i < 0 ? -1 : i) + d));
+  PK.active = items[k].id;
+  renderPicker();
+  pkActive()?.scrollIntoView({block: 'nearest'});
+}
+// an experiment's head opens or closes its group; the keyboard stays on the head
+function toggleExp(id) {
+  const x = pkGroups().groups.find((y) => y.exp?.id === id);
+  if (!x) return;
+  PK.exp[id] = !x.open;
+  PK.active = x.hid;
+  renderPicker();
+  pkActive()?.scrollIntoView({block: 'nearest'});
+}
+// open a run: the page reloads its data; the URL names the run (source index and name), so a link opens it
+async function selectSource(i) {
+  closePicker();
+  if (i === S.src || !S.sources[i]) return;
+  S.src = i; S.sel = null; S.node = null; S.atSeq = null; S.follow = true;
+  const q = new URLSearchParams(location.search);
+  for (const k of ['case', 'node', 'at']) q.delete(k);
+  q.set('source', String(i));
+  q.set('run', S.sources[i].name);
+  history.replaceState(null, '', `${location.pathname}?${q}`);
+  await loadTree(); await loadRun(); await loadLive(); pickFollow(); render();
+}
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  if (t.closest('#runpick')) { if (PK.open) closePicker(); else openPicker(); return; }
+  if (t.closest('#pk-close')) { closePicker(); return; }
+  if (t.closest('#pk-stubs')) { PK.stubs = !PK.stubs; renderPicker(); $('#pk-q').focus(); return; }
+  const e = t.closest('[data-exp]');
+  if (e) { toggleExp(e.dataset.exp); $('#pk-q').focus(); return; }
+  const o = t.closest('[data-pick]');
+  if (o) { selectSource(Number(o.dataset.pick)); return; }
+  if (PK.open && !t.closest('#picker')) closePicker(false);
+});
+document.addEventListener('focusin', (ev) => { if (PK.open && !ev.target.closest('#picker')) closePicker(false); });
+document.addEventListener('input', (ev) => { if (ev.target.id === 'pk-q') { PK.q = ev.target.value; PK.active = null; renderPicker(); $('#pk-list').scrollTop = 0; } });
+document.addEventListener('keydown', (ev) => {
+  if (!PK.open) return;
+  if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); closePicker(); return; }
+  if (ev.target.id !== 'pk-q') return;
+  const k = {ArrowDown: 1, ArrowUp: -1, PageDown: 8, PageUp: -8}[ev.key];
+  if (k) { ev.preventDefault(); moveActive(k); return; }
+  if ((ev.key === 'Home' || ev.key === 'End') && ev.ctrlKey) { ev.preventDefault(); moveActive(ev.key === 'Home' ? 'first' : 'last'); return; }
+  if (ev.key === 'Enter' && PK.active) {
+    ev.preventDefault();
+    const el = pkActive();
+    if (el?.dataset.exp) toggleExp(el.dataset.exp); else if (el?.dataset.pick) selectSource(Number(el.dataset.pick));
+  }
+}, true);
+
 function render() {
   const src = S.sources[S.src];
-  // real runs first, newest first; stub and fixture runs in a group of their own below, each labelled
-  const opt = (s) => `<option value="${s.index}"${s.index === S.src ? ' selected' : ''}>${esc(s.name)}${isStub(s) ? ' · stub' : ''}${s.stopped ? ' · stopped' : s.exists ? '' : ' · waiting'}</option>`;
-  const stubs = S.sources.filter(isStub).sort(byNewest);
-  patch($('#source'), S.sources.filter((s) => !isStub(s)).sort(byNewest).map(opt).join('') + (stubs.length ? `<optgroup label="Stub and fixture runs (no model calls)">${stubs.map(opt).join('')}</optgroup>` : ''));
+  // the run picker (D-009): the header button names the run and its state; the open panel lists the runs
+  renderPicker(src);
   // who this run is: an end-to-end test with a stand-in, autopilot; the graph legend follows
   const set = S.run?.settings;
-  patch($('#runmark'), [isStub(src) ? `<span class="rm rm-stub" title="${esc(src.program.why)}">${esc(STUB_NOTE)}</span>` : '', standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
+  patch($('#runmark'), [isStub(src) ? `<span class="rm rm-stub" title="${esc(`${STUB_NOTE} (${src.program.why})`)}">${esc(STUB_NOTE)}</span>` : '', standIn(set) ? '<span class="rm rm-standin" title="run-settings.jsonl: stand_in true">end-to-end test with a stand-in</span>' : '', autopilot(set) ? '<span class="rm rm-auto" title="run-settings.jsonl: autonomy A5, the decider or a rule holds every decision">autopilot</span>' : ''].join(''));
   const lg = $('#lg-person');
   const lgText = autopilot(set) ? 'decider (on the operator’s behalf)' : 'person';
   if (lg && lg.textContent !== lgText) lg.innerHTML = `<i class="lg c-person"></i>${lgText}`;
@@ -105,7 +205,7 @@ function render() {
   $('#reads').checked = S.showReads;
   const live = $('#live');
   live.className = `live ${S.live}`;
-  patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? `<span class="lt">updated ${S.lastChange.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}</span>` : ''}`);
+  patch(live, `<i></i><span>${S.live === 'on' ? 'Live' : S.live === 'connecting' ? 'Connecting' : 'Reconnecting'}</span>${S.live === 'on' && S.lastChange ? ((t) => `<span class="lt" title="${t}">${t}</span>`)(`updated ${S.lastChange.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'})}`) : ''}`);
   renderDecisions();
   const cases = ordered();
   if (!cases.length) {
@@ -324,6 +424,9 @@ function tickClocks() {
   const now = serverNow();
   for (const el of document.querySelectorAll('[data-since]')) { const v = fmtDur(now - Number(el.dataset.since)); if (el.textContent !== v) el.textContent = v; }
   for (const el of document.querySelectorAll('[data-ago]')) { const v = fmtAgo(now - Number(el.dataset.ago)); if (el.textContent !== v) el.textContent = v; }
+  // the run picker's rows tick on the clock of now, not on a stopped run's frozen one
+  for (const el of document.querySelectorAll('[data-run-since]')) { const v = fmtDur(runNow() - Number(el.dataset.runSince)); if (el.textContent !== v) el.textContent = v; }
+  for (const el of document.querySelectorAll('[data-run-ago]')) { const v = fmtAgo(runNow() - Number(el.dataset.runAgo)); if (el.textContent !== v) el.textContent = v; }
   setTimeout(tickClocks, 1000 - (serverNow() % 1000) + 5);
 }
 tickClocks();
@@ -435,7 +538,6 @@ document.addEventListener('input', (ev) => {
 });
 document.addEventListener('change', async (ev) => {
   const id = ev.target.id;
-  if (id === 'source') { S.src = Number(ev.target.value); S.sel = null; S.node = null; S.atSeq = null; S.follow = true; await loadTree(); await loadRun(); await loadLive(); pickFollow(); render(); }
   if (id === 'scopeCase') { S.scopeCase = ev.target.checked; render(); }
   if (id === 'follow') { S.follow = ev.target.checked; if (S.follow) pickFollow(); render(); }
   if (id === 'reads') { S.showReads = ev.target.checked; render(); }
@@ -473,17 +575,19 @@ let resizeT = 0;
 window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => S.fit && render(), 120); });
 
 // ---- live: coalesce change bursts into one fetch and one frame --------------------------------------
-const pending = {cases: new Set(), run: false, full: false, live: false};
+const pending = {cases: new Set(), run: false, full: false, live: false, sources: false};
 let inflight = false;
 async function drain() {
   if (inflight) return;
   inflight = true;
   try {
-    while (pending.full || pending.cases.size || pending.run || pending.live) {
+    while (pending.full || pending.cases.size || pending.run || pending.live || pending.sources) {
       const full = pending.full || !S.cases.size;
       const cases = Array.from(pending.cases);
-      const run = pending.run, live = pending.live || full;
-      pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false;
+      const run = pending.run, live = pending.live || full, srcs = pending.sources || full;
+      pending.full = false; pending.cases.clear(); pending.run = false; pending.live = false; pending.sources = false;
+      // the run list (states, rows) with the rest, so one render shows both
+      if (srcs) S.sources = await api('/api/sources').catch(() => S.sources);
       if (full || cases.length) await loadTree(full ? null : cases);
       if (run) await loadRun();
       if (live) await loadLive();
@@ -528,14 +632,17 @@ function connect() {
     S.proc.running = false; S.proc.exit = d.exit;
     pending.full = true; drain();
   });
-  // a run that appeared under --runs, or a run stopped or resumed: the store selector follows
-  es.addEventListener('sources', async () => { S.sources = await api('/api/sources').catch(() => S.sources); schedule(); });
+  // a run that appeared under --runs, a run stopped or resumed, or one that started or ended: the run picker follows
+  es.addEventListener('sources', () => { pending.sources = true; drain(); });
   es.addEventListener('act', (m) => { if (JSON.parse(m.data).source === S.src) { pending.run = true; drain(); } });
 }
 
 (async () => {
   S.sources = await api('/api/sources');
-  if (!q0.has('source')) S.src = defaultSource(S.sources);
+  // ?run=<name> names the run (it survives a server that lists the runs in another order), else ?source=<index>
+  const named = q0.get('run') ? S.sources.find((s) => s.name === q0.get('run')) : null;
+  if (named) S.src = named.index;
+  else if (!q0.has('source')) S.src = defaultSource(S.sources);
   S.meta = await api('/api/meta');
   await loadTree();
   await loadRun();

@@ -1,0 +1,6 @@
+title: A line without = is accepted
+text: >-
+  kvparse::parse_line("timeout") returns Ok(("timeout", "")) and parse_all("timeout\n") succeeds,
+  so a config line that lost its value is silently taken as an empty value. Expected: a line
+  without = is refused with Err(ParseError::MissingSeparator), as the documentation says.
+story: story:kvparse-missing-separator

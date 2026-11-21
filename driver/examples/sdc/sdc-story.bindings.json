@@ -6,7 +6,7 @@
     "requirements": "requirements.yaml"
   },
   "$independence": {
-    "reviewer-stub": [
+    "llm-review": [
       "different_principal"
     ]
   },
@@ -81,16 +81,31 @@
   },
   "change.review": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
-      "review-change"
+      "{dir}/tools/llm-node.sh",
+      "change.review"
     ],
     "produces": "code_review",
     "subject": "change",
-    "producer": "reviewer-stub",
+    "producer": "llm-review",
     "results": {
       "0": "approved",
-      "*": "rejected"
-    }
+      "1": "rejected"
+    },
+    "llm": {
+      "model": "claude-haiku-5-5",
+      "max_turns": 30,
+      "max_budget_usd": 1,
+      "operations": [
+        "dir.list",
+        "file.read",
+        "search"
+      ],
+      "stub": [
+        "review-change"
+      ]
+    },
+    "max_runs": 3,
+    "timeout_s": 900
   },
   "merge.approve": {
     "manual": true,

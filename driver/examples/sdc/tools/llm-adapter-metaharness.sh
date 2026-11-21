@@ -5,7 +5,7 @@
 #
 #   llm-adapter-<name>.sh <request.json>
 #
-# request: {model, prompt_file, cwd, operations: [metaharness neutral ops], max_turns,
+# request: {model, effort (optional), prompt_file, cwd, operations: [metaharness neutral ops], max_turns,
 # max_budget_usd, record_dir, node, attempt}. The adapter runs the session with cwd = request.cwd,
 # writes everything it observed under record_dir (argv.json, events.jsonl, transcripts/) and
 # prints one response JSON on stdout: {adapter, model, exit, duration_ms, cost_usd, num_turns,
@@ -35,6 +35,7 @@ rm -f "$rec/frame.body.json"
 argv=("${METAHARNESS:-metaharness}" run claude --frame "$rec/frame.json" --decisions frame
   --cwd "$(r .cwd)" --scratch-cwd --model "$(r .model)" --max-turns "$(r .max_turns)"
   --max-budget-usd "$(r .max_budget_usd)" --retain-dir "$rec/transcripts")
+[[ -n $(r '.effort // ""') ]] && argv+=(--effort "$(r .effort)")
 if [[ -n ${SDC_LLM_ENDPOINT:-} ]]; then
   argv+=(--model-endpoint "$SDC_LLM_ENDPOINT" --credentials none)
 fi
@@ -46,10 +47,10 @@ start=$(date +%s%3N)
 code=$?
 end=$(date +%s%3N)
 
-jq -s --arg model "$(r .model)" --argjson code "$code" --argjson ms "$((end - start))" '
+jq -s --arg model "$(r .model)" --arg effort "$(r '.effort // "default"')" --argjson code "$code" --argjson ms "$((end - start))" '
   (map(select(.event == "session.ended")) | last) as $e
   | (map(select(.event == "tool.decided")) | map({key: .call_id, value: .}) | from_entries) as $dec
-  | {adapter: "metaharness", model: $model, exit: $code, duration_ms: ($e.duration_ms // $ms),
+  | {adapter: "metaharness", model: $model, effort: $effort, exit: $code, duration_ms: ($e.duration_ms // $ms),
      wall_ms: $ms, cost_usd: $e.total_cost_usd, num_turns: $e.num_turns, usage: $e.usage,
      observed_models: $e.observed_models, is_error: $e.is_error, subtype: $e.subtype,
      terminal_reason: $e.terminal_reason, api_error_status: $e.api_error_status,
@@ -58,7 +59,7 @@ jq -s --arg model "$(r .model)" --argjson code "$code" --argjson ms "$((end - st
        | {name, operations, input: (.input | tostring | .[0:300]),
           decision: ($dec[.call_id].decision // $dec[.call_id].verdict // "allowed")}],
      stream_end: (map(select(.event == "stream.closed")) | last | {reason, process})}' \
-  "$rec/events.jsonl" 2>/dev/null || jq -n --arg model "$(r .model)" --argjson code "$code" \
-  --argjson ms "$((end - start))" '{adapter: "metaharness", model: $model, exit: $code, wall_ms: $ms,
+  "$rec/events.jsonl" 2>/dev/null || jq -n --arg model "$(r .model)" --arg effort "$(r '.effort // "default"')" --argjson code "$code" \
+  --argjson ms "$((end - start))" '{adapter: "metaharness", model: $model, effort: $effort, exit: $code, wall_ms: $ms,
   error: "no readable event stream"}'
 exit $code

@@ -112,8 +112,10 @@ enum Cmd {
     /// revision) for an outcome that requires that decision alone. Canon admits such a decision
     /// from any principal in any state, so the driver admits it only directly after the case's
     /// last step denied `--after-denial` (`approve --deny`): a refused release is withheld
-    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied). The reasons file
-    /// is the decision's log blob. Refused before anything is written otherwise.
+    /// (`explicitly_withheld` for `withheld` after `release.approve` was denied); or directly
+    /// after it recorded a `rejected` result of an action that requires that capability (a story
+    /// dropped after its merge was rejected, `change.merge`). The reasons file is the decision's
+    /// log blob. Refused before anything is written otherwise.
     Decide {
         #[arg(long)]
         at: String,
@@ -129,11 +131,36 @@ enum Cmd {
         reasons: PathBuf,
     },
     /// Terminate the case through an outcome; Canon refuses one that is not legitimate.
+    /// `--principal` names who closed it on the `terminated` event (`rule:autopilot` for a close
+    /// the outcome's claims settle alone); without it the event names none.
     Close {
         #[arg(long)]
         at: String,
         #[arg(long)]
         outcome: String,
+        #[arg(long)]
+        principal: Option<String>,
+    },
+    /// One more allowance of `max_runs` for the writer `--action` (keep-going, D142): records
+    /// `allowance_granted` {action, principal}; the writer's runs count from it, and a
+    /// `not_called` run before it no longer keeps the writer back (`useful`). Refused for an
+    /// action that is not a bound writer of the case.
+    Allow {
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        action: String,
+        #[arg(long)]
+        principal: String,
+    },
+    /// Mark a reopen in every case of the tree (event `reopened`): a step that ran at a case's
+    /// current snapshot but recorded nothing (an observation whose reply stayed invalid, a writer
+    /// that was not called) may run once more on the unchanged state. Writes nothing else.
+    Reopen {
+        #[arg(long)]
+        at: String,
+        #[arg(long)]
+        principal: Option<String>,
     },
     /// Re-run `canon evaluate` on every case of the tree as last evaluated and compare the state
     /// and decision digests with the ones the log recorded.
@@ -553,31 +580,58 @@ fn program_error(exit: &Value) -> bool {
     exit == "126" || exit == "127" || exit == "75"
 }
 
+/// A case's bindings with the run's changed conditions (`SDC_CONDITIONS`, an `sdc.conditions/1`
+/// file of `sdc-replay prepare`): per action `max_runs`, `timeout_s`, and `wrap`, an argv put
+/// before the binding's (docs/driver.md, "Recorded replay").
+fn bindings_of(dir: &Path) -> R<Value> {
+    let mut b = read_json(&dir.join("bindings.json"))?;
+    let Ok(p) = std::env::var("SDC_CONDITIONS") else { return Ok(b) };
+    let c = read_json(Path::new(&p))?;
+    for (a, o) in c["actions"].as_object().into_iter().flatten() {
+        let Some(binding) = b.get_mut(a).and_then(|x| x.as_object_mut()) else { continue };
+        for k in ["max_runs", "timeout_s"] {
+            if let Some(v) = o.get(k) {
+                binding.insert(k.into(), v.clone());
+            }
+        }
+        if let (Some(w), Some(argv)) = (o["wrap"].as_array(), binding.get("argv").and_then(|x| x.as_array()).cloned()) {
+            binding.insert("argv".into(), Value::Array(w.iter().cloned().chain(argv).collect()));
+        }
+    }
+    Ok(b)
+}
+
 /// The index in `evs` of the last arrival: a `revised` event that no agent action of this case
 /// produced (the case opening, a person's edit in `work/`, a person's `approve --action`, or a
 /// write that reached this case from another case of the tree). A revision committed after an
-/// observation is an outside edit the observation's step found, not the observation's. 0 when
-/// there is none.
+/// observation is an outside edit the observation's step found, not the observation's. A
+/// rejection recorded by a principal (`approve --result rejected`) is an arrival too: the rework
+/// it asks for gets its own allowance, bounded by the rework count of run-trial.sh
+/// (runs/trial-3-haiku-4: change.implement spent by check retries before the merge rework,
+/// docs/reject-routes.md R6). 0 when there is none.
 fn last_arrival(evs: &[Value], ir: &Value) -> usize {
     evs.iter()
         .enumerate()
         .filter(|(i, e)| {
-            e["event"] == "revised"
-                && !(*i > 0
-                    && evs[i - 1]["event"] == "action_finished"
-                    && evs[i - 1]["principal"].is_null()
-                    && ir["actions"][evs[i - 1]["action"].as_str().unwrap_or("")]["effect"]
-                        == "write")
+            (e["event"] == "action_finished" && e["result"] == "rejected" && !e["principal"].is_null())
+                || (e["event"] == "revised"
+                    && !(*i > 0
+                        && evs[i - 1]["event"] == "action_finished"
+                        && evs[i - 1]["principal"].is_null()
+                        && ir["actions"][evs[i - 1]["action"].as_str().unwrap_or("")]["effect"]
+                            == "write"))
         })
         .map(|(i, _)| i)
         .next_back()
         .unwrap_or(0)
 }
 
-/// The last non-empty line of an event's log blob.
+/// The last non-empty line of an event's log blob that is not the build pool's own `slot: job`
+/// line (runs/trial-3-haiku-8 reported "slot: job 20238 ... ran 1s" as what a test run said).
 fn log_line(dir: &Path, e: &Value) -> String {
     e["log"].as_str().and_then(|l| fs::read(dir.join("blobs").join(l)).ok())
-        .map(|b| String::from_utf8_lossy(&b).lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").to_string())
+        .map(|b| String::from_utf8_lossy(&b).lines().rev()
+            .find(|l| !l.trim().is_empty() && !l.starts_with("slot: job ")).unwrap_or("").to_string())
         .unwrap_or_default()
 }
 
@@ -585,7 +639,8 @@ fn log_line(dir: &Path, e: &Value) -> String {
 /// for each counted run, the first other action after it (before the writer's next run) that
 /// exited non-zero, with its last log line: what made the writer useful again (runs/trial-3-haiku-2
 /// stopped with "last exit 0:" and nothing else, though each run was sent back by a new finding).
-fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, evs: &[Value]) -> Value {
+#[allow(clippy::too_many_arguments)]
+fn spent_entry(dir: &Path, a: &str, kind: &str, runs: u64, max: u64, total: u64, since: usize, evs: &[Value]) -> Value {
     let finished: Vec<&Value> = evs.iter().filter(|e| e["event"] == "action_finished").collect();
     let last = finished.iter().rev().find(|e| e["action"] == a && !program_error(&e["exit"]));
     let line = last.map(|e| log_line(dir, e)).unwrap_or_default();
@@ -596,7 +651,7 @@ fn spent_entry(dir: &Path, a: &str, runs: u64, max: u64, since: usize, evs: &[Va
         sent_back.push(json!({"run_seq": run["seq"], "by": by.map(|e| e["action"].clone()),
             "exit": by.map(|e| e["exit"].clone()), "line": by.map(|e| log_line(dir, e))}));
     }
-    json!({"action": a, "runs": runs, "max_runs": max, "since_seq": since,
+    json!({"action": a, "kind": kind, "runs": runs, "max_runs": max, "total_runs": total, "since_seq": since,
         "last_exit": last.map(|e| e["exit"].clone()), "last_failure": line, "sent_back": sent_back})
 }
 
@@ -618,8 +673,11 @@ fn sent_back_text(s: &Value) -> String {
 ///   it may produce has no applicable record at its subject's revision; with no kind, until it
 ///   ran once at this snapshot);
 /// - a writer has `max_runs` (default 8) per arrival: its runs since the last arrival
-///   (`last_arrival`) count, so a person's decision or an outside revision gives the writers a
-///   fresh allowance. A writer that would be useful but has none left is returned as spent.
+///   (`last_arrival`) count, so a person's decision, an outside revision or a recorded rejection
+///   gives the writers a fresh allowance. The cap holds per retry kind (D145, docs/reject-routes.md
+///   R7): a kind due now is out when the runs it sent back, with the runs no kind sent back, reach
+///   `max_runs`; all runs together are capped at `max(max_runs, 8)`. A writer that would be useful
+///   but has none left is returned as spent, naming the kind that ran out.
 ///
 /// A run that ended in a program error (exit 126/127) never counts, nor one that ended
 /// `not_called` (the tool did nothing: `llm-node.sh`'s "not called" exits, runs/trial-3-haiku-4).
@@ -628,7 +686,7 @@ fn sent_back_text(s: &Value) -> String {
 type Useful = (Vec<String>, Vec<String>, Vec<Value>, Vec<Value>);
 fn useful(dir: &Path, d: &Value) -> R<Useful> {
     let ir = read_json(&dir.join("ir.json"))?;
-    let bindings = read_json(&dir.join("bindings.json"))?;
+    let bindings = bindings_of(dir)?;
     let case_bytes = fs::read(dir.join("case.json")).map_err(|e| e.to_string())?;
     let snapshot = sha(&case_bytes);
     let records = evidence_records(dir)?;
@@ -640,6 +698,15 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
         .iter()
         .filter(|e| e["event"] == "action_finished")
         .collect();
+    // A run before the last reopen (`sdc-drive reopen`) that recorded nothing does not hold its
+    // snapshot: the reopen lets it run once more on the unchanged state (a review whose reply
+    // stayed invalid, runs/trial-3-strong-3; a writer that was not called). A run that recorded
+    // evidence still holds it, so a valid review runs once per snapshot.
+    let reopened = evs.iter().rposition(|e| e["event"] == "reopened");
+    let holds = |e: &Value| {
+        e["evidence"].as_array().is_some_and(|v| !v.is_empty())
+            || reopened.is_none_or(|r| e["seq"].as_u64().is_some_and(|s| s as usize > r))
+    };
     let mut auto = Vec::new();
     let mut manual = Vec::new();
     let mut spent = Vec::new();
@@ -657,6 +724,7 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
             ran(&e)
                 && e["case"] == snapshot.as_str()
                 && e["revises"].as_object().is_none_or(|m| m.is_empty())
+                && holds(e)
         });
         let is_useful = if b.get("copy").is_some() {
             copy_source(dir, b)?.is_some_and(|r| !records.iter().any(|x| x["id"] == r["id"]))
@@ -678,28 +746,52 @@ fn useful(dir: &Path, d: &Value) -> R<Useful> {
         if !is_useful {
             continue;
         }
+        // keep-going's one more allowance (`allow`, D142): the writer's runs count from it.
+        let granted = evs
+            .iter()
+            .rposition(|e| e["event"] == "allowance_granted" && e["action"] == a.as_str());
+        let since_a = granted.map_or(since, |g| g.max(since));
         // A writer whose run ended without doing anything (`not_called`, see the step) as the
         // case's last step, at this snapshot, would see the same inputs and end the same way
-        // again: not useful. After any other step (a check that failed since) it is.
+        // again: not useful. After any other step (a check that failed since), or an allowance
+        // granted since, it is.
         if let Some(e) = finished.last().filter(|e| {
-            ran(e) && e["not_called"].is_string() && e["case"] == snapshot.as_str()
+            ran(e)
+                && e["not_called"].is_string()
+                && e["case"] == snapshot.as_str()
+                && granted.is_none_or(|g| e["seq"].as_u64() > evs[g]["seq"].as_u64())
+                && holds(e)
         }) {
             not_called.push(json!({"action": a, "run_seq": e["seq"], "reason": e["not_called"]}));
             continue;
         }
         if writer {
-            let runs = evs[since..]
-                .iter()
-                .filter(|e| {
-                    e["event"] == "action_finished"
-                        && e["action"] == a.as_str()
-                        && !program_error(&e["exit"])
-                        && !e["not_called"].is_string()
-                })
-                .count() as u64;
+            // The counted runs since the last arrival (or allowance), each with the kinds that sent it back
+            // (`retry_of` of its `action_started`; none when it was due for another reason).
+            let mut runs_by: Vec<Vec<Value>> = Vec::new();
+            let mut started: Vec<Value> = Vec::new();
+            for e in evs[since_a..].iter().filter(|e| e["action"] == a.as_str()) {
+                if e["event"] == "action_started" {
+                    started = e["retry_of"].as_array().cloned().unwrap_or_default();
+                } else if e["event"] == "action_finished" && !program_error(&e["exit"]) && !e["not_called"].is_string() {
+                    runs_by.push(std::mem::take(&mut started));
+                }
+            }
+            // Each kind due now has the binding's cap of its own: the runs it sent back, plus the
+            // runs no kind sent back (the first). A backstop caps all kinds together.
             let max = b["max_runs"].as_u64().unwrap_or(8);
-            if runs >= max {
-                spent.push(spent_entry(dir, a, runs, max, since, &evs));
+            let backstop = max.max(8);
+            let count = |k: &Value| runs_by.iter().filter(|r| r.is_empty() || r.contains(k)).count() as u64;
+            let due: Vec<Value> = retry_records(b, &current).iter().map(|r| r["kind"].clone()).collect();
+            let total = runs_by.len() as u64;
+            let out = if due.is_empty() {
+                Some(("none".to_string(), runs_by.iter().filter(|r| r.is_empty()).count() as u64)).filter(|(_, n)| *n >= max)
+            } else {
+                due.iter().map(|k| (k.as_str().unwrap_or("").to_string(), count(k))).find(|(_, n)| *n >= max)
+            };
+            let out = out.or_else(|| (total >= backstop).then(|| (format!("all kinds (backstop {backstop})"), total)));
+            if let Some((kind, n)) = out {
+                spent.push(spent_entry(dir, a, &kind, n, max, total, since_a, &evs));
                 continue;
             }
         }
@@ -898,7 +990,7 @@ fn open_children(
 /// child is about that revision only, and a revised subject gets a new child with a new id, never
 /// this record. Canon reads one `case_outcome` record per child, so `open` → outcome is the one
 /// rewrite; the parent's log keeps both states.
-fn close(canon: &str, dir: &Path, at: &str, outcome: &str) -> R<Value> {
+fn close(canon: &str, dir: &Path, at: &str, outcome: &str, principal: Option<&str>) -> R<Value> {
     let p = dir.join("case.json");
     let before = read_json(&p)?;
     let mut case = before.clone();
@@ -907,7 +999,11 @@ fn close(canon: &str, dir: &Path, at: &str, outcome: &str) -> R<Value> {
     let d = evaluate(canon, dir, at).inspect_err(|_| {
         let _ = write_json(&p, &before);
     })?;
-    event(dir, at, "terminated", json!({"outcome": outcome}))?;
+    let mut body = json!({"outcome": outcome});
+    if let Some(p) = principal {
+        body["principal"] = json!(p);
+    }
+    event(dir, at, "terminated", body)?;
     if let Ok(link) = read_json(&dir.join("link.json")) {
         let parent = dir.join(link["parent"].as_str().unwrap());
         let f = parent
@@ -1021,15 +1117,24 @@ fn next_steps(canon: &str, dir: &Path, pos: &Value, bindings: &Value, ir: &Value
     Ok(next)
 }
 
-/// LLM calls started so far in the whole case tree (`action_started` of a binding with `llm`).
+/// LLM calls started so far in the whole case tree (`action_started` of a binding with `llm`),
+/// less the runs that ended `not_called` (llm-node.sh exited before any model call): the count
+/// of llm-calls.jsonl, which is what `--max-llm-calls` caps. The decider's calls are not driver
+/// actions and are counted apart (decisions.jsonl, decider/).
 fn llm_calls(dir: &Path) -> usize {
     all_cases(&tree_root(dir))
         .iter()
         .map(|c| {
-            events(c)
+            let evs = events(c);
+            let started = evs
                 .iter()
                 .filter(|e| e["event"] == "action_started" && e["llm"] == true)
-                .count()
+                .count();
+            let not_called = evs
+                .iter()
+                .filter(|e| e["event"] == "action_finished" && e["not_called"].is_string())
+                .count();
+            started.saturating_sub(not_called)
         })
         .sum()
 }
@@ -1104,7 +1209,7 @@ fn step(
     let pos = position(dir, &decision)?;
     let admissible: Vec<String> = serde_json::from_value(pos["admissible"].clone()).unwrap();
     let useful: Vec<String> = serde_json::from_value(pos["useful"].clone()).unwrap();
-    let bindings = read_json(&dir.join("bindings.json"))?;
+    let bindings = bindings_of(dir)?;
     let ir = read_json(&dir.join("ir.json"))?;
     let chosen = match action {
         Some(a) if !admissible.iter().any(|x| x == a) => {
@@ -1200,8 +1305,8 @@ fn step(
                     // dropped above).
                     let s = &pos["spent"][0];
                     event(dir, at, "writer_spent", json!({"state": pos["state"], "spent": pos["spent"]}))?;
-                    let message = format!("writer `{}` is spent at {}: {} runs since event {} (max_runs {}), last exit {}: {}{}",
-                        s["action"].as_str().unwrap_or(""), dir.display(), s["runs"], s["since_seq"], s["max_runs"],
+                    let message = format!("writer `{}` is spent at {}: {} runs sent back by {} since event {} (max_runs {}), last exit {}: {}{}",
+                        s["action"].as_str().unwrap_or(""), dir.display(), s["runs"], s["kind"].as_str().unwrap_or("?"), s["since_seq"], s["max_runs"],
                         s["last_exit"].as_str().unwrap_or("?"), s["last_failure"].as_str().unwrap_or(""), sent_back_text(s));
                     return Ok((json!({"verdict": "writer_spent", "case_dir": dir, "spent": pos["spent"],
                         "message": message, "next": next, "position": pos, "explanation": decision["explanation"]}), 4));
@@ -1369,7 +1474,7 @@ fn step(
         let feedback: Vec<Value> = retry_records(b, &current).into_iter().map(|r| {
             let by = finished.iter().find(|e| e["evidence"].as_array().is_some_and(|ids| ids.contains(&r["id"])));
             json!({"kind": r["kind"], "result": r["result"], "subject": r["subject"], "action": by.map(|e| e["action"].clone()),
-                "log": by.and_then(|e| e["log"].as_str()).map(|l| dir.join("blobs").join(l))})
+                "exit": by.map(|e| e["exit"].clone()), "log": by.and_then(|e| e["log"].as_str()).map(|l| dir.join("blobs").join(l))})
         }).collect();
         let mut env = vec![
             ("SDC_ACTION", chosen.clone()),
@@ -1401,6 +1506,12 @@ fn step(
             env.push(("SDC_FEEDBACK", p.to_string_lossy().into_owned()));
         }
         let timeout = b["timeout_s"].as_u64().unwrap_or(1800);
+        // A re-driven model call that ran into its timeout on the virtual clock (sdc-replay) says so
+        // in this file: the run is recorded as killed at its timeout.
+        let virtual_timeout = fs::canonicalize(dir).unwrap_or(dir.to_path_buf()).join(".virtual-timeout");
+        let _ = fs::remove_file(&virtual_timeout);
+        env.push(("SDC_VIRTUAL_TIMEOUT", virtual_timeout.to_string_lossy().into_owned()));
+        env.push(("SDC_TIMEOUT_S", timeout.to_string()));
         event(
             dir,
             at,
@@ -1414,7 +1525,14 @@ fn step(
         } else {
             let (code, out) = run_tool(dir, &argv, &env, timeout)?;
             log = out;
-            code
+            match fs::read_to_string(&virtual_timeout) {
+                Ok(why) => {
+                    let _ = fs::remove_file(&virtual_timeout);
+                    log.extend(format!("\nsdc-drive: killed after {timeout} s (virtual clock: {})\n", why.trim()).into_bytes());
+                    "timeout".to_string()
+                }
+                Err(_) => code,
+            }
         };
         if let Ok(why) = fs::read_to_string(&not_called_file) {
             let _ = fs::remove_file(&not_called_file);
@@ -1538,7 +1656,7 @@ fn drive(
             let (v, code) = drive(canon, &c, at, budget, took, limits)?;
             let legit = &v["position"]["legitimate_outcomes"];
             if v["verdict"] == "terminable" && legit.as_array().is_some_and(|l| l.len() == 1) {
-                let closed = close(canon, &c, at, legit[0].as_str().unwrap())?;
+                let closed = close(canon, &c, at, legit[0].as_str().unwrap(), None)?;
                 took.push(json!({"closed": closed["case"], "outcome": closed["terminated"]}));
                 continue 'outer;
             }
@@ -1762,15 +1880,21 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             {
                 return Err(format!("`{decision}` is already recorded in this case"));
             }
-            let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated");
+            let last = events(dir).into_iter().rfind(|e| e["event"] != "evaluated" && e["event"] != "reopened");
+            let requires = |a: &Value| {
+                ir["actions"][a.as_str().unwrap_or("")]["requires"]
+                    .as_array()
+                    .is_some_and(|r| r.iter().any(|c| c["capability"] == after_denial.as_str()))
+            };
             let denied = last.as_ref().is_some_and(|e| {
-                e["event"] == "authority_recorded"
+                (e["event"] == "authority_recorded"
                     && e["capability"] == after_denial.as_str()
-                    && e["decision"] == "denied"
+                    && e["decision"] == "denied")
+                    || (e["event"] == "action_finished" && e["result"] == "rejected" && requires(&e["action"]))
             });
             if !denied {
                 return Err(format!(
-                    "`{decision}` is taken only directly after `{after_denial}` was denied in this case; its last step is {}",
+                    "`{decision}` is taken only directly after `{after_denial}` was denied, or an action requiring it recorded `rejected`, in this case; its last step is {}",
                     last.map(|e| match e["action"].as_str() {
                         Some(a) => format!("{} {a}", e["event"].as_str().unwrap_or("?")),
                         None => e["event"].as_str().unwrap_or("?").to_string(),
@@ -1793,7 +1917,23 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
             event(dir, at, "decision_recorded", body)?;
             Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
         }
-        Cmd::Close { at, outcome } => Ok((close(canon, dir, at, outcome)?, 0)),
+        Cmd::Close { at, outcome, principal } => Ok((close(canon, dir, at, outcome, principal.as_deref())?, 0)),
+        Cmd::Allow { at, action, principal } => {
+            let ir = read_json(&dir.join("ir.json"))?;
+            let bindings = read_json(&dir.join("bindings.json"))?;
+            if bindings[action.as_str()].is_null() || ir["actions"][action.as_str()]["effect"] != "write" {
+                return Err(format!("`{action}` is no bound writer of this case"));
+            }
+            event(dir, at, "allowance_granted", json!({"action": action, "principal": principal}))?;
+            Ok((position(dir, &evaluate(canon, dir, at)?)?, 0))
+        }
+        Cmd::Reopen { at, principal } => {
+            let cases = all_cases(dir);
+            for c in &cases {
+                event(c, at, "reopened", json!({"principal": principal}))?;
+            }
+            Ok((json!({"reopened": cases.len()}), 0))
+        }
         Cmd::Replay => {
             let mut report = Vec::new();
             let mut ok = true;

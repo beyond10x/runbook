@@ -72,6 +72,8 @@ validate, waves, list, moves) in the case tree's own planning store. Run:
 Canon: no `canon` on PATH (`command not found`). `../canon/target/debug/canon`
 0.9.0 exists, and every run below used it. That answers intake gap G7.
 
+Per-node, per-edge and per-run metrics of a recorded run (`sdc-run-metrics`, `sdc-experiment`): `docs/workflow-metrics.md`.
+
 ## The loop
 
 Each step does the following, with nothing else as input:
@@ -344,7 +346,7 @@ Every agent node binds `argv: ["{dir}/tools/llm-node.sh", "<action>"]` plus an `
 (the `sdc-tool.sh` subcommand that writes the fixed draft). Agent nodes: `idea.dissect`,
 `questions.write`, `questions.answer`, `requirements.normalise` (intake); `context.default`,
 `vision.write`, `roadmap.write` (direction); `spec.author`; `plan.decompose`;
-`change.implement` (story). Reviews (`spec.review`, `change.review`) stay program stubs.
+`change.implement` (story). `change.review` is a model call too (see "The code review" below); `spec.review` stays a program stub.
 
 What one call does (`llm-node.sh`):
 
@@ -366,12 +368,45 @@ The driver then sees a new revision; only the bound programs produce evidence ab
 
 **Model per node** (2026-11-21, `story:model-per-node-variable`). The model is a run setting, by
 node class (`tools/node-classes.json`): `SDC_LLM_MODEL_WRITER` (`spec.author`, `plan.decompose`),
-`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`spec.review`,
-`change.review`, program stubs today, so no call uses it yet), `SDC_LLM_MODEL_OTHER` (every other
+`SDC_LLM_MODEL_IMPLEMENT` (`change.implement`), `SDC_LLM_MODEL_REVIEW` (`change.review`;
+`spec.review` is still a program stub), `SDC_LLM_MODEL_OTHER` (every other
 node), else `SDC_LLM_MODEL` for every node, else the binding's `llm.model`. The decider:
 `SDC_LLM_MODEL_DECIDER`, else `SDC_DECIDER_MODEL`, else `claude-haiku-5-5` (`SDC_LLM_MODEL` does
 not reach it). Each call line names its `model` and `class`; `run-settings.jsonl` records
 `models` per class (`model`, `source`, and per node).
+
+**Reasoning effort per node** (2026-11-21). The same way as the model: `SDC_LLM_EFFORT_WRITER`,
+`_IMPLEMENT`, `_REVIEW`, `_DECIDER`, `_UNSTICK`, `_OTHER`, else `SDC_LLM_EFFORT` for every node and the decider
+(per class wins), else the class default in `tools/node-classes.json` (`default_efforts`): `high`
+for writer, implement, review and other, `xhigh` for the decider, `run.unstick` (class `unstick`) and the requester (which takes
+`SDC_LLM_EFFORT_REQUESTER`, then `_DECIDER`, first). A level is always passed, so a run is the same
+on any host and no adapter falls back to its own default (the `high` the `metaharness` adapter
+used, the `xhigh` the decider's `claude -p` took from this host's `~/.claude/settings.json`).
+Accepted: `low`, `medium`, `high`, `xhigh`, `max` (`claude --help`; list in
+`tools/node-classes.json`). `scripts/run-trial.sh` refuses any other value with exit 64 and the
+list, because both CLIs ignore an unknown one with a warning and run at their own default. The
+value reaches `request.json` (`effort`) and each adapter as `--effort <level>`
+(`tools/llm-adapter-metaharness.sh:38` to `metaharness run claude --effort`, which passes it to
+Claude Code's `--effort`; `tools/llm-adapter-claude-cli.sh:35` to `claude -p --effort`). Each call
+line, decider record and adapter response names its `effort`; `run-settings.jsonl` records
+`efforts` per class and for the requester (`effort`, `source`: the variable, or `default`). A model
+may silently lower a level it does not offer.
+
+**Hermetic `claude-cli` adapter** (ruling D153: a decision does not depend on the machine's personal
+settings). A recorded decider call of the old adapter (`claude -p` with no `--setting-sources`,
+`trial-3-strong-2/decider/001-q1/events.jsonl`) shows the host's setup in its `init` event: 6
+`SessionStart` hooks fired, 60 skills, 11 plugins (7 the user installed, 4 built in),
+26 agents, output style `Operator Report`, 14 tools
+(`SendMessage`, `PushNotification`, `ToolSearch` ...), and the user's global instructions load from
+`~/.claude/CLAUDE.md` (*inferred* from that: the transcript does not print the system prompt). The
+adapter now runs as the `metaharness` adapter does (`../metaharness/crates/metaharness-claude/src/launch.rs:1353`):
+`--setting-sources ""`, a fresh `CLAUDE_CONFIG_DIR` per call holding only a copy of the login file
+`.credentials.json` (mode 600, removed on exit; or `ANTHROPIC_API_KEY`), `--strict-mcp-config`,
+`--disable-slash-commands`, `--tools` limited to the request's operations, auto-memory and the git
+status block off, `CLAUDE_CODE_EFFORT_LEVEL` unset (`tools/llm-adapter-claude-cli.sh:1-14`). A call
+with the new adapter lists tools `Glob`, `Read`, `StructuredOutput`, no hook, no skill, output style
+`default`, only the built-in plugins and agents, and authenticates (probe, 2 Haiku calls). The
+login copy shares the host's refresh token, as the `metaharness` adapter's does.
 
 **Adapters** (`SDC_LLM_ADAPTER`; contract in `tools/llm-adapter-metaharness.sh`: one argument,
 `request.json` {model, prompt_file, cwd, operations, max_turns, max_budget_usd, record_dir, node,
@@ -382,8 +417,9 @@ attempt}; one response JSON on stdout; the session's exit):
 | `stub` (default) | the binding's `llm.stub`, no LLM |
 | `dry` | builds the metaharness frame and argv, appends `would run: metaharness …` to `SDC_LLM_DRY_LOG`, runs nothing, then the stub |
 | `metaharness` | `metaharness run claude --frame <sealed metaharness.frame/1> --decisions frame --cwd <cwd> --scratch-cwd --model M --max-turns N --max-budget-usd B --retain-dir <record>/transcripts -p <prompt>`: Claude Code with the operator's login, its tool calls decided per call against the frame's operations. Record: `frame.json`, `argv.json`, `events.jsonl` (`metaharness.event/1`), `transcripts/` |
-| `claude-cli` | `claude -p … --allowedTools Read,Write,Edit,Glob,Grep --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --permission-mode acceptEdits --output-format stream-json`, the fallback |
+| `claude-cli` | `claude -p … --tools <operations> --allowedTools <operations> --disallowedTools Bash,WebFetch,WebSearch,Task,Skill --setting-sources "" --strict-mcp-config --permission-mode acceptEdits --output-format stream-json` in a fresh config home, hermetic (below), the fallback |
 | a path | any program with the same contract |
+| `driver/target/debug/sdc-replay` (a path, set by `run-trial.sh --recorded`) | a recorded run's reply at this place, for work nodes and the decider ("Recorded replay" below) |
 | `tools/llm-adapter-fixture.sh` (a path) | tests, no LLM: writes the node's `stub-file` output into `out/`, so the apply step runs as on a real reply. With `SDC_LLM_NODES="<node> …"` only the named nodes go to the adapter, the rest run their stub (`scope-changed` cycle). `SDC_FIXTURE_STUB='{"<node>": [<fixture>, <artifact>]}'` gives a node without a `stub-file` stub one (`plan-in-project` cycle). `llm-node.sh` and `sdc-tool.sh` call `aep … --root .`: the case store keeps aep's own lifecycles even inside a project with another profile |
 
 metaharness 0.30.0 can do one bounded non-interactive call: `run claude -p` with `--max-turns`,
@@ -394,8 +430,8 @@ sealed frame was accepted (`session.started`) and the run only failed at the API
 
 **Decider** (2026-11-21, `scripts/run-trial.sh`, `tools/decider.sh`; usage in `trial-1.md`,
 KPIs H1-H4 in `kpis.md` § 1d). The person's decisions (approvals, scope-changing questions, the
-root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `reject`, or `haiku`
-(one bounded call through the adapters above, `SDC_DECIDER_ADAPTER` else `SDC_LLM_ADAPTER`; the LLM
+root's close) go to `SDC_DECIDER`: `person` (default), the rules `approve` and `reject`, or `model`
+(`haiku` is its old name, an alias, and runs before D149 recorded `decider:haiku`; one bounded call through the adapters above, `SDC_DECIDER_ADAPTER` else `SDC_LLM_ADAPTER`; the LLM
 writes `out/decision.json` {decision, answer, reasons, cites, best}, a jq program validates it,
 invalid counts as escalate). The script, not the driver, applies a decision: `sdc-drive approve
 --principal decider:<kind>` (grant and approval record carry that principal) or `answered_by:
@@ -477,6 +513,62 @@ obligation is open, else rejected with the failing checks (`rejected_on_checks`)
 exports `SDC_DECIDER_ESCALATE=final`, so the decider is asked for `best` and an escalate without
 it is invalid.
 
+**The requester agent** (2026-11-21, `docs/requester.md` § 3, story:requester-decider). Each
+decision class has a `side` in `driver/examples/sdc/decision-classes.json`
+(`sdc.decision-classes/1`, the classes of `autonomy-levels.md` § 3.2 with today's action names).
+With `SDC_REQUESTER_DECIDER=haiku`, `run-trial.sh` sends the requester-side classes
+(scope-changing answers, context, vision, roadmap, release, close) to `decider.sh requester`,
+principal `decider:requester`; the delivering side (merge, findings, …) keeps `SDC_DECIDER`. Its
+`in/` holds exactly `request.json` (`sdc-decision-request` for a question; built from the stop for
+an approval or a close, options A approve and B reject), the subject file, the files the
+request's grounds cite, `idea.yaml`, `dissection.yaml`, `goals.yaml` and `decisions.json` (its own
+earlier decisions of the run). It writes `out/reply.json` (`option`, `answer`, `reasons`,
+`grounds`, `strength`, `no_ground_in_goals`); the grounds go through `tools/decision-grounds.sh`,
+and a refused or malformed reply is asked again like the decider's. `no_ground_in_goals` is an
+escalate: under D→P (A3, A4) the run waits on the requester person, under D* (A5) the question's
+default is taken and the decision line says `no_ground_in_goals: true`. decisions.jsonl records
+each decision's `side`, `strength` and grounds; run-settings.jsonl records `requester_decider`.
+The fixture adapter answers node `requester.<question or action>` from `SDC_REQUESTER_REPLIES`
+(cycles `requester-decider`, `requester-no-ground`). Findings and code review are not requests in
+this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer node.
+
+**The code review** (2026-11-21, `story:review-node-is-a-model`). `change.review` is an LLM call
+of class REVIEW (`SDC_LLM_MODEL_REVIEW`) by `llm-node.sh change.review`, producer `llm-review`,
+which the story bindings list as independent (`different_principal`): the implementer is
+`llm-node`. A fresh session with no implementer context and read-only operations; the model
+replies only through the response schema, never by writing a file. Its adapter is the review
+class's own (`sdc-reply adapters`): `SDC_REVIEW_ADAPTER`, else `claude-cli` when `SDC_LLM_ADAPTER`
+is `metaharness` (which has no response-schema option), else `SDC_LLM_ADAPTER`. `run-trial.sh`
+checks at start that every class in `schema_reply` (`tools/node-classes.json`) is on an adapter
+that takes a schema, else refuses with exit 64 naming class and adapter, and records `adapters` in
+`run-settings.jsonl`. A review that stays invalid after its retries stops an autopilot run with
+cause `review_invalid`, naming case and call, not `stuck` (2026-11-21: `runs/trial-3-strong-3` and
+`-4` stopped `stuck` because on metaharness the review could only reply by file). An observation
+runs once per case snapshot; `run-trial.sh --reopen` marks a reopen in every case (`sdc-drive
+reopen`, event `reopened`), and a run before it that recorded nothing (an invalid review, a writer
+that was not called) no longer holds the snapshot, so it runs once more on the unchanged state;
+invalid again, the stop names the new call. A run that recorded evidence still holds it. Its inputs are
+built by `sdc-reply review-inputs`: the story, its acceptance lines (the summary and an
+`## Acceptance` section), the requirements it delivers (`spec/traces.json`: a covered command, or a
+view or actor of a covered command's domain; without a trace, `spec_domains`), `in/uncovered.json`
+(requirements no story covers: findings of kind `outside`, never a reason to reject), the covered
+commands' IR entries, the change tree, its diff against `mainline/` (empty for the first story),
+the gate log, and the log of the conformance run that passed on the revision under review (sdc.story
+revision 7 admits `change.review` only after `tests.pass`; without that log the node records
+nothing). The reply is constrained by
+`sdc-reply schema --type review` (claude-cli `--json-schema`): `decision` approved or rejected,
+`findings` each `{kind, at: impl/<path>:<line>, violates, says}`, `summary`. `sdc-reply
+check-review` checks it: every `at` a line of the change tree, every `violates` in the story's set
+(or, for `outside`, in the uncovered set), a rejection with at least one violation. An invalid
+reply is asked again with the reason (`SDC_REVIEW_RETRIES`, default 2); still invalid, or a failed
+call: exit 2, nothing recorded, so the case is stuck on that revision; never an approval. A valid
+rejection exits 1 with only its `sdc.rejection/1` on stdout (approval `change.review`, principal
+`llm-review:<model>`, reasons, citations with `in_diff`, count); that log reaches `change.implement`
+through `retry_when: {code_review: [rejected]}` as `in/rejection.json`. The bound is
+`change.implement`'s `max_runs` 3 per arrival, shared with failed conformance runs: the third
+rejection ends `writer_spent` with `sent_back` naming `change.review`. Cycles `review-reject-once`,
+`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`).
+
 **A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
 writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
 revision, principal, reasons, citations, count) and records it: `sdc-drive approve … --action
@@ -491,7 +583,7 @@ output every time, appends the rejection to the subject (`.rework` in a tree, a 
 Markdown file) so its rework is a new revision (cycle `decider-rework-model`: none on a model
 adapter). The new revision leaves the record behind and the approval is asked again; the
 decider sees the earlier rejections in `prior_rejections` (`sdc-reply rejections`, derived from the
-evidence and the event log). The third rejection stops the run with cause `rework_spent`; a
+evidence and the event log). The rejection after the last rework (the third, unless `SDC_MAX_REJECTIONS` sets another rework cap than `rework_limit` of rule-ends.json; run-settings.jsonl records the effective `rework_limit`, D184) stops the run with cause `rework_spent`; a
 rejection that cannot be recorded, or that sends no writer back, and has no end of its own (below)
 with `rejected_without_rework_path` (exit 6). An open case keeps the `ir.json` and `bindings.json`
 it was opened with, so a run started before a protocol change does not gain the new actions.
@@ -508,10 +600,85 @@ outcome, principal, case revision) with the rejection (the decider's reasons and
 log blob, and refuses before writing unless the outcome requires that decision alone and the
 case's last step was that denial. The release is closed `withheld`; the driver's round closes the
 epic `not_released`, and the root, terminable `not_delivered`, is closed without a decider: the
-decider closes only `operating` (class close) and outcomes that require a decision. The run is
-closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)`,
-and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note), no stop record. Under
-A0–A4 the reject stops the run as before and nothing is recorded in the release case.
+decider closes only outcomes that require a decision, and `operating` below A5. The run is
+closed, not stopped: exit 0, `closed IDEA-1: "not_delivered" (release withheld: <first reason>)
+by rule:autopilot`, and `status.json` (`sdc.run-status/1`: state, outcome, `delivered`, note,
+`closed_by`), no stop record. Under A0–A4 the reject stops the run as before and nothing is
+recorded in the release case.
+
+**The close in autopilot** (D140, 2026-11-21, `runs/trial-3-haiku-5`: the decider rejected the
+close of a terminable root, and the run stopped `rejected_without_rework_path`). Under A5 the
+close of the root is not a decision: `operating` requires the claims `roadmap.approved`,
+`epics.opened` and `children.passed` (`protocol/sdc.protocol.yaml`, `outcomes`), which the
+approvals upstream already settled, and binds no capability. `run-trial.sh` closes a terminable
+root through any outcome that requires no decision as `rule:autopilot` (`sdc-drive close
+--principal rule:autopilot`, recorded on the `terminated` event and as `closed_by` in
+`status.json`) and asks the decider nothing. Children were never asked: the driver closes a
+terminable child with one legitimate outcome in its round. Below A5 the decider still closes
+`operating` (class close, `autonomy-levels.md` § 3.2).
+
+**Keep-going** (D142, 2026-11-21, trial and eval runs only: `scripts/run-trial.sh <run>
+--autopilot --keep-going`; refused without `--autopilot`). Where autopilot stops with a cause,
+keep-going first writes a line to `<run>/defects.jsonl` (`sdc.run-defect/1`: at, case, action,
+cause, the full reason, the decision or reply that led to it, the case's last event seq, LLM
+calls so far, `forced`, `principal`, `continuation`), then takes a forced continuation under the
+principal `rule:keep-going`, never a decider's or a person's:
+
+| Stop cause | Continuation |
+|---|---|
+| `rejected_without_rework_path` (an approval or close; reached also by an invalid reply under final, `rejected_on_checks`) | `rule:keep-going` approves (closes); a question or a finding takes its default; none: stops |
+| `rework_spent` | `rule:keep-going` approves |
+| `decision_not_takeable`, a refused decider decision on a finding | the finding's default, `decided_by: rule:keep-going`, applied by `amend.upstream` through the same check; refused again: stops |
+| `decision_not_takeable`, a handoff with nothing for the decider | stops |
+| `writer_spent`, `writer_not_called` | `sdc-drive allow --action <writer> --principal rule:keep-going` (event `allowance_granted`): one more `max_runs`, the failing check records fed back as on any retry; spent again: stops |
+| `decider_budget_spent`, `llm_budget_spent`, `step_budget_spent`, `wall_time_spent`, `stuck`, an approval the driver refuses, "pending again", a tool that crashes | stops |
+
+At most 12 forced continuations per run, then the cause `keep_going_spent`; the same cause at the
+same case and action is forced once, and a second time stops. Every stop also gets a line
+(`forced: false`, `continuation: stops`). `status.json` carries `forced: N` and the closed line
+ends `(forced N)`; `sdc-finding-kpis` (`forced`) and `sdc-run-compare` ("forced continuations",
+"defects") print the count and the defects. An invalid decider reply after its retries does not
+stop under final (`approved_on_checks`, `rejected_on_checks`, or the default), so it needs no
+continuation of its own. Without `--keep-going` nothing changes.
+
+**Unstick** (D147, 2026-11-21, every `--autopilot` run; `SDC_UNSTICK=off` turns it off, and it is
+off where its adapter calls no model, `stub` or `dry`). Before autopilot stops for any cause but a
+cap (`decider_budget_spent`, `llm_budget_spent`, `step_budget_spent`, `wall_time_spent`) or a
+tool that crashed, the node `run.unstick` (class `unstick` in `tools/node-classes.json`, model
+`SDC_LLM_MODEL_UNSTICK`, default `claude-opus-5-5`; adapter `SDC_UNSTICK_ADAPTER`, else the
+decider's) is asked first. A program, `sdc-unstick moves`, lists the legal moves of the stopped
+state; the model picks one id and never invents state:
+
+| Move | Offered when | Carried out (principal `agent:unstick`) |
+|---|---|---|
+| `rerun:<W>` | W is the spent or not-called writer of the stop or of the position | `sdc-drive allow --action W`: one more `max_runs`, the failing check records fed back as on any retry |
+| `reask:<D>` | a question or finding request; an approval or close with no recorded rejection | the decider asked D again with the diagnosis as `note` in its `in/decision.json` (a refused finding decision is cleared first) |
+| `default:<F>` | finding or question F has a default | the default taken, `decided_by`/`answered_by: agent:unstick` |
+| `approve:<A>` | an approval or close with no recorded rejection | approved (closed) as `agent:unstick` |
+| `end:<O>` | an approval whose case has an outcome O that requires one decision alone (`dropped`, `withheld`, `abandoned`) | the refusal recorded (`approve --deny` when the capability was never decided, else the decider's rejection recorded), `sdc-drive decide --after-denial <capability>` directly after it, the case closed O; its parents end through what their evaluation then offers (a dropped story: the root `not_delivered`) |
+| `stop` | always | the run stops as it would have |
+
+The node's input (`<run>/unstick/NNN-<cause>/cwd/in/stop.json`): the cause and reason, the stopped
+case and action, the decider request that led to it, the claims, the blocked actions with their
+unmet preconditions, the open obligations, the case's last 20 events, the last failing action's
+log, and the moves. The reply (`out/unstick.json`, schema `reply-schema.json`, passed to an
+adapter that constrains replies): `move` (an id), `diagnosis` (two or three sentences: which
+route, check or input is missing or wrong), `defect_class` (`missing_route`, `cap_too_low`,
+`writer_error`, `decider_error`, `contradiction_in_inputs`, `tool_defect`, `other`), `reasons`.
+`sdc-unstick validate` checks it; an invalid reply is asked again with the check's reason, at
+most 2 retries, then no move is taken: the keep-going table under `--keep-going`, else the stop.
+Each use is one line in `defects.jsonl` (`unstick: true`, `unstuck`, `move`, `diagnosis`,
+`defect_class`, `reasons`, `attempts`, `record`; `principal: agent:unstick` for a move taken). At
+most 6 moves per run, and the same cause at the same case and action once; then the run stops
+with the cause `unstick_spent` (keep-going takes no continuation after it). A third rejection is
+not recorded in the case while run.unstick or keep-going may still take the approval; a run that
+stops records it before the stop, as without them. `status.json` carries `unstuck: N`, the
+closed line ends `(unstuck N)` (beside `forced N`), `run-settings.jsonl` `unstick: {on, adapter,
+model}`; `sdc-finding-kpis` (`unstuck`, with each diagnosis) and `sdc-run-compare` ("unstuck",
+"defects") print them. A run with `unstuck` above 0 closed unattended, not clean: each diagnosis is
+a defect to fix. `sdc-drive decide --after-denial <capability>` admits the decision also directly
+after a recorded `rejected` result of an action that requires the capability: once `merge.approve`
+has recorded a rejection, `change.merge` is granted and can no longer be denied.
 
 **Stopping a run** (2026-11-21). `scripts/run-trial.sh <run> --stop "<reason>"` writes
 `runs/<run>/run-stopped.json`, `{"format": "sdc.run-stopped/1", "at": "<RFC 3339 UTC>", "by":
@@ -536,6 +703,134 @@ the case and the fix it waits on; the interval before a `rule:` stop is not coun
   through Substrate: a new adapter program set as `SDC_LLM_ADAPTER=<path>`, same request and
   response. Such an adapter needs its own file tool loop or a single-shot output format, since
   `llm` "never runs a tool" (README).
+
+## Recorded replay (2026-11-21, `story:recorded-run-replay`)
+
+The operator, 2026-11-21: "If the LLM nodes are successful for a certain eval, we could also just
+record it and then replay it, very quickly and fast, and simulate: given the LLM would respond in
+that way at that place, change conditions, timeouts, retries, stuff like that, and see how the
+system behaves and whether it would produce better metrics or not."
+
+`scripts/run-trial.sh <new run> --autopilot --recorded <source>` drives a fresh case tree with the
+real driver and the real programs. At every model call the reply comes from what the source
+recorded at that place. The source is a run directory (`runs/<name>`) or a recording made by
+`sdc-replay pack` (`driver/examples/sdc/fixtures/recorded/stub/`). `sdc-replay prepare` writes
+`<run>/replay/plan.json` and names the run's environment: `driver/src/bin/sdc-replay.rs` is
+`SDC_LLM_ADAPTER` and `SDC_DECIDER_ADAPTER` (an adapter program, one argument `request.json`, like
+any other), and the run takes the source's decider kind, per-class models, caps, `SDC_LLM_NODES`,
+the principal its aep store names, the idea and the goals. A variable the caller sets wins. The
+first line of the console names the source's tree and the re-driving tree (`run-settings.jsonl`
+now records `tree: {commit, dirty}`). If they differ, it says that code changes alone can make a
+call diverge. `sdc-replay` is not `sdc-drive replay`: that re-evaluates a finished store against
+its log, this re-runs the run.
+
+**What is real and what is recorded.** Real: the driver, Canon, every bound program (the gates,
+`tests.run` with its cargo build and tests, the checks, `aep`, `sdc-findings`, `sdc-reply`, the
+decider's validation), `llm-node.sh`'s input building and apply step. Recorded: the model's reply
+(the call's `out/` tree, the decider's and the review's structured output) and its duration,
+cost, tokens and turns. `--take-recorded <action,…|all>` also takes a program's exit and log from
+the source (the n-th run of the action in the case) instead of running it. It reproduces no file
+the program wrote, so an action whose output files later steps read (`spec.gate`'s
+`.sdc/gate/ir.json`) must run for real. It needs a run directory: a recording holds no logs.
+
+**The key.** A work call is keyed `case/node@arrival.try[.attempt]`. The arrival is counted as
+the driver counts it for `max_runs`: `revised` events no agent action of the case wrote (the case
+opening, a write from another case, a person's edit). The try is the node's runs since that
+arrival plus one, counted as `max_runs` counts them: no program error, no `not_called`. The
+attempt is `change.review`'s `review_attempt`. A decider call is keyed `case/decision@asking.try`:
+the decision is the question id, finding id, action or `close`, the asking is the n-th time it is
+asked in the case, the try is the decider's attempt. All of these come from the records:
+`request.json` (`case`, `node`, `review_attempt`), the case's `events.jsonl` (for a source call,
+the k-th record of a node in a case is its k-th run that reached the adapter), and
+`decide-request.json`. A retry the source never made, or a re-ask after a rework, gets a key of
+its own instead of a neighbour's reply. An injection counts `#n` as the n-th call of a name in its
+case (with `<case>/`) or in the run.
+
+**The input check.** Each call keeps one sha256 per file of its `in/` and the request without its
+paths (`prompt_file`, `cwd`, `record_dir`, `case_dir`, `json_schema`) and ordinals (`attempt`,
+`review_attempt`). Before hashing, the run directories become `<run>`, home paths `<path>`, RFC 3339
+and `diff` instants `<instant>`, `t<16 hex>` revisions `<rev>` (aep `move` writes the wall time into
+the stories' `transitions`, so the aep tree's revision differs in every run), and seconds `<s>`.
+Test harness lines (`test x ... ok`) are sorted in place, because threads finish in any order.
+A call whose key exists but whose digests differ is a divergence that names each file and
+request field that differs. A changed prompt is noted (`prompt_changed`, counted in the status),
+not a mismatch: prompts change with code, and an experiment that changed a prompt must not pass for
+one that changed a condition. In a recorded decider reply, each revision the source was shown
+(`citable_artifacts`, the requester's subject) is replaced by the current revision of the same
+artifact (`revisions_mapped` in the call record).
+
+**Divergence** (`--on-divergence`):
+
+| Policy | When the source has no call at the key, or the digests differ |
+|---|---|
+| `stop` (default) | `replay/diverged.json` (`sdc.replay-divergence/1`: place, difference, summary); a work node exits 75 (`terminal_reason: recording_diverged`), so the driver records nothing and stops. The decider gets no reply. The run ends with exit 9 and, under autopilot, a stop record by `rule:autopilot` with cause `recording_diverged` naming the place and the difference |
+| `nearest` | the recorded reply of the same node or decision in the same case: same arrival at the nearest try (an earlier one first), else the latest earlier arrival; marked `reused`. Nothing to reuse: as `stop` |
+| `live` | the real adapter for this one call (`--live-adapter`, default `metaharness`; `dry` for tests), marked `live`, counted and capped by `--live-cap` (default 5); a spent cap ends the run as `stop` |
+
+Every call record has `replay.json` (`sdc.replay-call/1`: key, mode `recorded`, `reused`, `live`
+or `diverged`, source record, differences, fault, virtual milliseconds, `prompt_changed`). The
+response's `adapter` is the mode (`source_adapter` keeps the recorded one). At the end
+`sdc-replay seal` writes `replay/summary.json` (`sdc.replay-status/1`) and copies it as `replay`
+into `status.json` and `run-stopped.json`: label (`re-driven: recorded replies only`, `… with reused
+replies`, `… with live model calls`), counts (`recorded`, `reused`, `live`, `diverged`, `paid`,
+`faults`, `prompt_changed`), program runs (real, recorded, check failures), both trees, policy,
+injections, conditions, virtual seconds. `sdc-replay compare <run>` lists each case's actions
+(action, exit, result) and the end against the source, exit 1 when they differ.
+
+**Clock.** The model's share of the time is virtual: a recorded call takes no time, and its
+recorded `duration_ms` stays in `duration_ms` of the response, `llm-calls.jsonl` and
+`decisions.jsonl` (each line gets `replay: {mode, key, clock: "virtual", virtual_ms, …}`).
+`rounds.jsonl` gets `real_seconds`, `virtual_seconds` (the recorded work calls of the round; decider calls fall between rounds, as in a real run),
+`seconds` = both and `clock: "virtual"`; the rounds' epochs stay wall time. `cost_usd` stays the
+recorded cost, what the call would have cost; `calls.paid` counts the live calls that reached a
+model (0 for `dry`). A work call whose recorded duration reaches the action's `timeout_s` times out
+on the virtual clock. The driver passes `SDC_TIMEOUT_S` and `SDC_VIRTUAL_TIMEOUT`; the adapter writes
+nothing and puts the reason in that file, and the driver records exit `timeout`, "killed after N s
+(virtual clock: …)", as for a real kill.
+
+**Changed conditions** (`--set <k>=<v>`, recorded in `run-settings.jsonl` `replay.conditions`):
+`max_runs.<node|class>` and `timeout.<node|class|action>` (classes of `tools/node-classes.json`)
+go into `replay/conditions.json` (`sdc.conditions/1`), which `sdc-drive` applies over each case's
+`bindings.json` when `SDC_CONDITIONS` names it (`bindings_of`). `max_llm_calls`,
+`max_decider_calls`, `max_wall_seconds`, `max_rejections` (`SDC_MAX_REJECTIONS`, the rework limit,
+default 2), `decider_retries` (`SDC_DECIDER_RETRIES`, default 2) and `review_retries`
+(`SDC_REVIEW_RETRIES`) go into the environment.
+
+**Injected faults** (`--inject`, repeatable; place `[<case>/]<name>#<n>`):
+
+| Fault | Effect |
+|---|---|
+| `timeout@<case>/<node>#<n>` | the call times out on the virtual clock: nothing written, exit `timeout`, the action's `timeout_s` on the clock |
+| `invalid-reply@…` | a work node writes nothing (its apply step fails); `change.review` and the decider get `{"invalid": …}`, which their program checks refuse, so their retry paths run |
+| `exit@…=<code>` | the adapter exits `<code>` with nothing written; 75 is an API error (the driver stops, resume later) |
+| `reject@<decision>#<n>[=<reason>]` | the decider's recorded reply becomes `reject` with the reason (default: "a reject injected by sdc-replay …") |
+| `check-fail@<action>#<n>` | the program runs for real, then its run is recorded as exit 1 with a line saying so (`sdc.conditions/1` `wrap` puts `sdc-replay program` before the binding's argv) |
+
+**What cannot be replayed.** A call that the source made under other code: the prompt can differ
+(noted), but changed inputs or a node that was a program then (`change.review` before
+`story:review-node-is-a-model`) diverge. A reused reply cannot address a rejection or a failed
+check: it writes the same revision, so the writer is sent back until `max_runs` (`writer_spent`).
+Programs that call no model run for real, so a cargo build or test can differ on another machine.
+The source's own timeouts reproduce only when the source recorded the call. Live calls cost money
+unless the live adapter is `dry`.
+
+**Proofs.** Cycles in `scripts/run-finding-cycles.sh` re-drive the committed recording
+`fixtures/recorded/stub` (a stub run through the fixture adapters, packed: digests, `out/` trees,
+structured outputs, event logs with `<run>`/`<path>`, no prompt, transcript or absolute path):
+`replay-unchanged`, `replay-reject-stop`, `replay-reject-nearest`, `replay-timeout`,
+`replay-live-dry`, `replay-check-fail`, `replay-recording-clean`. Re-recording it after a change to
+a node's inputs: `scripts/run-trial.sh` with the fixture adapters (the cycle's comment names the
+environment), then `sdc-replay pack runs/<run> driver/examples/sdc/fixtures/recorded/stub`.
+
+A changed effort is a changed request and diverges: a recording made before effort-per-class (SDC
+0.1.0, `f747085`) diverges at its first call on 0.1.1 and later (`request.effort null -> "high"`).
+Recordings are re-packed after a change to the request shape; `fixtures/recorded/stub` was
+re-packed on the 0.1.1 tree (14 calls: the close is taken by `rule:autopilot`, not the decider).
+
+A re-driven run sets `SDC_UNSTICK=off` unless the source has `run.unstick` calls: a replay
+reproduces the source's calls, and a node the source never called has no recorded reply.
+`run-settings.jsonl` records it as `replay.unstick` (`on`, `why`). To try `run.unstick` on a
+recording without such a call: `--set unstick=on --on-divergence live`.
 
 ## Action-to-tool bindings
 
@@ -564,7 +859,8 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | spec | `spec.author` | `llm-node.sh`, `domain` from `args_from: spec-domain` (stub: copies `fixtures/billing-spec`, ESS `examples/billing`) | `spec_source=authored` |
 | spec | `spec.validate`, `spec.compile`, `spec.synthesize` | the `ess` commands above, one each | `valid`, `compiled`, `clean` |
 | spec | `spec.scan`, `spec.trace` | `grep -rn UNMAPPED:`; every `system.yaml` domain cited by a requirement | `none`, `traced` |
-| spec, story | `spec.review`, `change.review` | reviewer stub (`test -f`), producer `reviewer-stub`, listed independent | `approved` |
+| spec | `spec.review` | reviewer stub (`test -f`), producer `reviewer-stub`, listed independent | `approved` |
+| story | `change.review` | `llm-node.sh change.review`, class REVIEW, producer `llm-review`, listed independent (see "The code review"); stub `test -s impl/README.md` | `approved`/`rejected` |
 | plan | `plan.decompose` | `llm-node.sh`: proposal → `aep plan artifact new story`, `scope --add`, `move --to active` (epic, story) | revises `plan` |
 | plan | `plan.validate`, `plan.scope`, `plan.status` | `aep plan artifact validate --strict`; `waves --kind story` with 0 unassessed; `list` all active | `valid`, `scoped`, `active` |
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
@@ -662,6 +958,8 @@ arguments was refused at the missing key. The first SDC attempt stopped `stuck` 
 
 ## Gaps
 
+Every reject point and writer cap in autopilot, with its route and pending cycles: `reject-routes.md`.
+
 Status 2026-11-21: 2, 3, 7, 13 closed; 12 and 14 partly; 16-23 new.
 
 1. **Authority is not bound to a revision.** A Canon request (see "Authority"); not worked
@@ -711,8 +1009,8 @@ New with the LLM executor (2026-11-21):
     checks the spec against itself) plus the tree's own `task check` (tests the LLM wrote). Next:
     ESS's generated Go/TypeScript runner or `conform report` with a runner that drives `impl/`.
     Interim: the story's `impl-gate` (see "Interim story gate").
-17. **Reviews are stubs.** `spec.review` and `change.review` are `test -f` checks by
-    `reviewer-stub`; an LLM reviewer would be a second principal listed as independent.
+17. **The spec review is a stub.** `spec.review` is a `test -f` check by `reviewer-stub`.
+    `change.review` is a model call by `llm-review` since 2026-11-21 ("The code review").
 18. **No per-call narrowing of a shell.** The frame admits operations, not commands, so the
     agents get no shell at all: they cannot run `ess specify validate` or their tests and learn
     only through `retry_when` feedback. Narrowing (`ess specify validate` only) needs metaharness

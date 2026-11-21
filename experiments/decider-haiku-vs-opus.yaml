@@ -1,0 +1,169 @@
+format: sdc.experiment/1
+id: decider-haiku-vs-opus
+kind: retrospective
+status: complete
+created: 2026-11-21
+title: Decider model Haiku against Opus with the work on Sonnet
+purpose: Whether the decider model changes how often a rejected merge sends a story back to the implementer, read from the trial-3 runs that exist.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: several
+trees:
+- the runs of trial-3-attempts and trial-3-batch-1; each run's tree is in those records
+links:
+- experiments/trial-3-attempts.yaml and experiments/trial-3-batch-1.yaml (the runs and their trees)
+hypothesis: 'With claude-opus-5-5 instead of claude-haiku-5-5 as the decider and the work on claude-sonnet-5-5, the edge story: merge.approve:rejected -> change.implement occurs at least 1 time fewer per run (median count).'
+target:
+  kind: edge
+  name: 'story: merge.approve:rejected -> change.implement'
+variable: decider.model
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  decider.escalate: final
+  autonomy: A5
+  adapter: metaharness
+known_confounds:
+- key: models.other.model
+  note: the trial-3-mixed runs ran the other class (intake and direction writers) on claude-haiku-5-5, trial-3-sonnet-1 and trial-3-strong on claude-sonnet-5-5
+- key: max_llm_calls
+  note: 90 in the trial-3-mixed runs, 150 in trial-3-sonnet-1 and trial-3-strong
+- key: bindings
+  note: the runs read the bindings and tools of two worktrees (sdc-trial-3, sdc-trial-3b) that changed during the day; no run pins a revision of them
+- key: order
+  note: trial-3-mixed, -2 ran in the morning before the intake and direction fixes; trial-3-mixed and -4 stopped in intake or direction on defects fixed since
+variants:
+- id: haiku
+  settings:
+    decider.model: claude-haiku-5-5
+  runs:
+  - trial-3-sonnet-1
+  - trial-3-mixed
+  - trial-3-mixed-2
+  - trial-3-mixed-3
+  - trial-3-mixed-4
+  - trial-3-mixed-5
+  - trial-3-mixed-6
+- id: opus
+  settings:
+    decider.model: claude-opus-5-5
+  runs:
+  - trial-3-strong-1
+  - trial-3-strong-2
+baseline: haiku
+treatment: opus
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+  metric: 'edge.story: merge.approve:rejected -> change.implement.count'
+  direction: decrease
+  min_effect: 1
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+- metric: run.cost_usd
+  worse: increase
+  max_worsening_ratio: 1.0
+decision_rule:
+  rule: complete-separation
+  text: held when each variant has at least 3 finished runs with the metric, every opus run lies below every haiku run and the medians differ by at least 1; contradicted when the ranges separate the other way or by less than 1; inconclusive otherwise. Guards decide adoption, not the verdict.
+result:
+  computed_by: sdc-experiment report
+  direction: decrease
+  guards:
+  - baseline:
+      max: 1.0
+      median: 0.0
+      min: 0.0
+      n: 7
+      values:
+        trial-3-mixed: 0.0
+        trial-3-mixed-2: 0.0
+        trial-3-mixed-3: 0.0
+        trial-3-mixed-4: 0.0
+        trial-3-mixed-5: 0.0
+        trial-3-mixed-6: 1.0
+        trial-3-sonnet-1: 0.0
+    metric: run.delivered
+    state: holds
+    treatment:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 2
+      values:
+        trial-3-strong-1: 1.0
+        trial-3-strong-2: 1.0
+    worsening: -1.0
+  - baseline:
+      max: 1.882091
+      median: 1.487034
+      min: 0.026938
+      n: 7
+      values:
+        trial-3-mixed: 0.026938
+        trial-3-mixed-2: 0.886328
+        trial-3-mixed-3: 1.487034
+        trial-3-mixed-4: 0.042208
+        trial-3-mixed-5: 1.587871
+        trial-3-mixed-6: 1.858643
+        trial-3-sonnet-1: 1.882091
+    metric: run.cost_usd
+    state: holds
+    treatment:
+      max: 2.996362
+      median: 2.9611535
+      min: 2.925945
+      n: 2
+      values:
+        trial-3-strong-1: 2.925945
+        trial-3-strong-2: 2.996362
+    worsening: 1.4741195
+  guards_ok: true
+  median_difference: -2.0
+  metric: 'edge.story: merge.approve:rejected -> change.implement.count'
+  min_effect: 1.0
+  p_one_sided: null
+  recommendation: run more
+  separation: n
+  variants:
+  - clean_passes: 1
+    ended: 7
+    id: haiku
+    listed: 7
+    primary:
+      max: 2.0
+      median: 2.0
+      min: 0.0
+      n: 5
+      values:
+        trial-3-mixed-2: 0.0
+        trial-3-mixed-3: 2.0
+        trial-3-mixed-5: 2.0
+        trial-3-mixed-6: 2.0
+        trial-3-sonnet-1: 0.0
+    without_summary: []
+  - clean_passes: 2
+    ended: 2
+    id: opus
+    listed: 2
+    primary:
+      max: 0.0
+      median: 0.0
+      min: 0.0
+      n: 2
+      values:
+        trial-3-strong-1: 0.0
+        trial-3-strong-2: 0.0
+    without_summary: []
+  verdict: inconclusive
+  why: 'too few ended runs with the metric: haiku 5 and opus 2, the rule needs 3 each; retrospective: the hypothesis was written after the runs, so this verdict proposes a hypothesis and decides nothing'
+adoption:
+  decision: pending
+  commit: null
+  note: retrospective; nothing is adopted on this record. The opus variant has 2 runs, below the rule's 3.

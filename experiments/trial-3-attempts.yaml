@@ -1,0 +1,99 @@
+format: sdc.experiment/1
+id: trial-3-attempts
+kind: retrospective
+status: complete
+created: 2026-11-21
+title: Trial 3, attempts 1 to 5 before the batch tree
+purpose: Run the to-do idea from idea to close with no person, all Haiku beside Sonnet work with a Haiku decider, and fix what stops each attempt before the next.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: several
+trees:
+- 'attempt 1: trial/3 at cedd691 (worktree sdc-trial-3): trial-3-haiku, trial-3-mixed'
+- 'attempt 2: trial/3 at f426876 (merge of fix/decider-citations f74c68b): trial-3-haiku-2, trial-3-mixed-2'
+- 'attempt 3: trial/3 at 4b8e177 (merges 9df3062 = 5471dab and 4b8e177 = 37fba0b): trial-3-haiku-3'
+- 'attempt 4: trial/3b at main 753210d (worktree sdc-trial-3b): trial-3-haiku-4, trial-3-mixed-3'
+- 'attempt 5: trial/3b at ea2f111 (main 32265be + fix/attempt4-defects 073c173): trial-3-haiku-5, trial-3-mixed-4; haiku-5 reopened on acd6f12, mixed-4 reopened on 3663770'
+fixed:
+  decider.kind: haiku
+  decider.model: claude-haiku-5-5
+  decider.escalate: final
+  decider.max_decider_calls: '20'
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '90'
+  max_wall_seconds: '5400'
+  models.other.model: claude-haiku-5-5
+variants:
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: null
+  runs:
+  - run: trial-3-haiku
+    tree: cedd691
+  - run: trial-3-haiku-2
+    tree: f426876
+  - run: trial-3-haiku-3
+    tree: 4b8e177
+  - run: trial-3-haiku-4
+    tree: 753210d
+  - run: trial-3-haiku-5
+    tree: ea2f111
+    note: reopened once on acd6f12; a reopened run is no end-to-end pass
+- id: mixed
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+  runs:
+  - run: trial-3-mixed
+    tree: cedd691
+  - run: trial-3-mixed-2
+    tree: f426876
+  - run: trial-3-mixed-3
+    tree: 753210d
+  - run: trial-3-mixed-4
+    tree: ea2f111
+    note: reopened once on 3663770 and stopped again at once
+runs_per_variant: 5
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: No hypothesis. Each attempt ran on a tree with the previous attempt's fixes, so the runs are a sequence of defect finds, not samples of one setting.
+known_confounds:
+- key: tree
+  note: every attempt ran on a different tree (see trees); the review step was a program stub on all of them
+- key: decider.adapter
+  note: attempts 2 to 5 set SDC_DECIDER_ADAPTER=claude-cli; attempt 1 did not; run-settings.jsonl does not record it
+facts:
+- 'Attempt 1: both runs stopped awaiting_authority in IDEA-1.direction.'
+- 'trial-3-haiku-2: stopped writer_spent in IDEA-1.list.spec: spec.author ran 4 of 4 times, spec.trace exited 5 in each loop; the Haiku spec writer raised one new genuine finding per re-derivation (fix: fix/spec-trace-loop 7f5ef7c, 37fba0b). Work 0.124 USD, decider 0.087 USD.'
+- 'trial-3-mixed-2: stopped awaiting_authority in IDEA-1.list.items: the decider validly rejected change.merge and nothing sent a rejected change back to the implementer.'
+- 'trial-3-haiku-3: stopped rejected_without_rework_path at IDEA-1.app.release (release.publish rejected); replay 9 of 9 match; 0.469 USD (work 0.263, decider 0.206).'
+- 'trial-3-haiku-4: stopped writer_spent in IDEA-1.todo.list (change.implement 3 runs). merge.approve rejected todo.identity (unbounded JSON nesting depth, no header size limit or read timeout; reworked, then approved) and todo.list (a data file instead of Postgres through a client crate, against r2, q7, q17; the rework was skipped by the "no new decisions" rule, a tool-layer defect).'
+- 'trial-3-mixed-3: closed not_delivered: the decider withheld the release because health.required was open with no health route; that obligation is met only after the publish, so the refusal was a tool defect (fixed in 073c173). Its two merge rejections (offline POSTs fail because the service worker answers GET only; sync with no offline queue) were about the product and led to rework.'
+- 'trial-3-haiku-5: stopped rejected_without_rework_path at the root close (r1 cites both q10, Postgres, and q12, a data file; the roadmap check held while the artifact was a draft). Reopened on acd6f12 it closed operating by rule:autopilot with no new call. sdc-finding-kpis L7 reads 553 s for the reopen gap: a wait for a fix, not for a person.'
+- 'trial-3-mixed-4: stopped decision_not_takeable in IDEA-1.intake: the decider''s valid choice for f1 was refused by the program check because r3 cites d6, a dark spot (fix: fix/attempt5-intake 102ce99). Reopened on 3663770 it stopped again at once (the fix acts at write time).'
+- 'Pass by the trial-3 report''s rule: 0 of the 9 attempt runs (docs/trial-3.md section 1).'
+links:
+- 'docs/trial-3.md on branch docs/trial-3 (commit 243a22f; not on main when this record was written): sections 1, 4, 5 and 6'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 5
+    id: haiku
+    listed: 5
+    without_summary: []
+  - clean_passes: 0
+    ended: 4
+    id: mixed
+    listed: 4
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

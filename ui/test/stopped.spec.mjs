@@ -59,8 +59,9 @@ test('a stopped run says who stopped it, when and why, what it waited on, and ev
     await expect(page.locator('#now .nc.k-stopped')).toBeVisible();
     await expect(page.locator('#now .nc-was').first()).toContainText('until the stop');
     await expect(page.locator('#now').getByRole('button', {name: 'Decide'})).toHaveCount(0);
-    // the store selector and the case tree mark the run
-    await expect(page.locator(`#source option[value="${s}"]`)).toHaveText(/· stopped$/);
+    // the run picker's button and the case tree mark the run
+    await expect(page.locator('#runpick .pk-mk')).toHaveClass(/m-stop/);
+    await expect(page.locator('#runpick')).toContainText('stopped');
     await expect(page.locator('#tree .tree-stop')).toHaveText(`Run stopped by operator at ${clock}`);
     await expect(page.locator('#tree .case[data-case="IDEA-1/children/IDEA-1.direction"] .cst')).toHaveText('stopped');
     await expect(page.locator('#tree .cst-spin')).toHaveCount(0);
@@ -151,18 +152,25 @@ test('a person-held setting keeps the tile neutral', async ({page}) => {
   await expect(page.locator('#now .now-s')).toHaveText('Waiting on you: nothing runs until this is decided');
 });
 
-test('--runs: a run that appears later joins the store selector without a restart', async ({page}) => {
+test('--runs: a run that appears later joins the run picker without a restart', async ({page}) => {
   await page.goto(`${base}/?source=0`);
   // the explicit store stays source 0 and is not listed twice
   expect(sources[0].path).toMatch(/person\/store$/);
   expect(sources.filter((x) => /person\/store$/.test(x.path))).toHaveLength(1);
-  await expect(page.locator('#source option')).toHaveCount(sources.length);
+  await page.locator('#runpick').click();
+  const toggle = page.locator('#pk-stubs');
+  if (/^Show/.test(await toggle.textContent())) await toggle.click();
+  const rows = page.locator('#pk-list [role=option]');
+  await expect(rows).toHaveCount(sources.length);
+  // a run still being built aside (*.part) is not listed, before or after it is moved into place
+  fs.mkdirSync(path.join(runs, 'aside.part', 'store'), {recursive: true});
   fixture('person', 'late');
-  await expect(page.locator('#source option')).toHaveCount(sources.length + 1, {timeout: 15000});
+  await expect(rows).toHaveCount(sources.length + 1, {timeout: 15000});
+  await expect(page.locator('#pk-list [role=option]', {hasText: '.part'})).toHaveCount(0);
   // a fixture run: listed with the stub and fixture runs, labelled
-  const opt = page.locator('#source optgroup option', {hasText: /^late\b/});
-  await expect(opt).toHaveText('late · stub');
-  await page.locator('#source').selectOption(await opt.getAttribute('value'));
+  const opt = page.locator('#pk-list .g-stub [role=option]', {has: page.locator('.pk-rn', {hasText: /^late$/})});
+  await expect(opt.locator('.pk-stub')).toHaveText('stub');
+  await opt.click();
   await expect(page.locator('#tree .case').first()).toBeVisible({timeout: 15000});
   await expect(page.locator('#now .nc.wait')).toBeVisible();
 });

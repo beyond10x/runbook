@@ -30,7 +30,7 @@ it, so its revision changes no state count of `canon check` and sets no record a
 Commands (from `../canon`; `cargo` is the slot shim):
 
 ```console
-scripts/check-protocols.sh   # validate, compile and check all eight, then the ESS gate probes
+scripts/check-protocols.sh   # validate, compile and check all eight, the ESS gate probes, then simulate
 scripts/evaluate-cases.sh    # canon evaluate every case run, compare with expected.json
 ```
 
@@ -60,11 +60,13 @@ output). `scripts/evaluate-cases.sh` compares them; output in `docs/evaluate-out
 | `06-approval-once/{context,vision,roadmap}/rejected` | sdc.direction | approval `rejected`: approve blocked, the writer (`context.default`, `vision.write`, `roadmap.write`) admissible |
 | `06-approval-once/{context,vision,roadmap}/revised` | sdc.direction | rejected at revision 1, artifact at revision 2: the check due (`context.check`, `roadmap.validate`; vision has none, so `vision.approve` admissible) |
 | `06-approval-once/{context,roadmap}/rechecked` | sdc.direction | as revised with the check valid at revision 2: approve admissible again |
-| `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run`, `change.review` due; tested and reviewed: `merge.approve` admissible |
+| `06-approval-once/merge/{approved,rejected,revised,rechecked}` | sdc.story | merge approved: `change.merge` admissible; rejected: only `change.implement`; change at c2 built: `tests.run` due (`change.review` after it passed); tested and reviewed: `merge.approve` admissible |
 | `07-plan-check-failed` | sdc.plan | plan covered, its validation invalid: `plan.decompose` admissible, the only action that revises the plan |
 | `08-intake-idea-refused` | sdc.intake | idea record invalid: no action revises the idea, outcome `refused` legitimate |
 | `09-child-ended-otherwise/{root,epic}` | sdc, sdc.epic | intake ended `refused`: root `refused` legitimate; spec ended `abandoned`: epic `not_delivered` legitimate |
 | `10-release-refused/{release,release/withheld,epic,root}` | sdc.release, sdc.epic, sdc | publication refused: `withheld` legitimate with its decision; epic `not_released`; root `not_delivered` |
+| `11-review-after-tests/{untested,passed,failed}` | sdc.story | `change.review` needs `tests.pass` at the current change revision: blocked before the run, admissible after a pass, blocked after a fail with `change.implement` admissible |
+| `11-review-after-tests/{rejected,revised,retested}` | sdc.story | after a rejecting review: `change.implement`; at c2 `tests.run`, review blocked; tests passed at c2: `change.review` admissible again |
 
 The other cases show the same rule for the checks: `01-idea-only/intake` (`idea.check` blocked
 by its record), `02-spec-revised-tests-stale/spec` (every spec observation blocked at s2; the
@@ -106,6 +108,12 @@ reported that as 1113 `cycle` findings on sdc.plan, sdc.spec and sdc.epic.
   `requirements.check`; sdc.direction `context.check`, `roadmap.validate`; sdc.release
   `spec.gate`, `acceptance.run`, `release.observe`; sdc.story `spec.gate`, `tests.run`,
   `change.review`.
+- Order between two observations is the protocol's, not the driver's: the driver takes
+  admissible observations in identifier order, so `change.review` ran before `tests.run`.
+  `change.review` now also needs `tests.pass` (the conformance run passed at the current change
+  revision), so a failed run sends the implementer back before any review, and after a rejecting
+  review the loop is `change.implement`, `tests.run`, `change.review` at the new revision. Cases
+  `11-review-after-tests/*`.
 - Not guarded: `release.publish` and `release.rollback` (`effect: external`, acts under
   `release.approve`). The approvals follow their own rule below.
 
@@ -124,7 +132,7 @@ rejected is not the protocol's business.
 | sdc.direction | `context.approve` (`owner.approve`) | `context_approval` | `context.default` | `context.check` |
 | sdc.direction | `vision.approve` (`owner.approve`) | `vision_approval` | `vision.write` | none |
 | sdc.direction | `roadmap.approve` (`owner.approve`) | `roadmap_approval` | `roadmap.write` | `roadmap.validate` |
-| sdc.story | `merge.approve` (`change.merge`) | `merge_approval` | `change.implement` | `tests.run`, `change.review` |
+| sdc.story | `merge.approve` (`change.merge`) | `merge_approval` | `change.implement` | `tests.run`, then `change.review` once it passed |
 
 `change.merge` now needs `merge.approved` instead of the capability: the capability `change.merge`
 is decided once per case (Canon refuses it twice), so a rejection could not be a capability
@@ -212,6 +220,8 @@ and direction passed, the epic `not_released`: `not_delivered` legitimate).
 Canon's classification of the findings on f364b6b (classes a1, a2, a3, c, d, e) is the reference
 for this section; c is fixed by the approval rule above.
 
+The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/simulate-findings.md`.
+
 - **A failed plan check (a3, fixed).** `plan.decompose` was guarded on coverage only, so with the
   plan covered but invalid, its scope unassessed or its stories not active, no action could
   revise the plan. It is now also admissible on `plan.valid`, `plan.scoped` or `plan.active`
@@ -253,6 +263,30 @@ for this section; c is fixed by the approval rule above.
   `driver/src/main.rs:770`) and rewrites its result when the child ends, so a real case never
   holds `intake_opened` without it. The same holds for `direction.open`, `epics.open` and
   sdc.epic's opening actions.
+
+## Simulate
+
+`scripts/check-protocols.sh` ends with a simulate step: `canon simulate --path` on each
+`protocol/*.protocol.yaml`, its stdout compared byte for byte with the pinned report
+`protocol/simulate/<name>.txt`. Any difference fails with a unified diff and
+`simulate: <protocol>: findings changed (was N, now M)`; one line per protocol gives reachable,
+terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
+`2c7a1ea6`, the commit of Canon's release tag `0.10.0`, the first release with `simulate` (until
+SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
+protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
+`${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on
+`PATH`, not the binary of `CANON_DIR`); every other check keeps the binary of `CANON_DIR`.
+
+- Re-pin after a deliberate protocol change: `scripts/check-protocols.sh --repin` (or
+  `SDC_SIMULATE_REPIN=1`), review `git diff protocol/simulate/`, commit the reports with the
+  protocol and the reason in the commit body.
+- A new Canon release: put the commit of its tag in `CANON_REV`, then `--repin` if a report
+  changes; Canon's next waves change simulate's output, so the reports move with them.
+- `SDC_SIMULATE=off` skips the step with a printed line (no network).
+- The pinned reports are a ratchet, not a verdict: every protocol still exits 1 with findings
+  (the triage is on branch `plan/simulate-triage`). The limits Canon named: the walk adds one record per
+  step (a step that produces two records, such as `case_open`, is walked as one), and it has no
+  revise step, so a failed check on an artifact a protocol revises reads as a stuck state.
 
 ## Evidence kinds and the action that produces each
 

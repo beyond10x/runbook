@@ -1,0 +1,19 @@
+{
+  "$artifacts": {
+    "report": "bug.yaml",
+    "change": "impl"
+  },
+  "bugfix.open": {
+    "produces": "bugfix_opened",
+    "subject": "report",
+    "producer": "sdc-drive",
+    "results": {
+      "0": null
+    },
+    "child": {
+      "name": "bug",
+      "protocol": "{dir}/../../../../protocol/sdc-bugfix.protocol.yaml",
+      "bindings": "{dir}/../sdc-bugfix.bindings.json"
+    }
+  }
+}

@@ -33,10 +33,11 @@ All paths are relative to the run directory.
 | time inside the driver (s) | `rounds.jsonl` `seconds` | sum (`:262`; written by `scripts/run-trial.sh:289`) |
 | time outside the driver (s) | derived | elapsed minus inside |
 | time waiting on a person (s) | `rounds.jsonl`, `run-settings.jsonl` `at`, `run-stopped.json` `at` | `waiting` (`:428`), below |
+| time stopped for a fix (s) | `rounds.jsonl`, `run-stopped.<at>.json` `at` | from each reopened stop record to the next round; such a gap is not waiting on a person (`fix_gap`) |
 | decisions by a person | `action_finished` and `authority_recorded` `principal` in `events.jsonl`; `work/questions.yaml` `answered_by`; `work/findings.yaml` `decided_by`; `work/context.yaml` `status` | person actions (an authority record taken with an action at the same `at` counts once) + questions a person answered (`accepted`, `changed`) + resolved findings a person decided + context fields `changed` (`:327`) |
 | LLM calls, LLM cost (USD) | `llm-calls.jsonl` (`scripts/run-trial.sh` `SDC_LLM_LOG`; `llm-node.sh:425`) | lines, Σ `cost_usd` (`:332`) |
 | LLM calls / cost `[model]`, `[step kind]` | same | grouped by `model` and by `action` (the step kind); a model or step another run used reads 0 |
-| decider calls, decider cost (USD) | `decisions.jsonl` | a line that names a `model` and is not `escalation_suppressed` is one LLM call (rule principals `decider:approve`, `decider:reject` name none; a suppressed escalation repeats a call already written); Σ `cost_usd` of those (`:348`) |
+| decider calls, decider cost (USD) | `decisions.jsonl` | every decider model call that was made, whatever became of its reply, once: lines that name a `model` and share a `record` (`decider/NNN-*`) are one call, its cost the highest `cost_usd` among them (an escalation suppressed afterwards has the cost on its `escalation_suppressed` line and none on the decision after it; a fallback line repeats the last invalid reply's call); a line without a record is a call of its own; rule principals `decider:approve`, `decider:reject` name no model |
 | total cost (USD) | derived | LLM + decider |
 | findings raised / late / early | `work/findings.yaml` | raised = status not `rejected`; late = `stage` not `requirements` (as L4 of `docs/kpis.md`); early = the rest (`:373`) |
 | findings resolved by agent default / decider / person | `findings.yaml` `status: resolved`, `decided_by` | `decider:*` is the decider; a person per below; other resolved (`agent`) is the agent's default |
@@ -44,7 +45,12 @@ All paths are relative to the run directory.
 | rework revisions | `revised.artifacts` in every case's `events.jsonl` | per artifact distinct non-`none` revisions minus 1, summed over the tree: L6 of `docs/kpis.md`, `sdc-finding-kpis.rs` (`:395`) |
 | oracle check | `oracle.json` (or `store/oracle.json`), the oracle file of `docs/eval-design.md` (oracle file): `held`, `contradicted` or `unknown` per check | `none` when absent; `held (n of n checks)`; else the worst result and the three counts (`:460`). No run writes this file yet: `eval/oracle-spec.sh` prints one line for a spec directory, and trial 3 must save its result as `oracle.json` *(inferred)* |
 | replay | `replay.json` (`scripts/run-trial.sh:160`) | `<n> of <m> cases match` (state and decision both match the log) or `not recorded` (`:483`). The tool never runs `sdc-drive replay` (it needs Canon; no library call exists) |
-| setting | last line of `run-settings.jsonl` (`sdc.run-settings/1`) | `autonomy`, `stand-in`, decider kind and model, and `models` / `model` as written when present (the per-step model setting of `story:model-per-node-variable`, shape not yet fixed) (`:490`) |
+| setting | last line of `run-settings.jsonl` (`sdc.run-settings/1`) | `autonomy`, `stand-in`, decider kind and model, and `models` / `efforts` / `model` as written when present (the per-class model and reasoning-effort settings, `story:model-per-node-variable`) (`:490`) |
+| forced continuations | `defects.jsonl` (`sdc.run-defect/1`, keep-going, `docs/driver.md`) | lines with `forced: true`; `not recorded` without the file. A run with one forced is not a clean run |
+| unstuck | `defects.jsonl` (run.unstick, `docs/driver.md` "Unstick") | lines with `unstuck: true`; `not recorded` without the file. A run with one closed unattended, not clean |
+| reopens | `run-stopped.<at>.json` files (a stop record a later leg reopened) | their number; a run with one is not a clean run |
+| clean run | `defects.jsonl`, `run-stopped.<at>.json` | `yes` only with no forced continuation, no unstick move and no reopen |
+| defects | `defects.jsonl` | `<cause> at <action> in <case> (forced, stops, or unstuck: <move>, <defect class>: <diagnosis>)` per line, `none` for an empty file |
 
 A person is a principal that is not empty, `decider:*`, `rule:*`, `program*`, `dry-run*`, `agent*`,
 `non-interactive` or `derived`: so `person:<id>`, and the bare id or `human` older drivers wrote

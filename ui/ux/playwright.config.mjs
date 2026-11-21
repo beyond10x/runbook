@@ -12,5 +12,7 @@ export default defineConfig({
   globalSetup: './core/setup.mjs',
   fullyParallel: false,
   use: {colorScheme: 'dark', reducedMotion: 'no-preference'},
-  projects: vps.map((v) => ({name: v.name, use: {viewport: {width: v.width, height: v.height}}})),
+  // a phone size is a phone (touch, coarse pointer), so the page takes its phone layout there and
+  // keeps the desktop layout in a desktop window of any width (index.html, SDC_PHONE)
+  projects: vps.map((v) => ({name: v.name, use: {viewport: {width: v.width, height: v.height}, ...(v.phone ? {isMobile: true, hasTouch: true} : {})}})),
 });

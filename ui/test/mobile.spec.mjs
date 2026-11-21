@@ -27,9 +27,10 @@ const SRC = {person: 0, stopped: 1, decider: 2};
 let srv;
 
 test.describe.configure({mode: 'default'});
+// a phone: its size, touch and a coarse pointer (the page's phone layout is for a phone, index.html SDC_PHONE)
+test.use({viewport: PHONE, isMobile: true, hasTouch: true});
 test.beforeEach(async ({page}, info) => {
-  test.skip(info.project.name !== 'wide', 'own server, the phone size set per test');
-  await page.setViewportSize(PHONE);
+  test.skip(info.project.name !== 'wide', 'own server: one project is enough');
   await page.addInitScript(() => { try { localStorage.clear(); } catch { /* first load */ } });
 });
 test.afterAll(() => srv?.kill());

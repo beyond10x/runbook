@@ -1,0 +1,109 @@
+format: sdc.experiment/1
+id: bugfix-seeds-1
+kind: retrospective
+status: complete
+created: 2026-11-21
+title: The bug-fix protocol on four seeds, all Haiku against all Sonnet
+purpose: Run sdc.bugfix (red first, then the fix) unattended on four seeded bugs, once per seed on each model, to see whether each model writes a red test and a fix that passes the gate.
+inputs:
+- name: pager
+  kind: seed
+  seed: driver/examples/sdc/fixtures/bugfix-pager
+  text: 'With 11 items and 5 items per page, pager::page_count(11, 5) returns 2 and pager::page(&items, 3, 5) returns an empty slice, so item 11 is never shown. Expected: 3 pages, the third holding item 11.'
+  sha256: 9bb5b5f4519e4d7216f5304491c5a18880f0970092e26ccf113ab6ee092570a9
+- name: kvparse
+  kind: seed
+  seed: driver/examples/sdc/fixtures/bugfix-kvparse
+  text: 'kvparse::parse_line("timeout") returns Ok(("timeout", "")) and parse_all("timeout\n") succeeds, so a config line that lost its value is silently taken as an empty value. Expected: a line without = is refused with Err(ParseError::MissingSeparator), as the documentation says.'
+  sha256: 50eb0c43a1893a8462caab006fda88baef2567241719f8a345f20b092fea64e2
+- name: percent
+  kind: seed
+  seed: driver/examples/sdc/fixtures/bugfix-percent
+  text: 'percent::is_valid(100) returns false and percent::bar(100, 10) returns None, so a finished task cannot be shown. Expected: 100 is a valid percentage (0 to 100, both included), and bar(100, 10) returns Some("##########").'
+  sha256: 0f9f14dd76425fa7cde532bde83316f36b76496da2ae14ac2df021b8f17c97bc
+- name: tally
+  kind: seed
+  seed: driver/examples/sdc/fixtures/bugfix-tally
+  text: 'After t.add("a", 2), t.add("b", 3) and t.remove("a"), tally::Tally::total() returns 5. Expected 3: the total is the sum of the counts that are still there, so remove must take its count out of the total.'
+  sha256: 1faf3ae5bb3bd42425fa52de5db9d0d17e4640b8eb15ce1e287f66933a4b00e0
+tree_commit: several
+trees:
+- the work tree of impl/bugfix-cycle (worktree sdc-impl-bugfix-cycle), uncommitted while the runs ran, on dfe4a3f; committed after them as d2e4896 and 99238c0 (seed runs written up in e108d5e). No run pins a revision.
+- bugfix-tally-sonnet-2 ran after the close by rule:autopilot was merged; it is the only run that names rule:autopilot
+fixed:
+  decider.kind: haiku
+  decider.escalate: final
+  decider.max_decider_calls: '20'
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '15'
+  max_wall_seconds: '5400'
+variants:
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: claude-haiku-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs:
+  - run: bugfix-pager-haiku
+    input: pager
+  - run: bugfix-kvparse-haiku
+    input: kvparse
+  - run: bugfix-percent-haiku
+    input: percent
+  - run: bugfix-tally-haiku
+    input: tally
+- id: sonnet
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-sonnet-5-5
+  runs:
+  - run: bugfix-1
+    input: pager
+    note: the first seed run
+  - run: bugfix-kvparse-sonnet
+    input: kvparse
+  - run: bugfix-percent-sonnet
+    input: percent
+  - run: bugfix-tally-sonnet
+    input: tally
+    note: not_fixed on the sdc-bugfix status defect
+  - run: bugfix-tally-sonnet-2
+    input: tally
+    note: the same seed and model after the fix
+runs_per_variant: 4
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: No hypothesis. One run per seed and model (two for tally on Sonnet); the record describes the runs.
+known_confounds:
+- key: tree
+  note: the protocol and sdc-bugfix changed between runs in the uncommitted work tree; bugfix-tally-sonnet-2 ran after the status fix and the close by rule
+facts:
+- Each model wrote a red test at once for every seed.
+- 'The one not_red (kvparse-haiku) and the one stop as not_fixed (tally-sonnet) were the same defect in sdc-bugfix: it read the test''s status from the full run, where through slot the test line landed under the wrong Running header. Fixed: the test now has its own run; tally-sonnet-2 is the same seed and model after the fix.'
+- 'The two gate failures were real: a Haiku fix was not formatted (percent-haiku, fmt) or had a clippy finding (pager-haiku). The gate record sent change.fix back, and the next fix passed.'
+- 'Seed runs per docs/bugfix.md: percent-sonnet 3 calls 0.126 USD; percent-haiku 5 calls 0.023 USD; kvparse-sonnet 3 calls 0.163 USD; kvparse-haiku 4 calls 0.012 USD; tally-sonnet 5 calls 0.269 USD; tally-haiku 3 calls 0.009 USD; pager-haiku 4 calls 0.013 USD; tally-sonnet-2 3 calls 0.127 USD.'
+- bugfix-1 (pager on Sonnet) is the first seed run; docs/bugfix.md does not list it.
+links:
+- 'docs/bugfix.md on branch impl/bugfix-cycle (commit e108d5e): Seed runs'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 4
+    ended: 4
+    id: haiku
+    listed: 4
+    without_summary: []
+  - clean_passes: 4
+    ended: 5
+    id: sonnet
+    listed: 5
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

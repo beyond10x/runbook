@@ -29,6 +29,11 @@ findings() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-findings not found ($b)" >&2; exit 127; }
   "$b" --rules "$here/tools/consistency-rules.json" "$@"
 }
+bugfix() {
+  local b=${SDC_BUGFIX:-$here/../../target/debug/sdc-bugfix}
+  [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
+  "$b" "$@"
+}
 case $1 in
   ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
   conform-run|story-tests|story-tests-run|impl-gate) need ess slot ;;
@@ -47,14 +52,17 @@ export AEP_ACTOR=$aep_actor
 case $1 in
 # --- stub LLM executors: fixed drafts -------------------------------------------------------
 stub-file)
-  # As stub-tree: SDC_STUB_FIXTURES may hold <name>.<n> for the n-th call (from 0), else <name>.
+  # SDC_STUB_FIXTURES may hold the file, and <name>.<n> for the n-th call (from 0), counted as
+  # stub-tree's calls are.
   f=$fx/$2
   if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
-    c=${SDC_STUB_COUNTER:-.sdc}/stub-file.$2
-    mkdir -p "$(dirname "$c")"
-    n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
     [[ -f $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
-    [[ -f $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
+    if compgen -G "$SDC_STUB_FIXTURES/$2.[0-9]*" > /dev/null; then
+      c=${SDC_STUB_COUNTER:-.sdc}/stub-file.$2
+      mkdir -p "${c%/*}"
+      n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
+      [[ -f $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
+    fi
   fi
   cp "$f" "$3" ;;
 stub-tree)
@@ -62,7 +70,7 @@ stub-tree)
   # The count is kept in SDC_STUB_COUNTER (default .sdc; the fixture adapter names work/.sdc).
   f=$fx/$2
   if [[ -n ${SDC_STUB_FIXTURES:-} ]]; then
-    c=${SDC_STUB_COUNTER:-.sdc}/stub-tree.$2
+    c=${SDC_STUB_COUNTER:-.sdc}/stub-tree.${2//\//_}
     n=$(cat "$c" 2>/dev/null || echo 0); echo $((n + 1)) > "$c"
     [[ -d $SDC_STUB_FIXTURES/$2 ]] && f=$SDC_STUB_FIXTURES/$2
     [[ -d $SDC_STUB_FIXTURES/$2.$n ]] && f=$SDC_STUB_FIXTURES/$2.$n
@@ -180,23 +188,34 @@ conform-run)
   export PYTHONDONTWRITEBYTECODE=1 CARGO_TARGET_DIR=$PWD/.sdc/target-check
   target=interpreted
   [[ $(yq -r '.system' spec/system.yaml) == billing ]] && target=billing
-  ess verify conform synthesize --path spec --suite-format 5 --out .sdc/suite.json >/dev/null &&
+  # Each command's stderr goes with its stdout, in order, and the pool's own `slot: job` lines are
+  # dropped: the log ends with the failing command's output and a line naming it, which is what a
+  # writer sent back reads (runs/trial-3-haiku-8: the log ended with slot's line).
+  out=$(ess verify conform synthesize --path spec --suite-format 5 --out .sdc/suite.json 2>&1) ||
+    { tail -n 30 <<< "$out"; echo "conform-run: FAILED \`ess verify conform synthesize\`"; exit 1; }
   ess verify conform run --path spec --target $target --suite .sdc/suite.json --report-format 2 \
-    --report-out ".sdc/report-$SDC_ACTION.json" --strict || exit 1
+    --report-out ".sdc/report-$SDC_ACTION.json" --strict 2>&1; rc=$?
+  (( rc == 0 )) || { echo "conform-run: FAILED \`ess verify conform run --target $target\` (exit $rc)"; exit 1; }
   if [[ $target != billing ]]; then
-    [[ -f ${2:?implementation tree}/Taskfile.yml ]] || { echo "no $2/Taskfile.yml"; exit 1; }
-    slot task --dir "$PWD/$2" check; rc=$?
+    [[ -f ${2:?implementation tree}/Taskfile.yml ]] || { echo "conform-run: FAILED no $2/Taskfile.yml"; exit 1; }
+    out=$(slot task --dir "$PWD/$2" check 2>&1); rc=$?
     rm -rf "$CARGO_TARGET_DIR"
+    grep -v '^slot: job ' <<< "$out"
+    (( rc == 0 )) || echo "conform-run: FAILED \`task check\` in $2 (exit $rc)"
     exit $rc
   fi ;;
 story-tests-run)
   # sdc.story's tests.run: conform-run, then the interim implementation gate. Both always run, so
-  # the log names every check that failed.
-  "$here/tools/sdc-tool.sh" conform-run "${2:?implementation tree}"; a=$?
-  echo "conform-run: exit $a"
+  # the log names every check that failed. The log ends with each failed step's last 30 lines under
+  # a heading that names it, so a writer sent back reads them even when the full output is long.
+  ca=$("$here/tools/sdc-tool.sh" conform-run "${2:?implementation tree}" 2>&1); a=$?
+  echo "$ca"; echo "conform-run: exit $a"
   passon $a
-  "$here/tools/sdc-tool.sh" impl-gate "$2"; b=$?
+  cb=$("$here/tools/sdc-tool.sh" impl-gate "$2" 2>&1); b=$?
+  echo "$cb"
   passon $b
+  (( a == 0 )) || { echo; echo "# failed: sdc-tool.sh conform-run $2 (exit $a), its last 30 lines"; tail -n 30 <<< "$ca"; }
+  (( b == 0 )) || { echo; echo "# failed: sdc-tool.sh impl-gate $2 (exit $b), its last 30 lines"; tail -n 30 <<< "$cb"; }
   (( a == 0 && b == 0 )) ;;
 impl-gate)
   # Interim story gate (docs/driver.md, "Interim story gate"), until ESS can run the suite against
@@ -246,12 +265,27 @@ impl-gate)
   # Run in a copy, so the observation writes nothing into the tree; the copy (with its target/)
   # is removed afterwards.
   rm -rf .sdc/impl-gate && cp -r "$tree" .sdc/impl-gate && rm -rf .sdc/impl-gate/target
-  out=$(cd .sdc/impl-gate && CARGO_TARGET_DIR=$PWD/target slot cargo test --offline 2>&1)
+  # The counts come from cargo's stdout alone. Mixed with stderr (2>&1, under slot and load), a
+  # stderr line such as `Finished` or `Doc-tests` landed inside `test result: ok. 5 passed`, no
+  # count was read and the gate failed "0 tests ran" on a passing suite.
+  out=$(cd .sdc/impl-gate && CARGO_TARGET_DIR=$PWD/target slot cargo test --offline 2>../impl-gate.stderr)
   rc=$?
-  rm -rf .sdc/impl-gate
-  grep -E '^(test |test result:|error|warning: unused)|panicked|FAILED' <<< "$out" | tail -n 60 | sed 's/^/  | /'
-  ran=$(grep -oE '^test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed' <<< "$out" | awk '{s += $4 + $6} END {print s + 0}')
-  ignored=$(grep -oE '[0-9]+ ignored' <<< "$out" | awk '{s += $1} END {print s + 0}')
+  err=$(cat .sdc/impl-gate.stderr)
+  rm -rf .sdc/impl-gate .sdc/impl-gate.stderr
+  # A panic is shown with its message (the lines after `panicked at` up to a blank line).
+  awk '/panicked at/ {print; p = 1; next} p && NF {print; next} {p = 0}
+    /^(test |test result:|error|warning: unused)|FAILED/ {print}' <<< "$err"$'\n'"$out" | tail -n 60 | sed 's/^/  | /'
+  passon $rc
+  results=$(grep -cE '^test result: ' <<< "$out")
+  counted=$(grep -oE '^test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored' <<< "$out")
+  # Output that cannot be read is a tool error (126: no evidence, the run stops), never a failure
+  # of the writer's tree: a passing run with no `test result:` line, or one that does not parse.
+  if (( rc == 0 )) && { (( results == 0 )) || (( $(grep -c . <<< "$counted") < results )); }; then
+    echo "impl-gate: cargo test exit 0, its output could not be read ($results \`test result:\` line(s) on stdout, $(grep -c . <<< "$counted") parsed)"
+    exit 126
+  fi
+  ran=$(awk '{s += $4 + $6} END {print s + 0}' <<< "$counted")
+  ignored=$(awk '{s += $8} END {print s + 0}' <<< "$counted")
   if (( rc != 0 )); then no "run: cargo test exit $rc"
   elif (( ran < 1 )); then no "run: 0 tests ran"
   elif (( ignored > 0 )); then no "run: $ignored ignored (need 0)"
@@ -298,8 +332,8 @@ release-build)
     > release/PROVENANCE ;;
 publish) rm -rf published && mkdir -p published && cp -r release/. published/ ;;
 observe) cmp -s published/PROVENANCE release/PROVENANCE ;;
-review-spec) test -f spec/system.yaml ;;
-review-change) test -s impl/README.md ;;
+review-spec) test -f spec/system.yaml && [[ ! -e spec/.review-reject ]] ;; # .review-reject: a fixture tree the stub reviewer rejects (docs/reject-routes.md R8)
+review-change) test -s impl/README.md ;; # change.review's stub; the review itself: tools/llm-node.sh change.review
 
 # --- the late-finding loop (docs/trial-2.md, "The late-finding loop") ------------------------
 # Each stage's check is its own check, then the finding gate: exit 1 when its own check fails,
@@ -321,11 +355,12 @@ story-tests)
   "$here/tools/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
 amend) findings amend "${2:?stage}" ;;
 # amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
-# none yet, or one that names no principal (`decided_by: person:<id>` or `decider:<kind>`).
+# none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or
+# keep-going's `rule:keep-going`, run.unstick's `agent:unstick`).
 findings-wait)
   [[ -f findings.yaml ]] &&
   yq -e '[.findings[]? | select(.status == "needs_person" and ((.decision // "") == ""
-    or ((.decided_by // "") | test("^(person|decider):.") | not)))] | length > 0' findings.yaml >/dev/null 2>&1 ;;
+    or ((.decided_by // "") | test("^((person|decider):.|rule:keep-going$|agent:unstick$)") | not)))] | length > 0' findings.yaml >/dev/null 2>&1 ;;
 
 # --- sdc.intake scope.answer (a manual action under the capability scope.answer) ---------------
 scope-answer)
@@ -342,5 +377,8 @@ scope-answer)
     | (select((.answered_by // "") == "" or .answered_by == "non-interactive") | .answered_by = strenv(P)) // .)' \
     questions.yaml ;;
 consistency) findings consistency ;;
+# --- sdc.bugfix (docs/bugfix.md): its checks are the driver crate's sdc-bugfix binary -----------
+bugfix) shift; bugfix "$@" ;;
+stub-repro) "$here/tools/sdc-tool.sh" stub-tree "$2" repro && bugfix repro-install ;;
 *) echo "unknown tool $1" >&2; exit 64 ;;
 esac

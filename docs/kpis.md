@@ -115,14 +115,14 @@ source, direction, gate, target}}` *(inferred format)*. SDC's:
 
 Who took each decision that waits on a person (approvals, scope-changing questions, the root's
 close). `SDC_DECIDER` in `scripts/run-trial.sh`; principal `decider:approve` or `decider:reject`
-is a rule, `decider:haiku` an LLM decider, any other principal a person.
+is a rule, `decider:model` (`decider:haiku` in runs before D149) an LLM decider, any other principal a person.
 
 | id | KPI | formula | source | dir | gate |
 |---|---|---|---|---|---|
 | H1 | decisions by who | count per class (person, rule, decider) of approvals, answers and closes | `authority_recorded.principal`, `action_finished.principal` (manual actions) in `events.jsonl`; `answered_by` in `questions.yaml`; `runs/<run>/decisions.jsonl` `principal` | n/a | advisory |
 | H2 | decider escalations | `decisions.jsonl` lines with `decision` `escalate` or `escalation_suppressed` / decider decisions; invalid replies (`valid: false`, counted as escalate) reported apart | `decisions.jsonl` | ↓ | advisory |
 | H3 | decider decisions later reversed | decider decisions followed by a decision on the same case and action (or question) by another principal with a different result, or by a person's rewrite of the approved artifact (`context.change`, an edit of an answered question) / decider decisions | `decisions.jsonl` joined to later `action_finished.principal` and `revised` events of the subject | ↓ | ratchet once runs exist |
-| H4 | decider cost | Σ `cost_usd`, Σ `tokens` of decider calls per run | `decisions.jsonl` | ↓ | advisory |
+| H4 | decider cost | Σ `cost_usd`, Σ `tokens` of decider calls per run: every call made, whatever became of its reply, once per `record` (a suppressed escalation's cost is on its `escalation_suppressed` line) | `decisions.jsonl` | ↓ | advisory |
 
 ## 2. Ownership
 
@@ -266,6 +266,7 @@ are not eval numbers.
 | L5 | findings caught by program vs person | count by the prefix of `raised_by`: `program:<rule>`, `llm:<node>` (accepted by the program check), `human`; plus `rejected` (an LLM finding the program check refused) and resolved by `agent` vs `human` | `findings.yaml` `raised_by`, `status`, `decided_by` | program share ↑, human ↓ | advisory |
 | L6 | rework per artifact | per artifact: distinct non-`none` revisions over the whole tree − 1; reported per artifact and summed | `events.jsonl` `revised.artifacts` | ↓ | advisory |
 | L7 | time waiting on a person (added 2026-11-21) | Σ over the stops after which the run did not go on by itself: from the round's `ended_epoch` to the next round's `started_epoch` when a new leg began between them (a `run-settings.jsonl` line: the script had ended and was started again); for the last round of a run not closed (no `decision.json`), to the stop record's `at` (`run-stopped.json`), else to now (`ongoing`). Reported with each stop (verdict, case, seconds, `resumed`, `stopped` or `ongoing`). Without `run-settings.jsonl`, rounds ending `awaiting_person` or `awaiting_authority` count | `rounds.jsonl`, `run-settings.jsonl` `at`, `decider.kind`, `run-stopped.json` `at`, `decision.json` | ↓ | at A3 and up (the last leg's decider is not `person`) a value above 0 is a failure (`failure: true`, printed `FAILED`); at A0 to A2 advisory |
+| stopped_for_fix | time stopped for a fix, reopens (added 2026-11-21) | a gap between rounds that a reopened stop record (`run-stopped.<at>.json`) lies in is not L7: Σ from each such record to the next leg (`seconds`), and `reopens`, the number of those records. `forced` (keep-going, `defects.jsonl` lines with `forced: true`) and `unstuck` (run.unstick, lines with `unstuck: true`, each with its move, defect class and diagnosis) beside it; `clean_run` is true only with no forced continuation, no unstick move and no reopen | `rounds.jsonl`, `run-stopped.<at>.json`, `defects.jsonl` | ↓ | a run with a reopen, a forced continuation or an unstick move is not a clean run |
 
 Notes:
 

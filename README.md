@@ -12,23 +12,37 @@ state. Decisions that belong to a person stop the run and print the command that
 
 ## State
 
-A prototype. Nothing is released and no interface is stable.
+A prototype; no interface is stable. The latest release is 0.1.2 (2026-11-21), after 0.1.1 and the
+first, 0.1.0; all are source releases at bare-version tags: see [CHANGELOG.md](CHANGELOG.md),
+[docs/releases/0.1.2.md](docs/releases/0.1.2.md), [docs/releases/0.1.1.md](docs/releases/0.1.1.md),
+[docs/releases/0.1.0.md](docs/releases/0.1.0.md) and [docs/releasing.md](docs/releasing.md).
 
 - Trial 1 (`docs/trial-1.md`): a to-do list idea run with a real LLM; round 1 stopped, as
   designed, on three scope-changing questions for a person.
 - Trial 2 (`docs/trial-2.md`): a late-found ambiguity and the loop that repairs it; verified with
   stub executors, the real-LLM run is recorded in its run notes.
+- Trial 3 (`docs/trial-3.md`, `docs/releases/0.1.0.md`): five of eight autopilot runs (two more with the review model call)
+  of the to-do idea closed delivered; the limits are in the release notes.
 - Recorded runs (`runs/`) are not in this repository.
 
 ## Layout
 
-- `protocol/`: the eight protocols; `cases/`: fixture cases with expected decisions.
+- `protocol/`: the eight protocols of the cycle and `sdc-bugfix`; `cases/`: fixture cases with expected decisions.
 - `driver/`: the Rust crate `sdc-drive` and its tool bindings (`driver/examples/sdc/`).
 - `watch/`: file changes of a run; `ui/`: a live web view of a run; `goals/`: `sdc-goals`, checks of
   `sdc.goals/1` documents (`docs/requester.md`).
 - `decision/`, `ess/`, `tools/`: the decision contract and its ESS specification.
 - `eval/`: eval runner, adversaries and personas; `docs/`: design notes and results.
 - `.engineering/planning/`: the planning store (AEP).
+
+## Progress
+
+How often one idea runs with no person to a closed, delivered app, per release and model setting.
+Each dot is one run; the figures come from the experiment records and are written by
+`sdc-experiment progress`. Every figure, its experiment and the limits of each measurement:
+[docs/progress.md](docs/progress.md). How an entry is added: [docs/improving.md](docs/improving.md).
+
+![Clean passes of ended runs per release and model setting, with the median cost and wall time of a clean pass](docs/img/progress.svg)
 
 ## Requirements
 

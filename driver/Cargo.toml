@@ -1,6 +1,6 @@
 [package]
 name = "sdc-drive"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 publish = false
 
@@ -27,6 +27,34 @@ path = "src/bin/sdc-run-compare.rs"
 [[bin]]
 name = "sdc-reply"
 path = "src/bin/sdc-reply.rs"
+
+[[bin]]
+name = "sdc-bugfix"
+path = "src/bin/sdc-bugfix.rs"
+
+[[bin]]
+name = "sdc-check-routes"
+path = "src/bin/sdc-check-routes.rs"
+
+[[bin]]
+name = "sdc-unstick"
+path = "src/bin/sdc-unstick.rs"
+
+[[bin]]
+name = "sdc-run-metrics"
+path = "src/bin/sdc-run-metrics.rs"
+
+[[bin]]
+name = "sdc-experiment"
+path = "src/bin/sdc-experiment.rs"
+
+[[bin]]
+name = "sdc-replay"
+path = "src/bin/sdc-replay.rs"
+
+[[bin]]
+name = "sdc-run-timeline"
+path = "src/bin/sdc-run-timeline.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

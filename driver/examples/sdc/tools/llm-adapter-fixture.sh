@@ -5,7 +5,8 @@
 # runs, which the stub adapter skips. Only for nodes whose stub is `stub-file <fixture> <artifact>`
 # or `stub-tree <fixture dir> <tree>` (spec.author); use it with SDC_LLM_NODES naming those nodes. SDC_STUB_FIXTURES applies as for the stub.
 # SDC_FIXTURE_STUB (JSON {node: [fixture, artifact]}) gives a node such a stub when its binding's
-# stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json).
+# stub is another subcommand (plan.decompose: fixtures/plan-stories.json as stories.json); three
+# entries name the subcommand too (test.reproduce: ["stub-tree", "bugfix-pager/stub-repro", "repro"]).
 #
 # The decider's calls (node `decide.<action>`, tools/decider.sh) get a scripted reply in
 # out/decision.json: SDC_DECIDER_REPLIES (JSON {key: reply}) by key, the request's question id,
@@ -15,8 +16,16 @@
 # (`prior_rejections`), each round a reply or a list by attempt. The response names the model the
 # request named.
 #
+# change.review gets a scripted reply in out/review.json: SDC_REVIEW_REPLIES, `{"rounds": [...]}`
+# taken by the number of the case's earlier rejected reviews (sdc-reply rejections), the last round
+# after that, each round a reply or a list by the request's `review_attempt`; without one, approved
+# with no finding.
+# run.unstick (scripts/run-trial.sh) gets out/unstick.json from SDC_UNSTICK_REPLIES (JSON {cause:
+# reply}, "*" for any cause; a list by attempt); without one, the move `stop`.
+#
 #   llm-adapter-fixture.sh <request.json>
 set -uo pipefail
+[[ ${1:-} == --capabilities ]] && { echo '{"json_schema": true}'; exit 0; } # scripted replies are the schema document
 for p in jq; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-fixture.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
 here=$(cd "$(dirname "$0")" && pwd)
 cwd=$(jq -r .cwd "$1")
@@ -43,10 +52,47 @@ if [[ $node == decide.* ]]; then
     cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
   exit 0
 fi
+if [[ $node == run.unstick ]]; then
+  mkdir -p "$cwd/out"
+  jq --argjson r "${SDC_UNSTICK_REPLIES:-"{}"}" --argjson n "$(jq '.attempt // 1' "$1")" '($r[.cause] // $r["*"]
+    | if type == "array" then (.[$n - 1] // last) else . end)
+    // {move: "stop", diagnosis: "fixture run.unstick: no scripted reply, the run stops as it would have.",
+      defect_class: "other", reasons: ["no scripted reply"]}' "$cwd/in/stop.json" > "$cwd/out/unstick.json" || exit 1
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
+# The requester agent's calls (node `requester.<question id or action>`, decider.sh requester) get a
+# scripted reply in out/reply.json: SDC_REQUESTER_REPLIES (a JSON object, or a file holding one) by
+# the question id or action; `{goals_rev}` in it becomes the case's current goals revision. Without
+# one: option A, grounded on the idea's first line.
+if [[ $node == requester.* ]]; then
+  mkdir -p "$cwd/out"
+  rr=${SDC_REQUESTER_REPLIES:-"{}"}
+  [[ -f $rr ]] && rr=$(cat "$rr")
+  grev=$(jq -r '.artifacts.goals.revision // "none"' "$(jq -r .case_dir "$1")/case.json" 2>/dev/null)
+  jq --argjson r "$rr" --arg k "${node#requester.}" --arg g "$grev" '($r[$k] // {option: "A", answer: null, strength: "moderate",
+      no_ground_in_goals: false, reasons: ["fixture requester: option A"],
+      grounds: [{source: "idea", citation: {form: "path_line", value: {path: "work/idea.yaml", line: 1}}, supports: "A", how: "fixture: the idea"}]})
+    | walk(if type == "string" then gsub("\\{goals_rev\\}"; $g) else . end)' -n > "$cwd/out/reply.json" || exit 1
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
+if [[ $node == change.review ]]; then
+  mkdir -p "$cwd/out"
+  p=$("${SDC_REPLY:-$here/../../../target/debug/sdc-reply}" rejections --case-dir "$(jq -r .case_dir "$1")" --action change.review | jq length)
+  jq -n --argjson r "${SDC_REVIEW_REPLIES:-"{}"}" --argjson p "${p:-0}" --argjson n "$(jq '.review_attempt // 1' "$1")" '
+    ($r.rounds // [] | .[$p] // last) | if type == "array" then (.[$n - 1] // last) else . end
+    // {decision: "approved", summary: "fixture review: approved", findings: []}' > "$cwd/out/review.json" || exit 1
+  jq -n --arg node "$node" --arg model "$model" '{adapter: "fixture", model: $model, exit: 0, duration_ms: 0,
+    cost_usd: 0, num_turns: 0, usage: null, tool_calls: [], offered_tools: [], node: $node}'
+  exit 0
+fi
 cfg=${SDC_LLM_NODE:-'{}'}
 mapfile -t a < <(jq -r '.stub[]?' <<< "$cfg")
 o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
-[[ -n $o ]] && mapfile -t a < <(jq -r '"stub-file", .[]' <<< "$o")
+[[ -n $o ]] && mapfile -t a < <(jq -r 'if length == 3 then .[] else ("stub-file", .[]) end' <<< "$o")
 [[ ${a[0]:-} == stub-file || ${a[0]:-} == stub-tree ]] && [[ -n ${a[2]:-} ]] ||
   { echo "llm-adapter-fixture: node $node has no stub-file or stub-tree stub" >&2; exit 64; }
 mkdir -p "$cwd/out"

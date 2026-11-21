@@ -20,8 +20,12 @@
 #   SDC_LLM_MODEL    overrides the binding's model
 #   SDC_LLM_MODEL_<CLASS> overrides both for the node's class (tools/node-classes.json): WRITER
 #                    (spec.author, plan.decompose), IMPLEMENT (change.implement), REVIEW, OTHER
+#   SDC_LLM_EFFORT, SDC_LLM_EFFORT_<CLASS>  the reasoning effort (low, medium, high, xhigh, max), the same way;
+#                    unset: the class's default_efforts in tools/node-classes.json, always passed (request.json `effort`)
 #   SDC_LLM_RECORD   where each call's record goes (default work/.sdc/llm); one NNN-<action>/ per call
 #   SDC_LLM_LOG      JSON lines, one per call (default $SDC_LLM_RECORD/calls.jsonl)
+#   SDC_RUN_SETTINGS the run's run-settings.jsonl (scripts/run-trial.sh): the rework prompt names its
+#                    recorded rework cap (`rework_limit.value`, D184); unset: rule-ends.json's rework_limit
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -54,6 +58,15 @@ if [[ $node == questions.write && -s questions.yaml && -z ${SDC_FEEDBACK:-} ]]; 
 fi
 cfg=${SDC_LLM_NODE:-'{}'}
 adapter=${SDC_LLM_ADAPTER:-stub}
+# The review's reply is a data document made under a response schema, so its class has its own
+# adapter (sdc-reply adapters: SDC_REVIEW_ADAPTER, else claude-cli where the writers run on
+# metaharness): the model replies through the schema channel, never by writing a file.
+if [[ $node == change.review ]]; then
+  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
+  res=$("$reply_bin" adapters --tools "$here" 2>&1) && adapter=$(jq -r '.review.adapter // empty' <<< "$res") && [[ -n $adapter ]] ||
+    { echo "llm-node: $node could not run: $(grep -v '^{' <<< "$res")" >&2; exit 126; }
+fi
 [[ -n ${SDC_LLM_NODES:-} && " $SDC_LLM_NODES " != *" $node "* ]] && adapter=stub
 work=$PWD
 
@@ -132,8 +145,12 @@ fi
 # write by another action moved the subject's revision, so the rejected record is no longer
 # current): the case's last rejected approval with no run of this writer after it that exited 0
 # and was not `not_called`. It is addressed as if fed back, and the skip rule below does not apply.
+# Only a node of class writer or implement (the classes that write the rejected artifact) looks it
+# up: a review node never gets a rejection as rework, its own or an approval's of the same subject.
+# The node's class (tools/node-classes.json); it also picks SDC_LLM_MODEL_<CLASS> below.
+class=$(jq -r --arg n "$node" '[.classes | to_entries[] | select(.value | index($n)) | .key] | first // "other"' "$here/node-classes.json")
 cd_=${SDC_CASE_DIR:-}
-if [[ -z $rejection && -n $cd_ && -f $cd_/events.jsonl ]]; then
+if [[ ( $class == writer || $class == implement ) && -z $rejection && -n $cd_ && -f $cd_/events.jsonl ]]; then
   rejection=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished")] as $f
     | ([$f | to_entries[] | select(.value.result == "rejected") | .key] | last) as $k
     | if $k == null or any($f[$k + 1:][]; .action == $n and .exit == "0" and (.not_called | type) != "string") then empty
@@ -415,6 +432,74 @@ $build_constraints
   (commit a Cargo.lock: with no dependencies it holds only the package itself).
 - out/impl/README.md: how to run it and how it maps to the specification's commands.
 You cannot run commands: write code that passes its own tests." ;;
+change.review)
+  # The review (story:review-node-is-a-model): nothing is written; the reply is the decision, under
+  # a response schema, and a program checks it (sdc-reply check-review, below). Inputs by program.
+  reply_bin=${SDC_REPLY:-$here/../../../target/debug/sdc-reply}
+  [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
+  case_dir=${SDC_CASE_DIR:-$work/..}
+  "$reply_bin" review-inputs --cwd "$cwd" --case-dir "$case_dir" --story "$story" > "$rec/review-inputs.json" 2> "$rec/review-check.err" ||
+    { echo "llm-node: change.review has no inputs: $(cat "$rec/review-check.err")"; exit 2; }
+  "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" --type review > "$rec/reply-schema.json"
+  ops='["dir.list","file.read","search"]'; out=code_review
+  inputs+=("in/aep/story/$story.md (the story)" "in/scope.json (the commands it covers, its acceptance lines, the requirements it delivers)"
+    "in/commands.json (those commands in the compiled specification)" "in/impl/ (the change tree)"
+    "in/change.diff (what this story changed against the mainline: $(jq -r .base "$rec/review-inputs.json"))"
+    "in/tests.txt (the conformance run that passed on this revision)"
+    "in/gate.txt (the ESS gate)" "in/uncovered.json (requirements no story of the plan covers)")
+  task="Review the change of story '$story' as a reviewer independent of its implementer: does the
+change tree in/impl/ deliver this story's requirements, acceptance lines and commands (in/scope.json)?
+in/uncovered.json lists requirements no story of the plan covers: they are outside this story, so do
+not reject for them; name one you see missing as a finding of kind \`outside\`.
+Reply with the JSON object of the response schema:
+- decision: approved, or rejected when the change fails a requirement, acceptance line or command of
+  this story
+- findings: each one place and what it violates. kind: \`violation\` (violates: a requirement id, an
+  acceptance \`cite\` or a command of in/scope.json) or \`outside\` (violates: an id of
+  in/uncovered.json). at: impl/<path>:<line> or impl/<path>:<first>-<last>, lines of in/impl/; for
+  something missing, the line where it belongs (the route table, the README line that claims it).
+  says: one sentence
+- summary: one or two sentences
+A rejection needs at least one violation. A program checks every \`at\` and \`violates\` and refuses
+the reply otherwise. Judge from the inputs only; you cannot run anything." ;;
+# sdc.bugfix (docs/bugfix.md): the dissection is a data document under a schema (sdc-bugfix schema
+# dissection), checked by dissection.check; the test and the fix are code.
+bug.dissect)
+  input bug.yaml; input impl; out=bug-dissection.json
+  "$here/sdc-tool.sh" bugfix schema dissection > "$rec/schema.json" && node_schema=$rec/schema.json
+  task="Dissect the bug report in in/bug.yaml (field \`text\`) against the code in in/impl/. Write
+out/bug-dissection.json, one JSON object with exactly these four string keys (schema:
+$(jq -c . "$rec/schema.json")):
+- observed: what happens, as the report states it: the inputs and the wrong result
+- expected: what should happen instead, for the same inputs
+- where: the file of the code tree the bug is in, relative to in/impl/ (for example src/lib.rs),
+  optionally with :<line> of the faulty line (src/lib.rs:9)
+- reproduce: how to reproduce it: the call or command and its inputs
+Each value is one or two sentences. Do not fix anything." ;;
+test.reproduce)
+  input bug.yaml; input bug-dissection.json; input impl; out=repro
+  task="Write ONE Rust integration test that reproduces the bug in in/bug.yaml, as dissected in
+in/bug-dissection.json, for the crate in in/impl/ (do not change in/impl/). Write two files:
+- out/repro/<name>.rs: a new integration test file (<name> lower case, letters, digits and _;
+  not a file that exists in in/impl/tests/), using the crate's public API, with exactly one
+  #[test] function. It asserts the expected behaviour, so it FAILS on the current code because of
+  the bug, and will pass once the bug is fixed. No #[ignore], no #[should_panic]. It must compile
+  against the current code: call only functions that exist.
+- out/repro/repro.json: {\"file\": \"tests/<name>.rs\", \"test\": \"<the #[test] function's name>\"}
+A program then runs the whole suite on the unchanged code: your test must fail, every other test
+must pass. You cannot run commands." ;;
+change.fix)
+  input bug.yaml; input bug-dissection.json; input repro; input impl; seed impl; out=impl
+  repro_file=$(jq -r '.file // ""' "$work/repro/repro.json" 2>/dev/null)
+  task="Fix the bug in in/bug.yaml (dissected in in/bug-dissection.json) in out/impl/, a copy of the
+crate. The test $(jq -r '.test // ""' "$work/repro/repro.json" 2>/dev/null) in out/impl/$repro_file
+reproduces the bug: it fails now and must pass after your fix.
+- Do not change out/impl/$repro_file in any way: a program compares it byte for byte and refuses
+  the fix otherwise. Do not delete, weaken or ignore any test.
+- Change as little as the fix needs; keep the public API. Standard library only.
+- The whole suite must pass, and the crate must pass \`cargo clippy --all-targets -- -D warnings\`
+  and \`cargo fmt --check\` (rustfmt's default style).
+You cannot run commands: write code that passes the tests." ;;
 *) echo "llm-node: no agent node $node" >&2; exit 64 ;;
 esac
 
@@ -442,23 +527,47 @@ raised and waits for its decision: follow its \`default\`; never raise it again.
 fi
 
 feedback=""
-if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e 'any(.[]; .result != "rejected")' "$SDC_FEEDBACK" > /dev/null; then
+if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection" 'any(.[]; .result != "rejected" or (.log // "") != $rej)' "$SDC_FEEDBACK" > /dev/null; then
   {
     echo "# Checks that failed on the current revision of your output"
-    jq -r '.[] | select(.result != "rejected") | "\(.kind) = \(.result) (from \(.action // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
+    # The check's own output: the last 80 lines of its log without the build pool's `slot: job`
+    # lines, which only say how long the check waited (runs/trial-3-haiku-8). A check that wrote
+    # nothing is said so in words.
+    jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej) | "\(.kind) = \(.result) (from \(.action // "?"), exit \(.exit // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
       echo; echo "## ${line%%: *}"; log=${line#*: }
-      [[ -f $log ]] && { echo '```'; tail -n 60 "$log"; echo '```'; }
+      own=$([[ -f $log ]] && grep -v '^slot: job ' "$log" | tail -n 80)
+      if [[ -n ${own//[[:space:]]/} ]]; then echo '```'; echo "$own"; echo '```'
+      else echo "The check wrote no output of its own: only its result above says what failed."; fi
     done
   } > "$cwd/in/feedback.md"
   inputs+=("in/feedback.md (why the previous attempt was sent back: fix exactly that)")
   feedback=yes
 fi
+# This writer's own last run failed (an exit other than 0, a program error or an API break-off):
+# nothing of it was applied and no check ran, so its log is the only feedback. It reaches this run
+# in in/feedback.md; without it the writer ran again blind until writer_spent (docs/reject-routes.md R9).
+if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
+  own=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished" and .action == $n)] | last // empty
+    | select(.exit | IN("0", "75", "126", "127") | not) | "\(.exit) \(.log // "")"' "$cd_/events.jsonl" 2>/dev/null)
+  if [[ -n $own && -f $cd_/blobs/${own#* } ]]; then
+    { [[ -s $cwd/in/feedback.md ]] && echo
+      echo "# Your previous run of $node failed (exit ${own%% *}): nothing of it was applied"
+      echo; echo '```'; grep -v '^slot: job ' "$cd_/blobs/${own#* }" | tail -n 80; echo '```'; } >> "$cwd/in/feedback.md"
+    [[ $feedback == yes ]] || inputs+=("in/feedback.md (why your previous run was not applied: fix exactly that)")
+    feedback=yes
+  fi
+fi
 if [[ -n $rejection ]]; then
+  # The rework cap (D184): the value scripts/run-trial.sh recorded for this leg in
+  # run-settings.jsonl (SDC_RUN_SETTINGS), the one the driver enforces; outside a run, the
+  # default of rule-ends.json.
+  rework_limit=$(jq -rs 'last.rework_limit.value // empty' "${SDC_RUN_SETTINGS:-/dev/null}" 2>/dev/null)
+  [[ -n $rework_limit ]] || rework_limit=$(jq -r .rework_limit "$here/../rule-ends.json")
   cp "$rejection" "$cwd/in/rejection.json"
   inputs+=("in/rejection.json (the approval \`$(jq -r .approval "$rejection")\` of your previous output, revision $(jq -r .revision "$rejection"), was rejected by $(jq -r .principal "$rejection"): its reasons and what they cite)")
   task="$task
 
-Rework. Your previous output was rejected at \`$(jq -r .approval "$rejection")\` (rejection $(jq -r .count "$rejection") of at most 2).
+Rework. Your previous output was rejected at \`$(jq -r .approval "$rejection")\` (rejection $(jq -r .count "$rejection") of at most $rework_limit).
 Address every reason in in/rejection.json; change only what a reason asks for. In your final reply,
 before the word done, write one line per reason: its number, then where you addressed it as
 <file>:<line> (or <file>:<first>-<last>), then what you changed."
@@ -476,7 +585,9 @@ prompt=$rec/prompt.md
   echo "Task:"
   echo "$task"
   echo
-  if [[ -n $rejection ]]; then
+  if [[ $node == change.review ]]; then
+    echo "Reply with the JSON object only."
+  elif [[ -n $rejection ]]; then
     echo "When the files are written, reply with one line per rejection reason (as above), then the word: done."
   else
     echo "When the files are written, reply with the single word: done."
@@ -484,17 +595,90 @@ prompt=$rec/prompt.md
 } > "$prompt"
 
 # The model: the node's class setting (SDC_LLM_MODEL_<CLASS>; classes in tools/node-classes.json:
-# writer, implement, review, other), else SDC_LLM_MODEL, else the binding's llm.model.
-class=$(jq -r --arg n "$node" '[.classes | to_entries[] | select(.value | index($n)) | .key] | first // "other"' "$here/node-classes.json")
+# writer, implement, review, other; $class, set above), else SDC_LLM_MODEL, else the binding's llm.model.
+# The reasoning effort the same way (SDC_LLM_EFFORT_<CLASS>, else SDC_LLM_EFFORT, else node-classes.json
+# default_efforts).
 cvar=SDC_LLM_MODEL_${class^^}
 model=${!cvar:-${SDC_LLM_MODEL:-$(jq -r '.model // "claude-haiku-5-5"' <<< "$cfg")}}
+evar=SDC_LLM_EFFORT_${class^^}
+effort=${!evar:-${SDC_LLM_EFFORT:-$(jq -r --arg c "$class" '.default_efforts[$c] // empty' "$here/node-classes.json")}}
 jq -n --arg model "$model" --arg prompt "$prompt" --arg cwd "$cwd" --arg rec "$rec" --arg node "$node" \
-  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" \
+  --argjson attempt "$attempt" --argjson cfg "$cfg" --argjson ops "$ops" --arg effort "$effort" \
   --arg case "${SDC_CASE:-}" --arg case_dir "${SDC_CASE_DIR:-}" '{
-    model: $model, prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
+    model: $model, effort: (if $effort == "" then null else $effort end), prompt_file: $prompt, cwd: $cwd, record_dir: $rec, node: $node, attempt: $attempt,
     case: $case, case_dir: $case_dir,
     operations: ($cfg.operations // $ops), max_turns: ($cfg.max_turns // 30),
     max_budget_usd: ($cfg.max_budget_usd // 1)}' > "$rec/request.json"
+# A data-document node passes its schema (an adapter that has a response-schema option uses it).
+[[ -n ${node_schema:-} ]] && jq --arg s "$node_schema" '. + {json_schema: $s}' "$rec/request.json" > "$rec/request.json.tmp" &&
+  mv "$rec/request.json.tmp" "$rec/request.json"
+
+# One line per call, for the run log and the viewer.
+log_call() {
+  jq -c -n --arg node "$node" --arg case "${SDC_CASE:-}" --arg started "$started" --arg rec "$rec" \
+    --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" --arg class "$class" \
+    --arg feedback "$feedback" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
+    {action: $node, case: $case, started: $started, attempt: $attempt, retry: ($feedback == "yes"),
+     adapter: $res[0].adapter, model: $req[0].model, effort: ($req[0].effort // "default"), class: $class, allowed_operations: $req[0].operations,
+     max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
+     exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
+     cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,
+     offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false),
+     record: $rec}' >> "${SDC_LLM_LOG:-$rec_root/calls.jsonl}"
+}
+
+# change.review: the reply (the adapter's structured output, else out/review.json) is checked by a
+# program; an invalid one is asked again with the check's reason (SDC_REVIEW_RETRIES, default 2),
+# each a model call. Exit 0 approved, 1 rejected: stdout is then only the sdc.rejection/1, the step's
+# log, which `retry_when` hands to change.implement as in/rejection.json. Exit 2 (an invalid reply,
+# or a failed call): nothing is recorded, so an invalid reply is never an approval and never a
+# rejection without reasons. 75 as below. Everything else goes to the call record.
+if [[ $node == change.review ]]; then
+  jq --arg s "$rec/reply-schema.json" '. + {json_schema: $s, review_attempt: 1}' "$rec/request.json" > "$rec/request.json.tmp" &&
+    mv "$rec/request.json.tmp" "$rec/request.json"
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  principal="llm-review:$model"
+  try=0
+  if [[ $adapter == dry ]]; then
+    "$adapter_bin" "$rec/request.json" > "$rec/response.json" 2>> "$rec/adapter-stderr.txt"; acode=$?
+    run_stub > "$rec/apply.log" 2>&1; code=$?
+    log_call
+    exit $code
+  fi
+  while :; do
+    rm -f "$rec/structured-output.json" "$cwd/out/review.json"
+    "$adapter_bin" "$rec/request.json" > "$rec/response.json" 2>> "$rec/adapter-stderr.txt"
+    acode=$?
+    [[ -s $rec/response.json ]] || echo '{}' > "$rec/response.json"
+    if [[ $acode != 0 ]]; then
+      code=2
+      [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == @(api_error|recording_diverged) ]] && code=75
+      echo "the review call failed (adapter exit $acode)" > "$rec/review-check.err"
+      break
+    fi
+    reply=$rec/structured-output.json
+    [[ -s $reply ]] || reply=$cwd/out/review.json
+    "$reply_bin" check-review --cwd "$cwd" --case-dir "$case_dir" --reply "$reply" --principal "$principal" \
+      > "$rec/review-check.out" 2> "$rec/review-check.err"
+    code=$?
+    (( code == 2 && try < ${SDC_REVIEW_RETRIES:-2} )) || break
+    try=$((try + 1))
+    cp "$rec/response.json" "$rec/response.try$try.json"
+    [[ -f $reply ]] && cp "$reply" "$rec/reply.try$try.json"
+    printf '\nYour previous reply was refused by the program check: %s\nReply again, fixing exactly that.\n' \
+      "$(cat "$rec/review-check.err")" >> "$prompt"
+    jq --argjson t $((try + 1)) '.review_attempt = $t' "$rec/request.json" > "$rec/request.json.tmp" &&
+      mv "$rec/request.json.tmp" "$rec/request.json"
+  done
+  case $code in
+    0) echo "change.review approved by $principal ($(jq -r '.notes | length' "$rec/review-check.out") outside-the-story note(s))" ;;
+    1) jq -c . "$rec/review-check.out" ;;
+    75) echo "llm-node: change.review could not run: the model's API ended the session; nothing recorded, resume later" ;;
+    *) echo "llm-node: change.review recorded nothing after $((try + 1)) attempt(s) on adapter $adapter (call llm/$(basename "$rec")): $(cat "$rec/review-check.err")" ;;
+  esac
+  log_call
+  exit $code
+fi
 
 started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 "$adapter_bin" "$rec/request.json" > "$rec/response.json"
@@ -553,6 +737,15 @@ apply() {
          "$(yq -o=json -I=0 '[.questions[] | select(.scope_changing == true)]' "$work/questions.yaml")" ]] ||
         { echo "questions.answer changed a scope-changing question: not applied"; return 1; }
       cp "$f" "$work/questions.yaml" ;;
+    bug.dissect)
+      # The reply under the response schema, when the adapter had one, else the written file.
+      f=$cwd/out/bug-dissection.json
+      [[ -s $rec/structured-output.json ]] && f=$rec/structured-output.json
+      [[ -f $f ]] || return 1
+      cp "$f" "$work/bug-dissection.json" ;;
+    test.reproduce)
+      [[ -d $cwd/out/repro ]] || return 1
+      rm -rf "${work:?}/repro" && cp -r "$cwd/out/repro" "$work/repro" && "$here/sdc-tool.sh" bugfix repro-install ;;
     *)
       [[ -e $cwd/out/$out ]] || return 1
       rm -rf "${work:?}/$out" && mkdir -p "$(dirname "$work/$out")" && cp -r "$cwd/out/$out" "$work/$out" ;;
@@ -564,7 +757,14 @@ if [[ $adapter == dry ]]; then
   [[ $code == 0 ]] && post "" >> "$rec/apply.log" 2>&1
 elif [[ $acode == 0 ]]; then
   apply > "$rec/apply.log" 2>&1; code=$?
+  # Why it was not applied goes into the step's log, which the next run reads (R9 above).
+  [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
   [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1
+elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == recording_diverged ]]; then
+  # A re-driven run (sdc-replay) whose recording diverged under the policy stop: exit 75, the driver
+  # records nothing and stops; scripts/run-trial.sh ends the run with cause recording_diverged.
+  echo "llm-node: $node not re-driven: the recording diverged ($(jq -r '.replay.difference // "" | if type == "array" then join("; ") else . end' "$rec/response.json"))"
+  code=75
 elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]]; then
   # The model's API refused or broke off (a 429, an overload): the node could not run, which
   # says nothing about its subject. Exit 75: sdc-drive records nothing, counts no run and stops;
@@ -574,17 +774,8 @@ elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]]; 
   code=75
 else
   code=$acode
+  echo "llm-node: $node: the model call exited $acode: $(jq -r '.terminal_reason // .error // "no reason given" | tostring' "$rec/response.json" 2>/dev/null | head -c 300)"
 fi
 
-# One line per call, for the run log and the viewer.
-jq -c -n --arg node "$node" --arg case "${SDC_CASE:-}" --arg started "$started" --arg rec "$rec" \
-  --argjson attempt "$attempt" --argjson code "$code" --argjson acode "$acode" --arg out "$out" --arg class "$class" \
-  --arg feedback "$feedback" --slurpfile req "$rec/request.json" --slurpfile res "$rec/response.json" '
-  {action: $node, case: $case, started: $started, attempt: $attempt, retry: ($feedback == "yes"),
-   adapter: $res[0].adapter, model: $req[0].model, class: $class, allowed_operations: $req[0].operations,
-   max_turns: $req[0].max_turns, max_budget_usd: $req[0].max_budget_usd,
-   exit: $acode, applied_exit: $code, output: $out, duration_ms: $res[0].duration_ms,
-   cost_usd: $res[0].cost_usd, num_turns: $res[0].num_turns, usage: $res[0].usage,
-   offered_tools: $res[0].offered_tools, tool_calls: $res[0].tool_calls, dry: ($res[0].dry // false),
-   record: $rec}' >> "${SDC_LLM_LOG:-$rec_root/calls.jsonl}"
+log_call
 exit $code

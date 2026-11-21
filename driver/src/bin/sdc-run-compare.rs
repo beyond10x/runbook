@@ -296,10 +296,22 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
     // Time: elapsed first event to last event; inside the driver; outside; waiting on a person.
     let settings_s: Vec<i64> = settings.iter().flatten().filter_map(|s| s["at"].as_str().and_then(epoch_ms)).map(|t| t.div_euclid(1000)).collect();
     let stopped_s = stopped.as_ref().and_then(|s| s["at"].as_str()).and_then(epoch_ms).map(|t| t.div_euclid(1000));
+    // Stop records a later leg reopened (run-stopped.<at>.json): time stopped for a fix.
+    let mut reopened_names: Vec<String> = fs::read_dir(dir).into_iter().flatten().flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("run-stopped.") && n.ends_with(".json") && n != "run-stopped.json").collect();
+    reopened_names.sort();
+    let mut reopened_s = vec![];
+    for n in &reopened_names {
+        if let Some(at) = json_opt(&dir.join(n))?.and_then(|s| s["at"].as_str().and_then(epoch_ms)) {
+            reopened_s.push(at.div_euclid(1000));
+        }
+    }
     let (wait, stops, open_end) = match &rounds {
-        Some(r) => waiting(r, &settings_s, stopped_s, closed.is_some()),
+        Some(r) => waiting(r, &settings_s, stopped_s, closed.is_some(), &reopened_s),
         None => (None, vec![], false),
     };
+    let fix_s: i64 = rounds.iter().flatten().zip(rounds.iter().flatten().skip(1)).filter_map(|(r, n)| fix_gap(r, n, &reopened_s)).sum();
     let secs = |x: Option<i64>| x.map_or(Cell::Missing, |v| Cell::Num(v as f64, Fmt::Int));
     metrics.push(("elapsed wall time (s)".into(), secs(elapsed)));
     metrics.push(("time inside the driver (s)".into(), driver_s.map_or(Cell::Missing, |v| Cell::Num(v, Fmt::Int))));
@@ -308,6 +320,7 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
         _ => Cell::Missing,
     }));
     metrics.push(("time waiting on a person (s)".into(), secs(wait)));
+    metrics.push(("time stopped for a fix (s)".into(), rounds.as_ref().map_or(Cell::Missing, |_| int(fix_s as usize))));
     details.insert("waiting_on_a_person".into(), json!({"stops": stops, "open_end_not_counted": open_end}));
 
     // Decisions by a person: person actions (an authority record taken with an action counts
@@ -342,19 +355,30 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
     metrics.push(("LLM calls".into(), calls.as_ref().map_or(Cell::Missing, |c| int(c.len()))));
     metrics.push(("LLM cost (USD)".into(), calls.as_ref().map_or(Cell::Missing, |_| usd(llm_cost))));
 
-    // Decider calls and cost (decisions.jsonl): a line is an LLM call when it names a model and
-    // is not an escalation suppressed afterwards (that line repeats the call already recorded);
-    // rule deciders (`decider:approve`, `decider:reject`) name no model.
+    // Decider calls and cost (decisions.jsonl): every decider model call that was made, whatever
+    // became of its reply, once. A call is its record (`record`, decider/NNN-*); several lines
+    // can share one: an escalation suppressed afterwards carries the call's cost on its
+    // `escalation_suppressed` line and none on the decision line after it, and a fallback line
+    // repeats the last invalid reply's call. A line without a record is a call of its own. Rule
+    // deciders (`decider:approve`, `decider:reject`) name no model.
     let decisions = jsonl_opt(&dir.join("decisions.jsonl"))?;
     let mut decider_by_model: BTreeMap<String, Tally> = BTreeMap::new();
     let mut decider_by_principal: BTreeMap<String, usize> = BTreeMap::new();
     if let Some(d) = &decisions {
-        for l in d {
+        let mut by_call: BTreeMap<String, (String, f64)> = BTreeMap::new();
+        for (i, l) in d.iter().enumerate() {
             *decider_by_principal.entry(js(&l["principal"])).or_default() += 1;
             let model = js(&l["model"]);
-            if !model.is_empty() && l["decision"] != "escalation_suppressed" {
-                tally(&mut decider_by_model, &model, l["cost_usd"].as_f64().unwrap_or(0.0));
+            if model.is_empty() {
+                continue;
             }
+            let key = l["record"].as_str().map_or_else(|| format!("line {i}"), str::to_string);
+            let cost = l["cost_usd"].as_f64().unwrap_or(0.0);
+            let e = by_call.entry(key).or_insert((model, 0.0));
+            e.1 = e.1.max(cost);
+        }
+        for (model, cost) in by_call.into_values() {
+            tally(&mut decider_by_model, &model, cost);
         }
     }
     let decider_calls: usize = decider_by_model.values().map(|t| t.calls).sum();
@@ -407,6 +431,31 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
 
     metrics.push(("setting".into(), text(settings.as_ref().and_then(|s| s.last()).map_or(NOT_RECORDED.to_string(), setting_summary))));
 
+    // Keep-going (D142, defects.jsonl): continuations forced by rule:keep-going, and the defects.
+    let defects = jsonl_opt(&dir.join("defects.jsonl"))?;
+    let forced = defects.iter().flatten().filter(|d| d["forced"] == json!(true)).count();
+    metrics.push(("forced continuations".into(), defects.as_ref().map_or(Cell::Missing, |_| int(forced))));
+    // Unstick (D147): the moves run.unstick took (stop is none), each a diagnosed defect.
+    let unstuck = defects.iter().flatten().filter(|d| d["unstuck"] == json!(true)).count();
+    metrics.push(("unstuck".into(), defects.as_ref().map_or(Cell::Missing, |_| int(unstuck))));
+    metrics.push(("reopens".into(), int(reopened_names.len())));
+    metrics.push(("clean run".into(), text(if forced == 0 && unstuck == 0 && reopened_names.is_empty() { "yes" } else { "no" }.to_string())));
+    metrics.push(("defects".into(), text(defects.as_ref().map_or(NOT_RECORDED.to_string(), |d| {
+        if d.is_empty() {
+            return "none".to_string();
+        }
+        d.iter().map(|x| {
+            let how = if x["forced"] == json!(true) {
+                "forced".to_string()
+            } else if x["unstuck"] == json!(true) {
+                format!("unstuck: {}, {}: {}", js(&x["move"]), js(&x["defect_class"]), js(&x["diagnosis"]))
+            } else {
+                "stops".to_string()
+            };
+            format!("{} at {} in {} ({how})", js(&x["cause"]), js(&x["action"]), js(&x["case"]))
+        }).collect::<Vec<_>>().join("; ")
+    }))));
+
     let recorded = calls.is_some();
     Ok(Run {
         label: label.to_string(),
@@ -425,7 +474,7 @@ fn load(label: &str, dir: &Path) -> Res<Run> {
 /// or `awaiting_authority`. The last round counts when the run was not closed and a stop record
 /// (`run-stopped.json`) gives its end; with no stop record its end is open and it is not counted
 /// (no clock reading enters the report). Same reading as L7 of `sdc-finding-kpis`.
-fn waiting(rounds: &[Round], legs: &[i64], stopped: Option<i64>, closed: bool) -> (Option<i64>, Vec<J>, bool) {
+fn waiting(rounds: &[Round], legs: &[i64], stopped: Option<i64>, closed: bool, reopened: &[i64]) -> (Option<i64>, Vec<J>, bool) {
     let first_leg = legs.iter().min().copied();
     let mut stops = vec![];
     let mut open_end = false;
@@ -435,7 +484,8 @@ fn waiting(rounds: &[Round], legs: &[i64], stopped: Option<i64>, closed: bool) -
         let (until, how) = match rounds.get(i + 1) {
             Some(n) => {
                 let waits = if legacy { person_verdict } else { legs.iter().any(|&l| l >= r.end_s && l <= n.start_s) };
-                if !waits {
+                // A gap a reopened stop record lies in is stopped for a fix (`fix_gaps`), no wait.
+                if !waits || fix_gap(r, n, reopened).is_some() {
                     continue;
                 }
                 (n.start_s, "resumed")
@@ -453,6 +503,12 @@ fn waiting(rounds: &[Round], legs: &[i64], stopped: Option<i64>, closed: bool) -
     }
     let total: i64 = stops.iter().filter_map(|s| s["seconds"].as_i64()).sum();
     (Some(total), stops, open_end)
+}
+
+/// The seconds from a reopened stop record (`run-stopped.<at>.json`) that lies between round `r`
+/// and the next round `n` to `n`'s start: the time the run was stopped for a fix.
+fn fix_gap(r: &Round, n: &Round, reopened: &[i64]) -> Option<i64> {
+    reopened.iter().find(|&&at| at >= r.end_s - 5 && at <= n.start_s).map(|&at| (n.start_s - at).max(0))
 }
 
 /// `held`, `contradicted` or `unknown` per check (docs/eval-design.md, oracle file): the checks
@@ -486,7 +542,7 @@ fn replay_summary(r: &J) -> String {
     format!("{ok} of {} cases match", a.len())
 }
 
-/// Who held the decisions, and the models the settings record names.
+/// Who held the decisions, and the models and reasoning efforts the settings record names.
 fn setting_summary(s: &J) -> String {
     let mut p: Vec<String> = vec![];
     if let Some(a) = s["autonomy"].as_str() {
@@ -501,7 +557,7 @@ fn setting_summary(s: &J) -> String {
             None => format!("decider {k}"),
         });
     }
-    for key in ["models", "model"] {
+    for key in ["models", "efforts", "model"] {
         if !s[key].is_null() {
             p.push(format!("{key} {}", s[key].as_str().map(String::from).unwrap_or_else(|| s[key].to_string())));
         }
@@ -720,15 +776,15 @@ mod tests {
     #[test]
     fn a_person_is_not_an_agent_a_decider_or_a_rule() {
         assert!(person("person:ada") && person("operator") && person("human"));
-        assert!(!person("") && !person("decider:haiku") && !person("rule:x") && !person("non-interactive") && !person("derived"));
+        assert!(!person("") && !person("decider:haiku") && !person("decider:model") && !person("rule:x") && !person("non-interactive") && !person("derived"));
     }
 
     #[test]
     fn the_last_round_waits_only_when_a_stop_record_ends_it() {
         let r = |s, e, v: &str| Round { start_s: s, end_s: e, seconds: (e - s) as f64, verdict: v.into(), case_id: "c".into() };
         let rounds = [r(0, 10, "awaiting_person")];
-        assert_eq!(waiting(&rounds, &[], None, false), (Some(0), vec![], true));
-        assert_eq!(waiting(&rounds, &[], Some(70), false).0, Some(60));
-        assert_eq!(waiting(&rounds, &[], Some(70), true).0, Some(0));
+        assert_eq!(waiting(&rounds, &[], None, false, &[]), (Some(0), vec![], true));
+        assert_eq!(waiting(&rounds, &[], Some(70), false, &[]).0, Some(60));
+        assert_eq!(waiting(&rounds, &[], Some(70), true, &[]).0, Some(0));
     }
 }

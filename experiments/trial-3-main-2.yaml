@@ -1,0 +1,96 @@
+format: sdc.experiment/1
+id: trial-3-main-2
+kind: retrospective
+status: running
+created: 2026-11-21
+title: Trial 3 from main 8db4b93 with fix/review-reply, the first passes with a review model
+purpose: Rerun trial-3-main-1's settings on main with the review reply fix, to see whether runs pass with a real review model.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: 1001970d83d872d1d0dcb80372cd22a8115c9359
+trees:
+- trial/main-2 at 1001970 = main 8db4b93 + fix/review-reply 49b0a87 (bot merge commit), worktree sdc-trial-main-2; driver, watch and goals built there before the runs
+- the same tree served the reopen legs of trial-3-strong-3, trial-3-strong-4 and trial-3-mixed-7, which belong to trial-3-main-1
+fixed:
+  decider.kind: haiku
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  adapters.review.adapter: claude-cli
+variants:
+- id: strong
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+  runs:
+  - run: trial-3-strong-5
+    note: 7 change.review calls
+  - run: trial-3-strong-6
+    note: 5 change.review calls
+- id: mixed
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs:
+  - trial-3-mixed-8
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: null
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs:
+  - run: trial-3-haiku-9
+    note: ended 2026-11-21T12:31:35Z, stopped writer_spent at change.implement in IDEA-1.list.tasks (3 runs); not reopened
+runs_per_variant: 2
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: No hypothesis. One or two runs per setting establish no difference between settings; the record describes the runs.
+known_confounds:
+- key: canon
+  note: every run used the canon binary of the canon checkout at run time (run-trial.sh's default), which no record pins
+facts:
+- 'Pass by the trial-3 report''s rule: trial-3-strong-5 and trial-3-strong-6, both closed operating by rule:autopilot, replay 10 of 10, 0 s waiting on a person; the first passes in which a review model was called.'
+- 'trial-3-strong-6: change.review 5 calls (Sonnet, 0.748 USD): offline rejected (r3 no local copy, edits not shown, sync after a partial failure) then approved; task rejected (the UI never calls /api/tasks, r1, r5) then approved; sharing approved. merge.approve approved all three stories, no merge rejection.'
+- 'trial-3-strong-5: change.review 7 calls (1.149 USD): offline rejected twice (no last-edit-wins; the page queues Add only) then approved; sharing rejected once (offline edits never reach a shared list) then approved; task rejected once (the page never calls the task API) then approved. merge.approve approved all three.'
+- 'trial-3-mixed-8: stopped rework_spent in IDEA-1.todo.access at merge.approve: decider:haiku rejected the change 3 times (r1 local-only and one list; r5 hosted managed database against a local data file; q9 defers the database client to no later story) while change.review approved all 3 calls. Not reopened.'
+- 'The reopens of trial-3-strong-3, trial-3-strong-4 and trial-3-mixed-7 on this tree stopped again at once with review_invalid and no new call: the driver listed change.review as admissible but not useful, so the review was not called again with the new adapter. They are listed in trial-3-main-1 as reopened runs.'
+- run-settings.jsonl of every real start records the review adapter claude-cli with a response schema.
+links:
+- 'experiments/trial-3-main-1.yaml: the first legs of the three reopened runs'
+- 'docs/trial-3.md on branch docs/trial-3 (243a22f and later): section 9'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 2
+    ended: 2
+    id: strong
+    listed: 2
+    without_summary: []
+  - clean_passes: 0
+    ended: 1
+    id: mixed
+    listed: 1
+    without_summary: []
+  - clean_passes: 0
+    ended: 1
+    id: haiku
+    listed: 1
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

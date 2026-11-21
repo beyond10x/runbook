@@ -6,7 +6,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <link rel="preload" href="fonts/inter-variable-latin.woff2" as="font" type="font/woff2" crossorigin>
-<script>try { if ((localStorage.getItem('sdc-ui.panel') === 'open' && !matchMedia('(max-width: 900px)').matches) || /[?&](tab|node)=/.test(location.search)) document.documentElement.classList.add('rp-open'); } catch {}</script>
+<script>
+// The phone layout is for a phone, not for a narrow desktop window: a small screen, or a touch screen up
+// to tablet width. This is its one definition: html.phone switches the phone rules of style.css on, and
+// app.js reads SDC_PHONE.
+window.SDC_PHONE = '(max-width: 600px), (max-width: 900px) and (pointer: coarse)';
+{ const m = matchMedia(window.SDC_PHONE), set = () => document.documentElement.classList.toggle('phone', m.matches); set(); m.addEventListener('change', set); }
+try { if ((localStorage.getItem('sdc-ui.panel') === 'open' && !matchMedia(window.SDC_PHONE).matches) || /[?&](tab|node)=/.test(location.search)) document.documentElement.classList.add('rp-open'); } catch {}
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -14,7 +21,12 @@
   <div class="brand"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5 12 2l8 4.5v11L12 22l-8-4.5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 9.5 12 7.3l4 2.2v5L12 16.7l-4-2.2z" fill="currentColor" opacity=".9"/></svg>
     <span class="bt">SDC Inspector</span><span class="bs" id="tagline" title="Canon decides · the driver records · this page only reads">Canon decides · the driver records · this page only reads</span></div>
   <div class="hctl">
-    <label class="selectw"><span>Store</span><select id="source"></select></label><span id="runmark"></span>
+    <div class="selectw picker" id="picker"><span id="pk-lab">Run</span><button id="runpick" type="button" class="pk-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="pk-panel"></button>
+      <div id="pk-panel" class="pk-panel" role="dialog" aria-label="Choose a run" hidden>
+        <div class="pk-top"><input id="pk-q" type="search" role="combobox" aria-expanded="true" aria-controls="pk-list" aria-autocomplete="list" aria-label="Search runs by name, state, outcome, stop cause or model" placeholder="Search: name, model, outcome, stop cause" autocomplete="off" spellcheck="false"><button id="pk-close" type="button" class="ib" aria-label="Close the run list">Close</button></div>
+        <div id="pk-list" role="listbox" aria-label="Runs"></div><div id="pk-none"></div><button id="pk-stubs" type="button" class="pk-more" aria-controls="pk-list" hidden></button>
+      </div>
+    </div><span id="runmark"></span>
     <label class="switch" title="select the case that moved last"><input type="checkbox" id="follow" checked><span class="sw"></span><span class="swl">Follow active case</span></label>
     <button id="decbtn" class="decbtn" title="pending person decisions"><span>Decisions</span><b id="deccount">0</b></button>
     <span id="live" class="live connecting"><i></i><span>Connecting</span></span>

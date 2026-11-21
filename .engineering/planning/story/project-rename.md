@@ -22,7 +22,7 @@ scope:
   path: protocol
 - confidence: inferred
   path: watch
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-21T02:25:43Z", actor: "human:timo", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
@@ -31,7 +31,7 @@ transitions:
 ## Outcome
 
 The project carries a name that fits what it covers: it replaces Conductor, takt and (as a catalog)
-engineering-protocols, and will cover more than the software development cycle (research, incident
+engineering-protocols, and will cover more than the software delivery cycle (research, incident
 response, signals from production).
 
 ## Context

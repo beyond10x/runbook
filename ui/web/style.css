@@ -41,10 +41,94 @@ header { display: flex; align-items: center; gap: 24px; height: 56px; padding: 0
 .logo { width: 22px; height: 22px; color: var(--accent); filter: drop-shadow(0 0 8px rgba(110, 139, 255, .5)); }
 .bt { font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
 .bs { color: var(--text-3); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hctl { display: flex; align-items: center; gap: 16px; }
+.hctl { display: flex; align-items: center; gap: 16px; min-width: 0; }
+/* a narrow desktop window (the operator tile, 805 px): the live pill's time and a stub run's header mark give way, the run picker button is at most 230 px, its name cut with a title; nothing else moves */
+.hctl > .live { min-width: 0; }
+.hctl > .live:not(:has(.lt)) { flex-shrink: 0; }
+.live > i, .live > span:not(.lt) { flex-shrink: 0; }
+#runmark > .rm { flex-shrink: 0; }
+#runmark:has(.rm-stub) { flex-shrink: 1; min-width: 0; }
+#runmark > .rm-stub { flex-shrink: 1; }
 .selectw { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 12px; }
 select { appearance: none; font: 500 12.5px var(--sans); color: var(--text); background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a4abb8' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center; border: 1px solid var(--line-2); border-radius: var(--r); padding: 6px 30px 6px 12px; min-width: 200px; max-width: 340px; cursor: pointer; transition: border-color .15s; }
 select:hover, select:focus { border-color: var(--line-3); outline: none; }
+/* the run picker (decision D-009): the button names the run on screen and its state; the panel searches
+   and lists the runs. Each state has a shape and a word, never colour alone. */
+.picker { position: relative; min-width: 0; }
+.pk-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 200px; max-width: 340px; height: 32px; font: 500 12.5px var(--sans); color: var(--text); text-align: left;
+  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a4abb8' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border: 1px solid var(--line-2); border-radius: var(--r); padding: 0 30px 0 10px; cursor: pointer; transition: border-color .15s; }
+.pk-btn:hover, .pk-btn[aria-expanded="true"] { border-color: var(--line-3); }
+.pk-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pk-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* the state's word has the width of the longest one ("not delivered"): when the run's state changes (a driver detaches,
+   the run closes) the button keeps its width and the header's other controls stay where they are */
+.pk-btn .pk-mt { width: 76px; }
+/* below 1000 px (the operator tile, a phone) the button keeps the state's shape and the name; the state's word stays in
+   its accessible name and its title */
+@media (max-width: 1000px) {
+  .pk-btn { min-width: 0; max-width: 230px; }
+  .pk-btn .pk-mt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+.pk-btn .pk-stub { flex: none; }
+.pk-mk { display: inline-flex; align-items: baseline; gap: 5px; flex: none; min-width: 0; font-size: 11px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.pk-mk i { width: 10px; text-align: center; font-style: normal; font-size: 10px; line-height: 1; flex: none; }
+.pk-mk.m-run i::before { content: '●'; color: var(--accent-2); }
+.pk-mk.m-ok i::before { content: '✓'; color: var(--true); font-weight: 800; }
+.pk-mk.m-bad i::before { content: '✕'; color: var(--false); font-weight: 800; }
+.pk-mk.m-stop i::before { content: '■'; color: var(--text-2); }
+.pk-mk.m-idle i::before { content: '○'; color: var(--text-3); }
+.pk-mk.m-wait i::before { content: '…'; color: var(--text-3); }
+.pk-mk.m-run { color: var(--accent-2); }
+.pk-mk.m-ok { color: var(--true); }
+.pk-mk.m-bad { color: #ff8a8f; }
+.pk-mt { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pk-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: min(620px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 6px; padding: 8px;
+  background: var(--bg-2); border: 1px solid var(--line-3); border-radius: var(--r-lg); box-shadow: 0 18px 48px rgba(0, 0, 0, .55); }
+.pk-panel[hidden] { display: none; }
+.pk-top { display: flex; gap: 8px; }
+#pk-q { flex: 1; min-width: 0; height: 34px; font: 13px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); padding: 0 10px; }
+#pk-q:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+#pk-q::placeholder { color: var(--text-3); }
+#pk-close { display: none; }
+#pk-list { max-height: 476px; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; }
+.pk-gh { position: sticky; top: 0; z-index: 1; padding: 6px 8px 4px; background: var(--bg-2); font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.pk-gh b { color: var(--text-2); font-weight: 650; }
+.pk-row { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 6px 10px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.pk-row:hover { background: var(--surface-2); }
+.pk-row.act { background: var(--accent-bg); border-color: rgba(110, 139, 255, .4); }
+.pk-row[aria-selected="true"] { box-shadow: inset 3px 0 0 var(--accent); }
+.pk-r1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.pk-rn { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 13px var(--mono); color: var(--text); }
+.pk-r1 .pk-mk { margin-left: auto; flex: 0 1 auto; }
+.pk-stub { flex: none; font-size: 10px; font-weight: 700; letter-spacing: .04em; color: var(--text-2); border: 1px dashed var(--line-3); border-radius: 4px; padding: 0 5px; }
+.pk-r2 { display: flex; flex-wrap: wrap; align-items: baseline; font-size: 11.5px; color: var(--text-3); line-height: 1.45; }
+.pk-r2 .pk-dur { font-variant-numeric: tabular-nums; color: var(--text-2); }
+.pk-r2 .pk-set { color: var(--text-2); }
+.pk-r2 .pk-n { color: var(--appr); }
+.pk-sep { white-space: pre; }
+/* experiments: a "Recent" heading over the experiment groups and Unassigned; each experiment's head is an option
+   that opens or closes its group; a row's variant and ordinal as a tag */
+.pk-sh { padding: 8px 8px 2px; font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.pk-g.g-exp { margin-top: 2px; }
+.pk-eh { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; background: var(--surface); }
+.pk-eh:hover { background: var(--surface-2); }
+.pk-eh.act { background: var(--accent-bg); border-color: rgba(110, 139, 255, .4); }
+.pk-chev { flex: none; width: 10px; font-style: normal; font-size: 10px; color: var(--text-2); }
+.pk-chev::before { content: '▸'; }
+.pk-eh.open .pk-chev::before { content: '▾'; }
+.pk-en { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 650 12.5px var(--mono); color: var(--text); }
+.pk-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pk-ec { margin-left: auto; flex: none; font-size: 11px; font-weight: 600; color: var(--text-2); white-space: nowrap; }
+.pk-eh .pk-r2 { padding-left: 18px; }
+.pk-ep { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; color: var(--text-2); }
+.pk-g.g-exp .pk-row { margin-left: 12px; }
+.pk-var { flex: none; font: 600 10.5px var(--mono); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+.pk-none p, .pk-none { margin: 0; padding: 10px; font-size: 12.5px; color: var(--text-3); }
+#pk-none:empty { display: none; }
+.pk-more { align-self: flex-start; height: 28px; padding: 0 10px; font: 500 12px var(--sans); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
+.pk-more[hidden] { display: none; }
+.pk-more:hover { border-color: var(--line-3); color: var(--text); }
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap; }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
 .sw { width: 28px; height: 16px; border-radius: 8px; background: var(--surface-3); border: 1px solid var(--line-2); position: relative; transition: background .2s, border-color .2s; }
@@ -57,7 +141,7 @@ select:hover, select:focus { border-color: var(--line-3); outline: none; }
 .live.on i { background: var(--true); box-shadow: 0 0 0 0 rgba(61, 220, 151, .6); animation: pulse 2s infinite; }
 .live.reconnecting { color: var(--false); }
 .live.reconnecting i { background: var(--false); }
-.live .lt { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; }
+.live .lt { color: var(--text-3); font-weight: 400; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(61, 220, 151, .55); } 70% { box-shadow: 0 0 0 7px rgba(61, 220, 151, 0); } 100% { box-shadow: 0 0 0 0 rgba(61, 220, 151, 0); } }
 .ib { font: 550 12px var(--sans); color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 6px; height: 26px; min-width: 26px; padding: 0 8px; cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
 .ib:hover { background: var(--hover); color: var(--text); border-color: var(--line-3); }
@@ -756,6 +840,14 @@ pre.proc { margin: 10px 0 0; max-height: 180px; overflow: auto; background: #070
   #tabs button { flex: 1 1 auto; padding: 6px 3px; font-size: 10.5px; letter-spacing: -.01em; }
   #now { grid-template-columns: 84px minmax(0, 1fr) 270px; }
 }
+/* a narrow desktop window: the Now band's cards get the room to show the action, its executor and model whole (D-008) */
+@media (max-width: 1000px) {
+  #now { grid-template-columns: 76px minmax(0, 1fr) 200px; gap: 10px; }
+  :where(html:not(.phone)) .nc-act { max-width: 100%; }
+  :where(html:not(.phone)) .nc-time { min-width: 0; max-width: 80px; }
+  :where(html:not(.phone)) .nc-since { white-space: normal; text-align: right; }
+  :where(html:not(.phone)) .nc-2.nc-hold { flex-wrap: wrap; row-gap: 3px; }
+}
 
 /* ---- round 3: KPI strip, "What changed" feed, change classes, the right panel as a rail ---- */
 .c-planning { --c-rgb: 45, 212, 191; }
@@ -937,6 +1029,11 @@ button.fd-s:focus-visible, .fd-list:focus-visible, #tree:focus-visible { outline
 .now-s.m-stopped { white-space: normal; align-items: flex-start; line-height: 1.35; font-size: 12px; }
 .now-s.m-stopped i { margin-top: 4px; border-radius: 2px; background: var(--text-2); }
 @media (max-width: 1400px) { #now.m-stopped { grid-template-columns: 140px minmax(0, 1fr) 270px; } }
+@media (max-width: 1000px) { #now.m-waiting, #now.m-stuck, #now.m-closed, #now.m-stalled, #now.m-stopped { grid-template-columns: 140px minmax(0, 1fr) 184px; } }
+/* a long state (a stop's reason, a revision id) breaks inside its column instead of running under the cards, and in the
+   desktop layout ends after 12 lines with an ellipsis (the whole text is the title), so the band keeps its height */
+.now-s { overflow-wrap: anywhere; }
+:where(html:not(.phone)) .now-st { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 12; overflow: hidden; }
 .nc.idle.k-stopped { background: linear-gradient(180deg, rgba(180, 188, 203, .06), transparent 70%), var(--surface); border-color: var(--line-3); }
 .nc-was { cursor: pointer; }
 .nc-was .nc-why { color: var(--text-2); }
@@ -972,10 +1069,10 @@ tr.fail td b { color: #ff9a9e; }
 @media (max-width: 1400px) { .kt-main { padding-left: 10px; column-gap: 8px; } .k-stop { font-size: 10.5px; } }
 
 /* who a run is: an end-to-end test with a stand-in, autopilot (run-settings.jsonl) */
-#runmark { display: inline-flex; gap: 6px; align-items: center; }
+#runmark { display: inline-flex; gap: 6px; align-items: center; flex-shrink: 0; }
 #runmark:empty { display: none; }
 .rm { font-size: 11px; font-weight: 650; padding: 2px 9px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--line-3); color: var(--text); background: var(--surface-2); }
-.rm-stub { border-style: dashed; color: #ffb4a8; border-color: rgba(255, 120, 100, .5); }
+.rm-stub { min-width: 0; overflow: hidden; text-overflow: ellipsis; border-style: dashed; color: #ffb4a8; border-color: rgba(255, 120, 100, .5); }
 /* a full row of its own above the band: it does not move when the head column changes width */
 .now-stub { grid-column: 1 / -1; margin-bottom: -6px; font-size: 11px; font-weight: 650; line-height: 1.35; color: #ffb4a8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rm-standin { border-style: dashed; color: #ffd59a; border-color: rgba(255, 181, 71, .45); }
@@ -989,351 +1086,378 @@ tr.fail td b { color: #ff9a9e; }
 #nowbar, #railbtn, .ghint { display: none; }
 /* C1 one column: the page scrolls down, never sideways; a sticky header holds the store, Follow and
    Decisions, and a status bar with the run's state and its current step */
-@media (max-width: 900px) {
-  html, body { height: auto; }
-  body { display: block; overflow: visible; }
-  header { position: sticky; top: 0; z-index: 25; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: 'logo sel fol dec' 'live now now rail' 'mark mark mark mark'; gap: 6px 8px; height: auto; padding: 6px 10px 8px; align-items: center; }
-  .brand, .hctl { display: contents; }
-  .logo { grid-area: logo; }
-  .bt, .bs { display: none; }
-  .selectw { grid-area: sel; min-width: 0; }
-  .selectw > span, .switch .swl, #live > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  select { width: 100%; min-width: 0; max-width: none; height: 44px; }
-  header .switch { grid-area: fol; justify-content: center; min-width: 44px; min-height: 44px; }
-  #decbtn { grid-area: dec; height: 44px; padding: 0 8px 0 12px; }
-  #live { grid-area: live; justify-self: center; padding: 0; border: 0; background: none; }
-  #live .lt { display: none; }
-  #runmark { grid-area: mark; flex-wrap: wrap; }
-  #nowbar { grid-area: now; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .nb-state { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; font-weight: 650; line-height: 1.3; color: var(--text); }
-  .nb-state i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--text-3); vertical-align: 1px; }
-  .nb-state.m-running i { background: var(--accent-2); }
-  .nb-state.m-waiting i { background: var(--appr); }
-  .nb-state.m-closed i, .nb-state.m-terminable i { background: var(--true); }
-  .nb-state.m-stuck i, .nb-state.m-gone i, .nb-state.m-stalled i { background: var(--false); }
-  .nb-state.m-stopped i { border-radius: 2px; background: var(--text-2); }
-  .nb-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text-2); }
+/* phone layout: html.phone, set in index.html from the one query SDC_PHONE */
+html:where(.phone), :where(html.phone) body { height: auto; }
+:where(html.phone) body { display: block; overflow: visible; }
+:where(html.phone) header { position: sticky; top: 0; z-index: 25; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: 'logo sel fol dec' 'live now now rail' 'mark mark mark mark'; gap: 6px 8px; height: auto; padding: 6px 10px 8px; align-items: center; }
+:where(html.phone) .brand, :where(html.phone) .hctl { display: contents; }
+:where(html.phone) .logo { grid-area: logo; }
+:where(html.phone) .bt, :where(html.phone) .bs { display: none; }
+:where(html.phone) .selectw { grid-area: sel; min-width: 0; }
+:where(html.phone) .selectw > span, :where(html.phone) .switch .swl, :where(html.phone) #live > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:where(html.phone) select { width: 100%; min-width: 0; max-width: none; height: 44px; }
+:where(html.phone) header .switch { grid-area: fol; justify-content: center; min-width: 44px; min-height: 44px; }
+:where(html.phone) #decbtn { grid-area: dec; height: 44px; padding: 0 8px 0 12px; }
+:where(html.phone) #live { grid-area: live; justify-self: center; padding: 0; border: 0; background: none; }
+:where(html.phone) #live .lt { display: none; }
+:where(html.phone) #runmark { grid-area: mark; flex-wrap: wrap; }
+:where(html.phone) #nowbar { grid-area: now; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+:where(html.phone) .nb-state { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; font-weight: 650; line-height: 1.3; color: var(--text); }
+:where(html.phone) .nb-state i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--text-3); vertical-align: 1px; }
+:where(html.phone) .nb-state.m-running i { background: var(--accent-2); }
+:where(html.phone) .nb-state.m-waiting i { background: var(--appr); }
+:where(html.phone) .nb-state.m-closed i, :where(html.phone) .nb-state.m-terminable i { background: var(--true); }
+:where(html.phone) .nb-state.m-stuck i, :where(html.phone) .nb-state.m-gone i, :where(html.phone) .nb-state.m-stalled i { background: var(--false); }
+:where(html.phone) .nb-state.m-stopped i { border-radius: 2px; background: var(--text-2); }
+:where(html.phone) .nb-step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; color: var(--text-2); }
 
-  #kpis { display: grid; grid-template-columns: 1fr 1fr; height: auto; padding: 0; }
-  .kt { min-height: 60px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
-  .kt:nth-child(even) { border-right: 0; }
-  .kt:last-child:nth-child(odd) { grid-column: 1 / -1; }
-  .kt, .kt-main { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'l' 'v' 's'; align-content: start; }
-  .k-s { flex-wrap: wrap; white-space: normal; row-gap: 0; }
-  .kt.fail { grid-column: 1 / -1; flex-wrap: wrap; padding-bottom: 6px; }
-  .kt.fail .kt-main { flex: 1 1 100%; padding: 6px 12px 0; }
-  .k-fail { flex: 1 1 100%; padding: 0 12px; }
-  .k-stop, .kf-stop { white-space: normal; }
-  .k-standin { grid-column: 1 / -1; justify-self: start; margin: 6px 12px; }
+:where(html.phone) #kpis { display: grid; grid-template-columns: 1fr 1fr; height: auto; padding: 0; }
+:where(html.phone) .kt { min-height: 60px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+:where(html.phone) .kt:nth-child(even) { border-right: 0; }
+:where(html.phone) .kt:last-child:nth-child(odd) { grid-column: 1 / -1; }
+:where(html.phone) .kt, :where(html.phone) .kt-main { grid-template-columns: minmax(0, 1fr); grid-template-areas: 'l' 'v' 's'; align-content: start; }
+:where(html.phone) .k-s { flex-wrap: wrap; white-space: normal; row-gap: 0; }
+:where(html.phone) .kt.fail { grid-column: 1 / -1; flex-wrap: wrap; padding-bottom: 6px; }
+:where(html.phone) .kt.fail .kt-main { flex: 1 1 100%; padding: 6px 12px 0; }
+:where(html.phone) .k-fail { flex: 1 1 100%; padding: 0 12px; }
+:where(html.phone) .k-stop, :where(html.phone) .kf-stop { white-space: normal; }
+:where(html.phone) .k-standin { grid-column: 1 / -1; justify-self: start; margin: 6px 12px; }
 
-  #now, #now.m-waiting, #now.m-stuck, #now.m-closed, #now.m-stalled, #now.m-stopped { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
-  html:not(.rp-open) #now, html:not(.rp-open) #phases { margin-right: 0; }
-  .now-s, .now-s.m-waiting, .now-s.m-stuck, .now-s.m-closed, .now-s.m-stalled, .now-s.m-stopped { white-space: normal; align-items: flex-start; line-height: 1.35; }
-  .now-cards { grid-template-columns: minmax(0, 1fr); }
-  .nc { grid-template-columns: 34px minmax(0, 1fr); padding: 12px; }
-  .nc-time { grid-column: 2; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
-  .nc-1, .nc-2, .nc-3 { flex-wrap: wrap; row-gap: 2px; white-space: normal; overflow: visible; }
-  .nc-act, .nc-case, .nc-x, .nc-why, .nc-dim, .nc-q, .nc-q span, .np-say, .np-arg, .np-last, .tr-r, .fp, .fmt, .ft { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; direction: ltr; max-width: none; }
-  .nc .nc-verb, .nc .nc-2 .nc-dim { display: inline; }
-  .nc-3 .np-last { flex-basis: 100%; padding-left: 0; border-left: 0; }
-  .nc-btn { margin-left: 0; }
-  .trail { padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--line); }
-  .tr { grid-template-columns: 6px auto minmax(0, 1fr) auto; }
-  .tr-t { display: none; }
-  .fd-m, .fd-2, .fd-w, .fd-a { flex-wrap: wrap; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:where(html.phone) #now, :where(html.phone) #now.m-waiting, :where(html.phone) #now.m-stuck, :where(html.phone) #now.m-closed, :where(html.phone) #now.m-stalled, :where(html.phone) #now.m-stopped { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+html:where(.phone):not(.rp-open) #now, html:where(.phone):not(.rp-open) #phases { margin-right: 0; }
+:where(html.phone) .now-s, :where(html.phone) .now-s.m-waiting, :where(html.phone) .now-s.m-stuck, :where(html.phone) .now-s.m-closed, :where(html.phone) .now-s.m-stalled, :where(html.phone) .now-s.m-stopped { white-space: normal; align-items: flex-start; line-height: 1.35; }
+:where(html.phone) .now-cards { grid-template-columns: minmax(0, 1fr); }
+:where(html.phone) .nc { grid-template-columns: 34px minmax(0, 1fr); padding: 12px; }
+:where(html.phone) .nc-time { grid-column: 2; flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+:where(html.phone) .nc-1, :where(html.phone) .nc-2, :where(html.phone) .nc-3 { flex-wrap: wrap; row-gap: 2px; white-space: normal; overflow: visible; }
+:where(html.phone) .nc-act, :where(html.phone) .nc-case, :where(html.phone) .nc-x, :where(html.phone) .nc-why, :where(html.phone) .nc-dim, :where(html.phone) .nc-q, :where(html.phone) .nc-q span, :where(html.phone) .np-say, :where(html.phone) .np-arg, :where(html.phone) .np-last, :where(html.phone) .tr-r, :where(html.phone) .fp, :where(html.phone) .fmt, :where(html.phone) .ft { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; direction: ltr; max-width: none; }
+:where(html.phone) .nc .nc-verb, :where(html.phone) .nc .nc-2 .nc-dim { display: inline; }
+:where(html.phone) .nc-3 .np-last { flex-basis: 100%; padding-left: 0; border-left: 0; }
+:where(html.phone) .nc-btn { margin-left: 0; }
+:where(html.phone) .trail { padding: 8px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+:where(html.phone) .tr { grid-template-columns: 6px auto minmax(0, 1fr) auto; }
+:where(html.phone) .tr-t { display: none; }
+:where(html.phone) .fd-m, :where(html.phone) .fd-2, :where(html.phone) .fd-w, :where(html.phone) .fd-a { flex-wrap: wrap; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
 
-  #phases { padding: 10px 12px; }
-  .stages { flex-wrap: wrap; gap: 8px 18px; }
-  .stage { flex: 0 0 auto !important; }
-  .phase { flex: 0 0 44px; min-height: 44px; justify-content: center; padding: 0; }
-  .phase .pl, .phase .ps { display: none; }
-  .ticket { flex-wrap: wrap; row-gap: 4px; }
+:where(html.phone) #phases { padding: 10px 12px; }
+:where(html.phone) .stages { flex-wrap: wrap; gap: 8px 18px; }
+:where(html.phone) .stage { flex: 0 0 auto !important; }
+:where(html.phone) .phase { flex: 0 0 44px; min-height: 44px; justify-content: center; padding: 0; }
+:where(html.phone) .phase .pl, :where(html.phone) .phase .ps { display: none; }
+:where(html.phone) .ticket { flex-wrap: wrap; row-gap: 4px; }
 
-  main { display: flex; flex-direction: column; min-height: 0; }
-  #left { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
-  #tree { max-height: 50vh; }
-  #feed { flex: none; }
-  .fd-list { max-height: 70vh; }
-  #center { border-bottom: 1px solid var(--line); }
-  #right, html:not(.rp-open) #right { display: none; }
-}
+:where(html.phone) main { display: flex; flex-direction: column; min-height: 0; }
+:where(html.phone) #left { overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
+:where(html.phone) #tree { max-height: 50vh; }
+:where(html.phone) #feed { flex: none; }
+:where(html.phone) .fd-list { max-height: 70vh; }
+:where(html.phone) #center { border-bottom: 1px solid var(--line); }
+:where(html.phone) #right, html:where(.phone):not(.rp-open) #right { display: none; }
+
 /* C2 the right panel is a full-width sheet, opened from Details in the status bar, never a column */
-@media (max-width: 900px) {
-  #railbtn { grid-area: rail; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; padding: 0 12px; font: 600 14px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
-  html.rp-open #right { display: flex; position: fixed; inset: 0; z-index: 30; width: auto; border: 0; }
-  html.rp-open body { overflow: hidden; }
-  html.rp-open #tabs { flex-wrap: wrap; gap: 4px; margin: 8px; padding: 4px; overflow: visible; }
-  html.rp-open #tabs button { flex: 1 1 26%; min-height: 44px; padding: 0 6px; }
-  html.rp-open #rpclose { order: -1; flex: 0 0 100%; justify-content: flex-end; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--text); font: 600 14px var(--sans); }
-  html.rp-open #rpclose::before { content: 'Close'; }
-  #panel { padding: 12px 14px 32px; }
-  .tiles { grid-template-columns: 1fr 1fr; }
-  .cols2 { grid-template-columns: 1fr; }
-}
+/* phone layout: html.phone, set in index.html from the one query SDC_PHONE */
+:where(html.phone) #railbtn { grid-area: rail; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; height: 44px; padding: 0 12px; font: 600 14px var(--sans); color: var(--text); background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--r); cursor: pointer; }
+html:where(.phone).rp-open #right { display: flex; position: fixed; inset: 0; z-index: 30; width: auto; border: 0; }
+html:where(.phone).rp-open body { overflow: hidden; }
+html:where(.phone).rp-open #tabs { flex-wrap: wrap; gap: 4px; margin: 8px; padding: 4px; overflow: visible; }
+html:where(.phone).rp-open #tabs button { flex: 1 1 26%; min-height: 44px; padding: 0 6px; }
+html:where(.phone).rp-open #rpclose { order: -1; flex: 0 0 100%; justify-content: flex-end; gap: 8px; min-height: 44px; padding: 0 12px; color: var(--text); font: 600 14px var(--sans); }
+html:where(.phone).rp-open #rpclose::before { content: 'Close'; }
+:where(html.phone) #panel { padding: 12px 14px 32px; }
+:where(html.phone) .tiles { grid-template-columns: 1fr 1fr; }
+:where(html.phone) .cols2 { grid-template-columns: 1fr; }
+
 /* C3 the case graph scrolls in its own box at a readable scale, with a visible hint, never clipped */
-@media (max-width: 900px) {
-  #center { display: block; }
-  .gbar { padding: 10px 12px; gap: 8px; }
-  #graph { height: 62vh; scroll-margin-top: 150px; }
-  .ghint:not([hidden]) { display: block; margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-2); background: var(--bg-2); }
-  #timeline { padding: 10px 12px; overflow-x: clip; }
-  .tl-head { flex-wrap: wrap; row-gap: 6px; }
-  .tl-cur { flex: 1 1 100%; order: 2; flex-wrap: wrap; white-space: normal; }
-  .tl-cur > span:last-child { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
-  .tl-track { height: 46px; }
-  .tl-foot { flex-wrap: wrap; }
-  .tl-legend { flex-wrap: wrap; overflow: visible; white-space: normal; }
-}
+/* phone layout: html.phone, set in index.html from the one query SDC_PHONE */
+:where(html.phone) #center { display: block; }
+:where(html.phone) .gbar { padding: 10px 12px; gap: 8px; }
+:where(html.phone) #graph { height: 62vh; scroll-margin-top: 150px; }
+:where(html.phone) .ghint:not([hidden]) { display: block; margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 14px; color: var(--text-2); background: var(--bg-2); }
+:where(html.phone) #timeline { padding: 10px 12px; overflow-x: clip; }
+:where(html.phone) .tl-head { flex-wrap: wrap; row-gap: 6px; }
+:where(html.phone) .tl-cur { flex: 1 1 100%; order: 2; flex-wrap: wrap; white-space: normal; }
+:where(html.phone) .tl-cur > span:last-child { overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+:where(html.phone) .tl-track { height: 46px; }
+:where(html.phone) .tl-foot { flex-wrap: wrap; }
+:where(html.phone) .tl-legend { flex-wrap: wrap; overflow: visible; white-space: normal; }
+
 /* C4 the Decisions drawer and the dialogs are full-screen sheets with their close control in view */
-@media (max-width: 900px) {
-  #scrim { inset: 0; z-index: 40; }
-  #drawer { top: 0; width: 100%; border-left: 0; z-index: 41; }
-  body.drawer-open { overflow: hidden; }
-  .dr-h { gap: 8px; padding: 8px 12px 8px 16px; }
-  #drclose { min-width: 64px; min-height: 44px; }
-  #drawer > .gap { margin: 12px 12px 0; }
-  .dr-list { padding: 12px; }
-  .dcard { padding: 14px 14px 14px 16px; }
-  .dc-h h3 { min-width: 0; overflow-wrap: anywhere; }
-  .dc-a, .dr-fa { flex-wrap: wrap; }
-  table.ctx thead { display: none; }
-  table.ctx, table.ctx tbody, table.ctx tr, table.ctx td { display: block; width: auto; }
-  table.ctx tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
-  table.ctx td { padding: 2px 12px; border: 0; }
-  .ca { text-align: left; }
-  .unl-k { width: auto; flex-basis: 100%; }
-  .mdv { max-height: none; }
-  .dr-f { padding: 8px 12px 12px; }
-  dialog, #diffdlg, #diffdlg:has(.grounds) { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
-  dialog { padding: 12px; }
-  #diffdlg { padding: 0; }
-  .dh { padding: 10px 12px; }
-  .dh-1 { flex-wrap: wrap; row-gap: 6px; }
-  .dh-p { flex: 1 1 calc(100% - 40px); white-space: normal; overflow-wrap: anywhere; }
-  .dh-nav { margin-left: auto; }
-  .dh-nav .ib, dialog .mh .ib { min-width: 44px; min-height: 44px; }
-  .dh-2 { gap: 4px 12px; }
-  .dmean { padding: 10px 12px; flex-wrap: wrap; }
-}
+/* phone layout: html.phone, set in index.html from the one query SDC_PHONE */
+:where(html.phone) #scrim { inset: 0; z-index: 40; }
+:where(html.phone) #drawer { top: 0; width: 100%; border-left: 0; z-index: 41; }
+:where(html.phone) body.drawer-open { overflow: hidden; }
+:where(html.phone) .dr-h { gap: 8px; padding: 8px 12px 8px 16px; }
+:where(html.phone) #drclose { min-width: 64px; min-height: 44px; }
+:where(html.phone) #drawer > .gap { margin: 12px 12px 0; }
+:where(html.phone) .dr-list { padding: 12px; }
+:where(html.phone) .dcard { padding: 14px 14px 14px 16px; }
+:where(html.phone) .dc-h h3 { min-width: 0; overflow-wrap: anywhere; }
+:where(html.phone) .dc-a, :where(html.phone) .dr-fa { flex-wrap: wrap; }
+:where(html.phone) table.ctx thead { display: none; }
+:where(html.phone) table.ctx, :where(html.phone) table.ctx tbody, :where(html.phone) table.ctx tr, :where(html.phone) table.ctx td { display: block; width: auto; }
+:where(html.phone) table.ctx tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+:where(html.phone) table.ctx td { padding: 2px 12px; border: 0; }
+:where(html.phone) .ca { text-align: left; }
+:where(html.phone) .unl-k { width: auto; flex-basis: 100%; }
+:where(html.phone) .mdv { max-height: none; }
+:where(html.phone) .dr-f { padding: 8px 12px 12px; }
+:where(html.phone) dialog, :where(html.phone) #diffdlg, :where(html.phone) #diffdlg:has(.grounds) { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; border: 0; border-radius: 0; }
+:where(html.phone) dialog { padding: 12px; }
+:where(html.phone) #diffdlg { padding: 0; }
+:where(html.phone) .dh { padding: 10px 12px; }
+:where(html.phone) .dh-1 { flex-wrap: wrap; row-gap: 6px; }
+:where(html.phone) .dh-p { flex: 1 1 calc(100% - 40px); white-space: normal; overflow-wrap: anywhere; }
+:where(html.phone) .dh-nav { margin-left: auto; }
+:where(html.phone) .dh-nav .ib, :where(html.phone) dialog .mh .ib { min-width: 44px; min-height: 44px; }
+:where(html.phone) .dh-2 { gap: 4px 12px; }
+:where(html.phone) .dmean { padding: 10px 12px; flex-wrap: wrap; }
+
 /* C5 touch and type: every tap target at least 44x44 CSS px, no label under 12 px, no body text under
    14 px (the second and third rules list every selector of this file that sets a smaller size) */
-@media (max-width: 900px) {
-  .ib, .btn, .btn.sm, .fchip, .decbtn, .nc-btn, .kt-main, .k-stop, .kf-stop, .nf-more, button.fd-s, .cmdrow summary, .opt, .tin, .switch, .tr, .fr, .nc-was { min-height: 44px; }
-  .ib { min-width: 44px; height: auto; }
-  .btn, .btn.sm { height: auto; white-space: normal; }
-  .k-stop, .kf-stop, .nf-more, .nc-was, .tr { display: flex; align-items: center; }
-  .tr { display: grid; }
-  .fr, .fr.fr-m { align-items: center; }
-  button.fd-s { display: flex; align-items: center; }
-  .fchip { padding: 0 12px; }
-  .nc-btn { padding: 0 16px; }
-  .k-stop, .kf-stop { width: 100%; }
-  .stage-h,
-  .ph,
-  .tl-title,
-  .sect,
-  #panel h3,
-  #panel h4,
-  .kind,
-  .cols2 i,
-  .kv > span:first-child,
-  .dk,
-  .unl-k,
-  .def,
-  .now-l,
-  .nc-verb,
-  .nc-kv i,
-  .fb,
-  .tr-h,
-  .cg-live,
-  .dh-kv i,
-  .cb,
-  .k-l,
-  .fd-title,
-  .nc-hold .nc-hk,
-  .dc-hk,
-  .dstop,
-  .k-f0,
-  .k-standin { font-size: 12px; }
-  :root,
-  code,
-  pre,
-  .mono,
-  .bs,
-  .selectw,
-  select,
-  .switch,
-  .live,
-  .ib,
-  .pl,
-  .ps,
-  .ticket,
-  .nr,
-  .cid,
-  .cst,
-  .cp,
-  .gt-sub,
-  .pill,
-  .legend,
-  .tl-cur,
-  .tl-cur .muted,
-  .tl-eval,
-  .tl-foot,
-  #tabs button,
-  .v,
-  .rec,
-  .rec .muted,
-  .bec,
-  .hp,
-  .small,
-  .badge-h,
-  table.steps,
-  table.steps th,
-  .llm,
-  .agent,
-  .tl,
-  .tv small,
-  .kpi,
-  .foot,
-  .cmdrow summary,
-  dialog h3,
-  .stime,
-  .sact,
-  .s2,
-  .llmrec,
-  .nx1 b,
-  .nx2,
-  .llmsum span,
-  .ag-h a,
-  .tc,
-  .decbtn,
-  .decbtn b,
-  .dr-h .muted,
-  .art-h,
-  .mdv h3,
-  .mdv h4,
-  .mdv h5,
-  .mdv pre,
-  .front,
-  table.ctx,
-  table.ctx th,
-  .cr,
-  .cs,
-  .unl,
-  .ul,
-  .ul .v,
-  .dc-a,
-  .btn,
-  .btn.sm,
-  .tin,
-  .tin.note,
-  .res,
-  .dr-fa,
-  pre.proc,
-  #toast,
-  .drow .d1 b,
-  .drow .d1 .scase,
-  .drow .d2,
-  .drow .d3,
-  .dreasons,
-  .dr1,
-  .dcites,
-  .dcites code,
-  .now-s,
-  .now-sub,
-  .now-drv,
-  .nc-q,
-  .nc-q b,
-  .nc-in,
-  .nc-case,
-  .nc-out,
-  .nc-2,
-  .nc-2 code,
-  .nc-kv code,
-  .ek,
-  .nc-3,
-  .np-tool,
-  .np-arg,
-  .nc-since,
-  .nc-warn,
-  .nf-h,
-  .fa,
-  .fd,
-  .op,
-  .fp,
-  .ft,
-  .fbin,
-  .fat,
-  .tr,
-  .tr-a,
-  .tr-d,
-  .tr-t,
-  .cst.st-running,
-  .chg-axis,
-  .cg-h,
-  .cg-h .muted,
-  .cg-t,
-  .fr2 .froot,
-  .dh-1 .op,
-  .dh-p,
-  .dh-1 .fa,
-  .dh-1 .fd,
-  .dh-pos,
-  .dh-2,
-  .dh-lang,
-  .d-note,
-  .dt,
-  .dl .ln,
-  .k-v small,
-  .k-s,
-  .k-nr,
-  .fd-h .muted,
-  .fchip,
-  .fd-note,
-  .fd-empty,
-  .fd-s,
-  .fd-row.c-code .fd-s,
-  .fd-1 .fa,
-  .fd-1 .fd,
-  .fd-m,
-  .fd-f,
-  .fd-2,
-  .fd-c,
-  .fd-a,
-  .fmore,
-  .dmean ul,
-  .dmean > .muted,
-  .kpirows .kid,
-  .kpirows .kdef td,
-  html:not(.rp-open) #tabs button[data-tab],
-  .fr.fr-m .fmt,
-  .now-s.m-waiting,
-  .now-s.m-stuck,
-  .now-s.m-closed,
-  .nc-one,
-  .nc-taken,
-  .dc-one,
-  .dc-who,
-  .dc-taken,
-  .dc-dv,
-  .ctx td .cdv,
-  button.fd-s,
-  .now-s.m-stalled,
-  .now-s.m-stopped,
-  .tree-stop,
-  .k-stop,
-  .kf-stop,
-  .chip-r,
-  .rm { font-size: 14px; }
-  .rm-stub { white-space: normal; }
-  .now-stub { font-size: 14px; margin-bottom: 0; white-space: normal; overflow: visible; }
-}
-@media (max-width: 900px) {
-  .k-v { white-space: normal; }
-  .fd-f { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; }
-  .proto { width: auto; overflow: visible; }
-  .drow .d1 { flex-wrap: wrap; }
-  .drow .d1 b { white-space: normal; overflow-wrap: anywhere; }
-  .fr.fr-m .fmt { display: block; -webkit-line-clamp: unset; }
-  .unl-k { font-size: 14px; text-transform: none; letter-spacing: 0; }
-}
+/* phone layout: html.phone, set in index.html from the one query SDC_PHONE */
+:where(html.phone) .ib, :where(html.phone) .btn, :where(html.phone) .btn.sm, :where(html.phone) .fchip, :where(html.phone) .decbtn, :where(html.phone) .nc-btn, :where(html.phone) .kt-main, :where(html.phone) .k-stop, :where(html.phone) .kf-stop, :where(html.phone) .nf-more, :where(html.phone) button.fd-s, :where(html.phone) .cmdrow summary, :where(html.phone) .opt, :where(html.phone) .tin, :where(html.phone) .switch, :where(html.phone) .tr, :where(html.phone) .fr, :where(html.phone) .nc-was { min-height: 44px; }
+:where(html.phone) .ib { min-width: 44px; height: auto; }
+:where(html.phone) .btn, :where(html.phone) .btn.sm { height: auto; white-space: normal; }
+:where(html.phone) .k-stop, :where(html.phone) .kf-stop, :where(html.phone) .nf-more, :where(html.phone) .nc-was, :where(html.phone) .tr { display: flex; align-items: center; }
+:where(html.phone) .tr { display: grid; }
+:where(html.phone) .fr, :where(html.phone) .fr.fr-m { align-items: center; }
+:where(html.phone) button.fd-s { display: flex; align-items: center; }
+:where(html.phone) .fchip { padding: 0 12px; }
+:where(html.phone) .nc-btn { padding: 0 16px; }
+:where(html.phone) .k-stop, :where(html.phone) .kf-stop { width: 100%; }
+:where(html.phone) .stage-h,
+:where(html.phone) .ph,
+:where(html.phone) .tl-title,
+:where(html.phone) .sect,
+:where(html.phone) #panel h3,
+:where(html.phone) #panel h4,
+:where(html.phone) .kind,
+:where(html.phone) .cols2 i,
+:where(html.phone) .kv > span:first-child,
+:where(html.phone) .dk,
+:where(html.phone) .unl-k,
+:where(html.phone) .def,
+:where(html.phone) .now-l,
+:where(html.phone) .nc-verb,
+:where(html.phone) .nc-kv i,
+:where(html.phone) .fb,
+:where(html.phone) .tr-h,
+:where(html.phone) .cg-live,
+:where(html.phone) .dh-kv i,
+:where(html.phone) .cb,
+:where(html.phone) .k-l,
+:where(html.phone) .fd-title,
+:where(html.phone) .nc-hold .nc-hk,
+:where(html.phone) .dc-hk,
+:where(html.phone) .dstop,
+:where(html.phone) .k-f0,
+:where(html.phone) .k-standin { font-size: 12px; }
+:root:where(.phone),
+:where(html.phone) code,
+:where(html.phone) pre,
+:where(html.phone) .mono,
+:where(html.phone) .bs,
+:where(html.phone) .selectw,
+:where(html.phone) select,
+:where(html.phone) .switch,
+:where(html.phone) .live,
+:where(html.phone) .ib,
+:where(html.phone) .pl,
+:where(html.phone) .ps,
+:where(html.phone) .ticket,
+:where(html.phone) .nr,
+:where(html.phone) .cid,
+:where(html.phone) .cst,
+:where(html.phone) .cp,
+:where(html.phone) .gt-sub,
+:where(html.phone) .pill,
+:where(html.phone) .legend,
+:where(html.phone) .tl-cur,
+:where(html.phone) .tl-cur .muted,
+:where(html.phone) .tl-eval,
+:where(html.phone) .tl-foot,
+:where(html.phone) #tabs button,
+:where(html.phone) .v,
+:where(html.phone) .rec,
+:where(html.phone) .rec .muted,
+:where(html.phone) .bec,
+:where(html.phone) .hp,
+:where(html.phone) .small,
+:where(html.phone) .badge-h,
+:where(html.phone) table.steps,
+:where(html.phone) table.steps th,
+:where(html.phone) .llm,
+:where(html.phone) .agent,
+:where(html.phone) .tl,
+:where(html.phone) .tv small,
+:where(html.phone) .kpi,
+:where(html.phone) .foot,
+:where(html.phone) .cmdrow summary,
+:where(html.phone) dialog h3,
+:where(html.phone) .stime,
+:where(html.phone) .sact,
+:where(html.phone) .s2,
+:where(html.phone) .llmrec,
+:where(html.phone) .nx1 b,
+:where(html.phone) .nx2,
+:where(html.phone) .llmsum span,
+:where(html.phone) .ag-h a,
+:where(html.phone) .tc,
+:where(html.phone) .decbtn,
+:where(html.phone) .decbtn b,
+:where(html.phone) .dr-h .muted,
+:where(html.phone) .art-h,
+:where(html.phone) .mdv h3,
+:where(html.phone) .mdv h4,
+:where(html.phone) .mdv h5,
+:where(html.phone) .mdv pre,
+:where(html.phone) .front,
+:where(html.phone) table.ctx,
+:where(html.phone) table.ctx th,
+:where(html.phone) .cr,
+:where(html.phone) .cs,
+:where(html.phone) .unl,
+:where(html.phone) .ul,
+:where(html.phone) .ul .v,
+:where(html.phone) .dc-a,
+:where(html.phone) .btn,
+:where(html.phone) .btn.sm,
+:where(html.phone) .tin,
+:where(html.phone) .tin.note,
+:where(html.phone) .res,
+:where(html.phone) .dr-fa,
+:where(html.phone) pre.proc,
+:where(html.phone) #toast,
+:where(html.phone) .drow .d1 b,
+:where(html.phone) .drow .d1 .scase,
+:where(html.phone) .drow .d2,
+:where(html.phone) .drow .d3,
+:where(html.phone) .dreasons,
+:where(html.phone) .dr1,
+:where(html.phone) .dcites,
+:where(html.phone) .dcites code,
+:where(html.phone) .now-s,
+:where(html.phone) .now-sub,
+:where(html.phone) .now-drv,
+:where(html.phone) .nc-q,
+:where(html.phone) .nc-q b,
+:where(html.phone) .nc-in,
+:where(html.phone) .nc-case,
+:where(html.phone) .nc-out,
+:where(html.phone) .nc-2,
+:where(html.phone) .nc-2 code,
+:where(html.phone) .nc-kv code,
+:where(html.phone) .ek,
+:where(html.phone) .nc-3,
+:where(html.phone) .np-tool,
+:where(html.phone) .np-arg,
+:where(html.phone) .nc-since,
+:where(html.phone) .nc-warn,
+:where(html.phone) .nf-h,
+:where(html.phone) .fa,
+:where(html.phone) .fd,
+:where(html.phone) .op,
+:where(html.phone) .fp,
+:where(html.phone) .ft,
+:where(html.phone) .fbin,
+:where(html.phone) .fat,
+:where(html.phone) .tr,
+:where(html.phone) .tr-a,
+:where(html.phone) .tr-d,
+:where(html.phone) .tr-t,
+:where(html.phone) .cst.st-running,
+:where(html.phone) .chg-axis,
+:where(html.phone) .cg-h,
+:where(html.phone) .cg-h .muted,
+:where(html.phone) .cg-t,
+:where(html.phone) .fr2 .froot,
+:where(html.phone) .dh-1 .op,
+:where(html.phone) .dh-p,
+:where(html.phone) .dh-1 .fa,
+:where(html.phone) .dh-1 .fd,
+:where(html.phone) .dh-pos,
+:where(html.phone) .dh-2,
+:where(html.phone) .dh-lang,
+:where(html.phone) .d-note,
+:where(html.phone) .dt,
+:where(html.phone) .dl .ln,
+:where(html.phone) .k-v small,
+:where(html.phone) .k-s,
+:where(html.phone) .k-nr,
+:where(html.phone) .fd-h .muted,
+:where(html.phone) .fchip,
+:where(html.phone) .fd-note,
+:where(html.phone) .fd-empty,
+:where(html.phone) .fd-s,
+:where(html.phone) .fd-row.c-code .fd-s,
+:where(html.phone) .fd-1 .fa,
+:where(html.phone) .fd-1 .fd,
+:where(html.phone) .fd-m,
+:where(html.phone) .fd-f,
+:where(html.phone) .fd-2,
+:where(html.phone) .fd-c,
+:where(html.phone) .fd-a,
+:where(html.phone) .fmore,
+:where(html.phone) .dmean ul,
+:where(html.phone) .dmean > .muted,
+:where(html.phone) .kpirows .kid,
+:where(html.phone) .kpirows .kdef td,
+html:where(.phone):not(.rp-open) #tabs button[data-tab],
+:where(html.phone) .fr.fr-m .fmt,
+:where(html.phone) .now-s.m-waiting,
+:where(html.phone) .now-s.m-stuck,
+:where(html.phone) .now-s.m-closed,
+:where(html.phone) .nc-one,
+:where(html.phone) .nc-taken,
+:where(html.phone) .dc-one,
+:where(html.phone) .dc-who,
+:where(html.phone) .dc-taken,
+:where(html.phone) .dc-dv,
+:where(html.phone) .ctx td .cdv,
+:where(html.phone) button.fd-s,
+:where(html.phone) .now-s.m-stalled,
+:where(html.phone) .now-s.m-stopped,
+:where(html.phone) .tree-stop,
+:where(html.phone) .k-stop,
+:where(html.phone) .kf-stop,
+:where(html.phone) .chip-r,
+:where(html.phone) .rm { font-size: 14px; }
+:where(html.phone) .rm-stub { white-space: normal; }
+:where(html.phone) .now-stub { font-size: 14px; margin-bottom: 0; white-space: normal; overflow: visible; }
+
+/* phone layout: html.phone, set in index.html from the one query SDC_PHONE */
+:where(html.phone) .k-v { white-space: normal; }
+:where(html.phone) .fd-f { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; }
+:where(html.phone) .proto { width: auto; overflow: visible; }
+:where(html.phone) .drow .d1 { flex-wrap: wrap; }
+:where(html.phone) .drow .d1 b { white-space: normal; overflow-wrap: anywhere; }
+:where(html.phone) .fr.fr-m .fmt { display: block; -webkit-line-clamp: unset; }
+:where(html.phone) .unl-k { font-size: 14px; text-transform: none; letter-spacing: 0; }
+/* the run picker on a phone (D-009): the button fills its header cell, the panel is a full-screen sheet with
+   its Close in view; rows and controls are 44 px targets, text at the phone sizes */
+:where(html.phone) .picker { width: 100%; }
+:where(html.phone) .pk-btn { width: 100%; max-width: none; height: 44px; font-size: 14px; }
+:where(html.phone) .pk-mk { font-size: 14px; }
+/* the header's stub mark says it on a phone (its own row); the button keeps the room for the name */
+:where(html.phone) .pk-btn .pk-stub { display: none; }
+:where(html.phone) .pk-panel { position: fixed; inset: 0; width: auto; z-index: 70; padding: 10px; gap: 8px; border: 0; border-radius: 0; box-shadow: none; }
+:where(html.phone) #pk-q { height: 44px; font-size: 16px; }
+:where(html.phone) #pk-close { display: inline-flex; align-items: center; justify-content: center; min-width: 64px; height: 44px; font-size: 14px; }
+:where(html.phone) #pk-list { flex: 1; min-height: 0; max-height: none; }
+:where(html.phone) .pk-gh { font-size: 12px; padding: 8px 8px 6px; }
+:where(html.phone) .pk-row { min-height: 44px; padding: 10px; }
+:where(html.phone) .pk-rn { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+:where(html.phone) .pk-r1 { flex-wrap: wrap; }
+:where(html.phone) .pk-r1 .pk-mk { margin-left: 0; }
+:where(html.phone) .pk-mt { white-space: normal; }
+:where(html.phone) .pk-r2 { font-size: 14px; }
+:where(html.phone) .pk-stub { font-size: 12px; }
+:where(html.phone) .pk-more { height: 44px; font-size: 14px; }
+:where(html.phone) .pk-eh { min-height: 44px; padding: 10px; }
+:where(html.phone) .pk-en { font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+:where(html.phone) .pk-ec, :where(html.phone) .pk-var { font-size: 14px; }
+:where(html.phone) .pk-sh { font-size: 12px; }
+:where(html.phone) .pk-ep { white-space: normal; }
+:where(html.phone) .pk-g.g-exp .pk-row { margin-left: 6px; }
+html:where(.phone.pk-open) body { overflow: hidden; }
+

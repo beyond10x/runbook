@@ -3,7 +3,10 @@
 # bound action is declared, every produced kind is in the action's may_produce, every placed
 # artifact is declared, a `child` binding is on a `case_open` action, and every action that may
 # produce evidence or opens a case is bound or is a person's (unbound) action. Run
-# check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/.
+# check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
+# (sdc-check-routes) against docs/reject-routes.md. Then the experiment
+# records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
+# experiments/INDEX.md fails the script).
 set -euo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 fail=0
@@ -32,4 +35,18 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
     echo "pass $name (unbound: ${unbound:-none})"
   fi
 done
+# The reject and cap routes (D148, docs/reject-routes.md): sdc-check-routes finds every state of
+# the autopilot where nothing points to a next step; its findings must equal the list in the doc.
+(cd "$sdc/driver" && cargo build --quiet --bin sdc-check-routes) || fail=1
+"$sdc/driver/target/debug/sdc-check-routes" --root "$sdc" --doc "$sdc/docs/reject-routes.md" || fail=1
+# Experiment records (docs/workflow-metrics.md section 7): every record valid, each report, verdict
+# and experiments/INDEX.md current. Needs the driver built (cargo build --bins in driver/).
+exp_bin=${SDC_EXPERIMENT:-$sdc/driver/target/debug/sdc-experiment}
+if [[ ! -x $exp_bin ]]; then
+  echo "FAIL experiments: no $exp_bin; build the driver first (cargo build --bins in driver/)"; fail=1
+elif (cd "$sdc" && "$exp_bin" check --all --experiments experiments | sed "s/^/  /"; exit "${PIPESTATUS[0]}"); then
+  echo "pass experiments"
+else
+  echo "FAIL experiments"; fail=1
+fi
 exit $fail

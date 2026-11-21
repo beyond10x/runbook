@@ -148,9 +148,12 @@ fn closed_unattended_run_reports_every_field() {
     assert_eq!(num(&js, 0, "LLM calls [claude-haiku-5-5]"), 1.0);
     assert_eq!(num(&js, 0, "LLM calls [spec.author]"), 2.0);
     assert!(close(num(&js, 0, "LLM cost (USD) [spec.author]"), 0.35));
-    assert_eq!(num(&js, 0, "decider calls"), 2.0);
-    assert!(close(num(&js, 0, "decider cost (USD)"), 0.01));
-    assert!(close(num(&js, 0, "total cost (USD)"), 0.662));
+    // Every decider call that was made, whatever became of its reply, once: the escalation
+    // suppressed afterwards (its cost is on the `escalation_suppressed` line, none on the line
+    // after it), and three invalid replies of which the last is repeated by the fallback line.
+    assert_eq!(num(&js, 0, "decider calls"), 6.0);
+    assert!(close(num(&js, 0, "decider cost (USD)"), 0.016));
+    assert!(close(num(&js, 0, "total cost (USD)"), 0.668));
     assert_eq!(num(&js, 0, "findings raised"), 3.0);
     assert_eq!(num(&js, 0, "findings late"), 2.0);
     assert_eq!(num(&js, 0, "findings early"), 1.0);

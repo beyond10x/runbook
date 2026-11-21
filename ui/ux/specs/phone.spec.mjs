@@ -124,6 +124,9 @@ async function openSheet(page, which) {
     await b.scrollIntoViewIfNeeded();
     await b.click();
     await expect(page.locator('body.drawer-open')).toBeVisible();
+  } else if (which === 'picker') {
+    await phone.sheets.picker.open(page);
+    await expect(page.locator('#pk-list [role=option]').first()).toBeVisible();
   } else if (which === 'rail') {
     await phone.sheets.rail.open(page);
     await expect(page.locator('html.rp-open')).toHaveCount(1);
@@ -134,6 +137,7 @@ async function closeSheet(page, which) {
   if (which === 'diff') await page.keyboard.press('Escape');
   else if (which === 'drawer') { await page.locator('#drclose').click(); }
   else if (which === 'rail') { const x = page.locator('#rpclose'); if (await x.isVisible()) await x.click(); }
+  else if (which === 'picker') await page.locator('#pk-close').click();
   await page.waitForTimeout(300);
 }
 
@@ -159,6 +163,8 @@ for (const s of scenarios) {
     for (let i = 0; i < 40 && !(await truthOn()); i++) await env.step(page);
     await moment(page, vp, s.name, 'truth');
     if (s.write) { await openSheet(page, 'drawer'); await moment(page, vp, s.name, 'drawer', {sheet: 'drawer'}); await closeSheet(page, 'drawer'); }
+    // the run picker as a full-screen sheet (D-009), on the recorded run of the closed scenario
+    if (s.name === 'closed') { await openSheet(page, 'picker'); await moment(page, vp, s.name, 'picker', {sheet: 'picker'}); await closeSheet(page, 'picker'); }
     if (s.tasks.some((t) => /open the (diff of the )?last change/.test(t))) {
       const first = page.locator('#feed .fd-row button.fd-s').first();
       await first.scrollIntoViewIfNeeded();

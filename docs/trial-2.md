@@ -54,7 +54,7 @@ Lines marked *(inferred)* were not observed.
 - Fixed R6: `aep` took the repository's lifecycles for the case store; cycle `plan-in-project`.
 - Fixed R7: flat run cap per case, `stuck` after a person's decision; cycles `story-decision`, `story-spent`.
 - Fixed R8: 429s counted as runs, a spent writer hid a due handoff; cycle `story-late-person`.
-- Next: trial 3 (`story:clean-unattended-run-compare`): the same idea run unattended twice in two model settings.
+- Next: trial 3 (`story:clean-unattended-run-compare`), the same idea run unattended in several model settings; the report is `docs/trial-3.md`.
 - Stand-in: for findings f1 and f9 this was an end-to-end test of the person path, not an eval run: the coordinating session decided them for the operator, and the tool of the time recorded `decided_by: human`.
 
 ## What trial 1 showed
