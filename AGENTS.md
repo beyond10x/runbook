@@ -20,6 +20,20 @@
 - Runbook is an application on Loom; the driver's runtime parts are a temporary copy of what Loom
   must provide (`docs/layers.md:51`; `docs/driver.md:43-45`).
 
+## Where Runbook is going
+
+- The target (the operator, 2026-11-22): one prebuilt `runbook` binary that links Canon and Loom as
+  crates and needs no `canon`, `b10x-loom` or `sdc-drive` at run time. `runbook run` runs a case in
+  process; `runbook serve` (also `runbookd`) is a daemon for many runs with an API specified in ESS,
+  SSE events, MCP and the embedded UI.
+- Each run has a confinement level (default confined) and the daemon has a floor below which it
+  refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
+- The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
+  `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`).
+- The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
+  runtime, the UI server or the release.
+
 ## Directory map
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
