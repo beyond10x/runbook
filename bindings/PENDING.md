@@ -110,11 +110,8 @@ named here; the driver's path is unchanged. Line form: the tool and the variable
 
 ## Person actions (Loom G2, wave 3)
 
-A `person` executor runs no program; its effect records the results its `results` table names (`from: effect`, Loom `5af3f9c2`). `context.approve`, `vision.approve`, `roadmap.approve` and `merge.approve` declare `rejected` beside `performed`.
+A `person` executor records the results its `results` table names (`from: effect`, Loom `5af3f9c2`); with an `argv` (Loom `70b0e6e0`, `story:person-action-runs-a-program`) it also runs that program when the approval is taken, with the approving principal in a whole argv entry `{principal}`. `scope.answer` is bound that way in `bindings/sdc-intake.yaml`; the JSON file keeps `manual: true` for the old driver. `context.approve`, `vision.approve`, `roadmap.approve` and `merge.approve` declare `rejected` beside `performed`. Nothing of this section is pending.
 
-- `sdc-intake.bindings.json:192` `scope.answer` a person's action runs a program (`sdc-tool.sh scope-answer`) — D11 — G2, wave 3 — syntax not fixed; the argv: `[tools/sdc-tool.sh, scope-answer, <principal>, --action, scope.answer]`.
-- `sdc-intake.bindings.json:195` `scope.answer` `{principal}` in `argv` — D15 — G2, wave 3 — syntax not fixed.
-- `sdc-intake.bindings.json:198` `scope.answer` `subject` with no evidence — D38 — G2, wave 3 — syntax not fixed; subject `questions`.
 
 ## Handoffs (Loom `N8`, wave 4)
 
