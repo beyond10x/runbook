@@ -46,7 +46,7 @@ function artifactPath(c, name) {
   const abs = path.resolve(work, rel);
   return abs.startsWith(work + path.sep) && !leavesRun(abs) ? abs : null;
 }
-function yamlJson(file) {
+export function yamlJson(file) {
   try { return JSON.parse(execFileSync('yq', ['-o=json', '.', file], {encoding: 'utf8', timeout: 10000})); } catch { return null; }
 }
 function readArtifact(c, name) {

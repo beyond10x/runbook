@@ -15,6 +15,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {inbox, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
+import {runFacts, applyFacts} from './runfacts.mjs';
 import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
@@ -94,6 +95,32 @@ function readEvents(dir) {
   return out;
 }
 
+// The protocol id of a case: case.json `protocol` (the driver's store), else the `opened` event of events.jsonl
+// (a run of `runbook run` writes no case.json, docs/loom-run-directory.md). Only the head of the log is read
+// (the first 64 KiB, whole lines): `opened` is its first event and the log may be long.
+const HEAD_BYTES = 65536;
+function openedProtocol(dir) {
+  const file = runPath(path.join(dir, 'events.jsonl'));
+  if (!file) return null;
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(HEAD_BYTES);
+    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
+    const lines = buf.toString('utf8', 0, n).split('\n');
+    if (n === HEAD_BYTES) lines.pop();
+    for (const line of lines) {
+      let e;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e?.event !== 'opened') continue;
+      const p = e.protocol?.id ?? e.protocol;
+      return typeof p === 'string' && p ? p : null;
+    }
+  } catch { /* no log */ } finally { if (fd != null) fs.closeSync(fd); }
+  return null;
+}
+const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol || openedProtocol(dir) || null;
+
 // ---- sources ---------------------------------------------------------------------------------
 const nameOf = (p) => { const r = path.relative(path.join(sdc, 'runs'), p); return r.startsWith('..') ? p.split(path.sep).slice(-2).join('/') : r; };
 const sources = [];
@@ -151,7 +178,7 @@ function viewOf(src) {
   const sig = `${src.version}:${src.cases.size}`;
   const hit = viewCache.get(src.index);
   if (hit && hit.sig === sig) return hit;
-  const protocols = [...new Set([...src.cases.values()].map((e) => readJson(path.join(e.dir, 'case.json'), {}).protocol).filter(Boolean))].sort();
+  const protocols = [...new Set([...src.cases.values()].map((e) => protocolOf(e.dir)).filter(Boolean))].sort();
   const found = protocols.length ? views.find((x) => viewCovers(x.view, protocols)) : null;
   const out = {sig, protocols, view: found?.view || null, file: found ? path.relative(sdc, found.file) : null, runbook: found?.view.runbook || null, missing: protocols.length > 0 && !found};
   viewCache.set(src.index, out);
@@ -325,10 +352,23 @@ function runSummary(s) {
   // 'unknown' (a run directory of `runbook run`) or history (any other directory): never 'running'.
   const closed = v.status?.state === 'closed' ? {at: v.status.at, outcome: v.status.outcome ?? v.term?.outcome ?? null, delivered: v.status.delivered}
     : v.term ? {at: v.term.at, outcome: v.term.outcome, delivered: null} : null;
-  if (closed && closed.delivered == null) closed.delivered = /^(operating|delivered)$/.test(String(closed.outcome || ''));
+  // How a closed run ended: good when the runner's own record says delivered (status.json) or the view of its
+  // runbook lists the outcome in good_outcomes; bad when that view lists good ends and not this one; else neutral,
+  // because no record of the run and no view says which outcomes are a good end (never guessed from SDC outcomes)
+  let end = null, endWhy = null;
+  if (closed) {
+    const {view, runbook} = viewOf(s);
+    const outcome = String(closed.outcome ?? '');
+    if (closed.delivered === true) { end = 'good'; endWhy = 'status.json: delivered true'; }
+    else if (Array.isArray(view?.good_outcomes)) {
+      const hit = view.good_outcomes.includes(outcome);
+      end = hit ? 'good' : 'bad';
+      endWhy = `view ${runbook || 'of the run'}: good_outcomes ${hit ? 'lists' : 'does not list'} ${outcome || 'an outcome that is not named'}`;
+    } else { end = 'neutral'; endWhy = 'no view names the good ends of this runbook (good_outcomes) and the run does not say it delivered'; }
+  }
   const state = v.stop ? 'stopped' : closed ? 'closed' : exists(path.join(runDir, 'settings.json')) ? 'unknown' : 'idle';
   const ended = state === 'stopped' ? v.stop.at : state === 'closed' ? closed.at ?? v.last : state === 'unknown' ? null : v.last;
-  return {state, started: v.started, ended, last: v.last, outcome: closed?.outcome ?? null, delivered: closed ? closed.delivered : null, closedBy: v.status?.closedBy ?? null,
+  return {state, started: v.started, ended, last: v.last, outcome: closed?.outcome ?? null, delivered: closed ? closed.delivered : null, end, endWhy, closedBy: v.status?.closedBy ?? null,
     stopBy: v.stop?.by ?? null, cause: v.stop?.cause ?? null, cost: v.cost, calls: v.calls, work: v.work, decider: v.decider, setting: v.setting, autonomy: v.autonomy,
     forced: v.forced, unstuck: v.unstuck, reopens: v.reopens};
 }
@@ -639,7 +679,17 @@ function loadCase(src, entry) {
   }
   const caseJson = readJson(path.join(d, 'case.json'), {});
   const events = readEvents(d);
-  const bindings = readJson(path.join(d, 'bindings.json'), {});
+  // a Loom store has no case.json: the page's `case.protocol` comes from the opened event
+  if (!caseJson.protocol) { const p = events.find((e) => e.event === 'opened')?.protocol?.id; if (typeof p === 'string' && p) caseJson.protocol = p; }
+  // a run of `runbook run` (its events carry source loom-runlog): the graph's artifacts, actions and bindings come
+  // from the protocol and bindings copies of the run directory (runfacts.mjs), the store's own ir.json and
+  // bindings.json holding only the effects and the person and copy actions
+  const opened = events.find((e) => e.event === 'opened');
+  const fromRunner = events[0]?.source === 'loom-runlog';
+  const storeIr = readJson(path.join(d, 'ir.json')), storeBindings = readJson(path.join(d, 'bindings.json'), {});
+  const {ir, bindings, parts} = fromRunner
+    ? applyFacts({protocol: caseJson.protocol, revision: opened?.protocol?.revision, ir: storeIr, bindings: storeBindings}, runFacts(runDirOf(src)))
+    : {ir: storeIr, bindings: storeBindings, parts: {loom: false}};
   // observed.jsonl (sdc.observed/1): the driver's wall clock of each event line, by the line's
   // index in events.jsonl; it dates the step, where the server's own clock only dates what it saw
   const times = {...(src.times.get(d)?.t || {})};
@@ -669,8 +719,9 @@ function loadCase(src, entry) {
     parent: entry.parent ? (readJson(path.join(entry.parent, 'case.json'), {}).id || path.basename(entry.parent)) : null,
     depth: entry.depth,
     case: caseJson,
-    ir: readJson(path.join(d, 'ir.json')),
+    ir,
     bindings,
+    parts,
     link: readJson(path.join(d, 'link.json')),
     authority: readJson(path.join(d, 'authority.json'), []),
     decisions: readJson(path.join(d, 'decisions.json'), []),
@@ -763,7 +814,7 @@ function ctx(src) {
   const cases = Array.from(src.cases.values()).map((e) => ({dir: e.dir, rel: path.relative(src.path, e.dir) || '.', ...pick(loadCase(src, e))}));
   return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, index: src.index};
 }
-const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
+const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, parts: c.parts, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
 
 // ---- HTTP ------------------------------------------------------------------------------------
 const clients = new Set();

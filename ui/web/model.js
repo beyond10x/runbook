@@ -10,7 +10,10 @@ const LLM_ARGV = /(^|[\/\s])stub-|adapter|metaharness|claude|\{profile\}|eval\/l
 export function actorOf(c, action) {
   const b = c.bindings?.[action];
   const decl = c.ir?.actions?.[action];
-  if (!b) return {kind: 'unbound', why: 'no binding in this case\'s bindings.json'};
+  if (!b) {
+    const p = c.parts?.bindings;
+    return p?.state === 'unavailable' ? {kind: 'unavailable', why: `not available for this run: ${p.why}`} : {kind: 'unbound', why: 'no binding in this case\'s bindings.json'};
+  }
   if (b.llm) return {kind: 'llm', why: 'binding has `llm` (agent node)'};
   if (b.manual) return {kind: 'person', why: 'binding is `manual`: only a recorded decision takes it'};
   if (b.child) return {kind: 'driver', why: 'binding opens child cases'};
@@ -24,7 +27,7 @@ export function actorOf(c, action) {
 }
 // Who a principal is (web/principal.js): person, decider, rule, legacy, agent; null when none.
 export const principalKind = (p) => { const k = principalOf(p).kind; return k === 'none' ? null : k; };
-export const ACTOR_LABEL = {llm: 'LLM', person: 'person', decider: 'decider', rule: 'rule', legacy: 'recorded as human', agent: 'agent', none: 'not recorded', driver: 'driver', program: 'program', review: 'review', unbound: 'unbound'};
+export const ACTOR_LABEL = {llm: 'LLM', person: 'person', decider: 'decider', rule: 'rule', legacy: 'recorded as human', agent: 'agent', none: 'not recorded', unavailable: 'not available', driver: 'driver', program: 'program', review: 'review', unbound: 'unbound'};
 
 // ---- events, evaluations, time ------------------------------------------------------------------
 export function seqOfEvidence(id) { const m = /^e(\d+)-/.exec(id || ''); return m ? Number(m[1]) : null; }

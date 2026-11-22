@@ -71,13 +71,15 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   collapsible group per experiment (most recent first; open: the most recent one and the one of the
   run on screen) and "Unassigned" for the runs of none. An experiment's head gives its id, its
   purpose (the record's `purpose` or `title`), its variants with their number of runs ("low ×3 ·
-  high ×2", or "3 variants × 3") and how many of its ended runs passed clean (closed and delivered,
+  high ×2", or "3 variants × 3") and how many of its ended runs passed clean (closed with a good end,
   nothing forced or unstuck); its rows go by variant, then ordinal, each tagged "variant #n". A run
   belongs to an experiment by its `experiment.json` (`sdc.experiment-run/1`: `experiment`,
   `variant`, `ordinal`, `tree_commit`, …) or by its directory name in an experiment record's
   `variants[].runs` (`experiments/<id>.yaml` of the checkout served; `--experiments DIR`,
   repeatable, reads others); a run in two records is a row in each. Each row has the run's name, its state (running; closed
-  with its outcome; closed, not delivered; stopped with its cause; not running), when it started
+  with its outcome and a check when it is a good end; closed, not delivered, with a cross, when the
+  view lists good ends and not this one; "ended: <outcome>" with a diamond and no colour when
+  nothing says whether it is a good end, see `good_outcomes`; stopped with its cause; not running), when it started
   (absolute on hover), how long it ran (ticking while it runs), cost and LLM calls, the models in
   short ("decider Opus · work Sonnet") and reopen, forced and unstuck counts from `status.json`.
   The search filters on name, state, outcome, stop cause, model, experiment id and variant, every
@@ -173,6 +175,19 @@ server loads every `views/*.view.json` of the checkout; `--no-view` loads none. 
 the first view that covers it, so one server can hold runs of different runbooks. The page reads the
 view of the run on screen from `/api/view?source=N` (`null` without one) and what is missing from
 `/api/view-info?source=N` (`protocols`, `file`, `runbook`, `missing`).
+The protocol of a case is read from its `case.json` (`protocol`), else from the `opened` event that starts its
+`events.jsonl`, so a run of `runbook run`, which writes no `case.json`, gets its view too
+(`test/view-loom-store.spec.mjs`).
+
+The graph of a case of `runbook run` is built from what the runner copied into the run directory, read
+with `yq` as `work/questions.yaml` is (`runfacts.mjs`): the protocol's artifacts and actions
+(`protocols/*.protocol.yaml`) and the bindings copy (`bindings/*.yaml`, `loom.bindings/1`: each
+action's executor, the placement of each artifact). The store's own `ir.json` and `bindings.json` hold
+only the effect of each action and the person and copy actions. An action is drawn as an action, an
+artifact as an artifact with the path the run placed it at. A part that cannot be read (no
+`protocols/` copy, no `bindings/` copy, no `yq`) says "not available for this run" (a chip on the
+action, a line in place of the graph), never "unbound"; "unbound" is said only of an action that a
+readable bindings copy does not bind (`test/graph-any-runbook.spec.mjs`).
 
 A view is checked when the server starts: a member the inspector does not know, or one of the wrong
 type, refuses the start with a message that names it (`decisions.scope_answer.escalate: view member
@@ -184,6 +199,16 @@ Members (all optional but `format`):
 - `runbook`: its name. `protocols`: regular expressions of its protocol ids; the view covers a run
   when one case of the run has such a protocol. Without `protocols` the protocols of `phases.items`
   count, and a view without either covers every run.
+- `good_outcomes`: the outcomes of the runbook's protocols that are a good end of a run, for example
+  `"good_outcomes": ["operating", "delivered"]` (the SDC view). A good end is declared, never guessed
+  from the SDC outcomes. A Canon `protocol/1` outcome has a `description` and `requires` and no
+  class (`deny_unknown_fields`), and the runner's `status.json` says `delivered: true` only for
+  `operating`, `fixed` and `delivered`, so the view is where a runbook says it. A closed run is
+  shown in one of three states, in the run picker and wherever the run's end is named: good (a check)
+  when `status.json` says `delivered: true` or the view lists its outcome; bad (a cross, "closed ·
+  not delivered") when the view lists good ends and not this one; neutral (a diamond, "ended:
+  <outcome>", no red) when there is no view, or the view has no `good_outcomes`. A run that was
+  stopped (`run-stopped.json`) is "stopped", whatever the view says.
 - `phases`: `stages` (names, in order), `items` (`id`, `stage`, `label`, `short`, `protocol`, the
   `claims` that make the phase, `doc` for the tooltip, `has_source`, `root_outcome`) and `absent`
   (a stage shown with a note while no case of `protocol_pattern` exists, the "Ticket" row of SDC).

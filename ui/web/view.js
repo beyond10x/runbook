@@ -3,6 +3,9 @@
 //   runbook      the runbook's name
 //   protocols    [regular expression]: the protocol ids of the runbook, which runs this view covers (without it: the
 //                protocols of its phases)
+//   good_outcomes [outcome]: the outcomes of its protocols that are a good end of a run. A closed run whose outcome is
+//                listed is good and one whose outcome is not listed is bad; without the member a closed run is neutral
+//                ("ended: <outcome>"), unless the runner's own status.json says delivered: true
 //   phases       {stages: [name], items: [{id, stage, label, short?, protocol, claims, doc?, has_source?,
 //                root_outcome?}], absent?: [{stage, steps, protocol_pattern, note}]}
 //   file_kinds   {rules: [{match, flags?, class, kind}], artifacts: {artifact name: class},
@@ -39,6 +42,7 @@ export const VIEW_SCHEMA = T.obj({
   format: T.str,
   runbook: T.str,
   protocols: T.strs,
+  good_outcomes: T.strs,
   phases: T.obj({
     stages: T.strs,
     items: T.arr(T.obj({id: T.str, stage: T.str, label: T.str, short: T.str, protocol: T.str, claims: T.strs, doc: T.str, has_source: T.bool, root_outcome: T.str})),

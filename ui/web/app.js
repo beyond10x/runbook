@@ -274,7 +274,7 @@ function render() {
     const hint = $('#ghint');
     const wide = PHONE.matches && host.scrollWidth > host.clientWidth + 1;
     if (hint.hidden === wide) hint.hidden = !wide;
-  } else $('#graph').innerHTML = '<p class="muted pad">no ir.json in this case</p>';
+  } else $('#graph').innerHTML = `<p class="muted pad">${c.parts?.loom ? `The graph is not available for this run: ${esc(c.parts.protocol?.why || 'the run wrote no protocol of this case')}.` : 'no ir.json in this case'}</p>`;
   patch($('#timeline'), renderTimeline(c, at, last));
   document.documentElement.classList.toggle('rp-open', S.panel);
   if (PHONE.matches) { $('#panel').setAttribute('tabindex', '0'); $('#panel').setAttribute('role', 'region'); $('#panel').setAttribute('aria-label', 'Panel'); }
