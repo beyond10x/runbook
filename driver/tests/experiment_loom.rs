@@ -489,6 +489,88 @@ fn report_of_a_loom_record_reads_a_run_directory_that_holds_only_the_contract_me
     assert!(out.contains("events.jsonl: no such file"), "{out}");
 }
 
+/// The `fixed` settings of a record that runs Loom as a library: no binary, no digest, and
+/// `loom.in_process: 'true'`.
+fn in_process_fixed() -> Vec<(String, String)> {
+    let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "loom.bin" && k != "loom.sha256" && k != "max_llm_calls").collect();
+    f.push(("loom.in_process".into(), "'true'".into()));
+    f
+}
+
+#[test]
+fn a_loom_record_may_run_loom_as_a_library_and_names_the_way_to_loom_once() {
+    let d = scratch("in-process");
+    let builds = fake_build(&d, 11, true);
+    // no loom.bin and no loom.sha256: the record is accepted
+    write_record(&d, &record_with(&in_process_fixed(), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "a record that runs the library needs no binary and no digest: {out}");
+    // naming both forms is refused, by the key that is one too many
+    for k in ["loom.bin", "loom.sha256"] {
+        let mut f = in_process_fixed();
+        f.push((k.into(), fixed().into_iter().find(|(x, _)| x == k).unwrap().1));
+        write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{k}: {out}");
+        assert!(out.contains(&format!("{k} and loom.in_process both name the way to Loom")), "{k}: {out}");
+    }
+    // the only value is 'true'; leave the setting out to run the binary
+    let f: Vec<_> = in_process_fixed().into_iter().filter(|(k, _)| k != "loom.in_process").chain([("loom.in_process".to_string(), "'false'".to_string())]).collect();
+    write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("loom.in_process must be 'true'"), "{out}");
+    // neither form: both keys are named as missing
+    let f: Vec<_> = in_process_fixed().into_iter().filter(|(k, _)| k != "loom.in_process").collect();
+    write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("do not set loom.bin") && out.contains("do not set loom.sha256"), "{out}");
+    // run --print shows the line: --in-process in place of --loom and --loom-sha256
+    write_record(&d, &record_with(&in_process_fixed(), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+    let build = builds.join(COMMIT);
+    let runs = d.join("runs");
+    let launch = builds.parent().unwrap().join("launch").join("lx");
+    for (name, calls) in [("lx.low.1", "100"), ("lx.high.1", "200")] {
+        let want = format!(
+            "  {} loom-run --in-process --run {name} --runs-dir {} --bindings {} --protocols {} \
+             --root-protocol sdc@11 --case IDEA-1 --idea {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
+             --max-llm-calls {calls} --max-wall-seconds 3600",
+            build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
+            launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+        assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
+    }
+    assert!(!out.contains("--loom ") && !out.contains("--loom-sha256"), "{out}");
+    // the settings file the run reads says in_process and holds no digest
+    let printed = out.lines().filter_map(|l| l.strip_prefix("  settings {").map(|r| format!("{{{r}"))).next().expect("a settings line");
+    let printed: Value = serde_json::from_str(&printed).unwrap();
+    assert_eq!(printed["loom"], json!({"in_process": true, "confinement": "local", "cap_micro_usd": 5000000}), "{printed}");
+}
+
+#[test]
+fn check_compares_a_library_run_with_the_record_that_names_the_library() {
+    let d = scratch("in-process-runs");
+    minimal_run(&d.join("runs/lx.low.1"), "operating", "5000000");
+    let record = || {
+        let f: Vec<_> = in_process_fixed();
+        write_record(&d, &record_with(&f, COMMIT, "running", ("lx.low.1", "")));
+    };
+    record();
+    // a run that was made by the binary does not match a record that says library
+    let (code, out) = experiment(&["check", "lx", "--runs-dir", "runs"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("run lx.low.1 has loom.in_process = not recorded, the record says true"), "{out}");
+    // a run that recorded the library and its commit does
+    let file = d.join("runs/lx.low.1/run-settings.jsonl");
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains(&format!("\"sha256\":\"{LOOM_SHA}\"")), "{text}");
+    fs::write(&file, text.replace(&format!("\"sha256\":\"{LOOM_SHA}\""), &format!("\"in_process\":true,\"commit\":\"{COMMIT}\""))).unwrap();
+    let (code, out) = experiment(&["check", "lx", "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+}
+
 #[test]
 fn status_names_a_run_directory_it_cannot_read_instead_of_saying_not_started() {
     // Found by the chain `run --print`, `runbook loom-run`, `status`: a run directory that holds

@@ -2,6 +2,7 @@ mod core;
 mod decider;
 mod decisions;
 mod fake;
+mod inproc;
 mod login;
 mod model_call;
 mod run_dir;

@@ -2,16 +2,16 @@
 //! calls in the daemon's process (`docs/engine.md`). It starts no `b10x-loom`, `loom`, `canon` or
 //! `sdc-drive` process; the bound programs of the bindings are started by Loom's runner, as always.
 
+pub mod calls;
 mod decision;
 pub mod layout;
 mod tail;
 
+pub use decision::Parsed;
+
 use crate::runtime::{AnswerFailure, Confinement, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
-use b10x_loom_tree::model::{ApprovalDecision, DecisionKind, TreeStop};
-use b10x_loom_tree::{
-    approve, close, open_tree, read_protocols_directory, run_tree, stored_catalog, tree_status, ApproveRequest, ConfinementAdapter, CloseRequest, EngineConfinement,
-    EngineRunner, OpenRequest, Reasons, RunSettings, StoreLock, TestRunner, TreeTime, HOLDER_FILE, MANIFEST, UNCONFINED_FLAG_REASON,
-};
+use b10x_loom_tree::model::{DecisionKind, TreeStop};
+use b10x_loom_tree::{StoreLock, HOLDER_FILE, MANIFEST};
 use decision::{parse_answer, plan, Planned};
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -82,16 +82,6 @@ impl Drop for Registered<'_> {
     }
 }
 
-/// Whether the process sits in a cgroup whose subtree it may write: the delegation the `linux`
-/// level needs. A check that fails closed; Substrate's own probe still decides at the first
-/// program.
-fn linux_delegated() -> bool {
-    let Ok(text) = std::fs::read_to_string("/proc/self/cgroup") else { return false };
-    let Some(path) = text.lines().find_map(|l| l.strip_prefix("0::")) else { return false };
-    let dir = Path::new("/sys/fs/cgroup").join(path.trim_start_matches('/'));
-    std::fs::OpenOptions::new().write(true).open(dir.join("cgroup.subtree_control")).is_ok()
-}
-
 fn clean(text: &str) -> String {
     text.chars().map(|c| if c.is_control() { ' ' } else { c }).collect()
 }
@@ -105,11 +95,7 @@ impl Engine {
     /// keeping each run's store under that run's directory below `state_dir`. It offers the levels
     /// this host can give: `local`, and `linux` where the process is in a delegated cgroup.
     pub fn new(home: PathBuf, state_dir: PathBuf) -> Engine {
-        let mut levels = vec![Confinement::Local];
-        if linux_delegated() {
-            levels.push(Confinement::Linux);
-        }
-        Engine::with_levels(home, state_dir, &levels)
+        Engine::with_levels(home, state_dir, &calls::host_levels())
     }
 
     /// An engine that offers exactly these levels.
@@ -146,14 +132,6 @@ impl Engine {
         }
     }
 
-    fn runner(&self, level: Confinement) -> Result<Arc<dyn TestRunner>, String> {
-        let confinement = match level {
-            Confinement::Local => EngineConfinement { adapter: ConfinementAdapter::Local, local_reason: Some(UNCONFINED_FLAG_REASON.to_owned()), cgroup_root: None },
-            Confinement::Linux => EngineConfinement { adapter: ConfinementAdapter::Linux, local_reason: None, cgroup_root: None },
-        };
-        EngineRunner::open(&confinement).map(|r| Arc::new(r) as Arc<dyn TestRunner>).map_err(|e| format!("the confinement level {} is refused: {e}", level.as_str()))
-    }
-
     fn slot(&self, run_id: &str) -> Option<Arc<Slot>> {
         lock(&self.runs).get(run_id).cloned()
     }
@@ -168,7 +146,7 @@ impl Engine {
             )));
         }
         let resolved = layout::resolve(&self.home, &request.runbook, request.version.as_deref()).map_err(failure)?;
-        let runner = self.runner(request.confinement).map_err(failure)?;
+        let runner = calls::runner(request.confinement).map_err(failure)?;
         let store = request.state_dir.join(STORE_DIR);
         let workspace = std::path::absolute(&request.workspace_dir).map_err(|e| failure(format!("{}: {e}", request.workspace_dir.display())))?;
         let resume = store.join(MANIFEST).is_file();
@@ -184,33 +162,26 @@ impl Engine {
         };
 
         if !resume {
-            let read = read_protocols_directory(&resolved.protocol_dir).map_err(|e| failure(e.to_string()))?;
-            let registration = read
-                .kept
-                .iter()
-                .find(|k| k.protocol.protocol == resolved.protocol_id && k.protocol.revision == resolved.revision)
-                .map(|k| k.protocol.registration.clone())
-                .ok_or_else(|| failure(format!("the protocol directory registers no {}@{}", resolved.protocol_id, resolved.revision)))?;
-            if let Some(path) = &idea {
-                if let Some(parent) = path.parent() {
-                    std::fs::create_dir_all(parent).map_err(|e| failure(format!("{}: {e}", parent.display())))?;
+            let opening = calls::Opening {
+                store: &store,
+                workspace: &workspace,
+                protocols: &resolved.protocol_dir,
+                root: calls::Root::Protocol { id: &resolved.protocol_id, revision: resolved.revision },
+                bindings: &resolved.bindings,
+                case: &request.run_id,
+            };
+            calls::open(&opening, || {
+                if let Some(path) = &idea {
+                    if let Some(parent) = path.parent() {
+                        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+                    }
+                    std::fs::write(path, layout::idea_document(&request.intake)).map_err(|e| format!("{}: {e}", path.display()))?;
                 }
-                std::fs::write(path, layout::idea_document(&request.intake)).map_err(|e| failure(format!("{}: {e}", path.display())))?;
-            }
-            open_tree(&OpenRequest {
-                store: store.clone(),
-                workspace: workspace.clone(),
-                protocol: registration,
-                bindings: resolved.bindings.clone(),
-                revisions: Vec::new(),
-                case: request.run_id.clone(),
-                time: TreeTime::Host,
-                catalog: &read.catalog,
-                protocols: read.kept,
+                Ok(())
             })
-            .map_err(|e| failure(e.to_string()))?;
+            .map_err(failure)?;
         }
-        let catalog = stored_catalog(&store).map_err(|e| failure(e.to_string()))?.ok_or_else(|| failure("the tree keeps no protocols: it was not opened by the engine"))?;
+        let catalog = calls::catalog(&store).map_err(failure)?;
 
         let mut tail = LogTail::new(&store, sink);
         if resume {
@@ -221,29 +192,20 @@ impl Engine {
             tail.sync_all().map_err(failure)?;
         }
 
-        let settings = RunSettings {
-            max_steps: None,
-            max_wall_seconds: None,
-            time: TreeTime::Host,
-            runner,
-            confinement: Some(match request.confinement {
-                Confinement::Local => "local".to_owned(),
-                Confinement::Linux => "substrate".to_owned(),
-            }),
-        };
+        let settings = calls::run_settings(runner, request.confinement, None);
         loop {
             let ran = {
                 let mut observer = tail.observer();
-                run_tree(&store, &catalog, &settings, Some(&mut observer), Some(cancel))
+                calls::run(&store, &catalog, &settings, Some(&mut observer), Some(cancel))
             };
-            let ran = ran.map_err(|e| failure(e.to_string()))?;
+            let ran = ran.map_err(failure)?;
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
                 return Err(failure(f));
             }
             match ran.stop {
                 TreeStop::Terminal => {
-                    let status = tree_status(&store, &catalog).map_err(|e| failure(e.to_string()))?;
+                    let status = calls::status(&store, &catalog).map_err(failure)?;
                     let outcome = status.cases.iter().find(|c| c.case == status.root).and_then(|c| c.outcome.clone()).or(ran.detail);
                     return outcome.map(Finish::Outcome).ok_or_else(|| failure("the root case ended with no outcome"));
                 }
@@ -309,7 +271,7 @@ impl Engine {
             let result = if d.kind == DecisionKind::Close && closed.contains(&d.case) {
                 Ok(())
             } else {
-                parse_answer(&answered.answer).and_then(|parsed| apply(store, catalog, d, &parsed, &answered.principal))
+                parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal))
             };
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
@@ -351,40 +313,6 @@ fn next_answer(slot: &Slot, cancel: &AtomicBool) -> Option<Answered> {
             return Some(a);
         }
         st = slot.cv.wait_timeout(st, POLL).unwrap_or_else(|e| e.into_inner()).0;
-    }
-}
-
-/// The library call an answer is, chosen by the decision's kind and structured members.
-fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &b10x_loom_tree::model::NextDecision, parsed: &decision::Parsed, principal: &str) -> Result<(), String> {
-    match d.kind {
-        DecisionKind::Approve | DecisionKind::ApproveAction => {
-            let action = if d.kind == DecisionKind::ApproveAction { d.action.as_deref() } else { None };
-            approve(&ApproveRequest {
-                store,
-                case: &d.case,
-                capability: d.capability.as_deref(),
-                principal,
-                decision: if parsed.deny { ApprovalDecision::Deny } else { ApprovalDecision::Allow },
-                action,
-                result: parsed.result.as_deref(),
-                reasons: parsed.reasons.as_deref().map(Reasons::Text),
-                time: TreeTime::Host,
-                catalog,
-            })
-            .map(|_| ())
-            .map_err(|e| e.to_string())
-        }
-        DecisionKind::Close => {
-            if parsed.result.is_some() || parsed.reasons.is_some() {
-                return Err("a close takes approve or deny, not a result".to_string());
-            }
-            if parsed.deny {
-                return Ok(());
-            }
-            let outcome = d.outcome.as_deref().ok_or("the decision names no outcome")?;
-            close(&CloseRequest { store, case: &d.case, outcome, time: TreeTime::Host, catalog }).map(|_| ()).map_err(|e| e.to_string())
-        }
-        DecisionKind::Handoff => Ok(()),
     }
 }
 

@@ -13,6 +13,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+fn read_file(store: &Path, file: &str) -> Result<Vec<RunLogLine>, String> {
+    let bytes = std::fs::read(store.join(file)).map_err(|e| format!("{file}: {e}"))?;
+    read_log(&bytes).map_err(|r| format!("{file}: the run log is refused {:?} at line {}: {}", r.refusal, r.line, r.detail))
+}
+
 pub struct LogTail<'a> {
     store: PathBuf,
     sink: &'a dyn EventSink,
@@ -36,8 +41,7 @@ impl<'a> LogTail<'a> {
     }
 
     fn read(&self, file: &str) -> Result<Vec<RunLogLine>, String> {
-        let bytes = std::fs::read(self.store.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        read_log(&bytes).map_err(|r| format!("{file}: the run log is refused {:?} at line {}: {}", r.refusal, r.line, r.detail))
+        read_file(&self.store, file)
     }
 
     fn report(&mut self, file: &str, line: &RunLogLine) {

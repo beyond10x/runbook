@@ -1,24 +1,84 @@
-# `runbook loom-run`: one case tree through `b10x-loom`
+# `runbook loom-run`: one case tree through Loom
 
-`story:runbook-loom-run-command`. The command runs one case tree to its end, to a cap or to a stop,
-by starting the `b10x-loom` binary as a child process, with a spend ledger that caps the money over
-all runs and a run directory that records what happened. It makes model calls only when the bound
+`story:runbook-loom-run-command`, `story:engine-on-loom-library-entry` (slice 2). The command runs
+one case tree to its end, to a cap or to a stop, through Loom: the `b10x-loom` binary as a child
+process, or Loom as a library in this process. It has a spend ledger that caps the money over all
+runs and a run directory that records what happened. It makes model calls only when the bound
 programs or the decider do; the command itself calls no model and no API.
 
 ```
-runbook loom-run --run <name> --runs-dir <dir> --loom <b10x-loom> --loom-sha256 <hex>
+runbook loom-run --run <name> --runs-dir <dir> (--in-process | --loom <b10x-loom> --loom-sha256 <hex>)
   --bindings <bindings/> --protocols <dir> --root-protocol <name>@<revision> --case <id>
   --idea <file> --confinement <local|substrate> --settings <file.json>
   --spend-ledger <file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 
-Every option is required and none has a default. The settings file has one format, `runbook.loom-run-settings/1` (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every
-`tree run` (`local` is unconfined and declared insecure; `substrate` is Substrate's linux adapter).
+Every option is required and none has a default, except that the way to Loom is one of two. The
+settings file has one format, `runbook.loom-run-settings/1` (`docs/loom-run-settings.md`).
+`--confinement` is passed unchanged to every `tree run` (`local` is unconfined and declared
+insecure; `substrate` is Substrate's linux adapter).
+
+## The two ways to Loom
+
+Exactly one, else a usage error (exit 2, nothing written):
+
+| Way | Options | What runs |
+|---|---|---|
+| child | `--loom <bin> --loom-sha256 <hex>` | the binary, one `b10x-loom` call at a time, as below |
+| library | `--in-process` | the Loom this binary links (a git dependency pinned to one commit), called in this process; no `b10x-loom`, `loom`, `canon` or `sdc-drive` process is started, only the bound programs |
+
+The loop, the decider, the budget, the spend ledger, the settings, the copy of the bindings, the
+private directory and the run directory files exist once (`src/loom_run/run_loop.rs`); they reach
+Loom through one trait (`src/loom_run/host.rs`) with a child implementation (`child_host.rs`) and a
+library implementation (`library.rs`). The library calls are the ones the daemon's engine makes
+(`src/engine/calls.rs`, `docs/engine.md`): there is one copy of the code that calls Loom.
+
+The library refuses, before anything is written (exit 2), a `--confinement` level it cannot give on
+this host: `local` it always can; `substrate` (Substrate's linux adapter) only when the process may
+delegate a cgroup, as the engine's own levels (`runbook::engine::calls::host_levels`).
+
+Under the library a decision is answered from its structured members (`case`, `kind`, `action`,
+`capability`, `outcome`) by library calls (`approve`, `close`), never by reading the printed
+`command`. The principal of an approval is the one the decider names, else the one the run's copy
+of the bindings binds the action to (`executor.principal`; `operator` when it names none), which is
+the one Loom prints in its command. A `Handoff` runs nothing of its own: the next step is the
+`tree run` it would have printed.
+
+### What is recorded
+
+`settings.json` and `run-settings.jsonl` hold the Loom used, in `loom`: `sha256` of the binary
+(child), or `in_process: true` and `commit`, the 40 hex digits of the pinned Loom commit (library;
+a constant of the build, read from `Cargo.lock` by `build.rs`). A settings file may carry
+`loom.in_process: true` only with `--in-process` and `loom.sha256` only with `--loom-sha256`; a
+member that disagrees with the option, or `loom.sha256` under `--in-process`, is refused.
+
+The run directory holds the same files in the same shapes under both ways. Two members only a
+child has are `null` under the library, in `outcome.json` and in the `ended` event:
+
+| Member | Child | Library |
+|---|---|---|
+| `loom_exit_code` | the exit code of the failed `b10x-loom` call | `null` |
+| `stderr_tail` | the last 1500 characters of its standard error | `null` |
+
+A refusal of the library is an `error` outcome with the reason Loom gave; there is no exit code or
+standard error to record. `tree-status.json` and `tree-verify.json` are the documents `tree status`
+and `tree verify` print (`status_json`, `verify_json`); `tree-verify.json` holds `exit` 0 when the
+log verifies and 3 when it does not, as the command's.
+
+### The environment of a bound program
+
+Under the library a bound program gets `PATH` and `LOOM_*` variables and nothing else: Loom builds
+the environment of a program explicitly and inherits none from the runbook process (the library's
+runner takes no environment from its caller). `tests/loom_run/inproc.rs` puts a marker variable and
+a fake token variable into the environment of `runbook` and has a bound program dump its
+environment: the dump holds neither. The child's own environment is in "The environment of the
+child".
 
 ## What it does
 
-1. Refuses (exit 2, nothing written) when `--loom` is not the file `--loom-sha256` names, `--run` is
-   not a plain name, the settings are not a JSON object, the decider settings are not usable, a
+1. Refuses (exit 2, nothing written) when the options do not name exactly one way to Loom, `--loom`
+   is not the file `--loom-sha256` names, `--in-process` is given with a level the library cannot
+   give, `--run` is not a plain name, the settings are not a JSON object, the decider settings are not usable, a
    path is missing, or `<runs-dir>/<name>` exists.
 2. Creates the run directory, writes `settings.json` (the login file's path replaced by `named`),
    copies `--bindings` into `bindings/` (the copy is what Loom reads; the checkout is never
@@ -235,8 +295,9 @@ a model step has no cost record, `tree status` is refused, or an event sink fail
 
 ```
 <runs-dir>/<name>/settings.json    redacted settings, and what the command was given: loom
-                                   {sha256, confinement, cap_micro_usd}, max_llm_calls,
-                                   max_wall_seconds, case, root_protocol (not the binary's path)
+                                   {sha256 | in_process and commit, confinement, cap_micro_usd},
+                                   max_llm_calls, max_wall_seconds, case, root_protocol (not the
+                                   binary's path)
                   events.jsonl     one object per event: {"at": seconds, "event": "...", ...}
                   outcome.json     runbook.loom-run-outcome/1: outcome, reason, loom_exit_code,
                                    stderr_tail, exit_code, steps, spent_micro_usd, llm_calls
@@ -267,6 +328,17 @@ summarized with `runbook parity summarize --loom-run` and compared with the comm
 `runbook/tests/fixtures/parity/stub-cycle-driver-summary.json` (`docs/parity.md`). The test is
 `#[ignore]`d and runs with `--ignored`; it takes minutes, so run the task in the background.
 
-The runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
+`runbook/tests/loom_run/inproc.rs` runs `--in-process` on the small `sh` fixture runbook of the
+engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and with no `b10x-loom`:
+a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
+cap, a sample of `/proc` that finds no `b10x-loom`, `canon` or `sdc-drive` below the process, the
+environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
+(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `5af3f9c2` from
+`~/.local/state/runbook/loom/5af3f9c2/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
+when it is absent) runs the `sdc` stub cycle once through the child and once through `--in-process`,
+summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
+compare --product-digests`, which has to end `parity: identical`.
+
+With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
 (`sdc-tool.sh`, `llm-node.sh`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts);
 no `sdc-drive`, `run-trial.sh` or `run-finding-cycles.sh`.
