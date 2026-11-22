@@ -3,9 +3,9 @@
 //! Each POST is one JSON-RPC request or notification; a request is answered with one JSON object
 //! (`application/json`), a notification with 202 and no body. No stream, no session: GET and DELETE
 //! are 405, an `Mcp-Session-Id` or `Last-Event-ID` header is ignored. The endpoint is mounted behind
-//! the daemon's one token check (`api::guarded`), so a request without the token is refused 401 before
-//! this code runs. An `Origin` header that is not the host the request was sent to is 403 (DNS
-//! rebinding).
+//! the daemon's one guard (`api::auth::guard`): a request without the token is refused 401, one with a
+//! foreign `Host` or `Origin` 403, one without `Content-Type: application/json` 415, before this code
+//! runs.
 
 use super::rpc::{self, Headers, Wire};
 use super::{Backend, PATH};
@@ -35,19 +35,8 @@ fn text(h: &HeaderMap, name: &str) -> Option<String> {
     h.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
 }
 
-/// Whether the `Origin` is the host the request was sent to.
-fn origin_ok(h: &HeaderMap) -> bool {
-    let Some(origin) = h.get(header::ORIGIN) else { return true };
-    let origin = origin.to_str().unwrap_or_default();
-    let authority = origin.split_once("://").map_or(origin, |(_, rest)| rest).trim_end_matches('/');
-    text(h, "host").is_some_and(|host| host.eq_ignore_ascii_case(authority))
-}
-
 async fn post_message(State(backend): State<Shared>, request: Request) -> Response {
     let (parts, body) = request.into_parts();
-    if !origin_ok(&parts.headers) {
-        return json_response(StatusCode::FORBIDDEN, &json!({"jsonrpc": "2.0", "error": {"code": rpc::INVALID_REQUEST, "message": "Origin is not the host of this request"}}));
-    }
     let Ok(bytes): Result<Bytes, _> = axum::body::to_bytes(body, MAX_BODY_BYTES).await else {
         return json_response(StatusCode::PAYLOAD_TOO_LARGE, &json!({"refused": "request body too large", "message": format!("the body is at most {MAX_BODY_BYTES} bytes")}));
     };

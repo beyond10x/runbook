@@ -155,7 +155,7 @@ impl Stream {
     fn open(addr: SocketAddr, path: &str, headers: &[(&str, &str)]) -> Stream {
         let mut tcp = TcpStream::connect(addr).unwrap();
         tcp.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        let mut head = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n");
+        let mut head = format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\n");
         if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("accept")) {
             head.push_str("Accept: text/event-stream\r\n");
         }

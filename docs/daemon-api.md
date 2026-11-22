@@ -157,7 +157,7 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 
 ```
 runbook serve [--listen ADDR] [--state-dir DIR] [--context-root DIR]... [--runbook-dir DIR]
-              [--min-confinement local|linux] [--token-file FILE]
+              [--min-confinement local|linux] [--token-file FILE] [--ui]
 ```
 
 In this version the runtime behind the daemon is a stub: a run is scripted, it asks one question
@@ -173,6 +173,7 @@ open event streams are closed then (see "Event streams").
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
 | `--token-file` | none | File that holds the bearer token. |
+| `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
 `Authorization: Bearer <token>`. The token comes from `--token-file` or from the environment value
@@ -185,7 +186,35 @@ before anything is bound or written.
 Limits. A body over 6 MiB + 64 KiB is refused `413` before it is read whole (the intake is at most
 1,048,576 bytes; JSON writes a control character as six). Answers outside the specification have the
 body `{"refused": <what>, "message": <why>}`: `400` for a body or query the daemon cannot read, `401`,
-`404` for an unknown route, `405` for the wrong method, `413`.
+`403` and `415` (see "Requests from a browser"), `404` for an unknown route, `405` for the wrong
+method, `413`. None of `401`, `403` and `415` is in the specification (`ess/domains/daemon.yaml`,
+the generated OpenAPI): they are the security floor of the realization and are written here only. The
+`403` the OpenAPI does declare, "not granted" with an `actor`, is another answer: this daemon
+authenticates no actor and never sends it, and the floor's `403` has `"refused": "forbidden"` and a
+`message`, never an `actor`.
+
+## Requests from a browser
+
+A page of another site can send a request to a daemon on loopback, and a name that was rebound to
+`127.0.0.1` makes a page of another site the same origin as the daemon. One middleware checks every
+request, on every route (commands, views, event streams, `/mcp`, the UI files, `/ui/login`), with the
+UI or without it, with a token or without one, in this order, and the first refusal ends it:
+
+- Host. On a loopback listener the `Host` header is `127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>`
+  or the listen address as written (a port of 80 may be left out); anything else, or no `Host`, is
+  `403` before any other work. A listener that is not loopback needs a token and has no `Host` check.
+- Origin. A request with an `Origin` header is `403` unless the origin is `http://` and has the host
+  and the port of the request's `Host`; `Origin: null` is refused. A request without `Origin` (curl,
+  `runbook runs`, an MCP client) is not from a page and passes.
+- Token. Without it `401`, as above. `POST /ui/login` is the one request that carries its token in its
+  body: the middleware lets it through and the login checks it; every other method on `/ui/login`
+  without the token is `401`.
+- Content type. `POST /daemon/commands/<name>` and `POST /mcp` take `Content-Type: application/json`
+  only (parameters such as `charset=utf-8` are fine), else `415`. A page cannot send that type to
+  another origin without a preflight, which the daemon does not answer.
+
+The bodies of `403` and `415` are fixed: `{"refused": "forbidden", "message": ...}` and
+`{"refused": "unsupported media type", "message": ...}`. They name no header and no value of one.
 
 State directory:
 
@@ -204,6 +233,48 @@ command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (t
 does, the event `RunOrphaned` is published and the run's event stream gets one event of kind
 `runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
 nothing. The stub runtime always answers `gone`.
+
+## The web UI
+
+`runbook serve --ui` serves the web UI beside the API. The files of `ui/web/` are compiled into the
+binary at build time (`runbook/build.rs` lists the directory, so a file added there is embedded by the
+next build); the daemon reads nothing from disk to serve them, and it needs no `ui/` directory beside it.
+Without `--ui`, `GET /` is `404`.
+
+- Routes. `GET /` is `index.html`; every other file is at its path below `ui/web/` (`/app.js`,
+  `/fonts/inter-variable-latin.woff2`). A path is looked up exactly as sent: a directory, `..` and
+  any encoded form of either answer `404`, and so does a path that is not in the list. A write method on a
+  file answers `405`.
+- Types and headers. The content type follows the extension. Every file carries
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Server-Timing: runbookd` (how the page knows the
+  daemon served it), `Cache-Control: private, no-cache`
+  and an `ETag` that is the SHA-256 of its bytes (`If-None-Match` with it answers `304`), and the policy
+  `default-src 'none'; script-src 'self' '<hash of the inline script of index.html>'; style-src 'self';
+  style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none';
+  form-action 'self'; frame-ancestors 'none'`. The page has one inline script (the phone breakpoint in
+  `index.html`), allowed by its hash and no other; its code writes `style="..."` attributes into its markup,
+  so attributes may carry inline styles and a `<style>` element may not; `data:` images are for the arrow
+  in `style.css`.
+- Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
+  token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
+  `Authorization` header with a page load, so it hands the token over once: the `401` of a page load
+  (`GET /` with `Accept: text/html`) is a form that posts the token in its body to `POST /ui/login`
+  (behind the same middleware as every route; a token never stands in a URL, so no log has it). A right
+  token is answered `303` to `/` with a cookie `runbook_ui` (`HttpOnly`, `SameSite=Strict`, `Path=/`),
+  a wrong one `401` with the form again, and a form from another origin `403`. The cookie does not hold
+  the token: its value is the lowercase hex of the SHA-256 of the bytes `runbook-ui-read/1`, one NUL
+  byte and the token, and a browser shows it to every server on the host. With `--ui`, the middleware
+  compares a presented cookie with that value in constant time, for `GET` and `HEAD` only; the value is
+  no bearer token, and a cookie never authorizes a command (`POST`). The cookie has no `Secure`
+  attribute because the daemon speaks plain http only, and a login over a non-loopback address sends the
+  token in clear: the page is meant for loopback or a tunnel (ssh, a VPN). The browser's answer to a
+  decision will need its own header rule (`answer-decision` is not in this slice).
+- What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and
+  `GET /daemon/views/daemon-events` as a stream (`Accept: text/event-stream`, resumed by position) for
+  the events of every run; the feed of the selected run is the events of that run. The case tree, the
+  graph, the phases and the decisions drawer need views the daemon does not have yet: the inventory is in
+  the story `ui-embedded-in-the-binary`, section "Slice 1". Served by `ui/server.mjs`, the page reads
+  that server as before.
 
 ## Conformance
 

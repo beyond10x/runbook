@@ -119,8 +119,9 @@ the streamable HTTP transport of `2026-07-28`, without the parts that revision r
   is missing or differs from the body is `400` with `-32020` (`HeaderMismatch`); an unsupported version
   is `400` with `-32022`; an unknown method is `404` with `-32601`. A legacy client sends
   `MCP-Protocol-Version: 2025-11-25` (or `2025-06-18`) after its `initialize`, which needs no header.
-- An `Origin` header that is not the host the request was sent to is `403` (DNS rebinding). A client
-  that is not a browser sends none.
+- The daemon's one guard refuses a foreign `Host` or `Origin` with `403` (DNS rebinding) and a POST that
+  is not `Content-Type: application/json` with `415`, before the endpoint runs (`docs/daemon-api.md`,
+  "Requests from a browser"). A client that is not a browser sends no `Origin`.
 - The body limit is the daemon's (`413`).
 
 The endpoint is behind the daemon's one token check, the function that guards the API routes: with a

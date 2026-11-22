@@ -33,6 +33,9 @@ pub struct ServeArgs {
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
+    /// Serve the web UI, compiled into this binary, beside the API (`GET /`).
+    #[arg(long)]
+    pub ui: bool,
     /// Also serve MCP over streamable HTTP at /mcp, behind the same token check.
     #[arg(long)]
     pub mcp: bool,
@@ -129,7 +132,7 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
         eprintln!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed");
         println!("runbook: listening on http://{bound}");
         let extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
-        api::serve_extra(listener, daemon.clone(), token.as_deref(), api::Streams::default(), extra, shutdown_signal()).await.map_err(|e| e.to_string())
+        api::serve_all(listener, daemon.clone(), token.as_deref(), api::Streams::default(), args.ui, extra, shutdown_signal()).await.map_err(|e| e.to_string())
     });
     daemon.stop();
     match served {
