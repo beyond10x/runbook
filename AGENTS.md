@@ -55,9 +55,9 @@
 - `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
-- `eval/` eval runner, adversaries, levels, reports (`docs/eval-design.md`).
+- `eval/` eval runner, adversaries, levels, reports; the scripts that drive `sdc-drive` and the reports are the record of the old driver's evaluation, not ported (`eval/README.md`, `docs/eval-design.md`).
 - `runs/` recorded runs: case stores, event logs, LLM and decider records.
-- `scripts/` check, evaluate, trial and full-cycle scripts.
+- `scripts/` check, evaluate and trial scripts.
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
 - `docs/` design notes and research results; start with `phases.md`, `driver.md`, `orchestration.md`.
 - `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.

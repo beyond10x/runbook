@@ -131,8 +131,10 @@ away with the driver's runtime.
 
 ## How to run it
 
+The driver side reads the run directory and store of an old driver run. The script that made them,
+`scripts/run-full-cycle.sh`, is deleted, so only a run that already exists can be read.
+
 ```
-RUNS=<dir>/runs scripts/run-full-cycle.sh stub-cycle <dir>/store-stub-cycle
 runbook parity summarize --driver <dir>/runs/stub-cycle --store <dir>/store-stub-cycle --output a.json
 b10x-loom tree status --store <loom store> > status.json
 runbook parity summarize --loom-status status.json --product-tree <product dir> --output b.json
@@ -266,7 +268,7 @@ Read from the status alone (`--loom-status`), the six are not recorded and `comp
 `ee90434` (the tools and the bindings), once by the old driver and once under Loom, and the two
 summaries compare equal on what both sides record.
 
-- Driver run: `scripts/run-full-cycle.sh stub-cycle`, exit 0, 108 s. The driver binaries were built
+- Driver run: `scripts/run-full-cycle.sh stub-cycle` (since deleted), exit 0, 108 s. The driver binaries were built
   from the driver sources of `5d9e679`. `git diff --stat 5d9e679 1b81110 -- driver/src` is not empty:
   it lists five files (`sdc-conform-adapter.rs`, `sdc-conform.rs`, `sdc-reply/implement.rs`,
   `sdc-unstick.rs`, `instructions.rs`), the move of the model instructions of three binaries to

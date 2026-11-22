@@ -6,7 +6,7 @@ real forks) be a Canon protocol; is parallelism in the protocols; is a run one t
 how does the SDC apply to an existing project; what does that do to the UI.
 
 Read on 2026-11-21: `sdc/docs/*`, the eight `sdc/protocol/*.protocol.yaml`,
-`sdc/driver/src/main.rs`, `sdc/scripts/{run-trial,run-full-cycle,check-protocols}.sh`,
+`sdc/driver/src/main.rs`, `sdc/scripts/{run-trial,run-full-cycle (since deleted),check-protocols}.sh`,
 `sdc/ui/{README.md,web/index.html,web/now.js}`; Canon `website/docs/reference/protocol.md`,
 `crates/canon/src/check/mod.rs`; Loom `crates/loom-governor/Cargo.toml`, a grep of `crates/` for
 child cases, and the planning epics `protocol-tree-on-bindings` and
@@ -60,7 +60,7 @@ compiled outputs to the session scratch directory.
 | Driver: step | one action per step, the first `useful` one | `main.rs:602-614` |
 | Driver: lock | one writer per case tree, `.sdc-drive.lock` with pid | `main.rs:108-138` |
 | Driver: workspace | all cases of a tree share the root's `work/` | `main.rs:235-237`; `docs/driver.md:470`, `:520-522` (gap 22: "stories run one after another") |
-| Trial scripts | `run-trial.sh` and `run-full-cycle.sh`: a sequential loop of `sdc-drive run` rounds (40 / 30), no `&`, no `wait` | `scripts/run-trial.sh:238-240`; `scripts/run-full-cycle.sh:45-47` |
+| Trial scripts | `run-trial.sh` and `run-full-cycle.sh` (since deleted): a sequential loop of `sdc-drive run` rounds (40 / 30), no `&`, no `wait` | `scripts/run-trial.sh:238-240`; `scripts/run-full-cycle.sh:45-47` |
 | Canon | several children may be open; the `children` form is `unknown` while any is `open`, `false` for good once one ends outside the listed set | Canon `website/docs/reference/protocol.md:188-195`, `:328-339` |
 | Loom today | no child cases: pins Canon 0.8.0 (`case_open` arrived in 0.9.0); no `case_open`/`case_outcome` in `crates/` | `loom/crates/loom-governor/Cargo.toml:15`; grep 2026-11-21 (3 hits, all unrelated names) |
 | Loom planned | `story:child-case-runtime` opens several children; `tree run` drives "every open child before its parent's next step", one writer per store: sequential (*inferred* from wording). `story:tree-daemon`: many **trees** at once, run slots, a waiting tree holds no slot | `<loom-plan>/story/tree-run-command.md:61-81`; `tree-daemon.md:6-7`, `:23-27` |
