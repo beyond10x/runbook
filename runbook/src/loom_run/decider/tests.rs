@@ -297,6 +297,20 @@ fn the_adapter_gets_an_environment_built_here_and_nothing_inherited() {
 }
 
 #[test]
+fn the_adapter_of_a_re_drive_is_handed_the_plan_of_the_run_by_the_settings() {
+    let w = world("r2-replay-plan", &valid("0.1"));
+    let plan = w.run.join("replay/plan.json");
+    let s = settings(&w, json!({"replay_plan": plan.display().to_string()}));
+    ask(&w, &s, &approve_action(&w), 250_000);
+    let env = std::fs::read_to_string(first_record(&w).join("env.txt")).unwrap();
+    assert!(env.contains(&format!("SDC_REPLAY={}\n", plan.display())), "{env}");
+    for bad in [json!(""), json!("relative/plan.json"), json!(3)] {
+        let s = settings(&w, json!({"replay_plan": bad.clone()}));
+        assert!(from_settings(&s).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn a_child_environment_without_path_is_refused() {
     let w = world("r2-nopath", &valid("0.1"));
     let s = settings(&w, json!({}));

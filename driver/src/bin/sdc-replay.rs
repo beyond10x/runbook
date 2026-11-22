@@ -29,9 +29,10 @@
 //! change of `case_revision` between two evaluations with no action of the case finished and no
 //! child closed in between (nothing of the case's own explains it); a try counts the finished runs
 //! of the node since the last arrival (not exits 126, 127, 75, 69 and 70), plus one. A rejection
-//! of an approval does not start an arrival: the rework is the next try. The adapter finds the plan
-//! (`replay/plan.json`) above its call's `record_dir` when `SDC_REPLAY` is not set: the runner
-//! passes no environment to a program.
+//! of an approval does not start an arrival: the rework is the next try. The adapter takes the plan
+//! from the path in `SDC_REPLAY`: the old driver sets it; under `runbook run` the runner passes a
+//! bound program no environment, so `sdc-node` sets it from its option `--replay-plan` and the
+//! runner's decider from `decider.replay_plan`. The adapter searches no directory for a plan.
 //! Inputs: one sha256 per file of the call's `in/` and the request without its paths and
 //! ordinals, each normalised (run directories, home paths, instants, revisions, seconds).
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -224,11 +225,23 @@ fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex {
     cell.get_or_init(|| Regex::new(pat).unwrap())
 }
 
+/// The label every version label of the pinned ESS is rewritten to. It is the label the committed
+/// recording was packed with (ESS 0.97.3): the recording holds digests of the text as it was then,
+/// so a mask that wrote any other text would make every digest of a log header differ. It is fixed:
+/// it does not move with the pin, and a recording packed later holds digests of the masked text.
+const ESS_LABEL_MASK: &str = "0.97.3";
+
 /// What may differ between two runs of the same inputs: the run directories, home paths (the
 /// checkout and the case tree), instants, artifact revisions (they digest files that carry
-/// instants, the aep store's transitions) and seconds in program output.
+/// instants, the aep store's transitions), seconds in program output and the version label of the
+/// pinned ESS in the header `ess verify conform run` prints (`<system> v<n> against <implementation>
+/// <version> — passed`, the first line of the conformance log that `in/tests.txt` holds;
+/// `bindings/tools/sdc-tool.sh`, `conform-run`): the pin moves with a release of ESS, the test
+/// results below the header are what the model reads. Only that label is masked, never another
+/// version-like string.
 fn normalise(text: &str, roots: &[String]) -> String {
     static HOME: OnceLock<Regex> = OnceLock::new();
+    static ESS_LABEL: OnceLock<Regex> = OnceLock::new();
     static INSTANT: OnceLock<Regex> = OnceLock::new();
     static REV: OnceLock<Regex> = OnceLock::new();
     static SECS: OnceLock<Regex> = OnceLock::new();
@@ -239,7 +252,8 @@ fn normalise(text: &str, roots: &[String]) -> String {
     let t = re(&HOME, r#"/home/[^/\s"'`]+/[^\s"'`):,]*"#).replace_all(&t, "<path>");
     let t = re(&INSTANT, r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?( ?(Z|[+-]\d{2}:?\d{2}))?").replace_all(&t, "<instant>");
     let t = re(&REV, r"\bt[0-9a-f]{16}\b").replace_all(&t, "<rev>");
-    let t = re(&SECS, r"\b\d+(\.\d+)?m?s\b").replace_all(&t, "<s>").into_owned();
+    let t = re(&SECS, r"\b\d+(\.\d+)?m?s\b").replace_all(&t, "<s>");
+    let t = re(&ESS_LABEL, r"(?m)^(\S+ v\d+ against \S+ )\d+\.\d+\.\d+( \x{2014} )").replace_all(&t, format!("${{1}}{ESS_LABEL_MASK}${{2}}")).into_owned();
     sort_test_lines(&t)
 }
 
@@ -865,7 +879,7 @@ fn prepare(
         env.insert("SDC_LLM_DRY_LOG".into(), json!(out.join("dry-commands.txt").display().to_string()));
     }
     if !write {
-        return Ok(json!({"env": env, "settings": loom_settings(&last, &exe, &actions, &conditions, src.principal.as_deref(), &src.calls)?}));
+        return Ok(json!({"env": env, "settings": loom_settings(&last, &exe, &rd.join("plan.json"), &actions, &conditions, src.principal.as_deref(), &src.calls)?}));
     }
     // The index, with the source's paths resolved.
     write_json(&rd.join("index.json"), &json!({"format": "sdc.replay-index/1", "calls": src.calls}))?;
@@ -929,7 +943,7 @@ fn prepare(
 /// the bindings copy needs: this program as the adapter of the nodes the source sent to a model
 /// (`nodes`, `null`: all) and the per-action conditions (`max_runs`, `timeout_s`, `wrap`). A
 /// condition the engine has no setting for is refused by name.
-fn loom_settings(last: &Value, exe: &Path, actions: &Map<String, Value>, conditions: &Map<String, Value>, principal: Option<&str>, calls: &[Value]) -> R<Value> {
+fn loom_settings(last: &Value, exe: &Path, plan: &Path, actions: &Map<String, Value>, conditions: &Map<String, Value>, principal: Option<&str>, calls: &[Value]) -> R<Value> {
     let mut decider_overrides = Map::new();
     for (k, v) in conditions {
         match k.as_str() {
@@ -950,6 +964,7 @@ fn loom_settings(last: &Value, exe: &Path, actions: &Map<String, Value>, conditi
         }
     }
     let exe_text = exe.display().to_string();
+    let plan_text = plan.display().to_string();
     let mut s = Map::new();
     if let Some(a) = last["autonomy"].as_str() {
         s.insert("autonomy".into(), json!(a));
@@ -957,7 +972,7 @@ fn loom_settings(last: &Value, exe: &Path, actions: &Map<String, Value>, conditi
     let source_decider = &last["decider"];
     let decider = match source_decider["kind"].as_str() {
         Some("model") => {
-            let mut d = json!({"kind": "model", "adapter": exe_text, "without_claims": true});
+            let mut d = json!({"kind": "model", "adapter": exe_text, "without_claims": true, "replay_plan": plan_text});
             for k in ["model", "escalate", "max_decider_calls"] {
                 if !source_decider[k].is_null() {
                     d[k] = source_decider[k].clone();
@@ -992,7 +1007,7 @@ fn loom_settings(last: &Value, exe: &Path, actions: &Map<String, Value>, conditi
         .map(|t| t.split_whitespace().collect())
         .or_else(|| (!called.is_empty()).then(|| called.iter().copied().collect()))
         .filter(|n: &Vec<&str>| !n.is_empty());
-    s.insert("replay".into(), json!({"adapter": exe_text, "nodes": nodes, "actions": actions, "principal": principal}));
+    s.insert("replay".into(), json!({"adapter": exe_text, "plan": plan_text, "nodes": nodes, "actions": actions, "principal": principal}));
     Ok(Value::Object(s))
 }
 
@@ -1037,12 +1052,9 @@ struct Ctx {
     calls: Vec<Value>,
 }
 
-/// The plan nearest above `from` (a call's record directory): the run directory of `runbook run`
-/// holds `replay/plan.json`, and the runner passes a program no environment to name it.
-fn find_plan(from: &Path) -> Option<PathBuf> {
-    from.ancestors().map(|d| d.join("replay/plan.json")).find(|p| p.is_file())
-}
-
+/// The plan of the run, from the path the runner handed the adapter in `SDC_REPLAY`: `sdc-node`
+/// sets it from its `--replay-plan` option, the runner's decider from `decider.replay_plan`. No
+/// directory is searched: a file of the work tree is never the plan of the run.
 fn ctx() -> R<Ctx> {
     let p = std::env::var("SDC_REPLAY").map_err(|_| "sdc-replay: SDC_REPLAY (the replay plan) is not set".to_string())?;
     ctx_at(Path::new(&p))
@@ -1144,10 +1156,7 @@ fn adapter(req_path: &Path) -> R<i32> {
     let req = read_json(req_path)?;
     let node = req["node"].as_str().unwrap_or("").to_string();
     let rec = PathBuf::from(req["record_dir"].as_str().unwrap_or(""));
-    let c = match find_plan(&rec) {
-        Some(p) => ctx_at(&p)?,
-        None => ctx()?,
-    };
+    let c = ctx()?;
     let cwd = PathBuf::from(req["cwd"].as_str().unwrap_or(""));
     let case_dir = PathBuf::from(req["case_dir"].as_str().unwrap_or(""));
     let decider = node.starts_with("decide.") || node.starts_with("requester.");
@@ -1779,6 +1788,25 @@ mod tests {
         assert_eq!(normalise(concat!("/ho", "me/someone/x/y z"), &[]), "<path> z");
         let x = normalise("+++ a\t2026-11-21 12:06:20.144 +0100\n  | test b ... ok\n  | test a ... ok\nend", &[]);
         assert_eq!(x, "+++ a\t<instant>\n  | test a ... ok\n  | test b ... ok\nend");
+    }
+
+    #[test]
+    fn the_label_of_the_pinned_ess_is_not_an_input_but_a_changed_test_is() {
+        let log = |label: &str, test: &str| {
+            format!("billing v3 against billing-reference {label} \u{2014} passed\n  passed billing.invoice.CreateInvoice/outcome/accepted\n  | test {test} ... ok\n")
+        };
+        assert_eq!(normalise(&log("0.97.3", "create_invoice"), &[]), normalise(&log("0.97.4", "create_invoice"), &[]));
+        // the text a recording packed at 0.97.3 was digested as is the masked text: no re-pack is needed
+        assert_eq!(normalise(&log("0.97.4", "create_invoice"), &[]), log("0.97.3", "create_invoice"));
+        let interpreted = |label: &str| format!("shop v1 against interpreted {label} \u{2014} passed\n");
+        assert_eq!(normalise(&interpreted("0.96.0"), &[]), normalise(&interpreted("0.97.4"), &[]));
+        assert_ne!(normalise(&log("0.97.4", "create_invoice"), &[]), normalise(&log("0.97.4", "pay_invoice"), &[]));
+        assert_ne!(normalise(&log("0.97.4", "create_invoice"), &[]), normalise(&interpreted("0.97.4"), &[]));
+        let other = |impl_: &str| format!("billing v3 against {impl_} 0.97.4 \u{2014} passed\n");
+        assert_ne!(normalise(&other("billing-reference"), &[]), normalise(&other("billing-other"), &[]));
+        // another version-like string is an input: only the label of the line the tool writes is masked
+        let pin = |v: &str| format!("  | test result: ok. dependency serde {v}, 5 passed\n");
+        assert_ne!(normalise(&pin("1.0.1"), &[]), normalise(&pin("1.0.2"), &[]));
     }
 
     #[test]

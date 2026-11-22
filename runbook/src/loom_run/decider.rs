@@ -26,7 +26,7 @@ pub const AUTONOMY_DECIDES: &str = "A5";
 
 const AUTONOMY_LEVELS: [&str; 6] = ["A0", "A1", "A2", "A3", "A4", "A5"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const MODEL_KEYS: [&str; 14] = [
+const MODEL_KEYS: [&str; 15] = [
     "requester",
     "without_claims",
     "kind",
@@ -41,6 +41,7 @@ const MODEL_KEYS: [&str; 14] = [
     "retries",
     "timeout_seconds",
     "reply_bin",
+    "replay_plan",
 ];
 const RULE_KEYS: [&str; 3] = ["kind", "verdict", "timeout_seconds"];
 /// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
@@ -121,6 +122,7 @@ enum Mode {
         final_escalate: bool,
         retries: u64,
         reply_bin: Option<PathBuf>,
+        replay_plan: Option<PathBuf>,
         without_claims: bool,
     },
     Rule {
@@ -165,6 +167,13 @@ fn path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
         None => Ok(None),
         Some(Value::String(s)) if !s.is_empty() => Ok(Some(s.clone())),
         Some(_) => Err(format!("decider.{key}: a path")),
+    }
+}
+
+fn absolute_path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
+    match path_key(decider, key)? {
+        Some(p) if !Path::new(&p).is_absolute() => Err(format!("decider.{key}: an absolute path")),
+        other => Ok(other),
     }
 }
 
@@ -226,6 +235,7 @@ impl NativeDecider {
                 final_escalate: escalate,
                 retries: number_key(decider, "retries", 0)?.unwrap_or(DEFAULT_RETRIES),
                 reply_bin: path_key(decider, "reply_bin")?.map(PathBuf::from),
+                replay_plan: absolute_path_key(decider, "replay_plan")?.map(PathBuf::from),
                 without_claims,
             };
             (mode, max_calls, max_call)
@@ -356,6 +366,10 @@ impl NativeDecider {
         let mut env = vec![("PATH".to_owned(), path), ("HOME".to_owned(), home.display().to_string())];
         if let Mode::Model { reply_bin: Some(reply_bin), .. } = &self.mode {
             env.push(("SDC_REPLY".to_owned(), reply_bin.display().to_string()));
+        }
+        if let Mode::Model { replay_plan: Some(plan), .. } = &self.mode {
+            // A re-drive's adapter takes the plan of the run from this path and searches nowhere.
+            env.push(("SDC_REPLAY".to_owned(), plan.display().to_string()));
         }
         if let (Mode::Model { .. }, Some(login)) = (&self.mode, &self.login_file) {
             // The link in the run's private directory, when there is one: the real path then

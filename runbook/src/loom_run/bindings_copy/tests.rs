@@ -525,7 +525,7 @@ fn the_rewritten_copy_loads_in_loom_tree_open() {
 
 #[test]
 fn an_effort_and_a_replay_plan_land_on_the_same_nodes_and_the_effort_changes_nothing_else_in_argv() {
-    let replay = json!({"adapter": "/x/sdc-replay", "nodes": ["change.implement", "idea.dissect", "change.review"], "actions": {}});
+    let replay = json!({"adapter": "/x/sdc-replay", "plan": "/x/run/replay/plan.json", "nodes": ["change.implement", "idea.dissect", "change.review"], "actions": {}});
     let (_a, was_dst, was) = make("adv-seam-replay-only", &json!({"replay": replay}));
     was.unwrap();
     let efforts = json!({"review": {"effort": "max"}, "other": {"effort": "low"}, "implement": {"effort": "xhigh"}});

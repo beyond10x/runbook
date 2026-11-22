@@ -8,7 +8,7 @@
 //! ```text
 //! sdc-node <node> [--tools-dir <dir>] [--model m] [--max-turns n] [--max-budget-usd u]
 //!          [--operations a,b] [--instructions <json object>] [--adapter a] [--principal p]
-//!          [--stub-fixtures d] [--stub-counter d] [--claude-credentials f] [--effort level]
+//!          [--stub-fixtures d] [--stub-counter d] [--claude-credentials f] [--effort level] [--replay-plan p]
 //!          [--stub <argv...>]
 //! ```
 //!
