@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.SessionExists.schema.json",
+  "title": "SessionExists payload",
+  "description": "A session with this name is already open or closed; nothing was opened.",
+  "x-ess-name": "sdc.daemon.SessionExists",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a98577491e2cd001f068bc36721dec850937724ba34ea56a3c4ba968f5e5f8d3",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

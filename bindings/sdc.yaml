@@ -1,5 +1,6 @@
 format: loom.bindings/1
-protocol: sdc@1
+protocol: sdc@8
+program_root: bindings
 artifacts:
   idea: idea.yaml
   goals: goals.yaml
@@ -9,7 +10,7 @@ actions:
     executor:
       kind: copy
       evidence: roadmap_approval
-      from: sdc-direction@1
+      from: sdc-direction@7
   - action: intake.open
     executor:
       kind: open

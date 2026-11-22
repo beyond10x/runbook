@@ -1044,6 +1044,20 @@ be inside this driver binding"; `story:instructions-as-files`).
 - A variable part is a placeholder `{{name}}` (lower case and `_`). The tool fills each placeholder
   from a value it computes, in one pass; a placeholder without a value, or a missing file, is a
   program error (exit 126). So is a path that is not `instructions/<...>.md` or has a `..` segment.
+- Three Rust binaries tell a model something and read files too (`story:rust-prompts-as-instruction-files`):
+  `sdc-reply implement-run` in `SDC_IMPLEMENT_MODE=request` (`instructions/change.implement.request.<part>.md`:
+  `head`, `build`, `task`, `story`, `rework`, `continuation`, `retry`, `request-failed`, `no-reply`,
+  `feedback`, `findings`, `constraints.heading`, `constraints.heading.run`, `requirements.heading`,
+  `requirements.acceptance`, `requirements.none`, `spec.heading`, `spec.missing`, `tree.heading`,
+  `tree.count`, `tree.count.listed`, `tree.empty`, `tree.file`, `tree.listed`, `tree.listed.item`,
+  `tree.why.not-utf8`, `tree.why.over-cap`), `sdc-conform`
+  (`instructions/conformance.table.md`, `.refused.md`, `.run-fault.md`) and `sdc-unstick`
+  (`instructions/run.unstick.md`, `.retry.md`, `.closing.md`). They share one function,
+  `driver/src/instructions.rs` (`render`, included by each binary with `#[path]`), with the rules above;
+  an error names the file or the placeholder, and the call ends as a call whose input could not be made
+  (`implement_inputs_missing` for `implement-run`, `table_missing` for `sdc-conform`, exit 1 for
+  `sdc-unstick`). A binary finds `instructions/` as the tools do: the nearest directory above the
+  running binary that holds it (`driver/target/<profile>/<binary>` in this repository).
 
 A binding names the files of its action in the `llm` object, `instructions`: `task` is required, the
 other keys name the parts the action has.
@@ -1059,10 +1073,13 @@ directory sits. `bindings/*.yaml` (`loom.bindings/1`) names no instruction file;
 `bindings/PENDING.md` says what brings it.
 
 The prompt each action and decider writes is held byte for byte by `driver/tests/bugfix_prompt.rs`
-against `instructions/golden/` (40 prompts on stub inputs, among them the retry texts, the writer's own failure and a case with no gate command; a golden no test reads and an instruction file no golden reaches fail `bugfix_prompt`; `SDC_BLESS_PROMPTS=1 cargo test --test
-bugfix_prompt` rewrites them, after a change of an instruction that is meant). Not in files: the
-text `sdc-reply implement-run` writes for `SDC_IMPLEMENT_MODE=request` (Rust), and the heading lines
-of `in/feedback.md`, which is a record of check results.
+against `instructions/golden/` (40 prompts on stub inputs, among them the retry texts, the writer's own failure and a case with no gate command; and 11 of the three Rust binaries under `golden/implement/`, `golden/conform/` and `golden/unstick/`, made without a model: `sdc-reply implement-run --assemble-only` and a script adapter, `sdc-unstick prompt`, `sdc-conform prompt`; a golden no test reads and an instruction file no golden reaches fail `bugfix_prompt`; `SDC_BLESS_PROMPTS=1 cargo test --test
+bugfix_prompt` rewrites them, after a change of an instruction that is meant). `bugfix_prompt` also fails
+when a line of an instruction file is found in the three Rust files. Not in files: the section headings
+and the data lines of the request-mode prompt (the story, its requirements and acceptance lines, the specification's
+declarations, the tree listing), the heading lines of `in/feedback.md`, which is a record of check
+results, and the reasons the program checks of a reply or a table give (`check_reply`, `check_table`),
+which are results quoted back to the model.
 
 ## Action-to-tool bindings
 
@@ -1129,6 +1146,97 @@ not check behaviour against the specification: an empty test that names the comm
 replaced by an ESS conformance run against an outside target (`impl/`) when ESS has one (gap 16).
 The stub implementer's `fixtures/impl/` is a minimal in-memory Rust library with one `#[test]`
 per command, so the stub run passes the gate.
+
+### The build pool wait (2026-11-22, `story:pool-wait-is-not-a-failure`)
+
+Release 0.3.0's registration run: `tests.run` runs two pool jobs (`slot task check`, `slot cargo
+test`). The pool had no free slot and each job queued about 15 minutes. The driver's limit (1800
+s) counts the queue wait, killed the step, and recorded `exit: timeout`; every other exit maps to
+`failed`. The tree then ran `amend.upstream` and a paid `change.implement` to repair tests that
+never ran. The same happened in the release gate. Two faults: a step that never got a slot was
+recorded like a failed run, and its limit counted the wait.
+
+What exists now, for the steps that call `slot` through the tool (`conform-run`, `story-tests`,
+`story-tests-run`, `impl-gate`, `acceptance.run` and `tests.run` with them):
+
+- The tool bounds the wait itself. The binding passes `--pool-wait <s>` after the subcommand
+  (`SDC_POOL_WAIT` in the environment wins; neither means plain `slot`). `pool_run` in
+  `sdc-tool.sh` starts the job in the background, reads its id from slot's own `slot: job N queued
+  ...` line (printed only when the job has to wait) and looks at `slot status` until the job is no
+  longer `queued`. A job still queued when the step's wait is spent is cancelled (`slot cancel`)
+  and the command is not run: the tool exits **69** ("no build slot within the wait bound,
+  nothing ran"). A job cancelled while still queued gives 69 too. The tool looks at the pool
+  after 0.2 s, then at doubling pauses up to `SDC_POOL_POLL` (default 2 s). How a start is
+  recognised: never from the absence of a line within a time (on a loaded machine slot's `queued`
+  line can come seconds late). The tool reads slot's error output for the `queued` line for as long
+  as the job's process lives; once it has the id, `slot status` says whether the job is still
+  `queued`, and only then is the bound applied. A job that prints no `queued` line and runs to its
+  end was admitted at once: it waited nothing and the ledger is not charged for its run. slot has no
+  other documented way to learn the id or a start (no start line, option, environment variable or
+  id file; the line is sent only for a job that has to wait, `crates/slot/src/server/mod.rs:1530-1537`
+  in slot `3a0b985`, and is documented in slot's `plugin/skills/building/SKILL.md:61-63`).
+- One bound per step. The outermost call opens a ledger (`.sdc/pool-wait`, milliseconds waited so
+  far); both jobs of `tests.run` draw from the same bound.
+- The run is the pool's (slot 0.22: the daemon ends a job after 10 minutes of run time; queue wait
+  does not count). A command that needs longer names `slot --timeout <t>` (at most 30 minutes; none of
+  these calls does; a `timeout` command in front extends nothing). A job the pool ends at its limit
+  exits 124, and the tool exits **70**, "ran over its time": neither red tests nor a pool wait. The
+  driver takes 70 as a program error too (no evidence, no run counted, no model call) but does not
+  run the step again, as the same run would end the same way: the verdict `run_over_time`, exit 5.
+  A job cancelled while it ran (exit 130, `slot cancel`) is the command's result: the step fails
+  with a log line that says the pool cancelled it, never 69.
+- A green or red run gives the old exit 0, 1 (or 5, finding).
+- The driver takes exit 69 as a program error: no evidence, no run counted (`useful` does not see
+  it), no `change.implement` or `amend.upstream` follows. Within the same step it runs the tool
+  again, up to 3 runs in all (event `pool_wait` per repeat), then records `pool_wait_spent` and
+  stops with that verdict and exit 5, like the other caps. `message` names the action. The next
+  `run` tries the step afresh. Recording a result such as `not_run` instead was rejected: a second,
+  conflicting record leaves `tests.run` unknown for Canon and the re-run inadmissible.
+- Loom: the same tool exits 69. The YAML (the loader at `8a8fad3b`) has no `exits` member, so
+  until Loom's loader has it the result map `"*": failed` still maps 69 to `failed`: this is the
+  open part, a line of `bindings/PENDING.md`. With `exits: {error: [69, 75, 126, 127]}` Loom ends
+  the run `ProgramError`, records nothing and calls no model; it does not run the step again.
+
+The bug-fix steps (`repro.run`, `tests.run`, `gate.run`, 2026-11-22) follow the same rules with
+the same exits; the driver needs no rule of its own for them. They could not share `pool_run`
+itself: `sdc-bugfix` runs one pool job per command of `checks.yaml` (two for `repro-run` and
+`tests-run`, one per gate command for `gate-run`) with file work between the jobs (a copy of the
+tree, the rules over each job's output). One `pool_run` around the whole step would hold one slot
+through the copies, the pool's run limit would cover all commands together, and a call of the
+shell tool per command would start its whole set-up inside the copy of the code tree. So
+`sdc-bugfix.rs` has the same logic in Rust (`run` and `pool_job`), with the same names: the bound is
+`--pool-wait <s>` (the tool takes it and exports `SDC_POOL_WAIT`; `sdc-bugfix` itself takes both,
+the environment wins) and `SDC_POOL_POLL`; the job's id comes from slot's `queued` line, its state
+from `slot status` (a start is recognised as above, never from a missing line); the bound is one per step (the `sdc-bugfix` process is the step, so its counter
+is the ledger); a job still queued at the bound is cancelled and the step exits **69** before it
+runs anything else; a job the pool ends at its limit (exit 124) is exit **70**; a job cancelled while
+queued is 69, while it ran the command's result with a log line that says so. A step that ends so
+records no verdict about the code (no `repro: not red`, no `tests: FAILED`). Both implementations
+are held to the same stand-in `slot` cases (`impl_gate.rs`, `bugfix_languages.rs`), and the finding
+cycles `bugfix-pool-wait` and `bugfix-over-time` drive the bug-fix tree through 69 (3 runs, then
+`pool_wait_spent`) and 70 (`run_over_time` at once).
+
+The limit arithmetic (the binding's `timeout_seconds` in YAML, `timeout_s` in JSON, per run of the
+tool; it covers wait and run):
+
+| Step | Wait bound | Pool jobs | Run bound of a job | Other work (compile, synthesis, interpreted suite) | Limit |
+|---|---|---|---|---|---|
+| story `tests.run` | 1200 | 2 | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
+| release `acceptance.run` | 1200 | 1 | 600 | 600 | 1200 + 600 + 600 = 2400 (was 1800) |
+| bugfix `repro.run` | 1200 | 2 (the reproducing test, the suite without it) | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
+| bugfix `tests.run` | 1200 | 2 (the suite, the reproducing test) | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
+| bugfix `gate.run` | 1200 | 4 (the most gate commands of a detection row, Rust: build, test, clippy, fmt) | 600 | 600 | 1200 + 4 x 600 + 600 = 4200 (was 1800) |
+
+A case whose `checks.yaml` has more than 4 gate commands needs a `gate.run` limit of its own (wait
+bound + commands x 600 + 600).
+
+Other steps keep their limits (1800 s default). A test of the arithmetic reads both binding
+formats (`driver/tests/impl_gate.rs` for story and release, `driver/tests/bugfix_languages.rs` for
+bugfix). Worst case a `tests.run` step is 3 runs of 1200 s of wait,
+about an hour, before `pool_wait_spent`; `sdc-run-metrics` reports `pool_waits` (takes with exit
+69) and `ran_over_time` (exit 70) apart from `could_not_run` and from failures, and the stop shows as `stop_cause:
+pool_wait_spent` or `run_over_time`. `scripts/run-trial.sh` ends with that cause and does not call `run.unstick` (a
+paid call) for it.
 
 Note: `aep plan artifact create` does not exist; the verb is `new`. `aep` refused to activate a
 story that serves no vision objective (`empty_declaration … serves no objective`); the decompose

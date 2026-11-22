@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.AutonomyLevel.schema.json",
+  "$ref": "#/$defs/sdc.decision.AutonomyLevel",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a27cca046795814774ae34db3c10be03eeeeff9acfb366da82c0b6b6c449f90a",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.AutonomyLevel": {
+      "title": "AutonomyLevel",
+      "description": "The run's autonomy level, docs/autonomy-levels.md:36-42 and :205-213: A0 Manual, A1 Advised, A2 Internal, A3 To merge, A4 To release, A5 Unattended (eval runs, :41-42). The level does not decide eligibility by itself: with the request's decision class it gives the holder (:241-256, overrides :297-320), and the guards read the holder.",
+      "x-ess-name": "sdc.decision.AutonomyLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "A0",
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5"
+      ]
+    }
+  }
+}

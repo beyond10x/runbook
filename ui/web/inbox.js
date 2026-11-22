@@ -3,6 +3,7 @@
 import {esc, decisionRows, decisionSummary} from './lenses.js';
 import {fieldsOf, fieldCounts, deciderPerField, takenText} from './holder.js';
 import {autopilot, runSettings} from './principal.js';
+import {scopeAnswer} from './view.js';
 
 const val = (v) => `<span class="v v-${esc(v)}">${esc(String(v ?? 'unknown').toUpperCase())}</span>`;
 const st = (s) => `<span class="v st-${esc(s)}">${esc(s ?? '—')}</span>`;
@@ -61,10 +62,10 @@ function unlockBlock(u, produces) {
     ${u.obligations.length ? `<div class="unl-r"><span class="unl-k">obligations</span>${list(u.obligations, st)}</div>` : ''}</div>`;
 }
 
-// the scope-changing questions a scope.answer approval belongs to
+// the scope-changing questions the scope action's approval belongs to
 function scopeBlock(scope) {
   if (!scope?.questions?.length) return '';
-  return `<div class="unl" data-key="scopeqs"><div class="unl-h">Approving takes <code>scope.answer</code>: the scope-changing questions of this interview</div>${scope.questions.map((q) => `<div class="unl-r"><span class="unl-k">${esc(q.id)}</span><span>${esc(q.question)} <b>${esc(q.answer ?? '—')}</b> <span class="muted">${esc(q.answered_by || 'unanswered')}</span></span></div>`).join('')}</div>`;
+  return `<div class="unl" data-key="scopeqs"><div class="unl-h">Approving takes <code>${esc(scopeAnswer()?.action)}</code>: the scope-changing questions of this interview</div>${scope.questions.map((q) => `<div class="unl-r"><span class="unl-k">${esc(q.id)}</span><span>${esc(q.question)} <b>${esc(q.answer ?? '—')}</b> <span class="muted">${esc(q.answered_by || 'unanswered')}</span></span></div>`).join('')}</div>`;
 }
 
 function card(item, S) {
@@ -77,7 +78,7 @@ function card(item, S) {
   const resHtml = res ? `<div class="res ${res.ok ? 'ok' : 'bad'}">${esc(res.ok ? res.msg || 'done' : res.error)}${res.output ? `<details><summary>driver output</summary><pre class="pred">${esc(res.output)}</pre></details>` : ''}</div>` : '';
   if (item.kind === 'approve') {
     const a = item.artifact || {};
-    const edited = item.capability !== 'scope.answer' && !!(a.work_revision && item.revision && a.work_revision !== item.revision);
+    const edited = item.capability !== scopeAnswer()?.action && !!(a.work_revision && item.revision && a.work_revision !== item.revision);
     // who holds it (UXF-011), from the Now band's derivation of the same wait
     const w = (S.nowState?.waiting || []).find((x) => x.c?.id === item.case && x.action === item.action);
     const h = w?.holder;

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.decision.TakeRecommendation.schema.json",
+  "title": "Take the recommendation input",
+  "description": "Decide a request with its recommended option or free answer, which must be strong: a person accepting it, a decider under R∧D (the rule's verdict is the strong recommendation; docs/autonomy-levels.md:239, the merge rule :261-267) or under D→P and D*, or silence when the recommendation is the default on silence. Silence is fired by a host tick that passes the instant as decided_at, at or after expires_at; the command reads no clock. The option or answer is read from the request, never sent. As with Decide, no Canon record is written here: the runtime writes it afterwards and records it through RecordProduced.",
+  "x-ess-name": "sdc.decision.TakeRecommendation",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal"
+    },
+    "principal_kind": {
+      "$ref": "#/$defs/sdc.decision.PrincipalKind"
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "request_id",
+    "principal",
+    "principal_kind",
+    "decided_at",
+    "reasons"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:2bbda46846eedc6d4076c6baf2dd6e875effadf1647f7226d7427470371154b9",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.PrincipalKind": {
+      "title": "PrincipalKind",
+      "description": "person: a named person. decider: decider:<kind>. rule: rule:<name>, a program deciding from evidence (docs/autonomy-levels.md:202-203). silence: the recommended default taken because nobody answered before expires_at (not in autonomy-levels.md; a person-facing addition, A0 to A4 only in practice).",
+      "x-ess-name": "sdc.decision.PrincipalKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "person",
+        "decider",
+        "rule",
+        "silence"
+      ]
+    }
+  }
+}

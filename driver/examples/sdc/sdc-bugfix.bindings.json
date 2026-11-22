@@ -69,8 +69,11 @@
     "argv": [
       "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
-      "repro-run"
+      "repro-run",
+      "--pool-wait",
+      "1200"
     ],
+    "timeout_s": 3000,
     "produces": "repro_run",
     "subject": "repro",
     "upstream": [
@@ -121,8 +124,11 @@
     "argv": [
       "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
-      "tests-run"
+      "tests-run",
+      "--pool-wait",
+      "1200"
     ],
+    "timeout_s": 3000,
     "produces": "test_run",
     "subject": "change",
     "upstream": [
@@ -152,8 +158,11 @@
     "argv": [
       "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
-      "gate-run"
+      "gate-run",
+      "--pool-wait",
+      "1200"
     ],
+    "timeout_s": 4200,
     "produces": "gate_run",
     "subject": "change",
     "producer": "sdc-bugfix",

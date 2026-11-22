@@ -1,27 +1,31 @@
-// Screenshots of each view, saved under screenshots/<project>-<name>.png. Run against a server:
-//   node server.mjs --port 7490 ../runs/full-cycle-1/store &   slot npx playwright test --workers=2
+// Screenshots of each view, saved under screenshots/<project>-<name>.png, over the committed fixture
+// (test/recorded/trial-todo-1-slim, played into test/fixtures/runs/screens-<project> by
+// test/fixture-run.mjs and served by a server of this file on a port the kernel gives). The tour of the
+// real recorded runs, with the billing cases the fixture does not have, is screens-runs.spec.mjs (slow lane).
 import {test, expect} from '@playwright/test';
+import {spawnSync} from 'node:child_process';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {startServer} from './serve.mjs';
 
-let FULL = 0, TRIAL = 1;
-test.beforeAll(async ({request, baseURL}) => {
-  // a checkout without runs/ (git-ignored) has no server over full-cycle-1: skipped, with the reason
-  const s = await request.get('/api/sources').then((r) => r.json(), () => null);
-  test.skip(!s, `screens.spec.mjs: no server at ${baseURL} (SDC_UI_URL); start one over runs/full-cycle-1/store as the head of this file says`);
-  test.skip(!s.some((x) => x.name.startsWith('full-cycle-1')), `screens.spec.mjs: the server at ${baseURL} serves no full-cycle-1 store (missing run directory runs/full-cycle-1: runs/ is git-ignored)`);
-  FULL = s.find((x) => x.name.startsWith('full-cycle-1'))?.index ?? 0;
-  TRIAL = s.find((x) => x.name.startsWith('trial-todo-1'))?.index ?? 1;
+const here = path.dirname(fileURLToPath(import.meta.url));
+const ui = path.resolve(here, '..');
+let base, srv;
+test.beforeAll(async ({}, info) => {
+  const run = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), `screens-${info.project.name}`);
+  const r = spawnSync(process.execPath, ['test/fixture-run.mjs', 'person', run], {cwd: ui, encoding: 'utf8'});
+  if (r.status !== 0) throw new Error(`fixture person: ${r.stderr}`);
+  srv = await startServer([path.join(run, 'store')]);
+  base = srv.url;
 });
-const at = (u) => u.replace(/FULL/g, FULL).replace(/TRIAL/g, TRIAL);
-const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'screenshots');
+test.afterAll(() => srv?.proc.kill());
+const at = (u) => base + u.replace(/FULL|TRIAL/g, '0');
+const dir = path.join(ui, 'screenshots');
 const shots = [
   ['overview', '/?source=FULL&case=.'],
   ['intake-excluded', '/?source=FULL&case=IDEA-1.intake&node=claim:dissection.valid'],
   ['direction-awaiting', '/?source=FULL&case=IDEA-1.direction&at=20&node=action:context.approve'],
-  ['spec-gate', '/?source=FULL&case=IDEA-1.billing/IDEA-1.billing.spec&node=claim:spec.complete&reads=1'],
   ['autonomy', '/?source=FULL&case=IDEA-1.direction&at=20&tab=autonomy'],
-  ['security', '/?source=FULL&case=IDEA-1.billing/IDEA-1.billing.invoices&tab=security'],
   ['metrics', '/?source=FULL&case=IDEA-1.intake&tab=metrics'],
   ['events', '/?source=FULL&case=IDEA-1.intake&tab=events&at=25'],
   ['trial-direction', '/?source=TRIAL&case=IDEA-1.direction&tab=autonomy'],

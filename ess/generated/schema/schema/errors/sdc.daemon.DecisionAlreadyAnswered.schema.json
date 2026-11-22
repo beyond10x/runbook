@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.DecisionAlreadyAnswered.schema.json",
+  "title": "DecisionAlreadyAnswered payload",
+  "description": "The decision request is already Answered: the first answer stands and nothing changed.",
+  "x-ess-name": "sdc.daemon.DecisionAlreadyAnswered",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.daemon.DecisionRequestId"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:89b5c051bccee6c2869ac037fa5866656d49ad99ddb006aa04eae96e3a634a9b",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

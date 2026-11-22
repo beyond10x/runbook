@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunbookId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunbookId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:8241f1f3f9d8fcf1a20d0699982e84303399fda0dfde3d9f31a7e485e7fcd1dc",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunbookId": {
+      "title": "RunbookId",
+      "description": "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir.",
+      "x-ess-name": "sdc.daemon.RunbookId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

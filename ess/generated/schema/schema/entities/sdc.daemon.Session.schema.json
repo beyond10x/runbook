@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.Session.schema.json",
+  "title": "Session",
+  "description": "A named group of runs of one client. Open until the client closes it; a closed session takes no new run and keeps the runs it has.",
+  "x-ess-name": "sdc.daemon.Session",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    },
+    "client": {
+      "$ref": "#/$defs/sdc.daemon.ClientLabel"
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "closed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.Session.State"
+    }
+  },
+  "required": [
+    "session_id",
+    "client",
+    "opened_at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:c0f8dc915847a917d024b6ea9214ac1b647896b2cab479d3dc61df4cb522b9b3",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ClientLabel": {
+      "title": "ClientLabel",
+      "description": "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity.",
+      "x-ess-name": "sdc.daemon.ClientLabel",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    },
+    "sdc.daemon.Session.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Session.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Closed",
+        "Open"
+      ]
+    },
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

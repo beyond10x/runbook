@@ -1,5 +1,6 @@
 format: loom.bindings/1
-protocol: sdc-intake@1
+protocol: sdc-intake@9
+program_root: bindings
 artifacts:
   idea: idea.yaml
   goals: goals.yaml

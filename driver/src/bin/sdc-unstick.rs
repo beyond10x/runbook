@@ -36,6 +36,10 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
 
+#[path = "../instructions.rs"]
+#[allow(dead_code)]
+mod instructions;
+
 const CLASSES: [&str; 7] = [
     "missing_route",
     "cap_too_low",
@@ -214,35 +218,20 @@ fn schema(moves: &[Value]) -> Value {
             "reasons": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}})
 }
 
-fn prompt(attempt: u32, invalid: &str) -> String {
-    let mut p = String::from(
-        "An autopilot run of a governed software delivery cycle has stopped. You choose what happens next.\n\
-Work only in the current directory. Read in/stop.json; write only out/unstick.json. You have no shell.\n\
-\n\
-in/stop.json holds: the stop's cause and reason, the stopped case and action, the decision request\n\
-that led to it (if any), the claims, the blocked actions with their unmet preconditions, the open\n\
-obligations, the case's last 20 events, the last failing action's log, and `moves`: the only moves\n\
-a program can carry out from this state, each with an id and what it does.\n\
-\n\
-Choose the one move that lets the run go on soundly, or `stop` when none does. You do not invent\n\
-state: you pick an id from `moves`. No person is available in this run.\n\
-Then say what is missing, for the people who fix the system: which route, check or input is\n\
-missing or wrong, in two or three sentences (`diagnosis`), and its class (`defect_class`):\n\
-missing_route (the protocol or the tools have no path from this state), cap_too_low,\n\
-writer_error (a writer produced wrong output), decider_error (a decision was wrong),\n\
-contradiction_in_inputs (the inputs contradict each other), tool_defect, or other.\n\
-\n\
-Write out/unstick.json, exactly these keys:\n\
-{\"move\": \"<an id from moves>\", \"diagnosis\": \"<two or three sentences>\",\n\
- \"defect_class\": \"<one of the classes>\", \"reasons\": [\"<why this move, one sentence each>\"]}\n",
-    );
+/// The node's instruction text: `instructions/run.unstick.md`, the refusal of the previous reply
+/// from attempt 2 on, and the closing line.
+fn prompt(attempt: u32, invalid: &str) -> R<String> {
+    let mut p = instructions::render("instructions/run.unstick.md", &[])? + "\n";
     if attempt > 1 {
-        p.push_str(&format!(
-            "\nThis is attempt {attempt}. Your previous reply was refused by the program check:\n  {invalid}\nWrite out/unstick.json again with that fixed.\n"
-        ));
+        let attempt = attempt.to_string();
+        p.push('\n');
+        p.push_str(&instructions::render("instructions/run.unstick.retry.md", &[("attempt", &attempt), ("invalid", invalid)])?);
+        p.push('\n');
     }
-    p.push_str("\nWhen the file is written, reply with the single word: done.\n");
-    p
+    p.push('\n');
+    p.push_str(&instructions::render("instructions/run.unstick.closing.md", &[])?);
+    p.push('\n');
+    Ok(p)
 }
 
 /// The reply checked against the moves: `(why, move)`, `why` empty when valid.
@@ -291,7 +280,7 @@ fn run(cli: Cli) -> R<()> {
             let w = |p: PathBuf, v: String| fs::write(&p, v).map_err(|e| format!("{}: {e}", p.display()));
             w(cwd.join("in/stop.json"), serde_json::to_string_pretty(&input(&stop, moves, &decision)).unwrap_or_default())?;
             w(record.join("reply-schema.json"), schema(moves).to_string())?;
-            w(record.join("prompt.md"), prompt(attempt, &invalid))?;
+            w(record.join("prompt.md"), prompt(attempt, &invalid)?)?;
         }
         Cmd::Validate { moves, reply } => {
             let moves = read(&moves)?;

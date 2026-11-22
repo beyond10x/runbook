@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.decision.Supersede.schema.json",
+  "title": "Supersede input",
+  "description": "Replace a request by a newer one: the subject moved to a new revision, a ground changed, or a person reopened a decision. The newer request names this one in supersedes.",
+  "x-ess-name": "sdc.decision.Supersede",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "superseded_by": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "superseded_by",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:4ba81e8ffa3d4d0f760406fe4be25940d2831e9393ac352ed89c30d5427ac10c",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

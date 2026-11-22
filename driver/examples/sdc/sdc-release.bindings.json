@@ -32,8 +32,11 @@
     "argv": [
       "{dir}/../../../bindings/tools/sdc-tool.sh",
       "conform-run",
-      "release"
+      "release",
+      "--pool-wait",
+      "1200"
     ],
+    "timeout_s": 2400,
     "produces": "release_conformance",
     "subject": "release",
     "upstream": [

@@ -73,11 +73,12 @@
       "executor": {
         "kind": "program",
         "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix repro-run",
+        "program": "sdc-tool.sh bugfix repro-run --pool-wait 1200",
         "results": {
           "*": "not_red",
           "0": "red"
-        }
+        },
+        "timeout_s": 3000
       },
       "name": "repro.run",
       "precondition": [
@@ -197,11 +198,12 @@
       "executor": {
         "kind": "program",
         "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix tests-run",
+        "program": "sdc-tool.sh bugfix tests-run --pool-wait 1200",
         "results": {
           "*": "failed",
           "0": "passed"
-        }
+        },
+        "timeout_s": 3000
       },
       "name": "tests.run",
       "precondition": [
@@ -288,11 +290,12 @@
       "executor": {
         "kind": "program",
         "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix gate-run",
+        "program": "sdc-tool.sh bugfix gate-run --pool-wait 1200",
         "results": {
           "*": "failed",
           "0": "passed"
-        }
+        },
+        "timeout_s": 4200
       },
       "name": "gate.run",
       "precondition": [
@@ -1038,8 +1041,8 @@
   },
   "source": {
     "path": "protocol/sdc-bugfix.protocol.yaml",
-    "tag": "0.3.0",
-    "url": "https://github.com/beyond10x/runbook/blob/0.3.0/protocol/sdc-bugfix.protocol.yaml"
+    "tag": "0.3.1",
+    "url": "https://github.com/beyond10x/runbook/blob/0.3.1/protocol/sdc-bugfix.protocol.yaml"
   },
   "stem": "sdc-bugfix",
   "summary": "Fix one reported bug in an existing code tree, red first: the bug report is dissected into a checked data document, a test that reproduces the bug is written and observed failing on the unchanged code while the rest of the suite passes, and only then is the fix admissible; the same test and the whole suite must pass on the fixed revision, the bug's story is moved to implemented, and the code tree's gate (build, test, lint, format) passes.",

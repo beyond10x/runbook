@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.SessionOpened.schema.json",
+  "title": "SessionOpened payload",
+  "x-ess-name": "sdc.daemon.SessionOpened",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    },
+    "client": {
+      "$ref": "#/$defs/sdc.daemon.ClientLabel"
+    }
+  },
+  "required": [
+    "session_id",
+    "client"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:477ef0220edeac02e4270c9f2b1b1090aacae2a68029770019d455b407f8bcdc",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ClientLabel": {
+      "title": "ClientLabel",
+      "description": "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity.",
+      "x-ess-name": "sdc.daemon.ClientLabel",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    },
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

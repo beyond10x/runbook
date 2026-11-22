@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DaemonId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DaemonId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:b94746eae0d3e7e0f17fd584929e09e9043e3e9ede945fb9f5b7d25f7d8d9329",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

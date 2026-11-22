@@ -1,5 +1,5 @@
-// Stopped runs, waiting on a person as a failure, and runs that appear later. One server of its own on
-// port 7528 (SDC_UI_STOPPED_PORT) over a runs directory (--runs) of runs played by test/fixture-run.mjs
+// Stopped runs, waiting on a person as a failure, and runs that appear later. One server of its own
+// (a port the kernel gives) over a runs directory (--runs) of runs played by test/fixture-run.mjs
 // into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/stopped-runs, plus one explicit store:
 //   person   a person stop, no settings record, not stopped (explicit store argument, source 0)
 //   held     the same stop, with run-settings.jsonl giving the decisions to a decider (haiku)
@@ -12,14 +12,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'stopped-runs');
 const runs = path.join(root, 'runs');
-const port = Number(process.env.SDC_UI_STOPPED_PORT || 7528);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const GATING = [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768}];
 const fixture = (scenario, name) => { const r = spawnSync('node', ['test/fixture-run.mjs', scenario, path.join(runs, name)], {cwd: ui, encoding: 'utf8'}); if (r.status !== 0) throw new Error(`fixture ${scenario}: ${r.stderr}`); };
 let srv, sources;
@@ -31,7 +31,7 @@ test.afterAll(() => srv?.kill());
 
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   needRun(fixtureSource('stopped'), 'stopped.spec.mjs (fixture source)', test);
   fs.rmSync(root, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
@@ -39,9 +39,7 @@ test.beforeAll(async ({}, info) => {
   fixture('stopped', 'stopped');
   fixture('person', 'held');
   fs.copyFileSync(path.join(runs, 'stopped', 'run-settings.jsonl'), path.join(runs, 'held', 'run-settings.jsonl'));
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_STOPPED_PORT`);
-  srv = spawn(process.execPath, ['server.mjs', '--port', String(port), '--write', '--principal', 'operator', path.join(runs, 'person', 'store'), '--runs', runs], {cwd: ui, stdio: 'ignore'});
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  ({url: base, proc: srv} = await startServer(['--write', '--principal', 'operator', path.join(runs, 'person', 'store'), '--runs', runs]));
   sources = await (await fetch(base + '/api/sources')).json();
 });
 

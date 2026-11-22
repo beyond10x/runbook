@@ -2427,9 +2427,13 @@ cycles:
         - {kind: file_absent, file: "{run}/run-stopped.json"}
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: legitimate}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: implementation_change}, count: 1}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run, result: passed}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "last red repro_run and last passed test_run: revisions chain (red_then_green)"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green over the evidence records: the red repro_run (subject repro at revision R, upstream change at tree digest C1), the implementation_change after it (upstream repro R, subject C2) and the passed test_run (subject C2, upstream repro R) in record order, digests set and C1 differs from C2"}
     source: {lines: "2314-2315", helpers: "2290-2313"}
 
   - id: bugfix-not-red
@@ -2447,9 +2451,11 @@ cycles:
         - {kind: file_absent, file: "{run}/run-stopped.json"}
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: legitimate}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green revision chain"}
       - {kind: field-compare, lines: "2317", note: "exactly one repro_run not_red whose subject_revision is not none"}
     source: {lines: "2316-2318", helpers: "2290-2313"}
 
@@ -2469,9 +2475,12 @@ cycles:
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
         - {kind: file_contains, file: "{store}/BUG-1/blobs/*", text: "the reproducing test was changed"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: legitimate}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run, result: passed}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green revision chain"}
       - {kind: event-order, lines: "2320-2321", note: "test_run results in order are [failed, passed]"}
     source: {lines: "2319-2323", helpers: "2290-2313"}
 
@@ -2485,13 +2494,19 @@ cycles:
     arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
     expect:
       exit: 0
-      pass_line: "every test passes on the seed: not_reproduced, no fix written"
+      pass_line: "every test passes on the seed: not_reproduced, no fix written; the protocol's evaluation refuses the fix"
       checks:
         - {kind: file_absent, file: "{run}/run-stopped.json"}
         - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: not_reproduced}
         - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 0}
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: implementation_change}, count: 0}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run}, count: 0}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".claims.\"repro.red\".value", equals: "false"}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".actions.\"change.fix\".status", equals: blocked}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".actions.\"tests.run\".status", equals: blocked}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.fixed.status", equals: blocked}
+        - {kind: json_equals, file: "{run}/decision.json", query: ".outcomes.not_reproduced.status", equals: legitimate}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
     source: {lines: "2324-2326", helpers: "2290-2313"}
@@ -2528,12 +2543,55 @@ cycles:
       - {kind: setup-shell, lines: "2336-2346", note: "git init and commit of the crate copy, ignored and untracked files, ticket with base commit"}
       - {kind: computed-input, lines: "2342-2343", note: "ticket.yaml repository.base.commit set to the new HEAD commit"}
       - {kind: aggregate, lines: "2353", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2354", note: "red_then_green revision chain over the evidence"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green revision chain over the evidence"}
       - {kind: derived-value, lines: "2355-2356", note: "mainline files equal git ls-files of the repository"}
       - {kind: cross-record, lines: "2358", note: "seed.json base commit equals the repository HEAD"}
       - {kind: field-compare, lines: "2359", note: "bug.yaml constraints has 2 entries"}
       - {kind: second-run, lines: "2347-2351", note: "dirty repository run exits 1; ticket run 2 after editing lib.rs"}
     source: {lines: "2327-2366"}
+
+  - id: bugfix-pool-wait
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager, driver/examples/sdc/fixtures/pool-wait]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: approve, SDC_STUB_FIXTURES: "", PATH: "driver/examples/sdc/fixtures/pool-wait:$PATH", POOL_REAL_SLOT: "the real slot", POOL_FAKE_DIR: "{scratch}/bugfix-pool-wait-state", POOL_FAKE: never, SDC_POOL_WAIT: "1", SDC_POOL_POLL: "0.2"}
+    arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
+    expect:
+      exit_not: 0
+      pass_line: "repro.run ran 3 times, exit 69 each, pool_wait_spent, no evidence, no change.fix"
+      checks:
+        - {kind: event_count, log: "{store}/BUG-1/events.jsonl", event: pool_wait_spent, count: 1}
+        - {kind: event_count, log: "{store}/BUG-1/events.jsonl", event: pool_wait, action: repro.run, count: 2}
+        - {kind: event_count, log: "{store}/BUG-1/events.jsonl", event: action_started, action: change.fix, count: 0}
+        - {kind: file_contains, file: "{scratch}/bugfix-pool-wait.txt", text: pool_wait_spent}
+    unexpressed:
+      - {kind: aggregate, lines: "2927-2932", note: "one repro.run step finished with exit 69 and no evidence, after 2 pool_wait events; pool_wait_spent once; no change.fix; the run's exit is not 0"}
+      - {kind: cross-record, lines: "2933", note: "the fake pool saw exactly 3 jobs (a line each in bugfix-pool-wait-state/jobs)"}
+      - {kind: tree-search, lines: "2934", note: "the store has one repro_run record, the not_red of the first run before the test existed, and none from the pool wait"}
+    source: {lines: "2915-2947"}
+  - id: bugfix-over-time
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager, driver/examples/sdc/fixtures/pool-wait]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: approve, SDC_STUB_FIXTURES: "", PATH: "driver/examples/sdc/fixtures/pool-wait:$PATH", POOL_REAL_SLOT: "the real slot", POOL_FAKE_DIR: "{scratch}/bugfix-over-time-state", POOL_FAKE: overtime, SDC_POOL_WAIT: "1", SDC_POOL_POLL: "0.2"}
+    arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
+    expect:
+      exit_not: 0
+      pass_line: "repro.run ran once, exit 70, run_over_time, no evidence, no change.fix"
+      checks:
+        - {kind: event_count, log: "{store}/BUG-1/events.jsonl", event: run_over_time, count: 1}
+        - {kind: event_count, log: "{store}/BUG-1/events.jsonl", event: pool_wait, count: 0}
+        - {kind: event_count, log: "{store}/BUG-1/events.jsonl", event: action_started, action: change.fix, count: 0}
+        - {kind: file_contains, file: "{scratch}/bugfix-over-time.txt", text: run_over_time}
+    unexpressed:
+      - {kind: aggregate, lines: "2927-2932", note: "one repro.run step finished with exit 70 and no evidence, no pool_wait event; run_over_time once; no change.fix; the run's exit is not 0"}
+      - {kind: cross-record, lines: "2933", note: "the fake pool saw exactly 1 job"}
+      - {kind: tree-search, lines: "2934", note: "the store has one repro_run record, the not_red of the first run before the test existed, and none from the pool wait"}
+    source: {lines: "2915-2947"}
 
   - id: replay-unchanged
     state: expected
@@ -2758,3 +2816,22 @@ cycles:
     unexpressed:
       - {kind: field-compare, lines: "2548", note: "recording.json .tree.commit is a string and .calls is not empty"}
     source: {lines: "2547-2553"}
+
+  - id: pool-wait
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/pool-wait]
+    switches: {PATH: "driver/examples/sdc/fixtures/pool-wait:$PATH", POOL_REAL_SLOT: "the real slot", POOL_FAKE_DIR: "{scratch}/pool-wait-state", SDC_POOL_WAIT: "1", SDC_POOL_POLL: "0.2"}
+    expect:
+      exit: 1
+      pass_line: "tests.run ran 3 times, exit 69 each, pool_wait_spent, no evidence, change.implement once"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: pool_wait_spent, count: 1}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_started, action: change.implement, count: 1}
+        - {kind: file_contains, file: "{scratch}/pool-wait.txt", regex: "^run ended pool_wait_spent"}
+    unexpressed:
+      - {kind: aggregate, lines: "2893-2898", note: "one tests.run step finished with exit 69 and no evidence, after 2 pool_wait events; pool_wait_spent names 3 attempts"}
+      - {kind: cross-record, lines: "2899", note: "the fake pool saw at least 3 jobs (a line each in pool-wait-state/jobs)"}
+    source: {lines: "2884-2904"}

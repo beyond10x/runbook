@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {canonPath, drivePath} from '../binaries.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const sdc = path.resolve(here, '../..');
@@ -31,19 +32,24 @@ export function needTool(file, how, who, test) {
   if (m) test.skip(true, `${who}: ${m}`);
 }
 
-// The recorded run test/fixture-run.mjs plays from: SDC_UI_FIXTURE_SOURCE, else runs/trial-todo-1,
-// else (for the scenarios that need only the cases intake and direction) its committed slim copy
-// test/recorded/trial-todo-1-slim (made by test/slim-source.mjs).
+// The recorded run test/fixture-run.mjs plays from: SDC_UI_FIXTURE_SOURCE, else (the scenarios that need
+// only the cases intake and direction) the committed slim copy test/recorded/trial-todo-1-slim (made by
+// test/slim-source.mjs), else runs/trial-todo-1. The gate's lane always takes the slim copy for its
+// scenarios, so the step does the same with or without runs/; the slow lane (SDC_UI_LANE=slow, set by
+// playwright.slow.config.mjs) takes runs/trial-todo-1 when it is there.
 export const SLIM_SCENARIOS = ['person', 'stopped', 'human', 'decider', 'autopilot'];
+export const slowLane = () => process.env.SDC_UI_LANE === 'slow';
 export function fixtureSource(scenario) {
   if (process.env.SDC_UI_FIXTURE_SOURCE) return path.resolve(process.env.SDC_UI_FIXTURE_SOURCE);
   const full = path.join(sdc, 'runs/trial-todo-1');
-  return !fs.existsSync(full) && SLIM_SCENARIOS.includes(scenario) ? path.join(here, 'recorded/trial-todo-1-slim') : full;
+  const slim = path.join(here, 'recorded/trial-todo-1-slim');
+  if (!SLIM_SCENARIOS.includes(scenario)) return full;
+  return slowLane() && fs.existsSync(full) ? full : slim;
 }
 
 // The driver and canon binaries test/scope-fixture.mjs runs.
-export const DRIVE = path.join(sdc, 'driver/target/debug/sdc-drive');
-export const CANON = path.join(process.env.HOME || '/nonexistent', 'beyond10x/canon/target/debug/canon');
+export const DRIVE = drivePath(sdc);
+export const CANON = canonPath();
 export function needDriver(who, test) {
   needTool(DRIVE, 'cargo build in driver/', who, test);
   needTool(CANON, 'build canon (cargo build in the canon repository)', who, test);

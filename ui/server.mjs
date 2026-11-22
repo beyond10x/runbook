@@ -19,8 +19,10 @@ import {fileURLToPath} from 'node:url';
 import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
-import {setView, getView, VIEW_FORMAT} from './web/view.js';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
+import {canonPath, drivePath} from './binaries.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -38,13 +40,14 @@ const paths = [];
 const runsDirs = [];
 // --experiments DIR (repeatable): the experiment records (DIR/<id>.yaml); default experiments/ of the checkout served
 const expDirs = [];
-// --view FILE: the runbook's view (web/view.js, format runbook.view/1); default views/sdc.view.json of the checkout
-// when it exists; --no-view runs the inspector without one
-let viewFile = null, noView = false;
+// --view FILE (repeatable): a runbook's view (web/view.js, format runbook.view/1); without it every views/*.view.json of the
+// checkout is loaded. A run is shown with the first view that covers its protocols; --no-view loads none.
+const viewFiles = [];
+let noView = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--port') port = Number(args[++i]);
   else if (args[i] === '--runs') runsDirs.push(path.resolve(args[++i]));
-  else if (args[i] === '--view') viewFile = path.resolve(args[++i]);
+  else if (args[i] === '--view') viewFiles.push(path.resolve(args[++i]));
   else if (args[i] === '--no-view') noView = true;
   else if (args[i] === '--experiments') expDirs.push(path.resolve(args[++i]));
   else if (args[i] === '--write') config.write = true;
@@ -56,14 +59,19 @@ if (!/^[A-Za-z0-9._-]+$/.test(config.principal)) { console.error('--principal: l
 if (config.principal === 'non-interactive') { console.error('--principal: non-interactive is the agent\'s own answerer; name a person'); process.exit(2); }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
 if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
-if (noView && viewFile) { console.error('--view and --no-view exclude each other'); process.exit(2); }
-if (!viewFile && !noView && fs.existsSync(path.join(sdc, 'views/sdc.view.json'))) viewFile = path.join(sdc, 'views/sdc.view.json');
-if (viewFile) {
-  let v = null;
-  try { v = JSON.parse(fs.readFileSync(viewFile, 'utf8')); } catch (e) { console.error(`--view ${viewFile}: ${e.message}`); process.exit(2); }
-  if (v?.format !== VIEW_FORMAT) { console.error(`--view ${viewFile}: format is ${JSON.stringify(v?.format)}, not ${VIEW_FORMAT}`); process.exit(2); }
-  setView(v);
+if (noView && viewFiles.length) { console.error('--view and --no-view exclude each other'); process.exit(2); }
+if (!viewFiles.length && !noView) {
+  const dir = path.join(sdc, 'views');
+  try { for (const n of fs.readdirSync(dir).sort()) if (n.endsWith('.view.json')) viewFiles.push(path.join(dir, n)); } catch { /* no views/ directory: no view */ }
 }
+// every view is checked when the server starts: a member the inspector does not know, or a wrong type, refuses the start
+const views = viewFiles.map((file) => {
+  let v = null;
+  try { v = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { console.error(`--view ${file}: ${e.message}`); process.exit(2); }
+  const problems = checkView(v);
+  if (problems.length) { console.error(`--view ${file}: refused: ${problems.join('; ')}`); process.exit(2); }
+  return {file, view: v};
+});
 if (!paths.length && !runsDirs.length) {
   // the default store is a recorded run; runs/ is git-ignored, so a fresh clone has none
   const d = path.join(sdc, 'runs/full-cycle-1/store');
@@ -140,7 +148,29 @@ function programOf(runDir) {
 }
 // when the run last wrote: its directory, its settings, calls and log, its store
 const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }));
-const sourceRow = (s) => ({index: s.index, name: s.name, path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s), experiments: experimentsOf(runDirOf(s))});
+// The view of one run: the first loaded view that covers the protocols of its cases (web/view.js viewCovers).
+// A run whose protocols no loaded view covers has none: it renders with the generic parts only and the page
+// says which view is missing (`missing`, `protocols`). No view is a default for another runbook's run.
+const viewCache = new Map();
+function viewOf(src) {
+  const sig = `${src.version}:${src.cases.size}`;
+  const hit = viewCache.get(src.index);
+  if (hit && hit.sig === sig) return hit;
+  const protocols = [...new Set([...src.cases.values()].map((e) => readJson(path.join(e.dir, 'case.json'), {}).protocol).filter(Boolean))].sort();
+  const found = protocols.length ? views.find((x) => viewCovers(x.view, protocols)) : null;
+  const out = {sig, protocols, view: found?.view || null, file: found ? path.relative(sdc, found.file) : null, runbook: found?.view.runbook || null, missing: protocols.length > 0 && !found};
+  viewCache.set(src.index, out);
+  return out;
+}
+// the web and server modules hold a current view per request and per tick (an AsyncLocalStorage store
+// the view module reads): inView runs the work for one run under that run's view, and an await inside it
+// cannot see the view another request set meanwhile
+const viewScope = new AsyncLocalStorage();
+bindViewScope(() => viewScope.getStore());
+const useViewOf = (src) => { setView(src ? viewOf(src).view : null); };
+const inView = (src, fn) => viewScope.run(newViewState(), () => { useViewOf(src); return fn(); });
+const viewInfo = (src) => { const {view, sig, ...info} = viewOf(src); return info; };
+const sourceRow = (s) => ({index: s.index, name: s.name, view: viewInfo(s), path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s), experiments: experimentsOf(runDirOf(s))});
 
 // ---- experiments: which experiment, variant and ordinal a run belongs to -----------------------------
 // A run directory's experiment.json (sdc.experiment-run/1, written by sdc-experiment run) says it; a run
@@ -718,14 +748,14 @@ function meta() {
   const levels = {};
   for (const f of listDir(path.join(sdc, 'eval/levels'))) if (f.endsWith('.json')) levels[f] = readJson(path.join(sdc, 'eval/levels', f));
   return {sdc, compiled, check, checkSource: 'docs/check-output.txt', levels,
-    drive: path.join(sdc, 'driver/target/debug/sdc-drive'), canon: path.join(process.env.HOME, 'beyond10x/canon/target/debug/canon')};
+    drive: drivePath(sdc), canon: canonPath()};
 }
 
 // What decisions.mjs needs of a source: its paths, its cases, and the configured principal.
 function ctx(src) {
   const cases = Array.from(src.cases.values()).map((e) => ({dir: e.dir, rel: path.relative(src.path, e.dir) || '.', ...pick(loadCase(src, e))}));
-  return {sdc, storePath: src.path, runDir: runDirOf(src), cases, principal: config.principal, write: writable(src), index: src.index,
-    canon: path.join(process.env.HOME, 'beyond10x/canon/target/debug/canon'), drive: path.join(sdc, 'driver/target/debug/sdc-drive'),
+  return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, principal: config.principal, write: writable(src), index: src.index,
+    canon: canonPath(), drive: drivePath(sdc),
     refresh: () => { for (const e of src.cases.values()) e.data = null; }};
 }
 const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
@@ -753,17 +783,17 @@ function push(name, data) {
 let sourcesSig = '';
 function tick() {
   discover();
-  for (const src of sources) {
+  for (const src of sources) inView(src, () => {
     const existed = src.exists;
     src.exists = fs.existsSync(src.path);
     const {changed, runChanged, liveChanged} = scan(src);
     if (changed.length || runChanged || liveChanged || existed !== src.exists) {
       push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
     }
-  }
+  });
   // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
   // was stopped (its state); cost, calls and times are fetched when the picker opens
-  const sig = sources.map((s) => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`).join('|');
+  const sig = sources.map((s) => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`)).join('|');
   if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
 }
 
@@ -775,6 +805,11 @@ const send = (res, code, body, type = 'application/json; charset=utf-8') => {
 };
 
 const server = http.createServer((req, res) => {
+  const src = sources[Number(new URL(req.url, 'http://x').searchParams.get('source') || 0)];
+  inView(src, () => handle(req, res));
+});
+
+function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   const src = sources[Number(url.searchParams.get('source') || 0)];
@@ -788,7 +823,8 @@ const server = http.createServer((req, res) => {
   if (p === '/api/sources') return send(res, 200, sources.map(sourceRow));
   if (p === '/api/clock') return send(res, 200, {clock: !!CLOCK, now: Date.now(), at: clockAt});
   if (p === '/api/meta') return send(res, 200, meta());
-  if (p === '/api/view') return send(res, 200, getView());
+  if (p === '/api/view') return send(res, 200, src ? viewOf(src).view : null);
+  if (p === '/api/view-info') return send(res, 200, src ? viewInfo(src) : null);
   if (!src && p.startsWith('/api/')) return send(res, 404, {error: 'no such source'});
   if (p === '/api/tree') {
     const only = url.searchParams.get('cases');
@@ -817,7 +853,7 @@ const server = http.createServer((req, res) => {
     if (!writable(src)) return send(res, 403, {error: config.write ? 'refused: this store is not one of --write-only' : 'refused: the server runs without --write'});
     let body = '';
     req.on('data', (d) => { body += d; if (body.length > 65536) req.destroy(); });
-    req.on('end', async () => {
+    req.on('end', () => inView(src, async () => {
       let b;
       try { b = JSON.parse(body); } catch { return send(res, 400, {error: 'bad JSON'}); }
       // an open decision of a stopped run is not taken from here; continuing the run stays possible
@@ -827,7 +863,7 @@ const server = http.createServer((req, res) => {
         const out = await act(ctx(src), b, (ev, data) => push(ev, {source: src.index, ...data}));
         send(res, out.ok ? 200 : 409, out);
       } catch (e) { send(res, 500, {error: String(e.message || e)}); }
-    });
+    }));
     return;
   }
   if (p === '/api/blob') {
@@ -841,7 +877,7 @@ const server = http.createServer((req, res) => {
   const abs = path.join(here, 'web', file);
   if (!abs.startsWith(path.join(here, 'web')) || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
   return send(res, 200, fs.readFileSync(abs), MIME[path.extname(abs)] || 'application/octet-stream');
-});
+}
 
 tick();
 if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);

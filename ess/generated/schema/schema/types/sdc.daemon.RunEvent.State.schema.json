@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunEvent.State.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunEvent.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:278c07cc34752aa57dd547f34684ea34d6cbeca07322a2d0b4b817795abb5054",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunEvent.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.RunEvent.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Recorded"
+      ]
+    }
+  }
+}

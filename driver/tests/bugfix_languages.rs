@@ -248,3 +248,266 @@ fn a_ticket_seeds_a_javascript_repository() {
     let seed: serde_json::Value = serde_json::from_str(&fs::read_to_string(w.join(".sdc/seed.json")).unwrap()).unwrap();
     assert_eq!(seed["checks"], "detected javascript-node-test (package.json)");
 }
+
+mod pool {
+use super::*;
+
+// The build pool wait of the bug-fix steps (docs/driver.md, "The build pool wait"): `repro-run`,
+// `tests-run` and `gate-run` send every command of checks.yaml through `slot`. `slot` here is a pool
+// of its own: a job prints slot's `slot: job N queued` line, is `queued` in `slot status` until its
+// delay has passed, then runs the command or ends the way POOL_FAKE says. No test calls the real
+// pool.
+
+const POOL_SLOT: &str = r##"#!/bin/sh
+d=${POOL_FAKE_DIR:?}
+case ${1:-} in
+  status)
+    echo "50 of 59 slots, 0 free, 1 running, 1 queued"
+    for f in "$d"/job.*; do
+      [ -e "$f" ] || continue
+      n=${f##*.}
+      if [ -e "$d/started.$n" ]; then echo "#$n running   rust   1 slot(s)  1s  repo  job"
+      else echo "#$n queued    rust   1 slot(s)  1s  repo  job"; fi
+    done
+    exit 0 ;;
+  cancel)
+    echo "${2#\#}" >> "$d/cancelled"
+    exit 0 ;;
+esac
+n=$(( $(cat "$d/count" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$d/count"
+: > "$d/job.$n"
+echo "$*" >> "$d/jobs"
+case $POOL_FAKE in
+  overtime)
+    : > "$d/started.$n"
+    echo "slot: job $n ended at its run limit" >&2
+    exit 124 ;;
+esac
+if [ "$POOL_FAKE" = immediate ]; then
+  : > "$d/started.$n"
+  sleep "${POOL_FAKE_DELAY:-1.2}"
+  exec "$@"
+fi
+sleep "${POOL_FAKE_QUEUED_DELAY:-0}"
+echo "slot: job $n queued for 1 slot(s): 0 free, 3 request(s) ahead" >&2
+case $POOL_FAKE in
+  never) exec sleep "${POOL_FAKE_SLEEP:-30}" ;;
+  cancel-queued) sleep 0.5; echo "slot: job $n cancelled by \`slot cancel\`" >&2; exit 130 ;;
+esac
+sleep "${POOL_FAKE_DELAY:-1.2}"
+: > "$d/started.$n"
+case $POOL_FAKE in
+  killed) sleep 1; echo "slot: job $n cancelled by \`slot cancel\`" >&2; exit 130 ;;
+esac
+exec "$@"
+"##;
+
+struct Pool {
+    code: i32,
+    text: String,
+    secs: f64,
+    state: PathBuf,
+}
+
+impl Pool {
+    fn cancelled(&self) -> String {
+        fs::read_to_string(self.state.join("cancelled")).unwrap_or_default().trim().replace('\n', " ")
+    }
+    fn jobs(&self) -> usize {
+        fs::read_to_string(self.state.join("jobs")).map_or(0, |s| s.lines().count())
+    }
+}
+
+/// A seeded script case with the reproducing test installed and the stand-in pool in pool-bin/;
+/// `fix` puts the fixed code in impl/.
+fn pool_case(name: &str, fix: bool) -> (PathBuf, PathBuf) {
+    let fx = fixtures().join("bugfix-script");
+    let w = work(&format!("pool-{name}"));
+    let checks = fx.join("checks.yaml");
+    assert_eq!(bugfix(&w, &["seed", "--from", fx.to_str().unwrap(), "--checks", checks.to_str().unwrap()]).0, 0);
+    install_repro(&w, &fx);
+    if fix {
+        fs::copy(fx.join("stub-fix/bin/total"), w.join("impl/bin/total")).unwrap();
+    }
+    let state = w.join("pool-state");
+    let bin = w.join("pool-bin");
+    fs::create_dir_all(&state).unwrap();
+    fs::create_dir_all(&bin).unwrap();
+    let p = bin.join("slot");
+    fs::write(&p, POOL_SLOT).unwrap();
+    fs::set_permissions(&p, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    (w, state)
+}
+
+/// `sdc-bugfix <args>` in the case with the stand-in pool: `fake` the behaviour of every pool job,
+/// `env` further variables (no SDC_POOL_WAIT unless given).
+fn pool_run(name: &str, fix: bool, args: &[&str], fake: &str, env: &[(&str, &str)]) -> Pool {
+    let (w, state) = pool_case(name, fix);
+    let path = format!("{}:{}", w.join("pool-bin").display(), std::env::var("PATH").unwrap_or_default());
+    let t = std::time::Instant::now();
+    let mut c = Command::new(env!("CARGO_BIN_EXE_sdc-bugfix"));
+    for (k, _) in std::env::vars().filter(|(k, _)| k.starts_with("SDC_")) {
+        c.env_remove(k);
+    }
+    c.args(args)
+        .current_dir(&w)
+        .env("PATH", path)
+        .env("POOL_FAKE", fake)
+        .env("POOL_FAKE_DIR", &state)
+        .env("SDC_POOL_POLL", "0.2");
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    let o = c.output().unwrap();
+    let secs = t.elapsed().as_secs_f64();
+    eprintln!("pool-wait test {name} ({}): {secs:.1} s", args.join(" "));
+    let text = format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    Pool { code: o.status.code().unwrap_or(-1), text, secs, state }
+}
+
+#[test]
+fn a_job_that_never_starts_ends_every_bug_fix_step_with_69_and_is_cancelled() {
+    for step in ["repro-run", "tests-run", "gate-run"] {
+        let p = pool_run(&format!("never-{step}"), false, &[step], "never", &[("SDC_POOL_WAIT", "1")]);
+        assert_eq!(p.code, 69, "{step}: {}", p.text);
+        assert!(p.secs < 5.0, "{step}: took {} s", p.secs);
+        assert_eq!(p.cancelled(), "1", "{step}");
+        assert_eq!(p.jobs(), 1, "{step}: the command did not run twice or go on");
+        assert!(p.text.contains("pool-wait: job 1 was still queued"), "{step}: {}", p.text);
+        assert!(!p.text.contains("not red") && !p.text.contains("FAILED"), "{step}: no verdict about the code: {}", p.text);
+    }
+}
+
+#[test]
+fn a_queued_line_that_comes_late_does_not_make_the_job_started() {
+    // slot prints its `queued` line 4 s after it was started (a loaded machine). Being started is
+    // never inferred from a missing line, so the 1 s bound still applies once the line is there.
+    // The stand-in's job would stay queued 20 s, so a regression ends the test (with 0) soon.
+    let p = pool_run("late-line", false, &["repro-run"], "never",
+        &[("SDC_POOL_WAIT", "1"), ("POOL_FAKE_QUEUED_DELAY", "4"), ("POOL_FAKE_SLEEP", "20")]);
+    assert_eq!(p.code, 69, "{}", p.text);
+    assert_eq!(p.cancelled(), "1");
+    assert!(p.secs < 12.0, "took {} s", p.secs);
+}
+
+#[test]
+fn a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end() {
+    // 3.5 s of run time with a bound of 1 s: no queued line, so there is nothing to cancel.
+    let p = pool_run("immediate", false, &["repro-run"], "immediate", &[("SDC_POOL_WAIT", "1"), ("POOL_FAKE_DELAY", "3.5")]);
+    assert_eq!(p.code, 0, "{}", p.text);
+    assert_eq!(p.cancelled(), "");
+}
+
+#[test]
+fn the_option_sets_the_bound_and_the_environment_wins() {
+    let p = pool_run("opt", false, &["repro-run", "--pool-wait", "1"], "never", &[]);
+    assert_eq!(p.code, 69, "{}", p.text);
+    assert!(p.secs < 5.0, "took {} s", p.secs);
+    let p = pool_run("env-wins", false, &["repro-run", "--pool-wait", "600"], "never", &[("SDC_POOL_WAIT", "1")]);
+    assert_eq!(p.code, 69, "{}", p.text);
+    assert!(p.secs < 5.0, "took {} s", p.secs);
+    let p = pool_run("bad-bound", false, &["repro-run", "--pool-wait", "soon"], "never", &[]);
+    assert_eq!(p.code, 64, "{}", p.text);
+    assert_eq!(p.jobs(), 0);
+}
+
+#[test]
+fn a_job_the_pool_ends_at_its_run_limit_ends_the_step_with_70_and_no_verdict() {
+    for (step, bound) in [("repro-run", Some("10")), ("tests-run", None), ("gate-run", Some("10"))] {
+        let env: Vec<(&str, &str)> = bound.map(|b| ("SDC_POOL_WAIT", b)).into_iter().collect();
+        let p = pool_run(&format!("overtime-{step}"), false, &[step], "overtime", &env);
+        assert_eq!(p.code, 70, "{step}: {}", p.text);
+        assert!(p.text.contains("ran over its time"), "{step}: {}", p.text);
+        assert!(!p.text.contains("not red") && !p.text.contains("FAILED"), "{step}: {}", p.text);
+        assert_eq!(p.jobs(), 1, "{step}: the step stops at the first job");
+        assert_eq!(p.cancelled(), "", "{step}");
+    }
+}
+
+#[test]
+fn a_job_cancelled_while_still_queued_is_a_pool_wait() {
+    let p = pool_run("queued-cancel", false, &["repro-run"], "cancel-queued", &[("SDC_POOL_WAIT", "10")]);
+    assert_eq!(p.code, 69, "{}", p.text);
+    assert!(p.text.contains("cancelled while it was still queued"), "{}", p.text);
+}
+
+#[test]
+fn a_started_job_the_pool_cancels_is_the_commands_result_and_says_so() {
+    let p = pool_run("run-killed", false, &["repro-run"], "killed", &[("SDC_POOL_WAIT", "10")]);
+    assert_eq!(p.code, 1, "{}", p.text);
+    assert!(p.text.contains("cancelled by the pool while it ran"), "{}", p.text);
+    assert_eq!(p.cancelled(), "");
+}
+
+#[test]
+fn jobs_that_start_after_a_wait_inside_the_bound_give_the_old_results() {
+    let p = pool_run("late-red", false, &["repro-run"], "late", &[("SDC_POOL_WAIT", "10")]);
+    assert_eq!(p.code, 0, "{}", p.text);
+    assert!(p.text.contains("repro: red:"), "{}", p.text);
+    assert_eq!(p.jobs(), 2);
+    let p = pool_run("late-green", true, &["tests-run"], "late", &[("SDC_POOL_WAIT", "10")]);
+    assert_eq!(p.code, 0, "{}", p.text);
+    assert!(p.text.contains("tests: passed:"), "{}", p.text);
+    assert_eq!(p.cancelled(), "");
+    let p = pool_run("late-gate", true, &["gate-run"], "late", &[("SDC_POOL_WAIT", "10")]);
+    assert_eq!(p.code, 0, "{}", p.text);
+    assert!(p.text.contains("gate: ok     suite"), "{}", p.text);
+}
+
+#[test]
+fn one_bound_covers_every_job_of_a_step() {
+    // tests-run runs two jobs. The first waits 1.5 s, the second would wait 1.5 s more: the step's
+    // bound is 2 s, so the second is cancelled after 0.5 s and not given 2 s of its own.
+    let p = pool_run("shared", true, &["tests-run"], "late", &[("SDC_POOL_WAIT", "2"), ("POOL_FAKE_DELAY", "1.5")]);
+    assert_eq!(p.code, 69, "{}", p.text);
+    assert_eq!(p.cancelled(), "2");
+    assert_eq!(p.jobs(), 2);
+    assert!(p.secs < 15.0, "took {} s", p.secs);
+}
+
+#[test]
+fn without_a_bound_the_pool_is_plain_slot() {
+    let p = pool_run("unbounded", true, &["tests-run"], "late", &[("POOL_FAKE_DELAY", "0.3")]);
+    assert_eq!(p.code, 0, "{}", p.text);
+    assert_eq!(p.cancelled(), "");
+}
+
+/// What the three bindings that send commands through the pool say, in both formats: the wait
+/// bound in argv, and a limit that covers the wait bound, every run bound and the step's other
+/// work (docs/driver.md, "The build pool wait": wait + jobs x 600 + 600).
+#[test]
+fn the_bug_fix_bindings_name_the_wait_bound_and_a_limit_that_covers_it() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let read = |p: &str| fs::read_to_string(root.join(p)).unwrap();
+    let j: serde_json::Value = serde_json::from_str(&read("driver/examples/sdc/sdc-bugfix.bindings.json")).unwrap();
+    let y: serde_yaml::Value = serde_yaml::from_str(&read("bindings/sdc-bugfix.yaml")).unwrap();
+    // (action, pool jobs of the step: repro-run 2, tests-run 2, gate-run 4 of the rust detection row)
+    for (action, jobs) in [("repro.run", 2u64), ("tests.run", 2), ("gate.run", 4)] {
+        let ya = y["actions"].as_sequence().unwrap().iter().find(|a| a["action"] == action).unwrap();
+        let jargv: Vec<&str> = j[action]["argv"].as_array().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+        let yargv: Vec<&str> = ya["executor"]["argv"].as_sequence().unwrap().iter().map(|a| a.as_str().unwrap()).collect();
+        for argv in [&jargv, &yargv] {
+            let at = argv.iter().position(|a| *a == "--pool-wait").unwrap_or_else(|| panic!("{action}: no --pool-wait in {argv:?}"));
+            assert_eq!(argv[at + 1], "1200", "{action}");
+        }
+        let need = 1200 + jobs * 600 + 600;
+        assert_eq!(j[action]["timeout_s"].as_u64(), Some(need), "{action} JSON");
+        assert_eq!(ya["timeout_seconds"].as_u64(), Some(need), "{action} YAML");
+    }
+}
+
+/// The Loom form of the exits is a line of bindings/PENDING.md per binding, as for story and release.
+#[test]
+fn the_pending_list_gives_exits_69_and_70_for_the_three_bug_fix_bindings() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let pending = fs::read_to_string(root.join("bindings/PENDING.md")).unwrap();
+    for action in ["repro.run", "tests.run", "gate.run"] {
+        let line = pending
+            .lines()
+            .find(|l| l.starts_with("- `sdc-bugfix.bindings.json:") && l.contains(&format!("`{action}`")) && l.contains("69"))
+            .unwrap_or_else(|| panic!("no line of PENDING.md for sdc-bugfix {action} naming exit 69"));
+        assert!(line.contains("[69, 70, 75, 126, 127]"), "{line}");
+    }
+}
+}

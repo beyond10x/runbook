@@ -1,0 +1,203 @@
+---
+format: aep.planning-md/3
+id: story:pool-wait-is-not-a-failure
+kind: story
+status: active
+title: A step that waited for the build pool is not a failed test run
+summary: a test step that got no slot ends with exit 69, never as red tests and never with a model call; the wait is bounded apart from the run
+tags:
+- test-budget
+relations:
+- decomposes: epic:conductor-succession
+- informed_by: story:cycle-verdict-independent-of-slot-wait
+scope:
+- confidence: cited
+  path: bindings
+- confidence: cited
+  path: bindings/tools/sdc-tool.sh
+- confidence: cited
+  path: cycles/suite.yaml
+- confidence: cited
+  path: docs/driver.md
+- confidence: cited
+  path: driver/examples/sdc/fixtures/pool-wait
+- confidence: cited
+  path: driver/src/bin/sdc-bugfix.rs
+- confidence: cited
+  path: driver/src/bin/sdc-replay.rs
+- confidence: cited
+  path: driver/src/main.rs
+- confidence: cited
+  path: driver/src/run_metrics.rs
+- confidence: cited
+  path: driver/tests
+- confidence: cited
+  path: scripts/run-finding-cycles.sh
+- confidence: cited
+  path: scripts/run-trial.sh
+revision: 15
+transitions:
+- {from: "draft", to: "proposed", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 3, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
+- {from: "proposed", to: "active", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 4, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
+---
+# Story: pool-wait-is-not-a-failure
+
+## Outcome
+
+A test step that never got a slot in the shared build pool is not recorded as red tests, and no
+model is called to repair tests that never ran. It ends with its own exit, 69, which the driver and
+Loom map to a stop that says the pool gave no slot. The time a step may wait for the pool is bounded
+by the tool, apart from the time its commands may run, and the step's limit covers both.
+
+## Context
+
+On 2026-11-22 a registration run of release 0.3.0 reached `tests.run` while the pool had no free
+slot and 60 queued requests. Each of the step's two pool jobs waited about 15 minutes. The driver
+killed the step at its limit of 1800 s, which counts the queue wait, and recorded `exit: timeout`.
+The binding maps every other exit to `failed`, so the tree went on to `amend.upstream` and a paid
+`change.implement` call to repair tests that never ran. The release gate cycle `bugfix-full` ended
+`not_fixed` the same way earlier that day (`story:cycle-verdict-independent-of-slot-wait`).
+
+Two faults: a step that never got a slot is recorded like a failed test run, and the limit counts
+the wait. This story fixes both in the tool, the bindings and the driver, with the arithmetic in
+`docs/driver.md`, "The build pool wait".
+
+## Design
+
+- `bindings/tools/sdc-tool.sh` runs each pool command of `conform-run` and `impl-gate` through
+  `pool_run`: `slot` in the background, the job's id read from slot's own `queued` line, its state
+  read from `slot status`. A job still queued when the step's wait bound is spent is cancelled
+  (`slot cancel`) and the tool exits 69. One bound per step, shared by its pool commands through a
+  ledger file. The bound is the argv option `--pool-wait <seconds>` (the environment variable
+  `SDC_POOL_WAIT` wins, for tests); without either, no bound, as before.
+- The run bound stays the pool's (slot 0.22: 10 minutes of run time, or `slot --timeout <t>`, at most 30 minutes). The tool does not name
+  one: no binding needs more. A job the pool ends at its limit exits 124; the tool exits 70, "ran over its time", and the driver stops with `run_over_time` without a repeat.
+- The driver retries a step whose exit is 69 up to 3 attempts, records nothing, counts no run, and
+  then stops with the verdict `pool_wait_spent` (exit 5). Rejected: recording a result such as
+  `not_run`, which conflicts with the later real record and leaves `tests.run` unknown for Canon.
+- Loom: the tool exits 69 under Loom too. The loader the YAML follows (`8a8fad3b`) has no `exits`
+  member, so the YAML still maps 69 through `*` to `failed` until it has one; `exits: {error: [69,
+  75, 126, 127]}` then ends the run `ProgramError`, and Loom has no count of retries for an `error`
+  exit. Both are lines of `bindings/PENDING.md`.
+- `sdc-run-metrics` counts such takes as `pool_waits`, apart from `could_not_run` and the real takes.
+
+## Acceptance
+
+- With a stand-in `slot` that prints its `queued` line and never starts the job, `sdc-tool.sh
+  impl-gate` with a wait bound of 1 s exits 69 within 5 s, cancels the job and names the bound; no
+  test result is read.
+- With a stand-in `slot` that starts the job after a short wait and the job exits 0, `impl-gate`
+  exits 0 as before; when the job exits 101 it exits 1 as before.
+- With a stand-in `slot` that reports a job cancelled after it started (exit 130), `impl-gate`
+  exits 1 and its log names the pool's cancel; it does not exit 69. A job cancelled while still
+  queued exits 69.
+- The wait bound is one per step: when the first pool command of `story-tests-run` waited the whole
+  bound, the second is not started and the step exits 69.
+- `bindings/sdc-story.yaml` (`tests.run`), `bindings/sdc-release.yaml` (`acceptance.run`) and the
+  JSON bindings of the driver name `--pool-wait`, and each states a timeout of at least the wait
+  bound plus the run bounds of the step's pool commands plus 600 s, the arithmetic written in
+  `docs/driver.md`. The YAML cannot list exit 69 in `exits.error` while the loader it follows has no
+  `exits` member: the exit is a line of `bindings/PENDING.md` for both bindings.
+- `sdc-drive run` on a case whose `tests.run` tool exits 69 takes 3 attempts, records no evidence of
+  kind `conformance_run`, starts no second `change.implement`, and ends with the verdict
+  `pool_wait_spent` and exit 5 (finding cycle `pool-wait`).
+- With a stand-in `slot` whose job exits 124 after it started, `impl-gate` and `conform-run` exit 70 and not 1 or 69.
+- `sdc-run-metrics` reports a take with exit 69 under `pool_waits` and a take with exit 70 under `ran_over_time`, neither under `could_not_run`;
+  `scripts/run-trial.sh` ends such a run with cause `pool_wait_spent` and calls no `run.unstick`.
+
+## Out of scope, open
+
+- Loom never retries an `error` exit; a count of retries is a Loom story.
+- A bug-fix case whose `checks.yaml` has more than 4 gate commands needs a `gate.run` limit of its
+  own (the limit of the binding is for 4).
+
+## The bug-fix steps (2026-11-22)
+
+Observed in a full cycle run of 2026-11-22: `bugfix-not-red` had its test step killed at 1800 s
+while its job was queued, and `bugfix-full` ended as a load failure. `sdc-bugfix` (`repro-run`,
+`tests-run`, `gate-run`) sent each command of `checks.yaml` through `slot` itself, so the same fault
+was there: the wait counted as a failed run, and the limit counted the wait.
+
+Design. The steps cannot call the shell tool's `pool_run`: a step is one process with one pool job
+per command and file work between the jobs. One `pool_run` around the step would hold a slot
+through the copies and make the pool's run limit cover all commands together; a call of the shell
+tool per command would run its set-up inside the copy of the code tree. The logic is therefore
+ported to `driver/src/bin/sdc-bugfix.rs` with the same exits, option and environment names
+(`--pool-wait`, `SDC_POOL_WAIT`, `SDC_POOL_POLL`), and is held to the same stand-in `slot` cases.
+The driver gets no new rule.
+
+Acceptance:
+
+- With a stand-in `slot` that prints its `queued` line and never starts the job, `sdc-bugfix
+  repro-run`, `tests-run` and `gate-run` with a wait bound of 1 s exit 69 within 5 s, cancel the job,
+  run no second command and print no verdict about the code.
+- A job the pool ends at its run limit (exit 124) ends each of the three steps with 70 at its first
+  job, with no verdict about the code; a job cancelled while still queued is 69; a job cancelled
+  while it ran is the command's result with a log line that says so; the bound is one per step; a
+  job that starts after a wait inside the bound gives the old result; without a bound the pool is
+  plain `slot`.
+- `bindings/sdc-bugfix.yaml` and the JSON bindings name `--pool-wait 1200` for `repro.run`,
+  `tests.run` and `gate.run`, with limits 3000, 3000 and 4200 (wait bound + jobs x 600 + 600,
+  `docs/driver.md`); the three exits are lines of `bindings/PENDING.md`.
+- `sdc-drive run` on a bug-fix case whose `repro.run` tool exits 69 takes 3 attempts, records no
+  evidence, calls no `change.fix` and ends `pool_wait_spent` (finding cycle `bugfix-pool-wait`); at
+  exit 70 it ends `run_over_time` at once (finding cycle `bugfix-over-time`).
+
+## A start is never inferred from a missing line (2026-11-22)
+
+Observed in a full cycle run at a load average of about 100 (cycle `pool-wait`, step `impl-gate`):
+`pool_run` took a job as started when slot's `queued` line had not appeared within 3 s. The stand-in's
+line came later than that, the wait bound (1 s) was never applied, and the step waited for the
+stand-in's whole 600 s. With the real pool the same rule meant that a slow `slot` client made a queued
+job count as started, left its queue time unbounded and made the step's wait ledger wrong.
+
+Design. Being started is never inferred from the absence of a line within a time. `pool_run` (shell
+tool) and `pool_job` (`sdc-bugfix`, the same rule in Rust) read the error output for the `queued` line
+for as long as the job's process lives; once the id is known the state is read from `slot status`
+as before. A process that ends without ever printing the line was admitted at once: it is started, it
+waited nothing, and the ledger keeps what it was. Slot offers nothing better that is documented: the
+line is sent only for a job that has to wait (`crates/slot/src/server/mod.rs:1530-1537`, slot
+`3a0b985`; documented in `plugin/skills/building/SKILL.md:61-63`), the client prints no start line
+(the start frame at `crates/slot/src/client.rs:641` is internal), and there is no option, environment
+variable or id file that names the job's id. Exits 69 and 70 and the ledger of waited milliseconds
+keep their meaning.
+
+Acceptance:
+
+- With a stand-in `slot` that prints its `queued` line 4 s after it was started
+  (`POOL_FAKE_QUEUED_DELAY=4`) and never starts the job, `sdc-tool.sh impl-gate` and `sdc-bugfix
+  repro-run` with a wait bound of 1 s exit 69 and cancel the job, a few seconds after the line
+  appears and not after the job's own time (tests `a_queued_line_that_comes_late_does_not_make_the_job_started`
+  in `driver/tests/impl_gate.rs` and `driver/tests/bugfix_languages.rs`; the cycle `pool-wait` with
+  `POOL_FAKE_QUEUED_DELAY=4` in its environment).
+- A job that prints no `queued` line and runs 3.5 s with a bound of 1 s is not cancelled and ends
+  with the command's own exit (tests `a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end`).
+
+## The bound under a locale with a decimal comma (2026-11-22)
+
+Observed in two full cycle runs of the release head (cycle `pool-wait`, step `impl-gate`, run as a
+systemd user unit with `LANG=de_DE.UTF-8`): the stand-in's job ran its whole 600 s, nothing cancelled
+it, `cargo test` ended 0 with no output, `tests.run` stopped with exit 126 and the cycle script died on
+`jq: parse error` of the text `sdc-drive` printed. The cycle passed in a terminal with `en_US`.
+
+Cause. `now_ms` in `bindings/tools/sdc-tool.sh` split bash's `EPOCHREALTIME` at a point. Under a locale
+with a decimal comma the variable reads `1795346493,227523`, the split found no point and the
+arithmetic gave noise (227 for the whole clock), so `pool_run` never saw the 1 s bound pass. Neither
+`sleep` nor `awk` is affected. The earlier start-race fix was right and did not touch this.
+
+Fixed: the comma is put back to a point before the split. The stand-in `fixtures/pool-wait/slot` keeps
+a queued job 30 s by default (it was 600 s), and `scripts/run-full-cycle.sh` reports the program and
+its first line when `sdc-drive run` prints no JSON.
+
+Acceptance:
+
+- With `LC_ALL=de_DE.UTF-8`, a job that never starts is cancelled and the step exits 69 within the
+  test's 12 s (test `the_bound_holds_under_a_locale_with_a_decimal_comma` in
+  `driver/tests/impl_gate.rs`; it says it was skipped on a host without that locale). The cycle
+  `pool-wait` run as a systemd user unit passes in 14 s.
+- The stand-in's default time is at most 30 s (test
+  `the_cycle_stand_in_keeps_a_queued_job_at_most_30_s_by_default`).
+- A round whose `sdc-drive run` prints text ends with "`sdc-drive run` printed no JSON (exit N); its
+  first line: ..." and exit 5 (test `a_run_that_prints_no_json_is_reported_with_the_program_and_its_first_line`).
+- Not covered: `scripts/check-protocols.sh` reads `EPOCHREALTIME` for its timings too; under a decimal
+  comma its durations lose their fractions, which gates nothing.

@@ -7,14 +7,48 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the CI change classifier and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier, the ESS specification and its generated output and the planning store.
+    deps:
+      - test:driver
+      - test:ui
     cmds:
       - task: check:ci-paths
+      - task: check:ess-generated
       - task: check:cycles-suite
-      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - task: check:protocols
+      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - for c in watch goals runbook; do (cd "$c" && cargo test --locked) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
+
+  test:ui:
+    dir: ui
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
+    cmds:
+      - '[ -d node_modules ] || npm ci --no-audit --no-fund'
+      - slot npx playwright test --workers=4
+
+  test:driver:
+    silent: true
+    dir: driver
+    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. Needs cargo-nextest."
+    cmds:
+      - cargo nextest run --locked --no-run
+      - |
+        set -u
+        log=target/nextest-driver.log
+        code=0
+        cargo nextest run --locked > "$log" 2>&1 || code=$?
+        cat "$log"
+        echo "ten slowest tests:"
+        awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
+        secs=$(sed -n 's/^ *Summary \[ *\([0-9.]*\)s\].*/\1/p' "$log" | tail -1)
+        budget=${SDC_TEST_BUDGET_SECONDS:-120}
+        if [ -z "$secs" ]; then echo "no nextest summary: the test run did not finish"; exit 1; fi
+        if awk -v s="$secs" -v b="$budget" 'BEGIN { exit !(s > b) }'; then echo "the test run took ${secs}s, over the ${budget}s budget"; exit 1; fi
+        echo "test run ${secs}s of ${budget}s"
+        exit $code
 
   check:ci-paths:
     silent: true
@@ -64,33 +98,34 @@ tasks:
         exit $fail
 
   check:cycles-suite:
-    silent: true
-    desc: "Hold cycles/suite.yaml equal to the expected and pending arrays of scripts/run-finding-cycles.sh: same cycle ids, same state, no duplicate id (state unlisted: a cycle the script runs outside both arrays, not compared)."
+    desc: "Run `runbook check` on this checkout (RUNBOOK_HOME overrides the root): the text layout, bindings, instruction files, views, and cycles/suite.yaml against the expected and pending arrays of scripts/run-finding-cycles.sh."
     cmds:
-      - |
-        set -eu
-        script=scripts/run-finding-cycles.sh
-        suite=${CYCLES_SUITE:-cycles/suite.yaml}
-        want=$(grep -Pzo '(?:expected|pending)\+?=\([^)]*\)' "$script" | tr '\0' '\n' | awk '
-          /^(expected|pending)\+?=\(/ { st = ($0 ~ /^pending/) ? "pending" : "expected"; sub(/^[a-z]+\+?=\(/, ""); open = 1 }
-          open { line = $0; done = (line ~ /\)/); sub(/\).*/, "", line); n = split(line, w, " "); for (i = 1; i <= n; i++) print w[i] " " st; if (done) open = 0 }
-        ' | sort)
-        got=$(yq '.cycles[] | select(.state != "unlisted") | .id + " " + .state' "$suite" | sort)
-        dup=$(yq '.cycles[].id' "$suite" | sort | uniq -d)
-        test -n "$want" || { echo "no cycle arrays found in $script"; exit 1; }
-        fail=0
-        missing=$(printf '%s\n' "$want" | grep -vxF "$got" || true)
-        extra=$(printf '%s\n' "$got" | grep -vxF "$want" || true)
-        if [ -n "$missing" ]; then echo "in $script, not in $suite (id state):"; echo "$missing"; fail=1; fi
-        if [ -n "$extra" ]; then echo "in $suite, not in $script (id state):"; echo "$extra"; fail=1; fi
-        if [ -n "$dup" ]; then echo "duplicate ids in $suite:"; echo "$dup"; fail=1; fi
-        echo "$(printf '%s\n' "$want" | wc -l) cycles in the script, $(printf '%s\n' "$got" | wc -l) in the suite"
-        exit $fail
+      - cd runbook && cargo build --locked --quiet --bin runbook
+      - RUNBOOK_HOME="${RUNBOOK_HOME:-$PWD}" runbook/target/debug/runbook check
+
+  check:ess-generated:
+    desc: Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output is current.
+    cmds:
+      - ess specify validate --path ess
+      - ess generate --path ess --kind schema --schema-id-base https://sdc.invalid/ --out ess/generated/schema --check
+      - ess generate --path ess --kind openapi --out ess/generated/openapi --check
+
+  cycles:only:
+    desc: "Run only the named finding cycles: task cycles:only SCRATCH=<dir> NAMES=<name>[,<name>...]. Passes them to scripts/run-finding-cycles.sh --only (docs/cycles-suite.md, \"Running named cycles\"): a cycle that reads an earlier one runs that one too, the verdict line says how many were selected, exit 2 on an unknown name."
+    requires:
+      vars: [SCRATCH, NAMES]
+    cmds:
+      - scripts/run-finding-cycles.sh "{{.SCRATCH}}" --only "{{.NAMES}}"
 
   check:protocols:
-    desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).
+    desc: Validate, compile, check, probe and simulate the nine protocols from protocol/check-ledger.json (fast lane, 120 s budget; re-checks a protocol whose sources changed).
     cmds:
       - scripts/check-protocols.sh
+
+  check:protocols:slow:
+    desc: Re-run every protocol check for real and compare the ledger byte for byte (slow lane; run it in the background when the protocols, the Canon pin or the script changed).
+    cmds:
+      - scripts/check-protocols.sh --slow
 
   docs:generate:
     desc: Write the site's protocol data, website/data/protocols/, from the protocols and their bindings.
@@ -129,12 +164,13 @@ tasks:
       vars: [VERSION]
     cmds:
       - |
-        for f in driver/Cargo.toml watch/Cargo.toml goals/Cargo.toml; do
+        for f in driver/Cargo.toml watch/Cargo.toml goals/Cargo.toml runbook/Cargo.toml; do
           grep -qx 'version = "{{.VERSION}}"' "$f" || { echo "$f is not at {{.VERSION}}"; exit 1; }
         done
         for f in driver/Cargo.lock watch/Cargo.lock goals/Cargo.lock; do
           grep -A1 '^name = "sdc-' "$f" | grep -qx 'version = "{{.VERSION}}"' || { echo "$f is not at {{.VERSION}}"; exit 1; }
         done
+        grep -A1 '^name = "runbook"$' runbook/Cargo.lock | grep -qx 'version = "{{.VERSION}}"' || { echo "runbook/Cargo.lock is not at {{.VERSION}}"; exit 1; }
         grep -q '"version": "{{.VERSION}}"' ui/package.json || { echo "ui/package.json is not at {{.VERSION}}"; exit 1; }
         for f in plugin/.claude-plugin/plugin.json plugin/.codex-plugin/plugin.json; do
           grep -q '"version": "{{.VERSION}}"' "$f" || { echo "$f is not at {{.VERSION}}"; exit 1; }

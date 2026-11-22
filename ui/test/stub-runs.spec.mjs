@@ -3,7 +3,7 @@
 // programs, then told apart by what they say about their program: two real (run-settings.jsonl adapter
 // metaharness; an older one with llm-calls.jsonl naming a model and no settings), two stub (adapter
 // llm-adapter-fixture.sh; dry llm-calls.jsonl lines only). Served by a server of its own over the
-// runs directory on port 7534 (SDC_UI_STUB_PORT); the last two tests run in the operator tile (805x1270,
+// runs directory (a port the kernel gives); the last two tests run in the operator tile (805x1270,
 // a desktop window) and at the gating phone size 390x844 as a phone (touch, coarse pointer).
 // Screenshots: screenshots/<project>-stub-run.png, screenshots/805x1270-stub-run.png, screenshots/390x844-stub-run.png.
 import {test, expect} from '@playwright/test';
@@ -12,14 +12,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 import {phone} from '../ux/adapter.mjs';
 import {horizontalOverflow, smallTargets, smallText} from '../ux/core/phone.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'programs');
-const port = Number(process.env.SDC_UI_STUB_PORT || 7534);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const NOTE = "stub run: canned content, not a model's work";
 const HEAD = 'Stub and fixture runs (no model calls)';
 const procs = [];
@@ -40,7 +40,7 @@ test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); }
 
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   needRun(fixtureSource('person'), 'stub-runs.spec.mjs (fixture source)', test);
   fs.rmSync(runs, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
@@ -53,9 +53,7 @@ test.beforeAll(async ({}, info) => {
     const t = new Date(Date.now() - r.ago * 60000);
     for (const p of [dir, path.join(dir, 'store'), ...Object.keys(r.files).map((f) => path.join(dir, f))]) fs.utimesSync(p, t, t);
   }
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_STUB_PORT`);
-  procs.push(spawn(process.execPath, ['server.mjs', '--port', String(port), '--runs', runs], {cwd: ui, stdio: 'ignore'}));
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  { const s = await startServer(['--runs', runs]); base = s.url; procs.push(s.proc); }
   sources = await (await fetch(base + '/api/sources')).json();
 });
 

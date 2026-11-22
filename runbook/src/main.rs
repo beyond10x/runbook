@@ -1,12 +1,15 @@
-//! `runbook`: the one command for running a runbook. This version has `doctor` and `list`;
+//! `runbook`: the one command for running a runbook. This version has `doctor`, `list` and `check`;
 //! `run`, `ui` and `handback` come in later versions and are not stubbed here.
 
 mod assets;
+mod check;
 mod doctor;
 mod list;
+mod parity;
 
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
@@ -33,6 +36,57 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Check the text of a runbook under the asset root (layout, bindings, instruction files, views, cycles list); exit 1 on any finding.
+    Check {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
+    Parity {
+        #[command(subcommand)]
+        cmd: ParityCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum ParityCmd {
+    /// Write the runtime-neutral summary (`runbook.parity-summary/1`) of a finished run: of the old
+    /// driver (`--driver` and `--store`) or of Loom (`--loom-status`).
+    Summarize {
+        /// The run directory the scripts wrote (`runs/<name>`).
+        #[arg(long, value_name = "DIR", requires = "store", conflicts_with = "loom_status", required_unless_present = "loom_status")]
+        driver: Option<PathBuf>,
+        /// The case store of the run (the directory that holds the root case).
+        #[arg(long, value_name = "DIR", requires = "driver")]
+        store: Option<PathBuf>,
+        /// A file holding the JSON `b10x-loom tree status` printed (format `loom.tree-status/1`).
+        #[arg(long, value_name = "FILE")]
+        loom_status: Option<PathBuf>,
+        /// The product tree of a Loom run; the status's `workspace` when not given.
+        #[arg(long, value_name = "DIR", requires = "loom_status")]
+        product_tree: Option<PathBuf>,
+        /// Write the summary here instead of to standard output.
+        #[arg(long, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+    /// Compare two summaries: exit 0 and one line when equal, exit 1 and one line per difference otherwise.
+    Compare {
+        /// Print the table of what is compared and how, and exit.
+        #[arg(long)]
+        rules: bool,
+        /// Also compare the sha256 of every product file.
+        #[arg(long)]
+        product_digests: bool,
+        #[arg(required_unless_present = "rules")]
+        a: Option<PathBuf>,
+        #[arg(required_unless_present = "rules")]
+        b: Option<PathBuf>,
+    },
+    /// Print the person steps of a run in order, as JSON: the `tree approve` calls a second runtime must make.
+    Approvals {
+        summary: PathBuf,
+    },
 }
 
 const USAGE_ERROR: u8 = 64;
@@ -49,6 +103,90 @@ fn main() -> ExitCode {
     match cli.cmd {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
+        Cmd::Check { json } => check_cmd(json),
+        Cmd::Parity { cmd } => parity_cmd(cmd),
+    }
+}
+
+/// Exit 2 is an error (unreadable input); exit 1 is a difference.
+fn parity_cmd(cmd: ParityCmd) -> ExitCode {
+    let fail = |e: String| {
+        eprintln!("runbook parity: {e}");
+        ExitCode::from(2)
+    };
+    match cmd {
+        ParityCmd::Summarize { driver, store, loom_status, product_tree, output } => {
+            let source = match (driver, store, loom_status) {
+                (Some(run), Some(store), None) => parity::Source::Driver { run, store },
+                (None, None, Some(status)) => parity::Source::Loom { status, product_tree },
+                _ => return ExitCode::from(USAGE_ERROR),
+            };
+            let v = match parity::read(&source) {
+                Ok(v) => v,
+                Err(e) => return fail(e),
+            };
+            let text = serde_json::to_string_pretty(&v).unwrap() + "\n";
+            match output {
+                Some(p) => {
+                    if let Err(e) = std::fs::write(&p, text) {
+                        return fail(format!("{}: {e}", p.display()));
+                    }
+                    println!("summary: {}", parity::counts(&v));
+                }
+                None => print!("{text}"),
+            }
+            ExitCode::SUCCESS
+        }
+        ParityCmd::Compare { rules: true, .. } => {
+            print!("{}", parity::rules_text());
+            ExitCode::SUCCESS
+        }
+        ParityCmd::Compare { product_digests, a: Some(a), b: Some(b), .. } => {
+            let (a, b) = match (parity::load(&a), parity::load(&b)) {
+                (Ok(a), Ok(b)) => (a, b),
+                (Err(e), _) | (_, Err(e)) => return fail(e),
+            };
+            let diffs = parity::compare(&a, &b, &parity::Options { product_digests });
+            let notes = parity::not_recorded_notes(&a, &b);
+            if diffs.is_empty() {
+                let what = if notes.is_empty() { "equal" } else { "equal on what both sides record" };
+                println!("{what}: {}", parity::counts(&a));
+                notes.iter().for_each(|n| println!("{n}"));
+                ExitCode::SUCCESS
+            } else {
+                diffs.iter().chain(&notes).for_each(|d| println!("{d}"));
+                ExitCode::from(1)
+            }
+        }
+        ParityCmd::Compare { .. } => ExitCode::from(USAGE_ERROR),
+        ParityCmd::Approvals { summary } => match parity::load(&summary) {
+            Ok(v) => {
+                println!("{}", serde_json::to_string_pretty(&parity::approvals(&v)).unwrap());
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(e),
+        },
+    }
+}
+
+fn check_cmd(json: bool) -> ExitCode {
+    let assets = match assets::Lookup::from_process().locate() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("runbook check: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let report = check::run(&assets.root);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&check::json(&report)).unwrap());
+    } else {
+        print!("{}", check::text(&report));
+    }
+    if report.ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
     }
 }
 

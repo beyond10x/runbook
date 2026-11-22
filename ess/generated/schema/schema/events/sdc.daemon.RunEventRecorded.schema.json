@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.RunEventRecorded.schema.json",
+  "title": "RunEventRecorded payload",
+  "x-ess-name": "sdc.daemon.RunEventRecorded",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "$ref": "#/$defs/sdc.daemon.EventId"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "sequence": {
+      "type": "integer"
+    },
+    "position": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "event_id",
+    "run_id",
+    "sequence",
+    "position"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:0834df9a9ecbada1808b9c4a438330b6941bd145bda781b0c16bc22333168f59",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.EventId": {
+      "title": "EventId",
+      "description": "The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.",
+      "x-ess-name": "sdc.daemon.EventId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.ActionId.schema.json",
+  "$ref": "#/$defs/sdc.decision.ActionId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:793baca227b178e773b9bf6462c6168d982a1e0e2296f7a9469b47ed13287d88",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ActionId": {
+      "title": "ActionId",
+      "description": "A protocol action id, such as roadmap.approve.",
+      "x-ess-name": "sdc.decision.ActionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

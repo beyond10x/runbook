@@ -374,7 +374,10 @@ fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value()
 fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
     ess();
     let run = run_dir("capture-missing", "spec");
-    let t = write_table(run.parent().unwrap(), "t.json", &token_table("token-silent", true));
+    let mut silent = token_table("token-silent", true);
+    // the product never prints the token: each of the 7 scenarios x 2 runs waits the capture out
+    silent["captures"][0]["timeout_s"] = json!(1);
+    let t = write_table(run.parent().unwrap(), "t.json", &silent);
     let (o, d) = observe(&run, &t, &[]);
     assert!(o.status.success(), "{}", says(&o));
     let c = &d["conformance"];
@@ -843,4 +846,41 @@ fn the_start_command_is_one_the_delivered_readme_or_manifest_states() {
     t["commands"][0]["request"]["headers"] = json!({"x-debug": "1"});
     let (ok, v) = check_in(&dir, "spec", &t, &demo);
     assert!(!ok && v["problems"].to_string().contains("x-debug is what README.md line 4 describes as a test, demo or mock mode"), "{v}");
+}
+
+/// Whether process `pid` still runs (a zombie does not: nothing of it serves any more).
+fn alive(pid: &str) -> bool {
+    fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.rsplit(')').next().is_some_and(|t| t.trim_start().split(' ').next() != Some("Z")))
+}
+
+/// The product of a killed adapter does not stay: its parent (a shell here, standing for the
+/// adapter) is killed with SIGKILL, so no destructor runs, and the stub must be gone within 5 s.
+#[test]
+fn the_stub_product_ends_when_its_parent_is_killed() {
+    use std::io::{BufRead, BufReader};
+    let dir = tmp("orphan-stub");
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port().to_string();
+    let mut parent = Command::new("sh")
+        .args(["-c", "\"$0\" \"$@\" & echo $!; wait"]).arg(stub()).args([port.as_str(), dir.to_str().unwrap(), "ok"])
+        .stdout(std::process::Stdio::piped()).spawn().unwrap();
+    let mut pid = String::new();
+    BufReader::new(parent.stdout.take().unwrap()).read_line(&mut pid).unwrap();
+    let pid = pid.trim().to_string();
+    let listening = |port: &str| std::net::TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap())).is_ok();
+    let up = std::time::Instant::now();
+    while !listening(&port) && up.elapsed().as_secs() < 5 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(listening(&port) && alive(&pid), "the stub did not start");
+    parent.kill().unwrap();
+    parent.wait().unwrap();
+    let killed = std::time::Instant::now();
+    while alive(&pid) && killed.elapsed().as_secs() < 5 {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let left = alive(&pid);
+    if left {
+        let _ = Command::new("kill").args(["-s", "KILL", "--", &pid]).status();
+    }
+    assert!(!left, "the stub product {pid} still runs 5 s after its parent was killed");
 }

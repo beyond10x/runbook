@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::OnceLock;
+use sha2::{Digest, Sha256};
 
 use serde_json::{json, Value};
 
@@ -231,11 +231,55 @@ fn copy_dir(from: &Path, to: &Path) {
 /// `schema` property, so the generated closed schema is given that one property.
 const SCHEMA_ID: &str = "https://sdc.invalid/entities/sdc.decision.DecisionRequest.schema.json";
 
-/// The schemas of `ess/domains/decision.yaml`, generated once for the test binary.
-fn schemas() -> &'static Path {
-    static DIR: OnceLock<PathBuf> = OnceLock::new();
-    DIR.get_or_init(|| {
-        let dir = scratch("schemas");
+fn hash_tree(dir: &Path, h: &mut Sha256) {
+    let mut entries: Vec<_> = fs::read_dir(dir).unwrap().flatten().map(|e| e.path()).collect();
+    entries.sort();
+    for p in entries {
+        h.update(p.file_name().unwrap().to_string_lossy().as_bytes());
+        if p.is_dir() {
+            hash_tree(&p, h);
+        } else {
+            h.update(fs::read(&p).unwrap());
+        }
+    }
+}
+
+/// The schemas of `ess/domains/decision.yaml`, generated once per test run: a cache on disk under
+/// `target/`, keyed by the digest of the specification's files and the `ess` version. Each test
+/// is its own process under cargo-nextest, so the build goes to a private directory and is
+/// renamed into place; the process that loses the rename uses the winner's directory.
+fn schemas() -> PathBuf {
+    let mut h = Sha256::new();
+    hash_tree(&manifest().join("../ess"), &mut h);
+    let version = Command::new("ess").arg("--version").output().expect("ess is on PATH");
+    h.update(&version.stdout);
+    let key: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let cache = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("decision-request-schemas");
+    let ready = cache.join(&key);
+    if ready.join("schema").is_dir() {
+        return ready.join("schema");
+    }
+    // Under plain `cargo test` the tests are threads of one process: one builds, the others wait
+    // for it and find the schemas in place (the build directory is named by the process).
+    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
+    if ready.join("schema").is_dir() {
+        return ready.join("schema");
+    }
+    fs::create_dir_all(&cache).unwrap();
+    let build = cache.join(format!("{key}.build-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&build);
+    fs::create_dir_all(&build).unwrap();
+    build_schemas(&build);
+    if fs::rename(&build, &ready).is_err() {
+        let _ = fs::remove_dir_all(&build);
+    }
+    assert!(ready.join("schema").is_dir(), "{} was not built", ready.display());
+    ready.join("schema")
+}
+
+fn build_schemas(dir: &Path) {
+    {
         let generated = Command::new("ess")
             .args(["generate", "--path"])
             .arg(manifest().join("../ess"))
@@ -246,7 +290,7 @@ fn schemas() -> &'static Path {
                 "https://sdc.invalid/",
                 "--out",
             ])
-            .arg(&dir)
+            .arg(dir)
             .output()
             .expect("ess is on PATH");
         assert!(
@@ -260,8 +304,7 @@ fn schemas() -> &'static Path {
         assert_eq!(schema["additionalProperties"], false);
         schema["properties"]["schema"] = json!({"const": SCHEMA_ID});
         fs::write(&schema_file, serde_json::to_vec_pretty(&schema).unwrap()).unwrap();
-        dir.join("schema")
-    })
+    }
 }
 
 fn validate(instance: &Value, name: &str) -> (i32, String) {

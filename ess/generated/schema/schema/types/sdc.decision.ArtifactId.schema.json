@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.ArtifactId.schema.json",
+  "$ref": "#/$defs/sdc.decision.ArtifactId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:6832b7cf16faf45578e4cf6ed6c6ea401530c168209b02947a38fa14e2d5ef43",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ArtifactId": {
+      "title": "ArtifactId",
+      "description": "A case artifact id (canon-case/1 artifacts key), such as roadmap.",
+      "x-ess-name": "sdc.decision.ArtifactId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

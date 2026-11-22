@@ -1,0 +1,149 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-decision-is-answered-and-the-run-resumes
+summary: "A run stops on a decision and waits; the runtime raises the request; the run cannot resume while it is open; a client answers it; the run resumes and ends."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:02:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.RequestDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-0"
+      run_id: "run-1"
+      question: "Merge the change?"
+      case_id: "IDEA-1"
+      action: "merge"
+      capability: "change.merge"
+      options:
+        - letter: "A"
+          does: "Grant change.merge."
+          cost: "None beyond the merge."
+          consequence: {admits: ["change.merge"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny change.merge."
+          cost: "The run ends as refused."
+          consequence: {admits: [], blocks: ["change.merge"], grant: denied, produces: canon_authority}
+      at: 2026-11-22T10:03:00Z
+    outcome: run-not-waiting
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.WaitOnDecision
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+    outcome: waiting
+    events:
+      - event: sdc.daemon.RunWaiting
+        payload:
+          run_id: "run-1"
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.RequestDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+      run_id: "run-1"
+      question: "Merge the change?"
+      case_id: "IDEA-1"
+      action: "merge"
+      capability: "change.merge"
+      options:
+        - letter: "A"
+          does: "Grant change.merge."
+          cost: "None beyond the merge."
+          consequence: {admits: ["change.merge"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny change.merge."
+          cost: "The run ends as refused."
+          consequence: {admits: [], blocks: ["change.merge"], grant: denied, produces: canon_authority}
+      at: 2026-11-22T10:05:00Z
+    outcome: requested
+    events:
+      - event: sdc.daemon.DecisionRequested
+        payload:
+          request_id: "dr-1"
+          run_id: "run-1"
+
+  - at: 2026-11-22T10:06:00Z
+    command: sdc.daemon.ResumeRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+    outcome: still-open
+
+  - at: 2026-11-22T10:07:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      request_id: "dr-1"
+      answer: "A"
+      answered_by: "operator"
+      at: 2026-11-22T10:07:00Z
+    outcome: answered
+    events:
+      - event: sdc.daemon.DecisionAnswered
+        payload:
+          request_id: "dr-1"
+          run_id: "run-1"
+          answered_by: "operator"
+
+  - at: 2026-11-22T10:08:00Z
+    command: sdc.daemon.ResumeRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+    outcome: resumed
+    events:
+      - event: sdc.daemon.RunResumed
+        payload:
+          run_id: "run-1"
+
+  - at: 2026-11-22T10:09:00Z
+    command: sdc.daemon.EndRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      outcome: "delivered"
+      at: 2026-11-22T10:09:00Z
+    outcome: ended
+
+assert:
+  - view: sdc.daemon.DecisionsOfRun
+    params: {run_id: "run-1"}
+    contains: {request_id: "dr-1", state: Answered, answer: "A", answered_by: "operator"}
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-1", state: Ended, outcome: "delivered"}

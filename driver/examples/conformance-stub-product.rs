@@ -69,6 +69,16 @@ fn main() {
     }
     let port: u16 = args[0].parse().unwrap();
     let l = TcpListener::bind(("127.0.0.1", port)).unwrap();
+    // The adapter that started this stub kills it when it ends by itself, and not when a signal
+    // kills the adapter (sdc-conform-adapter.rs, `Product`). Then the stub's parent changes: it
+    // exits within a second of that, so a killed run leaves no server behind.
+    let parent = std::os::unix::process::parent_id();
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        if std::os::unix::process::parent_id() != parent {
+            std::process::exit(0);
+        }
+    });
     // `token`: a secret minted at start, printed on stdout, required as the header `x-token` and as
     // the board code; `token-silent` mints it and prints nothing.
     let token = mode.starts_with("token").then(|| format!("tok{port}x{}", std::process::id()));

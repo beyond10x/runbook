@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.DecisionRequest.schema.json",
+  "title": "DecisionRequest",
+  "description": "A question a waiting run raised, as a mirror of the runtime's decision request: the daemon copies id, case, action, capability, question and options from the runtime's record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook's decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request whose run was cancelled is Withdrawn: it stays on record, shows no more as open, and takes no answer.",
+  "x-ess-name": "sdc.daemon.DecisionRequest",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.daemon.DecisionRequestId"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "x-ess-relation": {
+        "name": "decision_requests",
+        "kind": "owns",
+        "source": "sdc.daemon.Run",
+        "target": "sdc.daemon.DecisionRequest",
+        "cardinality": "many",
+        "via": "run_id"
+      }
+    },
+    "case_id": {
+      "description": "The case the runtime opened the request for.",
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "capability": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sdc.decision.DecisionOption"
+      }
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "answer": {
+      "description": "The option letter, or the free text for a question that takes one; present once Answered.",
+      "type": "string"
+    },
+    "answered_by": {
+      "$ref": "#/$defs/sdc.decision.Principal"
+    },
+    "answered_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.DecisionRequest.State"
+    }
+  },
+  "required": [
+    "request_id",
+    "run_id",
+    "case_id",
+    "action",
+    "capability",
+    "question",
+    "options",
+    "opened_at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:bfe822adbfe1ed5c090be52005d33beff11e441809da8ba8d01acc38f10a5999",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionRequest.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.DecisionRequest.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Answered",
+        "Open",
+        "Withdrawn"
+      ]
+    },
+    "sdc.daemon.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ActionId": {
+      "title": "ActionId",
+      "description": "A protocol action id, such as roadmap.approve.",
+      "x-ess-name": "sdc.decision.ActionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Consequence": {
+      "title": "Consequence",
+      "description": "What choosing the option does to the protocol.",
+      "x-ess-name": "sdc.decision.Consequence",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "admits": {
+          "description": "Actions that become admissible.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "blocks": {
+          "description": "Actions that become blocked.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "grant": {
+          "$ref": "#/$defs/sdc.decision.Grant",
+          "description": "The authority entry the option writes, for an approval."
+        },
+        "answer": {
+          "description": "The answer written to questions.yaml, for a question.",
+          "type": "string"
+        },
+        "produces": {
+          "$ref": "#/$defs/sdc.decision.ProducedDocument",
+          "description": "The kind of Canon record the option produces when decided; absent when it produces none, such as 'leave it untaken' on an outcome request. Only a decided option that produces a record goes through RecordProduced before the run resumes."
+        }
+      },
+      "required": [
+        "admits",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.DecisionOption": {
+      "title": "DecisionOption",
+      "description": "One option of a decision request.",
+      "x-ess-name": "sdc.decision.DecisionOption",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "letter": {
+          "$ref": "#/$defs/sdc.decision.OptionLetter"
+        },
+        "does": {
+          "description": "What the option does, one sentence.",
+          "type": "string"
+        },
+        "cost": {
+          "description": "What it costs: work, time, scope or risk.",
+          "type": "string"
+        },
+        "consequence": {
+          "$ref": "#/$defs/sdc.decision.Consequence"
+        }
+      },
+      "required": [
+        "letter",
+        "does",
+        "cost",
+        "consequence"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.Grant": {
+      "title": "Grant",
+      "description": "A canon-authority/1 decision (documents.md:123-132).",
+      "x-ess-name": "sdc.decision.Grant",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied"
+      ]
+    },
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.ProducedDocument": {
+      "title": "ProducedDocument",
+      "description": "The Canon record a decided request produced. canon_authority: an AuthorityDecision entry bound to the case revision (approval). canon_decisions: an ExplicitDecision entry (outcome). canon_evidence: the approval evidence a manual action produced (context_approval, vision_approval, roadmap_approval). artifact_revision: the new revision of questions.yaml holding the answer (question).",
+      "x-ess-name": "sdc.decision.ProducedDocument",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "canon_authority",
+        "canon_decisions",
+        "canon_evidence",
+        "artifact_revision"
+      ]
+    }
+  }
+}

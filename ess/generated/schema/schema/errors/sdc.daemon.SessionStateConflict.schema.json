@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.SessionStateConflict.schema.json",
+  "title": "SessionStateConflict payload",
+  "description": "The session is not in a state this command acts from, so nothing moved.",
+  "x-ess-name": "sdc.daemon.SessionStateConflict",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e9c67705562121cb77cab754dbdb68bfe2e01d3cbd857cb67544181c615d7bed",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

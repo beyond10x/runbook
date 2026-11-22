@@ -224,6 +224,14 @@ impl Adapter {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            // The product is its own process group so that `Drop for Product` can kill it and
+            // whatever it started with one `kill -- -pid`. Drop runs only when this adapter ends
+            // by itself (stdin closed, end of the scenario, an error return). A signal (the
+            // 60 s kill of a test, `run_bounded`'s kill of ess, ess's own timeout) ends the adapter
+            // with no destructor, and the own group keeps a kill of the test's group from
+            // reaching the product: it would run on, holding its port. A product that must not
+            // outlive the adapter has to watch its parent; the stub product does
+            // (examples/conformance-stub-product.rs, tests/conformance.rs).
             .process_group(0)
             .spawn()
             .map_err(|e| Fail::Start(format!("cannot start {}: {e}", prog.display())))?;

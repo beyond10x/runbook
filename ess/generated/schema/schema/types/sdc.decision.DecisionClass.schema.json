@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.DecisionClass.schema.json",
+  "$ref": "#/$defs/sdc.decision.DecisionClass",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:cccfd023d5587695709cd0dc4efb6eeb4d2d540ba1136857255af62e1fdfd488",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionClass": {
+      "title": "DecisionClass",
+      "description": "The decision classes of docs/autonomy-levels.md:244-257, one row each, named as the keys of sdc.decision-classes/1 (:398-413). In Loom a class is an identifier validated against the host's classes document; budget_overrun and limit_hit are Loom built-ins. escalation names the row that gives a request's holder after Escalate; Request refuses it as a class of a new request.",
+      "x-ess-name": "sdc.decision.DecisionClass",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "scope_changing_answer",
+        "context",
+        "vision",
+        "roadmap",
+        "spec_acceptance",
+        "story_activation",
+        "code_review",
+        "merge",
+        "release",
+        "rollback",
+        "close",
+        "budget_overrun",
+        "limit_hit",
+        "escalation"
+      ]
+    }
+  }
+}

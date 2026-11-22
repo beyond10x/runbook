@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ContextPath.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ContextPath",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:0d78843cadcb2c2dae9fe464cb2bb114587c9ec38d58bbf21fc32b172157ab32",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ContextPath": {
+      "title": "ContextPath",
+      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.",
+      "x-ess-name": "sdc.daemon.ContextPath",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

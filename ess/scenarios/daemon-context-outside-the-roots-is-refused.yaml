@@ -1,0 +1,66 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-context-outside-the-roots-is-refused
+summary: "A context outside every context root is refused; an unknown runbook is refused; a context under a root is taken."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-outside"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      context_path: "/etc"
+      runbook_known: true
+      context_inside_roots: false
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:01:00Z
+    outcome: context-outside-roots
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-no-runbook"
+      runbook_id: "no-such-runbook"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: false
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:02:00Z
+    outcome: no-runbook
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-inside"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      context_path: "/srv/contexts/ticket-1"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:03:00Z
+    outcome: submitted
+
+assert:
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-inside"}
+    contains: {run_id: "run-inside", context_path: "/srv/contexts/ticket-1", state: Submitted}

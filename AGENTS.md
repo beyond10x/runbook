@@ -20,17 +20,33 @@
 - Runbook is an application on Loom; the driver's runtime parts are a temporary copy of what Loom
   must provide (`docs/layers.md:51`; `docs/driver.md:43-45`).
 
+## Where Runbook is going
+
+- The target (the operator, 2026-11-22): one prebuilt `runbook` binary that links Canon and Loom as
+  crates and needs no `canon`, `b10x-loom` or `sdc-drive` at run time. `runbook run` runs a case in
+  process; `runbook serve` (also `runbookd`) is a daemon for many runs with an API specified in ESS,
+  SSE events, MCP and the embedded UI.
+- Each run has a confinement level (default confined) and the daemon has a floor below which it
+  refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
+- The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
+  `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The first equal
+  comparison on `stub-cycle` was made against Loom `2c0a6f48` (`docs/parity.md`, "First equal
+  comparison"); it does not cover a run with a model.
+- The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
+  runtime, the UI server or the release.
+
 ## Directory map
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
 - `bindings/` the nine bindings in Loom's `loom.bindings/1`, not run yet (the driver runs `driver/examples/sdc/*.bindings.json`); `PENDING.md` lists what the format lacks (`docs/loom-bindings.md`). `bindings/tools/` the programs both formats run (`sdc-tool.sh`, `llm-node.sh`, the adapters, `decider.sh`, `node-classes.json`): driver mode, or Loom mode when `LOOM_CASE` is set.
-- `instructions/` the model's instruction texts, one file per prompt part (`<action>.md`, `shared/`, `decider/`), read and filled by `bindings/tools/llm-node.sh` and `decider.sh`; `golden/` holds the prompt each makes on stub inputs, checked byte for byte by `driver/tests/bugfix_prompt.rs` (`docs/driver.md`, "Instructions").
-- `cycles/` the finding cycles as data: `cycles/suite.yaml` lists every cycle of `scripts/run-finding-cycles.sh` with its state; `task check:cycles-suite` holds the two equal.
+- `instructions/` the model's instruction texts, one file per prompt part (`<action>.md`, `shared/`, `decider/`), read and filled by `bindings/tools/llm-node.sh` and `decider.sh`, and, for `change.implement.request.*`, `conformance.table*` and `run.unstick*`, by the Rust binaries `sdc-reply implement-run`, `sdc-conform` and `sdc-unstick` through `driver/src/instructions.rs`; `golden/` holds the prompt each makes on stub inputs, checked byte for byte by `driver/tests/bugfix_prompt.rs` (`docs/driver.md`, "Instructions").
+- `cycles/` the finding cycles as data: `cycles/suite.yaml` lists every cycle of `scripts/run-finding-cycles.sh` with its state; `task check:cycles-suite` runs `runbook check`, which holds the two equal and checks the rest of the text layout (bindings, instruction files, views).
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
 - `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess and `driver/canon-pin.json` the Canon that Runbook calls (`canon_resolve` in `scripts/evaluate-cases.sh` checks the version; no script builds or enters a Canon checkout).
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
-- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
+- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
@@ -50,6 +66,10 @@
   no new bash tool is added, and each is retired by a Rust binary or by Loom.
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
+- The driver tests run as `slot task test:driver` (cargo-nextest, `driver/.config/nextest.toml`): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `driver/tests/main.rs` is the one integration-test binary: a new test file needs a `mod` line there (`autotests = false`); each test is its own process, so a product made once per run is a cache on disk under `driver/target/` (see `schemas()` in `driver/tests/decision_request.rs`).
+- The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
+  slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
+  ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate
   confinement and process start (`docs/layers.md:47-52`). A capability missing in one of them is
@@ -61,6 +81,22 @@
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
   A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
   same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
+  A new `revision` of a protocol file moves the registration (`<id with . and _ as ->@<revision>`)
+  in `bindings/<name>.yaml` and in every `copy` `from:` in the same commit;
+  `scripts/check-bindings.sh` refuses a mismatch.
+  `scripts/check-protocols.sh` is a digest check against the committed `protocol/check-ledger.json`
+  (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
+  a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`
+  and commit the ledger; `task check:protocols:slow` regenerates it in full and compares bytes.
+  The fast lane (under 1 s) is part of `task check`; each ledger entry carries a seal over its digest
+  and result fields, so a hand edit of a result fails it. CI runs the slow lane
+  (`.github/workflows/protocols.yml`) when `protocol/**`, `driver/canon-pin.json` or the script changed.
+- After a merge, `scripts/check-bindings.sh` runs before the push (build the driver first): a merge
+  can leave `website/data/protocols/index.json` stale without a conflict.
+- The full cycle run starts as a systemd unit, which has `LANG=de_DE.UTF-8` on this host. A tool
+  that reads a number printed by bash or a program does not depend on the decimal separator
+  (`EPOCHREALTIME` holds a comma there). A cycle that passes in a terminal and fails in the unit is
+  checked for the locale first.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the

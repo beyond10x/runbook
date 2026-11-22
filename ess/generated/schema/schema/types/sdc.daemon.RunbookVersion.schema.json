@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunbookVersion.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunbookVersion",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:bfa9619049884a8446ef08eedd5e266b2db96dde559e4ef4cbd4aa46c3871249",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunbookVersion": {
+      "title": "RunbookVersion",
+      "description": "The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.",
+      "x-ess-name": "sdc.daemon.RunbookVersion",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

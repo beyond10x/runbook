@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.OutcomeId.schema.json",
+  "$ref": "#/$defs/sdc.decision.OutcomeId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:21f54442bce7cbe9b071450dfbe6880fa7ad773b42bd577d5da065abec374fac",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.OutcomeId": {
+      "title": "OutcomeId",
+      "description": "A Canon outcome id.",
+      "x-ess-name": "sdc.decision.OutcomeId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

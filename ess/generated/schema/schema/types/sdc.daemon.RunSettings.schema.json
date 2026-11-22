@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunSettings.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunSettings",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:8c7230eb6f23082893d2d0ee8133f491315d84ba6a1db1dd64a7aa9454bdcc98",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunSettings": {
+      "title": "RunSettings",
+      "description": "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now.",
+      "x-ess-name": "sdc.daemon.RunSettings",
+      "x-ess-kind": "newtype",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "x-ess-map-key": "String"
+    }
+  }
+}

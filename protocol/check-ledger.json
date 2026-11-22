@@ -1,0 +1,69 @@
+{
+  "canon": "2c7a1ea6a9dc2e19633fb225290c826b1c9988ce",
+  "format": "runbook.protocol-ledger/1",
+  "protocols": {
+    "sdc": {
+      "check": "checked: protocol `sdc` revision 8: 4608 states, 0 properties, 0 findings",
+      "digest": "9f89fac9862e34064974e6a6806e7821ed6135268ad80b0fdb9495357e23c4b1",
+      "probe": null,
+      "seal": "d99d73dfbe0743be8005aea5a2fca9fe53812204142613eb7fe35b91993cfd68",
+      "simulate": "reachable 78, terminable 54, waiting 10, findings 1"
+    },
+    "sdc-bugfix": {
+      "check": "checked: protocol `sdc.bugfix` revision 1: 1024 states, 0 properties, 0 findings",
+      "digest": "0a886890c9025a5f044968fb93f73f4b785add70931f3ab687c441e0d5adc46a",
+      "probe": null,
+      "seal": "f0fc24f9771df0b287be910981378989c721bde6a4aba0d2662cc5c3f2310295",
+      "simulate": "reachable 11, terminable 5, waiting 0, findings 0"
+    },
+    "sdc-direction": {
+      "check": "checked: protocol `sdc.direction` revision 7: 49152 states, 0 properties, 0 findings",
+      "digest": "5e63f59b5db5eff196f1bc4128d3dd96a93a4a8aebff5e7f0021680f7b95f58e",
+      "probe": null,
+      "seal": "698d0638358ac872de40ab120335b51002560cadb94f15e8e26eda0e7459b579",
+      "simulate": "reachable 41, terminable 1, waiting 0, findings 10"
+    },
+    "sdc-epic": {
+      "check": "checked: protocol `sdc.epic` revision 5: 36864 states, 0 properties, 0 findings",
+      "digest": "10487fb7178f0af8f1235c9591a801c3b5efc07d45d9ccf4f6d8b68da6a3f994",
+      "probe": "gate property holds: only probe.passed_without_gate is unreachable",
+      "seal": "47af8fb3dcd2368d66914bb0e1a44757259c9a3d4b8a707cfbff28f5487a91be",
+      "simulate": "reachable 122, terminable 91, waiting 15, findings 2"
+    },
+    "sdc-intake": {
+      "check": "checked: protocol `sdc.intake` revision 9: 49152 states, 0 properties, 0 findings",
+      "digest": "49be31d95d4342fd500154b60f16d6351186e17818d56b4fdc7f781f73d7a802",
+      "probe": null,
+      "seal": "1a37dcb059eccdbda784738b70f1c317cf6d188d8c32f2c87d26761cf0322c78",
+      "simulate": "reachable 1215, terminable 408, waiting 0, findings 17"
+    },
+    "sdc-plan": {
+      "check": "checked: protocol `sdc.plan` revision 7: 65536 states, 0 properties, 0 findings",
+      "digest": "c47208d909068cbc8557f785406302183ff8851c0e7b6c9b614091955a582de4",
+      "probe": "gate property holds: only probe.passed_without_gate is unreachable",
+      "seal": "a515b825b20ea1dfc80c25e896c18b35a75cff811795a4f8e24af6b2fc5e72d1",
+      "simulate": "reachable 85, terminable 1, waiting 0, findings 17"
+    },
+    "sdc-release": {
+      "check": "checked: protocol `sdc.release` revision 4: 24576 states, 0 properties, 0 findings",
+      "digest": "0262a57b0983aff9966f35cb1f23d833e7275bc1a1cc94acffcd2fadd97c547f",
+      "probe": "gate property holds: only probe.passed_without_gate is unreachable",
+      "seal": "5087f8ac8fba1803a411c7e0f24e4c62803da2376f074537b277dfbbbb2bacd0",
+      "simulate": "reachable 60, terminable 36, waiting 1, findings 3"
+    },
+    "sdc-spec": {
+      "check": "checked: protocol `sdc.spec` revision 5: 65536 states, 0 properties, 0 findings",
+      "digest": "17b94848d19fa08a5f9229a04f72c3c9acad8ba40d0ea7206dc5475db0394d08",
+      "probe": "gate property holds: only probe.passed_without_gate is unreachable",
+      "seal": "2351cbffcd33dec0b317e76b9dfc4ed04078988ae38dcc1116245f2b829f71d0",
+      "simulate": "reachable 120, terminable 61, waiting 0, findings 16"
+    },
+    "sdc-story": {
+      "check": "checked: protocol `sdc.story` revision 7: 49152 states, 0 properties, 0 findings",
+      "digest": "0f1da2dd909512a64f55ea311d0ed890ef2ae36b05d3654742756300c1623cd0",
+      "probe": "gate property holds: only probe.passed_without_gate is unreachable",
+      "seal": "7a2b47f3dcc8074e71ab5d7f049dd87de34577550828651345da1be32a8059a6",
+      "simulate": "reachable 54, terminable 28, waiting 0, findings 5"
+    }
+  }
+}

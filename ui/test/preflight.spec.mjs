@@ -1,13 +1,14 @@
 // A driver step is never started from the page when a program it needs is missing: a check whose tool
 // cannot run would be recorded (a server without yq once wrote an `invalid` questions.check into a real
 // run). The server here runs with a PATH that holds jq and not yq, over a store waiting on scope.answer
-// (test/scope-fixture.mjs), on port 7524 (SDC_UI_PREFLIGHT_PORT). Screenshot: screenshots/wide-preflight.png.
+// (test/scope-fixture.mjs), on a port the kernel gives. Screenshot: screenshots/wide-preflight.png.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needDriver} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 import {missingPrograms, onPath} from '../decisions.mjs';
 import {useSdcView} from './sdc-view.mjs';
 useSdcView();
@@ -17,8 +18,7 @@ const ui = path.resolve(here, '..');
 const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'preflight');
 const dir = path.join(root, 'run');
 const bin = path.join(root, 'bin');
-const port = Number(process.env.SDC_UI_PREFLIGHT_PORT || 7524);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const lines = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean) : []);
 const events = () => lines(path.join(dir, 'store/IDEA-1/children/IDEA-1.intake/events.jsonl'));
 const qtext = () => fs.readFileSync(path.join(dir, 'store/IDEA-1/work/questions.yaml'), 'utf8');
@@ -38,9 +38,7 @@ test.beforeAll(async ({}, info) => {
   fs.mkdirSync(bin, {recursive: true});
   const jq = spawnSync('sh', ['-c', 'command -v jq'], {encoding: 'utf8'}).stdout.trim();
   fs.symlinkSync(jq, path.join(bin, 'jq'));
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_PREFLIGHT_PORT`);
-  srv = spawn(process.execPath, ['server.mjs', '--port', String(port), '--write', '--principal', 'anna', path.join(dir, 'store')], {cwd: ui, stdio: 'ignore', env: {...process.env, PATH: bin}});
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  ({url: base, proc: srv} = await startServer(['--write', '--principal', 'anna', path.join(dir, 'store')], {env: {...process.env, PATH: bin}}));
 });
 test.afterAll(() => { if (srv?.exitCode == null) srv?.kill(); });
 

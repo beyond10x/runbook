@@ -8,7 +8,7 @@
 //   halted    stopped by a rule (run-stopped.json, cause writer_spent)
 //   paused    nothing says it ended or runs: not running
 //   canned    a stub run (adapter llm-adapter-fixture.sh)
-// Served by a server of its own over the runs directory on port 7536 (SDC_UI_PICKER_PORT). Desktop,
+// Served by a server of its own over the runs directory (a port the kernel gives). Desktop,
 // the operator tile (805x1270) and the phone (390x844 as a phone).
 // Screenshots: screenshots/{1600x1000,805x1270,390x844}-run-picker.png.
 import {test, expect} from '@playwright/test';
@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 import {phone} from '../ux/adapter.mjs';
 import {horizontalOverflow, smallTargets, smallText, sheetProblems} from '../ux/core/phone.mjs';
 import {axeViolations} from '../ux/core/contract.mjs';
@@ -25,8 +26,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'picker');
-const port = Number(process.env.SDC_UI_PICKER_PORT || 7536);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const T0 = Date.now() - 50 * 60000;
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
 const settings = (adapter, decider, work) => JSON.stringify({format: 'sdc.run-settings/1', at: iso(T0), leg: 'started', autonomy: 'A5', adapter,
@@ -53,7 +53,7 @@ test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own serve
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   needRun(fixtureSource('person'), 'run-picker.spec.mjs (fixture source)', test);
   fs.rmSync(runs, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
@@ -69,9 +69,7 @@ test.beforeAll(async ({}, info) => {
     const t = new Date(Date.now() - r.ago * 60000);
     for (const p of [dir, path.join(dir, 'store'), path.join(dir, 'run.log'), ...Object.keys(r.files).map((f) => path.join(dir, f))]) if (fs.existsSync(p)) fs.utimesSync(p, t, t);
   }
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_PICKER_PORT`);
-  procs.push(spawn(process.execPath, ['server.mjs', '--port', String(port), '--runs', runs], {cwd: ui, stdio: 'ignore'}));
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  { const s = await startServer(['--runs', runs]); base = s.url; procs.push(s.proc); }
   sources = await (await fetch(base + '/api/sources')).json();
 });
 
