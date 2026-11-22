@@ -70,7 +70,7 @@ const sha = (n) => n.toString(16).padStart(64, '0');
 const sha256 = (t) => crypto.createHash('sha256').update(t).digest('hex');
 
 const ASKS_RAISED = `asks:\n- id: a1\n  text: ${SECOND.ask.text}\n  needs_owner: true\n  status: pending\n  options: [${SECOND.ask.options.join(', ')}]\n  default: ${SECOND.ask.options[0]}\n- id: a2\n  text: Is the customer in the EU?\n  needs_owner: false\n  status: pending\n`;
-const ASKS_ANSWERED = ASKS_RAISED.replace('  status: pending\n  options', '  status: edited\n  reply: queue-b\n  replied_by: ana\n  options');
+const ASKS_ANSWERED = ASKS_RAISED.replace('  status: pending\n  options', '  status: edited\n  reply: queue-b\n  replied_by: owner-1\n  options');
 const asksOf = (id) => `asks:\n- id: ${id}\n  text: ${SECOND.ask.text}\n  needs_owner: true\n  status: pending\n  options: [${SECOND.ask.options.join(', ')}]\n  default: ${SECOND.ask.options[0]}\n`;
 export const ASKS = {raised: ASKS_RAISED, answered: ASKS_ANSWERED};
 

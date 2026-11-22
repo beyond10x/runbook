@@ -53,7 +53,7 @@ test.beforeAll(async ({}, info) => {
   const plan = {
     none: [['--no-view'], store],
     two: [['--view', viewFile], store],
-    write: [['--view', writeView, '--write', '--principal', 'ana'], path.join(root, 'run-write', 'store')],
+    write: [['--view', writeView, '--write', '--principal', 'owner-1'], path.join(root, 'run-write', 'store')],
     foreign: [['--view', path.join(ui, '..', 'views', 'sdc.view.json')], store],
   };
   for (const [k, [extra, st]] of Object.entries(plan)) {
@@ -115,7 +115,7 @@ test('another runbook, a two-phase view file: the phases of the file are shown, 
   // the record of its own, read by the view's parser: sentences in the view's own words
   const feed = page.locator('#feed');
   await expect(feed).toContainText('ask a1 raised: “Which queue handles refunds?”');
-  await expect(feed).toContainText('ask a1 answered: “queue-b” by ana');
+  await expect(feed).toContainText('ask a1 answered: “queue-b” by owner-1');
   expect(errors).toEqual([]);
   // the decision of its own: the open ask the owner answers, and the approval of the action the view names
   const ib = await inbox(request, 'two');
@@ -143,16 +143,16 @@ test('answering an ask writes the record with the view\'s field names and status
   const no = await post({kind: 'answer', rel: 'T-3', qid: 'a2', sha: b1.sha, answer: 'x'});
   expect((await no.json()).error).toMatch(/no question a2/);
   const r = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: b1.sha, answer: 'queue-b'});
-  expect(await r.json()).toMatchObject({ok: true, exit: 0, status: 'edited', answered_by: 'ana', approved: false});
+  expect(await r.json()).toMatchObject({ok: true, exit: 0, status: 'edited', answered_by: 'owner-1', approved: false});
   const text = fs.readFileSync(asks(dir, 'T-3'), 'utf8');
   expect(text).toMatch(/status: edited/);
   expect(text).toMatch(/reply: queue-b/);
-  expect(text).toMatch(/replied_by: ana/);
+  expect(text).toMatch(/replied_by: owner-1/);
   expect(text).not.toMatch(/answer|answered_by/);
   const again = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: b1.sha, answer: 'queue-a'});
   expect((await again.json()).error).toMatch(/stale view/);
   const audit = fs.readFileSync(path.join(dir, 'ui-actions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  expect(audit.find((x) => x.action === 'answer' && x.exit === 0)).toMatchObject({target: 'b1', status: 'edited', answered_by: 'ana'});
+  expect(audit.find((x) => x.action === 'answer' && x.exit === 0)).toMatchObject({target: 'b1', status: 'edited', answered_by: 'owner-1'});
   expect((await (await request.get(url('write', '/api/inbox'))).json()).items.find((x) => x.qid === 'b1')).toBeUndefined();
   // the context act and the continue act are the SDC runbook's: this view has none, so it refuses them
   const cx = await post({kind: 'context', rel: 'T-3', field: 'x', sha: b1.sha, value: 'v'});
@@ -229,7 +229,7 @@ test('the view rules: format, first matching file rule, parsers, decisions, tool
   expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: 'scope.answer'}]}])).toBe(false);
   expect(principalOk('bot')).toBe(false);
   expect(principalOk('non-interactive')).toBe(true);
-  expect(principalOk('ana')).toBe(true);
+  expect(principalOk('owner-1')).toBe(true);
   setView(sdcView);
   expect(principalOk('non-interactive')).toBe(false);
   expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: 'scope.answer'}]}])).toBe(true);
@@ -242,9 +242,9 @@ test('a parser of the view says what a change of its record means; a kind with n
   const created = at(null, ASKS.raised);
   expect(created).toMatchObject({cls: 'direction', kind: 'asks', parsed: true, subject: 'asks'});
   expect(created.items.map((x) => x.text)).toEqual(['ask a1 raised: “Which queue handles refunds?”', 'ask a2 raised: “Is the customer in the EU?”']);
-  expect(at(ASKS.raised, ASKS.answered).items.map((x) => x.text)).toEqual(['ask a1 answered: “queue-b” by ana']);
+  expect(at(ASKS.raised, ASKS.answered).items.map((x) => x.text)).toEqual(['ask a1 answered: “queue-b” by owner-1']);
   // [ by {replied_by}] is left out when the field is empty
-  expect(at(ASKS.raised, ASKS.answered.replace('  replied_by: ana\n', '')).items.map((x) => x.text)).toEqual(['ask a1 answered: “queue-b”']);
+  expect(at(ASKS.raised, ASKS.answered.replace('  replied_by: owner-1\n', '')).items.map((x) => x.text)).toEqual(['ask a1 answered: “queue-b”']);
   expect(at(ASKS.raised, ASKS.raised.replace('needs_owner: true', 'needs_owner: false')).items.map((x) => x.text)).toEqual(['ask a1 changed']);
   expect(at(ASKS.raised, ASKS.raised.replace(/- id: a2[\s\S]*$/, '')).items.map((x) => x.text)).toEqual(['ask a2 removed']);
   // a kind the view has a rule for and no parser: top-level keys
