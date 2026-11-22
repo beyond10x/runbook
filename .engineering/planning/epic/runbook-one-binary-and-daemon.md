@@ -17,7 +17,7 @@ relations:
 - informed_by: epic:improvement-loop
 - informed_by: story:confined-bound-commands
 - informed_by: story:loom-concurrent-children
-revision: 2
+revision: 3
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:44:58Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -60,9 +60,9 @@ Design decisions of this epic (design authority: the Runbook session; reversible
 5. The API is specified in ESS first (`ess/`): entities, commands, views and the event stream; OpenAPI and JSON Schemas are generated from it; a conformance suite runs against the daemon. No handler is written before its command is in the specification.
 6. MCP exposes the same commands as tools. HTTP, MCP and the CLI are three faces of one command layer.
 7. The files of `ui/web/` are embedded at build time and served by `runbook serve --ui` beside the API; the Node server (`ui/server.mjs`, `ui/decisions.mjs`) is removed when the UI no longer needs it.
-8. Confinement: per run (`--confinement`), with a daemon floor (`--min-confinement`); the levels are the ones the runtime offers through Substrate; the default is the confined level; unconfined must be asked for by name; below the floor is refused.
+8. Confinement: per run (`--confinement`), with a daemon floor (`--min-confinement`); the levels are the ones the runtime offers through Substrate; the default is the confined level; unconfined must be asked for by name; below the floor is refused. The daemon runs in a delegated cgroup v2 scope with the process in a leaf, and every run gets the same cgroup root.
 9. Presets: the repository's runbooks are embedded and `runbook list` shows each with its version and measured quality from `experiments/releases.yaml`; `--runbook-dir <dir>` runs one from outside. A preset changes only through a release with a registered hypothesis and measured runs.
-10. Security floor: loopback by default; any other address needs a bearer token and the daemon refuses to start without one; the same check guards API, SSE, UI and MCP; no secret in an event; one state directory per run (`$XDG_STATE_HOME/runbook/runs/<id>`); the daemon lists its runs again after a restart.
+10. Security floor: loopback by default; any other address needs a bearer token and the daemon refuses to start without one; the same check guards API, SSE, UI and MCP; no secret in an event; two directories per run: the run's record, store and logs, under `$XDG_STATE_HOME/runbook/runs/<id>`, and its workspace under `$XDG_STATE_HOME/runbook/workspaces/<id>`, a child of the one shared `workspaces` directory, because the runtime's shared driver needs one parent directory; the daemon lists its runs again after a restart.
 11. One prebuilt binary per release for Linux x86_64 first, attached to the GitHub Release (a publication: the operator's word per release, as today).
 12. End state: `driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`, `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`, `driver/canon-pin.json` (the pin is the cargo lock file), the Canon binary resolution of `scripts/evaluate-cases.sh` and the Node UI server are gone.
 
