@@ -464,3 +464,31 @@ entries:
   limits:
   - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-4-0), not on the standing rule of docs/releasing.md.
   - The full set of finding cycles was not run on this tree, and the engine that runs a case on Loom inside the daemon is not in it.
+- id: 0.4.1
+  kind: release
+  version: 0.4.1
+  label: 0.4.1
+  short: loom-run fix, ESS 0.97.3
+  date: 2026-11-22
+  tree: da86a8f7b81fb5be09c06d19b062e790a6950ada
+  tree_note: 'tag 0.4.1 at main da86a8f: 0.4.0 (5955f82) with the merges of the loom-run fix, ESS 0.97.3, the reference check, the two evaluation tools reading a Loom run, the UI test children and the preparation'
+  experiments: []
+  changes:
+  - commit: 69f07f5
+    line: runbook loom-run, a model step that ended before it started any adapter costs nothing and the run goes on
+    effect: none
+  - commit: 0a3b8eb
+    line: the product checks of a run and the ESS specification run ESS 0.97.3 (was 0.96.0), the daemon's synthesized conformance suite is committed
+    effect: none
+  - commit: 619e2dd
+    line: sdc-check-unreferenced, a check for tracked files that nothing refers to
+    effect: none
+  - commit: 5ba5aa1
+    line: sdc-finding-kpis and sdc-run-timeline read the run directory of runbook loom-run
+    effect: none
+  - commit: 224c3c0
+    line: every UI test child ends with the process that started it
+    effect: none
+  limits:
+  - No run has used this tree and the release claims no measured change; it rests on the operator's order (approval-record:release-0-4-1), not on the standing rule of docs/releasing.md.
+  - A comparison of runs across the move from ESS 0.96.0 to 0.97.3 has to say so; the engine that runs a case on Loom inside the daemon is not in this release.
