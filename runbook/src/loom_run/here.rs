@@ -64,7 +64,7 @@ pub struct HereOptions {
     /// The id of the root case.
     #[arg(long, value_name = "ID", default_value = DEFAULT_CASE, conflicts_with = "detach")]
     pub case: String,
-    /// The stub cycle: print every model command, run none, approve person steps by script. Not built yet.
+    /// The stub cycle: every model node on the adapter dry, print every model command, run none, approve person steps by script.
     #[arg(long, conflicts_with = "detach")]
     pub dry: bool,
     /// Re-drive a recorded run (a run directory or a recording), answering each call with the recorded reply. Not built yet.

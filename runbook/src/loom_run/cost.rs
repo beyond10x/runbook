@@ -146,7 +146,10 @@ impl CostReader {
                 if let Some(name) = v.get("record").and_then(Value::as_str).and_then(|p| p.rsplit('/').next()) {
                     self.recorded_dirs.insert(name.to_owned());
                 }
+                // A dry call (`--dry`, adapter `dry`) calls no model: it has no cost and costs 0.
+                let dry = v.get("dry") == Some(&Value::Bool(true)) && v.get("cost_usd").is_none_or(Value::is_null);
                 let micro = match v.get("cost_usd") {
+                    _ if dry => Ok(0),
                     Some(usd) => usd_to_micro(usd),
                     None => Err("a cost record has no cost_usd".to_owned()),
                 };

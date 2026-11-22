@@ -178,7 +178,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert!(out.contains(&format!("{k} is a setting of a model decider, not of kind rule")), "{k}: {out}");
     }
     // A setting that has no counterpart under Loom stays refused, and the refusal names the key.
-    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.dry", "true"), ("flags.recorded", "true"),
+    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.recorded", "true"),
         ("rule_approvals", "x"), ("free.model", "m")] {
         let mut f = fixed();
         f.push((k.to_string(), v.to_string()));
@@ -187,7 +187,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(&format!("{k} is refused for a loom variant")), "{k}: {out}");
         // The settings that wait for a port of `runbook run` say so.
-        if ["flags.dry", "flags.recorded"].contains(&k) {
+        if k == "flags.recorded" {
             assert!(out.contains("`runbook run` "), "{k}: {out}");
         }
     }
@@ -382,6 +382,43 @@ fn the_conformance_setting_is_passed_to_runbook_run_and_a_bad_value_is_refused()
     write_record(&d, &example(COMMIT));
     let (_, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
     assert!(!out.contains("--conformance"), "{out}");
+}
+
+#[test]
+fn flags_dry_is_accepted_and_runbook_run_gets_dry() {
+    let d = scratch("dry");
+    let builds = fake_build(&d, 11, true);
+    let args = ["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()];
+    let without_adapters = |extra: &[(&str, &str)]| -> Vec<(String, String)> {
+        let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && k != "adapter" && k != "decider.adapter").collect();
+        f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        f
+    };
+    // Without the setting no run line has --dry.
+    write_record(&d, &record_with(&without_adapters(&[]), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("--dry"), "{out}");
+    // With it every run line ends in --dry, and the settings file names no adapter of its own.
+    write_record(&d, &record_with(&without_adapters(&[("flags.dry", "true")]), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    let lines: Vec<&str> = out.lines().filter(|l| l.contains(" run sdc --run ")).collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(lines.iter().all(|l| l.ends_with("--max-wall-seconds 3600 --dry")), "{out}");
+    // A value other than true, and an adapter beside the flag, are refused by name.
+    for (extra, want) in [
+        (vec![("flags.dry", "false")], "flags.dry must be 'true'"),
+        (vec![("flags.dry", "true"), ("adapter", "metaharness")], "adapter is not set with flags.dry"),
+        (vec![("flags.dry", "true"), ("decider.adapter", "claude-cli")], "decider.adapter is not set with flags.dry"),
+    ] {
+        write_record(&d, &record_with(&without_adapters(&extra), COMMIT, "planned", ("", "")));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{want}: {out}");
+        assert!(out.contains(want), "{want}: {out}");
+    }
 }
 
 #[test]

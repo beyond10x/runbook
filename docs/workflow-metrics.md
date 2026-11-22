@@ -288,7 +288,7 @@ programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the u
 bindings) must be on the login's `PATH` and `run` refuses to start without them.
 
 Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
-`implement_coverage`, `rule_approvals` (switches of the old driver), `conformance`, `flags.dry`,
+`implement_coverage`, `rule_approvals` (switches of the old driver), `conformance`,
 `flags.recorded` (each waits for its port into `runbook run`; in `sdc-experiment.rs` one function
 per setting, marked `// port: <name>`, which the port removes), `efforts.<class>.effort` (no
 argument of `llm-node.sh` in Loom mode carries an effort, so the class defaults of
@@ -296,6 +296,8 @@ argument of `llm-node.sh` in Loom mode carries an effort, so the class defaults 
 `seed` input (a bug-fix case): a seed input starts `runbook run sdc-bugfix --bugfix <build>/<seed> --root-protocol sdc-bugfix@<revision> --case BUG-1`, its text being the intake (`docs/loom-run.md`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.
+`flags.dry: 'true'` is accepted: the launcher passes `--dry` to `runbook run`, and `adapter` and
+`decider.adapter` are not set beside it.
 
 **`run --print`** for a `loom` run prints, besides the unit name, `description:` (the record and the
 run, never a setting), `env NAME=value` for each variable the unit gets, the idea file and the

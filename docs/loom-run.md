@@ -308,6 +308,29 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
   the adapter's stderr>`: the first non-empty line of `adapter-stderr.txt`, else `stderr.txt`, of the
   call directory, the home prefix replaced by `~`, cut at 300 characters, `(no stderr)` when empty.
 
+### A dry run
+
+`--dry` is the old launcher's `--dry`: the stub cycle with every model command printed and none run.
+It sets three things before the run opens and keeps every required option required (`--confinement`,
+`--cap-micro-usd`, `--max-llm-calls`, `--max-wall-seconds`, the paths).
+
+- Every model node of the bindings copy runs the adapter `dry` (`bindings/tools/llm-adapter-dry.sh`):
+  it builds the command the real adapter would run and calls nothing. A settings file that names an
+  `adapter` is refused with `--dry` (take it out), and `adapter: dry` without `--dry` is refused
+  (give `--dry`).
+- A model decider runs its own `dry` adapter (it answers by the approve rule and calls no model);
+  with no decider in the settings the rule decider `approve` at autonomy `A5` plays the person, so
+  the person steps of the copy are bound to `decider:approve` and every one is approved by script. A
+  decider or an autonomy that the settings name is kept, except an adapter, which is refused.
+- A dry call costs 0. The spend ledger stays at 0 and no login file is read (`login_file` is not
+  needed). A dry call still counts against `--max-llm-calls`.
+
+Every command a dry call would have run is printed on standard output as
+`  would run: metaharness <arguments>` (the prompt as `"$(cat <prompt file>)"`) and appended to
+`dry-commands.txt` of the run directory. `settings.json` and the first line of `run-settings.jsonl`
+carry `dry: true` and `stand_in: "runbook run --dry"`: the run is no evaluation's. The tests are in
+`runbook/tests/loom_run/dry.rs`.
+
 ### Fail closed
 
 The run ends as `error` (exit 1) when: the ledger is unreadable or invalid, a decider answers

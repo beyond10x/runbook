@@ -86,9 +86,9 @@ The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rs
 only by the bash adapters it starts; the shell programs of the bindings (`llm-node.sh`,
 `sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 
-Efforts (`efforts.<role>.effort`) and flags (`flags.*`), and `implement_mode`, stay refused in a
+Efforts (`efforts.<role>.effort`), `flags.recorded` and `implement_mode` stay refused in a
 record of a `loom` variant, with the key named: `llm-node.sh` has no option for an effort under
-Loom, and the runner has no dry or recorded mode.
+Loom, and the runner has no recorded mode. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
 
 The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the
 file for the strong record and compares it with `runbook/tests/fixtures/loom-run-settings.json`
