@@ -111,6 +111,11 @@ pub fn router_with(daemon: Daemon, token: Option<&str>, streams: Streams, closin
         .layer(middleware::from_fn_with_state(Arc::new(Auth::new(token)), auth::guard))
 }
 
+/// The routes of a router behind the one token check of the daemon (`auth::guard`).
+pub fn guarded(router: Router, token: Option<&str>) -> Router {
+    router.route_layer(middleware::from_fn_with_state(Arc::new(Auth::new(token)), auth::guard))
+}
+
 /// How streams behave: the interval of the keep-alive comment and the most events a live stream may
 /// fall behind before it is closed (it resumes by position).
 #[derive(Clone, Debug)]
@@ -143,8 +148,24 @@ pub async fn serve_with(
     streams: Streams,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<()> {
+    serve_extra(listener, daemon, token, streams, None, shutdown).await
+}
+
+/// `serve_with` and the routes of `extra`, which sit behind the same token check as the others
+/// (`guarded`): the MCP endpoint (`crate::mcp::router`) is such a router.
+pub async fn serve_extra(
+    listener: tokio::net::TcpListener,
+    daemon: Daemon,
+    token: Option<&str>,
+    streams: Streams,
+    extra: Option<Router>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> io::Result<()> {
     let (closing_tx, closing) = watch::channel(false);
-    let router = router_with(daemon, token, streams, closing.clone());
+    let mut router = router_with(daemon, token, streams, closing.clone());
+    if let Some(extra) = extra {
+        router = router.merge(guarded(extra, token));
+    }
     let serving = axum::serve(listener, router).with_graceful_shutdown(async move {
         shutdown.await;
         let _ = closing_tx.send(true);
