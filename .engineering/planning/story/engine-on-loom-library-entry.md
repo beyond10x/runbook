@@ -22,7 +22,7 @@ scope:
   path: runbook/src/runtime.rs
 - confidence: cited
   path: runbook/tests
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T10:08:39Z", actor: "human:operator", revision: 5, executor: "agent:onebin-d-engine", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -95,3 +95,32 @@ Delivered by `agent:onebin-d-engine` on `impl/engine-on-loom-library-entry` (202
 - Loom gaps: a running bound program is not stopped by a cancel (`run.rs:166`, row L15); a person
   action's principal is not in `NextDecision` (`person.rs:65`).
 - Not built: resume of an orphaned run from its store; the `linux` level under test.
+
+## Slice 2
+
+Delivered by `agent:onebin-e-inproc` on `impl/loom-run-in-process` (2026-11-22). Goal story moved:
+`engine-on-loom-library-entry` (the run loop over Loom as a library, one copy of the loop).
+
+- Built: `runbook loom-run --in-process`. The loop (`runbook/src/loom_run/run_loop.rs`), the decider,
+  the budget, the ledger, the settings, the bindings copy, the private directory and the run
+  directory files exist once; they reach Loom through the trait `LoomHost`
+  (`runbook/src/loom_run/host.rs`) with a child implementation (`child_host.rs`, behaviour and tests
+  unchanged) and a library implementation (`library.rs`). The Loom-calling code is one module,
+  `runbook/src/engine/calls.rs`, used by the daemon's engine and by `loom-run`. Exactly one of
+  `--in-process` and `--loom` with `--loom-sha256` (usage error, exit 2); `--confinement` stays
+  required; a level the library cannot give is refused before anything is written. Decisions are
+  answered from structured members. `loom_exit_code` and `stderr_tail` are `null` under the library;
+  the run records the pinned commit (`build.rs` reads it from `Cargo.lock`). `sdc-experiment`
+  accepts `loom.in_process: 'true'` and refuses a record that names both ways.
+- Tests: nine gate-lane tests in `runbook/tests/loom_run/inproc.rs` (failing at the base commit:
+  `unexpected argument '--in-process'`), two in `driver/tests/experiment_loom.rs`, the slow lane
+  `task test:loom-in-process`: the `sdc` stub cycle through the child and through `--in-process`,
+  `parity: identical`.
+- Loom gaps: `NextDecision` has no principal (`loom-tree/src/person.rs:65`; it is only inside the
+  printed `command`, `loom-tree/src/run.rs:886-899`) and `DEFAULT_PRINCIPAL` is not re-exported
+  (`loom-tree/src/run.rs:70`, `lib.rs:70`); a cancel and the wall deadline end no running bound
+  program (`loom-tree/src/run.rs:166`); `b10x-loom-tree` re-exports neither `SubstrateRunner` nor
+  `ProtocolCatalog` (`loom-tree/src/lib.rs:48-75`). The environment of a bound program is `PATH`
+  and `LOOM_*` only (`loom-bindings/src/child.rs`): no gap.
+- Not built: removal of `child.rs` and `--loom`; the daemon's default runtime, the guard, `ui/`;
+  Loom's suite runner and presets.

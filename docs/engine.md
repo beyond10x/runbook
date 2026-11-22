@@ -7,6 +7,11 @@ the bindings run as processes, started by Loom's runner. Loom is linked as three
 pinned by commit (`runbook/Cargo.toml`); Canon comes through Loom (tag `0.10.0`, in `Cargo.lock`).
 The pin and the rows it was read at: `docs/library-entries.md`, "States at `5af3f9c2`".
 
+The code that calls Loom (the opening of a tree, one `run_tree`, the answer to a decision, status
+and verify, the runner of a level) is one module, `runbook/src/engine/calls.rs`, used by the engine
+and by `runbook loom-run --in-process` (`docs/loom-run.md`, "The two ways to Loom"); there is no
+second copy.
+
 `runbook serve --runtime loom|stub` selects it. `stub` stays the default: a runtime that starts
 programs is not made the default before the daemon's Host and Origin check exists (decision of the
 coordinator, 2026-11-22). `--runbook-home DIR` (default: the asset root) is the directory with
@@ -71,6 +76,11 @@ All at `5af3f9c2`, paths under `crates/` of Loom unless given.
 - Cancel stops no running program: `loom-tree/src/run.rs:166`.
 - `NextDecision` has no principal for a person action: `generated/rust/loom/src/tree.rs:102`,
   `loom-tree/src/person.rs:65`.
+- The principal Loom prints for a decision is not a member of `NextDecision`; it is only inside
+  `command` (`loom-tree/src/run.rs:886-899`), and the default for an action that binds none,
+  `DEFAULT_PRINCIPAL` (`loom-tree/src/run.rs:70`), is not re-exported (`loom-tree/src/lib.rs:70`).
+  `runbook loom-run --in-process` reads the bound principal from the bindings copy and repeats the
+  default (`operator`) rather than parse the command.
 - `b10x-loom-tree` re-exports neither `SubstrateRunner` nor the line encoder, and not
   `ProtocolCatalog` (`loom-tree/src/lib.rs:48-75`): the engine names `b10x-loom-runlog` and
   `b10x-loom-protocols` as dependencies too, and takes the runner through `EngineRunner`.
