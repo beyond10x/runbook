@@ -251,7 +251,7 @@ fn hash_tree(dir: &Path, h: &mut Sha256) {
 fn schemas() -> PathBuf {
     let mut h = Sha256::new();
     hash_tree(&manifest().join("../ess"), &mut h);
-    let version = Command::new("ess").arg("--version").output().expect("ess is on PATH");
+    let version = Command::new("ess").arg("--version").current_dir(manifest().join("../ess")).output().expect("ess is on PATH");
     h.update(&version.stdout);
     let key: String = h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect();
     let cache = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("decision-request-schemas");
@@ -281,6 +281,7 @@ fn schemas() -> PathBuf {
 fn build_schemas(dir: &Path) {
     {
         let generated = Command::new("ess")
+            .current_dir(manifest().join("../ess"))
             .args(["generate", "--path"])
             .arg(manifest().join("../ess"))
             .args([
