@@ -574,3 +574,41 @@ fn a_live_call_that_is_ended_before_it_finishes_counts_against_the_cap() {
     let second = r.call();
     assert_eq!((r.starts(), second), (1, 75), "the cap is 1 and one live call was started and ended: the second call must diverge, not start another live call (live starts: {}, exit {second})", r.starts());
 }
+
+/// The cap is one step: two adapter processes that start at the same moment at a cap of 1 start one
+/// live program between them; the other diverges, whichever is first.
+#[test]
+fn two_adapters_that_start_together_at_a_cap_of_one_start_one_live_program_between_them() {
+    let r = Replay::new("cap-two");
+    executable(&r.live, &format!("#!/bin/sh\necho started >> '{}'\nsleep 1\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", r.marker.display()));
+    r.write_plan("live", json!(1));
+    let mut first = r.command().spawn().unwrap();
+    let mut second = r.command().spawn().unwrap();
+    let mut codes = vec![first.wait().unwrap().code().unwrap(), second.wait().unwrap().code().unwrap()];
+    codes.sort();
+    assert_eq!((r.starts(), codes.clone()), (1, vec![0, 75]), "one live program between two processes at cap 1: starts {}, exits {codes:?}", r.starts());
+}
+
+/// A log that an older adapter wrote has no mark: its live line is a finished call and counts once.
+/// A log with a started line and no finish counts that call too.
+#[test]
+fn a_live_line_without_the_mark_is_a_finished_call_and_a_started_line_without_a_finish_counts() {
+    let live_line = |extra: Value| {
+        let mut l = json!({"kind": "work", "case": "C-0", "name": "change.fix", "mode": "live", "clock": "real", "record": "work/.sdc/llm/000-x"});
+        l.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        l.to_string() + "\n"
+    };
+    for (what, log, cap, starts, exit) in [
+        ("an old finished line, cap 1", live_line(json!({})), 1, 0, 75),
+        ("an old finished line, cap 2", live_line(json!({})), 2, 1, 0),
+        ("a started line without a finish, cap 1", live_line(json!({"phase": "started"})), 1, 0, 75),
+        ("a started line and its finish, cap 1", live_line(json!({"phase": "started"})) + &live_line(json!({"phase": "finished"})), 1, 0, 75),
+        ("a started line and its finish, cap 2", live_line(json!({"phase": "started"})) + &live_line(json!({"phase": "finished"})), 2, 1, 0),
+    ] {
+        let r = Replay::new("cap-marks");
+        r.write_plan("live", json!(cap));
+        put(&r.run().join("replay/calls.jsonl"), &log);
+        let code = r.call();
+        assert_eq!((r.starts(), code), (starts, exit), "{what}");
+    }
+}
