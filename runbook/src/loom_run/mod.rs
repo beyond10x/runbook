@@ -1,22 +1,29 @@
-//! `runbook loom-run`: one run of a case tree through the `b10x-loom` binary as a child process.
+//! `runbook loom-run`: one run of a case tree through Loom, as the `b10x-loom` binary in a child
+//! process (`--loom`, `child_host.rs`) or as a library in this process (`--in-process`,
+//! `library.rs`); the loop reaches either through the trait of `host.rs`.
 //!
-//! The runner loops `tree run --max-steps 1`, asks a [`decide::Decider`] for every person or
-//! authority decision Loom prints, keeps the spend of the model calls in a ledger shared between
-//! runs, and writes a run directory. Files by owner (so that three units can work at once):
+//! The runner loops one step at a time (`tree run --max-steps 1`), asks a [`decide::Decider`] for
+//! every person or authority decision Loom gives, keeps the spend of the model calls in a ledger
+//! shared between runs, and writes a run directory. Files by owner (so that three units can work at
+//! once):
 //!
 //! - this unit (R1): `mod.rs`, `settings.rs`, `ledger.rs`, `child.rs`, `cost.rs`, `budget.rs`,
-//!   `events.rs`, `decide.rs`, `run_files.rs`, `run_loop.rs`;
+//!   `events.rs`, `decide.rs`, `run_files.rs`, `run_loop.rs`, `host.rs`, `child_host.rs`,
+//!   `library.rs`;
 //! - R2 (decider): `decider.rs`, `bindings_copy.rs`;
 //! - R3 (run directory writer): `run_dir.rs`.
 
 pub mod bindings_copy;
 pub mod budget;
 pub mod child;
+pub mod child_host;
 pub mod cost;
 pub mod decide;
 pub mod decider;
 pub mod events;
+pub mod host;
 pub mod ledger;
+pub mod library;
 pub mod private;
 pub mod run_dir;
 pub mod run_files;
@@ -56,12 +63,16 @@ pub struct Args {
     /// Directory that holds the run directories.
     #[arg(long, value_name = "DIR")]
     pub runs_dir: PathBuf,
-    /// The `b10x-loom` binary.
+    /// The `b10x-loom` binary, run as a child process (with `--loom-sha256`). Give this or `--in-process`.
     #[arg(long, value_name = "FILE")]
-    pub loom: PathBuf,
+    pub loom: Option<PathBuf>,
     /// The sha256 (hex) the `--loom` file must have; a different one is refused before anything is written.
     #[arg(long, value_name = "HEX")]
-    pub loom_sha256: String,
+    pub loom_sha256: Option<String>,
+    /// Run the tree in this process through Loom as a library (the commit this binary links), with
+    /// no `b10x-loom` process. Give this or `--loom` with `--loom-sha256`.
+    #[arg(long)]
+    pub in_process: bool,
     /// The `bindings/` directory of a checkout (its yaml files are copied, never edited).
     #[arg(long, value_name = "DIR")]
     pub bindings: PathBuf,
@@ -95,6 +106,29 @@ pub struct Args {
     /// The most wall seconds of this run.
     #[arg(long, value_name = "N")]
     pub max_wall_seconds: u64,
+}
+
+/// How the run reaches Loom, from the options: exactly one of the two ways.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Way<'a> {
+    /// `--loom <bin> --loom-sha256 <hex>`.
+    Child { loom: &'a std::path::Path, sha256: &'a str },
+    /// `--in-process`.
+    Library,
+}
+
+impl Args {
+    /// The way the options name, or the usage error (a refusal, exit 2, before anything is written).
+    pub fn way(&self) -> Result<Way<'_>, String> {
+        const USAGE: &str = "usage: give exactly one of --in-process and --loom <bin> with --loom-sha256 <hex>";
+        match (self.in_process, self.loom.as_deref(), self.loom_sha256.as_deref()) {
+            (true, None, None) => Ok(Way::Library),
+            (false, Some(loom), Some(sha256)) => Ok(Way::Child { loom, sha256 }),
+            (true, _, _) => Err(format!("{USAGE}: --in-process takes neither --loom nor --loom-sha256")),
+            (false, None, None) => Err(format!("{USAGE}: neither is given")),
+            (false, _, _) => Err(format!("{USAGE}: --loom and --loom-sha256 go together")),
+        }
+    }
 }
 
 /// Exit code: the tree ended through its one legitimate outcome.

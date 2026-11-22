@@ -24,20 +24,20 @@ served as `2026-07-28`; `initialize` selects the legacy shape.
 | `initialize` | 2025-11-25, 2025-06-18 | `protocolVersion` (the client's, when it is one of the two; else `2025-11-25`), `capabilities.tools`, `serverInfo` (`runbook` and the version), `instructions` |
 | `notifications/initialized`, any other notification | legacy | accepted, no answer |
 | `ping` | both | `{}` |
-| `tools/list` | both | the six tools below |
+| `tools/list` | both | the seven tools below |
 | `tools/call` | both | the result of the tool |
 
 A request of another protocol version is the error `-32022` (`UnsupportedProtocolVersion`) with
 `data.supported` and `data.requested`. A modern request without `clientCapabilities` is `-32602`; so
 is any other request before a legacy client has sent `initialize`. An unknown method is `-32601`, an
 unknown tool or an argument the tool does not take `-32602`. A modern result carries
-`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has six tools),
+`resultType: "complete"`; a legacy result is bare. Not built: pagination (the list has seven tools),
 `ttlMs` and `cacheScope`, `subscriptions/listen`, multi round-trip requests, cancellation of a call,
 progress, resources, prompts. The server sends no request and no notification of its own.
 
 ## The tools
 
-`tools/list` prints exactly these six, in this order:
+`tools/list` prints exactly these seven, in this order:
 
 | Tool | Calls | Input |
 |---|---|---|
@@ -45,7 +45,8 @@ progress, resources, prompts. The server sends no request and no notification of
 | `list_runs` | views `runs`, `runs-of-session`, `runs-in-state`, `runs-of-session-in-state` | optional `session_id` and `state`; the view follows from which are given |
 | `read_run` | view `run` | `run_id` |
 | `read_events` | view `events` | `run_id`; optional `after_sequence` and `after_position` (both default to 0) |
-| `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` |
+| `read_open_decisions` | view `open-decisions` | `run_id`; the rows carry `request_id`, `run_id`, `case_id`, `action`, `capability`, `question`, `options`, `opened_at` |
+| `answer_decision` | command `answer-decision` | `run_id`, `request_id`, `answer`, `answered_by` (a label; the principal of the answer is the daemon's own, in the result as `principal`, and no argument sets it) |
 | `cancel_run` | command `cancel-run` | `run_id` |
 
 Input schemas are derived from the generated OpenAPI document of the daemon

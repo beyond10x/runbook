@@ -1,7 +1,7 @@
 //! `runbook serve`: the daemon in the foreground.
 
 use crate::api::{self, auth};
-use crate::commands::{Config, Daemon};
+use crate::commands::{check_principal, Config, Daemon};
 use crate::engine::Engine;
 use crate::runtime::{Confinement, Runtime};
 use crate::stub::StubRuntime;
@@ -42,6 +42,10 @@ pub struct ServeArgs {
     /// A file holding the bearer token; its mode must not give anything to others. Also read from RUNBOOK_TOKEN.
     #[arg(long, value_name = "FILE")]
     pub token_file: Option<PathBuf>,
+    /// Who the daemon acts as: `person:<id>` or `agent:<id>`. Required, no default and no environment variable;
+    /// fixed for the life of the process. The runtime is given this principal for every answer.
+    #[arg(long, value_name = "PRINCIPAL")]
+    pub principal: Option<String>,
     /// Serve the web UI, compiled into this binary, beside the API (`GET /`).
     #[arg(long)]
     pub ui: bool,
@@ -71,6 +75,9 @@ pub struct Prepared {
     pub daemon: Daemon,
 }
 
+/// The runbook name of the stub's run that waits on two decisions (`StubRuntime::decision_script`).
+pub const STUB_DECISION: &str = "stub-decision";
+
 /// The state directory: `--state-dir`, else `$XDG_STATE_HOME/runbook`, else `~/.local/state/runbook`.
 pub fn state_dir(args: &ServeArgs, env: &Env) -> Result<PathBuf, String> {
     if let Some(d) = &args.state_dir {
@@ -83,9 +90,11 @@ pub fn state_dir(args: &ServeArgs, env: &Env) -> Result<PathBuf, String> {
     }
 }
 
-/// Everything that can refuse the start, in order: the token, the listen address against the token
-/// (the security floor), then the state directory. Nothing is bound or written before the floor holds.
+/// Everything that can refuse the start, in order: the principal, the token, the listen address against
+/// the token (the security floor), then the state directory. Nothing is bound or written before the floor holds.
 pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared, String> {
+    let principal = args.principal.clone().ok_or("--principal is required: person:<id> or agent:<id>, the principal the daemon acts as (no default)")?;
+    check_principal(&principal)?;
     let token = auth::load_token(args.token_file.as_deref(), env.token.clone())?;
     auth::check_token_length(token.as_deref())?;
     let addr = args
@@ -108,9 +117,10 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         for name in presets {
             stub.script(name, StubRuntime::demo_script());
         }
+        stub.script(STUB_DECISION, StubRuntime::decision_script());
         (Arc::new(stub), args.runbook_dir.clone())
     };
-    let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir };
+    let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir, principal };
     let daemon = Daemon::start(cfg, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon })
 }

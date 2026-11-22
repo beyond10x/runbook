@@ -25,7 +25,7 @@ fn the_stub_cycle_through_the_engine_is_operating() {
     let state = work.join("state");
     let started = Instant::now();
     let engine = Arc::new(Engine::with_levels(root.clone(), state.clone(), &[Confinement::Local]));
-    let cfg = Config { state_dir: state.clone(), confinement_floor: Confinement::Local, context_roots: vec![work.join("ctx")], runbook_dir: None };
+    let cfg = Config { state_dir: state.clone(), confinement_floor: Confinement::Local, context_roots: vec![work.join("ctx")], runbook_dir: None, principal: "person:owner".into() };
     let d = Daemon::start(cfg, engine.clone()).unwrap();
     let idea = std::fs::read_to_string(root.join("driver/examples/sdc/fixtures/idea.yaml")).unwrap();
     let o = d.submit_run(SubmitRun { runbook_id: "sdc".into(), intake: idea, confinement: Some(Confinement::Local), ..SubmitRun::default() }).unwrap();

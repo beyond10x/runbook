@@ -291,7 +291,7 @@ impl Daemon {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("empty")).unwrap();
         let mut cmd = Command::new(BIN);
-        cmd.arg("serve").args(args).arg("--state-dir").arg(dir.join("state"));
+        cmd.arg("serve").args(["--principal", super::PRINCIPAL]).args(args).arg("--state-dir").arg(dir.join("state"));
         cmd.current_dir(dir.join("empty")).env_remove("RUNBOOK_TOKEN").env("HOME", &dir).stdout(Stdio::piped()).stderr(Stdio::null());
         if let Some(t) = token {
             cmd.env("RUNBOOK_TOKEN", t);

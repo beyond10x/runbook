@@ -10,6 +10,7 @@ timeline:
     input:
       daemon_id: "runbookd"
       confinement_floor: linux
+      principal: "agent:conformance"
       at: 2026-11-22T10:00:00Z
     outcome: started
 
@@ -166,6 +167,7 @@ timeline:
       request_id: "dr-1"
       answer: "A"
       answered_by: "operator"
+      principal: "agent:conformance"
       at: 2026-11-22T11:01:00Z
     outcome: withdrawn
 

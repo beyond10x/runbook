@@ -94,6 +94,8 @@ pub struct Parsed {
     pub deny: bool,
     pub result: Option<String>,
     pub reasons: Option<String>,
+    /// The reasons as a file of the workspace (the run loop writes a rejection's text there).
+    pub reasons_file: Option<std::path::PathBuf>,
 }
 
 /// `approve`, `deny`, a bare result name, or a JSON object with `decision` (`approve` or `deny`),

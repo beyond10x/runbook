@@ -264,6 +264,7 @@ none is ignored silently, and a name that is no setting at all is refused too.
 |---|---|---|
 | `loom.bin` | the `b10x-loom` binary, absolute or `~/…` (the launcher's `HOME`; a record holds no home path) | `--loom`; never recorded by a run |
 | `loom.sha256` | 64 hex digits; `runbook loom-run` refuses another binary | `--loom-sha256`, `settings.json` |
+| `loom.in_process` | `'true'` runs Loom as a library of the build (`runbook loom-run --in-process`): the record then sets neither `loom.bin` nor `loom.sha256`, and `check` refuses a record that names both ways; leave it out to run the binary | `--in-process`; `settings.json` records `in_process: true` and the pinned `commit` of the library |
 | `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given |
 | `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `settings.json`; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
 | `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `settings.json` `models.<class>.model` |

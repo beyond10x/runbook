@@ -55,8 +55,8 @@ Every command takes `--json`, `--daemon` and `--token-file`.
   (a client that fell behind, a restart) is resumed the same way. Five attempts in a row without an
   event end it with exit 69. `--no-follow` prints what the run has and returns, in the same lines.
   `--json` prints one row of the events route per line.
-- `decide` records `--by` (default `$USER`, else `cli`) as the answer's author. The daemon authenticates
-  no principal; the name is a label.
+- `decide` records `--by` (default `$USER`, else `cli`) as the answer's label. The daemon authenticates
+  no principal, and the label never acts as one: the principal of the answer is the daemon's own (`runbook serve --principal`), shown beside the label.
 
 ## Exit codes
 
