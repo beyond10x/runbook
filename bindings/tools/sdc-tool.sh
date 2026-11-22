@@ -115,7 +115,9 @@ need yq jq
 # makes the function return 70, "ran over its time": not red tests, not a pool wait. A
 # job cancelled then (exit 130) is the command's result, not 69. Without a bound it is plain
 # `slot`. SDC_POOL_POLL (seconds, default 2) is the longest pause between two looks at the pool.
-now_ms() { local t=$EPOCHREALTIME; echo $(( ${t%.*} * 1000 + 10#${t#*.} / 1000 )); }
+# EPOCHREALTIME takes the decimal separator of the locale (LC_ALL=de_DE.UTF-8 gives "1763810464,227523",
+# as a systemd unit on a German host runs): the point is put back before the text is split.
+now_ms() { local t=${EPOCHREALTIME/,/.}; echo $(( ${t%.*} * 1000 + 10#${t#*.} / 1000 )); }
 pool_run() {
   local bound=${SDC_POOL_WAIT:-} ledger=${SDC_POOL_LEDGER:-} poll=${SDC_POOL_POLL:-2} rc
   if [[ -z $bound || -z $ledger ]]; then

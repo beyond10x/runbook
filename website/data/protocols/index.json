@@ -816,7 +816,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "b9f739b1010496d35305e118e29be1b0d4ce17af00ddac0bc7f22089654f5142"
+      "sha256": "02ad063d5d795799b83e5c64966d8db16ffe4a811e928d6ee400f968894c19a6"
     },
     {
       "path": "bindings/tools/node-classes.json",
