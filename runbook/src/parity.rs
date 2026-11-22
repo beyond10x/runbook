@@ -299,7 +299,8 @@ struct Run {
 
 /// Program runs and person steps of one case, from its log. Person step: an action finished with a
 /// principal. Program run: an action started with an argv, not a person step.
-fn steps_of(c: &Case) -> Result<(Vec<Run>, Vec<(String, Value)>), String> {
+type Steps = (Vec<Run>, Vec<(String, Value)>);
+fn steps_of(c: &Case) -> Result<Steps, String> {
     let mut runs = Vec::new();
     let mut persons = Vec::new();
     let mut started: Option<(bool, bool)> = None;
