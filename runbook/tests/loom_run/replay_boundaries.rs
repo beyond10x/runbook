@@ -730,12 +730,30 @@ fn an_empty_log_starts_one_call_at_cap_1_and_refuses_the_next() {
     assert_eq!(r.starts(), 1);
 }
 
+/// A cut-off line counts as a started live call, so the cap of 1 is spent and no call starts live.
 #[test]
 fn a_cut_off_last_line_does_not_make_a_call_free() {
     let r = CapRig::new("partial", json!(1), "0");
     put(&r.log(), "{\"mode\": \"live\", \"phase\": \"star");
     let codes = [r.call(), r.call(), r.call()];
-    assert_eq!(r.starts(), 1, "cap 1 after a cut-off line: exit codes {codes:?}");
+    assert_eq!((codes, r.starts()), ([75, 75, 75], 0), "cap 1 after a cut-off line: the fragment is one started call");
+}
+
+/// A log whose last line is complete but has no newline keeps that line apart from the lines the
+/// adapter appends: the first call starts live (a recorded line counts for nothing), the second
+/// gets 75, and the log holds the old line and three new lines, each a JSON object.
+#[test]
+fn a_log_whose_last_line_has_no_newline_keeps_its_line_and_the_new_lines_apart() {
+    let r = CapRig::new("no-newline", json!(1), "0");
+    let old = json!({"mode": "recorded", "kind": "work", "case": "C-0", "name": "change.fix", "phase": "finished"}).to_string();
+    put(&r.log(), &old);
+    assert_eq!((r.call(), r.call()), (0, 75));
+    assert_eq!(r.starts(), 1);
+    let text = std::fs::read_to_string(r.log()).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 4, "{text}");
+    assert_eq!(lines[0], old);
+    assert!(lines.iter().all(|l| serde_json::from_str::<Value>(l).is_ok_and(|v| v.is_object())), "{text}");
 }
 
 #[test]

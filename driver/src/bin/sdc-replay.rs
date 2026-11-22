@@ -38,6 +38,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::sync::OnceLock;
@@ -140,12 +141,24 @@ fn write_first(p: &Path, v: &Value) -> R<()> {
     if p.exists() { Ok(()) } else { write_json(p, v) }
 }
 
+/// A log read as bytes and parsed line by line: the lines that are JSON objects, and the number of
+/// the others (a line that is not valid UTF-8, not JSON or not an object; empty lines are no line).
+/// One bad line costs only that line, not the log.
+fn parse_log(bytes: &[u8]) -> (Vec<Value>, u64) {
+    let mut lines = Vec::new();
+    let mut unreadable = 0;
+    for raw in bytes.split(|b| *b == b'\n').filter(|l| !l.iter().all(u8::is_ascii_whitespace)) {
+        match std::str::from_utf8(raw).ok().and_then(|t| serde_json::from_str::<Value>(t).ok()).filter(Value::is_object) {
+            Some(v) => lines.push(v),
+            None => unreadable += 1,
+        }
+    }
+    (lines, unreadable)
+}
+
+/// The readers that count calls, rounds or modes skip a line they cannot read, as they always did.
 fn jsonl(p: &Path) -> Vec<Value> {
-    fs::read_to_string(p)
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
+    parse_log(&fs::read(p).unwrap_or_default()).0
 }
 
 /// A live call is in `replay/calls.jsonl` twice: a line with `"phase": "started"` that the adapter
@@ -181,14 +194,27 @@ fn lock_calls(out: &Path) -> R<fs::File> {
     Ok(f)
 }
 
+/// Appends one line. A file whose last line was cut off, with no newline, gets one first, so that
+/// the new line is a line of its own and not the end of the cut-off one.
 fn append(p: &Path, v: &Value) -> R<()> {
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
+        .read(true)
         .open(p)
         .map_err(|e| format!("{}: {e}", p.display()))?;
-    f.write_all(format!("{}\n", serde_json::to_string(v).unwrap()).as_bytes())
-        .map_err(|e| e.to_string())
+    let len = f.metadata().map_err(|e| e.to_string())?.len();
+    let mut line = String::new();
+    if len > 0 {
+        let mut last = [0u8; 1];
+        f.read_exact_at(&mut last, len - 1).map_err(|e| format!("{}: {e}", p.display()))?;
+        if last[0] != b'\n' {
+            line.push('\n');
+        }
+    }
+    line.push_str(&serde_json::to_string(v).unwrap());
+    line.push('\n');
+    f.write_all(line.as_bytes()).map_err(|e| e.to_string())
 }
 
 fn write_jsonl(p: &Path, lines: &[Value]) -> R<()> {
@@ -1313,7 +1339,9 @@ fn adapter(req_path: &Path) -> R<i32> {
             "live" => match live_cap {
                 Some(cap) => {
                     let lock = lock_calls(&c.out)?;
-                    if live_calls(&jsonl(&c.out.join("replay/calls.jsonl"))) < cap {
+                    // Fails closed: a line that cannot be read counts as one started live call.
+                    let (log, unreadable) = parse_log(&fs::read(c.out.join("replay/calls.jsonl")).map_err(|e| format!("replay/calls.jsonl: {e}"))?);
+                    if live_calls(&log) + unreadable < cap {
                         mode = "live";
                         live_lock = Some(lock);
                     } else {
@@ -1595,7 +1623,7 @@ fn program(action: &str, plan: Option<&Path>, argv: &[String]) -> R<i32> {
 
 fn summary(out: &Path) -> R<Value> {
     let plan = read_json(&out.join("replay/plan.json"))?;
-    let calls = jsonl(&out.join("replay/calls.jsonl"));
+    let (calls, unreadable_lines) = parse_log(&fs::read(out.join("replay/calls.jsonl")).unwrap_or_default());
     let programs = jsonl(&out.join("replay/programs.jsonl"));
     let count = |m: &str| calls.iter().filter(|l| l["mode"] == m).count();
     let (recorded, reused, live, diverged) = (count("recorded"), count("reused"), live_calls(&calls) as usize, count("diverged"));
@@ -1612,7 +1640,7 @@ fn summary(out: &Path) -> R<Value> {
         "source": plan["source"]["name"], "source_tree": plan["source"]["tree"], "tree": plan["tree"], "same_tree": plan["same_tree"],
         "policy": plan["policy"], "injections": plan["injections"].as_array().map(|a| a.iter().map(|f| f["spec"].clone()).collect::<Vec<_>>()),
         "conditions": plan["conditions"], "take_recorded": plan["take_recorded"],
-        "calls": {"recorded": recorded, "reused": reused, "live": live, "live_unfinished": live_unfinished(&calls), "diverged": diverged,
+        "calls": {"recorded": recorded, "reused": reused, "live": live, "live_unfinished": live_unfinished(&calls), "unreadable_lines": unreadable_lines, "diverged": diverged,
             "paid": calls.iter().filter(|l| l["paid"] == true).count(),
             "faults": calls.iter().filter(|l| l["fault"].is_string()).count(),
             "prompt_changed": calls.iter().filter(|l| l["prompt_changed"] == true).count()},
@@ -1975,6 +2003,38 @@ mod tests {
         assert_eq!(live_unfinished(&log), 1, "only c has no finished line");
         assert!(is_finished_line(&log[3]) && !is_finished_line(&log[2]) && !is_finished_line(&log[1]));
         assert_eq!((live_calls(&[]), live_unfinished(&[])), (0, 0));
+    }
+
+    #[test]
+    fn a_log_is_read_as_bytes_and_a_line_that_cannot_be_read_costs_that_line_only() {
+        let mut bytes = b"{\"mode\":\"live\",\"phase\":\"started\"}\n".to_vec();
+        bytes.extend_from_slice(b"\xff\xfe\n");
+        bytes.extend_from_slice(b"[1,2]\n\n   \n");
+        bytes.extend_from_slice(b"{\"mode\":\"recorded\"}\n");
+        bytes.extend_from_slice(b"{\"mode\": \"live\", \"phase\": \"star");
+        let (lines, unreadable) = parse_log(&bytes);
+        assert_eq!(lines.len(), 2, "the two objects; empty and blank lines are no line");
+        assert_eq!(unreadable, 3, "not UTF-8, not an object, cut off");
+        assert_eq!(parse_log(b""), (vec![], 0));
+        assert_eq!(live_calls(&lines) + unreadable, 4, "the cap counts every unreadable line as a started live call");
+    }
+
+    #[test]
+    fn append_puts_a_cut_off_last_line_and_the_new_line_apart() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("unit-append-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("log.jsonl");
+        append(&p, &json!({"n": 1})).unwrap();
+        append(&p, &json!({"n": 2})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "{\"n\":1}\n{\"n\":2}\n", "a log that ends in a newline gets no extra line");
+        fs::write(&p, "{\"n\":1}").unwrap();
+        append(&p, &json!({"n": 2})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "{\"n\":1}\n{\"n\":2}\n");
+        fs::write(&p, "").unwrap();
+        append(&p, &json!({"n": 3})).unwrap();
+        assert_eq!(fs::read_to_string(&p).unwrap(), "{\"n\":3}\n", "an empty file gets no newline first");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

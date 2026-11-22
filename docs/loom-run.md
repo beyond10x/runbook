@@ -380,7 +380,12 @@ at each call. Under `--confinement local` a bound program can write them, and `l
   "started"` to `replay/calls.jsonl`, under a lock of that file, before it starts the live program,
   and the call's own line (`"phase": "finished"`) when the program has ended, so a live call that is
   ended before it finishes still counts and two adapter processes at a cap of 1 start one live
-  program between them; a line without a phase (an older log) is a finished call. The request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
+  program between them; a line without a phase (an older log) is a finished call. The log is read
+  as bytes, line by line, and a line that is not valid UTF-8 or not a JSON object (a cut-off last
+  line included) counts as one started live call, so a log that cannot be read in full never lifts
+  the cap; the adapter writes a newline first when the last line of the log has none; a log that
+  exists and cannot be opened is refused. `replay.calls.unreadable_lines` is their number. The
+  request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
   setting that differs from the recorded effort diverges at the first call, as a changed model
   does (intended). The inputs are compared by digest after what differs between two runs is masked
   (run directories, home paths, instants, revisions, seconds), and so is the version label of the
