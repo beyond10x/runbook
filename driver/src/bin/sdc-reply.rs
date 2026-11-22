@@ -69,6 +69,16 @@
 //! approved, 1 rejected (stdout: the sdc.rejection/1 that sends the implementer back), 2 invalid
 //! (stderr: why; nothing is recorded).
 //!
+//! Where the facts come from (`Facts`): the old driver's case directory (`case.json`, the event
+//! log, the evidence and the blobs) or, with `LOOM_CASE` set, record files of the workspace
+//! (`<case-dir>/work/.sdc/records/`; Loom gives a bound program its working directory and nothing
+//! else). The revision of an artifact is then the digest of its tree (`impl`, `spec`); the log of
+//! the conformance run and of the gate is `<kind>/<digest>.log`, written by `sdc-reply record
+//! --kind <kind> --tree <tree> --log <file>` from the tools of tests.run and spec.gate; the
+//! review's own rejections are `rejections/change.review/<n>.json`, written by `check-review`.
+//! `citable`, `resolve`, `schema`, `rejections`, `review-inputs` and `check-review` read them
+//! through the same functions in both modes; no `<artifact>@<revision>` cite resolves under Loom.
+//!
 //! The call dir holds the inputs the model was shown (`in/`), as tools/decider.sh writes them.
 //! Citable (the forms of sdc.decision.Citation, ess/domains/decision.yaml, docs/decisions.md):
 //! - an id: a requirement, dissection item, question or finding id of the case's `work/`, a
@@ -117,6 +127,14 @@ enum Cmd {
     /// The rejected records of an approval action in a case, oldest first, each with the reasons
     /// its step kept (the sdc.rejection/1 log blob of `approve --result rejected`).
     Rejections { #[arg(long)] case_dir: PathBuf, #[arg(long)] action: String },
+    /// Under Loom: keep the log of a step (a file) as the record of `kind` about the tree `tree`
+    /// of the workspace, where `review-inputs` reads it (the tools of tests.run and spec.gate).
+    Record {
+        #[arg(long, default_value = ".")] work: PathBuf,
+        #[arg(long)] kind: String,
+        #[arg(long)] tree: String,
+        #[arg(long)] log: PathBuf,
+    },
     /// What can only come after `action` (from the compiled protocol): the actions whose
     /// precondition needs a claim only it or they make true, the claims only those actions make
     /// true, and the obligations only those claims discharge. A decision about `action` must not
@@ -448,6 +466,189 @@ fn read_json(p: &Path) -> Value {
     fs::read(p).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null)
 }
 
+/// Where the facts about a case come from. Under the old driver (`Driver`) they are the driver's
+/// case directory: `case.json` (the revisions), the event log, the evidence and the blobs. Under
+/// Loom (`LOOM_CASE` set; `Workspace`) a bound program gets its working directory, the workspace,
+/// and nothing else, so the same facts are small record files below `<work>/.sdc/records/`, each
+/// written by the tool that owns the fact: `<kind>/<digest>.log` (`sdc-reply record`, called by the
+/// tools of tests.run and spec.gate: the log of the step, about the tree whose content has that
+/// digest) and `rejections/<action>/<n>.json` (the review's own rejections, written by
+/// `check-review`). The revision of an artifact is then the digest of its tree.
+struct Facts {
+    dir: PathBuf,
+    work: PathBuf,
+    workspace: bool,
+}
+
+/// The records directory below a workspace.
+const RECORDS: &str = ".sdc/records";
+
+impl Facts {
+    /// The source the environment names: the workspace's records when `LOOM_CASE` is set.
+    fn open(case_dir: &Path) -> Facts {
+        let loom = std::env::var_os("LOOM_CASE").is_some_and(|v| !v.is_empty());
+        Facts { dir: case_dir.to_path_buf(), work: case_dir.join("work"), workspace: loom }
+    }
+
+    #[cfg(test)]
+    fn driver(case_dir: &Path) -> Facts {
+        Facts { dir: case_dir.to_path_buf(), work: case_dir.join("work"), workspace: false }
+    }
+
+    /// The records of the workspace `work` (no case directory).
+    fn workspace(work: &Path) -> Facts {
+        Facts { dir: work.join(".."), work: work.to_path_buf(), workspace: true }
+    }
+
+    fn work(&self) -> PathBuf {
+        self.work.clone()
+    }
+
+    fn records(&self) -> PathBuf {
+        self.work.join(RECORDS)
+    }
+
+    /// The case's id: `case.json`, else the id Loom names in `LOOM_CASE`.
+    fn case_id(&self) -> Value {
+        if self.workspace {
+            return std::env::var("LOOM_CASE").map(Value::String).unwrap_or(Value::Null);
+        }
+        read_json(&self.dir.join("case.json"))["id"].clone()
+    }
+
+    /// The tree of a case artifact, relative to the work directory (the artifacts of sdc.story).
+    fn tree_of(artifact: &str) -> Option<&'static str> {
+        match artifact {
+            "change" => Some("impl"),
+            "spec" => Some("spec"),
+            _ => None,
+        }
+    }
+
+    /// The current revision of an artifact: `case.json`'s, else the digest of its tree.
+    fn revision(&self, artifact: &str) -> String {
+        self.revision_value(artifact).as_str().unwrap_or("none").to_string()
+    }
+
+    /// The same as JSON: null where the driver's `case.json` has none.
+    fn revision_value(&self, artifact: &str) -> Value {
+        if !self.workspace {
+            return read_json(&self.dir.join("case.json"))["artifacts"][artifact]["revision"].clone();
+        }
+        Self::tree_of(artifact).and_then(|t| tree_digest(&self.work().join(t))).map_or(Value::Null, Value::String)
+    }
+
+    /// The log of the last record of `kind` about the artifact's current revision.
+    fn record_log(&self, kind: &str, artifact: &str) -> Option<String> {
+        let revision = self.revision(artifact);
+        if !self.workspace {
+            return record_log(&self.dir, kind, &revision);
+        }
+        fs::read_to_string(self.records().join(kind).join(format!("{revision}.log"))).ok()
+    }
+
+    /// The rejected records of `action`, oldest first (`rejections`'s shape).
+    fn rejections(&self, action: &str) -> Value {
+        if !self.workspace {
+            return rejections(&self.dir, action);
+        }
+        let dir = self.records().join("rejections").join(action);
+        let mut files: Vec<PathBuf> = fs::read_dir(dir).into_iter().flatten().filter_map(|e| e.ok().map(|e| e.path())).collect();
+        files.sort();
+        Value::Array(files.iter().map(|p| read_json(p)).filter(|v| !v.is_null()).collect())
+    }
+
+    /// Keep a rejection `doc` (sdc.rejection/1) of `action` where `rejections` finds it. The driver
+    /// keeps its own record of an action's result, so under it nothing is written.
+    fn note_rejection(&self, action: &str, doc: &Value) -> Result<(), String> {
+        if !self.workspace {
+            return Ok(());
+        }
+        let dir = self.records().join("rejections").join(action);
+        fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let n = fs::read_dir(&dir).map_or(0, |d| d.flatten().count()) + 1;
+        let entry = json!({"record": format!("{n:03}"), "revision": doc["revision"], "at": now_utc(),
+            "principal": doc["principal"], "reasons": doc["reasons"], "citations": doc["citations"]});
+        let p = dir.join(format!("{n:03}.json"));
+        fs::write(&p, entry.to_string()).map_err(|e| format!("{}: {e}", p.display()))
+    }
+
+    /// Store the log of a step as the record of `kind` about the tree `tree` (relative to the
+    /// work directory) in its present content. Returns where it went.
+    fn write_record(&self, kind: &str, tree: &str, log: &str) -> Result<PathBuf, String> {
+        if kind.contains('/') || kind.contains("..") || kind.is_empty() {
+            return Err(format!("{kind:?} is no record kind"));
+        }
+        let digest = tree_digest(&self.work().join(tree)).ok_or(format!("{tree}: no such tree in the workspace"))?;
+        let dir = self.records().join(kind);
+        fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let p = dir.join(format!("{digest}.log"));
+        fs::write(&p, log).map_err(|e| format!("{}: {e}", p.display()))?;
+        Ok(p)
+    }
+
+    /// The artifacts of the case as (name, file in the work directory, revision): the driver's
+    /// bindings file names them; Loom's workspace has no such file, so none resolve there.
+    fn artifacts(&self) -> Vec<(String, String, String)> {
+        if self.workspace {
+            return Vec::new();
+        }
+        let bindings = read_json(&self.dir.join("bindings.json"));
+        let case = read_json(&self.dir.join("case.json"));
+        bindings["$artifacts"].as_object().into_iter().flatten()
+            .filter_map(|(a, f)| Some((a.clone(), f.as_str()?.to_string(), case["artifacts"][a]["revision"].as_str()?.to_string())))
+            .collect()
+    }
+}
+
+/// The digest of a tree's content: its files by relative path, without build output (`target`),
+/// `.sdc` and `.derived-from`, as the review's diff leaves them out. None when `dir` is no directory.
+fn tree_digest(dir: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    if !dir.is_dir() {
+        return None;
+    }
+    let mut files = Vec::new();
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let Ok(rd) = fs::read_dir(dir.join(&rel)) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            if matches!(name.to_str(), Some("target" | ".sdc" | ".derived-from")) {
+                continue;
+            }
+            let r = rel.join(&name);
+            if e.path().is_dir() { stack.push(r) } else { files.push(r) }
+        }
+    }
+    files.sort();
+    let mut h = Sha256::new();
+    for f in &files {
+        let body = fs::read(dir.join(f)).unwrap_or_default();
+        h.update(f.to_string_lossy().as_bytes());
+        h.update([0]);
+        h.update(Sha256::digest(&body));
+    }
+    Some(h.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect())
+}
+
+/// The present time as `YYYY-MM-DDTHH:MM:SSZ`.
+fn now_utc() -> String {
+    let s = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
+    let (days, rest) = (s.div_euclid(86400), s.rem_euclid(86400));
+    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+}
+
 /// A YAML or JSON file as JSON; None when it is neither.
 fn read_data(p: &Path) -> Option<Value> {
     let text = fs::read_to_string(p).ok()?;
@@ -467,16 +668,13 @@ struct Ctx {
     ids: BTreeSet<String>,
 }
 
-fn ctx(cwd: &Path, case_dir: &Path) -> Ctx {
+fn ctx(cwd: &Path, facts: &Facts) -> Ctx {
     let in_dir = cwd.join("in");
-    let work = case_dir.join("work");
-    let bindings = read_json(&case_dir.join("bindings.json"));
-    let case = read_json(&case_dir.join("case.json"));
+    let work = facts.work();
     let mut artifacts = Vec::new();
-    for (a, f) in bindings["$artifacts"].as_object().into_iter().flatten() {
-        let (Some(f), Some(rev)) = (f.as_str(), case["artifacts"][a]["revision"].as_str()) else { continue };
-        if rev != "none" && in_dir.join(f).exists() {
-            artifacts.push((a.clone(), f.to_string(), rev.to_string()));
+    for (a, f, rev) in facts.artifacts() {
+        if rev != "none" && in_dir.join(&f).exists() {
+            artifacts.push((a, f, rev));
         }
     }
     let mut ids = BTreeSet::new();
@@ -1048,13 +1246,23 @@ fn scope_of(work: &Path, story: &str) -> Result<Scope, String> {
     Ok(Scope { rel, text, cov, acceptance, mine, uncovered, traces, ir })
 }
 
+/// The log of the conformance run on the change revision under review, and the gate's log on the
+/// specification revision (None without one). sdc.story (revision 7) admits change.review only once
+/// the conformance run passed at the revision under review, so its log is always there; without it
+/// the review has no input.
+fn run_logs(facts: &Facts) -> Result<(String, Option<String>), String> {
+    let tests = facts.record_log("conformance_run", "change").ok_or(format!(
+        "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", facts.revision("change")))?;
+    Ok((tests, facts.record_log("ess_gate", "spec")))
+}
+
 /// The session review's inputs (SDC_REVIEW_MODE=session, the default), as before
 /// story:review-minimal-facts: written into `<cwd>/in/` and returned. The story, its
 /// acceptance lines (the summary line and the lines of an `## Acceptance` section), the
 /// requirements it delivers and those no story covers, the covered commands' IR entries, the
 /// change tree, its diff against the mainline (empty for the first story), the gate and test logs.
-fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
-    let work = case_dir.join("work");
+fn review_inputs_session(cwd: &Path, facts: &Facts, story: &str) -> Result<Value, String> {
+    let work = facts.work();
     let in_dir = cwd.join("in");
     let Scope { rel, text, cov, acceptance, mine, uncovered, traces, ir } = scope_of(&work, story)?;
     fs::create_dir_all(in_dir.join("aep/story")).map_err(|e| e.to_string())?;
@@ -1083,13 +1291,7 @@ fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Val
         l + "\n"
     }).collect();
     fs::write(in_dir.join("change.diff"), &diff).map_err(|e| e.to_string())?;
-    let case = read_json(&case_dir.join("case.json"));
-    let rev = |a: &str| case["artifacts"][a]["revision"].as_str().unwrap_or("none").to_string();
-    // sdc.story (revision 7) admits change.review only once the conformance run passed at the
-    // revision under review, so its log is always there; without it the review has no input.
-    let tests = record_log(case_dir, "conformance_run", &rev("change")).ok_or(format!(
-        "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", rev("change")))?;
-    let gate = record_log(case_dir, "ess_gate", &rev("spec"));
+    let (tests, gate) = run_logs(facts)?;
     fs::write(in_dir.join("tests.txt"), &tests).map_err(|e| e.to_string())?;
     fs::write(in_dir.join("gate.txt"), gate.clone().unwrap_or("no gate run recorded on this specification revision\n".into()))
         .map_err(|e| e.to_string())?;
@@ -1114,8 +1316,8 @@ fn review_inputs_session(cwd: &Path, case_dir: &Path, story: &str) -> Result<Val
 /// programs only: `scope.json` and `uncovered.json` (what a finding may name), `change.diff` and the
 /// touched files under `impl/` (the lines `at` may cite), `listing.json` (the files `at` may cite by
 /// path alone). No other file's text, no other story, no log.
-fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, String> {
-    let work = case_dir.join("work");
+fn review_inputs(cwd: &Path, facts: &Facts, story: &str) -> Result<Value, String> {
+    let work = facts.work();
     let in_dir = cwd.join("in");
     let rel = format!("aep/story/{story}.md");
     let text = fs::read_to_string(work.join(&rel)).map_err(|e| format!("{rel}: {e}"))?;
@@ -1170,13 +1372,7 @@ fn review_inputs(cwd: &Path, case_dir: &Path, story: &str) -> Result<Value, Stri
     let listing = product_files(&work.join("impl"), &changed);
     w("listing.json", &json!({"about": "product files the diff does not touch: what `at` may cite by path alone",
         "files": listing.iter().map(|f| json!({"path": f.path, "bytes": f.bytes, "items": f.items})).collect::<Vec<_>>()}))?;
-    let case = read_json(&case_dir.join("case.json"));
-    let rev = |a: &str| case["artifacts"][a]["revision"].as_str().unwrap_or("none").to_string();
-    // sdc.story (revision 7) admits change.review only once the conformance run passed at the
-    // revision under review, so its log is always there; without it the review has no input.
-    let tests = record_log(case_dir, "conformance_run", &rev("change")).ok_or(format!(
-        "no conformance run recorded on change revision {} (sdc.story reviews only after tests.pass)", rev("change")))?;
-    let gate = record_log(case_dir, "ess_gate", &rev("spec"));
+    let (tests, gate) = run_logs(facts)?;
     let tests = test_summary(&tests);
     let constraints = fs::read_to_string(work.join("build-constraints.yaml")).ok();
     let doc = review_document(&ReviewFacts { story, base: if base.ends_with("mainline") { "mainline" } else { "empty" },
@@ -1224,8 +1420,8 @@ fn review_schema(in_dir: &Path) -> Value {
 /// the reply is invalid: an unknown decision, a finding whose place is not a line of the change
 /// tree, a violation of something outside the story's set, an `outside` finding about a
 /// requirement a story covers, an empty `says`, or a rejection with no violation finding.
-fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> Result<(bool, Value), Vec<String>> {
-    let c = ctx(cwd, case_dir);
+fn check_review(cwd: &Path, source: &Facts, reply: &Value, principal: &str) -> Result<(bool, Value), Vec<String>> {
+    let c = ctx(cwd, source);
     let (inside, outside) = review_targets(&c.in_dir);
     let changed: BTreeSet<String> = changed_files(&fs::read_to_string(c.in_dir.join("change.diff")).unwrap_or_default()).into_iter().collect();
     // A facts review (SDC_REVIEW_MODE=facts) has listing.json: a listed file may be cited by path.
@@ -1281,14 +1477,15 @@ fn check_review(cwd: &Path, case_dir: &Path, reply: &Value, principal: &str) -> 
     if !why.is_empty() {
         return Err(why);
     }
-    let case = read_json(&case_dir.join("case.json"));
     if decision == "approved" {
         return Ok((true, json!({"approved": true, "principal": principal, "notes": notes, "citations": citations})));
     }
-    let count = rejections(case_dir, "change.review").as_array().map_or(0, |a| a.len()) + 1;
-    Ok((false, json!({"format": "sdc.rejection/1", "approval": "change.review", "case": case["id"], "subject": "change",
-        "revision": case["artifacts"]["change"]["revision"], "principal": principal, "reasons": reasons,
-        "notes": notes, "citations": citations, "count": count, "summary": reply["summary"]})))
+    let count = source.rejections("change.review").as_array().map_or(0, |a| a.len()) + 1;
+    let rejection = json!({"format": "sdc.rejection/1", "approval": "change.review", "case": source.case_id(), "subject": "change",
+        "revision": source.revision_value("change"), "principal": principal, "reasons": reasons,
+        "notes": notes, "citations": citations, "count": count, "summary": reply["summary"]});
+    source.note_rejection("change.review", &rejection).map_err(|e| vec![format!("the rejection could not be kept: {e}")])?;
+    Ok((false, rejection))
 }
 
 // --- change.implement's requirement coverage (story:implement-cites-requirements) ---------------
@@ -1595,11 +1792,11 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Citable { cwd, case_dir } => {
-            println!("{}", citable_set(&ctx(&cwd, &case_dir)));
+            println!("{}", citable_set(&ctx(&cwd, &Facts::open(&case_dir))));
             ExitCode::SUCCESS
         }
         Cmd::Resolve { cwd, case_dir, cites } => {
-            let c = ctx(&cwd, &case_dir);
+            let c = ctx(&cwd, &Facts::open(&case_dir));
             let rs: Vec<Value> = cites.iter().map(|x| resolve(&c, x)).collect();
             let ok = rs.iter().all(|r| r["ok"] == true);
             println!("{}", Value::Array(rs));
@@ -1615,13 +1812,24 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             let opts: Vec<String> = serde_json::from_str(&options).unwrap_or_default();
-            println!("{}", decider_schema(&ctx(&cwd, &case_dir), &kind, r#final, &opts, rule));
+            println!("{}", decider_schema(&ctx(&cwd, &Facts::open(&case_dir)), &kind, r#final, &opts, rule));
             ExitCode::SUCCESS
         }
         Cmd::Rejections { case_dir, action } => {
-            println!("{}", rejections(&case_dir, &action));
+            println!("{}", Facts::open(&case_dir).rejections(&action));
             ExitCode::SUCCESS
         }
+        Cmd::Record { work, kind, tree, log } => match fs::read_to_string(&log).map_err(|e| format!("{}: {e}", log.display()))
+            .and_then(|text| Facts::workspace(&work).write_record(&kind, &tree, &text)) {
+            Ok(p) => {
+                println!("{}", p.display());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("sdc-reply record: {e}");
+                ExitCode::from(2)
+            }
+        },
         Cmd::Later { ir, action } => {
             let ir = read_json(&ir);
             if ir["actions"].get(&action).is_none() {
@@ -1632,7 +1840,10 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Cmd::ReviewInputs { cwd, case_dir, story } => match review_mode(std::env::var("SDC_REVIEW_MODE").ok().as_deref())
-            .and_then(|facts| if facts { review_inputs(&cwd, &case_dir, &story) } else { review_inputs_session(&cwd, &case_dir, &story) }) {
+            .and_then(|facts| {
+                let source = Facts::open(&case_dir);
+                if facts { review_inputs(&cwd, &source, &story) } else { review_inputs_session(&cwd, &source, &story) }
+            }) {
             Ok(v) => {
                 println!("{v}");
                 ExitCode::SUCCESS
@@ -1708,7 +1919,7 @@ fn main() -> ExitCode {
         }
         Cmd::CheckReview { cwd, case_dir, reply, principal } => {
             let r = read_json(&reply);
-            match check_review(&cwd, &case_dir, &r, &principal) {
+            match check_review(&cwd, &Facts::open(&case_dir), &r, &principal) {
                 Ok((true, v)) => {
                     println!("{v}");
                     ExitCode::SUCCESS
@@ -1868,7 +2079,7 @@ mod tests {
         let (cwd, case) = call("reject");
         let reply = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md:2", "r1"),
             finding("outside", "impl/README.md:1", "r3")]});
-        let (ok, v) = check_review(&cwd, &case, &reply, "llm-review:m").unwrap();
+        let (ok, v) = check_review(&cwd, &Facts::driver(&case), &reply, "llm-review:m").unwrap();
         assert!(!ok);
         assert_eq!(v["format"], "sdc.rejection/1");
         assert_eq!(v["revision"], "t1");
@@ -1881,7 +2092,7 @@ mod tests {
     #[test]
     fn an_invalid_reply_is_never_a_decision() {
         let (cwd, case) = call("invalid");
-        let check = |reply: Value| check_review(&cwd, &case, &reply, "p").unwrap_err().join("; ");
+        let check = |reply: Value| check_review(&cwd, &Facts::driver(&case), &reply, "p").unwrap_err().join("; ");
         // A line the file does not have, a file outside the change tree, a requirement outside the story.
         assert!(check(json!({"decision": "rejected", "findings": [finding("violation", "impl/README.md:9", "r1")]})).contains("lines 9-9 outside impl/README.md"));
         assert!(check(json!({"decision": "approved", "findings": [finding("violation", "in/scope.json:1", "r1")]})).contains("not a line of the change tree"));
@@ -2005,7 +2216,7 @@ mod tests {
     fn an_approval_may_carry_outside_notes() {
         let (cwd, case) = call("approve");
         let reply = json!({"decision": "approved", "summary": "s", "findings": [finding("outside", "impl/README.md:1", "r3")]});
-        let (ok, v) = check_review(&cwd, &case, &reply, "p").unwrap();
+        let (ok, v) = check_review(&cwd, &Facts::driver(&case), &reply, "p").unwrap();
         assert!(ok);
         assert_eq!(v["notes"].as_array().unwrap().len(), 1);
     }
@@ -2242,7 +2453,7 @@ mod tests {
     #[test]
     fn the_review_input_holds_the_touched_files_and_no_other() {
         let (cwd, case) = review_case("touched", PASSING_LOG);
-        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let v = review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
         assert_eq!(v["changed_files"], json!(["src/lib.rs", "src/new.rs"]));
         assert!(doc.contains("### impl/src/lib.rs") && doc.contains("pub fn remove()"), "{doc}");
@@ -2261,7 +2472,7 @@ mod tests {
     #[test]
     fn the_review_input_holds_the_stories_requirements_and_commands_only() {
         let (cwd, case) = review_case("scope", PASSING_LOG);
-        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let v = review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
         assert_eq!(v["requirements"], json!(["r1"]));
         assert_eq!(v["uncovered"], json!(["r3"]));
@@ -2281,7 +2492,7 @@ mod tests {
     #[test]
     fn the_review_input_holds_the_test_summary_not_the_log() {
         let (cwd, case) = review_case("tests", PASSING_LOG);
-        review_inputs(&cwd, &case, "tasks").unwrap();
+        review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
         assert!(doc.contains("2 scenarios: 2 passed, 0 failed, 0 error, 0 unsupported"), "{doc}");
         assert!(doc.contains("unit tests: 2 passed, 0 failed, 0 ignored") && doc.contains("failing: none"), "{doc}");
@@ -2290,7 +2501,7 @@ mod tests {
         let failing = PASSING_LOG.replace("  passed todo.task.AddTask/outcome/refused", "  failed todo.task.AddTask/outcome/refused")
             .replace("test tests::remove ... ok", "test tests::remove ... FAILED");
         let (cwd, case) = review_case("tests-failing", &failing);
-        review_inputs(&cwd, &case, "tasks").unwrap();
+        review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
         assert!(doc.contains("failing: todo.task.AddTask/outcome/refused, tests::remove"), "{doc}");
     }
@@ -2298,18 +2509,18 @@ mod tests {
     #[test]
     fn the_build_constraints_are_in_the_document_when_the_tree_has_them() {
         let (cwd, case) = review_case("no-constraints", PASSING_LOG);
-        assert_eq!(review_inputs(&cwd, &case, "tasks").unwrap()["build_constraints"], false);
+        assert_eq!(review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap()["build_constraints"], false);
         assert!(!fs::read_to_string(cwd.join("in/review.md")).unwrap().contains("Build constraints"));
         let (cwd, case) = review_case("constraints", PASSING_LOG);
         fs::write(case.join("work/build-constraints.yaml"), "language: rust\n").unwrap();
-        assert_eq!(review_inputs(&cwd, &case, "tasks").unwrap()["build_constraints"], true);
+        assert_eq!(review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap()["build_constraints"], true);
         assert!(fs::read_to_string(cwd.join("in/review.md")).unwrap().contains("## Build constraints\nlanguage: rust"));
     }
 
     #[test]
     fn an_absent_file_is_detectable_from_the_listing() {
         let (cwd, case) = review_case("listing", PASSING_LOG);
-        let v = review_inputs(&cwd, &case, "tasks").unwrap();
+        let v = review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let doc = fs::read_to_string(cwd.join("in/review.md")).unwrap();
         let (_, listing) = doc.split_once("## Product files not in the diff").unwrap_or_else(|| panic!("no listing: {doc}"));
         let listing = listing.split("\n## ").next().unwrap();
@@ -2337,7 +2548,7 @@ mod tests {
             fs::create_dir_all(f.parent().unwrap()).unwrap();
             fs::write(f, "x").unwrap();
         }
-        review_inputs(&cwd, &case, "tasks").unwrap();
+        review_inputs(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let l = fs::read_to_string(cwd.join("in/listing.json")).unwrap();
         assert!(!l.contains("target/") && !l.contains(".sdc") && !l.contains(".git/") && !l.contains("node_modules"), "{l}");
     }
@@ -2380,7 +2591,7 @@ mod tests {
     #[test]
     fn a_listed_untouched_file_is_cited_by_path_without_a_line() {
         let (cwd, case) = call("listed");
-        let check = |at: &str| check_review(&cwd, &case, &json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", at, "r1")]}), "p");
+        let check = |at: &str| check_review(&cwd, &Facts::driver(&case), &json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", at, "r1")]}), "p");
         let (ok, v) = check("impl/src/server.rs").unwrap();
         assert!(!ok);
         assert_eq!(v["reasons"], json!(["impl/src/server.rs: it does not (violates r1)"]));
@@ -2443,7 +2654,7 @@ mod tests {
     #[test]
     fn the_session_review_inputs_are_the_whole_tree_and_the_logs() {
         let (cwd, case) = review_case("session", PASSING_LOG);
-        let v = review_inputs_session(&cwd, &case, "tasks").unwrap();
+        let v = review_inputs_session(&cwd, &Facts::driver(&case), "tasks").unwrap();
         let mut keys: Vec<&String> = v.as_object().unwrap().keys().collect();
         keys.sort();
         assert_eq!(keys, ["base", "changed_files", "covers", "gate", "requirements", "story", "uncovered"]);
@@ -2465,11 +2676,130 @@ mod tests {
         let (cwd, case) = call("session");
         fs::remove_file(cwd.join("in/listing.json")).unwrap();
         let reply = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md:2", "r1")]});
-        let (ok, v) = check_review(&cwd, &case, &reply, "p").unwrap();
+        let (ok, v) = check_review(&cwd, &Facts::driver(&case), &reply, "p").unwrap();
         assert!(!ok);
         assert_eq!(v["citations"], json!([{"at": "impl/README.md:2", "violates": "r1", "kind": "violation", "in_diff": true}]));
         let by_path = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md", "r1")]});
-        assert!(check_review(&cwd, &case, &by_path, "p").unwrap_err().join("; ").contains("is not a line of the change tree"));
+        assert!(check_review(&cwd, &Facts::driver(&case), &by_path, "p").unwrap_err().join("; ").contains("is not a line of the change tree"));
         assert_eq!(review_schema(&cwd.join("in"))["properties"]["findings"]["items"]["properties"]["at"]["pattern"], "^impl/[^:]+:[0-9]+(-[0-9]+)?$");
+    }
+
+    // --- under Loom: the facts are the workspace's records (Facts::workspace) ---------------------
+
+    /// A review case whose workspace is all there is: the driver's case files are removed.
+    fn workspace_case(name: &str) -> (PathBuf, Facts) {
+        let (cwd, case) = review_case(name, PASSING_LOG);
+        for f in ["case.json", "events.jsonl"] {
+            fs::remove_file(case.join(f)).unwrap();
+        }
+        for d in ["evidence", "blobs"] {
+            fs::remove_dir_all(case.join(d)).unwrap();
+        }
+        (cwd, Facts::workspace(&case.join("work")))
+    }
+
+    #[test]
+    fn a_workspace_review_has_no_inputs_before_the_tests_ran_on_the_tree() {
+        let (cwd, facts) = workspace_case("ws-none");
+        let e = review_inputs(&cwd, &facts, "tasks").unwrap_err();
+        assert!(e.starts_with("no conformance run recorded on change revision "), "{e}");
+        assert!(!e.contains("revision none"), "the tree has a digest: {e}");
+    }
+
+    #[test]
+    fn a_workspace_review_reads_the_logs_of_the_records_like_the_drivers() {
+        let (cwd, facts) = workspace_case("ws-logs");
+        facts.write_record("conformance_run", "impl", PASSING_LOG).unwrap();
+        facts.write_record("ess_gate", "spec", "gate log\n").unwrap_err();
+        fs::create_dir_all(facts.work().join("spec")).unwrap();
+        fs::write(facts.work().join("spec/system.yaml"), "system: tasks\n").unwrap();
+        facts.write_record("ess_gate", "spec", "gate log\n").unwrap();
+        let v = review_inputs(&cwd, &facts, "tasks").unwrap();
+        assert_eq!(v["gate"], true);
+        // The document the model reads is the one the driver's case gives (the same tests log).
+        let (dcwd, dcase) = review_case("ws-logs-driver", PASSING_LOG);
+        review_inputs(&dcwd, &Facts::driver(&dcase), "tasks").unwrap();
+        assert_eq!(fs::read(cwd.join("in/review.md")).unwrap(), fs::read(dcwd.join("in/review.md")).unwrap());
+    }
+
+    #[test]
+    fn a_workspace_review_reads_the_session_inputs_from_the_records_too() {
+        let (cwd, facts) = workspace_case("ws-session");
+        facts.write_record("conformance_run", "impl", PASSING_LOG).unwrap();
+        review_inputs_session(&cwd, &facts, "tasks").unwrap();
+        assert_eq!(fs::read_to_string(cwd.join("in/tests.txt")).unwrap(), PASSING_LOG);
+        assert_eq!(fs::read_to_string(cwd.join("in/gate.txt")).unwrap(), "no gate run recorded on this specification revision\n");
+        fs::create_dir_all(facts.work().join("spec")).unwrap();
+        fs::write(facts.work().join("spec/system.yaml"), "system: tasks\n").unwrap();
+        facts.write_record("ess_gate", "spec", "gate log\n").unwrap();
+        review_inputs_session(&cwd, &facts, "tasks").unwrap();
+        assert_eq!(fs::read_to_string(cwd.join("in/gate.txt")).unwrap(), "gate log\n");
+    }
+
+    #[test]
+    fn a_run_recorded_on_an_earlier_tree_is_no_run_on_the_changed_one() {
+        let (cwd, facts) = workspace_case("ws-changed");
+        facts.write_record("conformance_run", "impl", PASSING_LOG).unwrap();
+        review_inputs(&cwd, &facts, "tasks").unwrap();
+        fs::write(facts.work().join("impl/src/new.rs"), "pub fn brand_new_again() {}\n").unwrap();
+        assert!(review_inputs(&cwd, &facts, "tasks").unwrap_err().starts_with("no conformance run recorded on change revision "));
+        // Build output, `.sdc` and `.derived-from` are no part of the revision.
+        fs::write(facts.work().join("impl/src/new.rs"), "pub fn brand_new() {}\n").unwrap();
+        fs::create_dir_all(facts.work().join("impl/target/debug")).unwrap();
+        fs::write(facts.work().join("impl/target/debug/x"), "x").unwrap();
+        fs::create_dir_all(facts.work().join("impl/.sdc")).unwrap();
+        fs::write(facts.work().join("impl/.sdc/coverage.json"), "{}").unwrap();
+        fs::write(facts.work().join("impl/.derived-from"), "x\n").unwrap();
+        review_inputs(&cwd, &facts, "tasks").unwrap();
+    }
+
+    #[test]
+    fn a_workspace_keeps_its_rejections_and_counts_them() {
+        let (cwd, facts) = workspace_case("ws-reject");
+        fs::create_dir_all(cwd.join("in/impl")).unwrap();
+        fs::write(cwd.join("in/impl/README.md"), "# App\nrun it\nend\n").unwrap();
+        fs::write(cwd.join("in/change.diff"), "+++ impl/README.md\t2026\n").unwrap();
+        fs::write(cwd.join("in/scope.json"), json!({"covers": [], "requirements": [{"id": "r1"}], "acceptance": []}).to_string()).unwrap();
+        fs::write(cwd.join("in/uncovered.json"), json!({"requirements": []}).to_string()).unwrap();
+        assert_eq!(facts.rejections("change.review"), json!([]));
+        let reply = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md:2", "r1")]});
+        let (ok, first) = check_review(&cwd, &facts, &reply, "llm-review:m").unwrap();
+        assert!(!ok);
+        assert_eq!((first["count"].clone(), first["revision"].clone()), (json!(1), facts.revision_value("change")));
+        assert_eq!(first["revision"].as_str().map(str::len), Some(16));
+        let (_, second) = check_review(&cwd, &facts, &reply, "llm-review:m").unwrap();
+        assert_eq!(second["count"], 2);
+        let kept = facts.rejections("change.review");
+        assert_eq!(kept.as_array().map(Vec::len), Some(2));
+        assert_eq!(kept[0]["record"], "001");
+        assert_eq!(kept[1]["principal"], "llm-review:m");
+        assert_eq!(kept[1]["reasons"], second["reasons"]);
+        // An approval keeps nothing, an invalid reply keeps nothing.
+        let approved = json!({"decision": "approved", "summary": "s", "findings": []});
+        check_review(&cwd, &facts, &approved, "p").unwrap();
+        check_review(&cwd, &facts, &json!({"decision": "maybe"}), "p").unwrap_err();
+        assert_eq!(facts.rejections("change.review").as_array().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn the_driver_keeps_no_records_of_its_own() {
+        let (cwd, case) = call("driver-keeps-none");
+        let reply = json!({"decision": "rejected", "summary": "s", "findings": [finding("violation", "impl/README.md:2", "r1")]});
+        check_review(&cwd, &Facts::driver(&case), &reply, "p").unwrap();
+        assert!(!case.join("work").join(RECORDS).exists());
+    }
+
+    #[test]
+    fn a_record_names_a_tree_that_is_there_and_a_plain_kind() {
+        let (_, facts) = workspace_case("ws-record-refused");
+        assert!(facts.write_record("conformance_run", "nowhere", "x").unwrap_err().contains("no such tree"));
+        assert!(facts.write_record("../x", "impl", "x").unwrap_err().contains("no record kind"));
+        assert!(facts.write_record("a/b", "impl", "x").is_err());
+    }
+
+    #[test]
+    fn the_time_of_a_record_is_a_utc_stamp() {
+        let t = now_utc();
+        assert!(regex::Regex::new(r"^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$").unwrap().is_match(&t), "{t}");
     }
 }

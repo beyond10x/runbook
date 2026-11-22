@@ -208,6 +208,22 @@ bugfix() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
   "$b" "$@"
 }
+# Run a command; under Loom (the old driver keeps the step's log itself) also keep its log as the
+# record of <kind> about the tree <tree> (sdc-reply record): the change.review inputs read it from
+# the workspace, since Loom gives a program no case store.  recorded <kind> <tree> <command>...
+recorded() {
+  local kind=$1 tree=$2 log rc b
+  shift 2
+  [[ -n ${LOOM_CASE:-} ]] || { "$@"; return; }
+  b=$(sibling sdc-reply)
+  [[ -x $b ]] || { echo "sdc-tool: sdc-reply not found (looked at PATH, then $root/driver/target/debug/sdc-reply): $* could not run" >&2; exit 127; }
+  log=$(mktemp .sdc/record-log.XXXXXX) || exit 126
+  "$@" > "$log" 2>&1; rc=$?
+  cat "$log"
+  "$b" record --kind "$kind" --tree "$tree" --log "$log" > /dev/null || rc=126
+  rm -f "$log"
+  return $rc
+}
 # The specification's conformance as the spec stage checks it (spec.synthesize, and spec.gate's
 # ess-gate): the suite is synthesized with no refusal, then run against ESS's interpreter of the
 # specification (`--target interpreted --strict`), and every scenario must pass. A scenario the
@@ -363,11 +379,14 @@ roadmap-validate) [[ -f aep/initiative/roadmap.md ]] && aep plan artifact valida
 
 # --- ESS: the gate as one program, and its parts --------------------------------------------
 ess-gate)
-  mkdir -p .sdc/gate
-  ess specify validate --path spec --strict-requires &&
-  ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null &&
-  ! grep -rn 'UNMAPPED:' spec &&
-  spec_conform .sdc/gate/suite.json ;;
+  ess_gate() {
+    mkdir -p .sdc/gate
+    ess specify validate --path spec --strict-requires &&
+    ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null &&
+    ! grep -rn 'UNMAPPED:' spec &&
+    spec_conform .sdc/gate/suite.json
+  }
+  recorded ess_gate spec ess_gate ;;
 spec-validate) ess specify validate --path spec --strict-requires ;;
 spec-compile) ess specify compile --path spec --out .sdc/spec-ir.json ;;
 spec-scan) grep -rn 'UNMAPPED:' spec; [[ $? == 1 ]] ;;
@@ -560,7 +579,7 @@ check-requirements|check-context|spec-trace|plan-cover)
   (( rc == 0 )) || exit 5 ;;
 story-tests)
   findings gate story || exit 5
-  "$here/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
+  recorded conformance_run "${2:?implementation tree}" "$here/sdc-tool.sh" story-tests-run "$2" ;;
 amend) findings amend "${2:?stage}" ;;
 # amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
 # none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or

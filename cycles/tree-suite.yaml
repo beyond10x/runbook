@@ -197,23 +197,20 @@ cycles:
         - {check: count, name: questions-written-once, select: [{log: {case: intake, event: ActionFinished}}, {where: {action: questions.write}}], is: 1}
 
   - name: review-reject-once
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-rejected-approved.yaml, to: .stub/replies/review.yaml}]
     expect:
       exit: 0
       checks:
         - {check: count, name: implemented-twice, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement}}], is: 2}
         - {check: sequence, name: rejected-then-approved, select: [{records: {case: billing.invoices, kind: code_review}}, {path: result}], is: [rejected, approved]}
-        - {check: all, name: reviewed-by-llm, select: [{records: {case: billing.invoices, kind: code_review}}], where: {producer: llm-review}}
+        - {check: all, name: reviewed-by-llm, select: [{doc: {in: store, path: case-726f6f742e62696c6c696e672e696e766f69636573.json}}, {path: "evidence[*].data"}, {where: {kind: code_review}}], where: {producer: llm-review}}
 
   - name: review-minimal-input
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/review-facts.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-rejected-approved.yaml, to: .stub/replies/review.yaml}]
     expect:
       exit: 0
 
   - name: review-invalid
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-invalid.yaml, to: .stub/replies/review.yaml}]
     expect:
       exit: 4
@@ -226,7 +223,6 @@ cycles:
           where: {".": {contains: "9999"}}
 
   - name: review-spent
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-rejected.yaml, to: .stub/replies/review.yaml}]
     expect:
       exit: 4
@@ -468,7 +464,6 @@ cycles:
           where: {".": {matches: "(?m)^slot: job "}}
 
   - name: implement-request-review-rework
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-request-review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-rejected-approved.yaml, to: .stub/replies/review.yaml}, {from: seeds/stub/replies/implement-review-rework.yaml, to: .stub/replies/implement.yaml}]
     expect:
       exit: 0
@@ -514,7 +509,6 @@ cycles:
         - {check: count, name: nothing-outside-impl, select: [{files: {in: work, glob: "**/escape.rs"}}], is: 0}
 
   - name: coverage-complete
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-coverage-review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/coverage-complete.yaml, to: .stub/replies/coverage.yaml}]
     expect:
       exit: 0
@@ -526,7 +520,6 @@ cycles:
           where: {".": {matches: "(?m)^- in/coverage.json \\(read-only"}}
 
   - name: review-invalid-named
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-invalid.yaml, to: .stub/replies/review.yaml}]
     expect:
       exit: 4

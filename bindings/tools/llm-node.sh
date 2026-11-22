@@ -49,7 +49,9 @@
 # (each with its log's tail; Loom names no action and no exit of the run that recorded it).
 # sdc-findings, sdc-bugfix and sdc-reply come from PATH, else from the driver crate's build in
 # this repository, never from HOME. Loom gives no case directory: what reads SDC_CASE_DIR takes
-# its driver-mode default or is pending (bindings/PENDING.md).
+# its driver-mode default or is pending (bindings/PENDING.md). change.review's inputs are read by
+# sdc-reply from record files of the workspace (.sdc/records/, written by the tests.run and
+# spec.gate tools and by sdc-reply check-review; docs/loom-bindings.md).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
