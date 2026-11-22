@@ -10,7 +10,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
-const TOKEN: &str = "t0ken-for-the-decide-review";
+const TOKEN: &str = "t0ken-for-the-decide-review-0123456789-abcdef";
 
 /// `answered_by` is a free label (`docs/daemon-api.md`, "The web UI"). The daemon bounds the other labels
 /// a caller sends (`client`, `idempotency_key`: `MAX_LABEL_CHARS`, 200 characters) and the page bounds this

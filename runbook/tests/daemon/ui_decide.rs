@@ -15,7 +15,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
-const TOKEN: &str = "t0ken-for-the-decide-tests";
+const TOKEN: &str = "t0ken-for-the-decide-tests-0123456789-abcdef";
 
 struct Srv {
     fx: Fx,
@@ -227,4 +227,20 @@ fn the_binary_has_a_stub_run_that_waits_on_two_decisions_and_goes_on_when_they_a
     let events = d.call("GET", &format!("/daemon/views/events?run_id={run}&after_position=0"), None).json();
     let kinds: Vec<&str> = events["rows"].as_array().unwrap().iter().map(|e| e["kind"].as_str().unwrap()).collect();
     assert_eq!(kinds.last(), Some(&"stub.answered"), "the run's events continue after the answers: {kinds:?}");
+}
+
+#[test]
+fn an_intake_of_a_megabyte_gives_a_small_open_decisions_answer() {
+    let d = Daemon::start("decide-big-intake");
+    let intake = "é".repeat(524_288);
+    assert_eq!(intake.len(), 1_048_576);
+    let r = d.call("POST", "/daemon/commands/submit-run", Some(json!({"runbook_id": "stub-decision", "intake": intake})));
+    assert_eq!(r.status, 202, "{}", r.text());
+    let run = r.json()["published"][0]["payload"]["run_id"].as_str().unwrap().to_string();
+    d.until("two open decisions", || d.rows("open-decisions", &run).len() == 2);
+    let body = d.call("GET", &format!("/daemon/views/open-decisions?run_id={run}"), None).text();
+    assert!(body.len() < 16 * 1024, "the open-decisions answer is {} bytes for an intake of 1 MiB", body.len());
+    let cut: String = intake.chars().take(200).collect();
+    assert!(body.contains(&cut), "the stub keeps the first 200 characters of the intake");
+    assert!(!body.contains(&"é".repeat(201)), "and no more than 200");
 }

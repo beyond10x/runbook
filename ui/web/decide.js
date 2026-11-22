@@ -107,15 +107,14 @@ async function refusal(r) {
 async function answer(run, request, text) {
   const by = document.getElementById('dd-by');
   const tokenInput = document.getElementById('dd-token');
+  // the token leaves the field first, on every path below: into the memory of the page, never left in the DOM
+  const given = tokenInput.value;
+  tokenInput.value = '';
+  if (given) D.token = given;
   const who = by.value.trim();
   if (!text) return say(false, 'Pick an option, or write the answer first.');
   if (!who) { by.focus(); return say(false, 'Say who you are first: the daemon records that name with the answer.'); }
-  if (D.needs && D.token === null) {
-    const given = tokenInput.value;
-    tokenInput.value = '';
-    if (!given) { tokenInput.focus(); return say(false, 'This daemon needs its token: type it above, once, and answer again.'); }
-    D.token = given;
-  }
+  if (D.needs && D.token === null) { tokenInput.focus(); return say(false, 'This daemon needs its token: type it above, once, and answer again.'); }
   D.busy = true;
   say(true, 'Sending the answer to the daemon…');
   try {

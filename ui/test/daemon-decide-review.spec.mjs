@@ -3,13 +3,14 @@
 import {test, expect as plain} from '@playwright/test';
 import {spawn} from 'node:child_process';
 import fs from 'node:fs';
+import {randomBytes} from 'node:crypto';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const expect = plain.configure({timeout: 15000});
 const ui = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = process.env.SDC_RUNBOOK_BIN || path.resolve(ui, '../runbook/target/debug/runbook');
-const TOKEN = `tok-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
+const TOKEN = `tok-${randomBytes(24).toString('hex')}`;
 const servers = {};
 let dir;
 
