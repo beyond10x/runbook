@@ -1,0 +1,118 @@
+//! The runtime the daemon runs its runs on.
+//!
+//! The shape is the one Loom's library offers: a start call that BLOCKS until the run ends, takes an
+//! observer that is called once per run-log line, and takes an `AtomicBool` that the runtime checks
+//! between steps. The daemon runs each run on its own plain thread. Loom replaces the stub of
+//! `stub.rs` by implementing this trait; the daemon, its commands and its API do not change.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+
+/// How strongly a run is sandboxed, weakest first (the runtime's names).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Confinement {
+    Local,
+    Linux,
+}
+
+impl Confinement {
+    pub const ALL: [Confinement; 2] = [Confinement::Local, Confinement::Linux];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Confinement::Local => "local",
+            Confinement::Linux => "linux",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Confinement> {
+        Confinement::ALL.into_iter().find(|c| c.as_str() == text)
+    }
+
+    /// Position in the order, weakest first.
+    pub fn rank(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Everything a run is started with.
+#[derive(Clone, Debug)]
+pub struct StartRequest {
+    pub run_id: String,
+    pub runbook: String,
+    pub version: Option<String>,
+    pub intake: String,
+    /// The context directory as submitted (already copied into `workspace_dir` by the daemon).
+    pub context_dir: Option<PathBuf>,
+    pub settings: BTreeMap<String, String>,
+    pub confinement: Confinement,
+    /// The run's record: its store and logs.
+    pub state_dir: PathBuf,
+    /// The run's workspace, a child of the one shared `workspaces` directory.
+    pub workspace_dir: PathBuf,
+}
+
+/// A question the runtime raised for a run.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DecisionRequest {
+    pub request_id: String,
+    pub case_id: String,
+    pub action: String,
+    pub capability: String,
+    pub question: String,
+    pub options: Vec<Value>,
+}
+
+/// What the runtime reports while a run goes. Called on the run's thread, from inside `start`.
+pub trait EventSink: Send + Sync {
+    /// The runtime took the run up.
+    fn started(&self);
+    /// One run-log line: its kind and the record, unchanged.
+    fn record(&self, kind: &str, record: Value);
+    /// The run stops on a decision.
+    fn decision_requested(&self, request: DecisionRequest);
+    /// Every decision the run waited on is answered and the runtime took the answers up.
+    fn resumed(&self);
+}
+
+/// How a run that started ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Finish {
+    /// The run reached an outcome (open text: the root case's outcome name).
+    Outcome(String),
+    /// The cancel flag was seen and the run stopped.
+    Cancelled,
+}
+
+/// The runtime could not start the run, or failed after it started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeFailure {
+    pub reason: String,
+}
+
+/// The runtime cannot take an answer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AnswerFailure {
+    /// The runtime holds no live run of this id (for instance after a restart of the daemon).
+    UnknownRun,
+    Refused(String),
+}
+
+pub trait Runtime: Send + Sync + 'static {
+    /// Whether the runtime has a runbook of this name (and version).
+    fn knows_runbook(&self, runbook: &str, version: Option<&str>) -> bool;
+
+    /// Run to the end. Blocks. `sink.started()` is called once the run is up; an `Err` before that
+    /// is a run that could not start. The `cancel` flag is checked between steps.
+    fn start(&self, request: StartRequest, sink: &dyn EventSink, cancel: &AtomicBool) -> Result<Finish, RuntimeFailure>;
+
+    /// Hand an answer to a waiting run.
+    fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure>;
+
+    /// Ask the run to stop (the daemon has also set the run's cancel flag).
+    fn cancel(&self, run_id: &str);
+}
