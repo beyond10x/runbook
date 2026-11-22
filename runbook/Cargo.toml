@@ -16,6 +16,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 serde_yaml = "0.9"
 sha2 = "0.10"
 uuid = { version = "1", default-features = false, features = ["v7", "std"] }
-tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
+futures-util = { version = "0.3", default-features = false }
 
 [workspace]

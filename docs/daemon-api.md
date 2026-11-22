@@ -80,15 +80,52 @@ Three views page the events by `position`:
 | `daemon-events` | `after_position` | every run of the daemon |
 
 Each answers the rows with a position above `after_position`, in position order, as a JSON page.
-Sent with `Accept: text/event-stream`, the same path streams them as server-sent events: every
-row with a position above `after_position`, then each new event as it is recorded. The SSE `id:` of
-an event is its `position` on all three streams. A client that lost the connection reconnects with
-`Last-Event-ID: n` (a position) and the stream continues after `n`; `after_position = 0` is
-everything. The `sequence` of an event is only its place within its run.
+The `sequence` of an event is only its place within its run.
 
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
 itself have a kind that starts with `runbook.` (`runbook.submitted`, `runbook.cancel-requested`,
 `runbook.start-failed`).
+
+### Event streams
+
+Sent with `Accept: text/event-stream`, the same path is a stream of server-sent events. There is no
+other route.
+
+```
+curl -N -H 'Accept: text/event-stream' 'http://127.0.0.1:7430/daemon/views/daemon-events?after_position=0'
+curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:7430/daemon/views/events?run_id=<run>'
+```
+
+- Message. `id:` is the event's `position`, `event:` its `kind`, `data:` the row the JSON page holds
+  for it, as one line. A stream sends every recorded event after the asked position in position
+  order, then stays open and sends each new event as it is recorded. An event is read from the
+  daemon's record, so none is sent twice and none is skipped, also when it is recorded while the
+  stream connects.
+- Where it starts. The `Last-Event-ID` header, when given, is the position the stream continues after.
+  Without it the parameter `after_position` is that position, and without both the stream starts at
+  0, the whole record. When both are given the header wins and the parameter is not read. The id
+  parameter of the view (`run_id`, `session_id`) is required as in the page form (`400`). A
+  `Last-Event-ID` that is not a position (digits only, at most 18,446,744,073,709,551,615), or that
+  is given twice, is refused `400` with the body `{"refused": "bad request", "message": ...}`, as
+  is an `after_position` that is not a position when it is the one in use. A position beyond the last
+  recorded one is not an error: the stream waits and sends the events whose position is above it.
+- Unknown ids. The page form of `events` and `session-events` answers `200` with no row for an id
+  the daemon does not know; so does the stream: it answers `200`, has nothing to send and ends at once.
+- Where it ends. The stream of a run ends (the daemon closes it) when the run is `Ended`,
+  `Cancelled` or `FailedToStart` and its last event has been sent. The stream of a session ends when
+  the session is closed, every run of the session is terminal and the last event has been sent. The
+  stream of the daemon ends at shutdown only. On SIGINT or SIGTERM every open stream is closed and
+  the daemon exits within 2 s, also when a client does not read. A client that gets the end of a
+  stream before it expected one reconnects with `Last-Event-ID`.
+- Keep-alive. A comment line, `: keep-alive`, is sent every 15 s on a stream that has nothing else to
+  send, so that a proxy does not close it; a client ignores it.
+- Slow clients. Recording an event never waits for a stream: a stream reads the record when its
+  connection takes data, and a client that reads slowly holds back its own stream and nothing else.
+  A live stream that finds more than 1,024 events waiting for it (more than it has sent, not counting
+  what was recorded before it connected) is closed, after a comment line that says where to resume:
+  the client reconnects with `Last-Event-ID` set to the last id it read and gets the rest.
+- Token. A stream is a route like any other: with a token, a request without
+  `Authorization: Bearer <token>` is refused `401` before any stream starts.
 
 ## Running the daemon
 
@@ -99,9 +136,8 @@ runbook serve [--listen ADDR] [--state-dir DIR] [--context-root DIR]... [--runbo
 
 In this version the runtime behind the daemon is a stub: a run is scripted, it asks one question
 and ends, and nothing is executed. The daemon says so on standard error when it starts. It prints
-`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM.
-Event streams (`Accept: text/event-stream`) are answered `406` with a body that names the next part
-of the story; the three event views are JSON pages only.
+`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM;
+open event streams are closed then (see "Event streams").
 
 | Option | Default | Meaning |
 |---|---|---|
@@ -123,7 +159,7 @@ before anything is bound or written.
 Limits. A body over 6 MiB + 64 KiB is refused `413` before it is read whole (the intake is at most
 1,048,576 bytes; JSON writes a control character as six). Answers outside the specification have the
 body `{"refused": <what>, "message": <why>}`: `400` for a body or query the daemon cannot read, `401`,
-`404` for an unknown route, `405` for the wrong method, `406`, `413`.
+`404` for an unknown route, `405` for the wrong method, `413`.
 
 State directory:
 
@@ -142,8 +178,8 @@ After a restart a run that was `Submitted` and never started becomes `FailedToSt
 
 - SSE. ESS 0.96.0 has no construct for a server-sent event stream; the three views above are the
   page a stream serves, and the OpenAPI document lists them as plain `GET` views with a JSON
-  response. The `text/event-stream` binding is written and tested in the story
-  `daemon-skeleton-on-a-runtime-trait`.
+  response. The `text/event-stream` binding is written above and tested in the story
+  `daemon-skeleton-on-a-runtime-trait` (part C2).
 - The host checks of `submit-run`: that the runbook exists and that the context path lies under a
   context root are decided by the handler from the host. The specification takes them as facts
   (`runbook_known`, `context_inside_roots`) so that the refusals are specified and

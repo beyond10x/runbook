@@ -323,21 +323,6 @@ fn one_round_trip_per_view() {
 }
 
 #[test]
-fn an_event_view_asked_as_a_stream_is_406_and_names_the_next_part() {
-    let s = Server::start("sse", None);
-    for (path, query) in [("events", "run_id=r&after_position=0"), ("session-events", "session_id=s&after_position=0"), ("daemon-events", "after_position=0")] {
-        for accept in ["text/event-stream", "application/json, text/event-stream;q=0.9", "TEXT/EVENT-STREAM"] {
-            let r = s.get_with(&format!("/daemon/views/{path}?{query}"), &[("Accept", accept)]);
-            assert_eq!(r.status, 406, "{path} with Accept {accept}");
-            assert!(r.json()["message"].as_str().unwrap().contains("part C2 of the story daemon-skeleton-on-a-runtime-trait"), "{}", r.text());
-        }
-        assert_eq!(s.get_with(&format!("/daemon/views/{path}?{query}"), &[("Accept", "application/json")]).status, 200);
-        assert_eq!(s.get(&format!("/daemon/views/{path}?{query}")).status, 200);
-    }
-    assert_eq!(s.get_with("/daemon/views/runs", &[("Accept", "text/event-stream")]).status, 200, "only the three event views are streams");
-}
-
-#[test]
 fn the_server_has_the_routes_of_the_openapi_document_and_no_others() {
     // Routes the document has and the server must serve; there is no exception in this direction.
     let doc = openapi::routes();

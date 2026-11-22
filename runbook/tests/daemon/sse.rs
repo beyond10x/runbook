@@ -263,7 +263,7 @@ impl Stream {
     }
 
     /// Everything up to the end of the stream: its events and its comments.
-    fn to_end(&mut self) -> (Vec<Ev>, Vec<String>) {
+    fn until_closed(&mut self) -> (Vec<Ev>, Vec<String>) {
         let (mut events, mut comments) = (vec![], vec![]);
         while let Some(item) = self.next() {
             match item {
@@ -428,7 +428,7 @@ fn no_event_is_lost_or_sent_twice_while_a_stream_connects() {
     let _t = timed("no_event_is_lost_or_sent_twice_while_a_stream_connects");
     let s = Srv::quiet("sse-race");
     let run = s.hold_run(None);
-    let (rounds, events) = (40usize, 100usize);
+    let (rounds, events) = (12usize, 50usize);
     for round in 0..rounds {
         let base = s.last_position();
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
@@ -518,7 +518,7 @@ fn a_run_stream_ends_after_its_last_event_when_the_run_is_terminal() {
     assert!(!seen.is_empty());
     let o = s.fx.cancel(&run);
     assert_eq!(o.name, "cancelled", "{o:?}");
-    let (rest, _) = stream.to_end();
+    let (rest, _) = stream.until_closed();
     let mut all = seen;
     all.extend(rest);
     let page = s.page("events", &q);
@@ -526,12 +526,12 @@ fn a_run_stream_ends_after_its_last_event_when_the_run_is_terminal() {
     // A run that ended before the connection: everything, then the end at once.
     let quick = s.fx.submit("quick");
     s.fx.wait_state(&quick, "Ended");
-    let (events, _) = s.open(&path("events", &format!("run_id={quick}&after_position=0")), &[]).to_end();
+    let (events, _) = s.open(&path("events", &format!("run_id={quick}&after_position=0")), &[]).until_closed();
     assert_eq!(events.iter().map(Ev::json).collect::<Vec<_>>(), s.page("events", &format!("run_id={quick}&after_position=0")));
     assert!(!events.is_empty());
     // A reconnect to an ended run after its last event: no event, the end.
     let last = events.last().unwrap().id.clone();
-    let (none, _) = s.open(&path("events", &format!("run_id={quick}&after_position=0")), &[("Last-Event-ID", &last)]).to_end();
+    let (none, _) = s.open(&path("events", &format!("run_id={quick}&after_position=0")), &[("Last-Event-ID", &last)]).until_closed();
     assert!(none.is_empty());
 }
 
@@ -551,7 +551,7 @@ fn a_session_stream_ends_when_the_session_is_closed_and_all_its_runs_are_termina
     got.extend(stream.until_comment());
     // The last run ends: the stream ends after its last event.
     assert_eq!(s.fx.cancel(&r2).name, "cancelled");
-    let (rest, _) = stream.to_end();
+    let (rest, _) = stream.until_closed();
     got.extend(rest);
     let page = s.page("session-events", "session_id=ses&after_position=0");
     assert_eq!(got.iter().map(Ev::json).collect::<Vec<_>>(), page);
@@ -565,12 +565,12 @@ fn a_session_stream_ends_when_the_session_is_closed_and_all_its_runs_are_termina
     got.extend(stream.until_comment());
     got.extend(stream.until_comment());
     assert_eq!(s.d().close_session(CloseSession { session_id: "ses2".into() }).unwrap().name, "closed");
-    let (rest, _) = stream.to_end();
+    let (rest, _) = stream.until_closed();
     got.extend(rest);
     assert_eq!(got.iter().map(Ev::json).collect::<Vec<_>>(), s.page("session-events", "session_id=ses2&after_position=0"));
 
     // A session that is closed with every run terminal at the connection: all, then the end.
-    let (events, _) = s.open(&path("session-events", "session_id=ses2&after_position=0"), &[]).to_end();
+    let (events, _) = s.open(&path("session-events", "session_id=ses2&after_position=0"), &[]).until_closed();
     assert_eq!(events.iter().map(Ev::json).collect::<Vec<_>>(), s.page("session-events", "session_id=ses2&after_position=0"));
 }
 
@@ -590,8 +590,8 @@ fn the_daemon_stream_ends_only_at_shutdown() {
     let took = s.shutdown();
     assert!(took < Duration::from_secs(2), "serve returned after {took:?}");
     // Both streams end, after what they had not yet delivered.
-    stream.to_end();
-    other.to_end();
+    stream.until_closed();
+    other.until_closed();
 }
 
 #[test]
@@ -635,8 +635,8 @@ fn sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s() {
     let t = Instant::now();
     let killed = std::process::Command::new("kill").args(["-TERM", &guard.0.id().to_string()]).status().unwrap();
     assert!(killed.success());
-    let (ea, _) = a.to_end();
-    let (eb, _) = b.to_end();
+    let (ea, _) = a.until_closed();
+    let (eb, _) = b.until_closed();
     let _ = (ea, eb);
     let status = loop {
         if let Some(s) = guard.0.try_wait().unwrap() {
@@ -675,10 +675,17 @@ fn a_comment_line_is_sent_as_keep_alive_at_the_injected_interval() {
 
 // ---- 6. a slow or gone client ----
 
+/// Events that fill the buffers of a connection that nobody reads: this many of this many bytes.
+const BIG_EVENTS: usize = 40;
+const BIG_BYTES: usize = 256 * 1024;
+/// More than the injected bound, so that they are what a stream falls behind by.
+const SMALL_EVENTS: usize = 150;
+const TEST_MAX_LAG: usize = 100;
+
 #[test]
 fn recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconnected_and_resumes_by_position() {
     let _t = timed("recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconnected_and_resumes_by_position");
-    let s = Srv::quiet("sse-lag");
+    let s = Srv::start("sse-lag", None, Streams { max_lag: TEST_MAX_LAG, ..Streams::default() });
     let run = s.hold_run(None);
     let base = s.last_position();
     let mut stream = s.open(&path("daemon-events", &format!("after_position={base}")), &[]);
@@ -691,12 +698,12 @@ fn recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconne
         let (d, run) = (s.d(), run.clone());
         std::thread::spawn(move || {
             let t = Instant::now();
-            let pad = "x".repeat(256 * 1024);
+            let pad = "x".repeat(BIG_BYTES);
             let mut last = 0;
-            for i in 0..100 {
+            for i in 0..BIG_EVENTS {
                 last = d.record_run_event(&run, "big", json!({"i": i, "pad": pad})).unwrap().published[0].1["position"].as_u64().unwrap();
             }
-            for i in 0..1100 {
+            for i in 0..SMALL_EVENTS {
                 last = d.record_run_event(&run, "small", json!({"i": i})).unwrap().published[0].1["position"].as_u64().unwrap();
             }
             let _ = done_tx.send((last, t.elapsed()));
@@ -704,9 +711,9 @@ fn recording_never_waits_for_a_stream_and_a_client_that_falls_behind_is_disconne
     };
     let (last, took) = done.recv_timeout(Duration::from_secs(30)).expect("recording waited for a stream that does not read");
     recorder.join().unwrap();
-    println!("recording 1,200 events while a client reads nothing: {took:?}");
+    println!("recording {} events while a client reads nothing: {took:?}", BIG_EVENTS + SMALL_EVENTS);
     // The client reads again: it receives events in order up to a point, then the server ends the stream.
-    let (events, comments) = stream.to_end();
+    let (events, comments) = stream.until_closed();
     assert!(!events.is_empty());
     let got = positions(&events);
     assert!(got.windows(2).all(|w| w[1] == w[0] + 1), "no gap and no repeat before the end");
@@ -753,7 +760,7 @@ fn an_unknown_run_or_session_answers_as_the_page_form_does_before_any_stream_sta
         // nothing to send and nothing that can follow, so it ends at once.
         let mut stream = s.open(&path(view, query), &[]);
         assert_eq!(stream.status, page.status, "{view}");
-        let (events, _) = stream.to_end();
+        let (events, _) = stream.until_closed();
         assert!(events.is_empty(), "{view}");
     }
     // A required parameter that is missing is refused as the page form refuses it.

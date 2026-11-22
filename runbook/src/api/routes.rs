@@ -87,7 +87,8 @@ fn position(q: &HashMap<String, String>) -> Result<u64, Fault> {
     raw.parse().map_err(|_| Fault::Invalid(format!("after_position must be an integer of 0 or more, not {raw:?}")))
 }
 
-fn wants_stream(headers: &HeaderMap) -> bool {
+/// Whether the request asks for `text/event-stream` among its media types.
+pub fn wants_stream(headers: &HeaderMap) -> bool {
     headers
         .get_all(header::ACCEPT)
         .iter()
@@ -96,14 +97,8 @@ fn wants_stream(headers: &HeaderMap) -> bool {
         .any(|m| m.split(';').next().is_some_and(|t| t.trim().eq_ignore_ascii_case("text/event-stream")))
 }
 
-pub fn view(name: &str, daemon: &Daemon, query: &HashMap<String, String>, headers: &HeaderMap) -> Response {
-    if EVENT_VIEWS.contains(&name) && wants_stream(headers) {
-        return refusal(
-            StatusCode::NOT_ACCEPTABLE,
-            "not acceptable",
-            "event streams (Accept: text/event-stream) are added by part C2 of the story daemon-skeleton-on-a-runtime-trait; ask for application/json to read the page",
-        );
-    }
+/// The page form of a view. An event view asked as a stream is `sse::answer`, chosen before this.
+pub fn view(name: &str, daemon: &Daemon, query: &HashMap<String, String>) -> Response {
     let rows: Result<Vec<Value>, Fault> = (|| {
         Ok(match name {
             "runs" => daemon.runs(),
