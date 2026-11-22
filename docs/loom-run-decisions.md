@@ -4,7 +4,7 @@
 for a principal and prints it in `decisions[]` of the `tree run` result (exit 3). The decider
 (`runbook/src/loom_run/decider.rs`) answers those entries; the copy of the bindings
 (`runbook/src/loom_run/bindings_copy.rs`) is what makes Loom accept the decider as the principal
-and carries the model, turn and budget settings of the run. Loom commit `2c0a6f48` (`b10x-loom`
+and carries the model, turn and budget settings of the run. Loom commit `5af3f9c2` (`b10x-loom`
 0.58.0) is the one this page was checked against.
 
 ## The decisions table
@@ -16,16 +16,17 @@ for it: the run ends or the step never exists.
 
 | Driver kind | Inputs to the decider | Allowed answers | Loom `decisions[]` entry | What `loom-run` does |
 |---|---|---|---|---|
-| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs `tree approve --principal decider:model`, reject runs it with `--deny` (R1's loop) |
+| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a result the action does not declare ends the run `error` |
 | approval of a capability (`stories.activate`, `release.publish`, `release.rollback`, the spec and code acceptances that a person gives) | the same | the same | Yes: kind `Approve`; Loom accepts `decider:model` as the principal and records it as the actor (checked in a full stub cycle, 5 approvals) | the same |
 | escalate (decider reply) | the reply's `best` | `best` approve or reject | not a Loom entry: a reply | `escalate: final` takes `best` (reject when absent), as the driver's `escalation_suppressed`; `escalate: stop` ends in `CannotDecide {reason: "reserved for a person: …"}` |
 | question: scope-changing answer, `scope.answer` | `type question`, the question object | approve with an answer text, escalate | Reachable as an `ApproveAction` of `scope.answer`, but Loom's approval carries no answer and takes none | not answered: `CannotDecide` ("scope.answer is a question …"). The step keeps `person:owner` in the copy, so the run stops for a person there |
 | question: `questions.answer` | | | No: a model node (class `other`) in the bindings, not a decision | runs as a node |
 | finding (`amend.upstream` handoff, the decider answers an option or its own text) | `type finding`, the finding object | approve with an answer, escalate | Not reachable through `tree` today: the member that refuses a finding is not in the bindings format (`bindings/PENDING.md`) | never asked |
-| close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | `CannotDecide` ("kind Close …"): `b10x-loom` has no `tree close` at the pinned commit |
-| handoff | a writer's handoff text | none | Kind `Handoff` exists; `tree run` does not emit it at the pinned commit and nothing answers it | `CannotDecide` ("kind Handoff …") if it ever appears |
+| close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | asked as `type close` with the printed outcome; approve runs the printed `tree close`, decline runs nothing; the other outcomes of that case are not asked after one ran |
+| handoff | a writer's handoff text | none | Yes: kind `Handoff`, the printed command is `tree run --store … --confinement …` | a scripted approval runs the printed `tree run` through the ledger; `decider.sh` has no reply for it, so a program decider ends `CannotDecide` ("kind Handoff …"); a handoff that comes back after its command ran is an `error` |
 | an unknown kind | | | whatever Loom adds | `CannotDecide` ("kind X not known") |
-| rework after a rejected review, withhold, run.unstick, keep-going | the driver's own routes after a decision | | Not reachable through `tree` today: Loom has no such steps; a rejection is the step's evidence and the protocol's edge | a run has none of them; the first stop is the stop |
+| withhold, run.unstick, keep-going | the driver's own routes after a decision | | Not reachable through `tree` today: Loom has no such steps | a run has none of them; the first stop is the stop |
+| rework after a rejected person step | the driver's rework route | | Reachable at Loom `5af3f9c2`: the rejection is the step's named result and the writer's `retry_when` sends it back with the reasons in `LOOM_RETRY_FEEDBACK` | the rejection runs as above; the writer runs again (bindings `retry_when: {<evidence kind>: [rejected]}`, `llm-node.sh` writes the reasons into `in/feedback.md`) |
 | `SDC_RULE_APPROVALS` (rule approvals with claims) | claims of the position | | Not reachable through `tree` today: Loom's `decisions[]` holds no claim values | not mapped |
 | budget overrun, limit hit | | | not Loom entries: the runner's own stops (R1's ledger and caps) | outcome `stopped`, not a decision |
 
@@ -143,4 +144,4 @@ settings change them.
   cargo test --locked --bin runbook -- --ignored loads_in_loom`. The test registers the protocols,
   makes a copy with the model, turn, budget, adapter and principal rewrites, runs `tree open` on it
   and `tree verify` on the store, with an environment of `PATH` and `HOME` alone. Result on Loom
-  `2c0a6f48`: passes (the whole `loom_run` set, this test included, 38 tests in 5.4 s).
+  `5af3f9c2`: passes (2.2 s; the gate lane runs 216 tests in 30 s).

@@ -12,8 +12,9 @@ The format is the one Loom's loader reads at Loom commit `8a8fad3b` (`../loom`,
 `ess/domains/bindings.yaml`). The differences between the two formats are numbered `D1` to `D39`
 in the Loom session's comparison of the two formats (2026-11-21); this page cites those numbers.
 What the format cannot express yet is listed in `bindings/PENDING.md`, never written in invented
-syntax. The bindings ran under Loom commit `2c0a6f48` in the first equal comparison with the driver
-(`stub-cycle`, 2026-11-22; `docs/parity.md`, "First equal comparison").
+syntax. The bindings ran under Loom commit `5af3f9c2` in the identical comparison with the driver
+(`stub-cycle`, 2026-11-22; `docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"), after the
+first equal one at `2c0a6f48` ("First equal comparison").
 
 ## Files
 

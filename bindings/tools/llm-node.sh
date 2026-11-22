@@ -99,7 +99,7 @@ if [[ -n ${LOOM_CASE:-} ]]; then
     jq -r '.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$LOOM_RETRY_FEEDBACK" | while read -r b; do
       jq -j --arg b "$b" '[.logs[] | select(.blob_sha256 == $b)][0].tail' "$LOOM_RETRY_FEEDBACK" > "$fbd/$b"
     done
-    jq --arg d "$fbd" '[.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))] as $logged | [.records[] | {kind, result, subject, action: null, exit: null,
+    jq --arg d "$fbd" '[.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))] as $logged | [.records[] | {kind, result, subject, action: (.action // null), exit: (.exit // null),
       log: (.blob_sha256 as $b | if $b != null and ($logged | index($b)) != null then "\($d)/\($b)" else null end)}]' \
       "$LOOM_RETRY_FEEDBACK" > "$fbd/feedback.json" && SDC_FEEDBACK=$fbd/feedback.json
   fi
@@ -285,18 +285,28 @@ if [[ $adapter == stub ]]; then
   # The stub addresses a rejection by recording it in the rejected artifact (the approval's
   # subject, at its `$artifacts` path), so the rework is a new revision: a tree gets `.rework`,
   # a YAML or Markdown file the same lines as a comment.
-  t=""
-  if [[ -n $rejection && -n ${LOOM_CASE:-} ]]; then
-    # Loom mode: the subject's path in the bindings file beside these tools that binds the approval.
+  t="" lines="" A="" S=""
+  if [[ -n ${LOOM_CASE:-} && -z $rejection && -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]]; then
+    # Loom mode, a person's rejection: the feedback record names the person's action and the
+    # subject, and its log is the person's reasons as text.
+    A=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.action // ""' "$SDC_FEEDBACK")
+    S=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.subject // ""' "$SDC_FEEDBACK")
+    fb_log=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.log // ""' "$SDC_FEEDBACK")
+    [[ -n $A && -f $fb_log ]] && lines=$(printf 'rework of the rejection of %s:\n%s\n' "$A" "$(sed 's/^/- /' "$fb_log")")
+  elif [[ -n $rejection && -n ${LOOM_CASE:-} ]]; then
     A=$(jq -r '.approval // ""' "$rejection") S=$(jq -r '.subject // ""' "$rejection")
+    lines=$(jq -r '"rework \(.count) of the rejection of \(.approval) at \(.revision):", (.reasons[] | "- " + .)' "$rejection")
+  fi
+  if [[ -n ${LOOM_CASE:-} && -n $A && -n $S ]]; then
+    # Loom mode: the subject's path in the bindings file beside these tools that binds the approval.
     t=$(for y in "$here"/../*.yaml; do A=$A S=$S yq -r 'select(.actions | any_c(.action == strenv(A))) | .artifacts[strenv(S)] // ""' "$y"; done 2>/dev/null |
       grep -v -e '^$' -e '^---$' | sort -u)
     [[ $(grep -c . <<< "$t") == 1 ]] || t=""
   elif [[ -n $rejection ]]; then
     t=$(jq -r --arg s "$(jq -r '.subject // ""' "$rejection")" '."$artifacts"[$s] // ""' "${SDC_CASE_DIR:-$work/..}/bindings.json" 2>/dev/null)
-  fi
-  if [[ $code == 0 && -n $t && -e $work/$t ]]; then
     lines=$(jq -r '"rework \(.count) of the rejection of \(.approval) at \(.revision):", (.reasons[] | "- " + .)' "$rejection")
+  fi
+  if [[ $code == 0 && -n $t && -n $lines && -e $work/$t ]]; then
     case $t in
       *.yaml|*.yml) [[ -d $work/$t ]] || sed 's/^/# /' <<< "$lines" >> "$work/$t" ;;
       *.md) printf '\n<!--\n%s\n-->\n' "$lines" >> "$work/$t" ;;
