@@ -28,6 +28,7 @@ tasks:
     desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
+      - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
       - slot npx playwright test --workers=4
 
   test:driver:

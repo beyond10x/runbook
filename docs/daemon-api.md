@@ -157,7 +157,7 @@ curl -N -H 'Accept: text/event-stream' -H 'Last-Event-ID: 41' 'http://127.0.0.1:
 
 ```
 runbook serve [--listen ADDR] [--state-dir DIR] [--context-root DIR]... [--runbook-dir DIR]
-              [--min-confinement local|linux] [--token-file FILE]
+              [--min-confinement local|linux] [--token-file FILE] [--ui]
 ```
 
 In this version the runtime behind the daemon is a stub: a run is scripted, it asks one question
@@ -173,6 +173,7 @@ open event streams are closed then (see "Event streams").
 | `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
 | `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
 | `--token-file` | none | File that holds the bearer token. |
+| `--ui` | off | Serve the web UI, compiled into the binary, beside the API (see "The web UI"). Without it `GET /` is 404. |
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
 `Authorization: Bearer <token>`. The token comes from `--token-file` or from the environment value
@@ -204,6 +205,44 @@ command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (t
 does, the event `RunOrphaned` is published and the run's event stream gets one event of kind
 `runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
 nothing. The stub runtime always answers `gone`.
+
+## The web UI
+
+`runbook serve --ui` serves the web UI beside the API. The files of `ui/web/` are compiled into the
+binary at build time (`runbook/build.rs` lists the directory, so a file added there is embedded by the
+next build); the daemon reads nothing from disk to serve them, and it needs no `ui/` directory beside it.
+Without `--ui`, `GET /` is `404`.
+
+- Routes. `GET /` is `index.html`; every other file is at its path below `ui/web/` (`/app.js`,
+  `/fonts/inter-variable-latin.woff2`). A path is looked up exactly as sent: a directory, `..` and
+  any encoded form of either answer `404`, and so does a path that is not in the list. A write method on a
+  file answers `405`.
+- Types and headers. The content type follows the extension. Every file carries
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Server-Timing: runbookd` (how the page knows the
+  daemon served it), `Cache-Control: private, no-cache`
+  and an `ETag` that is the SHA-256 of its bytes (`If-None-Match` with it answers `304`), and the policy
+  `default-src 'none'; script-src 'self' '<hash of the inline script of index.html>'; style-src 'self';
+  style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none';
+  form-action 'self'; frame-ancestors 'none'`. The page has one inline script (the phone breakpoint in
+  `index.html`), allowed by its hash and no other; its code writes `style="..."` attributes into its markup,
+  so attributes may carry inline styles and a `<style>` element may not; `data:` images are for the arrow
+  in `style.css`.
+- Token. The files are behind the same middleware and the same check (`Auth::admits`) as the API: with a
+  token, a request without it is `401`, `/` included, on every listener. A browser cannot send an
+  `Authorization` header with a page load, so it hands the token over once: the `401` of a page load
+  (`GET /` with `Accept: text/html`) is a form that posts the token in its body to `POST /ui/login` (the
+  one route outside the middleware; a token never stands in a URL, so no log has it). A right token is
+  answered `303` to `/` with a cookie `runbook_ui` (`HttpOnly`, `SameSite=Strict`, `Path=/`, the token in
+  hex), a wrong one `401` with the form again, and a form from another origin `403`. With `--ui`, the
+  middleware turns that cookie into the same bearer check for `GET` and `HEAD` only: a cookie never
+  authorizes a command (`POST`). The browser's answer to a decision will need its own header rule
+  (`answer-decision` is not in this slice).
+- What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and
+  `GET /daemon/views/daemon-events` as a stream (`Accept: text/event-stream`, resumed by position) for
+  the events of every run; the feed of the selected run is the events of that run. The case tree, the
+  graph, the phases and the decisions drawer need views the daemon does not have yet: the inventory is in
+  the story `ui-embedded-in-the-binary`, section "Slice 1". Served by `ui/server.mjs`, the page reads
+  that server as before.
 
 ## Conformance
 

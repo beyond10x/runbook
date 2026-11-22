@@ -1,5 +1,5 @@
 // The two lanes of the UI tests.
-//   gate  the test step (`task test` in ui/): nothing in it reads runs/ (git-ignored), a built binary or
+//   gate  the test step (`task test` in ui/): nothing in it reads runs/ (git-ignored), the driver or a canon binary or
 //         a server somebody else started, so it runs the same on a fresh clone and on a machine with every
 //         run recorded. 120 s for the run, 60 s for a test (playwright.config.mjs).
 //   slow  the specs below (`task slow`, playwright.slow.config.mjs): each needs something the gate does not

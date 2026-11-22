@@ -17,6 +17,7 @@ bare-version tags (`docs/releasing.md`).
 
 - `runbook parity summarize|compare|approvals` reads a finished run of the old driver into a runtime-neutral summary (`runbook.parity-summary/1`), compares two summaries by a table of rules (`compare --rules`) and lists the person steps a second runtime must repeat; it is the driver's half of the comparison with a run under Loom (`story:parity-run-on-loom`, `docs/parity.md`).
 - `runbook parity summarize --loom-status <file> [--product-tree <dir>]` reads the JSON of Loom's `tree status` (`loom.tree-status/1`) into the same summary: a status of another format is refused by name, a member it needs and does not find is an error that names the member and the case, and what the status holds nothing for is listed under `not_recorded`, which `compare` reports as `not recorded on one side` and does not compare (`story:parity-run-on-loom`, the table in `docs/parity.md`).
+- `runbook serve --ui` serves the web UI from files compiled into the binary (`ui/web/`), beside the API, behind the daemon's token rule: `GET /` is the page, `404` without `--ui`; the page reads the runs and their events from the daemon when it is served by it (`docs/daemon-api.md`, "The web UI")
 
 ### Changed
 
