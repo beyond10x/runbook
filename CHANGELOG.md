@@ -7,6 +7,14 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-22
+
+The Runbook daemon and the runner on Loom. `runbook serve` runs a daemon with an HTTP API specified in
+ESS, event streams, MCP and an embedded page with a decisions drawer, on a stub runtime; `runbook run
+--detach`, `runbook runs` and `runbook decide` are its client. `runbook loom-run` runs one case on a
+pinned `b10x-loom` binary, `sdc-experiment` knows `runner: loom`, and `runbook parity` reads a
+loom-run directory. The longer note is `docs/releases/0.4.0.md`.
+
 ### Added
 
 - `runbook loom-run` gives the decider's answer where the driver does: `bindings/tools/answers.yaml` (format `runbook.loom-run-answers/1`) declares per action which program prints the requests, which writes one answer and which takes the step, so a model run passes `scope.answer` (a scope-changing question) and the `amend.upstream` findings that need a person instead of ending `decider_cannot_decide`; each answer is one decider call against `decider.max_calls` and the spend ledger and one line of `decisions.jsonl`, escalate acts as in the driver, an undeclared action keeps `CannotDecide` and `person:owner`; the new `sdc-answers` helper ports the driver's `yq` logic and `sdc-experiment run` refuses a `loom` launch when a program the answers file names is not on the unit's `PATH`; Loom's approval of `scope.answer` lists no result, so it cannot carry the answer text (`docs/loom-run-decisions.md`).
@@ -29,6 +37,7 @@ bare-version tags (`docs/releasing.md`).
 - `runbook serve --ui` serves the web UI from files compiled into the binary (`ui/web/`), beside the API, behind the daemon's token rule: `GET /` is the page, `404` without `--ui`; the page reads the runs and their events from the daemon when it is served by it (`docs/daemon-api.md`, "The web UI")
 - `runbook run --detach`, `runbook runs list|show|events|cancel|decisions` and `runbook decide` call a daemon (`--daemon <url>` or `RUNBOOK_DAEMON`, plain HTTP; a token from `--token-file` or `RUNBOOK_TOKEN_FILE`, mode 600): text by default, the route's JSON with `--json`; `runs events` prints the lines of `curl -N` and resumes with `Last-Event-ID` after a dropped connection; exit codes 64 usage, 65 refused, 66 not found, 67 conflict, 69 unreachable, 77 denied, 78 config; `runbook run` without `--detach` exits 64 until `story:engine-on-loom-library-entry` (`docs/cli.md`, `story:run-in-process-and-cli-as-daemon-client`, client part).
 - The daemon's one guard now also refuses, on every route with or without `--ui`: a `Host` that is not the listen address on a loopback listener, and an `Origin` that is not the request's own host, with `403`; a command or an MCP call that is not `Content-Type: application/json` with `415`. The cookie of the UI login no longer holds the token (the SHA-256 of a fixed prefix and the token), is refused as a bearer token, and every method on `/ui/login` goes through the guard (`docs/daemon-api.md`, "Requests from a browser"). The build refuses a symbolic link in `ui/web/`.
+- The record of release 0.3.1: `approval-record:release-0-3-1` and `experiments/release-0.3.1.yaml` (the to-do idea in three settings, three runs each, on tag 0.3.1's tree, cap 30.00 USD), registered before any run; the record holds no run summary in this tree.
 
 ### Changed
 
