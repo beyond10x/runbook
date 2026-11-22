@@ -222,7 +222,7 @@ and what it becomes here.
 | `SDC_REVIEW_ADAPTER` (claude-cli) | the default of `sdc-node` when the writers run on metaharness; no option exists to set another, so only `review.adapter: claude-cli` is accepted. Not expressible under Loom today for any other value |
 | `SDC_AUTONOMY` (A5) | `autonomy` (settings): the decider's gate and the person steps' principal in the copy |
 | `SDC_MAX_LLM_CALLS` (150), `SDC_MAX_WALL_SECONDS` (5400) | the runner's caps (R1); not in the copy |
-| `SDC_LLM_EFFORT_WRITER`, `_IMPLEMENT`, `_REVIEW`, `_OTHER` (not set; node-classes default high) | not expressible under Loom today: `sdc-node` has no argv option for effort; every node runs at the default of `node-classes.json`. The decider's effort is an environment variable and is set |
+| `SDC_LLM_EFFORT_WRITER`, `_IMPLEMENT`, `_REVIEW`, `_OTHER` (not set; node-classes default high) | expressed in the copy as `--effort` of `sdc-node` (`efforts.<role>.effort`, `bindings_copy.rs`); a role with none runs at the default of `node-classes.json`, which `sdc-node` passes to the adapter as it always did. The decider's effort is `decider.effort` |
 | `SDC_UNSTICK` / `SDC_LLM_MODEL_UNSTICK` (not launch settings) | not expressible: run.unstick does not exist under Loom; a stop stays the end of the run |
 | `SDC_DECIDER_RETRIES` (default 2) | `decider.retries`, the decider |
 | `SDC_RULE_APPROVALS`, `SDC_CONFORMANCE` (not set) | not expressible: see the table above (no claims in `decisions[]`) |

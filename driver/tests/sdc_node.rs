@@ -445,6 +445,43 @@ fn a_ticket_reaches_bug_dissect() {
     pair("ticket-bug.dissect", &start("bug.dissect").with(&["--adapter", "dry"]), &ticket);
 }
 
+/// One start of `node` on the adapter `dry` with `extra` options, in a fresh root.
+fn dry_start(name: &str, node: &str, extra: &[&str]) -> Run {
+    let root = fresh(name);
+    base_work(&root.join("work"), node);
+    let mut options = vec!["--adapter", "dry"];
+    options.extend_from_slice(extra);
+    exec(&root, &start(node).with(&options), "IDEA-1.x")
+}
+
+#[test]
+fn an_effort_option_is_on_the_dry_command_and_in_the_request_of_a_node_of_every_class() {
+    let classes: serde_json::Value = serde_json::from_str(&fs::read_to_string(repo().join("bindings/tools/node-classes.json")).unwrap()).unwrap();
+    let default = classes["default_efforts"]["implement"].as_str().unwrap();
+    let by_default = dry_start("effort-default-change.fix", "change.fix", &[]);
+    assert_eq!(by_default.code, Some(0), "{by_default:#?}");
+    assert!(by_default.stderr.contains(&format!("'--effort' '{default}'")), "{by_default:#?}");
+    // one node of each of the classes writer, implement and other, at a level that is no default
+    for (node, level) in [("spec.author", "medium"), ("change.fix", "max"), ("idea.dissect", "low")] {
+        let r = dry_start(&format!("effort-{level}-{node}"), node, &["--effort", level]);
+        assert_eq!(r.code, Some(0), "{node} {level}: {r:#?}");
+        assert!(r.stderr.contains(&format!("'--effort' '{level}'")), "{node} {level}: {r:#?}");
+        let request = &r.files[&format!(".sdc/llm/001-{node}/request.json")];
+        assert!(request.contains(&format!("\"effort\": \"{level}\"")), "{node} {level}: {request}");
+        let call = &r.files[".sdc/llm/calls.jsonl"];
+        assert!(call.contains(&format!("\"effort\":\"{level}\"")), "{node} {level}: {call}");
+    }
+}
+
+#[test]
+fn a_level_outside_the_set_is_refused_before_the_node_makes_a_call() {
+    let r = dry_start("effort-bogus", "change.fix", &["--effort", "bogus"]);
+    let said = "--effort takes one of low, medium, high, xhigh, max, got bogus";
+    assert_eq!(r.code, Some(64), "{r:#?}");
+    assert!(r.stdout.contains(said) || r.stderr.contains(said), "{r:#?}");
+    assert!(!r.files.keys().any(|k| k.starts_with(".sdc/llm/")), "{r:#?}");
+}
+
 fn retry_doc(records: serde_json::Value, logs: serde_json::Value) -> String {
     json!({"format": "loom.retry-feedback/1", "case": "IDEA-1.x", "action": "x", "records": records, "logs": logs}).to_string()
 }

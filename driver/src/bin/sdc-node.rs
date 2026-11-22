@@ -8,7 +8,8 @@
 //! ```text
 //! sdc-node <node> [--tools-dir <dir>] [--model m] [--max-turns n] [--max-budget-usd u]
 //!          [--operations a,b] [--instructions <json object>] [--adapter a] [--principal p]
-//!          [--stub-fixtures d] [--stub-counter d] [--claude-credentials f] [--stub <argv...>]
+//!          [--stub-fixtures d] [--stub-counter d] [--claude-credentials f] [--effort level]
+//!          [--stub <argv...>]
 //! ```
 //!
 //! The working directory is the case's workspace; standard input is one JSON object (empty is
@@ -65,7 +66,7 @@ pub struct Ctx {
     pub adapter_bin: PathBuf,
     /// The node's class (`tools/node-classes.json`).
     pub class: String,
-    /// The class's default reasoning effort.
+    /// The reasoning effort: `--effort`, else the class default.
     pub effort: Option<String>,
     /// The rejection document of an approval of this writer's output, when the feedback has one.
     pub rejection: Option<PathBuf>,
@@ -223,7 +224,7 @@ impl Ctx {
                 _ => None,
             })
             .unwrap_or_else(|| if classes.is_some() { "other".to_string() } else { String::new() });
-        self.effort = classes.as_ref().and_then(|c| c.get("default_efforts")).and_then(|d| d.field(&class)).map(Ov::raw);
+        self.effort = self.set.effort.clone().or_else(|| classes.as_ref().and_then(|c| c.get("default_efforts")).and_then(|d| d.field(&class)).map(Ov::raw));
         self.class = class;
 
         if self.adapter == "stub" {

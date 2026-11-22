@@ -330,6 +330,36 @@ fn a_login_file_is_named_in_the_copy_only_by_the_link_it_is_given_and_never_in_a
 }
 
 #[test]
+fn an_effort_lands_on_the_model_nodes_of_its_class_and_on_no_other_node() {
+    let settings = json!({"efforts": {"review": {"effort": "max"}, "other": {"effort": "low"}}});
+    let (_dir, dst, root) = make("r2-copy-efforts", &settings);
+    root.unwrap();
+    let classes: Value = serde_json::from_str(&std::fs::read_to_string(dst.join("tools/node-classes.json")).unwrap()).unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for (name, action) in actions(&dst) {
+        let argv = argv_of_any(&action);
+        if action["executor"]["kind"].as_str() != Some("program") || !argv[0].ends_with("sdc-node") {
+            assert!(!argv.iter().any(|a| a == "--effort"), "{name}: a node that is no model node was given an effort");
+            continue;
+        }
+        let node = name.split(':').nth(1).unwrap();
+        let want = match class_of(&classes, node).as_str() {
+            "review" => Some("max"),
+            "other" => Some("low"),
+            _ => None,
+        };
+        assert_eq!(option_of(&argv, "--effort").as_deref(), want, "{name}");
+        seen.extend(want);
+    }
+    assert_eq!(seen.len(), 2);
+}
+
+/// The argv of a program action, empty for another kind.
+fn argv_of_any(action: &Yaml) -> Vec<String> {
+    action["executor"]["argv"].as_sequence().map(|s| s.iter().filter_map(|a| a.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+}
+
+#[test]
 fn unknown_settings_are_refused_by_name_before_anything_is_written() {
     for (settings, name) in [
         (json!({"colour": "blue"}), "settings.colour"),
@@ -340,6 +370,9 @@ fn unknown_settings_are_refused_by_name_before_anything_is_written() {
         (json!({"models": {"writer": {"max_turns": 0}}}), "settings.models.writer.max_turns"),
         (json!({"models": {"writer": {"max_budget_usd": -1}}}), "settings.models.writer.max_budget_usd"),
         (json!({"models": {"writer": {"model": "two words"}}}), "settings.models.writer.model"),
+        (json!({"efforts": {"writer": {"effort": "bogus"}}}), "settings.efforts.writer.effort"),
+        (json!({"efforts": {"poet": {"effort": "low"}}}), "settings.efforts.poet"),
+        (json!({"efforts": {"review": {"model": "m"}}}), "settings.efforts.review.model"),
     ] {
         let (dir, dst, result) = make("r2-copy-unknown", &settings);
         let error = result.unwrap_err();

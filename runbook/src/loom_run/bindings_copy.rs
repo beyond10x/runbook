@@ -18,10 +18,14 @@ use std::path::{Path, PathBuf};
 /// The top-level keys of the settings that `materialise` knows. `login_file` is R1's; `autonomy`
 /// and `decider` are read by the decider as well; `max_llm_calls` and `max_wall_seconds` belong to
 /// the runner's caps and are accepted and ignored here.
-pub const SETTINGS_KEYS: [&str; 8] = ["login_file", "autonomy", "decider", "adapter", "models", "review", "max_llm_calls", "max_wall_seconds"];
+pub const SETTINGS_KEYS: [&str; 9] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review", "max_llm_calls", "max_wall_seconds"];
 /// The roles whose model, turns and budget a run sets (`bindings/tools/node-classes.json`).
 pub const ROLES: [&str; 4] = ["writer", "implement", "review", "other"];
 const ROLE_KEYS: [&str; 3] = ["model", "max_turns", "max_budget_usd"];
+/// The reasoning efforts a model node takes (`efforts` of `bindings/tools/node-classes.json`).
+const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+/// The member of `efforts.<role>` that names the level.
+const EFFORT_KEY: &str = "effort";
 const ADAPTERS: [&str; 3] = ["metaharness", "claude-cli", "dry"];
 /// What a checkout holds beside `bindings/` that the tools of the copy read from their root
 /// (`$here/../..`): the instruction files, the fixtures and the rule file of the driver, and the
@@ -40,6 +44,7 @@ struct RoleSet {
     model: Option<String>,
     max_turns: Option<u64>,
     max_budget_usd: Option<String>,
+    effort: Option<String>,
 }
 
 struct Plan {
@@ -74,6 +79,31 @@ fn plain(value: &Value, what: &str) -> Result<String, String> {
         Value::String(s) if !s.is_empty() && !s.chars().any(char::is_whitespace) => Ok(s.clone()),
         _ => Err(format!("{what}: a non-empty text without white space")),
     }
+}
+
+/// The reasoning effort of each role the settings name (`efforts.<role>.effort`). A role that is
+/// none, a member that is not `effort`, and a level outside the allowed set are refused with the
+/// setting's name: both model CLIs ignore an unknown level with a warning and run at their own
+/// default. The run checks this before it creates its directory.
+pub fn efforts(settings: &Value) -> Result<BTreeMap<String, String>, String> {
+    let mut out = BTreeMap::new();
+    let Some(efforts) = settings.get("efforts") else { return Ok(out) };
+    for (role, set) in object(efforts, "settings.efforts")? {
+        if !ROLES.contains(&role.as_str()) {
+            return Err(format!("settings.efforts.{role}: not a role ({})", ROLES.join(", ")));
+        }
+        for (key, value) in object(set, &format!("settings.efforts.{role}"))? {
+            let what = format!("settings.efforts.{role}.{key}");
+            if key != EFFORT_KEY {
+                return Err(format!("{what}: not a setting a run knows under Loom (known: {EFFORT_KEY})"));
+            }
+            match value.as_str() {
+                Some(level) if EFFORTS.contains(&level) => out.insert(role.clone(), level.to_owned()),
+                _ => return Err(format!("{what}: {value} is not a reasoning effort ({})", EFFORTS.join(", "))),
+            };
+        }
+    }
+    Ok(out)
 }
 
 fn read_plan(settings: &Value) -> Result<Plan, String> {
@@ -126,6 +156,9 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
             }
             roles.insert(role.clone(), out);
         }
+    }
+    for (role, level) in efforts(settings)? {
+        roles.entry(role).or_default().effort = Some(level);
     }
     let login = match top.get(crate::loom_run::settings::LOGIN_KEY) {
         None | Some(Value::Null) => None,
@@ -303,6 +336,9 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
                 }
                 if let Some(usd) = &set.max_budget_usd {
                     changed |= set_option(argv, "--max-budget-usd", usd);
+                }
+                if let Some(effort) = &set.effort {
+                    changed |= set_option(argv, "--effort", effort);
                 }
             }
             if let Some(adapter) = &plan.adapter {

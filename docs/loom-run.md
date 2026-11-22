@@ -326,6 +326,15 @@ It sets three things before the run opens and keeps every required option requir
   decider or an autonomy that the settings name is kept, except an adapter, which is refused.
 - A dry call costs 0. The spend ledger stays at 0 and no login file is read (`login_file` is not
   needed). A dry call still counts against `--max-llm-calls`.
+- The effort of a node is on its dry command as `'--effort' '<level>'`: the setting
+  `efforts.<role>.effort` (`docs/loom-run-settings.md`), written by the bindings copy as `--effort`
+  of `sdc-node`, else the class default of `node-classes.json`. The two adapters that take an effort
+  (`metaharness`, `claude-cli`) pass it on as `--effort`; the adapter `dry` builds the metaharness
+  command, so it shows it. A level outside `low`, `medium`, `high`, `xhigh`, `max` is refused before
+  the run directory is made.
+- A dry call writes the prompt it would have sent to `prompt.md` of its call directory
+  (`work/.sdc/llm/<NNN>-<action>/`, `docs/loom-run-directory.md`): the program `sdc-node` composes
+  it before it starts the adapter.
 
 Every command a dry call would have run is printed on standard output as
 `  would run: metaharness <arguments>` (the prompt as `"$(cat <prompt file>)"`) and appended to
