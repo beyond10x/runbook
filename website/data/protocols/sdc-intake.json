@@ -235,7 +235,12 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
+        "producer": "llm-node",
         "program": "sdc-node questions.answer",
+        "results": {
+          "0": null,
+          "1": "refused"
+        },
         "retry_when": [
           "answer_applied"
         ],

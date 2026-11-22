@@ -65,7 +65,8 @@
         "producer": "llm-node",
         "program": "sdc-node change.implement",
         "results": {
-          "0": null
+          "0": null,
+          "8": "coverage_refused"
         },
         "retry_when": [
           "code_review",

@@ -35,7 +35,8 @@
     ],
     "producer": "llm-node",
     "results": {
-      "0": null
+      "0": null,
+      "8": "coverage_refused"
     },
     "llm": {
       "model": "claude-haiku-5-5",

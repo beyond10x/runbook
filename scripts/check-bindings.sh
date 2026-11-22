@@ -75,13 +75,33 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
       .[] | .action as $a | select(.executor.argv != null and $j[0][$a].argv != null)
       | (.executor.argv[:2]) as $y | ($j[0][$a].argv[:2] | map(norm)) as $d
       | if $y != $d then "\nbindings/'"$name"'.yaml \($a): argv starts \($y | tojson), driver/examples/sdc/'"$name"'.bindings.json starts \($d | tojson)" else empty end' <<< "$acts")
-    # The retry records of an action are named twice too: `retry_when` (kind to results) in the
-    # YAML and in the JSON file are equal for every action both bind. The route check reads the
-    # JSON file, the run reads the YAML: a difference makes the check judge a run that does not happen.
+    # What the route check reads of a binding is named twice: the run reads the YAML, the route
+    # check and the site read the JSON copy. For every action both bind, these are equal: the kinds
+    # it produces, each kind's results by exit code, the subjects of the evidence, `retry_when`
+    # (kind to results), the runs (`max_runs`), whether it is a person's action (`manual`) and
+    # whether it hands off (`handoff`). The YAML names the result of a `from: effect` entry as Loom
+    # does, `performed` for the JSON exit 0 and `rejected` for exit 6 (docs/loom-bindings.md, D31 and
+    # D12); an action with no evidence names no subject in the YAML (D38), so its `subject` is not
+    # compared. A difference makes the check judge a run that does not happen. (The effect of an
+    # action is read from the protocol, not from either copy.)
     findings+=$(jq -r --slurpfile j "$b" '
-      .[] | .action as $a | select($j[0][$a] != null)
-      | (.retry_when // null) as $y | ($j[0][$a].retry_when // null) as $d
-      | if $y != $d then "\nbindings/'"$name"'.yaml \($a): retry_when is \($y | tojson), driver/examples/sdc/'"$name"'.bindings.json has \($d | tojson)" else empty end' <<< "$acts")
+      .[] | .action as $a | select($j[0][$a] != null) | $j[0][$a] as $d
+      | ([.evidence[]?.kind] | sort) as $yk
+      | ([$d.produces] | flatten | map(select(. != null)) | sort) as $dk
+      | ([.evidence[]? | .kind as $k | .from as $from | (.results // {}) | to_entries[]
+          | [$k, (if $from == "effect" then ({"performed": "0", "rejected": "6"}[.key] // .key) else .key end), .value]] | sort) as $yr
+      | ([($d.results // {}) | to_entries[] | .key as $c
+          | if ($dk | length) > 1 then (.value | to_entries[]? | [.key, $c, .value]) else [$dk[0], $c, .value] end] | sort) as $dr
+      | ([.evidence[]?.subject] | unique) as $ys
+      | ([$d.subject] | map(select(. != null)) | unique) as $ds
+      | [["produces", $yk, $dk], ["results", $yr, $dr],
+         (if ($yk + $dk | length) > 0 then ["subject", $ys, $ds] else empty end),
+         ["retry_when", (.retry_when // null), ($d.retry_when // null)],
+         ["max_runs", (.budget.max_runs // null), ($d.max_runs // null)],
+         ["manual", (.executor.kind == "person"), ($d.manual == true)],
+         ["handoff", (.handoff != null), ($d.handoff != null)]][]
+      | select(.[1] != .[2])
+      | "\nbindings/'"$name"'.yaml \($a): \(.[0]) is \(.[1] | tojson), driver/examples/sdc/'"$name"'.bindings.json has \(.[2] | tojson)"' <<< "$acts")
     while IFS= read -r p; do
       [[ $p =~ ^instructions/.+\.md$&& ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
         findings+=$'\n'"$name: instruction file $p is not an existing instructions/<...>.md without .."

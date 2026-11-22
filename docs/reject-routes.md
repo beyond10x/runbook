@@ -158,7 +158,8 @@ standard output and names every reason on standard error, one line each. It refu
 - a member of the wrong type: `capped_effects` is a list of `read`, `write`, `external`; every
   other member is `true` or `false`;
 - a `provided_by` value with no known prefix, with nothing after the prefix, or a `loom:` value
-  with no `file:line` (`path:N` or `path:N-M`);
+  with no `file:line` (a relative path with a file extension, a colon and a line or range of
+  lines: `crates/x/src/y.rs:740`, `retry.rs:4-8`; a web address is none);
 - a member that contradicts its entry: `true` (a non-empty `capped_effects`) next to `absent:`, or
   `false` (an empty list) next to `loom:` or `runner:`. No member can rightly be `false` next to
   `loom:` or `runner:`: `false` says the run has not got it, and then the entry says `absent:` and
@@ -185,8 +186,8 @@ After `impl/review-node` merges, the check will report `inert-cap` and `unrecord
 
 ## Check output
 
-This block is the check's output on this branch: 37 findings (13 `own-failure`, 8 `shared-cap`,
-6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`, `stale-retry`
+This block is the check's output on this branch: 36 findings (13 `own-failure`, 8 `shared-cap`,
+6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`
 and `unrecorded-exit`). `fix/attempt5-close` removes the line `no-reject-route sdc/close:operating
 (close)`.
 
@@ -203,7 +204,6 @@ own-failure sdc.direction context.default: a failed run's log does not reach its
 own-failure sdc.direction roadmap.write: a failed run's log does not reach its next run
 own-failure sdc.direction vision.write: a failed run's log does not reach its next run
 negative-result sdc.epic spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
-stale-retry sdc.intake questions.answer: retry_when names answer_applied, which no bound action produces
 own-failure sdc.intake idea.dissect: a failed run's log does not reach its next run
 own-failure sdc.intake questions.answer: a failed run's log does not reach its next run
 own-failure sdc.intake questions.write: a failed run's log does not reach its next run

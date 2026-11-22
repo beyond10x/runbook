@@ -87,6 +87,13 @@
       "sdc-node",
       "questions.answer"
     ],
+    "produces": "answer_applied",
+    "subject": "questions",
+    "producer": "llm-node",
+    "results": {
+      "0": null,
+      "1": "refused"
+    },
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
