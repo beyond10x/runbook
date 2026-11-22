@@ -85,11 +85,38 @@ decider itself needs no `jq`, `yq`, `rsync` or `bash`: it renders the prompt, co
 resolves the cites and checks the reply in the runner, with the library of `sdc-reply`
 (`driver/src/reply/`). The files of the call (`request.json`, `prompt.md`, `reply-schema.json`,
 `response.json`, `status.json`, `cwd/in/`, `cwd/out/decision.json`) and the reply are the bytes
-`decider.sh` wrote; the slow lane `task test:decider-parity` compares them. The `requester` kind of
-`decider.sh` is not reachable from a run and has no Rust path. It finds `instructions/decider/` by
+`decider.sh` wrote; the slow lane `task test:decider-parity` compares them, the requester's too.
+The `requester` kind of `decider.sh` is `decider.requester: true` (see "The requester decider"
+below). The decider finds `instructions/decider/` by
 walking up from the bindings copy's tools directory: the copy puts `instructions/` beside it. The
 login's path is removed from every stderr line the decider keeps (`<login file>`), and it is in no
 argument, no file of the run directory but the link, and no result.
+
+## The requester decider
+
+`runbook run --goals <file>` copies the requester's goals document unchanged to `work/goals.yaml` of
+the run before the tree opens; a path that is no file is refused with exit 64. With `decider.requester:
+true` (kind `model`; it needs `--goals`, else the run is refused before anything is written) the decider
+answers the decisions of the requester-side classes of `driver/examples/sdc/decision-classes.json`
+(`scope_changing_answer`, `context`, `vision`, `roadmap`, `release`, `close`, `budget_overrun`: the ones the file marks
+`requester`) as principal `decider:requester`; the other classes stay with the model decider
+(`decider:model`). One call of the adapter: its `cwd/in/` holds the request, the subject file, the files
+the request's grounds cite, `idea.yaml`, `dissection.yaml`, `goals.yaml` and `decisions.json` (its own
+earlier decisions of this run) and nothing else; it writes `cwd/out/reply.json`. The prompt and the
+question and options of an approval or a close are the files `instructions/decider/requester*.md`. The
+grounds go through the program `tools/decision-grounds.sh` (the run's copy carries the checkout's
+`tools/` beside the bindings, and a scope question's request comes from `sdc-decision-request` beside
+`sdc-reply`). Option A approves, B rejects; a free answer answers a question. A reply with
+`no_ground_in_goals` is an escalation: under `escalate: final` the question's default (or `approve` for
+an approval) is taken and marked, under `stop` the run waits for a person. A refused grounding check is
+an invalid reply and is asked again with the reason (`decider.retries`).
+
+An approval line of `decisions.jsonl` has the class `approval` or `close` whatever routed it; the
+routed class and `side` are in `decider/<n>/decide-request.json`; the lines of a question have both.
+Not reached under the real engine yet: the entries `requester-decider` and `requester-no-ground` of
+`cycles/suite.yaml` stop at `scope.answer` of `root.intake`, a program on a person's action
+(`docs/cycles-suite.md`), which the engine refuses today; the fake-Loom tests of
+`runbook/tests/loom_run/goals.rs` hold the same checks.
 
 ## The answers file
 

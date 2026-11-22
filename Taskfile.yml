@@ -61,6 +61,7 @@ tasks:
       SLOT_TIMEOUT: 30m
     cmds:
       - cd driver && cargo build --locked --bins
+      - cd goals && cargo build --locked
       - cd runbook && cargo build --locked --bin runbook
       - RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
 
@@ -76,11 +77,12 @@ tasks:
       - cd runbook && cargo test --locked --test cli the_stub_cycle_through_the_child_and_in_process -- --ignored --nocapture
 
   test:decider-parity:
-    desc: "Slow lane of runbook/, not part of `task check`: every case (rule approve and reject, the dry and stub adapters, a scripted adapter that writes a fixed out/decision.json: valid, invalid JSON, missing cites, escalate with and without best; on an approval, a question, a finding and a close) runs once through bindings/tools/decider.sh and once through the Rust decider, and the reply, the standard error and every file of the call directory must be equal byte for byte after the times are masked; it prints `cases compared N, differences D` and fails on D above 0. DECIDER_PARITY_ONLY=<text> runs the cases whose name has it. The fixtures are invented text; the lane and its fixtures (runbook/src/loom_run/decider/parity.rs, parity_cases.rs) are deleted with decider.sh. Needs jq, yq, rsync; builds the driver for sdc-reply; makes no model call; start it in the background, without the slot prefix."
+    desc: "Slow lane of runbook/, not part of `task check`: every case (rule approve and reject, the dry and stub adapters, a scripted adapter that writes a fixed out/decision.json: valid, invalid JSON, missing cites, escalate with and without best; on an approval, a question, a finding and a close; and the requester agent on an approval, a close and a question: an option, a free answer, no ground under stop and final, refused grounds, a missing reply, the dry adapter) runs once through bindings/tools/decider.sh and once through the Rust decider, and the reply, the standard error and every file of the call directory must be equal byte for byte after the times are masked; it prints `cases compared N, differences D` and fails on D above 0. DECIDER_PARITY_ONLY=<text> runs the cases whose name has it. The fixtures are invented text; the lane and its fixtures (runbook/src/loom_run/decider/parity.rs, parity_cases.rs) are deleted with decider.sh. Needs jq, yq, rsync; builds the driver for sdc-reply and the goals crate for sdc-goals; makes no model call; start it in the background, without the slot prefix."
     env:
       SLOT_TIMEOUT: 30m
     cmds:
       - cd driver && cargo build --locked --bins
+      - cd goals && cargo build --locked
       - cd runbook && cargo test --locked --bin runbook loom_run::decider::parity::the_rust_decider -- --ignored --nocapture
 
   test:driver:

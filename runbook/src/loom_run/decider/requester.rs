@@ -133,7 +133,7 @@ fn instant() -> String {
 
 /// The `sdc-decision-request` of a scope question: the `request` member of what it prints, None when
 /// it refuses (the call then ends as an invalid reply).
-fn question_request(c: &ModelCall<'_>, case_dir: &Path, level: &str) -> Result<Option<Value>, Failed> {
+fn question_request(c: &ModelCall<'_>, case_dir: &Path, level: &str) -> Result<(Option<Value>, String), Failed> {
     let qid = raw(&c.req["question"]["id"]);
     let bin = c.env.iter().find(|(k, _)| k == "SDC_REPLY").and_then(|(_, v)| Path::new(v).parent().map(|d| d.join("sdc-decision-request")));
     let Some(bin) = bin else {
@@ -145,9 +145,10 @@ fn question_request(c: &ModelCall<'_>, case_dir: &Path, level: &str) -> Result<O
     let args = [case.as_str(), qid.as_str(), "--level", level, "--holder", "decider", "--eligible", eligible.as_str(), "--opened-at", stamp.as_str()];
     let ran = run_program(&bin, &args, c.env, c.rec, c.timeout).map_err(Failed::Ended)?;
     if ran.code != 0 {
-        return Ok(None);
+        return Ok((None, ran.stderr));
     }
-    Ok(serde_json::from_str::<Value>(ran.stdout.trim()).ok().and_then(|v| v.get("request").cloned()).filter(|r| !r.is_null()))
+    let request = serde_json::from_str::<Value>(ran.stdout.trim()).ok().and_then(|v| v.get("request").cloned()).filter(|r| !r.is_null());
+    Ok((request, ran.stderr))
 }
 
 /// The request of an approval or a close, with the question and the two options rendered from the
@@ -238,14 +239,17 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
     let work = case_dir.join("work");
     let level = raw(or(&req["autonomy"], &json!("A3")));
     let renderer = Renderer { root: c.root.to_path_buf() };
+    let mut tool_stderr = String::new();
     let request = if req["type"] == "question" {
-        match question_request(c, &case_dir, &level)? {
+        let (found, stderr) = question_request(c, &case_dir, &level)?;
+        tool_stderr = stderr;
+        match found {
             Some(request) => request,
             None => {
                 let reply = json!({"decision": "escalate", "answer": null, "best": null,
                     "reasons": [format!("no decision request for {} (sdc-decision-request refused it)", raw(&req["question"]["id"]))],
                     "cites": [], "kind": "requester", "valid": false, "invalid_reason": "no decision request"});
-                return Ok((Replied { reply, stderr: String::new() }, 0));
+                return Ok((Replied { reply, stderr: tool_stderr }, 0));
             }
         }
     } else {
@@ -324,7 +328,7 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         }
         Value::Object(base)
     };
-    let done = |reply: Value| Ok((Replied { reply, stderr: ran.stderr.clone() }, exit));
+    let done = |reply: Value| Ok((Replied { reply, stderr: format!("{tool_stderr}{}", ran.stderr) }, exit));
     if adapter == "dry" {
         let mut reply = merged(rule("requester", "approve", DRY_WHY, true, req).as_object().cloned().unwrap_or_default());
         reply["dry"] = json!(true);
