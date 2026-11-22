@@ -16,7 +16,13 @@ scope:
 - confidence: cited
   path: bindings/tools/sdc-tool.sh
 - confidence: cited
+  path: cycles/suite.yaml
+- confidence: cited
   path: docs/driver.md
+- confidence: cited
+  path: driver/examples/sdc/fixtures/pool-wait
+- confidence: cited
+  path: driver/src/bin/sdc-bugfix.rs
 - confidence: cited
   path: driver/src/bin/sdc-replay.rs
 - confidence: cited
@@ -29,7 +35,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 - confidence: cited
   path: scripts/run-trial.sh
-revision: 10
+revision: 13
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 3, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 4, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -101,6 +107,38 @@ the wait. This story fixes both in the tool, the bindings and the driver, with t
 
 ## Out of scope, open
 
-- `sdc-bugfix` (`repro-run`, `tests-run`, `gate-run`) runs its commands through `slot` itself; the
-  same fault is there and is not fixed here.
 - Loom never retries an `error` exit; a count of retries is a Loom story.
+- A bug-fix case whose `checks.yaml` has more than 4 gate commands needs a `gate.run` limit of its
+  own (the limit of the binding is for 4).
+
+## The bug-fix steps (2026-11-22)
+
+Observed in a full cycle run of 2026-11-22: `bugfix-not-red` had its test step killed at 1800 s
+while its job was queued, and `bugfix-full` ended as a load failure. `sdc-bugfix` (`repro-run`,
+`tests-run`, `gate-run`) sent each command of `checks.yaml` through `slot` itself, so the same fault
+was there: the wait counted as a failed run, and the limit counted the wait.
+
+Design. The steps cannot call the shell tool's `pool_run`: a step is one process with one pool job
+per command and file work between the jobs. One `pool_run` around the step would hold a slot
+through the copies and make the pool's run limit cover all commands together; a call of the shell
+tool per command would run its set-up inside the copy of the code tree. The logic is therefore
+ported to `driver/src/bin/sdc-bugfix.rs` with the same exits, option and environment names
+(`--pool-wait`, `SDC_POOL_WAIT`, `SDC_POOL_POLL`), and is held to the same stand-in `slot` cases.
+The driver gets no new rule.
+
+Acceptance:
+
+- With a stand-in `slot` that prints its `queued` line and never starts the job, `sdc-bugfix
+  repro-run`, `tests-run` and `gate-run` with a wait bound of 1 s exit 69 within 5 s, cancel the job,
+  run no second command and print no verdict about the code.
+- A job the pool ends at its run limit (exit 124) ends each of the three steps with 70 at its first
+  job, with no verdict about the code; a job cancelled while still queued is 69; a job cancelled
+  while it ran is the command's result with a log line that says so; the bound is one per step; a
+  job that starts after a wait inside the bound gives the old result; without a bound the pool is
+  plain `slot`.
+- `bindings/sdc-bugfix.yaml` and the JSON bindings name `--pool-wait 1200` for `repro.run`,
+  `tests.run` and `gate.run`, with limits 3000, 3000 and 4200 (wait bound + jobs x 600 + 600,
+  `docs/driver.md`); the three exits are lines of `bindings/PENDING.md`.
+- `sdc-drive run` on a bug-fix case whose `repro.run` tool exits 69 takes 3 attempts, records no
+  evidence, calls no `change.fix` and ends `pool_wait_spent` (finding cycle `bugfix-pool-wait`); at
+  exit 70 it ends `run_over_time` at once (finding cycle `bugfix-over-time`).

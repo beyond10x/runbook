@@ -84,7 +84,7 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
 | 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:246`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
-| 1800 | bugfix `repro.run`, `tests.run`, `gate.run` | `cargo` builds and tests (`driver/src/bin/sdc-bugfix.rs:609-613`) |
+| 3000, 3000, 4200 | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
 | 600 | bugfix `bug.dissect` | `timeout_s` of the JSON |
@@ -120,7 +120,7 @@ The exit lists: every program binding states program-error exits `[75, 126, 127]
 `program_error`, `driver/src/main.rs:579-581`), and each of the 14 agent nodes a not-called exit,
 which `llm-node.sh` takes in step 2 in place of the `SDC_NOT_CALLED` file. Loom ships no default
 list (Loom story G1a); until the loader has the member, the lists stay in `bindings/PENDING.md`.
-The two bindings that wait for the build pool, `tests.run` and `acceptance.run`, add exit 69 (no
+The bindings that wait for the build pool (story `tests.run`, release `acceptance.run`, bugfix `repro.run`, `tests.run`, `gate.run`) add exit 69 (no
 slot within `--pool-wait`, nothing ran) to their list: `[69, 70, 75, 126, 127]` (70: the pool ended a started job at its run limit, "ran over its time"). Until then Loom maps 69 and 70
 by the binding's `*` result to `failed`; the tool exits 69 and 70 in both modes.
 
@@ -187,7 +187,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `stub-file)` | `SDC_STUB_FIXTURES` (`stub-file`) | `--stub-fixtures <dir>` is taken | pending: N3 (the stub overlay's binding states it) |
 | `SDC_STUB_COUNTER:-` | `SDC_STUB_COUNTER` | `--stub-counter <dir>` is taken (default `.sdc`) | pending: N3 |
 | `stub-tree)` | `SDC_STUB_FIXTURES` (`stub-tree`) | as for `stub-file` | pending: N3 |
-| `SDC_POOL_WAIT` | `SDC_POOL_WAIT` (the step's wait bound for the build pool) | `--pool-wait <seconds>`, in the `tests.run` and `acceptance.run` argv of `bindings/*.yaml`; the environment variable wins | done |
+| `SDC_POOL_WAIT` | `SDC_POOL_WAIT` (the step's wait bound for the build pool) | `--pool-wait <seconds>`, in the argv of story `tests.run`, release `acceptance.run` and bugfix `repro.run`, `tests.run`, `gate.run` of `bindings/*.yaml`; the environment variable wins | done |
 | `report-$SDC_ACTION` | `SDC_ACTION` (report file name) | `--action` | done |
 | `impl-gate)`, `story=$(cut` | `SDC_CASE` (`impl-gate`: the story id) | `LOOM_CASE`; the story is `LOOM_CASE_NAME` when Loom sets it (`LOOM_PARENT_CASE_NAME` set: its own name; only `LOOM_CASE_NAME`: an epic case, no story) | done |
 | `list-stories)`, `epic=$(cut` | `SDC_CASE` (`list-stories`: the epic) | `LOOM_PARENT_CASE_NAME`, else `LOOM_CASE_NAME` (an epic case), else the cut of `LOOM_CASE`; given to `arguments_from` too | done |
