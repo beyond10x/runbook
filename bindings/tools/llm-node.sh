@@ -38,7 +38,9 @@
 #   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
 #   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
 #   a workspace directory .stub (seeded by a suite cycle): SDC_STUB_FIXTURES, and its finding.yaml
-#   and finding-2.yaml as SDC_STUB_FINDINGS, when the options and the variables above are not set
+#   and finding-2.yaml as SDC_STUB_FINDINGS, when the options and the variables above are not set;
+#   .stub/settings.yaml (adapter, nodes, review_mode, ...) and .stub/replies/<name>.yaml (review,
+#   implement, coverage, fixture-stub): the scripted model of the old SDC_* variables
 #   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli and of the metaharness
 #                    adapter (each copies it into a private directory for its call: a config home, a
 #                    HOME; without it they read CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
@@ -97,6 +99,36 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   if [[ -d $PWD/.stub ]]; then
     [[ -n ${SDC_STUB_FIXTURES:-} ]] || export SDC_STUB_FIXTURES=$PWD/.stub
     [[ -n ${SDC_STUB_FINDINGS:-} ]] || export SDC_STUB_FINDINGS=$PWD/.stub/finding.yaml:$PWD/.stub/finding-2.yaml
+    # The scripted model settings and replies (docs/cycles-suite.md, "The layout of .stub/"):
+    # .stub/settings.yaml keys and .stub/replies/<name>.yaml into the variables of the old driver.
+    # `fixture` as an adapter is the fixture adapter beside this tool. A variable already set wins.
+    stub_set() { [[ -n ${!1:-} ]] || export "$1=$2"; }
+    if [[ -f $PWD/.stub/settings.yaml ]]; then
+      stub_json=$(yq -o=json -I=0 '.' "$PWD/.stub/settings.yaml") || { echo "llm-node: $node could not run: .stub/settings.yaml is not YAML" >&2; exit 64; }
+      while IFS=$'\t' read -r k v; do
+        case $k in
+          adapter) stub_set SDC_LLM_ADAPTER "$([[ $v == fixture ]] && echo "$here/llm-adapter-fixture.sh" || echo "$v")" ;;
+          review_adapter) stub_set SDC_REVIEW_ADAPTER "$([[ $v == fixture ]] && echo "$here/llm-adapter-fixture.sh" || echo "$v")" ;;
+          nodes) stub_set SDC_LLM_NODES "$v" ;;
+          review_mode) stub_set SDC_REVIEW_MODE "$v" ;;
+          implement_mode) stub_set SDC_IMPLEMENT_MODE "$v" ;;
+          implement_coverage) stub_set SDC_IMPLEMENT_COVERAGE "$v" ;;
+          *) echo "llm-node: $node could not run: .stub/settings.yaml has no setting $k" >&2; exit 64 ;;
+        esac
+      done < <(jq -r 'to_entries[] | [.key, (.value | [.] | flatten | map(tostring) | join(" "))] | @tsv' <<< "$stub_json")
+    fi
+    for stub_f in "$PWD"/.stub/replies/*.yaml; do
+      [[ -f $stub_f ]] || continue
+      stub_name=$(basename "$stub_f" .yaml)
+      stub_json=$(yq -o=json -I=0 '.' "$stub_f") || { echo "llm-node: $node could not run: .stub/replies/$stub_name.yaml is not YAML" >&2; exit 64; }
+      case $stub_name in
+        review) stub_set SDC_REVIEW_REPLIES "$stub_json" ;;
+        implement) stub_set SDC_IMPLEMENT_REPLIES "$stub_json" ;;
+        coverage) stub_set SDC_COVERAGE_REPLIES "$stub_json" ;;
+        fixture-stub) stub_set SDC_FIXTURE_STUB "$stub_json" ;;
+        *) echo "llm-node: $node could not run: .stub/replies/$stub_name.yaml is no reply list" >&2; exit 64 ;;
+      esac
+    done
   fi
   [[ -n ${opt[--claude-credentials]:-} ]] && export SDC_CLAUDE_CREDENTIALS=${opt[--claude-credentials]}
   # The retry records as the driver's SDC_FEEDBACK: kind, result, subject and the log, here the

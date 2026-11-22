@@ -1,0 +1,8 @@
+rounds:
+  - stub
+  - files:
+      - path: README.md
+        content: "# billing\n\nRun the service: cargo run -- 8080 billing.json\nRun the tests: task check\n"
+    note: "1. README.md:3 names the command that runs it"
+    findings: []
+    remaining: []

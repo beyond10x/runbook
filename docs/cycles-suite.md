@@ -115,8 +115,8 @@ through:
   inside the suite's directory.
 - Approvals of person actions are `decide:` entries in `defaults`, bound to the principal
   `person:owner`.
-- Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are the
-  `fixtures:` member of a cycle, which the pinned Loom does not run yet.
+- Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are seeds
+  too, in the layout below. Loom has no `fixtures:` member and will not get one.
 - What the old driver took from `amend.upstream`'s `handoff_when` is `handoff_when: [tools/sdc-tool.sh,
   findings-wait, --action, amend.upstream]` in the five `bindings/sdc-*.yaml` files that bind
   `amend.upstream` (Loom `5bcc26d9`). Only Loom reads these files; the old driver reads the JSON
@@ -126,21 +126,57 @@ through:
   `driver/examples/sdc/fixtures/bugfix-pager/`, and a cycle with its own stubs seeds
   `cycles/seeds/fixtures/bugfix-<name>/` into `.stub/`.
 
+### The layout of `.stub/`
+
+A bound program under Loom gets `PATH` and `LOOM_*` only, so what a cycle scripts reaches
+`bindings/tools/llm-node.sh` as files of the workspace. The tool reads the layout only under Loom and
+only when `.stub/` exists, in one block that sets the variables of the old driver; a variable
+already set wins, a run without `.stub/` is unchanged. Text and YAML only, no shell in the data. An
+unknown key or file name is refused (exit 64).
+
+| file | the old variable | what it holds |
+|---|---|---|
+| `.stub/finding.yaml`, `.stub/finding-2.yaml` | `SDC_STUB_FINDINGS` | the findings the stub raises, as before |
+| `.stub/` (the directory) | `SDC_STUB_FIXTURES` | the fixture directory: trees such as `billing-spec.0`, files such as `plan-stories.json`, as before |
+| `.stub/settings.yaml`, key `adapter` | `SDC_LLM_ADAPTER` | `fixture` (the fixture adapter beside the tool), `dry`, `stub`, or an adapter program |
+| key `nodes` | `SDC_LLM_NODES` | a list of node names that go to the adapter; every other node runs its stub |
+| key `review_adapter` | `SDC_REVIEW_ADAPTER` | as `adapter`, for the review class |
+| keys `review_mode`, `implement_mode`, `implement_coverage` | `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_MODE`, `SDC_IMPLEMENT_COVERAGE` | the value as text (quote `"on"`) |
+| `.stub/replies/review.yaml` | `SDC_REVIEW_REPLIES` | the reviews the fixture adapter answers |
+| `.stub/replies/implement.yaml` | `SDC_IMPLEMENT_REPLIES` | the replies of the implementer in request mode (`stub` is the stub tree) |
+| `.stub/replies/coverage.yaml` | `SDC_COVERAGE_REPLIES` | the coverage documents of the implementer |
+| `.stub/replies/fixture-stub.yaml` | `SDC_FIXTURE_STUB` | a node name to `[fixture, artifact]` for a node whose stub is another subcommand |
+
+A reply file is YAML of the same shape as the JSON the variable held: a mapping `rounds:` whose
+n-th member is the reply of the n-th earlier rejection or call, the last one after that; a member
+that is a list is taken by the attempt inside the call (a reply refused by a program check is
+asked again with the reason, and the next list member answers). A review reply is
+`{decision, summary, findings}`; a coverage reply is `{requirements: [{id, status, at, test|reason}]}`.
+The seeds are in `cycles/seeds/stub/`: `settings/<name>.yaml` and `replies/<name>.yaml`, composed
+per cycle (`{from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}`). They are written by
+hand from the old entries; no recording of a model call is a seed.
+
 ### Totals and time
 
-130 entries: 14 converted, 25 pending (12 wait for a story the pinned Loom has not shipped and are
-not run; 13 run and still fail), 91 not converted (1 full-cycle, 18 re-drive and other, 72 trial).
+130 entries: 24 converted, 30 pending (5 wait for a story the pinned Loom has not shipped and are
+not run; 25 run and still fail), 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
 
-The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run took
-279 s wall (build included) and ended `10 of 10 as expected, 25 pending`. The ten slowest cycles
-took 29.7 s (`stub-cycle`), 21.0, 20.3, 19.8, 19.6, 19.5, 19.4, 16.5, 15.1 and 13.5 s. The time is
+The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run of all
+50 cycles took 764 s of cycle time (about 12.7 min wall) and ended `20 of 20 as expected, 30
+pending`. The ten slowest cycles took 35.9 s (`implement-percause`, pending), 27.5 s (`trace-gap`),
+26.8, 26.8, 26.3, 26.1, 24.2, 24.0, 21.4 and 20.8 s. Every converted cycle took between 10.6 s and 27.5 s,
+so all of them are over 5 s. The time is
 the bound programs, one cycle after another: a cycle that goes through to the end runs 213 bound
 programs (read from `observations.json` of two cycles), about 0.1 s each, so about 20 s. `runbook
 test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's; no cycle is near it.
 A later full run (with tests of the gate running beside it, so slower per cycle) ended `14 of 14 as
 expected, 25 pending`; its slowest were `stub-cycle` 40.3 s, `spec-duplicate` 40.2 s and
 `superseded-answer` 36.4 s. The four bugfix cycles took 1.3 to 3.5 s each once the cargo cache was
-warm (the first, cold run of `bugfix-full` took 20.8 s). `finding-program` took 16.8 to 23.4 s and `offline-decision` 4.4 to 6.3 s. To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
+warm (the first, cold run of `bugfix-full` took 20.8 s). `finding-program` took 16.8 to 23.4 s and `offline-decision` 4.4 to 6.3 s. The merged file (54 cycles, 49 of them run) took 940 s of cycle
+time with the gate's tests and two slow lanes running beside it, and ended `24 of 24 as expected, 30
+pending`; the ten slowest cycles took 51.6 s (`implement-request-path-escape`), 41.4 s
+(`writer-sees-test-failure`), 37.3 s (`spec-own-default`), 35.4, 34.5, 34.5, 33.2, 33.0, 32.3 and 30.4 s,
+so the scripted-reply cycles come within 8 s of Loom's 60 s bound. To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
 cycles would have to share an opened tree (the format has no member for it).
 
 ### Full-cycle entries (29)
@@ -167,15 +203,15 @@ cycles would have to share an opened tree (the format has no member for it).
 | scope-answer | pending | stops at `scope.answer` of `root.intake`: a program on a person action's approval is in Loom's drafting, no story id yet |
 | scope-changed | pending | same: `scope.answer` as a program on a person action's approval |
 | intake-decision | pending | same: `scope.answer` as a program on a person action's approval |
-| review-reject-once | pending | scripted model replies: waits for story:engine-agents-section (`fixtures`) |
-| review-minimal-input | pending | same, story:engine-agents-section |
-| review-invalid | pending | same, story:engine-agents-section |
-| review-spent | pending | same, story:engine-agents-section |
-| spec-own-default | pending | same, story:engine-agents-section |
-| plan-in-project | pending | same, story:engine-agents-section |
-| spec-interp-unsupported | pending | same, story:engine-agents-section |
-| replay-sibling | pending | story:engine-agents-section (`fixtures`) and story:tree-replay-command (`replay`) |
-| pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the format has no member for it |
+| review-reject-once | pending | the scripted reviews are seeded (`.stub/`) and the run stops at `change.review`, exit 4: `change.review has no inputs: no conformance run recorded on change revision none`; the node's inputs (`sdc-reply review-inputs`) read the driver's case directory, which Loom gives no program (story:bound-agent-node) |
+| review-minimal-input | pending | same stop (exit 4), with `review_mode: facts` |
+| review-invalid | pending | same stop (exit 4); the two old checks pass for that reason and not for the scripted reply, and the added `refused-for-the-cited-line` fails |
+| review-spent | pending | same stop: no rejection is recorded (expected 3, found 0) |
+| spec-own-default | converted | the one model call is a line of `.sdc/llm/calls.jsonl`; the absent `writer_spent` is no `Stopped` event of the case |
+| plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
+| spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
+| replay-sibling | pending | needs the `replay` step (story:tree-replay-command); its scripted replies are seeds now, the replay is not there |
+| pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the stand-in is an executable script, which is shell and no seed (no shell in the data), and the format has no member to put a directory first on `PATH` |
 
 ### Re-drive entries (9)
 
@@ -206,17 +242,19 @@ replay model calls from and no injected rejection, timeout or failed check.
 | writer-not-called | not converted | class: the store is edited between two runs (a program replaced, a finding dismissed) |
 | decider-input | not converted | class: the contents of the decider's call directories (the files of its input) |
 | principals | not converted | class: the store is edited between two runs (a decision written by hand), then a refusal of a second tool |
-| efforts | not converted | class: dry runs and a stand-in model adapter written by the cycle: the environment of a bound program |
+| efforts | not converted | class: dry runs (`--dry`, a listing, no tree) and a stand-in model adapter written by the cycle: the environment of a bound program (`CLAUDE`, `SDC_CLAUDE_CREDENTIALS`, `CLAUDE_CODE_EFFORT_LEVEL`); a script the cycle generates is no seed |
 | replay-recording-clean | not converted | class: the recording file of the replay tool (`recording.json`) |
 
 ### Trial entries (83)
 
 These run the whole cycle under Runbook's autopilot (`--autopilot`, a decider that answers each stop) or
-with a model adapter's replies scripted. Eleven are in the file: seven pending cycles with `decide:` entries
-and `steps` the pinned Loom does not run yet, and the four bugfix cycles (two converted, two pending); the other 72 are not converted. The classes:
+with a model adapter's replies scripted. Twenty-six are in the file: nine converted and seventeen
+pending cycles (the scripted-reply entries among them have their replies as seeds; the four bugfix
+cycles are two converted and two pending); the other 57 are not converted. The classes of the 57 and
+of the four bugfix cycles that were in the first count and are in the file now:
 
 - Runbook's decider answers the stops: 32 entries.
-- scripted replies of a model adapter or a stand-in model binary: 20.
+- scripted replies of a stand-in model binary through the environment: 5.
 - Runbook's autopilot loop after a stop: 9.
 - the rule approver: 5.
 - bindings the pinned Loom refuses (the bugfix cycles): 4, now in the file. `bindings/sdc-bugfix.yaml`
@@ -282,27 +320,27 @@ and `steps` the pinned Loom does not run yet, and the four bugfix cycles (two co
 | finding-refused-reask | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-dropped | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-abandoned | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| review-invalid-named | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| writer-own-error | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| review-invalid-named | pending | the run stops at the inputs of `change.review` (no conformance run recorded, exit 4: story:bound-agent-node), not at the scripted invalid review; `stop-names-the-review` fails |
+| writer-own-error | pending | the first `questions.answer` exits 1 (`changed a scope-changing question: not applied`) and the run stops, exit 3: Loom does not run the node again with the refused apply's log as feedback (a retry after a program's exit; no Loom story yet) |
 | implement-percause | pending | stops at the finding that `amend.upstream` raises after a test failure, exit 3: a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
-| writer-sees-test-failure | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| implement-request-build | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| implement-request-tests-rework | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| implement-request-review-rework | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| implement-request-invalid-retry | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| implement-request-invalid-named | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| implement-request-path-escape | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| coverage-complete | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| coverage-not-built | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| coverage-line-outside | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| coverage-test-missing | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| coverage-spent | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| coverage-reply-retry | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| review-real-path | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| review-real-path-facts | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| review-invalid-stop | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| review-adapter-refused | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_ADAPTER`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| reopen-review-invalid | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_ADAPTER`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| writer-sees-test-failure | converted | the failing test's message and the absence of a pool line are read from the second call's `in/feedback.md` (`files`, `follow: file`) |
+| implement-request-build | converted | the request record (`reply-schema.json`, `implement-inputs.json`) is read the same way; not said: the written `impl/src/lib.rs` equal to the fixture's file, and a non-empty `commands` in the inputs |
+| implement-request-tests-rework | converted | the second request is read from `.sdc/llm/002-change.implement/prompt.md` |
+| implement-request-review-rework | pending | stops at the inputs of `change.review`, exit 4, as review-reject-once |
+| implement-request-invalid-retry | converted | |
+| implement-request-invalid-named | converted | the cause `implement_reply_invalid` is a field of the call line; not said: the old driver's `run-stopped.json`, here the stop is exit 4 |
+| implement-request-path-escape | converted | |
+| coverage-complete | pending | stops at the inputs of `change.review`, exit 4, as review-reject-once |
+| coverage-not-built | pending | `bindings/sdc-story.yaml` has no `check-coverage` postcondition (the driver's postcondition with a `switch` and the kind `requirement_coverage` has no form in a loom.bindings/1 file), so a `not_built` document is not refused: one implement run, expected 2 |
+| coverage-line-outside | pending | same: not refused, one implement run, expected 2 |
+| coverage-test-missing | pending | same: not refused, one implement run, expected 2 |
+| coverage-spent | pending | same: never refused, so no `writer_spent`; the run ends exit 0, expected 4 |
+| coverage-reply-retry | converted | the node's own shape check and its second request run in `llm-node.sh`, so they hold under Loom; the refused reply and the reason in the prompt are read from the call record |
+| review-real-path | not converted | class: stand-in model binary through the environment (`METAHARNESS`, `CLAUDE`, `FAKE_MODEL_*`: executable stand-ins and variables of a bound program, which the layout of `.stub/` does not carry), and the same `change.review` inputs as review-reject-once |
+| review-real-path-facts | not converted | same |
+| review-invalid-stop | not converted | same |
+| review-adapter-refused | not converted | same, and the refusal is the exit 64 of `sdc-drive` before a run, not a cycle's outcome |
+| reopen-review-invalid | not converted | same, and a `--reopen` of a stopped run |
 | bugfix-full | converted | the seeds are `cycles/seeds/bugfix-pager/` (the workspace `sdc-bugfix seed` writes); the case ends `fixed` with one red, one fix and one passed suite run |
 | bugfix-not-red | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_reproduced`: the first `repro_run` `not_red` makes `not_reproduced` legitimate and Loom ends the case before the test writer is sent back; the protocol has no claim for "the writer is spent" |
 | bugfix-edited-test | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_fixed`: the first `test_run` is `failed` and Loom ends the case `not_fixed` before `change.fix` is sent back; same missing "writer is spent" |
