@@ -416,11 +416,18 @@ const LAUNCH: [(&str, &str); 33] = [
 const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "free.max_usd", "free.max_wall_s", "free.max_turns"];
 /// What a launched variant with `runner: loom` sets (`runbook loom-run`): the Loom binary and its
 /// digest, the confinement (no default), the spend cap over every run of the record, the models
-/// of the four node classes and of the decider, and the two ceilings.
-const REQUIRED_LOOM: [&str; 11] = ["loom.bin", "loom.sha256", "loom.confinement", "loom.cap_micro_usd", "models.writer.model",
-    "models.implement.model", "models.review.model", "models.other.model", "decider.model", "max_llm_calls", "max_wall_seconds"];
-/// A `loom` setting that is optional: the path of the login file the model adapter reads.
-const OPTIONAL_LOOM: [&str; 1] = ["loom.login_file"];
+/// of the four node classes, the kind of the decider, the autonomy level and the two ceilings. A
+/// `model` decider also sets `decider.model`, a `rule` decider `decider.verdict`.
+const REQUIRED_LOOM: [&str; 12] = ["loom.bin", "loom.sha256", "loom.confinement", "loom.cap_micro_usd", "models.writer.model",
+    "models.implement.model", "models.review.model", "models.other.model", "decider.kind", "autonomy", "max_llm_calls", "max_wall_seconds"];
+/// `loom` settings that are optional: the path of the login file the model adapter reads, and the
+/// members of `runbook.loom-run-settings/1` that only some deciders and adapters take.
+const OPTIONAL_LOOM: [&str; 8] = ["loom.login_file", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+    "decider.adapter", "adapter", "review.adapter"];
+/// The members of a `model` decider that a `rule` decider does not have.
+const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
+/// What `bindings/tools/decider.sh` needs on `PATH` (it exits 127 without them).
+const LOOM_TOOLS: [&str; 3] = ["jq", "yq", "rsync"];
 const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];
 const REQUIRED_LAUNCH: [&str; 11] = ["models.writer.model", "models.implement.model", "models.review.model", "models.other.model",
     "decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "adapter", "max_llm_calls", "autonomy"];
@@ -431,11 +438,6 @@ const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry
 /// setting of the old driver. Each one is a decision (docs/workflow-metrics.md, "Runner loom").
 fn loom_refusal(key: &str) -> Option<&'static str> {
     Some(match key {
-        "decider.kind" => "the decider of a loom run is the model named by decider.model",
-        "decider.escalate" => "a person step is answered by the decider and never escalated to a person",
-        "decider.max_decider_calls" => "max_llm_calls counts every model call, the decider's included",
-        "adapter" | "decider.adapter" | "review.adapter" => "the adapter of a node is the one its binding names",
-        "autonomy" => "a loom run has no autonomy levels: the decider answers every person step",
         "implement_mode" | "review_mode" | "implement_coverage" | "conformance" | "rule_approvals" =>
             "it is a switch of scripts/run-trial.sh and Loom's bindings carry no such switch",
         "flags.dry" | "flags.recorded" => "it is a flag of scripts/run-trial.sh",
@@ -449,8 +451,39 @@ fn loom_refusal(key: &str) -> Option<&'static str> {
 fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
     for k in REQUIRED_LOOM {
         if !v.settings.contains_key(k) {
-            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the Loom binary and its digest, the confinement, the spend cap, every class's model, the decider's model and both ceilings)", v.id));
+            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the Loom binary and its digest, the confinement, the spend cap, every class's model, the decider's kind, the autonomy level and both ceilings)", v.id));
         }
+    }
+    let one_of = |k: &str, allowed: &[&str], p: &mut Vec<String>, what: &str| {
+        if v.settings.get(k).is_some_and(|x| !allowed.contains(&x.as_str())) {
+            p.push(format!("variant {:?}: {k} must be {what}", v.id));
+        }
+    };
+    one_of("decider.kind", &["model", "rule"], p, "model or rule (haiku is the old driver's name of model; a scripted decider is a test double of the runner and no setting of a record)");
+    one_of("autonomy", &["A0", "A1", "A2", "A3", "A4", "A5"], p, "one of A0 to A5 (a decider answers only at A5)");
+    one_of("decider.verdict", &["approve", "reject"], p, "approve or reject");
+    one_of("decider.escalate", &["final", "stop"], p, "final or stop");
+    one_of("adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
+    one_of("decider.adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
+    one_of("review.adapter", &["claude-cli"], p, "claude-cli (the only review adapter expressible under Loom)");
+    match v.settings.get("decider.kind").map(String::as_str) {
+        Some("model") => {
+            if !v.settings.contains_key("decider.model") {
+                p.push(format!("variant {:?}: the settings do not set decider.model (a model decider needs its model)", v.id));
+            }
+            if v.settings.contains_key("decider.verdict") {
+                p.push(format!("variant {:?}: decider.verdict is a setting of a rule decider, not of kind model", v.id));
+            }
+        }
+        Some("rule") => {
+            if !v.settings.contains_key("decider.verdict") {
+                p.push(format!("variant {:?}: the settings do not set decider.verdict (a rule decider approves or rejects every decision)", v.id));
+            }
+            for k in MODEL_ONLY_LOOM.iter().filter(|k| v.settings.contains_key(**k)) {
+                p.push(format!("variant {:?}: {k} is a setting of a model decider, not of kind rule", v.id));
+            }
+        }
+        _ => {}
     }
     for k in v.settings.keys() {
         if REQUIRED_LOOM.contains(&k.as_str()) || OPTIONAL_LOOM.contains(&k.as_str()) {
@@ -462,7 +495,7 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
         }
     }
     let whole = |k: &str| v.settings.get(k).is_none_or(|x| x.parse::<u64>().is_ok_and(|n| n >= 1));
-    for k in ["loom.cap_micro_usd", "max_llm_calls", "max_wall_seconds"] {
+    for k in ["loom.cap_micro_usd", "max_llm_calls", "max_wall_seconds", "decider.max_decider_calls"] {
         if !whole(k) {
             p.push(format!("variant {:?}: {k} must be a whole number of at least 1", v.id));
         }
@@ -1022,7 +1055,9 @@ fn check_runs(r: &Y, exp: &Path, runs_dir: Option<&Path>) -> (Vec<String>, Vec<S
                 }
             };
             for (k, x) in &v.settings {
-                if NOT_RECORDED.contains(&k.as_str()) {
+                // A loom run records the adapters too; it never records the binary's path or the login's.
+                let skipped = if v.runner == "loom" { ["loom.bin", "loom.login_file"].contains(&k.as_str()) } else { NOT_RECORDED.contains(&k.as_str()) };
+                if skipped {
                     continue;
                 }
                 let got = doc["settings"][k.as_str()].as_str().unwrap_or("not recorded").to_string();
@@ -1859,8 +1894,33 @@ fn launch_env(settings: &BTreeMap<String, String>, runs_dir: &Path, principal: &
 /// `SDC_` variable, not even the runs directory or the principal: `runbook loom-run` reads its
 /// settings from the settings file and its paths from its arguments, and builds the environment
 /// of Loom's programs itself.
-fn loom_env(base: &dyn Fn(&str) -> Option<String>) -> Vec<(String, String)> {
-    BASE_ENV.iter().filter_map(|k| base(k).map(|v| (k.to_string(), v))).collect()
+///
+/// `PATH` is the login's with the build's `driver/target/debug` put first. `runbook loom-run`
+/// gives `b10x-loom` (and so every bound program) its own `PATH`, and it is the one it was
+/// started with: `sdc-reply` (the model decider and the model nodes), `sdc-findings` and
+/// `sdc-bugfix` (the model nodes) are found there and nowhere else, because the copy of the
+/// bindings in the run directory holds no `driver/target/debug`. A `decider.reply_bin` setting
+/// would reach the decider alone; the directory on `PATH` reaches both. `jq`, `yq` and `rsync`
+/// come from the login's `PATH` (`missing_loom_tools`).
+fn loom_env(base: &dyn Fn(&str) -> Option<String>, build: &Path) -> Vec<(String, String)> {
+    BASE_ENV.iter().map(|k| (*k, base(k)))
+        .filter_map(|(k, v)| match (k, v) {
+            ("PATH", v) => {
+                let login = v.filter(|p| !p.is_empty()).unwrap_or_else(|| "/usr/bin:/bin".to_string());
+                Some((k.to_string(), format!("{}:{login}", build.join("driver/target/debug").display())))
+            }
+            (_, v) => v.map(|v| (k.to_string(), v)),
+        })
+        .collect()
+}
+
+/// The programs of `LOOM_TOOLS` that no directory of the unit's `PATH` holds as an executable file.
+fn missing_loom_tools(path: &str) -> Vec<&'static str> {
+    use std::os::unix::fs::PermissionsExt;
+    LOOM_TOOLS.iter().copied()
+        .filter(|t| !path.split(':').filter(|d| !d.is_empty())
+            .any(|d| fs::metadata(Path::new(d).join(t)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)))
+        .collect()
 }
 
 /// `~/x` as the launcher's `HOME` and `/x`; any other path as it is.
@@ -1878,8 +1938,7 @@ fn expand_home(path: &str, base: &dyn Fn(&str) -> Option<String>) -> Result<Stri
 /// login file is a path, only when the record names one; `redact` puts the setting's name in its
 /// place for printing.
 fn loom_settings_json(name: &str, settings: &BTreeMap<String, String>, redact: bool, base: &dyn Fn(&str) -> Option<String>) -> Result<J, String> {
-    let mut doc = json!({"format": "runbook.loom-run-settings/1", "run": name,
-        "decider": {"principal": "decider:model"}, "loom": {}});
+    let mut doc = json!({"format": "runbook.loom-run-settings/1", "run": name, "decider": {}, "loom": {}});
     let put = |doc: &mut J, path: &[&str], v: J| {
         let mut at = doc;
         for k in &path[..path.len() - 1] {
@@ -1892,7 +1951,32 @@ fn loom_settings_json(name: &str, settings: &BTreeMap<String, String>, redact: b
     for c in ["writer", "implement", "review", "other"] {
         put(&mut doc, &["models", c, "model"], json!(get(&format!("models.{c}.model"))));
     }
-    put(&mut doc, &["decider", "model"], json!(get("decider.model")));
+    // The decider: `kind` as the record says it. A model decider also says that Loom's output holds
+    // no claims (`without_claims`: the run makes no claim about claims it does not have). The
+    // principal of its answers is not written: the runner derives it from the kind.
+    let kind = get("decider.kind");
+    put(&mut doc, &["decider", "kind"], json!(kind));
+    if kind == "rule" {
+        put(&mut doc, &["decider", "verdict"], json!(get("decider.verdict")));
+    } else {
+        put(&mut doc, &["decider", "model"], json!(get("decider.model")));
+        put(&mut doc, &["decider", "without_claims"], json!(true));
+        for k in ["decider.escalate", "decider.adapter"] {
+            if let Some(x) = settings.get(k) {
+                put(&mut doc, &["decider", &k["decider.".len()..]], json!(x));
+            }
+        }
+        if settings.contains_key("decider.max_decider_calls") {
+            put(&mut doc, &["decider", "max_decider_calls"], num("decider.max_decider_calls"));
+        }
+    }
+    put(&mut doc, &["autonomy"], json!(get("autonomy")));
+    if let Some(x) = settings.get("adapter") {
+        put(&mut doc, &["adapter"], json!(x));
+    }
+    if let Some(x) = settings.get("review.adapter") {
+        put(&mut doc, &["review", "adapter"], json!(x));
+    }
     put(&mut doc, &["max_llm_calls"], num("max_llm_calls"));
     put(&mut doc, &["max_wall_seconds"], num("max_wall_seconds"));
     put(&mut doc, &["loom", "sha256"], json!(get("loom.sha256")));
@@ -2270,7 +2354,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                 let files = loom_launch_dir(&builds, &id, &p.name);
                 let argv = loom_argv(&build, &id, &p.name, s, &runs_dir, loom_root.as_deref().unwrap_or_default(), &files, &base)?;
                 let settings = loom_settings_json(&p.name, s, redact, &base)?;
-                RunPlan { env: loom_env(&base), argv, loom: Some(LoomFiles { dir: files, idea: loom_idea_yaml(&input), settings }) }
+                RunPlan { env: loom_env(&base, &build), argv, loom: Some(LoomFiles { dir: files, idea: loom_idea_yaml(&input), settings }) }
             }
             "free-agent" => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: free_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
             _ => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: launch_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
@@ -2289,6 +2373,12 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                     for (k, v) in &rp.env {
                         println!("  env {k}={v}");
                     }
+                    println!("  needs on PATH: {} (bindings/tools/decider.sh); sdc-reply, sdc-findings and sdc-bugfix from {}",
+                        LOOM_TOOLS.join(", "), build.join("driver/target/debug").display());
+                    let missing = missing_loom_tools(rp.env.iter().find(|(k, _)| k == "PATH").map_or("", |(_, v)| v));
+                    if !missing.is_empty() {
+                        println!("  missing on PATH: {}", missing.join(", "));
+                    }
                     if p.variant.settings.contains_key("loom.login_file") {
                         println!("  login: loom.login_file is set (named in the settings file; the launcher never reads it)");
                     }
@@ -2305,6 +2395,13 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             println!("  {}", rp.argv.join(" "));
         }
         return Ok(());
+    }
+    if any_loom {
+        let path = base("PATH").unwrap_or_default();
+        let missing = missing_loom_tools(&path);
+        if !missing.is_empty() {
+            return Err((1, format!("refused: {} not on PATH: `bindings/tools/decider.sh` of a loom run needs {} and exits 127 without them", missing.join(", "), LOOM_TOOLS.join(", "))));
+        }
     }
     let repo = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"]).map_err(|m| (1, m))?);
     let build = prepare_build(&repo, &builds, &commit, &runs_dir, any_loom).map_err(|m| (1, m))?;
@@ -2726,6 +2823,8 @@ targets:
             ("models.other.model", "o"), ("decider.model", "d"), ("max_llm_calls", "9"), ("max_wall_seconds", "60"), ("loom.sha256", "ab"),
             ("loom.confinement", "local"), ("loom.cap_micro_usd", "7"), ("loom.bin", "/opt/b")]
             .iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        s.insert("decider.kind".into(), "model".into());
+        s.insert("autonomy".into(), "A5".into());
         let base = |k: &str| (k == "HOME").then(|| "/h".to_string());
         let doc = loom_settings_json("r1", &s, false, &base).unwrap();
         assert_eq!(doc["models"]["implement"]["model"], "i");
@@ -2736,7 +2835,8 @@ targets:
         assert_eq!(loom_settings_json("r1", &s, false, &base).unwrap()["loom"]["login_file"], "/h/.marker/login.json");
         assert_eq!(loom_settings_json("r1", &s, true, &base).unwrap()["loom"]["login_file"], "<loom.login_file>");
         assert!(loom_settings_json("r1", &s, false, &|_: &str| None).is_err(), "~/ needs HOME");
-        assert_eq!(loom_env(&|k: &str| (k == "PATH" || k == "SDC_RUNS_DIR").then(|| "x".to_string())), [("PATH".to_string(), "x".to_string())]);
+        let env = loom_env(&|k: &str| (k == "PATH" || k == "SDC_RUNS_DIR").then(|| "x".to_string()), Path::new("/b"));
+        assert_eq!(env, [("PATH".to_string(), "/b/driver/target/debug:x".to_string())]);
     }
 
     #[test]

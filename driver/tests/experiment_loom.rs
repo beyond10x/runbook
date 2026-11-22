@@ -38,7 +38,14 @@ fn fixed() -> Vec<(String, String)> {
         ("models.implement.model", "claude-sonnet-5-5"),
         ("models.review.model", "claude-sonnet-5-5"),
         ("models.other.model", "claude-sonnet-5-5"),
+        ("decider.kind", "model"),
         ("decider.model", "claude-opus-5-5"),
+        ("decider.escalate", "final"),
+        ("decider.max_decider_calls", "40"),
+        ("decider.adapter", "claude-cli"),
+        ("autonomy", "A5"),
+        ("adapter", "metaharness"),
+        ("review.adapter", "claude-cli"),
         ("max_llm_calls", "150"),
         ("max_wall_seconds", "3600"),
     ]
@@ -116,17 +123,58 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     write_record(&d, &example("null"));
     let (code, out) = experiment(&["check", "lx"], &d);
     assert_eq!(code, 0, "a planned loom record without runs is accepted: {out}");
-    // Every required setting, taken out, is named.
+    // Every required setting, taken out, is named; an optional one, taken out, is not missed.
+    let optional = ["decider.escalate", "decider.max_decider_calls", "decider.adapter", "adapter", "review.adapter"];
     for (k, _) in fixed().iter().filter(|(k, _)| k != "max_llm_calls") {
         let f: Vec<_> = fixed().into_iter().filter(|(x, _)| x != k && x != "max_llm_calls").collect();
         write_record(&d, &record_with(&f, "null", "planned", ("", "")));
         let (code, out) = experiment(&["check", "lx"], &d);
-        assert_eq!(code, 1, "{k}: {out}");
-        assert!(out.contains(&format!("the settings do not set {k}")), "{k}: {out}");
+        if optional.contains(&k.as_str()) {
+            assert_eq!(code, 0, "{k} is optional: {out}");
+        } else {
+            assert_eq!(code, 1, "{k}: {out}");
+            assert!(out.contains(&format!("the settings do not set {k}")), "{k}: {out}");
+        }
     }
-    // A setting only the old driver understands is refused by its name, with the reason.
-    for (k, v) in [("decider.kind", "haiku"), ("decider.escalate", "final"), ("decider.max_decider_calls", "40"), ("adapter", "metaharness"),
-        ("decider.adapter", "claude-cli"), ("autonomy", "A5"), ("implement_mode", "x"), ("efforts.writer.effort", "low"), ("flags.dry", "true")] {
+    // The decider's kind and the autonomy level, the decider's limits and the adapters are settings.
+    let with = |extra: &[(&str, &str)], without: &[&str]| -> (i32, String) {
+        let mut f: Vec<_> = fixed().into_iter().filter(|(x, _)| x != "max_llm_calls" && !without.contains(&x.as_str())).collect();
+        f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        write_record(&d, &record_with(&f, "null", "planned", ("", "")));
+        experiment(&["check", "lx"], &d)
+    };
+    let (code, out) = with(&[], &[]);
+    assert_eq!(code, 0, "the whole strong variant is accepted: {out}");
+    for (extra, without, want) in [
+        (vec![("decider.kind", "haiku")], vec!["decider.kind"], "decider.kind must be model or rule"),
+        (vec![("autonomy", "A9")], vec!["autonomy"], "autonomy must be one of A0 to A5"),
+        (vec![("decider.escalate", "maybe")], vec!["decider.escalate"], "decider.escalate must be final or stop"),
+        (vec![("adapter", "dry")], vec!["adapter"], "adapter must be metaharness or claude-cli"),
+        (vec![("decider.adapter", "dry")], vec!["decider.adapter"], "decider.adapter must be metaharness or claude-cli"),
+        (vec![("review.adapter", "metaharness")], vec!["review.adapter"], "review.adapter must be claude-cli"),
+        (vec![("decider.max_decider_calls", "0")], vec!["decider.max_decider_calls"], "decider.max_decider_calls must be a whole number of at least 1"),
+        (vec![("decider.verdict", "approve")], vec![], "decider.verdict is a setting of a rule decider, not of kind model"),
+        (vec![], vec!["decider.model"], "the settings do not set decider.model"),
+    ] {
+        let (code, out) = with(&extra, &without);
+        assert_eq!(code, 1, "{want}: {out}");
+        assert!(out.contains(want), "{want}: {out}");
+    }
+    // A rule decider sets a verdict and nothing of a model decider.
+    let model_only = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
+    let (code, out) = with(&[("decider.kind", "rule"), ("decider.verdict", "approve")], &["decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"]);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = with(&[("decider.kind", "rule")], &["decider.kind", "decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("the settings do not set decider.verdict"), "{out}");
+    let (code, out) = with(&[("decider.kind", "rule"), ("decider.verdict", "reject")], &["decider.kind"]);
+    assert_eq!(code, 1, "{out}");
+    for k in model_only {
+        assert!(out.contains(&format!("{k} is a setting of a model decider, not of kind rule")), "{k}: {out}");
+    }
+    // A setting that has no counterpart under Loom stays refused, and the refusal names the key.
+    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.dry", "true"), ("flags.recorded", "true"),
+        ("conformance", "observe"), ("rule_approvals", "x"), ("free.model", "m")] {
         let mut f = fixed();
         f.push((k.to_string(), v.to_string()));
         write_record(&d, &record_with(&f, "null", "planned", ("", "")));
@@ -192,7 +240,9 @@ fn run_print_gives_each_run_its_unit_and_the_exact_loom_run_command() {
     // The build step names the runbook crate beside the driver's.
     assert!(out.lines().any(|l| l.starts_with("build: ") && l.contains("runbook (cargo build --locked)")), "{out}");
     // The settings the file will hold are printed, and the files are not written by --print.
-    assert!(out.contains("\"decider\":{\"model\":\"claude-opus-5-5\",\"principal\":\"decider:model\"}"), "{out}");
+    assert!(out.contains("\"decider\":{\"adapter\":\"claude-cli\",\"escalate\":\"final\",\"kind\":\"model\",\"max_decider_calls\":40,\"model\":\"claude-opus-5-5\",\"without_claims\":true}"), "{out}");
+    assert!(out.contains("\"autonomy\":\"A5\"") && out.contains("\"adapter\":\"metaharness\"") && out.contains("\"review\":{\"adapter\":\"claude-cli\"}"), "{out}");
+    assert!(!out.contains("principal"), "the principal of the decider's answers is the runner's to derive: {out}");
     assert!(!launch.exists(), "--print wrote {}", launch.display());
 }
 
@@ -261,10 +311,68 @@ fn a_tree_without_a_runbook_crate_is_refused_at_run_and_a_loom_run_gets_the_base
         assert!(!out.contains(&format!("{k}=")) && !out.contains(&format!("={v}\n")), "{k} leaked: {out}");
     }
     assert!(!out.contains("SDC_"), "a loom run is given no SDC_ variable: {out}");
-    // A variable the login does not have is not invented.
+    // A variable the login does not have is not invented; PATH always holds the build's tools.
     let (_, out) = experiment_env(&args, &d, &[("PATH", "/usr/bin")]);
     let lines: BTreeSet<&str> = out.lines().filter(|l| l.starts_with("  env ")).collect();
-    assert_eq!(lines, BTreeSet::from(["  env PATH=/usr/bin"]), "{out}");
+    let tools = format!("  env PATH={}:/usr/bin", builds.join(COMMIT).join("driver/target/debug").display());
+    assert_eq!(lines, BTreeSet::from([tools.as_str()]), "{out}");
+}
+
+#[test]
+fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path() {
+    // sdc-reply, sdc-findings and sdc-bugfix are found through PATH by the model nodes and the
+    // decider: the build's driver/target/debug comes first. jq, yq and rsync come from the login.
+    let d = scratch("path");
+    let builds = fake_build(&d, 8, true);
+    write_record(&d, &example(COMMIT));
+    let bin = builds.join(COMMIT).join("driver/target/debug");
+    let (code, out) = experiment_env(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", "/nonexistent")]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains(&format!("  env PATH={}:/nonexistent\n", bin.display())), "{out}");
+    assert!(out.contains("  missing on PATH: jq, yq, rsync\n"), "{out}");
+    assert!(out.contains("  needs on PATH: jq, yq, rsync (bindings/tools/decider.sh); sdc-reply, sdc-findings and sdc-bugfix from "), "{out}");
+    // The tools are found when a directory of PATH holds them as executable files.
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for t in ["jq", "yq", "rsync"] {
+        fs::write(tools.join(t), "#!/bin/sh\n").unwrap();
+        fs::set_permissions(tools.join(t), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    }
+    fs::write(tools.join("yq"), "not executable\n").unwrap();
+    fs::set_permissions(tools.join("yq"), std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
+    let (_, out) = experiment_env(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", tools.to_str().unwrap())]);
+    assert!(out.contains("  missing on PATH: yq\n"), "an executable file is needed: {out}");
+    // A launch without them is refused before anything is built or started.
+    let (code, out) = experiment_env(&["run", "lx", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", "/nonexistent")]);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("refused: jq, yq, rsync not on PATH"), "{out}");
+}
+
+#[test]
+fn the_settings_file_is_the_committed_fixture_the_runner_reads_and_a_rule_decider_writes_no_model() {
+    // ONE copy of the file `sdc-experiment run` writes for the record below is committed under
+    // runbook/tests/; the runner's tests (runbook/tests/loom_run/settings.rs) read the same file and
+    // run it. This test keeps the writer equal to it. The login is printed as its name.
+    let d = scratch("fixture");
+    let builds = fake_build(&d, 8, true);
+    let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls").collect();
+    f.push(("loom.login_file".into(), "/opt/marker-login-9f3a/credentials.json".into()));
+    write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 0, "{out}");
+    let printed = out.lines().filter_map(|l| l.strip_prefix("  settings {").map(|r| format!("{{{r}"))).next().expect("a settings line");
+    let printed: Value = serde_json::from_str(&printed).unwrap();
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../runbook/tests/fixtures/loom-run-settings.json");
+    let committed: Value = serde_json::from_str(&fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap();
+    assert_eq!(printed, committed, "the file sdc-experiment writes and runbook/tests/fixtures/loom-run-settings.json differ");
+    // A rule decider: kind and verdict, nothing a model decider has, no claims member.
+    let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && !k.starts_with("decider.") && k != "review.adapter" && k != "adapter").collect();
+    f.extend([("decider.kind", "rule"), ("decider.verdict", "approve")].map(|(k, v)| (k.to_string(), v.to_string())));
+    write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("\"decider\":{\"kind\":\"rule\",\"verdict\":\"approve\"}"), "{out}");
+    assert!(!out.contains("without_claims") && !out.contains("\"adapter\""), "{out}");
 }
 
 #[test]
@@ -310,7 +418,8 @@ fn minimal_run(run: &Path, outcome: &str, cap: &str) {
         "loom": {"sha256": LOOM_SHA, "confinement": "local", "cap_micro_usd": cap.parse::<u64>().unwrap()},
         "models": {"writer": {"model": "claude-sonnet-5-5"}, "implement": {"model": "claude-sonnet-5-5"},
             "review": {"model": "claude-sonnet-5-5"}, "other": {"model": "claude-sonnet-5-5"}},
-        "decider": {"model": "claude-opus-5-5"}, "max_llm_calls": 100, "max_wall_seconds": 3600})]);
+        "decider": {"kind": "model", "model": "claude-opus-5-5", "without_claims": true, "escalate": "final", "max_decider_calls": 40, "adapter": "claude-cli"},
+        "autonomy": "A5", "adapter": "metaharness", "review": {"adapter": "claude-cli"}, "max_llm_calls": 100, "max_wall_seconds": 3600})]);
 }
 
 #[test]
