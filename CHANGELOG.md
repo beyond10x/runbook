@@ -70,6 +70,8 @@ The longer note is `docs/releases/0.3.1.md`.
 - `runbook parity summarize` exits 2 and names the file for an input it cannot read or parse (a truncated event file, a malformed evidence record, a missing member) and no longer drops it; its digests use the `sha2` crate.
 - The shell tools no longer fall back to a `beyond10x/sdc` path for `sdc-findings` and `sdc-finding-kpis` (a missing one stops with its name and where it looked), `llm-adapter-claude-cli.sh` runs with `HOME` unset (`--claude-credentials <file>` on `llm-node.sh`, else a message naming the variables), and the text of `in/feedback.md` and the requester request is in `instructions/` (`story:tool-texts-and-paths`).
 
+- The step's wait bound for the build pool holds under a locale with a decimal comma: `pool_run` in `sdc-tool.sh` read bash's `EPOCHREALTIME` as "1763810464,227523" under `LC_ALL=de_DE.UTF-8` (a systemd unit on such a host), took noise for the elapsed time and never cancelled a queued job, so the finding cycle `pool-wait` ran 10 minutes and failed. The stand-in pool of that cycle now keeps a queued job 30 s at most, and `scripts/run-full-cycle.sh` names the program and its first line when `sdc-drive run` prints no JSON, in place of jq's parse error (`story:pool-wait-is-not-a-failure`).
+
 ## [0.3.0] - 2026-11-22
 
 The bindings move onto Loom's program contract and the instructions of the model's calls become

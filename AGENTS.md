@@ -94,6 +94,12 @@
   The fast lane (under 1 s) is part of `task check`; each ledger entry carries a seal over its digest
   and result fields, so a hand edit of a result fails it. CI runs the slow lane
   (`.github/workflows/protocols.yml`) when `protocol/**`, `driver/canon-pin.json` or the script changed.
+- After a merge, `scripts/check-bindings.sh` runs before the push (build the driver first): a merge
+  can leave `website/data/protocols/index.json` stale without a conflict.
+- The full cycle run starts as a systemd unit, which has `LANG=de_DE.UTF-8` on this host. A tool
+  that reads a number printed by bash or a program does not depend on the decimal separator
+  (`EPOCHREALTIME` holds a comma there). A cycle that passes in a terminal and fails in the unit is
+  checked for the locale first.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the
