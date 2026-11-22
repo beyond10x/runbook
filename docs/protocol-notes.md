@@ -150,13 +150,16 @@ log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
 
 **Stated limit, sdc.release.** `release.approve` stays a capability of `release.publish`, with no
 approval record and no `rejected` result: the same treatment (`release_approval` with a manual
-`release.approve`) gives 98,304 states, past the bound of 65,536. Dropping the capability to fit
-would leave authority resting on a manual record alone, which is not allowed. A refused release
+`release.approve`) gives 98,304 states, past the bound of 65,536 that Canon enforced when this was
+written. The pinned Canon (`driver/canon-pin.json`) enforces no such bound: it checks `sdc.story`
+at 196,608 states and `sdc.intake` at 98,304 with no finding. Dropping the capability to fit the
+bound would leave authority resting on a manual record alone, which is not allowed. A refused release
 therefore records nothing in the case; the tools stop such a run with a named cause
 (`rejected_without_rework_path`), and the case's way out stays `withheld` on
 `explicitly_withheld` (the release case has no writer that answers a rejection: `release.build`
-rebuilds the same merged changes; the rework happens in the stories). Canon's state-space bound
-per slice (unreleased) is what lifts this limit.
+rebuilds the same merged changes; the rework happens in the stories). The limit is now a choice of
+this design and no longer Canon's: the pinned Canon checks `sdc.intake` at the same 98,304 states
+(the treatment is not tried on `sdc.release` here).
 
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
@@ -402,7 +405,9 @@ not something Canon checks across cases (inferred: Canon checks one protocol at 
 Reproduce with `scripts/limitations.sh`; its output is `docs/limitations/output.txt`, the inputs
 are in `docs/limitations/`.
 
-1. **State-space bound, 65536.** It decides the shape of the whole family. Each evidence kind
+1. **State-space bound, 65536.** Canon enforced it when the family was shaped; the pinned Canon
+   enforces no bound (`sdc.story` is checked at 196,608 states, `sdc.intake` at 98,304). It decided
+   the shape of the whole family, which stays as it is. Each evidence kind
    matched with one result costs 4 values, with an invalidation upstream 16, a capability 3, a
    decision 2, a `children` form with one listed outcome 8 times 9 for its history. Refusals hit:
    - one protocol for idea, spec, stories, release and operate (`monolith.protocol.yaml`):
