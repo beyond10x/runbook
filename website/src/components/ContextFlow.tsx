@@ -12,7 +12,7 @@ const DATA: Record<string, {actions: ProtocolAction[]}> = {
   'sdc-story': storyData as unknown as {actions: ProtocolAction[]},
 };
 
-/** The operations a model node gets when its binding names none (tools/llm-node.sh:246). */
+/** The operations a model node gets when its binding names none (line 246 of the model-node script at the pinned commit). */
 const DEFAULT_OPS = ['dir.list', 'file.edit', 'file.read', 'file.write', 'search'];
 
 function action(n: NodeFacts): ProtocolAction | undefined {
@@ -135,7 +135,7 @@ export default function ContextFlow(): ReactNode {
   );
 }
 
-/** One model node: what the protocol data says about it, and the input list llm-node.sh builds. */
+/** One model node: what the protocol data says about it, and the input list the model-node script builds. */
 export function NodeCard({name}: {name: string}): ReactNode {
   const n = node(name);
   const a = action(n);

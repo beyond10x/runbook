@@ -67,7 +67,7 @@ export const COMPONENTS: Component[] = [
     use: 'used',
     supplies: [
       {text: 'Nine protocol/1 documents, one bindings file per protocol and the tools they bind.', cite: sdc('AGENTS.md', '18-20')},
-      {text: 'The driver sdc-drive, which today also holds the runtime parts listed under Loom.', cite: sdc('docs/driver.md', '42-45')},
+      {text: 'The driver, which at release 0.1.1 also held the runtime parts listed under Loom; they are deleted since and the runtime is Loom\'s.', cite: sdc('docs/driver.md', '42-45')},
     ],
   },
   {
@@ -99,7 +99,7 @@ export const COMPONENTS: Component[] = [
       {text: 'Not used yet. Runbook is meant to run as an application on Loom.', cite: sdc('docs/layers.md', '51')},
     ],
     temporary: [
-      {text: 'Child cases (case_open to case_outcome) and the roadmap.read copy are built in the driver as a temporary copy of what Loom must provide, marked TEMPORARY in driver/src/main.rs.', cite: sdc('docs/driver.md', '42-45')},
+      {text: 'Child cases (case_open to case_outcome) and the roadmap.read copy were built in the driver at release 0.1.1 as a temporary copy of what Loom must provide, marked TEMPORARY in driver/src/main.rs; the copy is deleted since.', cite: sdc('docs/driver.md', '42-45')},
     ],
   },
   {

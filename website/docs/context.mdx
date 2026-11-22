@@ -15,7 +15,11 @@ you can change that. The example is the first runbook, the software delivery cyc
 In short: a model call gets a new session and copies of a short list of files. It does not get the
 conversation of any earlier call. Context moves between steps as files and recorded results.
 
-Source links point at one fixed commit of this repository, so the line numbers stay right.
+Source links point at one fixed commit of this repository, so the line numbers stay right. That
+commit is from before the driver runtime was deleted: the page describes a model call as the driver
+and the model-node shell script made it, and the links open those files at that commit. Under
+`runbook run` the model step is the program `sdc-node`, and the instruction texts are files under
+`instructions/`.
 
 ## What one node sees
 

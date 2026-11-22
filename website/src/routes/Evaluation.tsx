@@ -583,7 +583,7 @@ export default function Evaluation({evaluation}: Props): ReactNode {
           <h3>How a run is started</h3>
           <p>
             <code>sdc-experiment run &lt;id&gt;</code> starts the runs of a prospective record, each with{' '}
-            <code>scripts/run-trial.sh --autopilot</code> (<Cite path="driver/src/bin/sdc-experiment.rs" lines={[1507]} />).
+            the driver's trial script in autopilot (<Cite path="driver/src/bin/sdc-experiment.rs" lines={[1507]} />); it starts <code>runbook run</code> since the driver runtime was deleted.
             Autopilot is autonomy level A5: the decider takes the scope answers and the findings, its decision is final,
             and a stop that needs a person ends the run with a stop record by <code>rule:autopilot</code>{' '}
             (<Cite path="docs/autonomy-levels.md" lines={[449]} />). Nobody is waited on.

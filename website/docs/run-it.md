@@ -35,21 +35,29 @@ approvals scripted
 ([`README.md:61-68`](https://github.com/beyond10x/runbook/blob/0.1.1/README.md#L61-L68)):
 
 ```console
-scripts/run-trial.sh --dry trial-dry
+runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
+  --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 
-The run writes its case store under `runs/trial-dry/`, which is not in git. Where each case stands
-and why can be followed in the live view (`ui/README.md`).
+`<settings.json>` is a JSON object in the format `runbook.loom-run-settings/1`
+([`docs/loom-run-settings.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run-settings.md)).
+`--dry` keeps every other option required; a dry call costs nothing and reads no login file
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md)). The run
+writes its run directory, `runs/trial-dry/`, which is not in git
+([`docs/loom-run-directory.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run-directory.md)).
+Where each case stands and why can be followed in the live view (`ui/README.md`).
 
 ## A real run
 
-A real run calls models and costs money. Under autopilot nobody is asked anything:
+A real run calls models and costs money. With autonomy level A5 in its settings, nobody is asked
+anything; the spend ledger and the three caps bound what it can spend:
 
 ```console
-scripts/run-trial.sh <run> "<idea>" --autopilot
+runbook run sdc --intake <idea file> --run <name> --runs-dir runs --settings <settings.json> \
+  --confinement <local|substrate> --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 
-([`docs/autonomy-levels.md:449`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/autonomy-levels.md#L449)).
+([`docs/loom-run.md`](https://github.com/beyond10x/runbook/blob/main/docs/loom-run.md)).
 The runs measured on the [evaluation](pathname:///runbook/evaluation) page are started from experiment
 records with `sdc-experiment run <id>`
 ([`docs/improving.md:11-12`](https://github.com/beyond10x/runbook/blob/0.1.1/docs/improving.md#L11-L12)).
