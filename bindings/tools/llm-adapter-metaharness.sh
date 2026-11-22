@@ -18,7 +18,7 @@
 # of metaharness's own environment into the scratch config home of the session (metaharness
 # `credentials_file`; it reads HOME and no CLAUDE_CONFIG_DIR), and puts `$HOME/.local/bin` first on
 # the child's PATH, then /usr/local/bin:/usr/bin:/bin. A program bound under Loom has PATH and LOOM_*
-# alone, so there is no HOME. When SDC_CLAUDE_CREDENTIALS names a file (llm-node.sh: the binding's
+# alone, so there is no HOME. When SDC_CLAUDE_CREDENTIALS names a file (sdc-node: the binding's
 # `--claude-credentials`) in a directory of the user's with mode 700 (the private directory of
 # `runbook run`) and `$HOME/.claude/.credentials.json` is no file, the adapter makes a private
 # HOME for the metaharness process alone, mode 700, in that directory (never in the record directory,

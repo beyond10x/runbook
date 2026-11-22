@@ -1,0 +1,60 @@
+exit 0
+stdout:
+| change.review approved by llm-review:claude-haiku-5-5 (0 outside-the-story note(s))
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-change.review/adapter-stderr.txt
+972e5a41b1d3c0de  .sdc/llm/001-change.review/prompt.md
+d55de69c46437dbd  .sdc/llm/001-change.review/reply-schema.json
+    | {"additionalProperties":false,"properties":{"decision":{"enum":["approved","rejected"],"type":"string"},"findings":{"items":{"additionalProperties":false,"properties":{"at":{"pattern":"^impl/[^:]+:[0-9]+(-[0-9]+)?$","type":"string"},"kind":{"enum":["violation","outside"],"type":"string"},"says":{"minLength":1,"type":"string"},"violates":{"enum":["r1","aep/story/list.md:7","billing.invoice.CreateInvoice","r2"],"type":"string"}},"required":["kind","at","violates","says"],"type":"object"},"type":"array"},"summary":{"type":"string"}},"required":["decision","summary","findings"],"type":"object"}
+de8690b08da160c7  .sdc/llm/001-change.review/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-change.review/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-change.review/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-change.review",
+    |   "node": "change.review",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.read",
+    |     "search"
+    |   ],
+    |   "max_turns": 30,
+    |   "max_budget_usd": 1,
+    |   "json_schema": "<root>/work/.sdc/llm/001-change.review/reply-schema.json",
+    |   "review_attempt": 1
+    | }
+6d4720765a39df19  .sdc/llm/001-change.review/response.json
+    | {
+    |   "adapter": "fixture",
+    |   "model": "claude-haiku-5-5",
+    |   "exit": 0,
+    |   "duration_ms": 0,
+    |   "cost_usd": 0,
+    |   "num_turns": 0,
+    |   "usage": null,
+    |   "tool_calls": [],
+    |   "offered_tools": [],
+    |   "node": "change.review"
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-change.review/review-check.err
+6cc1e50deb983ec5  .sdc/llm/001-change.review/review-check.out
+    | {"approved":true,"citations":[],"notes":[],"principal":"llm-review:claude-haiku-5-5"}
+c6e7665a123307ff  .sdc/llm/001-change.review/review-inputs.json
+    | {"base":"mainline","changed_files":["tests/last_page.rs"],"covers":["billing.invoice.CreateInvoice"],"gate":false,"requirements":["r1"],"story":"list","uncovered":["r2"]}
+3c9f144425dbbf41  .sdc/llm/001-change.review/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+c64cca5e26977989  .sdc/llm/calls.jsonl
+    | {"action":"change.review","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"fixture","model":"claude-haiku-5-5","effort":"high","class":"review","allowed_operations":["dir.list","file.read","search"],"max_turns":30,"max_budget_usd":1,"exit":0,"applied_exit":0,"output":"code_review","duration_ms":0,"cost_usd":0,"num_turns":0,"usage":null,"offered_tools":[],"tool_calls":[],"dry":false,"record":"<root>/work/.sdc/llm/001-change.review"}
+4f2bb84f9e9bf179  .sdc/llm/001-change.review/cwd/ (14 files)

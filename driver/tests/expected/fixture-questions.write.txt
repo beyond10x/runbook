@@ -1,0 +1,66 @@
+exit 0
+stdout:
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-questions.write/apply.log
+2d1cb3af6eeb1e83  .sdc/llm/001-questions.write/prompt.md
+08f838a7b76da206  .sdc/llm/001-questions.write/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-questions.write/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-questions.write/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-questions.write",
+    |   "node": "questions.write",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+e3d7991b74d17278  .sdc/llm/001-questions.write/response.json
+    | {
+    |   "adapter": "fixture",
+    |   "model": "claude-haiku-5-5",
+    |   "exit": 0,
+    |   "duration_ms": 0,
+    |   "cost_usd": 0,
+    |   "num_turns": 0,
+    |   "usage": null,
+    |   "tool_calls": [],
+    |   "offered_tools": [],
+    |   "node": "questions.write"
+    | }
+3c9f144425dbbf41  .sdc/llm/001-questions.write/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+7964967f855f96d5  .sdc/llm/calls.jsonl
+    | {"action":"questions.write","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":"fixture","model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":0,"output":"questions.yaml","duration_ms":0,"cost_usd":0,"num_turns":0,"usage":null,"offered_tools":[],"tool_calls":[],"dry":false,"record":"<root>/work/.sdc/llm/001-questions.write"}
+f246657ff1e97ebc  questions.yaml
+    | questions:
+    |   - id: q1
+    |     item: d3
+    |     question: Which states does an invoice go through?
+    |     default: draft, issued, paid, cancelled
+    |     scope_changing: false
+    |     status: open
+    |   - id: q2
+    |     item: d4
+    |     question: Who may cancel an invoice?
+    |     default: the billing clerk, before it is paid
+    |     scope_changing: false
+    |     status: open
+6189f08ab6edfb66  .sdc/llm/001-questions.write/cwd/ (3 files)

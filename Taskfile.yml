@@ -62,7 +62,7 @@ tasks:
     cmds:
       - cd driver && cargo build --locked --bins
       - cd runbook && cargo build --locked --bin runbook
-      - RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+      - PATH="$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
 
   test:loom-in-process:
     desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/23f1f4b3/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
@@ -163,7 +163,7 @@ tasks:
         planning|docs/x.md
         code|instructions/x.md
         code|instructions/golden/decider/x.md README.md
-        code|bindings/tools/llm-node.sh
+        code|bindings/tools/sdc-tool.sh
         code|bindings/PENDING.md
         code|cycles/suite.yaml
         code|views/sdc.view.json

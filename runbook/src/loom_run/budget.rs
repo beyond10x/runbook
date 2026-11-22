@@ -121,7 +121,7 @@ mod tests {
         d
     }
 
-    const BINDINGS: &str = "format: loom.bindings/1\nactions:\n  - action: a\n    executor:\n      kind: program\n      argv: [tools/llm-node.sh, a, --max-turns, \"15\", --max-budget-usd, \"2\", --stub, x]\n    budget: {max_runs: 3}\n  - action: b\n    executor:\n      kind: program\n      argv: [tools/llm-node.sh, b, --max-budget-usd, \"0.5\"]\n";
+    const BINDINGS: &str = "format: loom.bindings/1\nactions:\n  - action: a\n    executor:\n      kind: program\n      argv: [sdc-node, a, --max-turns, \"15\", --max-budget-usd, \"2\", --stub, x]\n    budget: {max_runs: 3}\n  - action: b\n    executor:\n      kind: program\n      argv: [sdc-node, b, --max-budget-usd, \"0.5\"]\n";
 
     #[test]
     fn the_largest_budget_is_read_and_limiting_lowers_only_the_argv_values() {

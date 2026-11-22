@@ -1,0 +1,17 @@
+exit 2
+stdout:
+| llm-node: change.review has no inputs: sdc-reply review-inputs: aep/story/list.md has no summary
+stderr:
+written:
+89cc5a5791469549  .sdc/llm/001-change.review/review-check.err
+    | sdc-reply review-inputs: aep/story/list.md has no summary
+e3b0c44298fc1c14  .sdc/llm/001-change.review/review-inputs.json
+b3978cfc57ceaf12  .sdc/llm/001-change.review/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 2
+    | }

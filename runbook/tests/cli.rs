@@ -90,9 +90,8 @@ impl Drop for World {
 
 const LAYOUT_DIRS: [&str; 9] =
     ["protocol", "scripts", "driver/examples/sdc", "bindings", "bindings/tools", "instructions", "views", "cycles", "ui"];
-const TOOLS: [&str; 4] = [
+const TOOLS: [&str; 3] = [
     "bindings/tools/sdc-tool.sh",
-    "bindings/tools/llm-node.sh",
     "bindings/tools/decider.sh",
     "bindings/tools/llm-adapter-claude-cli.sh",
 ];

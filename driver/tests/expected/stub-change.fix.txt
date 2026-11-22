@@ -1,0 +1,5 @@
+exit 0
+stdout:
+stderr:
+written:
+aa14e5e602f1fcac  impl/src/lib.rs

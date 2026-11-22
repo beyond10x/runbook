@@ -286,7 +286,7 @@ bindings) must be on the login's `PATH` and `run` refuses to start without them.
 Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
 `implement_coverage`, `conformance`, `rule_approvals` (switches of `run-trial.sh`),
 `flags.dry`, `flags.recorded` (flags of `run-trial.sh`), `efforts.<class>.effort` (no argument of
-`llm-node.sh` in Loom mode carries an effort, so the class defaults of `tools/node-classes.json`
+`sdc-node` in Loom mode carries an effort, so the class defaults of `tools/node-classes.json`
 apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.

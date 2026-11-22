@@ -1,0 +1,42 @@
+exit 1
+stdout:
+| llm-node: vision.write: the output was not applied (exit 1):
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-vision.write/apply.log
+43ec86d83e13c998  .sdc/llm/001-vision.write/prompt.md
+6b033bad7e23f5d0  .sdc/llm/001-vision.write/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-vision.write/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-vision.write/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-vision.write",
+    |   "node": "vision.write",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+994cf9e9d4848c1e  .sdc/llm/001-vision.write/response.json
+    | {"adapter":"test","duration_ms":1}
+359e2264d4067fdb  .sdc/llm/001-vision.write/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+2c13ea246c12ce21  .sdc/llm/calls.jsonl
+    | {"action":"vision.write","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"test","model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":1,"output":"aep/vision/product.md","duration_ms":1,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-vision.write"}
+178a1ddcec1f63a6  .sdc/llm/001-vision.write/cwd/ (4 files)

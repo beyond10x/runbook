@@ -1,0 +1,78 @@
+exit 0
+stdout:
+stderr:
+| would run: metaharness 'run' 'claude' '--frame' '<root>/work/.sdc/llm/001-bug.dissect/frame.json' '--decisions' 'frame' '--cwd' '<root>/work/.sdc/llm/001-bug.dissect/cwd' '--scratch-cwd' '--model' 'claude-haiku-5-5' '--max-turns' '20' '--max-budget-usd' '1' '--retain-dir' '<root>/work/.sdc/llm/001-bug.dissect/transcripts' '--effort' 'high' '-p' "$(cat <root>/work/.sdc/llm/001-bug.dissect/prompt.md)"
+written:
+e3b0c44298fc1c14  .sdc/llm/001-bug.dissect/apply.log
+643214e5358bf8d4  .sdc/llm/001-bug.dissect/argv.json
+    | [
+    |   "<root>/work/.sdc/llm/001-bug.dissect/metaharness-stand-in",
+    |   "run",
+    |   "claude",
+    |   "--frame",
+    |   "<root>/work/.sdc/llm/001-bug.dissect/frame.json",
+    |   "--decisions",
+    |   "frame",
+    |   "--cwd",
+    |   "<root>/work/.sdc/llm/001-bug.dissect/cwd",
+    |   "--scratch-cwd",
+    |   "--model",
+    |   "claude-haiku-5-5",
+    |   "--max-turns",
+    |   "20",
+    |   "--max-budget-usd",
+    |   "1",
+    |   "--retain-dir",
+    |   "<root>/work/.sdc/llm/001-bug.dissect/transcripts",
+    |   "--effort",
+    |   "high",
+    |   "-p",
+    |   "<prompt_file>"
+    | ]
+e3b0c44298fc1c14  .sdc/llm/001-bug.dissect/events.jsonl
+1a94216fb8dc28bf  .sdc/llm/001-bug.dissect/frame.json
+4ba1dccdbf893ead  .sdc/llm/001-bug.dissect/prompt.md
+05c047b124521b63  .sdc/llm/001-bug.dissect/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-bug.dissect/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-bug.dissect/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-bug.dissect",
+    |   "node": "bug.dissect",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 20,
+    |   "max_budget_usd": 1,
+    |   "json_schema": "<root>/work/.sdc/llm/001-bug.dissect/schema.json"
+    | }
+9d02aa0ca0480a59  .sdc/llm/001-bug.dissect/response.json
+    | {
+    |   "adapter": "dry",
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "exit": 0,
+    |   "dry": true
+    | }
+a26c5cbde7e0cd08  .sdc/llm/001-bug.dissect/schema.json
+3c9f144425dbbf41  .sdc/llm/001-bug.dissect/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-bug.dissect/stderr.txt
+3598e1d4f175ddce  .sdc/llm/calls.jsonl
+    | {"action":"bug.dissect","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":"dry","model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":20,"max_budget_usd":1,"exit":0,"applied_exit":0,"output":"bug-dissection.json","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":true,"record":"<root>/work/.sdc/llm/001-bug.dissect"}
+7437b48767960919  .sdc/llm/001-bug.dissect/cwd/ (7 files)

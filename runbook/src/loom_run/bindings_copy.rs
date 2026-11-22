@@ -1,10 +1,12 @@
 //! The run's copy of the bindings: `bindings/` copied into the run directory with the run's
 //! principal for the person steps the decider answers, the model per role, turns and budgets, the
-//! adapter and the login file applied to the COPY. The committed `bindings/*.yaml` are never
+//! adapter and the login file applied to the COPY, and the tools directory of the copy handed to
+//! every model node (`--tools-dir <copy>/tools`: `sdc-node` is found on PATH and has no checkout
+//! beside it). The committed `bindings/*.yaml` are never
 //! written. The table of every setting and where it lands is in `docs/loom-run-decisions.md`.
 //!
-//! The YAML is edited structurally (`serde_yaml::Value`), never by text replacement. A file that no
-//! setting touches is copied byte for byte.
+//! The YAML is edited structurally (`serde_yaml::Value`), never by text replacement. A file with no
+//! model node that no setting touches is copied byte for byte.
 
 use crate::loom_run::answers::Answers;
 use crate::loom_run::decider;
@@ -24,8 +26,10 @@ const ADAPTERS: [&str; 2] = ["metaharness", "claude-cli"];
 /// What a checkout holds beside `bindings/` that the tools of the copy read from their root
 /// (`$here/../..`): the instruction files, the fixtures and the rule file of the driver.
 const COMPANIONS: [&str; 2] = ["instructions", "driver/examples"];
-/// The program of a model node.
-const MODEL_TOOL: &str = "llm-node.sh";
+/// The program of a model node, found on PATH.
+const MODEL_TOOL: &str = "sdc-node";
+/// The option that names the tools directory of the copy.
+const TOOLS_DIR_OPTION: &str = "--tools-dir";
 
 #[cfg(test)]
 mod tests;
@@ -200,14 +204,12 @@ fn class_of(classes: &Value, action: &str) -> String {
 }
 
 fn rewrite_files(dst: &Path, plan: &Plan, login: Option<&str>) -> Result<(), String> {
-    if plan.principal.is_none() && plan.roles.is_empty() && plan.adapter.is_none() && login.is_none() {
-        return Ok(());
-    }
     let classes: Value = std::fs::read_to_string(dst.join("tools").join("node-classes.json"))
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or(Value::Null);
     let answers = Answers::load(dst)?;
+    let tools = dst.join("tools").display().to_string();
     let mut files: Vec<PathBuf> = std::fs::read_dir(dst)
         .map_err(|e| format!("{}: {e}", dst.display()))?
         .filter_map(Result::ok)
@@ -218,7 +220,7 @@ fn rewrite_files(dst: &Path, plan: &Plan, login: Option<&str>) -> Result<(), Str
     for file in files {
         let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let mut doc: Yaml = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-        if rewrite_document(&mut doc, plan, &classes, login, &answers) {
+        if rewrite_document(&mut doc, plan, &classes, login, &tools, &answers) {
             let out = serde_yaml::to_string(&doc).map_err(|e| format!("{}: {e}", file.display()))?;
             std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
         }
@@ -235,7 +237,7 @@ fn text(map: &Mapping, name: &str) -> Option<String> {
 }
 
 /// Applies the plan to one bindings document; true when it changed anything.
-fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<&str>, answers: &Answers) -> bool {
+fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<&str>, tools: &str, answers: &Answers) -> bool {
     let mut changed = false;
     let Some(actions) = doc.get_mut("actions").and_then(Yaml::as_sequence_mut) else {
         return false;
@@ -270,6 +272,7 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
             if !is_model_node {
                 continue;
             }
+            changed |= set_option(argv, TOOLS_DIR_OPTION, tools);
             let set = plan.roles.get(&class_of(classes, &name));
             if let Some(set) = set {
                 if let Some(model) = &set.model {

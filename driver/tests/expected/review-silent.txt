@@ -1,0 +1,53 @@
+exit 2
+stdout:
+| llm-node: change.review recorded nothing after 3 attempt(s) on adapter <root>/adapters/review-silent (call llm/001-change.review): invalid review reply: no readable reply (review.json: the adapter's structured output, else out/review.json)
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-change.review/adapter-stderr.txt
+1f1c236e177a6700  .sdc/llm/001-change.review/prompt.md
+d55de69c46437dbd  .sdc/llm/001-change.review/reply-schema.json
+    | {"additionalProperties":false,"properties":{"decision":{"enum":["approved","rejected"],"type":"string"},"findings":{"items":{"additionalProperties":false,"properties":{"at":{"pattern":"^impl/[^:]+:[0-9]+(-[0-9]+)?$","type":"string"},"kind":{"enum":["violation","outside"],"type":"string"},"says":{"minLength":1,"type":"string"},"violates":{"enum":["r1","aep/story/list.md:7","billing.invoice.CreateInvoice","r2"],"type":"string"}},"required":["kind","at","violates","says"],"type":"object"},"type":"array"},"summary":{"type":"string"}},"required":["decision","summary","findings"],"type":"object"}
+d266866445c033ea  .sdc/llm/001-change.review/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-change.review/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-change.review/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-change.review",
+    |   "node": "change.review",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.read",
+    |     "search"
+    |   ],
+    |   "max_turns": 30,
+    |   "max_budget_usd": 1,
+    |   "json_schema": "<root>/work/.sdc/llm/001-change.review/reply-schema.json",
+    |   "review_attempt": 3
+    | }
+994cf9e9d4848c1e  .sdc/llm/001-change.review/response.json
+    | {"adapter":"test","duration_ms":1}
+994cf9e9d4848c1e  .sdc/llm/001-change.review/response.try1.json
+    | {"adapter":"test","duration_ms":1}
+994cf9e9d4848c1e  .sdc/llm/001-change.review/response.try2.json
+    | {"adapter":"test","duration_ms":1}
+54e1a52667233a27  .sdc/llm/001-change.review/review-check.err
+    | invalid review reply: no readable reply (review.json: the adapter's structured output, else out/review.json)
+e3b0c44298fc1c14  .sdc/llm/001-change.review/review-check.out
+c6e7665a123307ff  .sdc/llm/001-change.review/review-inputs.json
+    | {"base":"mainline","changed_files":["tests/last_page.rs"],"covers":["billing.invoice.CreateInvoice"],"gate":false,"requirements":["r1"],"story":"list","uncovered":["r2"]}
+b3978cfc57ceaf12  .sdc/llm/001-change.review/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 2
+    | }
+39bcb727b9a458c1  .sdc/llm/calls.jsonl
+    | {"action":"change.review","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"test","model":"claude-haiku-5-5","effort":"high","class":"review","allowed_operations":["dir.list","file.read","search"],"max_turns":30,"max_budget_usd":1,"exit":0,"applied_exit":2,"output":"code_review","duration_ms":1,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-change.review"}
+dd24e7bd9282466e  .sdc/llm/001-change.review/cwd/ (13 files)

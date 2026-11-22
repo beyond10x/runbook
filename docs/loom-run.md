@@ -208,7 +208,7 @@ in the real file. The run directory records only that a file was named (`setting
 ### How each adapter gets the login under Loom
 
 A bound program has `PATH` and `LOOM_*` and no `HOME`. The bindings copy writes the link as
-`--claude-credentials <link>` into the argv of every model node, `llm-node.sh` turns it into
+`--claude-credentials <link>` into the argv of every model node, `sdc-node` turns it into
 `SDC_CLAUDE_CREDENTIALS`, and each adapter makes its own private copy for its one call. The copy lies
 in the private directory of the run, the directory of the link (the adapter takes it when the
 directory of `SDC_CLAUDE_CREDENTIALS` belongs to the user and has mode 700), and never in the call's
@@ -218,7 +218,7 @@ record directory, which is inside the run directory:
 |---|---|---|---|
 | `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude`; the whole config home moves, as it is the directory `claude` is given | `<private dir>/config-home.XXXXXX` | the adapter on exit; after a SIGKILL the runner |
 | `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes a home (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` and `TMPDIR` to it for the metaharness process alone, so metaharness's scratch root (its own copy of the login in its config home) lies there too | `<private dir>/h.XXXXXX`, the scratch root `<private dir>/h.XXXXXX/.tmpXXXXXX` | metaharness removes its scratch root when it ends, the adapter the home on exit, also after a failed call or SIGTERM; after a SIGKILL the runner |
-| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `llm-node.sh`, so the adapter of the first or second row | as its adapter | as its adapter |
+| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `sdc-node`, so the adapter of the first or second row | as its adapter | as its adapter |
 
 `PrivateDir` removes its directory with everything in it when the run ends (a normal end, an error,
 SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
@@ -281,7 +281,7 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
 - A call with exit 126, 127 or 75, a call with exit 0 and no cost, and a call directory with no line
   end the run as `error`, with the reservation booked.
 - A call directory with no line and no `request.json`, whose `status.json` names an exit, is no call:
-  `llm-node.sh` writes `request.json` before every start of an adapter, so the step ended before
+  `sdc-node` writes `request.json` before every start of an adapter, so the step ended before
   any adapter started. It costs nothing, its reservation is released, the event `no_model_call` (note
   `step, no model call made`, the call's name and the exit) is written to `events.jsonl`, and the run
   goes on with what Loom says of the step. A directory with `request.json`, or without a `status.json`
@@ -369,5 +369,5 @@ summarizes both with `runbook parity summarize --loom-run` and compares them wit
 compare --product-digests`, which has to end `parity: identical`.
 
 With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
-(`sdc-tool.sh`, `llm-node.sh`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts);
+(`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts);
 no `sdc-drive`, `run-trial.sh` or `run-finding-cycles.sh`.

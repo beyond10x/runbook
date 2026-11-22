@@ -1,0 +1,42 @@
+exit 1
+stdout:
+| llm-node: questions.write: the output was not applied (exit 1):
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-questions.write/apply.log
+2d1cb3af6eeb1e83  .sdc/llm/001-questions.write/prompt.md
+08f838a7b76da206  .sdc/llm/001-questions.write/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-questions.write/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-questions.write/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-questions.write",
+    |   "node": "questions.write",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+ca3d163bab055381  .sdc/llm/001-questions.write/response.json
+    | {}
+359e2264d4067fdb  .sdc/llm/001-questions.write/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+3f13ef60a860734c  .sdc/llm/calls.jsonl
+    | {"action":"questions.write","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":null,"model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":1,"output":"questions.yaml","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-questions.write"}
+853cb0af86084079  .sdc/llm/001-questions.write/cwd/ (2 files)

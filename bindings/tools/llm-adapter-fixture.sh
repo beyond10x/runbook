@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # LLM adapter for tests, no LLM (contract: llm-adapter-metaharness.sh). It writes the node's stub
-# output into the call's out/, so llm-node.sh applies it exactly as it applies a real reply: the
+# output into the call's out/, so sdc-node applies it exactly as it applies a real reply: the
 # apply step (for example questions.answer's refusal to take a changed scope-changing question)
 # runs, which the stub adapter skips. Only for nodes whose stub is `stub-file <fixture> <artifact>`
 # or `stub-tree <fixture dir> <tree>` (spec.author); use it with SDC_LLM_NODES naming those nodes. SDC_STUB_FIXTURES applies as for the stub.
@@ -131,7 +131,7 @@ o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
 [[ ${a[0]:-} == stub-file || ${a[0]:-} == stub-tree ]] && [[ -n ${a[2]:-} ]] ||
   { echo "llm-adapter-fixture: node $node has no stub-file or stub-tree stub" >&2; exit 64; }
 mkdir -p "$cwd/out"
-# Run in the call's directory; a stub-tree's call count stays in work/.sdc (llm-node.sh runs this in
+# Run in the call's directory; a stub-tree's call count stays in work/.sdc (sdc-node runs this in
 # work/), so <name>.<n> of SDC_STUB_FIXTURES counts the stub's and this adapter's calls together.
 w=$PWD
 mkdir -p "$w/.sdc"

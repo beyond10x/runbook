@@ -1,0 +1,42 @@
+exit 1
+stdout:
+| llm-node: requirements.normalise: the output was not applied (exit 1):
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-requirements.normalise/apply.log
+cf206c250b35f593  .sdc/llm/001-requirements.normalise/prompt.md
+e604b8cecfc8b31a  .sdc/llm/001-requirements.normalise/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-requirements.normalise/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-requirements.normalise/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-requirements.normalise",
+    |   "node": "requirements.normalise",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+ca3d163bab055381  .sdc/llm/001-requirements.normalise/response.json
+    | {}
+359e2264d4067fdb  .sdc/llm/001-requirements.normalise/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+80f7ffb06c0aa04f  .sdc/llm/calls.jsonl
+    | {"action":"requirements.normalise","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":null,"model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":1,"output":"requirements.yaml","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-requirements.normalise"}
+4aaf52cd0e8a6ee1  .sdc/llm/001-requirements.normalise/cwd/ (3 files)

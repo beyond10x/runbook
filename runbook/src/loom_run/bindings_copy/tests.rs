@@ -51,6 +51,32 @@ fn make(tag: &str, settings: &Value) -> (Dir, PathBuf, Result<PathBuf, String>) 
     (dir, dst, result)
 }
 
+/// The action as the copy holds it: the tools directory of the copy handed to a model node.
+fn with_tools_dir(was: &Yaml, dst: &Path) -> Yaml {
+    let mut is = was.clone();
+    if is["executor"]["kind"].as_str() == Some("program") && argv_of(was)[0].ends_with("sdc-node") {
+        let mut argv = argv_of(was);
+        argv.insert(2, dst.join("tools").display().to_string());
+        argv.insert(2, "--tools-dir".to_owned());
+        is["executor"]["argv"] = Yaml::Sequence(argv.into_iter().map(Yaml::String).collect());
+    }
+    is
+}
+
+/// The copy is the committed bindings but for the tools directory of the model nodes: every file
+/// that holds no binding is the same bytes.
+fn assert_only_the_tools_dir_differs(dst: &Path) {
+    let (was, now) = (digest_tree(&committed()), digest_tree(dst));
+    assert_eq!(was.len(), now.len());
+    for ((a, x), (b, y)) in was.iter().zip(&now) {
+        assert_eq!(a, b);
+        assert!(a.ends_with(".yaml") && !a.contains('/') || x == y, "{a} differs");
+    }
+    for ((name, was), (_, is)) in actions(&committed()).iter().zip(&actions(dst)) {
+        assert_eq!(&with_tools_dir(was, dst), is, "{name}");
+    }
+}
+
 fn digest_tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
@@ -69,10 +95,10 @@ fn digest_tree(dir: &Path) -> Vec<(String, Vec<u8>)> {
 }
 
 #[test]
-fn no_settings_copy_every_file_byte_for_byte_and_keep_the_66_bindings() {
+fn no_settings_copy_every_file_but_the_tools_dir_of_the_model_nodes_and_keep_the_66_bindings() {
     let (dir, dst, root) = make("r2-copy-plain", &json!({}));
     assert_eq!(root.unwrap(), dst.join("sdc.yaml"));
-    assert_eq!(digest_tree(&dst), digest_tree(&committed()));
+    assert_only_the_tools_dir_differs(&dst);
     assert_eq!(actions(&dst).len(), 66);
     assert_eq!(actions(&committed()).len(), 66);
     assert_eq!(digest_tree(&dir.path().join("run/instructions")), digest_tree(&committed().parent().unwrap().join("instructions")));
@@ -107,7 +133,7 @@ fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
                 e["producer"] = "decider:model".into();
             }
         }
-        if kind == "program" && argv_of(was)[0].ends_with("llm-node.sh") {
+        if kind == "program" && argv_of(was)[0].ends_with("sdc-node") {
             nodes += 1;
             let action = name.split(':').nth(1).unwrap();
             let writer = ["spec.author", "plan.decompose"].contains(&action);
@@ -122,6 +148,7 @@ fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
                     }
                 }
             };
+            replace(&mut argv, "--tools-dir", &dst.join("tools").display().to_string());
             replace(&mut argv, "--model", "claude-sonnet-5-5");
             if writer {
                 replace(&mut argv, "--max-turns", "7");
@@ -170,7 +197,7 @@ fn the_principal_of_person_steps_is_rewritten_in_executor_and_evidence_and_scope
         s["autonomy"] = json!(autonomy);
         let (_d, d, r) = make("r2-copy-reserved", &s);
         r.unwrap();
-        assert_eq!(digest_tree(&d), digest_tree(&committed()), "{autonomy}: the steps keep their person");
+        assert_only_the_tools_dir_differs(&d);
     }
 }
 
@@ -184,7 +211,7 @@ fn models_turns_budgets_and_adapter_land_on_the_model_nodes_of_their_role() {
     root.unwrap();
     let mut seen = std::collections::BTreeSet::new();
     for (name, action) in actions(&dst) {
-        if action["executor"]["kind"].as_str() != Some("program") || !argv_of(&action)[0].ends_with("llm-node.sh") {
+        if action["executor"]["kind"].as_str() != Some("program") || !argv_of(&action)[0].ends_with("sdc-node") {
             continue;
         }
         let argv = argv_of(&action);
@@ -208,13 +235,13 @@ fn models_turns_budgets_and_adapter_land_on_the_model_nodes_of_their_role() {
 
 #[test]
 fn an_option_that_exists_is_replaced_and_one_that_does_not_is_inserted_before_the_stub() {
-    let mut argv: Vec<Yaml> = ["tools/llm-node.sh", "n", "--model", "a", "--stub", "stub-x", "y"].iter().map(|s| Yaml::String((*s).to_owned())).collect();
+    let mut argv: Vec<Yaml> = ["tools/sdc-node", "n", "--model", "a", "--stub", "stub-x", "y"].iter().map(|s| Yaml::String((*s).to_owned())).collect();
     assert!(set_option(&mut argv, "--model", "b"));
     assert!(!set_option(&mut argv, "--model", "b"), "an unchanged value reports no change");
     assert!(set_option(&mut argv, "--adapter", "claude-cli"));
     let words: Vec<&str> = argv.iter().map(|a| a.as_str().unwrap()).collect();
-    assert_eq!(words, ["tools/llm-node.sh", "n", "--adapter", "claude-cli", "--model", "b", "--stub", "stub-x", "y"]);
-    let mut bare: Vec<Yaml> = ["tools/llm-node.sh", "n"].iter().map(|s| Yaml::String((*s).to_owned())).collect();
+    assert_eq!(words, ["tools/sdc-node", "n", "--adapter", "claude-cli", "--model", "b", "--stub", "stub-x", "y"]);
+    let mut bare: Vec<Yaml> = ["tools/sdc-node", "n"].iter().map(|s| Yaml::String((*s).to_owned())).collect();
     assert!(set_option(&mut bare, "--model", "m"));
     assert_eq!(bare.len(), 4);
 }
@@ -237,7 +264,7 @@ fn a_login_file_is_named_in_the_copy_only_by_the_link_it_is_given_and_never_in_a
     assert!(!without_link.contains(&secret) && without_link.contains("link"), "{without_link}");
     let mut with_option = 0;
     for (name, action) in actions(&dst) {
-        if action["executor"]["kind"].as_str() == Some("program") && argv_of(&action)[0].ends_with("llm-node.sh") {
+        if action["executor"]["kind"].as_str() == Some("program") && argv_of(&action)[0].ends_with("sdc-node") {
             assert_eq!(option_of(&argv_of(&action), "--claude-credentials"), Some(link.display().to_string()), "{name}");
             with_option += 1;
         }
@@ -251,7 +278,7 @@ fn a_login_file_is_named_in_the_copy_only_by_the_link_it_is_given_and_never_in_a
     root2.unwrap();
     assert!(!dir2.path().join("run/login").exists());
     for (_, action) in actions(&dst2) {
-        if action["executor"]["kind"].as_str() == Some("program") && argv_of(&action)[0].ends_with("llm-node.sh") {
+        if action["executor"]["kind"].as_str() == Some("program") && argv_of(&action)[0].ends_with("sdc-node") {
             assert_eq!(option_of(&argv_of(&action), "--claude-credentials"), None);
         }
     }

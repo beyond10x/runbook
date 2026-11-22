@@ -1,0 +1,6 @@
+exit 0
+stdout:
+stderr:
+written:
+50c68fb82fbc7d8f  spec/.derived-from
+    | requirements e23630e115159d67 resolved 

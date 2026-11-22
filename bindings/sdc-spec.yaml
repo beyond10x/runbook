@@ -17,7 +17,7 @@ actions:
   - action: spec.author
     executor:
       kind: program
-      argv: [tools/llm-node.sh, spec.author, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}', --stub, stub-tree, billing-spec, spec]
+      argv: [sdc-node, spec.author, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}', --stub, stub-tree, billing-spec, spec]
     arguments_from: [tools/sdc-tool.sh, spec-domain, --action, spec.author]
     budget: {max_runs: 4}
     timeout_seconds: 1500
