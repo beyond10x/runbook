@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.EndRun.schema.json",
   "title": "Report a run ended input",
-  "description": "The runtime finished a Running run with an outcome.",
+  "description": "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own.",
   "x-ess-name": "sdc.daemon.EndRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -27,7 +27,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:1e376fcdc90e5b496b3b2c6a156e133f0f3d2ce7077e061d5564f0d7bd962ed7",
+    "contract_digest": "slice-sha256/2:59feddfaac8953a84eec196ac926b1069901758253f014482e3ce4c0dcd348d3",
     "regenerate": "ess generate"
   },
   "$defs": {

@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-a-run-whose-runtime-is-gone-ends-as-orphaned
-summary: "A Running and a WaitingOnDecision run whose runtime is gone end as orphaned."
+summary: "A Running and a WaitingOnDecision run whose runtime is gone end as orphaned; the end withdraws the waiting run's Open request itself."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -137,14 +137,10 @@ timeline:
 
   - at: 2026-11-22T11:00:30Z
     command: sdc.daemon.WithdrawDecision
-    actor: sdc.daemon.DaemonProcess
+    actor: sdc.daemon.Runtime
     input:
       request_id: "dr-1"
-    outcome: withdrawn
-    events:
-      - event: sdc.daemon.DecisionRequestWithdrawn
-        payload:
-          request_id: "dr-1"
+    outcome: not-open
 
   - at: 2026-11-22T11:00:40Z
     command: sdc.daemon.EndOrphanedRun
@@ -178,8 +174,8 @@ timeline:
     actor: sdc.daemon.Runtime
     input:
       run_id: "run-1"
-      sequence: 1
-      position: 1
+      sequence: 3
+      position: 6
       kind: "case.opened"
       record: {case: "IDEA-1"}
       at: 2026-11-22T11:02:00Z
@@ -188,7 +184,7 @@ timeline:
 assert:
   - view: sdc.daemon.RunDetail
     params: {run_id: "run-1"}
-    contains: {run_id: "run-1", state: Ended, outcome: "orphaned", ended_at: 2026-11-22T11:00:10Z}
+    contains: {run_id: "run-1", state: Ended, outcome: "orphaned"}
   - view: sdc.daemon.RunDetail
     params: {run_id: "run-2"}
     contains: {run_id: "run-2", state: Ended, outcome: "orphaned"}

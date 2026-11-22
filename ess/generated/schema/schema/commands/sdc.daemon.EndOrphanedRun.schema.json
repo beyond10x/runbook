@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.EndOrphanedRun.schema.json",
   "title": "End a run whose runtime is gone input",
-  "description": "At start the daemon asks the runtime about each run the record holds as Running or WaitingOnDecision; for a run the runtime no longer holds it issues this command. The run is Ended with the outcome `orphaned`, the cause. The daemon then issues WithdrawDecision for each Open decision request of the run, as a cancel does. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
+  "description": "At start the daemon asks the runtime about each run the record holds as Running or WaitingOnDecision; for a run the runtime no longer holds it issues this command. The run is Ended with the outcome `orphaned`, the cause. In the same step every Open decision request of the run moves to Withdrawn, as in CancelRun (the outcome's `affects` entry): no WithdrawDecision follows. The daemon also writes the run event `runbook.run-orphaned` (record: run_id, the state the run held, the reason) just before the run is Ended; the language cannot write a RunEvent from this command (see CancelRun), so the event is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract.",
   "x-ess-name": "sdc.daemon.EndOrphanedRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -23,7 +23,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:a5aca19360bdf5c8ed5c0e775a1877825b7ac50646922bd81623ad7fe781dcd2",
+    "contract_digest": "slice-sha256/2:6077afc6f9067671f001f4446c4cda4186f9375f5aea7e0591a786c9ebe8584e",
     "regenerate": "ess generate"
   },
   "$defs": {

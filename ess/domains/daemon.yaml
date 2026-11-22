@@ -74,7 +74,7 @@ types:
     kind: newtype
     of: String
     naming:
-      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set."
+      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime's own kinds."
 
   - name: sdc.daemon.RunOutcome
     kind: newtype
@@ -178,7 +178,7 @@ entities:
 
   - name: sdc.daemon.DecisionRequest
     naming:
-      summary: "A question a waiting run raised, as a mirror of the runtime's decision request: the daemon copies id, case, action, capability, question and options from the runtime's record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook's decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request whose run was cancelled is Withdrawn: it stays on record, shows no more as open, and takes no answer."
+      summary: "A question a waiting run raised, as a mirror of the runtime's decision request: the daemon copies id, case, action, capability, question and options from the runtime's record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook's decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request is Withdrawn when its run is cancelled or ended as orphaned (CancelRun and EndOrphanedRun move every Open request of the run in their own step) or when the runtime withdraws it (WithdrawDecision): it stays on record, shows no more as open, and takes no answer."
     identity:
       name: request_id
       type: sdc.daemon.DecisionRequestId
@@ -199,7 +199,7 @@ entities:
       terminal: [Answered, Withdrawn]
       transitions:
         - {name: answer, from: [Open], to: Answered}
-        - {name: withdraw, from: [Open], to: Withdrawn, summary: "The run was cancelled: the request is no longer waited on."}
+        - {name: withdraw, from: [Open], to: Withdrawn, summary: "The request is no longer waited on: its run was cancelled or ended as orphaned (the command of the run moves it), or the runtime withdrew it."}
 
   - name: sdc.daemon.RunEvent
     naming:
@@ -247,10 +247,9 @@ actors:
   - name: sdc.daemon.DaemonProcess
     naming:
       display: Daemon process
-      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone and withdraws that run's Open decision requests. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
+      summary: "The daemon acting on its own, with no client and no runtime report behind it: at start it ends a live run whose runtime is gone; that command withdraws the run's Open decision requests itself. Not reachable over the network: an actor that is not Client has no route in the HTTP contract."
     may:
       - sdc.daemon.EndOrphanedRun
-      - sdc.daemon.WithdrawDecision
 
   - name: sdc.daemon.Operator
     naming:
@@ -282,7 +281,7 @@ errors:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
 
   - name: sdc.daemon.DecisionWithdrawn
-    summary: "The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed."
+    summary: "The decision request was withdrawn (its run was cancelled or ended as orphaned, which withdraws the run's Open requests itself, or the runtime withdrew it): it takes no answer; nothing changed."
     fields:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
 
@@ -481,7 +480,7 @@ commands:
     naming:
       wire: submit-run
       display: Submit a run
-      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names."
+      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run's first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement}, and the next position of the daemon; the run's next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon's other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: runbook_id, type: sdc.daemon.RunbookId}
@@ -538,7 +537,7 @@ commands:
           sdc.daemon.SubmitReplayed:
             idempotency_key: input.idempotency_key
             run_id: {related: {entity: sdc.daemon.Run, where: idempotency_key == input.idempotency_key, field: run_id}}
-        summary: "A run was submitted with this idempotency key: nothing is created and the answer is that first run: the event it publishes carries its id (run_id), in the body of the answer."
+        summary: "A run was submitted with this idempotency key: nothing is created, no run event is written, and the answer is that first run: the event it publishes carries its id (run_id), in the body of the answer."
       - name: submitted
         creates: sdc.daemon.Run
         instance: run_id
@@ -559,13 +558,13 @@ commands:
             run_id: input.run_id
             runbook_id: input.runbook_id
             confinement: input.confinement
-        summary: "The run is Submitted."
+        summary: "The run is Submitted and holds its first event, `runbook.submitted`, sequence 1 (position: the next of the daemon)."
 
   - name: sdc.daemon.CancelRun
     naming:
       wire: cancel-run
       display: Cancel a run
-      summary: "Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run's Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn."
+      summary: "Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: at, type: Timestamp}
@@ -579,12 +578,16 @@ commands:
         instance: run_id
         sets:
           ended_at: input.at
+        affects:
+          - entity: sdc.daemon.DecisionRequest
+            where: run_id == input.run_id
+            moves: sdc.daemon.DecisionRequest.withdraw
         emits:
           - sdc.daemon.RunCancelled
         payload:
           sdc.daemon.RunCancelled:
             run_id: input.run_id
-        summary: "The run is Cancelled."
+        summary: "The run is Cancelled and every Open decision request of it is Withdrawn. The outcome publishes RunCancelled only: a request withdrawn this way publishes no DecisionRequestWithdrawn (that event belongs to WithdrawDecision)."
       - name: already-ended
         wrong_state: true
         error: sdc.daemon.RunAlreadyEnded
@@ -623,7 +626,7 @@ commands:
     naming:
       wire: fail-run-start
       display: Report a run that could not start
-      summary: "The runtime could not take a Submitted run up: the reason is kept and the run is FailedToStart."
+      summary: "The runtime could not take a Submitted run up: the reason is kept and the run is FailedToStart. The daemon also writes the run event `runbook.start-failed` (record: reason) just before the run is FailedToStart (see CancelRun for why it is stated here)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: reason, type: String}
@@ -756,7 +759,7 @@ commands:
     naming:
       wire: withdraw-decision
       display: Withdraw a decision request
-      summary: "The daemon cancelled the run, or ended it as orphaned: each Open decision request of it is withdrawn, one command per request. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer."
+      summary: "The runtime withdraws one Open decision request of a run that goes on. CancelRun and EndOrphanedRun do not issue it: each withdraws every Open request of its run in its own step, so after either of them a request of that run answers not-open here. It is reachable for an Open request, which exists only while its run is WaitingOnDecision. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer. The daemon has no runtime report that maps to it yet (the Runtime trait has none), so it is a call of the command layer today."
     input:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
     outcomes:
@@ -782,7 +785,7 @@ commands:
     naming:
       wire: answer-decision
       display: Answer a decision
-      summary: "A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands."
+      summary: "A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands. An answer to a withdrawn request (its run was cancelled or ended as orphaned) is refused as DecisionWithdrawn. When the answer stands but the runtime cannot take it up (its run is gone), the daemon writes the run event `runbook.answer-undeliverable` (record: request_id) after the request is Answered (see CancelRun for why it is stated here)."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
@@ -803,7 +806,7 @@ commands:
         when_subject:
           predicate: state == Withdrawn
         error: sdc.daemon.DecisionWithdrawn
-        summary: "The request was withdrawn when its run was cancelled: it takes no answer. Checked before the run's own state, so the answer names the request and not the run."
+        summary: "The request was withdrawn (its run was cancelled or ended as orphaned, or the runtime withdrew it): it takes no answer. Checked before the run's own state, so the answer names the request and not the run: an answer to a request of a cancelled run is this refusal."
       - name: already-answered
         wrong_state: true
         error: sdc.daemon.DecisionAlreadyAnswered
@@ -815,7 +818,7 @@ commands:
       - name: run-not-waiting
         when_related: {via: input.run_id, predicate: state != WaitingOnDecision}
         error: sdc.daemon.RunNotWaiting
-        summary: "The request is Open and its run is not WaitingOnDecision, so nothing is waiting for an answer (a run that was cancelled while its request is not yet withdrawn)."
+        summary: "The request is Open and its run is not WaitingOnDecision, so nothing is waiting for an answer. The daemon's own commands never leave that state (a cancel or an orphan end withdraws the run's Open requests in the same step, and a resume needs none Open): the guard holds for a record the daemon did not write."
       - name: answered
         moves: sdc.daemon.DecisionRequest.answer
         instance: request_id
@@ -836,7 +839,7 @@ commands:
     naming:
       wire: record-run-event
       display: Record a run event
-      summary: "A record of a run, from the runtime or written by the daemon itself (kind starts with `runbook.`): keep it, unchanged, under its sequence number (per run, only grows) and its position (per daemon, minted by the daemon, only grows over all runs). The handler fills `position` and `session_id` (copied from the run). An event for a run that has ended, was cancelled or failed to start is refused."
+      summary: "A record of a run, from the runtime or written by the daemon itself (kind starts with `runbook.`; the commands that write one declare it, see EventKind): keep it, unchanged, under its sequence number (per run, only grows) and its position (per daemon, minted by the daemon, only grows over all runs). Every run of the daemon holds `runbook.submitted` at sequence 1 from its submit (SubmitRun), so the first record of the runtime is sequence 2, and the daemon's own events take positions too: the runtime's first record comes after the positions the submits used. The handler fills `position` and `session_id` (copied from the run). An event for a run that has ended, was cancelled or failed to start is refused."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: session_id, type: Optional<sdc.daemon.SessionId>}
@@ -895,7 +898,7 @@ commands:
     naming:
       wire: end-run
       display: Report a run ended
-      summary: "The runtime finished a Running run with an outcome."
+      summary: "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: outcome, type: sdc.daemon.RunOutcome}
@@ -927,7 +930,7 @@ commands:
     naming:
       wire: end-orphaned-run
       display: End a run whose runtime is gone
-      summary: "At start the daemon asks the runtime about each run the record holds as Running or WaitingOnDecision; for a run the runtime no longer holds it issues this command. The run is Ended with the outcome `orphaned`, the cause. The daemon then issues WithdrawDecision for each Open decision request of the run, as a cancel does. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
+      summary: "At start the daemon asks the runtime about each run the record holds as Running or WaitingOnDecision; for a run the runtime no longer holds it issues this command. The run is Ended with the outcome `orphaned`, the cause. In the same step every Open decision request of the run moves to Withdrawn, as in CancelRun (the outcome's `affects` entry): no WithdrawDecision follows. The daemon also writes the run event `runbook.run-orphaned` (record: run_id, the state the run held, the reason) just before the run is Ended; the language cannot write a RunEvent from this command (see CancelRun), so the event is stated here. Issued by the daemon itself (actor DaemonProcess): it has no route in the HTTP contract."
     input:
       - {name: run_id, type: sdc.daemon.RunId}
       - {name: at, type: Timestamp}
@@ -942,12 +945,16 @@ commands:
         sets:
           outcome: orphaned
           ended_at: input.at
+        affects:
+          - entity: sdc.daemon.DecisionRequest
+            where: run_id == input.run_id
+            moves: sdc.daemon.DecisionRequest.withdraw
         emits:
           - sdc.daemon.RunOrphaned
         payload:
           sdc.daemon.RunOrphaned:
             run_id: input.run_id
-        summary: "The run is Ended with the outcome orphaned."
+        summary: "The run is Ended with the outcome orphaned and every Open decision request of it is Withdrawn. The outcome publishes RunOrphaned only."
       - name: wrong-state
         wrong_state: true
         error: sdc.daemon.RunStateConflict

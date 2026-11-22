@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-an-answer-is-judged-by-its-request-before-its-run
-summary: "A second answer is judged by its request first, and RunNotWaiting is only for an Open request."
+summary: "An answer is judged by its request before its run: already-answered whatever the run does, withdrawn after a cancel (the cancel withdraws the request)."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -175,24 +175,6 @@ timeline:
     outcome: cancelled
 
   - at: 2026-11-22T10:15:00Z
-    command: sdc.daemon.AnswerDecision
-    actor: sdc.daemon.Client
-    input:
-      run_id: "run-2"
-      request_id: "dr-2"
-      answer: "A"
-      answered_by: "operator"
-      at: 2026-11-22T10:15:00Z
-    outcome: run-not-waiting
-
-  - at: 2026-11-22T10:16:00Z
-    command: sdc.daemon.WithdrawDecision
-    actor: sdc.daemon.Runtime
-    input:
-      request_id: "dr-2"
-    outcome: withdrawn
-
-  - at: 2026-11-22T10:17:00Z
     command: sdc.daemon.AnswerDecision
     actor: sdc.daemon.Client
     input:

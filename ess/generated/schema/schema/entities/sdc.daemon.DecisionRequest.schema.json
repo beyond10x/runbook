@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/entities/sdc.daemon.DecisionRequest.schema.json",
   "title": "DecisionRequest",
-  "description": "A question a waiting run raised, as a mirror of the runtime's decision request: the daemon copies id, case, action, capability, question and options from the runtime's record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook's decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request whose run was cancelled is Withdrawn: it stays on record, shows no more as open, and takes no answer.",
+  "description": "A question a waiting run raised, as a mirror of the runtime's decision request: the daemon copies id, case, action, capability, question and options from the runtime's record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook's decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request is Withdrawn when its run is cancelled or ended as orphaned (CancelRun and EndOrphanedRun move every Open request of the run in their own step) or when the runtime withdraws it (WithdrawDecision): it stays on record, shows no more as open, and takes no answer.",
   "x-ess-name": "sdc.daemon.DecisionRequest",
   "x-ess-kind": "entity",
   "type": "object",
@@ -74,7 +74,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:ea2c6fdac7a7500ef7644f9c0fadfaeaf5e840fe4179c67b39a191bf803cf45f",
+    "contract_digest": "slice-sha256/2:f475b7f6f94ad3f83f781919045c97a1da88a4743e82227d4934a6a3adbf3912",
     "regenerate": "ess generate"
   },
   "$defs": {

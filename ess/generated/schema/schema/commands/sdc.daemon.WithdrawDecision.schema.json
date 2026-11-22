@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.WithdrawDecision.schema.json",
   "title": "Withdraw a decision request input",
-  "description": "The daemon cancelled the run, or ended it as orphaned: each Open decision request of it is withdrawn, one command per request. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer.",
+  "description": "The runtime withdraws one Open decision request of a run that goes on. CancelRun and EndOrphanedRun do not issue it: each withdraws every Open request of its run in its own step, so after either of them a request of that run answers not-open here. It is reachable for an Open request, which exists only while its run is WaitingOnDecision. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer. The daemon has no runtime report that maps to it yet (the Runtime trait has none), so it is a call of the command layer today.",
   "x-ess-name": "sdc.daemon.WithdrawDecision",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -18,7 +18,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:38b76aa8e8ca06d17220e786cbe3e836a940b67d4d1339c3be1e82154913a44c",
+    "contract_digest": "slice-sha256/2:6b655a998e93219129312bcc932971c21d31e235949e1eea4c402ae6653d5249",
     "regenerate": "ess generate"
   },
   "$defs": {

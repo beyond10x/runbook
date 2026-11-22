@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.AnswerDecision.schema.json",
   "title": "Answer a decision input",
-  "description": "A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands.",
+  "description": "A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands. An answer to a withdrawn request (its run was cancelled or ended as orphaned) is refused as DecisionWithdrawn. When the answer stands but the runtime cannot take it up (its run is gone), the daemon writes the run event `runbook.answer-undeliverable` (record: request_id) after the request is Answered (see CancelRun for why it is stated here).",
   "x-ess-name": "sdc.daemon.AnswerDecision",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -35,7 +35,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:1929e2aa9b12dfbf9851abdf74209082af01fac2172ad6193a04765c9c9ac431",
+    "contract_digest": "slice-sha256/2:1fe9183c39e5a940e28b0f421ecc8f1b4f0780ae4bace55e0260d6c68bc507be",
     "regenerate": "ess generate"
   },
   "$defs": {

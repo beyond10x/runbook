@@ -3,13 +3,13 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "323f3dca7bb2b9a62841589a2b07544f935b7ffbf883598d60b487f856f5350b",
-    "contract_digest": "2aa9f471adb3259f2eff74576d6bbbcd9d3b4cc47744315e7c27760c17ead020",
+    "spec_digest": "767c3858ec84d5a976849c169f175ab1021b865bc400614daad9761cc9f807c4",
+    "contract_digest": "b70f64f52ef1cf2a7de87312f0128e6f948d1ffc367113425d37e424e67f2e00",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
     "sdc.daemon/authored/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned": {
-      "purpose": "A Running and a WaitingOnDecision run whose runtime is gone end as orphaned.",
+      "purpose": "A Running and a WaitingOnDecision run whose runtime is gone end as orphaned; the end withdraws the waiting run's Open request itself.",
       "steps": [
         {
           "step": "execute_command",
@@ -447,7 +447,7 @@
         {
           "step": "execute_command",
           "command": "sdc.daemon.WithdrawDecision",
-          "actor": "sdc.daemon.DaemonProcess",
+          "actor": "sdc.daemon.Runtime",
           "input": {
             "request_id": {
               "kind": "literal",
@@ -459,23 +459,7 @@
           "step": "expect_outcome",
           "outcome": {
             "command": "sdc.daemon.WithdrawDecision",
-            "outcome": "withdrawn"
-          }
-        },
-        {
-          "step": "expect_no_error"
-        },
-        {
-          "step": "expect_event",
-          "event": "sdc.daemon.DecisionRequestWithdrawn",
-          "payload": {
-            "request_id": "dr-1"
-          },
-          "shape": {
-            "request_id": {
-              "holds": "primitive",
-              "kind": "string"
-            }
+            "outcome": "not-open"
           }
         },
         {
@@ -571,7 +555,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 1.0
+              "value": 6.0
             },
             "record": {
               "kind": "literal",
@@ -585,7 +569,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 1.0
+              "value": 3.0
             }
           }
         },
@@ -612,10 +596,6 @@
           "expectation": {
             "expect": "contains",
             "fields": {
-              "ended_at": {
-                "kind": "literal",
-                "value": "2026-11-22T11:00:10Z"
-              },
               "outcome": {
                 "kind": "literal",
                 "value": "orphaned"
@@ -916,12 +896,8 @@
           "kind": "outcome",
           "name": {
             "command": "sdc.daemon.WithdrawDecision",
-            "outcome": "withdrawn"
+            "outcome": "not-open"
           }
-        },
-        {
-          "kind": "event",
-          "name": "sdc.daemon.DecisionRequestWithdrawn"
         },
         {
           "kind": "event",
@@ -954,7 +930,7 @@
       ]
     },
     "sdc.daemon/authored/daemon-an-answer-is-judged-by-its-request-before-its-run": {
-      "purpose": "A second answer is judged by its request first, and RunNotWaiting is only for an Open request.",
+      "purpose": "An answer is judged by its request before its run: already-answered whatever the run does, withdrawn after a cancel (the cancel withdraws the request).",
       "steps": [
         {
           "step": "execute_command",
@@ -1530,61 +1506,6 @@
             },
             "at": {
               "kind": "literal",
-              "value": "2026-11-22T10:15:00Z"
-            },
-            "request_id": {
-              "kind": "literal",
-              "value": "dr-2"
-            },
-            "run_id": {
-              "kind": "literal",
-              "value": "run-2"
-            }
-          }
-        },
-        {
-          "step": "expect_outcome",
-          "outcome": {
-            "command": "sdc.daemon.AnswerDecision",
-            "outcome": "run-not-waiting"
-          }
-        },
-        {
-          "step": "execute_command",
-          "command": "sdc.daemon.WithdrawDecision",
-          "actor": "sdc.daemon.Runtime",
-          "input": {
-            "request_id": {
-              "kind": "literal",
-              "value": "dr-2"
-            }
-          }
-        },
-        {
-          "step": "expect_outcome",
-          "outcome": {
-            "command": "sdc.daemon.WithdrawDecision",
-            "outcome": "withdrawn"
-          }
-        },
-        {
-          "step": "expect_no_error"
-        },
-        {
-          "step": "execute_command",
-          "command": "sdc.daemon.AnswerDecision",
-          "actor": "sdc.daemon.Client",
-          "input": {
-            "answer": {
-              "kind": "literal",
-              "value": "A"
-            },
-            "answered_by": {
-              "kind": "literal",
-              "value": "operator"
-            },
-            "at": {
-              "kind": "literal",
               "value": "2026-11-22T10:17:00Z"
             },
             "request_id": {
@@ -1785,10 +1706,6 @@
           "name": "sdc.daemon.WaitOnDecision"
         },
         {
-          "kind": "command",
-          "name": "sdc.daemon.WithdrawDecision"
-        },
-        {
           "kind": "outcome",
           "name": {
             "command": "sdc.daemon.AnswerDecision",
@@ -1800,13 +1717,6 @@
           "name": {
             "command": "sdc.daemon.AnswerDecision",
             "outcome": "answered"
-          }
-        },
-        {
-          "kind": "outcome",
-          "name": {
-            "command": "sdc.daemon.AnswerDecision",
-            "outcome": "run-not-waiting"
           }
         },
         {
@@ -1870,13 +1780,6 @@
           "name": {
             "command": "sdc.daemon.WaitOnDecision",
             "outcome": "waiting"
-          }
-        },
-        {
-          "kind": "outcome",
-          "name": {
-            "command": "sdc.daemon.WithdrawDecision",
-            "outcome": "withdrawn"
           }
         },
         {
@@ -2532,7 +2435,7 @@
       ]
     },
     "sdc.daemon/authored/daemon-cancel-a-run": {
-      "purpose": "A waiting run is cancelled; its Open request is withdrawn and an answer to it is refused; a second cancel and a late event are refused.",
+      "purpose": "A waiting run is cancelled; the same step withdraws its Open request, so a WithdrawDecision finds it not open and an answer to it is refused as withdrawn; a second cancel and a late event are refused.",
       "steps": [
         {
           "step": "execute_command",
@@ -2795,40 +2698,6 @@
           "step": "expect_outcome",
           "outcome": {
             "command": "sdc.daemon.WithdrawDecision",
-            "outcome": "withdrawn"
-          }
-        },
-        {
-          "step": "expect_no_error"
-        },
-        {
-          "step": "expect_event",
-          "event": "sdc.daemon.DecisionRequestWithdrawn",
-          "payload": {
-            "request_id": "dr-1"
-          },
-          "shape": {
-            "request_id": {
-              "holds": "primitive",
-              "kind": "string"
-            }
-          }
-        },
-        {
-          "step": "execute_command",
-          "command": "sdc.daemon.WithdrawDecision",
-          "actor": "sdc.daemon.Runtime",
-          "input": {
-            "request_id": {
-              "kind": "literal",
-              "value": "dr-1"
-            }
-          }
-        },
-        {
-          "step": "expect_outcome",
-          "outcome": {
-            "command": "sdc.daemon.WithdrawDecision",
             "outcome": "not-open"
           }
         },
@@ -2869,7 +2738,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 1.0
+              "value": 3.0
             },
             "record": {
               "kind": "literal",
@@ -2883,7 +2752,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 1.0
+              "value": 3.0
             }
           }
         },
@@ -2960,10 +2829,6 @@
           "expectation": {
             "expect": "contains",
             "fields": {
-              "ended_at": {
-                "kind": "literal",
-                "value": "2026-11-22T10:05:00Z"
-              },
               "run_id": {
                 "kind": "literal",
                 "value": "run-1"
@@ -3204,17 +3069,6 @@
             "command": "sdc.daemon.WithdrawDecision",
             "outcome": "not-open"
           }
-        },
-        {
-          "kind": "outcome",
-          "name": {
-            "command": "sdc.daemon.WithdrawDecision",
-            "outcome": "withdrawn"
-          }
-        },
-        {
-          "kind": "event",
-          "name": "sdc.daemon.DecisionRequestWithdrawn"
         },
         {
           "kind": "event",
@@ -4841,7 +4695,7 @@
       ]
     },
     "sdc.daemon/authored/daemon-events-after-a-sequence-number": {
-      "purpose": "The events page after a position holds only the events with a larger position, in position order: what a stream client that reconnects with Last-Event-ID n (a position) is sent.",
+      "purpose": "The events page after a position holds only the events with a larger position; the runtime records from sequence 2, after the submit event.",
       "steps": [
         {
           "step": "execute_command",
@@ -4969,7 +4823,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 1.0
+              "value": 2.0
             },
             "record": {
               "kind": "literal",
@@ -4983,7 +4837,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 1.0
+              "value": 2.0
             }
           }
         },
@@ -5012,7 +4866,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             },
             "record": {
               "kind": "literal",
@@ -5026,7 +4880,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             }
           }
         },
@@ -5055,7 +4909,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 3.0
+              "value": 4.0
             },
             "record": {
               "kind": "literal",
@@ -5069,7 +4923,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 3.0
+              "value": 4.0
             }
           }
         },
@@ -5089,43 +4943,6 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 0.0
-            },
-            "run_id": {
-              "kind": "literal",
-              "value": "run-1"
-            }
-          }
-        },
-        {
-          "step": "expect_view",
-          "view": "sdc.daemon.EventsAfter",
-          "expectation": {
-            "expect": "at",
-            "order_by": [
-              "position asc"
-            ],
-            "position": {
-              "row": "first"
-            },
-            "fields": {
-              "position": {
-                "kind": "literal",
-                "value": 1.0
-              },
-              "sequence": {
-                "kind": "literal",
-                "value": 1.0
-              }
-            }
-          }
-        },
-        {
-          "step": "query_view",
-          "view": "sdc.daemon.EventsAfter",
-          "params": {
-            "after_position": {
-              "kind": "literal",
               "value": 1.0
             },
             "run_id": {
@@ -5150,58 +4967,9 @@
                 "kind": "literal",
                 "value": 2.0
               },
-              "record": {
-                "kind": "literal",
-                "value": {
-                  "step": "s2"
-                }
-              },
               "sequence": {
                 "kind": "literal",
                 "value": 2.0
-              }
-            }
-          }
-        },
-        {
-          "step": "query_view",
-          "view": "sdc.daemon.EventsAfter",
-          "params": {
-            "after_position": {
-              "kind": "literal",
-              "value": 1.0
-            },
-            "run_id": {
-              "kind": "literal",
-              "value": "run-1"
-            }
-          }
-        },
-        {
-          "step": "expect_view",
-          "view": "sdc.daemon.EventsAfter",
-          "expectation": {
-            "expect": "at",
-            "order_by": [
-              "position asc"
-            ],
-            "position": {
-              "row": "last"
-            },
-            "fields": {
-              "position": {
-                "kind": "literal",
-                "value": 3.0
-              },
-              "record": {
-                "kind": "literal",
-                "value": {
-                  "step": "s3"
-                }
-              },
-              "sequence": {
-                "kind": "literal",
-                "value": 3.0
               }
             }
           }
@@ -5236,9 +5004,95 @@
                 "kind": "literal",
                 "value": 3.0
               },
+              "record": {
+                "kind": "literal",
+                "value": {
+                  "step": "s2"
+                }
+              },
               "sequence": {
                 "kind": "literal",
                 "value": 3.0
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.EventsAfter",
+          "params": {
+            "after_position": {
+              "kind": "literal",
+              "value": 2.0
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.EventsAfter",
+          "expectation": {
+            "expect": "at",
+            "order_by": [
+              "position asc"
+            ],
+            "position": {
+              "row": "last"
+            },
+            "fields": {
+              "position": {
+                "kind": "literal",
+                "value": 4.0
+              },
+              "record": {
+                "kind": "literal",
+                "value": {
+                  "step": "s3"
+                }
+              },
+              "sequence": {
+                "kind": "literal",
+                "value": 4.0
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.EventsAfter",
+          "params": {
+            "after_position": {
+              "kind": "literal",
+              "value": 3.0
+            },
+            "run_id": {
+              "kind": "literal",
+              "value": "run-1"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.EventsAfter",
+          "expectation": {
+            "expect": "at",
+            "order_by": [
+              "position asc"
+            ],
+            "position": {
+              "row": "first"
+            },
+            "fields": {
+              "position": {
+                "kind": "literal",
+                "value": 4.0
+              },
+              "sequence": {
+                "kind": "literal",
+                "value": 4.0
               }
             }
           }
@@ -5805,7 +5659,7 @@
       ]
     },
     "sdc.daemon/authored/daemon-submit-and-run-to-an-outcome": {
-      "purpose": "A run is submitted at the daemon's floor, started by the runtime, records two events in order and ends with an outcome; the list, the one-run read and the events page show it.",
+      "purpose": "A run is submitted, started, records two events from sequence 2 (the submit holds sequence 1) and ends with an outcome; the views show it.",
       "steps": [
         {
           "step": "execute_command",
@@ -5995,7 +5849,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 1.0
+              "value": 2.0
             },
             "record": {
               "kind": "literal",
@@ -6010,7 +5864,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 1.0
+              "value": 2.0
             }
           }
         },
@@ -6028,9 +5882,9 @@
           "step": "expect_event",
           "event": "sdc.daemon.RunEventRecorded",
           "payload": {
-            "position": 1.0,
+            "position": 2.0,
             "run_id": "run-1",
-            "sequence": 1.0
+            "sequence": 2.0
           },
           "shape": {
             "event_id": {
@@ -6066,7 +5920,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             },
             "record": {
               "kind": "literal",
@@ -6082,7 +5936,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             }
           }
         },
@@ -6100,9 +5954,9 @@
           "step": "expect_event",
           "event": "sdc.daemon.RunEventRecorded",
           "payload": {
-            "position": 2.0,
+            "position": 3.0,
             "run_id": "run-1",
-            "sequence": 2.0
+            "sequence": 3.0
           },
           "shape": {
             "event_id": {
@@ -6289,7 +6143,7 @@
               },
               "sequence": {
                 "kind": "literal",
-                "value": 1.0
+                "value": 2.0
               }
             }
           }
@@ -6332,7 +6186,7 @@
               },
               "sequence": {
                 "kind": "literal",
-                "value": 2.0
+                "value": 3.0
               }
             }
           }
@@ -6813,7 +6667,7 @@
       ]
     },
     "sdc.daemon/authored/daemon-two-runs-in-a-session-keep-their-events-apart": {
-      "purpose": "Two runs of one session keep their own sequence numbers; the session page shows both in daemon position order.",
+      "purpose": "Two runs of one session keep their own sequence numbers (from 2, after the submit event); the session page shows both in position order.",
       "steps": [
         {
           "step": "execute_command",
@@ -7078,7 +6932,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 1.0
+              "value": 3.0
             },
             "record": {
               "kind": "literal",
@@ -7092,7 +6946,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 1.0
+              "value": 2.0
             },
             "session_id": {
               "kind": "literal",
@@ -7125,7 +6979,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 2.0
+              "value": 4.0
             },
             "record": {
               "kind": "literal",
@@ -7139,7 +6993,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 1.0
+              "value": 2.0
             },
             "session_id": {
               "kind": "literal",
@@ -7172,7 +7026,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 3.0
+              "value": 5.0
             },
             "record": {
               "kind": "literal",
@@ -7186,7 +7040,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             },
             "session_id": {
               "kind": "literal",
@@ -7219,7 +7073,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 4.0
+              "value": 6.0
             },
             "record": {
               "kind": "literal",
@@ -7233,7 +7087,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             },
             "session_id": {
               "kind": "literal",
@@ -7263,7 +7117,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 3.0
+              "value": 5.0
             },
             "record": {
               "kind": "literal",
@@ -7277,7 +7131,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             },
             "session_id": {
               "kind": "literal",
@@ -7307,7 +7161,7 @@
             },
             "position": {
               "kind": "literal",
-              "value": 4.0
+              "value": 6.0
             },
             "record": {
               "kind": "literal",
@@ -7321,7 +7175,7 @@
             },
             "sequence": {
               "kind": "literal",
-              "value": 2.0
+              "value": 3.0
             },
             "session_id": {
               "kind": "literal",
@@ -7442,7 +7296,7 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 0.0
+              "value": 2.0
             },
             "run_id": {
               "kind": "literal",
@@ -7464,7 +7318,7 @@
             "fields": {
               "position": {
                 "kind": "literal",
-                "value": 1.0
+                "value": 3.0
               },
               "record": {
                 "kind": "literal",
@@ -7478,7 +7332,7 @@
               },
               "sequence": {
                 "kind": "literal",
-                "value": 1.0
+                "value": 2.0
               }
             }
           }
@@ -7489,7 +7343,7 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 0.0
+              "value": 2.0
             },
             "run_id": {
               "kind": "literal",
@@ -7511,7 +7365,7 @@
             "fields": {
               "position": {
                 "kind": "literal",
-                "value": 3.0
+                "value": 5.0
               },
               "record": {
                 "kind": "literal",
@@ -7525,7 +7379,7 @@
               },
               "sequence": {
                 "kind": "literal",
-                "value": 2.0
+                "value": 3.0
               }
             }
           }
@@ -7536,7 +7390,7 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 0.0
+              "value": 2.0
             },
             "run_id": {
               "kind": "literal",
@@ -7558,7 +7412,7 @@
             "fields": {
               "position": {
                 "kind": "literal",
-                "value": 2.0
+                "value": 4.0
               },
               "record": {
                 "kind": "literal",
@@ -7572,7 +7426,7 @@
               },
               "sequence": {
                 "kind": "literal",
-                "value": 1.0
+                "value": 2.0
               }
             }
           }
@@ -7583,7 +7437,7 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 0.0
+              "value": 2.0
             },
             "run_id": {
               "kind": "literal",
@@ -7605,7 +7459,7 @@
             "fields": {
               "position": {
                 "kind": "literal",
-                "value": 4.0
+                "value": 6.0
               },
               "record": {
                 "kind": "literal",
@@ -7619,81 +7473,7 @@
               },
               "sequence": {
                 "kind": "literal",
-                "value": 2.0
-              }
-            }
-          }
-        },
-        {
-          "step": "query_view",
-          "view": "sdc.daemon.EventsOfSessionAfter",
-          "params": {
-            "after_position": {
-              "kind": "literal",
-              "value": 0.0
-            },
-            "session_id": {
-              "kind": "literal",
-              "value": "nightly"
-            }
-          }
-        },
-        {
-          "step": "expect_view",
-          "view": "sdc.daemon.EventsOfSessionAfter",
-          "expectation": {
-            "expect": "at",
-            "order_by": [
-              "position asc"
-            ],
-            "position": {
-              "row": "first"
-            },
-            "fields": {
-              "position": {
-                "kind": "literal",
-                "value": 1.0
-              },
-              "run_id": {
-                "kind": "literal",
-                "value": "run-a"
-              }
-            }
-          }
-        },
-        {
-          "step": "query_view",
-          "view": "sdc.daemon.EventsOfSessionAfter",
-          "params": {
-            "after_position": {
-              "kind": "literal",
-              "value": 1.0
-            },
-            "session_id": {
-              "kind": "literal",
-              "value": "nightly"
-            }
-          }
-        },
-        {
-          "step": "expect_view",
-          "view": "sdc.daemon.EventsOfSessionAfter",
-          "expectation": {
-            "expect": "at",
-            "order_by": [
-              "position asc"
-            ],
-            "position": {
-              "row": "first"
-            },
-            "fields": {
-              "position": {
-                "kind": "literal",
-                "value": 2.0
-              },
-              "run_id": {
-                "kind": "literal",
-                "value": "run-b"
+                "value": 3.0
               }
             }
           }
@@ -7741,7 +7521,81 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 0.0
+              "value": 3.0
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "nightly"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.EventsOfSessionAfter",
+          "expectation": {
+            "expect": "at",
+            "order_by": [
+              "position asc"
+            ],
+            "position": {
+              "row": "first"
+            },
+            "fields": {
+              "position": {
+                "kind": "literal",
+                "value": 4.0
+              },
+              "run_id": {
+                "kind": "literal",
+                "value": "run-b"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.EventsOfSessionAfter",
+          "params": {
+            "after_position": {
+              "kind": "literal",
+              "value": 4.0
+            },
+            "session_id": {
+              "kind": "literal",
+              "value": "nightly"
+            }
+          }
+        },
+        {
+          "step": "expect_view",
+          "view": "sdc.daemon.EventsOfSessionAfter",
+          "expectation": {
+            "expect": "at",
+            "order_by": [
+              "position asc"
+            ],
+            "position": {
+              "row": "first"
+            },
+            "fields": {
+              "position": {
+                "kind": "literal",
+                "value": 5.0
+              },
+              "run_id": {
+                "kind": "literal",
+                "value": "run-a"
+              }
+            }
+          }
+        },
+        {
+          "step": "query_view",
+          "view": "sdc.daemon.EventsOfSessionAfter",
+          "params": {
+            "after_position": {
+              "kind": "literal",
+              "value": 2.0
             },
             "session_id": {
               "kind": "literal",
@@ -7763,7 +7617,7 @@
             "fields": {
               "position": {
                 "kind": "literal",
-                "value": 4.0
+                "value": 6.0
               },
               "run_id": {
                 "kind": "literal",
@@ -7778,7 +7632,7 @@
           "params": {
             "after_position": {
               "kind": "literal",
-              "value": 3.0
+              "value": 5.0
             }
           }
         },
@@ -7796,7 +7650,7 @@
             "fields": {
               "position": {
                 "kind": "literal",
-                "value": 4.0
+                "value": 6.0
               },
               "run_id": {
                 "kind": "literal",
