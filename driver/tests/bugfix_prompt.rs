@@ -365,6 +365,8 @@ fn run_decider(case: &str, kind: &str, request: serde_json::Value, env: &[(&str,
     })
 }
 
+type PromptCase = (&'static str, &'static str, serde_json::Value, Vec<(&'static str, &'static str)>);
+
 #[test]
 fn the_prompt_of_each_decider_is_its_golden_byte_for_byte() {
     use serde_json::json;
@@ -385,7 +387,7 @@ fn the_prompt_of_each_decider_is_its_golden_byte_for_byte() {
         v
     };
     let fin = [("SDC_DECIDER_ESCALATE", "final")];
-    let cases: Vec<(&str, &str, serde_json::Value, Vec<(&str, &str)>)> = vec![
+    let cases: Vec<PromptCase> = vec![
         ("approval", "model", approval.clone(), vec![]),
         ("approval-final", "model", approval.clone(), fin.to_vec()),
         ("approval-prior-rejection", "model", with(approval.clone(), "retry", json!({"attempt": 2, "invalid_reason": "cites what does not resolve"})), vec![("STUB_PRIOR", "1")]),
