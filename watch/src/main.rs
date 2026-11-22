@@ -31,13 +31,51 @@ enum Cmd {
         /// Output dir (default <run-dir>/fs).
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Kind of run directory (default: a Loom run when `settings.json` is in it).
+        #[arg(long, value_enum)]
+        kind: Option<Kind>,
+        /// Stop, as on SIGTERM, when the process with this id is no longer the parent: the
+        /// watcher does not outlive the run that started it, also when that is killed.
+        #[arg(long, value_name = "PID")]
+        parent: Option<i32>,
     },
     /// Write <out>/snapshot.json and the blobs of every tracked file, once; records nothing.
     Scan {
         run_dir: PathBuf,
         #[arg(long)]
         out: Option<PathBuf>,
+        /// Kind of run directory (default: a Loom run when `settings.json` is in it).
+        #[arg(long, value_enum)]
+        kind: Option<Kind>,
     },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum Kind {
+    /// A run of `sdc-drive` (`store/<case>/work`).
+    Driver,
+    /// A run of `runbook run` (`work/`, `rounds.jsonl`).
+    Loom,
+}
+
+/// Fixes the layout for the process: the kind given, else the one the files tell.
+fn set_kind(run_dir: &Path, kind: Option<Kind>) {
+    let loom = match kind {
+        Some(Kind::Loom) => true,
+        Some(Kind::Driver) => false,
+        None => run_dir.join(layout::LOOM_MARK).is_file(),
+    };
+    layout::set_kind(if loom { layout::Kind::Loom } else { layout::Kind::Driver });
+}
+
+/// How often a watcher with a parent looks whether the parent is still there.
+const PARENT_POLL_MS: i32 = 200;
+
+/// Arranges that SIGTERM comes when the parent dies; false when it is already gone.
+fn die_with_parent(parent: i32) -> bool {
+    // SAFETY: prctl with PR_SET_PDEATHSIG takes the signal number and no pointer.
+    unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM as libc::c_ulong) };
+    unsafe { libc::getppid() == parent }
 }
 
 fn dirs(run_dir: &Path, out: Option<PathBuf>) -> Result<(PathBuf, PathBuf), String> {
@@ -52,7 +90,8 @@ fn alive(pid: i32) -> bool {
     pid > 0 && unsafe { libc::kill(pid, 0) } == 0
 }
 
-fn run(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
+fn run(run_dir: &Path, out: Option<PathBuf>, kind: Option<Kind>, parent: Option<i32>) -> Result<(), String> {
+    set_kind(run_dir, kind);
     let (run, out) = dirs(run_dir, out)?;
     let pid_file = out.join("sdc-watch.pid");
     if let Some(pid) = fs::read_to_string(&pid_file).ok().and_then(|s| s.trim().parse::<i32>().ok()) {
@@ -66,16 +105,29 @@ fn run(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
         let w = sig_w.try_clone().map_err(|e| e.to_string())?;
         signal_hook::low_level::pipe::register(s, w).map_err(|e| e.to_string())?;
     }
+    if let Some(p) = parent {
+        if !die_with_parent(p) {
+            return Err(format!("the parent {p} is already gone"));
+        }
+    }
     let mut w = watch::Watcher::start(run.clone(), out.clone()).map_err(|e| e.to_string())?;
     let (files, watches) = w.tracked();
     fs::write(&pid_file, format!("{}\n", std::process::id())).map_err(|e| e.to_string())?;
     eprintln!("sdc-watch: watching {} ({files} files, {watches} dirs), record {}", run.display(),
         out.join("changes.jsonl").display());
     loop {
-        let timeout = match w.next_wake() {
+        let mut timeout = match w.next_wake() {
             None => -1,
             Some(t) => t.saturating_duration_since(Instant::now()).as_millis().min(i32::MAX as u128) as i32,
         };
+        if let Some(p) = parent {
+            if unsafe { libc::getppid() } != p {
+                break;
+            }
+            if !(0..=PARENT_POLL_MS).contains(&timeout) {
+                timeout = PARENT_POLL_MS;
+            }
+        }
         let mut fds = [
             libc::pollfd { fd: w.fd(), events: libc::POLLIN, revents: 0 },
             libc::pollfd { fd: sig_r.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -102,7 +154,8 @@ fn run(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
     Ok(())
 }
 
-fn scan(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
+fn scan(run_dir: &Path, out: Option<PathBuf>, kind: Option<Kind>) -> Result<(), String> {
+    set_kind(run_dir, kind);
     let (run, out) = dirs(run_dir, out)?;
     let blobs = store::Blobs { dir: out.join("blobs") };
     let (_, seq) = store::replay(&out, &run, &blobs);
@@ -115,8 +168,8 @@ fn scan(run_dir: &Path, out: Option<PathBuf>) -> Result<(), String> {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let r = match cli.cmd {
-        Cmd::Run { run_dir, out } => run(&run_dir, out),
-        Cmd::Scan { run_dir, out } => scan(&run_dir, out),
+        Cmd::Run { run_dir, out, kind, parent } => run(&run_dir, out, kind, parent),
+        Cmd::Scan { run_dir, out, kind } => scan(&run_dir, out, kind),
     };
     match r {
         Ok(()) => ExitCode::SUCCESS,
