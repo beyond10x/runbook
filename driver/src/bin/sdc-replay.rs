@@ -8,7 +8,10 @@
 //!                      [--inject <fault>]... [--set <condition>=<value>]... [--take-recorded <actions>]
 //!   sdc-replay env --out <run>     the environment of a re-driven run, again (a resume)
 //!   sdc-replay settings --out <run>  the `replay` object of run-settings.jsonl
-//!   sdc-replay program --action <action> -- <argv>...   wraps a real program (check-fail, recorded results)
+//!   sdc-replay prepare ... --plan-only   the same plan without writing anything (`runbook run` reads the
+//!                                  settings of the run from it before the run directory exists)
+//!   sdc-replay program --action <action> [--plan <plan.json>] -- <argv>...   wraps a real program
+//!                                  (check-fail, recorded results)
 //!   sdc-replay seal <run>          at the run's end: counts into status.json and run-stopped.json,
 //!                                  virtual seconds into rounds.jsonl, each call's mode into
 //!                                  llm-calls.jsonl and decisions.jsonl, replay/summary.json
@@ -20,6 +23,15 @@
 //! arrival is counted as the driver counts it for `max_runs` (a `revised` event no agent action of
 //! the case wrote), its try is the node's runs since that arrival, plus one. A decider call's
 //! arrival is the n-th time the decision is asked in the case, its try the decider's attempt.
+//!
+//! A run of `runbook run` (Loom's run log, `store/runlog-case-<hex of the case id>.jsonl`, has no
+//! `revised` event) is counted from the log: the case opens as arrival 1, and a later arrival is a
+//! change of `case_revision` between two evaluations with no action of the case finished and no
+//! child closed in between (nothing of the case's own explains it); a try counts the finished runs
+//! of the node since the last arrival (not exits 126, 127, 75, 69 and 70), plus one. A rejection
+//! of an approval does not start an arrival: the rework is the next try. The adapter finds the plan
+//! (`replay/plan.json`) above its call's `record_dir` when `SDC_REPLAY` is not set: the runner
+//! passes no environment to a program.
 //! Inputs: one sha256 per file of the call's `in/` and the request without its paths and
 //! ordinals, each normalised (run directories, home paths, instants, revisions, seconds).
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -65,6 +77,8 @@ enum Cmd {
         set: Vec<String>,
         #[arg(long, default_value = "")]
         take_recorded: String,
+        #[arg(long)]
+        plan_only: bool,
     },
     Env {
         #[arg(long)]
@@ -77,6 +91,8 @@ enum Cmd {
     Program {
         #[arg(long)]
         action: String,
+        #[arg(long)]
+        plan: Option<PathBuf>,
         #[arg(last = true)]
         argv: Vec<String>,
     },
@@ -115,6 +131,12 @@ fn write_json(p: &Path, v: &Value) -> R<()> {
     let tmp = p.with_extension("json.tmp");
     fs::write(&tmp, serde_json::to_string_pretty(v).unwrap() + "\n").map_err(|e| e.to_string())?;
     fs::rename(&tmp, p).map_err(|e| e.to_string())
+}
+
+/// Writes `v` unless the file exists: the first divergence is the one that ended the run, a retry
+/// of the same call does not replace it.
+fn write_first(p: &Path, v: &Value) -> R<()> {
+    if p.exists() { Ok(()) } else { write_json(p, v) }
 }
 
 fn jsonl(p: &Path) -> Vec<Value> {
@@ -315,9 +337,59 @@ fn write_actions(ir: &Value) -> HashSet<String> {
         .collect()
 }
 
+/// The events of a case of `runbook run` in the old driver's shape, from Loom's run log
+/// (`<store>/runlog-case-<hex of the case id>.jsonl`): `opened`, a `revised` per arrival (see the
+/// module doc), and an `action_started` and `action_finished` per finished action. `None` when the
+/// store has no log of the case. A call that is in flight has no `action_finished` yet.
+fn loom_events(store: &Path, case: &str) -> Option<Vec<Value>> {
+    let hex: String = case.bytes().map(|b| format!("{b:02x}")).collect();
+    let text = fs::read_to_string(store.join(format!("runlog-case-{hex}.jsonl"))).ok()?;
+    let mut evs: Vec<Value> = Vec::new();
+    let mut last_revision: Option<u64> = None;
+    let mut own_since_evaluation = false;
+    let mut principal = Value::Null;
+    for line in text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+        match line["kind"].as_str() {
+            Some("CaseOpened") => evs.push(json!({"event": "opened"})),
+            Some("Evaluated") => {
+                let revision = line["case_revision"].as_u64();
+                if last_revision.is_none() || (last_revision != revision && !own_since_evaluation) {
+                    evs.push(json!({"event": "revised", "revision": revision}));
+                }
+                last_revision = revision;
+                own_since_evaluation = false;
+            }
+            Some("AuthorityRecorded") => principal = line["principal"].clone(),
+            Some("ActionFinished") => {
+                let action = line["action"].clone();
+                evs.push(json!({"event": "action_started", "action": action}));
+                let exit = line["exit"].as_str().map_or_else(|| line["exit"].to_string(), String::from);
+                evs.push(json!({"event": "action_finished", "action": action, "exit": exit, "principal": principal}));
+                principal = Value::Null;
+                own_since_evaluation = true;
+            }
+            Some("ChildClosed") => own_since_evaluation = true,
+            _ => {}
+        }
+    }
+    Some(evs)
+}
+
+/// Whether a run directory is one of `runbook run`: Loom's run logs are in its store.
+fn is_loom_run(run: &Path) -> bool {
+    fs::read_dir(run.join("store")).into_iter().flatten().flatten().any(|e| e.file_name().to_string_lossy().starts_with("runlog-case-"))
+}
+
+/// The directory of the work calls' records: `llm/` of the old driver, `work/.sdc/llm/` of `runbook run`.
+fn llm_dir(run: &Path) -> PathBuf {
+    let loom = run.join("work/.sdc/llm");
+    if loom.is_dir() { loom } else { run.join("llm") }
+}
+
 /// Every case of a run: id → (directory in the store, if there is one; events).
 fn run_cases(run: &Path) -> BTreeMap<String, (Option<PathBuf>, Vec<Value>)> {
     let mut out = BTreeMap::new();
+    let loom = is_loom_run(run);
     let mut stack = vec![run.join("store")];
     while let Some(p) = stack.pop() {
         let Ok(rd) = fs::read_dir(&p) else { continue };
@@ -330,6 +402,12 @@ fn run_cases(run: &Path) -> BTreeMap<String, (Option<PathBuf>, Vec<Value>)> {
                 let dir = path.parent().unwrap().to_path_buf();
                 if let Some(id) = read_json_or(&path, Value::Null)["id"].as_str() {
                     out.insert(id.to_string(), (Some(dir.clone()), jsonl(&dir.join("events.jsonl"))));
+                }
+            } else if loom && path.file_name().is_some_and(|n| n == "events.jsonl") && !path.with_file_name("case.json").exists() {
+                // A case of `runbook run` has no case.json: its directory is named by its id.
+                let dir = path.parent().unwrap().to_path_buf();
+                if let Some(id) = dir.file_name().map(|n| n.to_string_lossy().to_string()) {
+                    out.insert(id, (Some(dir.clone()), jsonl(&path)));
                 }
             }
         }
@@ -392,11 +470,12 @@ fn index_run(run: &Path) -> R<Vec<Value>> {
     let run = canon(run);
     let roots = vec![run.display().to_string()];
     let cases = run_cases(&run);
+    let loom = is_loom_run(&run);
     let mut calls = Vec::new();
     // Work calls: the k-th record of (case, node) is the k-th run of the node in the case that
     // reached the adapter (not `not_called`, no missing program).
     let mut seen: BTreeMap<(String, String), usize> = BTreeMap::new();
-    for rec in dirs_sorted(&run.join("llm")) {
+    for rec in dirs_sorted(&llm_dir(&run)) {
         let Ok(req) = read_json(&rec.join("request.json")) else { continue };
         let node = req["node"].as_str().unwrap_or("").to_string();
         let case = req["case"]
@@ -408,7 +487,8 @@ fn index_run(run: &Path) -> R<Vec<Value>> {
         *k += 1;
         let (mut arrival, mut try_) = (0, *k as u64);
         let mut matched = false;
-        if let Some((dir, evs)) = cases.get(&case) {
+        let from_log = if loom { loom_events(&run.join("store"), &case) } else { None };
+        if let Some((dir, evs)) = cases.get(&case).map(|(d, e)| (d, from_log.as_ref().unwrap_or(e))) {
             let writes = dir.as_ref().map(|d| write_actions(&read_json_or(&d.join("ir.json"), Value::Null))).unwrap_or_default();
             let mut started = None;
             let mut n = 0;
@@ -563,7 +643,7 @@ fn load_source(p: &Path) -> R<Source> {
             path,
         });
     }
-    if !path.join("llm").is_dir() && !path.join("decider").is_dir() {
+    if !llm_dir(&path).is_dir() && !path.join("decider").is_dir() {
         return Err(format!("{}: not a recorded run (no llm/ or decider/) and not a recording (no recording.json)", path.display()));
     }
     let settings = jsonl(&path.join("run-settings.jsonl"));
@@ -583,10 +663,10 @@ fn load_source(p: &Path) -> R<Source> {
         status,
         events: cases.iter().map(|(k, (_, e))| (k.clone(), e.clone())).collect(),
         case_dirs: cases.iter().filter_map(|(k, (d, _))| d.clone().map(|d| (k.clone(), d))).collect(),
-        idea: Some(path.join("store/IDEA-1/work/idea.yaml")).filter(|p| p.exists()),
-        goals: Some(path.join("store/IDEA-1/work/goals.yaml")).filter(|p| p.exists()),
+        idea: [path.join("store/IDEA-1/work/idea.yaml"), path.join("work/idea.yaml")].into_iter().find(|p| p.exists()),
+        goals: [path.join("store/IDEA-1/work/goals.yaml"), path.join("work/goals.yaml")].into_iter().find(|p| p.exists()),
         tree,
-        principal: aep_actor(&path.join("store/IDEA-1/work/aep")),
+        principal: aep_actor(&path.join("store/IDEA-1/work/aep")).or_else(|| aep_actor(&path.join("work/aep"))),
         packed: false,
         path,
     })
@@ -712,6 +792,7 @@ fn prepare(
     inject: &[String],
     sets: &[String],
     take_recorded: &str,
+    write: bool,
 ) -> R<Value> {
     if !["stop", "nearest", "live"].contains(&policy) {
         return Err(format!("--on-divergence: stop, nearest or live, not {policy}"));
@@ -722,10 +803,14 @@ fn prepare(
         exe.ancestors().nth(4).map(Path::to_path_buf).unwrap_or_default()
     });
     let tools = tree_dir.join("bindings/tools");
-    fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    if write {
+        fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    }
     let out = canon(out);
     let rd = out.join("replay");
-    fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    if write {
+        fs::create_dir_all(&rd).map_err(|e| e.to_string())?;
+    }
     let faults: Vec<Value> = inject.iter().map(|s| parse_fault(s)).collect::<R<_>>()?;
     let (mut actions, mut env, conditions) = parse_sets(sets, &tools)?;
     let take: Vec<String> = take_recorded.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
@@ -746,7 +831,7 @@ fn prepare(
     }
     for a in &wrapped {
         actions.entry(a.clone()).or_insert(json!({}))["wrap"] =
-            json!([exe.display().to_string(), "program", "--action", a, "--"]);
+            json!([exe.display().to_string(), "program", "--action", a, "--plan", rd.join("plan.json").display().to_string(), "--"]);
     }
     // The source's own run settings: decider, models, caps, the nodes that went to the adapter.
     let last = src.settings.last().cloned().unwrap_or(Value::Null);
@@ -778,6 +863,9 @@ fn prepare(
     };
     if live_adapter == "dry" {
         env.insert("SDC_LLM_DRY_LOG".into(), json!(out.join("dry-commands.txt").display().to_string()));
+    }
+    if !write {
+        return Ok(json!({"env": env, "settings": loom_settings(&last, &exe, &actions, &conditions, src.principal.as_deref(), &src.calls)?}));
     }
     // The index, with the source's paths resolved.
     write_json(&rd.join("index.json"), &json!({"format": "sdc.replay-index/1", "calls": src.calls}))?;
@@ -835,6 +923,79 @@ fn prepare(
     Ok(Value::Object(env))
 }
 
+/// The settings `runbook run` takes for a re-drive (`docs/loom-run-settings.md`), from the source's
+/// own run settings: its autonomy, its decider on this program as the adapter (the Loom decider
+/// holds no claim values, so `without_claims`), the models the caller set, and under `replay` what
+/// the bindings copy needs: this program as the adapter of the nodes the source sent to a model
+/// (`nodes`, `null`: all) and the per-action conditions (`max_runs`, `timeout_s`, `wrap`). A
+/// condition the engine has no setting for is refused by name.
+fn loom_settings(last: &Value, exe: &Path, actions: &Map<String, Value>, conditions: &Map<String, Value>, principal: Option<&str>, calls: &[Value]) -> R<Value> {
+    let mut decider_overrides = Map::new();
+    for (k, v) in conditions {
+        match k.as_str() {
+            "max_decider_calls" => {
+                decider_overrides.insert("max_decider_calls".into(), v.clone());
+            }
+            "decider_retries" => {
+                decider_overrides.insert("retries".into(), v.clone());
+            }
+            "max_llm_calls" | "max_wall_seconds" => {
+                return Err(format!("--set {k}: under `runbook run` it is the option --{}, which also bounds the re-drive: give the option", k.replace('_', "-")));
+            }
+            "max_rejections" | "review_retries" | "unstick" => {
+                return Err(format!("--set {k}: the engine has no setting for it (the driver's switch is an environment variable of its loop, and `runbook run` passes no environment to a bound program)"));
+            }
+            _ if k.starts_with("max_runs.") || k.starts_with("timeout.") => {}
+            other => return Err(format!("--set {other}: not a condition of a re-drive under `runbook run`")),
+        }
+    }
+    let exe_text = exe.display().to_string();
+    let mut s = Map::new();
+    if let Some(a) = last["autonomy"].as_str() {
+        s.insert("autonomy".into(), json!(a));
+    }
+    let source_decider = &last["decider"];
+    let decider = match source_decider["kind"].as_str() {
+        Some("model") => {
+            let mut d = json!({"kind": "model", "adapter": exe_text, "without_claims": true});
+            for k in ["model", "escalate", "max_decider_calls"] {
+                if !source_decider[k].is_null() {
+                    d[k] = source_decider[k].clone();
+                }
+            }
+            for (k, v) in &decider_overrides {
+                d[k] = v.clone();
+            }
+            Some(d)
+        }
+        Some(v @ ("approve" | "reject")) => Some(json!({"kind": "rule", "verdict": v})),
+        _ => None,
+    };
+    if let Some(d) = decider {
+        s.insert("decider".into(), d);
+    }
+    let mut models = Map::new();
+    for (class, m) in last["models"].as_object().into_iter().flatten() {
+        if m["source"] != "binding" && m["source"] != "default" {
+            if let Some(model) = m["model"].as_str() {
+                models.insert(class.clone(), json!({"model": model}));
+            }
+        }
+    }
+    if !models.is_empty() {
+        s.insert("models".into(), Value::Object(models));
+    }
+    // A source run by `runbook run` names no `llm_nodes`: the nodes it called are the nodes it sent to a model.
+    let called: BTreeSet<&str> = calls.iter().filter(|c| c["kind"] == "work").filter_map(|c| c["name"].as_str()).collect();
+    let nodes: Option<Vec<&str>> = last["llm_nodes"]
+        .as_str()
+        .map(|t| t.split_whitespace().collect())
+        .or_else(|| (!called.is_empty()).then(|| called.iter().copied().collect()))
+        .filter(|n: &Vec<&str>| !n.is_empty());
+    s.insert("replay".into(), json!({"adapter": exe_text, "nodes": nodes, "actions": actions, "principal": principal}));
+    Ok(Value::Object(s))
+}
+
 fn short(c: &Value) -> String {
     c["commit"].as_str().map(|s| s.chars().take(12).collect()).unwrap_or_else(|| {
         format!("an unrecorded commit{}", c["checkout"].as_str().map(|h| format!(" (checkout {h})")).unwrap_or_default())
@@ -851,12 +1012,20 @@ fn first_line(plan: &Value) -> String {
         Some(false) => "DIFFERENT TREES: code changed since the recording, calls can diverge for that alone".to_string(),
         None => "trees not comparable (the source names no commit): calls can diverge for code changes".to_string(),
     };
+    // Each condition by its kind and value: `(max_runs 2)`, `(timeout 9)`.
+    let conditions: Vec<String> = plan["conditions"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| format!("{} {}", k.split('.').next().unwrap_or(k), v.as_str().map_or_else(|| v.to_string(), str::to_string)))
+        .collect();
     format!(
-        "re-drive of {} (recorded on tree {}) on tree {}{}: {}; policy {}, {} injection(s), {} condition(s)",
+        "re-drive of {} (recorded on tree {}) on tree {}{}: {}; policy {}, {} injection(s), {} condition(s){}",
         s["name"].as_str().unwrap_or("?"), short(&s["tree"]), short(&plan["tree"]),
         if plan["tree"]["dirty"] == true { " with uncommitted changes" } else { "" }, trees,
         plan["policy"].as_str().unwrap_or("stop"), plan["injections"].as_array().map_or(0, |a| a.len()),
-        plan["conditions"].as_object().map_or(0, |m| m.len()) + plan["take_recorded"].as_array().map_or(0, |a| a.len())
+        conditions.len() + plan["take_recorded"].as_array().map_or(0, |a| a.len()),
+        if conditions.is_empty() { String::new() } else { format!(" ({})", conditions.join(", ")) }
     )
 }
 
@@ -868,9 +1037,19 @@ struct Ctx {
     calls: Vec<Value>,
 }
 
+/// The plan nearest above `from` (a call's record directory): the run directory of `runbook run`
+/// holds `replay/plan.json`, and the runner passes a program no environment to name it.
+fn find_plan(from: &Path) -> Option<PathBuf> {
+    from.ancestors().map(|d| d.join("replay/plan.json")).find(|p| p.is_file())
+}
+
 fn ctx() -> R<Ctx> {
     let p = std::env::var("SDC_REPLAY").map_err(|_| "sdc-replay: SDC_REPLAY (the replay plan) is not set".to_string())?;
-    let plan = read_json(Path::new(&p))?;
+    ctx_at(Path::new(&p))
+}
+
+fn ctx_at(plan_path: &Path) -> R<Ctx> {
+    let plan = read_json(plan_path)?;
     let out = PathBuf::from(plan["out"].as_str().unwrap_or(""));
     let calls = read_json(&out.join("replay/index.json"))?["calls"].as_array().cloned().unwrap_or_default();
     Ok(Ctx { plan, out, calls })
@@ -890,9 +1069,12 @@ fn same_key(c: &Value, k: &Value) -> bool {
         && c["attempt"].as_u64().unwrap_or(1) == k["attempt"].as_u64().unwrap_or(1)
 }
 
-fn differences(c: &Value, inputs: &BTreeMap<String, String>, request: &Value) -> Vec<String> {
+fn differences(c: &Value, inputs: &BTreeMap<String, String>, request: &Value, skip: &[&str]) -> Vec<String> {
     let mut d = Vec::new();
-    let src: BTreeMap<String, String> = serde_json::from_value(c["inputs"].clone()).unwrap_or_default();
+    let mut src: BTreeMap<String, String> = serde_json::from_value(c["inputs"].clone()).unwrap_or_default();
+    src.retain(|f, _| !skip.contains(&f.as_str()));
+    let inputs: BTreeMap<String, String> = inputs.iter().filter(|(f, _)| !skip.contains(&f.as_str())).map(|(f, h)| (f.clone(), h.clone())).collect();
+    let inputs = &inputs;
     for (f, h) in inputs {
         match src.get(f) {
             None => d.push(format!("{f} is new")),
@@ -959,10 +1141,13 @@ fn fault_for<'a>(plan: &'a Value, kind: &[&str], case: &str, name: &str, n_case:
 
 fn adapter(req_path: &Path) -> R<i32> {
     let started = std::time::Instant::now();
-    let c = ctx()?;
     let req = read_json(req_path)?;
     let node = req["node"].as_str().unwrap_or("").to_string();
     let rec = PathBuf::from(req["record_dir"].as_str().unwrap_or(""));
+    let c = match find_plan(&rec) {
+        Some(p) => ctx_at(&p)?,
+        None => ctx()?,
+    };
     let cwd = PathBuf::from(req["cwd"].as_str().unwrap_or(""));
     let case_dir = PathBuf::from(req["case_dir"].as_str().unwrap_or(""));
     let decider = node.starts_with("decide.") || node.starts_with("requester.");
@@ -986,9 +1171,19 @@ fn adapter(req_path: &Path) -> R<i32> {
         json!({"kind": "decider", "case": case, "name": name, "arrival": earlier + u64::from(attempt == 1), "try": attempt, "attempt": 1})
     } else {
         let case = req["case"].as_str().filter(|s| !s.is_empty()).map(String::from).unwrap_or_else(|| case_of_dir(case_dir.to_str().unwrap_or("")));
-        let evs = jsonl(&case_dir.join("events.jsonl"));
-        let writes = write_actions(&read_json_or(&case_dir.join("ir.json"), Value::Null));
-        let i = evs.iter().rposition(|e| e["event"] == "action_started" && e["action"] == node.as_str()).unwrap_or(evs.len());
+        // A call of `runbook run` is in flight: its action is not finished in Loom's log yet.
+        let (evs, writes, i) = match loom_events(&c.out.join("store"), &case) {
+            Some(evs) => {
+                let end = evs.len();
+                (evs, HashSet::new(), end)
+            }
+            None => {
+                let evs = jsonl(&case_dir.join("events.jsonl"));
+                let writes = write_actions(&read_json_or(&case_dir.join("ir.json"), Value::Null));
+                let i = evs.iter().rposition(|e| e["event"] == "action_started" && e["action"] == node.as_str()).unwrap_or(evs.len());
+                (evs, writes, i)
+            }
+        };
         let (arrival, try_) = arrival_try(&evs, &writes, i, &node);
         json!({"kind": "work", "case": case, "name": node, "arrival": arrival, "try": try_,
             "attempt": req["review_attempt"].as_u64().unwrap_or(1)})
@@ -1007,7 +1202,10 @@ fn adapter(req_path: &Path) -> R<i32> {
     let mut chosen: Option<&Value> = None;
     match exact {
         Some(x) => {
-            difference = differences(x, &inputs, &request);
+            // Under `runbook run` a decider is shown Loom's decision and checks (`decision.json`, `checks.json`): another
+            // document than the old driver's, so they say nothing about the evidence the decider read, which the other files hold.
+            let envelope: &[&str] = if decider && is_loom_run(&c.out) { &["in/decision.json", "in/checks.json"] } else { &[] };
+            difference = differences(x, &inputs, &request, envelope);
             if difference.is_empty() {
                 chosen = Some(x);
             }
@@ -1016,7 +1214,8 @@ fn adapter(req_path: &Path) -> R<i32> {
     }
     let policy = c.plan["policy"].as_str().unwrap_or("stop");
     let live_n = log.iter().filter(|l| l["mode"] == "live").count() as u64;
-    let live_cap = c.plan["live"]["cap"].as_u64().unwrap_or(5);
+    // Fails closed: a cap that cannot be read is no cap to spend, so no live call starts.
+    let live_cap = c.plan["live"]["cap"].as_u64();
     let mut diverged: Option<String> = None;
     if chosen.is_none() {
         match policy {
@@ -1027,8 +1226,13 @@ fn adapter(req_path: &Path) -> R<i32> {
                 }
                 None => diverged = Some("nothing to reuse: the source has no call of this node or decision in this case".into()),
             },
-            "live" if live_n < live_cap => mode = "live",
-            "live" => diverged = Some(format!("the live call cap is spent ({live_cap} live calls, --live-cap)")),
+            "live" if live_cap.is_some_and(|cap| live_n < cap) => mode = "live",
+            "live" => {
+                diverged = Some(match live_cap {
+                    Some(cap) => format!("the live call cap is spent ({cap} live calls, --live-cap)"),
+                    None => "the live call cap is not readable in the plan (live.cap): no live call starts".to_owned(),
+                })
+            }
             _ => diverged = Some(String::new()),
         }
     }
@@ -1057,7 +1261,7 @@ fn adapter(req_path: &Path) -> R<i32> {
         line["mode"] = json!("diverged");
         line["difference"] = json!(what);
         let summary = format!("{} at {}: {}", if decider { "decider call" } else { "model call" }, key_str(&key), what);
-        write_json(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
+        write_first(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
             "place": {"kind": key["kind"], "case": case, "case_dir": case_dir.display().to_string(), "name": name, "arrival": key["arrival"], "try": key["try"],
                 "attempt": key["attempt"], "record": line["record"]},
             "policy": policy, "difference": what, "summary": summary}))?;
@@ -1074,7 +1278,12 @@ fn adapter(req_path: &Path) -> R<i32> {
     let mut code;
     if mode == "live" {
         let bin = c.plan["live"]["bin"].as_str().unwrap_or("");
-        let o = Command::new(bin).arg(req_path).output().map_err(|e| format!("live adapter {bin}: {e}"))?;
+        let mut live = Command::new(bin);
+        live.arg(req_path);
+        if c.plan["live"]["adapter"] == "dry" {
+            live.env("SDC_LLM_DRY_LOG", c.out.join("dry-commands.txt"));
+        }
+        let o = live.output().map_err(|e| format!("live adapter {bin}: {e}"))?;
         let _ = fs::write(rec.join("live-stderr.txt"), &o.stderr);
         resp = serde_json::from_slice(&o.stdout).unwrap_or(json!({}));
         code = o.status.code().unwrap_or(1);
@@ -1110,7 +1319,7 @@ fn adapter(req_path: &Path) -> R<i32> {
         line["virtual_ms"] = x["virtual_ms"].clone();
         code = resp["exit"].as_i64().unwrap_or(0) as i32;
         // The virtual clock: a recorded call that took longer than this run's timeout times out.
-        let timeout_s = std::env::var("SDC_TIMEOUT_S").ok().and_then(|t| t.parse::<u64>().ok());
+        let timeout_s = timeout_s_of(&c.out, &node);
         if let Some(t) = timeout_s.filter(|t| x["virtual_ms"].as_u64().unwrap_or(0) >= t * 1000) {
             if fault.is_none() {
                 line["fault"] = json!(format!("virtual-timeout ({} ms recorded, timeout_s {t})", x["virtual_ms"]));
@@ -1122,7 +1331,7 @@ fn adapter(req_path: &Path) -> R<i32> {
         let v = f["value"].as_str().unwrap_or("");
         match f["fault"].as_str().unwrap() {
             "timeout" => {
-                let t = std::env::var("SDC_TIMEOUT_S").ok().and_then(|t| t.parse::<u64>().ok()).unwrap_or(0);
+                let t = timeout_s_of(&c.out, &node).unwrap_or(0);
                 let ms = line["virtual_ms"].as_u64().unwrap_or(0);
                 code = timeout(&cwd, &mut resp, &mut line, t, ms)?;
             }
@@ -1172,8 +1381,13 @@ fn adapter(req_path: &Path) -> R<i32> {
 /// SDC_VIRTUAL_TIMEOUT, the timeout's seconds on the virtual clock.
 fn timeout(cwd: &Path, resp: &mut Value, line: &mut Value, timeout_s: u64, recorded_ms: u64) -> R<i32> {
     clear_dir(&cwd.join("out"))?;
-    if let Ok(f) = std::env::var("SDC_VIRTUAL_TIMEOUT") {
-        let _ = fs::write(f, format!("the recorded call took {} s, timeout_s {timeout_s}", recorded_ms / 1000));
+    let why = format!("the recorded call took {} s, timeout_s {timeout_s}", recorded_ms / 1000);
+    match std::env::var("SDC_VIRTUAL_TIMEOUT") {
+        Ok(f) => {
+            let _ = fs::write(f, &why);
+        }
+        // No driver reads a file under `runbook run`: the program's output says it, as the driver did.
+        Err(_) => eprintln!("sdc-drive: killed after {timeout_s} s (virtual clock: {why})"),
     }
     let ms = if timeout_s > 0 { timeout_s * 1000 } else { recorded_ms };
     line["virtual_ms"] = json!(ms);
@@ -1184,11 +1398,39 @@ fn timeout(cwd: &Path, resp: &mut Value, line: &mut Value, timeout_s: u64, recor
     Ok(124)
 }
 
+/// The timeout of an action on the virtual clock: `SDC_TIMEOUT_S` (the driver's), else the
+/// `timeout_seconds` of the action in the run's bindings copy (`<run>/bindings/*.yaml`, where the
+/// conditions of the plan were applied).
+fn timeout_s_of(out: &Path, action: &str) -> Option<u64> {
+    if let Some(t) = std::env::var("SDC_TIMEOUT_S").ok().and_then(|t| t.parse::<u64>().ok()) {
+        return Some(t);
+    }
+    for file in files_under(&out.join("bindings")).into_iter().filter(|f| f.extension().is_some_and(|x| x == "yaml")) {
+        let text = fs::read_to_string(&file).unwrap_or_default();
+        let mut current: Option<&str> = None;
+        for line in text.lines() {
+            let t = line.trim_start().trim_start_matches("- ");
+            if let Some(name) = t.strip_prefix("action:") {
+                current = Some(name.trim().trim_matches(|c| c == '"' || c == '\''));
+            } else if let (Some(v), true) = (t.strip_prefix("timeout_seconds:"), current == Some(action)) {
+                if let Ok(n) = v.trim().parse() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
 // --- programs ------------------------------------------------------------------------------------
 
-fn program(action: &str, argv: &[String]) -> R<i32> {
-    let c = ctx()?;
-    let case = std::env::var("SDC_CASE").unwrap_or_default();
+fn program(action: &str, plan: Option<&Path>, argv: &[String]) -> R<i32> {
+    let c = match plan {
+        Some(p) => ctx_at(p)?,
+        None => ctx()?,
+    };
+    // A program of `runbook run` names its case in LOOM_CASE; the driver's in SDC_CASE.
+    let case = std::env::var("LOOM_CASE").or_else(|_| std::env::var("SDC_CASE")).unwrap_or_default();
     let log_p = c.out.join("replay/programs.jsonl");
     let log = jsonl(&log_p);
     let n_case = 1 + log.iter().filter(|l| l["case"] == case.as_str() && l["action"] == action).count() as u64;
@@ -1206,7 +1448,7 @@ fn program(action: &str, argv: &[String]) -> R<i32> {
         });
         let Some(e) = pick else {
             let what = format!("the source ran {action} {} time(s) in {case}, this is run {n_case}", runs.len());
-            write_json(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
+            write_first(&c.out.join("replay/diverged.json"), &json!({"format": "sdc.replay-divergence/1",
                 "place": {"kind": "program", "case": case, "case_dir": std::env::var("SDC_CASE_DIR").ok(), "name": action, "ordinal": n_case}, "policy": c.plan["policy"],
                 "difference": what, "summary": format!("program {action} in {case}: {what}")}))?;
             line["mode"] = json!("diverged");
@@ -1286,6 +1528,11 @@ fn seal(out: &Path) -> R<Value> {
     for f in ["status.json", "run-stopped.json"] {
         if let Ok(mut v) = read_json(&out.join(f)) {
             v["replay"] = s.clone();
+            // `runbook run` ends a diverged re-drive by its own cause (`error`): the recording's.
+            if let (Some(d), true) = (s["diverged"].as_object(), f == "run-stopped.json" && v["cause"] != "recording_diverged") {
+                v["cause"] = json!("recording_diverged");
+                v["reason"] = d.get("summary").cloned().unwrap_or(Value::Null);
+            }
             write_json(&out.join(f), &v)?;
         }
     }
@@ -1483,17 +1730,17 @@ fn main() -> ExitCode {
     }
     let cli = Cli::parse();
     let r: R<(Value, u8)> = match &cli.cmd {
-        Cmd::Prepare { source, out, tree, source_tree, on_divergence, live_adapter, live_cap, inject, set, take_recorded } => prepare(
-            source, out, tree.as_deref(), source_tree.clone(), on_divergence, live_adapter, *live_cap, inject, set, take_recorded,
+        Cmd::Prepare { source, out, tree, source_tree, on_divergence, live_adapter, live_cap, inject, set, take_recorded, plan_only } => prepare(
+            source, out, tree.as_deref(), source_tree.clone(), on_divergence, live_adapter, *live_cap, inject, set, take_recorded, !plan_only,
         )
         .map(|v| (v, 0)),
         Cmd::Env { out } => read_json(&out.join("replay/env.json")).map(|v| (v, 0)),
         Cmd::Settings { out } => settings(out).map(|v| (v, 0)),
-        Cmd::Program { action, argv } => {
+        Cmd::Program { action, plan, argv } => {
             if argv.is_empty() {
                 Err("program: no argv after --".into())
             } else {
-                return match program(action, argv) {
+                return match program(action, plan.as_deref(), argv) {
                     Ok(c) => ExitCode::from(c.clamp(0, 255) as u8),
                     Err(e) => {
                         eprintln!("sdc-replay: {e}");

@@ -13,11 +13,6 @@ pub type Refusal = (u8, String);
 /// The exit code of a usage error.
 pub const USAGE: u8 = 64;
 
-/// The refusal of an option whose port is not built.
-pub fn not_built(option: &str) -> Refusal {
-    (USAGE, format!("{option} is not built yet"))
-}
-
 /// What to do with a call that has no recorded reply (`--on-divergence`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
 pub enum OnDivergence {
