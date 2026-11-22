@@ -4614,7 +4614,7 @@
       ],
       "primary": null,
       "purpose": "Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom (\"Tolerance, written before the Loom runs\"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited.",
-      "tree": "ec5afa5",
+      "tree": "ee6b50b",
       "variants": [
         {
           "clean_passes": 0,
@@ -5180,7 +5180,7 @@
     },
     {
       "path": "experiments/parity-loom-strong-2.yaml",
-      "sha256": "e0899e5e8aa08ae1cb0403ee8d25feecb023379b83a1a0b16889788245850e76"
+      "sha256": "44748383295e338bd5167b9fe05b314caca342e404eec7ea4f58a0a9c98eee52"
     },
     {
       "path": "experiments/parity-loom-strong.yaml",

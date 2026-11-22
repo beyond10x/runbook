@@ -10,7 +10,7 @@ inputs:
   kind: idea
   text: A to-do list web app for me and my partner that also works on the train without a connection
   sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
-tree_commit: ec5afa537837da57f4f2ed368f62b001816971b5
+tree_commit: ee6b50bd455ac0b710bf8ce856396cc1f27d2a8c
 fixed:
   loom.bin: ~/.local/state/runbook/loom/5af3f9c2/b10x-loom
   loom.sha256: 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2
@@ -67,4 +67,4 @@ facts:
 - Loom commit 5af3f9c2 (b10x-loom 0.58.0), binary sha256 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2; it names every-printed-decision-command-runs and person-action-records-a-named-result (the two conditions of the approval).
 - 'The model login is named at start time only: sdc-experiment run parity-loom-strong-2 --login-file <login file>; no record, log or report names its path.'
 - The spend of the three runs is booked through the shared ledger runs/parity-loom-strong-2.loom-spend.json (one ledger per record id, so it starts empty); cap 20.00 USD, stop line 19.00 USD. The ledger of the replaced record booked 6.00 USD of reservations for steps of unknown cost and no money was spent, so the approved cap of 20.00 USD has not been used.
-- 'The tree is the fix: the metaharness adapter gives metaharness the login in a private HOME for its call, and a model call that fails without a cost is booked at its reservation and the run goes on, with a reason that names the action, the adapter, the exit and the first line of the adapter stderr.'
+- 'The tree is the fix: the metaharness adapter gives metaharness the login in a private HOME for its call (and the claude-cli adapter its config home) in the private directory of the runner, never in the run directory, and a model call that fails without a cost is booked at its reservation and the run goes on, with a reason that names the action, the adapter, the exit and the first line of the adapter stderr.'

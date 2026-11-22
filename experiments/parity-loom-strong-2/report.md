@@ -6,7 +6,7 @@ Written by `sdc-experiment report parity-loom-strong-2` from `experiments/parity
 - Purpose: Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
-- Tree: `ec5afa537837da57f4f2ed368f62b001816971b5`
+- Tree: `ee6b50bd455ac0b710bf8ce856396cc1f27d2a8c`
 - Runs per variant: 3; pass rule: clean-delivery (closed, delivered, no reopen, forced step or unstick).
 - Decision rule (descriptive): Hypothesis: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance of story:parity-run-on-loom. The record has one variant, so sdc-experiment reports it as descriptive and decides nothing; the verdict is read against the tolerance in the story, run by run: each quality measure of a Loom run lies within the range of the three driver runs (experiments/release-0.1.2/report.md, strong), and the members the story lists as equal are equal. Every end counts; no run is repaired, reopened or forced. A run that falls outside is reported as such. This record replaces parity-loom-strong, abandoned after its three runs ended before any model call.
 
@@ -89,7 +89,7 @@ descriptive: no hypothesis: the record describes its runs and decides nothing.
 - Loom commit 5af3f9c2 (b10x-loom 0.58.0), binary sha256 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2; it names every-printed-decision-command-runs and person-action-records-a-named-result (the two conditions of the approval).
 - The model login is named at start time only: sdc-experiment run parity-loom-strong-2 --login-file <login file>; no record, log or report names its path.
 - The spend of the three runs is booked through the shared ledger runs/parity-loom-strong-2.loom-spend.json (one ledger per record id, so it starts empty); cap 20.00 USD, stop line 19.00 USD. The ledger of the replaced record booked 6.00 USD of reservations for steps of unknown cost and no money was spent, so the approved cap of 20.00 USD has not been used.
-- The tree is the fix: the metaharness adapter gives metaharness the login in a private HOME for its call, and a model call that fails without a cost is booked at its reservation and the run goes on, with a reason that names the action, the adapter, the exit and the first line of the adapter stderr.
+- The tree is the fix: the metaharness adapter gives metaharness the login in a private HOME for its call (and the claude-cli adapter its config home) in the private directory of the runner, never in the run directory, and a model call that fails without a cost is booked at its reservation and the run goes on, with a reason that names the action, the adapter, the exit and the first line of the adapter stderr.
 
 ## Links
 
