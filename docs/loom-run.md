@@ -138,10 +138,10 @@ decision at a new revision and is asked again. An approved decision that comes b
 The decider is chosen from the settings key `decider` (`docs/loom-run-settings.md`; what each kind
 answers is in `docs/loom-run-decisions.md`). With no `decider` key every decision ends the run as
 `stopped: decider`. `{"kind": "scripted", "answers": [...]}` is the test double the tests use. For
-the kinds `model` and `rule` the runner sets `decider.program` to `bindings/tools/decider.sh` of the
-run's own copy and, for `model`, finds `sdc-reply` on its `PATH` when `decider.reply_bin` is not
-given; `jq`, `yq` and `rsync` have to be on that `PATH` too (`decider.sh` exits 127 without them and
-the run ends as `stopped: decider`). The bindings copy is made by `bindings_copy::materialise` with
+the kinds `model` and `rule` the decider runs inside the runner: a rule answers by itself, a model
+decision starts only the adapter program of `decider.adapter` from the run's own copy (the adapters
+are bash with `jq`, so `jq` has to be on the runner's `PATH`; a missing adapter or `jq` ends the run
+as `stopped: decider`), and `sdc-reply` found on that `PATH` is handed to it as `SDC_REPLY`. The bindings copy is made by `bindings_copy::materialise` with
 the settings as read, before `tree open`, and Loom is given the root file it returns.
 
 ## The environment of the child

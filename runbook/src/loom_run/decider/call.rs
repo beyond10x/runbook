@@ -154,7 +154,8 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
 
     let effort = c.effort.map(str::to_owned).or_else(|| default_effort(c.tools));
     let case = sdc_tools::reply::read_json(&case_dir.join("case.json"));
-    let usd = super::approval::usd_text(c.budget_micro_usd).parse::<f64>().unwrap_or(0.0);
+    let usd_literal = super::approval::usd_text(c.budget_micro_usd);
+    let usd = usd_literal.parse::<f64>().unwrap_or(0.0);
     let request = json!({
         "model": c.model, "effort": effort, "prompt_file": prompt_file.display().to_string(), "cwd": cwd.display().to_string(),
         "record_dir": c.rec.display().to_string(), "node": format!("decide.{}", raw(&req["action"])),
@@ -163,7 +164,9 @@ fn ask(c: &ModelCall<'_>, adapter: &str, cwd: &Path) -> Result<(Replied, i64), F
         "max_turns": c.max_turns.unwrap_or(DEFAULT_MODEL_TURNS), "max_budget_usd": usd,
     });
     let request_file = c.rec.join("request.json");
-    write_pretty(&request_file, &request).map_err(program)?;
+    // `jq` keeps the text of a number it was given as text (`0.250000`): so does the file.
+    let text = format!("{}\n", serde_json::to_string_pretty(&request).unwrap_or_default()).replacen(&format!("\"max_budget_usd\": {}", Value::from(usd)), &format!("\"max_budget_usd\": {usd_literal}"), 1);
+    std::fs::write(&request_file, text).map_err(|e| program(format!("{}: {}", request_file.display(), e.kind())))?;
 
     let ran = start(&adapter_path(c.tools, adapter), &request_file, c).map_err(Failed::Ended)?;
     let exit = i64::from(ran.code);

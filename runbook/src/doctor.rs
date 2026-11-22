@@ -108,7 +108,7 @@ const SPECS: &[Spec] = &[
     Spec { name: "sdc-free-agent", kind: Kind::Helper, needs: RUN_OPT, by: "optional: free-agent runs", hint: BUILD_HELPERS },
     Spec { name: "sdc-answers", kind: Kind::Helper, needs: RUN_OPT, by: "optional: runbook loom-run with a decider at A5 (bindings/tools/answers.yaml)", hint: BUILD_HELPERS },
     Spec { name: "sdc-watch", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the file-change record of a run; SDC_WATCH=0 turns it off", hint: BUILD_HELPERS },
-    Spec { name: "rsync", kind: program("rsync"), needs: RUN_OPT, by: "optional: the model decider copies its inputs (bindings/tools/decider.sh)", hint: SHELL_TOOLS },
+    Spec { name: "rsync", kind: program("rsync"), needs: RUN_OPT, by: "optional: only bindings/tools/decider.sh (the old driver's decider) copies its inputs with it; the decider of runbook loom-run does not", hint: SHELL_TOOLS },
     Spec { name: "systemd-run", kind: program("systemd-run"), needs: ANY_OPT, by: "optional: sdc-experiment starts runs as transient units", hint: "needs systemd" },
     Spec { name: "curl", kind: program("curl"), needs: ANY_OPT, by: "optional: sdc-conform downloads artifacts", hint: SHELL_TOOLS },
     Spec { name: "tar", kind: program("tar"), needs: ANY_OPT, by: "optional: sdc-conform unpacks artifacts", hint: SHELL_TOOLS },

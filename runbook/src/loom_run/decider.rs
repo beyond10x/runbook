@@ -506,6 +506,11 @@ use call::{ModelCall, Replied};
 // integration test (tests/cli.rs) reaches the code only through the command line.
 #[cfg(test)]
 mod tests;
+// The slow lane `task test:decider-parity` (decider.sh against this decider), deleted with decider.sh.
+#[cfg(test)]
+mod parity;
+#[cfg(test)]
+mod parity_cases;
 
 /// The directory above the bindings copy's tools directory that holds `instructions/`: the nearest
 /// directory, the tools directory itself first, that has one.

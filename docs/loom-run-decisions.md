@@ -32,11 +32,12 @@ for it: the run ends or the step never exists.
 
 Notes.
 
-- `decider.sh` has the driver's mode only. There is no Loom mode: the decider builds the request it
-  reads (`case_dir` with `case.json` and a link `work` to the run's workspace) from the entry and
+- The decider runs inside the runner (`runbook/src/loom_run/decider/`; `bindings/tools/decider.sh` is
+  no longer started and stays for the old driver's scripts). It has the driver's mode only. There is no
+  Loom mode: the decider builds the request it reads (`case_dir` with `case.json` and a link `work` to the run's workspace) from the entry and
   Loom's case file. `case.json` holds the case and the artifacts Loom's store knows with their
   revisions.
-- The decider's `claims` are not in Loom's output. `decider.sh model` tells the model to read the
+- The decider's `claims` are not in Loom's output. The model prompt tells the model to read the
   claims of the position from `in/checks.json`; it gets an empty position. A model decider therefore
   runs only with `decider.without_claims: true` in the settings, the run's explicit acknowledgement;
   without it the answer is `CannotDecide` naming this. Every record of the run says so.
@@ -57,35 +58,38 @@ Notes.
   the driver's `SDC_DECIDER_RETRIES`), then `CannotDecide`.
 - Anything missing, unparsable or with an exit code other than 0 is `CannotDecide`: no JSON object, no
   `decision`, no `cost_usd`, a non-zero exit (the last stderr lines are in the reason), a timeout
-  (`timeout_seconds`, default 900; the program's whole process group is ended), a program that cannot
-  start.
+  (`timeout_seconds`, default 900; the adapter's whole process group is ended), an adapter that
+  cannot start (its call directory then holds no `out/decision.json`: an invalid reply).
 - The decider's `cost_usd` is the cost of the call; the retries add up. The per-call budget the
-  runner reserved is handed to the script as `SDC_DECIDER_MAX_BUDGET_USD`, never more than
+  runner reserved is handed to the adapter as `max_budget_usd` of its request, never more than
   `decider.max_budget_usd` (default 0.25).
 
 ## The decider's environment
 
-`decider.sh` starts with the environment built here and nothing inherited from the runner or the
-shell (`env_clear`). The working directory is the call's record directory; standard input is empty.
+The decider starts one program: the adapter of `decider.adapter` (`metaharness`, `claude-cli`,
+`dry`, the default `metaharness`, or a path), from the run's bindings copy, with the call's
+`request.json` as its only argument. It gets the environment built here and nothing inherited from
+the runner or the shell (`env_clear`), in its own process group. The working directory is the call's
+record directory; standard input is empty. The model, effort, turn limit and per-call budget are
+members of `request.json`, not variables.
 
 | Variable | Value | When |
 |---|---|---|
 | `PATH` | the `PATH` of the runner's `child_env` (R1), nothing else of it | always; a `child_env` without `PATH` is `CannotDecide` |
 | `HOME` | `<run>/home` | always |
-| `SDC_REPLY` | `decider.reply_bin`, the `sdc-reply` binary | kind `model` |
-| `SDC_LLM_MODEL_DECIDER` | `decider.model` | kind `model` |
-| `SDC_DECIDER_ESCALATE` | `final` or `stop` | kind `model` |
-| `SDC_DECIDER_MAX_BUDGET_USD` | the per-call budget, `0.250000` form | kind `model` |
-| `SDC_DECIDER_ADAPTER` | `decider.adapter` | when set |
-| `SDC_LLM_EFFORT_DECIDER` | `decider.effort` | when set (else `node-classes.json`: xhigh) |
-| `SDC_DECIDER_MAX_TURNS` | `decider.max_turns` | when set (else 8) |
+| `SDC_REPLY` | `decider.reply_bin`, the `sdc-reply` binary the launcher found on `PATH` | kind `model`, when one is found (a scripted adapter of a test may read it; the three adapters of the copy do not) |
 | `SDC_CLAUDE_CREDENTIALS` | `<run>/login`, the link the copy made (the settings' path when there is no link) | only when the settings name a login file |
 
-`jq`, `yq` and `rsync` must be on `PATH`; `decider.sh` exits 127 without them, which is
-`CannotDecide`. It finds `instructions/decider/` by walking up from its own directory: the copy puts
-`instructions/` beside the bindings copy. The login's path is removed from every stderr line the
-decider keeps (`<login file>`), and it is in no argument, no file of the run directory but the link,
-and no result.
+The adapters are bash with `jq` (`metaharness`, `claude-cli`, `dry`) and need `jq` on `PATH`. The
+decider itself needs no `jq`, `yq`, `rsync` or `bash`: it renders the prompt, copies the inputs,
+resolves the cites and checks the reply in the runner, with the library of `sdc-reply`
+(`driver/src/reply/`). The files of the call (`request.json`, `prompt.md`, `reply-schema.json`,
+`response.json`, `status.json`, `cwd/in/`, `cwd/out/decision.json`) and the reply are the bytes
+`decider.sh` wrote; the slow lane `task test:decider-parity` compares them. The `requester` kind of
+`decider.sh` is not reachable from a run and has no Rust path. It finds `instructions/decider/` by
+walking up from the bindings copy's tools directory: the copy puts `instructions/` beside it. The
+login's path is removed from every stderr line the decider keeps (`<login file>`), and it is in no
+argument, no file of the run directory but the link, and no result.
 
 ## The answers file
 
@@ -184,7 +188,9 @@ settings change them.
 ## Checks
 
 - Fast: `cargo test --locked --bin runbook loom_run::decider` and `loom_run::bindings_copy` (the
-  fake `decider.sh` is a script the test writes; the real one is run in rule mode, no model).
+  fake adapter is a script the test writes, the rules run in the runner; no model). The slow lane
+  `task test:decider-parity` runs `decider.sh` and the Rust decider on the same cases and compares
+  the bytes; it goes with `decider.sh`.
 - That Loom reads the copy (slow lane, needs the pinned `b10x-loom`): `RUNBOOK_LOOM_BIN=<b10x-loom>
   cargo test --locked --bin runbook -- --ignored loads_in_loom`. The test registers the protocols,
   makes a copy with the model, turn, budget, adapter and principal rewrites, runs `tree open` on it
