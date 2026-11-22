@@ -161,6 +161,46 @@ fn a_rejected_approval_is_one_approval_edge_and_a_looping_factor_of_two() {
     story_run(&run, 1, "claude-haiku-5-5");
     let (code, doc, err) = metrics(&run);
     assert_eq!(code, 0, "{err}");
+    one_rejection(&doc, 2.0);
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for e in fs::read_dir(from).unwrap().flatten() {
+        let (src, dst) = (e.path(), to.join(e.file_name()));
+        if src.is_dir() {
+            copy_tree(&src, &dst);
+        } else {
+            fs::copy(&src, &dst).unwrap();
+        }
+    }
+}
+
+/// `cycles/suite.yaml` entry `run-metrics`: the run directory of the Loom runner (the hand-written
+/// fixture `tests/fixtures/loom-run/` with `outcome.json`, `status.json`, `settings.json`, `rounds.jsonl`,
+/// `decider/` and events with `source: loom`) holding a story case in which `merge.approve` sent
+/// `change.implement` back once gives the figures of the driver's run directory.
+#[test]
+fn a_run_directory_of_the_loom_runner_with_a_rejected_approval_gives_the_same_figures() {
+    let run = scratch("loom-runner").join("run-l");
+    copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/loom-run"), &run);
+    for member in ["outcome.json", "status.json", "settings.json", "rounds.jsonl", "decider"] {
+        assert!(run.join(member).exists(), "the fixture lost {member}");
+    }
+    story_run(&run, 1, "claude-haiku-5-5");
+    for member in ["outcome.json", "status.json", "settings.json", "rounds.jsonl", "decider"] {
+        assert!(run.join(member).exists(), "{member} is the Loom runner's and stays");
+    }
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    assert_eq!(doc["metrics"]["cases"], 3, "the fixture's spec case is a case of the run");
+    one_rejection(&doc, 1.5);
+}
+
+/// The figures of a closed run whose story case had `change.implement` sent back once by
+/// `merge.approve` (written by `story_run(&run, 1, ..)`).
+fn one_rejection(doc: &Value, run_looping: f64) {
+    let doc = doc.clone();
     assert_eq!(doc["format"], "sdc.run-metrics/1");
     let n = node(&doc, "story/change.implement");
     assert_eq!(n["kind"], "llm-writer");
@@ -189,7 +229,7 @@ fn a_rejected_approval_is_one_approval_edge_and_a_looping_factor_of_two() {
     let m = &doc["metrics"];
     assert_eq!(m["end"], "closed: operating");
     assert_eq!((m["clean"].as_bool(), m["delivered"].as_bool(), m["furthest_stage"].as_str()), (Some(true), Some(true), Some("story")));
-    assert!(close(&m["cost_usd"], 0.17) && close(&m["looping_factor"], 2.0));
+    assert!(close(&m["cost_usd"], 0.17) && close(&m["looping_factor"], run_looping), "{m}");
     assert_eq!(m["findings_raised"], 1);
 }
 
