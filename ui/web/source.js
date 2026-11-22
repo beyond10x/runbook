@@ -45,7 +45,7 @@ const EMPTY = {
 
 // The open decision requests of the selected run, from the daemon's view open-decisions (rows as the daemon
 // has them: request_id, run_id, question, options, opened_at). The decisions made and the grounds are not in
-// the daemon's views, so the history stays empty. decide.js shows them and sends the answers.
+// the daemon's views, so the history stays empty. ui/daemon/decide.js (only the daemon serves it) shows them and sends the answers.
 async function inbox(index) {
   const run = order[index];
   const rows = run ? (await json(`/daemon/views/open-decisions?run_id=${encodeURIComponent(run)}`)).rows : [];

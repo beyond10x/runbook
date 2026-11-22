@@ -68,7 +68,7 @@ enum Cmd {
     #[command(args_conflicts_with_subcommands = true)]
     Canon {
         /// Print the linked Canon version, as `canon --version` did.
-        #[arg(long)]
+        #[arg(short = 'V', long)]
         version: bool,
         #[command(subcommand)]
         cmd: Option<canon_cmd::CanonCmd>,
@@ -150,7 +150,7 @@ fn main() -> ExitCode {
         Cmd::Parity { cmd } => parity_cmd(cmd),
         Cmd::Canon { version: true, .. } => canon_cmd::version(),
         Cmd::Canon { cmd: Some(cmd), .. } => canon_cmd::run(cmd),
-        Cmd::Canon { .. } => ExitCode::from(USAGE_ERROR),
+        Cmd::Canon { .. } => canon_usage(),
         Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
             let assets = assets::Lookup::from_process().locate().ok();
@@ -167,6 +167,15 @@ fn main() -> ExitCode {
             runbook::test_suite::command(args, protocols)
         }
     }
+}
+
+/// `runbook canon` with no subcommand: the reason and the subcommands it has, on standard error.
+fn canon_usage() -> ExitCode {
+    let mut command = <Cli as clap::CommandFactory>::command();
+    let names: Vec<String> = command.find_subcommand_mut("canon").map(|c| c.get_subcommands().map(|s| s.get_name().to_string()).collect()).unwrap_or_default();
+    eprintln!("error: runbook canon needs a subcommand: {}
+Usage: runbook canon <COMMAND>   (runbook canon --help lists them, runbook canon -V prints the Canon version)", names.join(", "));
+    ExitCode::from(USAGE_ERROR)
 }
 
 /// Exit 2 is an error (unreadable input); exit 1 is a difference.

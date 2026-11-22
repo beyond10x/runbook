@@ -5,7 +5,7 @@
 // event (awaiting_person, awaiting_authority) and the open scope-changing questions of the artifact
 // the runbook's view names (decisions.scope_answer). Which action, artifact and fields a
 // runbook has is its view (web/view.js, `decisions`); this file knows the runtime's records only.
-import fs from 'node:fs';
+import {readText, readJson, leavesRun, exists} from './runfiles.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -14,8 +14,6 @@ import {scopeAnswer, stallRule} from './web/view.js';
 
 const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent', 'terminable'];
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
-const readText = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
-const readJson = (p) => { try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return null; } };
 
 function lastVerdict(events) {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -40,13 +38,13 @@ function refs(p, out = {claims: [], evidence: []}) {
   for (const k of ['all', 'any', 'not', 'first', 'before']) if (p[k]) refs(p[k], out);
   return out;
 }
-function workDir(c) { try { return fs.realpathSync(path.join(c.dir, 'work')); } catch { return null; } }
+// A file of the run only: a link that leaves the run (the work directory itself, or the artifact) is no artifact.
 function artifactPath(c, name) {
   const rel = c.bindings?.$artifacts?.[name];
-  const work = workDir(c);
-  if (!rel || !work) return null;
+  const work = path.join(c.dir, 'work');
+  if (!rel || !exists(work)) return null;
   const abs = path.resolve(work, rel);
-  return abs.startsWith(work + path.sep) ? abs : null;
+  return abs.startsWith(work + path.sep) && !leavesRun(abs) ? abs : null;
 }
 function yamlJson(file) {
   try { return JSON.parse(execFileSync('yq', ['-o=json', '.', file], {encoding: 'utf8', timeout: 10000})); } catch { return null; }
@@ -190,7 +188,7 @@ export function inbox(ctx) {
         items.push({...base, id: `approve:${c.rel}:${n.action}`, kind: 'approve', capability: cap, manual: !!b.manual, subject, revision, artifact: subject ? readArtifact(c, subject) : null,
           upstream: (b.upstream || []).map((u) => ({name: u, revision: c.case?.artifacts?.[u]?.revision})),
           unlocks: b.produces ? unlocks(c, b.produces) : null, produces: b.produces || null, scope,
-          grant: (readJson(path.join(c.dir, 'authority.json')) || []).find((g) => g.capability === cap) || null});
+          grant: [readJson(path.join(c.dir, 'authority.json'))].flat().find((g) => g && g.capability === cap) || null});
       } else {
         // not a decision: the stall action with no record for a person (the Now band says why nothing runs)
         if (n.action === stallAction() && amendStall(c, ctx.runDir)?.needsPerson === 0) continue;
@@ -199,7 +197,7 @@ export function inbox(ctx) {
     }
     const sc = scopeAnswer();
     const qfile = sc ? artifactPath(c, sc.artifact) : null;
-    if (qfile && !seenFiles.has(qfile) && fs.existsSync(qfile)) {
+    if (qfile && !seenFiles.has(qfile) && exists(qfile)) {
       seenFiles.add(qfile);
       const text = readText(qfile);
       const j = yamlJson(qfile);
@@ -254,7 +252,7 @@ export function history(ctx) {
     }
     const sc = scopeAnswer();
     const qfile = sc ? artifactPath(c, sc.artifact) : null;
-    if (!qfile || seenFiles.has(qfile) || !fs.existsSync(qfile)) continue;
+    if (!qfile || seenFiles.has(qfile) || !exists(qfile)) continue;
     seenFiles.add(qfile);
     for (const q of yamlJson(qfile)?.[sc.list] || []) {
       if (!q[sf(sc, 'answered_by')]) continue;

@@ -73,11 +73,15 @@ test('an option of the removed acts, or any other unknown option, exits 2 and na
 
 test('the page offers no control that acts and never reads a token', async ({page, request}) => {
   const s = src('history');
-  const main = await (await request.get(base + '/app.js')).text();
-  const inbox = await (await request.get(base + '/inbox.js')).text();
-  for (const text of [main, inbox, await (await request.get(base + '/index.html')).text()]) {
-    expect(text).not.toMatch(new RegExp(['/api/act', 'x-sdc-ui', 'sdc-' + 'drive', 'run-' + 'trial', 'toast'].join('|')));
+  const served = fs.readdirSync(path.join(ui, 'web'), {recursive: true}).filter((f) => /\.(js|html)$/.test(f));
+  expect(served.length).toBeGreaterThan(15);
+  for (const f of served) {
+    const res = await request.get(base + '/' + f);
+    expect(res.status(), f).toBe(200);
+    const text = await res.text();
+    expect(text, f).not.toMatch(new RegExp(['/api/act', 'x-sdc-ui', 'sdc-' + 'drive', 'run-' + 'trial', 'toast', '/daemon/commands', 'answer-' + 'decision', 'authorization', 'Bearer'].join('|'), 'i'));
   }
+  for (const f of ['decide.js', 'daemon/decide.js']) expect((await request.get(base + '/' + f)).status(), f).toBe(404);
   await page.goto(`${base}/?source=${s}&drawer=1`);
   const drawer = page.locator('#drawer');
   await expect(drawer.locator('.dcard').first()).toBeVisible();

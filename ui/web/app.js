@@ -11,8 +11,10 @@ import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 import {api, openEvents, daemonView, daemon} from './source.js';
-import {renderDaemonDrawer} from './decide.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
+// the act code (the token field, the POST of an answer) is a file only the daemon serves (ui/daemon/): this server
+// has no such file, and a page the daemon served loads it only because the daemon named itself
+const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDrawer : null;
 
 const q0 = new URLSearchParams(location.search);
 // a phone (decision D-006): the panel is a sheet, so it does not open by itself on load

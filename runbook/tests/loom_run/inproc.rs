@@ -533,3 +533,30 @@ fn a_person_program_that_fails_ends_the_run_with_the_engines_refusal() {
     assert!(outcome["reason"].as_str().unwrap().contains("PersonProgramFailed"), "{outcome}");
     assert!(!rig.work("r1").join("review-note.txt").exists());
 }
+
+// ---- the program of a person's action: its environment, and who may take it ----
+
+#[test]
+fn the_program_of_a_person_action_gets_path_and_loom_variables_and_nothing_of_the_runbook_process() {
+    let rig = Rig::new("person-env");
+    review_program(&rig, "#!/bin/sh\nenv > \"$PWD/person-env-dump.txt\"\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let dump = std::fs::read_to_string(rig.work("r1").join("person-env-dump.txt")).unwrap();
+    for needle in ["marker-value-8842", "RUNBOOK_MARKER_VARIABLE", "sk-fake-token-5517", "ANTHROPIC_API_KEY", "/marker-home-dir"] {
+        assert!(!dump.contains(needle), "{needle} reached the program of a person action:\n{dump}");
+    }
+    for name in dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)) {
+        assert!(name == "PATH" || name.starts_with("LOOM_") || matches!(name, "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is in the environment of the program of a person action:\n{dump}");
+    }
+}
+
+#[test]
+fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
+    let rig = Rig::new("person-model");
+    review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
+    rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "decider:model", "cost_micro_usd": 0}]}}));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert!(!rig.work("r1").join("review-note.txt").exists(), "the program of the person action ran for a model");
+}

@@ -18,6 +18,14 @@ node server.mjs --port 7490 ../runs/trial-todo-1/store ../runs/full-cycle-1/stor
 
 Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, from this directory, `task serve`.
 
+- The server listens on 127.0.0.1 and answers a request whose `Host` is `127.0.0.1:<port>`,
+  `localhost:<port>` or `[::1]:<port>` (the daemon's own set), with no `Origin` or the same one;
+  any other `Host` or `Origin` is refused with 421 before a route. A request it cannot parse is
+  answered 400 and one that fails inside a route 500; the process goes on.
+- A file of a run is read only when its real path lies under the real path of the run directory
+  (`runfiles.mjs`): a link that leaves the run is not followed, not listed and not served
+  (`/api/blob` answers 404); a link that stays inside is. `web/` is everything the server serves;
+  the code that answers a decision lives in `daemon/decide.js`, which only the daemon serves.
 - Each argument is a store directory (its subdirectories are root cases) or one case directory. A
   path that does not exist yet is waited for; cases and events show up as the run writes them.
 - `--runs DIR` (repeatable) serves every `DIR/<run>/store`, and a run that appears later joins the

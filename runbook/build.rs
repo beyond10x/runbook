@@ -1,6 +1,8 @@
-//! Lists the files of `ui/web/` for `src/ui_embed.rs`: the list is made from the directory at every
-//! build, so a file that is added there is embedded and the build is redone when one changes. A
-//! symbolic link in the directory, to a file or to a directory, fails the build and names the link.
+//! Lists the files of `ui/web/` and `ui/daemon/` for `src/ui_embed.rs`: the list is made from the two
+//! directories at every build, so a file that is added there is embedded and the build is redone when one
+//! changes. `ui/web/` is what the inspector (`ui/server.mjs`) serves too; `ui/daemon/` is the code only the
+//! daemon serves (the answer to a decision). A path in both fails the build. A symbolic link in either
+//! directory, to a file or to a directory, fails the build and names the link.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -54,16 +56,21 @@ fn main() {
     let lock = manifest.join("Cargo.lock");
     println!("cargo:rerun-if-changed={}", lock.display());
     println!("cargo:rustc-env=RUNBOOK_LOOM_COMMIT={}", loom_commit(&lock));
-    let web = manifest.join("../ui/web");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed={}", web.display());
-    if !web.is_dir() {
-        panic!("{} is not a directory: the UI is compiled into the binary from ui/web/", web.display());
-    }
-    let web = web.canonicalize().unwrap();
     let mut files = Vec::new();
-    walk(&web, &web, &mut files);
+    for dir in ["../ui/web", "../ui/daemon"] {
+        let dir = manifest.join(dir);
+        println!("cargo:rerun-if-changed={}", dir.display());
+        if !dir.is_dir() {
+            panic!("{} is not a directory: the UI is compiled into the binary from ui/web/ and ui/daemon/", dir.display());
+        }
+        let dir = dir.canonicalize().unwrap();
+        walk(&dir, &dir, &mut files);
+    }
     files.sort();
+    if let Some(w) = files.windows(2).find(|w| w[0].0 == w[1].0) {
+        panic!("{} is in both ui/web/ and ui/daemon/: one path, one file", w[0].0);
+    }
     let mut src = String::from("pub static FILES: &[(&str, &[u8])] = &[\n");
     for (rel, path) in &files {
         writeln!(src, "    ({rel:?}, include_bytes!({:?})),", path.to_str().unwrap()).unwrap();

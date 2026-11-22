@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {amendStall, inbox} from '../decisions.mjs';
+import {registerRun} from '../runfiles.mjs';
 import {nowState, renderNow} from '../web/now.js';
 import {useSdcView} from './sdc-view.mjs';
 useSdcView();
@@ -23,6 +24,7 @@ const events = (fails) => [{event: 'opened'}, ...Array.from({length: fails}, (_,
 
 function makeCase(findingStatus, fails) {
   fs.rmSync(root, {recursive: true, force: true});
+  registerRun(root);
   const dir = path.join(root, 'store', 'IDEA-1.todo.plan');
   fs.mkdirSync(path.join(dir, 'work'), {recursive: true});
   fs.writeFileSync(path.join(dir, 'work', 'findings.yaml'), `findings:\n- id: f1\n  status: ${findingStatus}\n`);

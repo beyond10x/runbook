@@ -1,7 +1,7 @@
 // The decisions drawer of a page the inspector server serves: every pending person decision of the
 // tree, the artifact to review, what deciding changes, and what was decided. It reads and takes no
 // act: a decision is answered through the daemon, as the one line DECIDE_AT says. (The page the
-// daemon serves has its own drawer, decide.js.)
+// daemon serves has its own drawer, ui/daemon/decide.js.)
 import {esc, decisionRows, decisionSummary} from './lenses.js';
 import {fieldsOf, fieldCounts, deciderPerField, takenText} from './holder.js';
 import {autopilot, runSettings} from './principal.js';
