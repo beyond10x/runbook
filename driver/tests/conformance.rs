@@ -374,7 +374,10 @@ fn a_value_the_product_prints_at_start_is_captured_and_bound_to_the_spec_value()
 fn a_capture_that_does_not_appear_is_unavailable_and_the_figure_unknown() {
     ess();
     let run = run_dir("capture-missing", "spec");
-    let t = write_table(run.parent().unwrap(), "t.json", &token_table("token-silent", true));
+    let mut silent = token_table("token-silent", true);
+    // the product never prints the token: each of the 7 scenarios x 2 runs waits the capture out
+    silent["captures"][0]["timeout_s"] = json!(1);
+    let t = write_table(run.parent().unwrap(), "t.json", &silent);
     let (o, d) = observe(&run, &t, &[]);
     assert!(o.status.success(), "{}", says(&o));
     let c = &d["conformance"];
