@@ -221,20 +221,23 @@ Commands (`sdc-experiment.rs`):
 - `report <id> [--runs-dir runs]`: summaries, `result`, `report.md`, `INDEX.md`; a prospective
   record whose variants all have `runs_per_variant` ended runs becomes `complete`. `index`
   rewrites `INDEX.md` alone.
-- `run <id>` (`:1650`) refuses a record that fails its check, a retrospective one, and one with no
-  pinned commit. It builds the commit once in `<builds>/<commit>` (default
-  `$XDG_STATE_HOME/sdc-experiment/builds`; a shared clone, `driver`, `goals` and `watch` built;
-  `<commit>.built.json` beside it), refuses that directory at another commit or with changes, and
-  never builds it again; an unbuilt one that runs already used is refused (`:1546`). It starts
-  variants × n as transient systemd user units `sdc-exp-<id>-<variant>-<n>`, ordinal 1 of every
-  variant first, at most `max_parallel` at once (default 3), `stagger_s` apart (default 30). Each
-  unit runs `env -i` with the login's base variables (`HOME`, `PATH`, `USER`, `LANG`, `XDG_*`,
-  `DBUS_SESSION_BUS_ADDRESS`; never an `SDC_` one, `:390`), `SDC_RUNS_DIR`, `SDC_PRINCIPAL` and the
-  record's settings (`:1447`), and calls the build's `scripts/run-trial.sh` with `--autopilot`
-  (autonomy A5), the run name `<id>.<variant>.<n>` and the input (`:1459`). It writes
-  `experiment.json` once run-trial.sh has made the run directory, adds the run to the record and
-  sets `running`. Started again, it skips runs that have `experiment.json`. `--print` shows the
-  units, variables and commands and starts nothing.
+- `run <id>` refuses a prospective record with a variant that has `runner: sdc` or no `runner`
+  (a record of the old driver, which is gone; exit 1, one line that names `runner: loom`), a
+  record that fails its check, a retrospective one, and one with no pinned commit. `check` and
+  `report` still read a record of the old driver, because the committed records under
+  `experiments/` are history; `check` cannot tell a new registration from a planned old one (both
+  are `kind: prospective`, `status: planned`, no `runner`), so it does not refuse a missing
+  `runner`; `run` does. A run starts only with `runbook run` (`runner: loom`, § 7.1) or, for
+  `runner: free-agent`, with `sdc-free-agent`. It builds the commit once in `<builds>/<commit>`
+  (default `$XDG_STATE_HOME/sdc-experiment/builds`; a shared clone, `driver`, `goals`, `watch` and,
+  for a `loom` record, `runbook` built; `<commit>.built.json` beside it), refuses that directory at
+  another commit or with changes, and never builds it again; an unbuilt one that runs already used
+  is refused. It starts variants × n as transient systemd user units
+  `sdc-exp-<id>-<variant>-<n>`, ordinal 1 of every variant first, at most `max_parallel` at once
+  (default 3), `stagger_s` apart (default 30). It writes `experiment.json` once the run has made
+  its directory, adds the run to the record and sets `running`. Started again, it skips runs that
+  have `experiment.json` (there is no separate `resume`). `--print` shows the units, variables and
+  commands and starts nothing.
 - `progress [--experiments <dir>]`: the progress ledger, `docs/progress.md`, `docs/progress.json`
   and `docs/img/progress.svg`, from the release table `experiments/releases.yaml` and the records
   it names (`sdc-experiment/progress.rs`, the image `sdc-experiment/chart.rs`). `report` writes it
@@ -244,17 +247,18 @@ Commands (`sdc-experiment.rs`):
   `change.review`; a value the summary lacks is null, never 0 (`run_metrics_j`). The loop around
   it: `docs/improving.md`.
 - `status <id>`: each run with its unit state, cost, wall seconds and end. `stop <id> --reason
-  <text> [--run <name>]`: `run-trial.sh <run> --stop <reason>` for each open run, then the unit is
-  stopped; without `--run` the record becomes `abandoned` with `stopped` (at, by, reason). A
-  `loom` run is stopped as § 7.1 says.
+  <text> [--run <name>]`: for each open run the stop record `run-stopped.json`, then the run's unit is
+  stopped (systemd sends SIGTERM to its process; no process is found by name); without `--run`
+  the record becomes `abandoned` with `stopped` (at, by, reason). This is the only stop path, as
+  § 7.1 says.
 
 ### 7.1 Runner loom
 
-A variant with `runner: loom` (beside `sdc`, the default, and `free-agent`) starts a model run
-through Loom: the unit runs `runbook run` of the record's tree (the `runbook` crate, built from
-`tree_commit` beside the driver's crates), which makes one run of the case tree through the
-`b10x-loom` binary and writes a run directory. Nothing of `run-trial.sh` takes part, and a `loom`
-unit is given no `SDC_` variable.
+A variant with `runner: loom` (beside `free-agent`; `sdc`, the old default, belongs to the
+removed driver and `run` refuses it) starts a model run through Loom: the unit runs `runbook run`
+of the record's tree (the `runbook` crate, built from `tree_commit` beside the driver's crates),
+which makes one run of the case tree and writes a run directory. A `loom` unit is given no `SDC_`
+variable.
 
 **Settings.** A prospective `loom` variant sets exactly these (a missing one is refused by its
 name, `check` and `run` both); a setting of the old driver is refused for it by name with the reason,
@@ -284,10 +288,12 @@ programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the u
 bindings) must be on the login's `PATH` and `run` refuses to start without them.
 
 Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
-`implement_coverage`, `conformance`, `rule_approvals` (switches of `run-trial.sh`),
-`flags.dry`, `flags.recorded` (flags of `run-trial.sh`), `efforts.<class>.effort` (no argument of
-`llm-node.sh` in Loom mode carries an effort, so the class defaults of `tools/node-classes.json`
-apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`). A record that compares the
+`implement_coverage`, `rule_approvals` (switches of the old driver), `conformance`, `flags.dry`,
+`flags.recorded` (each waits for its port into `runbook run`; in `sdc-experiment.rs` one function
+per setting, marked `// port: <name>`, which the port removes), `efforts.<class>.effort` (no
+argument of `llm-node.sh` in Loom mode carries an effort, so the class defaults of
+`tools/node-classes.json` apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`); a
+`seed` input (a bug-fix case) is refused until `runbook run` opens one (`// port: bugfix`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.
 
@@ -335,9 +341,10 @@ under the state directory). A record that is committed names no login: `sdc-expe
 
 **`status` and `stop`.** A `loom` run's unit is `sdc-exp-<id>-<variant>-<n>` and its run `<id>.<variant>.<n>`,
 as for the other runners. `stop` writes `run-stopped.json` (`sdc.run-stopped/1`, `at`, `by`, `reason`) into the
-run's directory when it exists, is not stopped and not finished (it never calls `run-trial.sh`),
-then stops the unit: systemd sends SIGTERM to `runbook run`, which writes its outcome on that
-signal (unit R1, `story:loom-run-core`). A run already stopped keeps its record.
+run's directory when it exists, is not stopped and not finished (no script is called), then
+stops the unit: systemd sends SIGTERM to `runbook run`, which writes its outcome on that signal
+(unit R1, `story:loom-run-core`). A run already stopped keeps its record. A process is never
+stopped by its name.
 
 **Example record** (not registered):
 

@@ -186,6 +186,10 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         let (code, out) = experiment(&["check", "lx"], &d);
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(&format!("{k} is refused for a loom variant")), "{k}: {out}");
+        // The settings that wait for a port of `runbook run` say so.
+        if ["flags.dry", "flags.recorded", "conformance"].contains(&k) {
+            assert!(out.contains("`runbook run` "), "{k}: {out}");
+        }
     }
     // A setting nobody knows, and bad values.
     for (k, v, want) in [("bogus.key", "1", "bogus.key is no loom launch setting"),
@@ -216,6 +220,77 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     let (code, out) = experiment(&["check", "lx"], &d);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("a loom variant starts from an idea input"), "{out}");
+    // A seed input is the bug-fix case that `runbook run` cannot open yet.
+    write_record(&d, &example("null").replace("kind: idea", "kind: seed"));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("`runbook run` has no --bugfix or --bugfix-ticket yet"), "{out}");
+}
+
+/// A planned record of the old driver: no `runner`, the settings of its launch table.
+fn old_driver_record(status: &str) -> String {
+    format!(
+        r#"format: sdc.experiment/1
+id: lx
+kind: prospective
+status: {status}
+created: 2026-11-21
+title: A record of the old driver
+purpose: Whether the launcher still starts a run of the old driver.
+inputs:
+- {{name: invoices, kind: idea, text: {IDEA}, sha256: {}}}
+tree_commit: {COMMIT}
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-sonnet-5-5
+  decider.kind: haiku
+  decider.model: claude-opus-5-5
+  decider.escalate: final
+  decider.max_decider_calls: 40
+  adapter: metaharness
+  max_llm_calls: 150
+  autonomy: A5
+variants:
+- {{id: old, settings: {{}}, runs: []}}
+runs_per_variant: 1
+pass_rule: clean-delivery
+decision_rule: {{rule: descriptive, text: the record describes its runs and decides nothing}}
+"#,
+        sha(IDEA)
+    )
+}
+
+#[test]
+fn a_record_of_the_old_driver_is_still_checked_and_is_refused_at_run_with_one_line() {
+    let d = scratch("old-driver");
+    let builds = fake_build(&d, 8, true);
+    let units = d.join("units.log");
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    // A launch that got past the refusal would call `systemd-run`: this one writes it down.
+    executable(&tools.join("systemd-run"), &format!("#!/bin/sh\necho \"$@\" >> {}\n", units.display()));
+    let path = format!("{}:/usr/bin:/bin", tools.display());
+    for runner_line in ["", "runner: sdc, "] {
+        let text = old_driver_record("planned").replace("- {id: old, ", &format!("- {{id: old, {runner_line}"));
+        write_record(&d, &text);
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 0, "check still reads a record of the old driver ({runner_line:?}): {out}");
+        let runs = d.join("runs");
+        let args = ["run", "lx", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", runs.to_str().unwrap()];
+        let (code, out) = experiment_env(&args, &d, &[("PATH", &path), ("HOME", d.to_str().unwrap())]);
+        assert_eq!(code, 1, "{out}");
+        assert_eq!(out.lines().count(), 1, "one line: {out}");
+        assert!(out.contains("the old driver, which is gone") && out.contains("runner: loom"), "{out}");
+        assert!(!out.contains("run-trial.sh") && !out.contains("sdc-drive"), "{out}");
+        assert!(!units.exists(), "no unit was started");
+        assert!(!d.join("runs").exists(), "no run directory was made");
+    }
+    // `--print` takes the same path: nothing is printed for a record of the old driver.
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("the old driver, which is gone"), "{out}");
 }
 
 #[test]
@@ -617,7 +692,7 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     let state = |name: &str| row(name).split_whitespace().nth(2).unwrap_or("").to_string();
     assert!(row("lx.low.1").contains("low") && state("lx.low.1") != "-", "{out}");
     assert!(row("lx.high.1").contains("high") && state("lx.high.1") != "-" && row("lx.high.1").contains("not started"), "{out}");
-    let (code, out) = experiment(&["stop", "lx", "--reason", "the cap was wrong", "--run", "lx.low.1", "--runs-dir", "runs", "--builds-dir", "none"], &d);
+    let (code, out) = experiment(&["stop", "lx", "--reason", "the cap was wrong", "--run", "lx.low.1", "--runs-dir", "runs"], &d);
     assert_eq!(code, 0, "{out}");
     assert!(!out.contains("run-trial.sh"), "a loom run is not stopped with run-trial.sh: {out}");
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
@@ -626,7 +701,7 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     assert_eq!(stop["by"], "agent:sdc-experiment");
     assert!(stop["at"].as_str().is_some_and(|t| t.ends_with('Z')), "{stop}");
     // A second stop does not overwrite the record.
-    let (code, out) = experiment(&["stop", "lx", "--reason", "again", "--run", "lx.low.1", "--runs-dir", "runs", "--builds-dir", "none"], &d);
+    let (code, out) = experiment(&["stop", "lx", "--reason", "again", "--run", "lx.low.1", "--runs-dir", "runs"], &d);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("already stopped"), "{out}");
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
@@ -718,9 +793,13 @@ fn run_starts_a_stub_run_with_runbook_run_of_the_build_and_ends_with_exit_0() {
         executable(&tools.join(t), "#!/bin/sh\n");
     }
     executable(&tools.join("systemctl"), "#!/bin/sh\necho inactive\n");
+    let wrapper_log = d.join("systemd-run.log");
     executable(
         &tools.join("systemd-run"),
-        "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in --working-directory=*) cd \"${1#--working-directory=}\";; /usr/bin/env) break;; esac; shift; done\nexec \"$@\"\n",
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nwhile [ $# -gt 0 ]; do case \"$1\" in --working-directory=*) cd \"${{1#--working-directory=}}\";; /usr/bin/env) break;; esac; shift; done\nexec \"$@\"\n",
+            wrapper_log.display()
+        ),
     );
     let settings: String = [
         ("loom.in_process", "'true'"), ("loom.confinement", "local"), ("loom.cap_micro_usd", "5000000"),
@@ -763,4 +842,35 @@ fn run_starts_a_stub_run_with_runbook_run_of_the_build_and_ends_with_exit_0() {
     assert_eq!(fs::read_to_string(at("--intake")).unwrap(), format!("text: {IDEA}\n"));
     assert!(runs.join("lx.stub.1/experiment.json").is_file(), "the run is recorded");
     assert!(fs::read_to_string(repo.join("experiments/lx.yaml")).unwrap().contains("status: running"));
+    // The process tree of the run holds no old driver: the wrapper log (the one `systemd-run` call,
+    // with the unit's whole command) and the command line of the build's `runbook` name neither.
+    let wrapped = fs::read_to_string(&wrapper_log).expect("the launcher called systemd-run");
+    assert_eq!(wrapped.lines().count(), 1, "one unit for one run: {wrapped}");
+    assert!(wrapped.contains(&format!("{} run sdc", bin.join("runbook").display())), "the unit runs `runbook run`: {wrapped}");
+    for old in ["run-trial.sh", "sdc-drive"] {
+        assert!(!wrapped.contains(old) && !line.iter().any(|a| a.contains(old)), "{old} is no part of the run: {wrapped} {line:?}");
+    }
+}
+
+/// `stop` reaches a run through its unit: the stop record, then `systemctl --user stop <unit>`
+/// (systemd's signal to the run's process), never a name and never a script.
+#[test]
+fn stop_signals_the_unit_of_the_run_and_calls_no_script() {
+    let d = scratch("stop-unit");
+    fs::create_dir_all(d.join("runs/lx.low.1")).unwrap();
+    write_record(&d, &record_with(&fixed().into_iter().filter(|(k, _)| k != "max_llm_calls").collect::<Vec<_>>(), COMMIT, "running", ("lx.low.1", "")));
+    let calls = d.join("systemctl.log");
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    executable(
+        &tools.join("systemctl"),
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in *ActiveState*) echo active;; esac\n", calls.display()),
+    );
+    let path = format!("{}:/usr/bin:/bin", tools.display());
+    let (code, out) = experiment_env(&["stop", "lx", "--reason", "wrong cap", "--run", "lx.low.1", "--runs-dir", "runs"], &d, &[("PATH", &path), ("HOME", "/nonexistent-home")]);
+    assert_eq!(code, 0, "{out}");
+    assert!(d.join("runs/lx.low.1/run-stopped.json").is_file(), "{out}");
+    let log = fs::read_to_string(&calls).unwrap();
+    assert!(log.lines().any(|l| l == "--user stop sdc-exp-lx-low-1"), "the unit of the run is stopped: {log}");
+    assert!(!out.contains("run-trial.sh"), "{out}");
 }

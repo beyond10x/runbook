@@ -12,7 +12,7 @@
 //! sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>]
 //!                    [--stagger <seconds>] [--login-file <path>] [--print]
 //! sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
-//! sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]
+//! sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>]
 //! ```
 //!
 //! `compare` gives, per metric of `sdc.run-metrics/1` (run, node, edge, decision class), each
@@ -30,9 +30,11 @@
 //! it builds the recorded commit once in a build directory keyed by the commit, starts variants ×
 //! n runs as transient systemd user units with the environment taken from the record only, names
 //! them `<id>.<variant>.<n>` and writes `experiment.json` into each run directory. `status` lists
-//! the runs of a record; `stop` stops them with run-trial.sh's stop command and a reason.
-//! A variant with `runner: loom` starts `runbook run` of the build instead of `run-trial.sh`
-//! (docs/workflow-metrics.md § 7.1): the base environment, no `SDC_` variable, the settings in a file.
+//! the runs of a record; `stop` writes the stop record of each open run and stops its unit, which
+//! sends the signal to the run's process. A variant with `runner: loom` starts `runbook run` of the
+//! build (docs/workflow-metrics.md § 7.1): the base environment, no `SDC_` variable, the settings
+//! in a file. A variant with `runner: sdc`, or with no `runner`, belongs to the old driver, which
+//! is gone: `check` and `report` still read such a record, `run` refuses it.
 //! `progress` writes the progress ledger from `experiments/releases.yaml` and the records
 //! (`sdc-experiment/progress.rs`); `report` rewrites it too, and `check --all` fails when it is
 //! stale. An id is read as `experiments/<id>.yaml`; `--runs-dir` defaults to `runs`. Exit 0, 1 a record
@@ -73,7 +75,7 @@ const USAGE: &str = "usage: sdc-experiment compare (--group <label>=<run dir>[,.
        sdc-experiment progress [--experiments <dir>]
        sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--login-file <path>] [--print]
        sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
-       sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]";
+       sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>]";
 
 struct Usage(String);
 
@@ -447,14 +449,49 @@ const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry
 /// Why a setting of the old driver is refused for a `loom` variant, or `None` when it is no
 /// setting of the old driver. Each one is a decision (docs/workflow-metrics.md, "Runner loom").
 fn loom_refusal(key: &str) -> Option<&'static str> {
+    if let Some(why) = port_dry(key).or_else(|| port_recorded(key)).or_else(|| port_conformance(key)) {
+        return Some(why);
+    }
     Some(match key {
-        "implement_mode" | "review_mode" | "implement_coverage" | "conformance" | "rule_approvals" =>
-            "it is a switch of scripts/run-trial.sh and Loom's bindings carry no such switch",
-        "flags.dry" | "flags.recorded" => "it is a flag of scripts/run-trial.sh",
+        "implement_mode" | "review_mode" | "implement_coverage" | "rule_approvals" =>
+            "it is a switch of the old driver and Loom's bindings carry no such switch",
         k if k.starts_with("efforts.") => "no argument of bindings/tools/llm-node.sh carries an effort in Loom mode, so the class defaults of tools/node-classes.json apply",
         k if k.starts_with("free.") => "it is a setting of runner free-agent",
         _ => return None,
     })
+}
+
+/// The refusal of `flags.dry` until `runbook run` has `--dry`; the port removes this function.
+// port: dry
+fn port_dry(key: &str) -> Option<&'static str> {
+    (key == "flags.dry").then_some("`runbook run` has no --dry yet")
+}
+
+/// The refusal of `flags.recorded` (and with it the replay flags) until `runbook run` replays a
+/// recording; the port removes this function.
+// port: recorded
+fn port_recorded(key: &str) -> Option<&'static str> {
+    (key == "flags.recorded").then_some("`runbook run` has no --recorded or other replay flag yet")
+}
+
+/// The refusal of `conformance` until `runbook run` has the observation; the port removes this
+/// function.
+// port: conformance
+fn port_conformance(key: &str) -> Option<&'static str> {
+    (key == "conformance").then_some("`runbook run` does not observe the product against the spec's suite yet")
+}
+
+/// The refusal of an input that is not an idea text: a `seed` input is a bug-fix case
+/// (`--bugfix`, `--bugfix-ticket`) that `runbook run` cannot open yet; the port removes this
+/// function.
+// port: bugfix
+fn port_bugfix(input_kind: Option<&str>) -> Option<&'static str> {
+    (input_kind == Some("seed")).then_some("`runbook run` has no --bugfix or --bugfix-ticket yet, so a seed input cannot start")
+}
+
+/// The refusal of any other input kind of a loom variant.
+fn loom_input_refusal(input_kind: Option<&str>) -> Option<&'static str> {
+    port_bugfix(input_kind).or((input_kind != Some("idea")).then_some("a loom variant starts from an idea input"))
 }
 
 /// The problems of a `loom` variant's settings.
@@ -762,8 +799,8 @@ fn check_record(r: &Y, path: &Path, raw: &str) -> Vec<String> {
         } else if v.runner == "loom" {
             if prospective && v.from.is_none() {
                 check_loom_settings(v, &mut p);
-                if inputs.iter().any(|i| ystr(i, "kind") != Some("idea")) {
-                    p.push(format!("variant {:?}: a loom variant starts from an idea input", v.id));
+                for why in inputs.iter().filter_map(|i| loom_input_refusal(ystr(i, "kind"))) {
+                    p.push(format!("variant {:?}: {why}", v.id));
                 }
             }
         } else if prospective {
@@ -2048,7 +2085,7 @@ fn loom_settings_json(name: &str, settings: &BTreeMap<String, String>, redact: b
     Ok(doc)
 }
 
-/// The idea file of a `loom` run: `text: <the input's text>`, as `run-trial.sh` writes `work/idea.yaml`.
+/// The idea file of a `loom` run: `text: <the input's text>`, the shape of `work/idea.yaml`.
 fn loom_idea_yaml(input: &Y) -> String {
     let mut m = Mapping::new();
     m.insert(Y::String("text".into()), Y::String(ystr(input, "text").unwrap_or("").trim().to_string()));
@@ -2166,30 +2203,10 @@ fn free_argv(build: &Path, name: &str, input: &Y, settings: &BTreeMap<String, St
     v
 }
 
-fn launch_argv(build: &Path, name: &str, input: &Y, settings: &BTreeMap<String, String>, runs_dir: &Path) -> Vec<String> {
-    let mut argv = vec![build.join("scripts").join("run-trial.sh").display().to_string()];
-    let dry = settings.get("flags.dry").is_some_and(|v| v == "true");
-    if dry {
-        argv.push("--dry".into());
-    } else if settings.get("autonomy").is_some_and(|a| a == "A5") {
-        argv.push("--autopilot".into());
-    }
-    argv.push(name.to_string());
-    let text = ystr(input, "text").unwrap_or("").trim().to_string();
-    match ystr(input, "kind") {
-        Some("idea") if !dry => argv.push(text),
-        Some("seed") => {
-            argv.push("--bugfix".into());
-            argv.push(build.join(ystr(input, "seed").unwrap_or("")).display().to_string());
-            argv.push(text);
-        }
-        _ => {}
-    }
-    if let Some(src) = settings.get("flags.recorded").filter(|s| !s.is_empty() && s.as_str() != "null") {
-        argv.push("--recorded".into());
-        argv.push(runs_dir.join(src).display().to_string());
-    }
-    argv
+/// The message of a refusal to start a run of the old driver (a variant with `runner: sdc` or with
+/// no `runner`): one line, naming the setting that starts a run today.
+fn old_driver_refusal(variant: &str) -> String {
+    format!("refused: variant {variant:?} has runner sdc or no runner: that is a record of the old driver, which is gone; a run starts with `runner: loom` (`runbook run`)")
 }
 
 /// `experiment.json` of one launched run (sdc.experiment-run/1).
@@ -2402,6 +2419,11 @@ struct LoomFiles {
 fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
     let path = record_path(&a.rec);
     let (mut r, raw) = read_record(&path).map_err(|m| (2, m))?;
+    if ystr(&r, "kind") == Some("prospective") {
+        if let Some(p) = planned_runs(&r).iter().find(|p| p.variant.runner == "sdc") {
+            return Err((1, old_driver_refusal(&p.variant.id)));
+        }
+    }
     let problems = check_record(&r, &path, &raw);
     if !problems.is_empty() {
         return Err((1, format!("refused: {} fails its check:\n{}", path.display(), problems.join("\n"))));
@@ -2443,7 +2465,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                 RunPlan { env: loom_env(&base, &build), argv, loom: Some(LoomFiles { dir: files, idea: loom_idea_yaml(&input), settings }) }
             }
             "free-agent" => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: free_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
-            _ => RunPlan { env: launch_env(s, &runs_dir, &principal, &base), argv: launch_argv(&build, &p.name, &input, s, &runs_dir), loom: None },
+            _ => return Err(old_driver_refusal(&p.variant.id)),
         })
     };
     if a.print {
@@ -2529,9 +2551,8 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             write("idea.yaml", l.idea.clone())?;
             write("settings.json", serde_json::to_string_pretty(&l.settings).unwrap_or_default() + "\n")?;
         }
-        // run-trial.sh writes events/ once the run directory is fresh; sdc-free-agent writes
-        // free-agent.json; `runbook run` makes the run directory itself.
-        let marker = if free { dir.join("free-agent.json") } else if loom.is_some() { dir.clone() } else { dir.join("events") };
+        // sdc-free-agent writes free-agent.json; `runbook run` makes the run directory itself.
+        let marker = if free { dir.join("free-agent.json") } else { dir.clone() };
         // A free run's home holds a copy of the login: the unit removes it on every stop, also when
         // the launcher is killed or crashes and runs no destructor.
         let stop_post: Vec<String> =
@@ -2551,8 +2572,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             return Err((1, format!("systemd-run for {} failed ({st})", p.name)));
         }
         let started_at = now_rfc3339();
-        // run-trial.sh removes and recreates a new run's directory before it writes events/; the
-        // record goes in after that.
+        // The record goes in once the run has made its directory.
         let mut waited = 0;
         while !marker.exists() && waited < 120 {
             sleep_s(1);
@@ -2637,14 +2657,12 @@ fn status_cmd(args: &[String]) -> Result<ExitCode, Usage> {
 }
 
 fn stop_cmd(args: &[String]) -> Result<ExitCode, Usage> {
-    let (mut rec, mut runs_dir, mut builds, mut reason, mut only) =
-        (None::<String>, PathBuf::from("runs"), default_builds_dir(), None::<String>, None::<String>);
+    let (mut rec, mut runs_dir, mut reason, mut only) = (None::<String>, PathBuf::from("runs"), None::<String>, None::<String>);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| Usage(format!("{a} needs a value")));
         match a.as_str() {
             "--runs-dir" => runs_dir = PathBuf::from(value()?),
-            "--builds-dir" => builds = PathBuf::from(value()?),
             "--reason" => reason = Some(value()?),
             "--run" => only = Some(value()?),
             x if x.starts_with("--") => return Err(Usage(format!("unknown argument {x}"))),
@@ -2662,43 +2680,23 @@ fn stop_cmd(args: &[String]) -> Result<ExitCode, Usage> {
     };
     let runs_dir = absolute(&runs_dir);
     let principal = principal_of(&r);
-    let script = ystr(&r, "tree_commit").filter(|c| is_hex(c, 40, 40)).map(|c| absolute(&builds).join(c).join("scripts").join("run-trial.sh"))
-        .filter(|s| s.is_file()).unwrap_or_else(|| absolute(Path::new("scripts/run-trial.sh")));
     let mut code = ExitCode::SUCCESS;
     let units: BTreeMap<String, String> = planned_runs(&r).into_iter().map(|p| (p.name, p.unit)).collect();
     for v in variants(&r) {
         for rr in v.runs.iter().filter(|x| only.as_ref().is_none_or(|o| o == &x.run)) {
             let dir = runs_dir.join(&rr.run);
-            let open = dir.is_dir() && run_metrics::load(&dir).is_ok_and(|d| d["metrics"]["finished"] != true);
-            if v.runner == "loom" {
-                // The stop record first, so that a run the signal cannot reach still reads as
-                // stopped; then the unit below: systemd sends SIGTERM to `runbook run`.
-                let record = dir.join("run-stopped.json");
-                if record.is_file() {
-                    println!("{}: already stopped ({} untouched)", rr.run, record.display());
-                } else if dir.is_dir() && !run_metrics::load(&dir).is_ok_and(|d| d["metrics"]["finished"] == true) {
-                    let doc = json!({"format": "sdc.run-stopped/1", "at": now_rfc3339(), "by": principal, "reason": reason, "verdict_at_stop": null, "case": null});
-                    match fs::write(&record, serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n") {
-                        Ok(()) => println!("{}: stopped ({reason})", rr.run),
-                        Err(e) => {
-                            eprintln!("sdc-experiment: cannot write {}: {e}", record.display());
-                            code = ExitCode::from(1);
-                        }
-                    }
-                } else {
-                    println!("{}: not open, nothing to stop", rr.run);
-                }
-            } else if open {
-                let st = Command::new(&script).arg(&rr.run).arg("--stop").arg(&reason)
-                    .env("SDC_RUNS_DIR", &runs_dir).env("SDC_PRINCIPAL", &principal).status();
-                match st {
-                    Ok(s) if s.success() => println!("{}: stopped ({reason})", rr.run),
-                    Ok(s) => {
-                        eprintln!("sdc-experiment: run-trial.sh {} --stop: {s}", rr.run);
-                        code = ExitCode::from(1);
-                    }
+            // The one path: the stop record first, so that a run the signal cannot reach still
+            // reads as stopped; then the unit below, which the launcher started the run in:
+            // systemd sends SIGTERM to the run's process. Never a process name.
+            let record = dir.join("run-stopped.json");
+            if record.is_file() {
+                println!("{}: already stopped ({} untouched)", rr.run, record.display());
+            } else if dir.is_dir() && !run_metrics::load(&dir).is_ok_and(|d| d["metrics"]["finished"] == true) {
+                let doc = json!({"format": "sdc.run-stopped/1", "at": now_rfc3339(), "by": principal, "reason": reason, "verdict_at_stop": null, "case": null});
+                match fs::write(&record, serde_json::to_string_pretty(&doc).unwrap_or_default() + "\n") {
+                    Ok(()) => println!("{}: stopped ({reason})", rr.run),
                     Err(e) => {
-                        eprintln!("sdc-experiment: {}: {e}", script.display());
+                        eprintln!("sdc-experiment: cannot write {}: {e}", record.display());
                         code = ExitCode::from(1);
                     }
                 }
@@ -2890,9 +2888,6 @@ targets:
         assert_eq!(get("SDC_MAX_DECIDER_CALLS"), Some("40"));
         assert_eq!(get("SDC_RUNS_DIR"), Some("/r"));
         assert_eq!(get("SDC_PRINCIPAL"), Some("agent:sdc-experiment"));
-        let input = yseq(&y, "inputs")[0].clone();
-        let argv = launch_argv(Path::new("/b"), &plan[1].name, &input, &plan[1].variant.settings, Path::new("/r"));
-        assert_eq!(argv, ["/b/scripts/run-trial.sh", "--autopilot", "x.high.1", IDEA]);
         let j = experiment_json("x", &plan[1], "8db4b9338f1d8d32c85b9cb2e014dac56980fac0", "abc", "2026-11-21T12:00:00Z");
         let keys: Vec<&String> = j.as_object().unwrap().keys().collect();
         assert_eq!(keys, ["experiment", "format", "input_sha256", "ordinal", "retrospective", "run", "settings_sha256", "started_at", "tree_commit", "variant"]);
