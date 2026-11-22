@@ -142,6 +142,11 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     sinks.push(Box::new(basic));
     sinks.push(Box::new(RunDirWriter::open(&run_dir, &redacted)?));
     runner.sinks = sinks;
+    // --watch: the watcher is a child of this run; it ends when `_watch` drops, after the last line is written
+    let _watch = match super::watch::start_if(args.ports.watch, &run_dir) {
+        Ok(w) => w,
+        Err(reason) => return Ok(runner.finish(Outcome::Error { reason })),
+    };
     let outcome = runner.drive(root_name, &protocols, &redacted);
     Ok(runner.finish(outcome))
 }

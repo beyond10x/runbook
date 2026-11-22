@@ -109,6 +109,7 @@ tasks:
     dir: runbook
     desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml). Needs cargo-nextest."
     cmds:
+      - cargo build --locked --manifest-path ../watch/Cargo.toml
       - cargo nextest run --locked --color never --no-run
       - |
         set -u

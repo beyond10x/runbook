@@ -94,11 +94,6 @@ fn goals_is_accepted_and_refused_until_built() {
 }
 
 #[test]
-fn watch_is_accepted_and_refused_until_built() {
-    refused(&scratch("watch"), &["--watch"], "--watch is not built yet");
-}
-
-#[test]
 fn conformance_observe_is_refused_until_built_and_off_is_not() {
     let root = scratch("conformance");
     refused(&root, &["--conformance", "observe"], "--conformance observe is not built yet");
