@@ -2,4 +2,5 @@
 //! process. The runtime behind it is a trait (`runtime`); `stub` is the runtime of the tests.
 
 pub mod runtime;
+pub mod state;
 pub mod stub;
