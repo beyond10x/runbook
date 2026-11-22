@@ -88,19 +88,19 @@ pub struct HereOptions {
     /// With `--recorded`, the commit of the recorded run's source tree. Not built yet.
     #[arg(long, value_name = "COMMIT", conflicts_with = "detach")]
     pub source_tree: Option<String>,
-    /// Open a bug-fix case from a seed directory. Not built yet.
+    /// Open a bug-fix case from a seed directory.
     #[arg(long, value_name = "DIR", conflicts_with = "detach")]
     pub bugfix: Option<PathBuf>,
-    /// Open a bug-fix case from a ticket file (`sdc.ticket/1`). Not built yet.
+    /// Open a bug-fix case from a ticket file (`sdc.ticket/1`).
     #[arg(long, value_name = "FILE", conflicts_with = "detach")]
     pub bugfix_ticket: Option<PathBuf>,
     /// The requester's goals document, copied unchanged to `work/goals.yaml` of the run.
     #[arg(long, value_name = "FILE", conflicts_with = "detach")]
     pub goals: Option<PathBuf>,
-    /// Record every file change of the run beside it (`fs/changes.jsonl`). Not built yet.
+    /// Record every file change of the run beside it (`fs/changes.jsonl`).
     #[arg(long, conflicts_with = "detach")]
     pub watch: bool,
-    /// Hold the delivered product to the specification's suite after a close: `off` (default) or `observe`. `observe` is not built yet.
+    /// Hold the delivered product to the specification's suite after a close: `off` (default) or `observe`.
     #[arg(long, value_enum, value_name = "MODE", default_value = "off", conflicts_with = "detach")]
     pub conformance: Conformance,
 }
