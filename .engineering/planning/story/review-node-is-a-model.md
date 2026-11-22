@@ -22,7 +22,7 @@ scope:
   path: driver/examples/sdc/tools/sdc-tool.sh
 revision: 6
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T06:32:49Z", actor: "human:timo", revision: 6, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T06:32:49Z", actor: "human:operator", revision: 6, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: review-node-is-a-model
 

@@ -20,7 +20,7 @@ scope:
   path: protocol/sdc-intake.protocol.yaml
 revision: 4
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:timo", revision: 3}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:operator", revision: 3}
 ---
 # Story: canon-slice-bound-uptake
 

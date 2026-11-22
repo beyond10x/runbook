@@ -18,7 +18,7 @@ scope:
   path: ui/web/meaning.js
 revision: 3
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T03:16:35Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T03:16:35Z", actor: "human:operator", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: spec-semantic-diff-view
 

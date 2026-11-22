@@ -17,7 +17,7 @@ scope:
   path: protocol/sdc-story.protocol.yaml
 revision: 4
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T02:25:45Z", actor: "human:timo", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T02:25:45Z", actor: "human:operator", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: verifier-independence
 

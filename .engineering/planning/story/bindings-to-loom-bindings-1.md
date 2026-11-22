@@ -16,7 +16,7 @@ scope:
   path: driver/src/main.rs
 revision: 4
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:timo", revision: 3}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:operator", revision: 3}
 ---
 # Story: bindings-to-loom-bindings-1
 

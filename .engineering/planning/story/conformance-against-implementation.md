@@ -24,7 +24,7 @@ scope:
   path: protocol/sdc-story.protocol.yaml
 revision: 12
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T02:25:41Z", actor: "human:timo", revision: 5, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T02:25:41Z", actor: "human:operator", revision: 5, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: conformance-against-implementation
 

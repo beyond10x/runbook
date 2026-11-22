@@ -33,7 +33,7 @@ scope:
   path: protocol/sdc.protocol.yaml
 revision: 12
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T06:26:12Z", actor: "human:timo", revision: 12, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T06:26:12Z", actor: "human:operator", revision: 12, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: protocols-declare-revises-and-authors
 

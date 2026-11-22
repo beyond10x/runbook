@@ -14,9 +14,9 @@ scope:
   path: goals
 revision: 10
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:timo", revision: 3}
-- {from: "proposed", to: "active", at: "2026-11-21T02:36:21Z", actor: "human:timo", revision: 9, decided_on: {"recorded":{"test_result":1}}, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
-- {from: "active", to: "implemented", at: "2026-11-21T02:36:21Z", actor: "human:timo", revision: 10, decided_on: {"recorded":{"test_result":1}}, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:operator", revision: 3}
+- {from: "proposed", to: "active", at: "2026-11-21T02:36:21Z", actor: "human:operator", revision: 9, decided_on: {"recorded":{"test_result":1}}, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "active", to: "implemented", at: "2026-11-21T02:36:21Z", actor: "human:operator", revision: 10, decided_on: {"recorded":{"test_result":1}}, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: goals-format-check
 

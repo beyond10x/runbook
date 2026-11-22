@@ -19,7 +19,7 @@ scope:
   path: tools/decision-grounds.sh
 revision: 7
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:timo", revision: 4}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:operator", revision: 4}
 ---
 # Story: decision-contract-goals-grounds
 
