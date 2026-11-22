@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:bc0b27fa432acab145ae6100c5f8df034e1ef327c66345eed4f67e42e12c3615
+# contract digest slice-sha256/2:5aa7fa7d39eaac3cea6ea197e6fc6b439bd759c174803f28a537387a73c6c0dc
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:bc0b27fa432acab145ae6100c5f8df034e1ef327c66345eed4f67e42e12c3615
+    contract_digest: slice-sha256/2:5aa7fa7d39eaac3cea6ea197e6fc6b439bd759c174803f28a537387a73c6c0dc
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -74,7 +74,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-request.Response'
         '409':
-          description: 'Outcomes `not-of-run`, `withdrawn`, `no-run`, `run-not-waiting` and `already-answered`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
+          description: 'Outcomes `not-of-run`, `withdrawn`, `already-answered`, `no-run` and `run-not-waiting`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
           content:
             application/json:
               schema:
@@ -89,9 +89,9 @@ paths:
                 oneOf:
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.not-of-run.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.withdrawn.Response'
+                - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.already-answered.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-run.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.run-not-waiting.Response'
-                - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.already-answered.Response'
         '501':
           description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
           content:
@@ -705,7 +705,7 @@ components:
       additionalProperties: false
     sdc.daemon.AnswerDecision.already-answered.Response:
       additionalProperties: false
-      description: The request is already Answered. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's.
+      description: 'The request is already Answered. Checked before the run''s own state: a second answer to the only open request of a run that has resumed or ended is this refusal and not RunNotWaiting. Taken when the subject is in a state none of this command''s declared moves start from. Which states those are is the lifecycle''s answer, not this command''s.'
       properties:
         error:
           const: sdc.daemon.DecisionAlreadyAnswered
@@ -826,7 +826,7 @@ components:
       type: object
     sdc.daemon.AnswerDecision.run-not-waiting.Response:
       additionalProperties: false
-      description: The run is not WaitingOnDecision, so nothing is waiting for an answer. Taken when the `sdc.daemon.Run` that `input.run_id` names exists and its stored fields satisfy `state != WaitingOnDecision`.
+      description: The request is Open and its run is not WaitingOnDecision, so nothing is waiting for an answer (a run that was cancelled while its request is not yet withdrawn). Taken when the `sdc.daemon.Run` that `input.run_id` names exists and its stored fields satisfy `state != WaitingOnDecision`.
       properties:
         error:
           const: sdc.daemon.RunNotWaiting
@@ -1413,7 +1413,7 @@ components:
       - value.count <= 200
     sdc.daemon.IntakeTooLarge.Error:
       title: IntakeTooLarge payload
-      description: 'The inline intake is larger than 1 MiB: the run was not submitted.'
+      description: 'The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound.'
       x-ess-name: sdc.daemon.IntakeTooLarge
       x-ess-kind: error-payload
       type: object
@@ -1707,7 +1707,7 @@ components:
       additionalProperties: false
     sdc.daemon.RunOutcome:
       title: RunOutcome
-      description: 'Open text: the outcome name of the runbook''s protocol for the root case. The run''s state is the closed set; the outcome is not.'
+      description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`). The run''s state is the closed set; the outcome is not.'
       x-ess-name: sdc.daemon.RunOutcome
       x-ess-kind: newtype
       type: string
@@ -2072,6 +2072,11 @@ components:
       properties:
         idempotency_key:
           $ref: '#/components/schemas/sdc.daemon.IdempotencyKey'
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+          description: 'The first run: the one that carries this idempotency key. The answer names it.'
+      required:
+      - run_id
       additionalProperties: false
     sdc.daemon.SubmitRun.Input:
       title: Submit a run input
@@ -2120,7 +2125,7 @@ components:
       additionalProperties: false
     sdc.daemon.SubmitRun.already-submitted.Response:
       additionalProperties: false
-      description: 'A run was submitted with this idempotency key: nothing is created and the answer is that first run. Taken when, of the `sdc.daemon.Run` rows whose stored fields satisfy `idempotency_key == input.idempotency_key` before the outcome, at least one row is selected and `defined(idempotency_key)` holds of the input. Emits `SubmitReplayed`, listed under `published`. `SubmitReplayed` is not published and stays inside the component.'
+      description: 'A run was submitted with this idempotency key: nothing is created and the answer is that first run: the event it publishes carries its id (run_id), in the body of the answer. Taken when, of the `sdc.daemon.Run` rows whose stored fields satisfy `idempotency_key == input.idempotency_key` before the outcome, at least one row is selected and `defined(idempotency_key)` holds of the input. Emits `SubmitReplayed`, listed under `published`. `SubmitReplayed` is not published and stays inside the component.'
       properties:
         outcome:
           const: already-submitted
@@ -2199,7 +2204,7 @@ components:
       properties:
         error:
           const: sdc.daemon.IntakeTooLarge
-          description: 'The inline intake is larger than 1 MiB: the run was not submitted.'
+          description: 'The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound.'
           type: string
         outcome:
           const: intake-too-large
@@ -2630,7 +2635,7 @@ x-ess-entities:
         format: date-time
       outcome:
         $ref: '#/x-ess-entities/sdc.daemon.RunOutcome'
-        description: Set when the run Ended; absent in every other state.
+        description: 'Set when the run Ended; absent in every other state. Besides the outcome names of the runbook''s protocol it holds the daemon''s own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started).'
       failure:
         description: Why the run failed to start; absent in every other state.
         type: string
@@ -2732,7 +2737,7 @@ x-ess-entities:
     type: string
   sdc.daemon.RunOutcome:
     title: RunOutcome
-    description: 'Open text: the outcome name of the runbook''s protocol for the root case. The run''s state is the closed set; the outcome is not.'
+    description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`). The run''s state is the closed set; the outcome is not.'
     x-ess-name: sdc.daemon.RunOutcome
     x-ess-kind: newtype
     type: string

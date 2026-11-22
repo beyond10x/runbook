@@ -211,7 +211,9 @@ fn one_round_trip_per_client_command() {
     let replay = s.post("submit-run", &json!({"runbook_id": "ask", "intake": "text", "session_id": "s1", "idempotency_key": "once"}));
     assert_eq!((replay.status, replay.json()["outcome"].clone()), (202, json!("already-submitted")));
     openapi::check_response("submit-run", "already-submitted", &replay.json());
-    assert_eq!(replay.header("location"), r.header("location"), "the replay names the first run");
+    assert_eq!(replay.header("location"), r.header("location"), "the replay names the first run in its Location header");
+    assert_eq!(replay.json()["published"][0]["event"], "sdc.daemon.SubmitReplayed");
+    assert_eq!(replay.json()["published"][0]["payload"]["run_id"], json!(run), "and in its body, as data of the event it publishes");
     assert_eq!(s.view("runs", "").len(), 1);
     // answer-decision
     s.fx.wait_open_decisions(&run, 1);
@@ -225,9 +227,13 @@ fn one_round_trip_per_client_command() {
     let r = s.post("answer-decision", &json!({"run_id": run, "request_id": "nope", "answer": "A", "answered_by": "o"}));
     assert_eq!((r.status, r.json()["error"].clone()), (404, json!("sdc.daemon.NoSuchDecisionRequest")));
     openapi::check_response("answer-decision", "no-request", &r.json());
+    // A second answer to the only open request of a run that has ended: the request's state is judged
+    // first, so the answer is 409 DecisionAlreadyAnswered and not RunNotWaiting.
     let r = s.post("answer-decision", &answer);
-    assert_eq!((r.status, r.json()["error"].clone()), (409, json!("sdc.daemon.RunNotWaiting")));
-    openapi::check_response("answer-decision", "run-not-waiting", &r.json());
+    assert_eq!((r.status, r.json()["error"].clone()), (409, json!("sdc.daemon.DecisionAlreadyAnswered")));
+    assert_eq!(r.json()["payload"], json!({"request_id": "q1"}));
+    openapi::check_response("answer-decision", "already-answered", &r.json());
+    assert_eq!(s.view("decisions", &format!("run_id={run}"))[0]["answered_by"], "operator", "the first answer stands");
     // cancel-run
     let held = run_of(&s.post("submit-run", &json!({"runbook_id": "hold", "intake": "x"})));
     s.wait_state(&held, "Running");
@@ -359,9 +365,16 @@ fn the_server_has_the_routes_of_the_openapi_document_and_no_others() {
     for path in ["/healthz", "/daemon", "/daemon/views", "/daemon/views/nope", "/daemon/commands/nope", "/ui", "/events", "/mcp", "/daemon/views/runs/"] {
         assert_eq!(s.get(path).status, 404, "GET {path}");
     }
-    // The runtime's reports are not accepted from the network.
-    for command in ["start-run", "fail-run-start", "wait-on-decision", "request-decision", "withdraw-decision", "resume-run", "record-run-event", "end-run", "start-daemon"] {
+    // Every command the specification has that is not a client command (the runtime's reports,
+    // `start-daemon`, the daemon's own `end-orphaned-run`) is not accepted from the network. The list is
+    // the outcome table, which a test holds equal to the domain file: a new command is in it by itself.
+    let internal: BTreeSet<&str> = OUTCOMES.iter().map(|o| o.command).filter(|c| !routes::COMMANDS.contains(c)).collect();
+    for must in ["start-run", "end-run", "start-daemon", "end-orphaned-run", "withdraw-decision"] {
+        assert!(internal.contains(must), "{must} is a command of the specification and not a client command");
+    }
+    for command in internal {
         assert_eq!(s.post(command, &json!({})).status, 404, "POST {command}");
+        assert!(!doc.contains(&("POST".to_string(), routes::command_path(command))), "{command} has no route in the document");
     }
     assert_eq!(s.send("POST", "/daemon/views/runs", &[], Some(b"{}")).status, 405);
     assert_eq!(s.get("/daemon/commands/submit-run").status, 405);

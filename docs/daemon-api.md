@@ -13,7 +13,7 @@ Who may call is decided by the bearer token alone (a non-loopback listener needs
 
 | Entity | States | What it is |
 |---|---|---|
-| Run | Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text), `FailedToStart` a `failure`. |
+| Run | Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart | One run of a runbook. `Ended` carries an `outcome` (open text: the protocol's outcome name, or a cause of the daemon's own, `orphaned` or `runtime-failure`), `FailedToStart` a `failure`. |
 | Session | Open, Closed | A named group of runs. A closed session takes no new run and keeps the runs it has. |
 | DecisionRequest | Open, Answered, Withdrawn | A question a waiting run raised, mirrored from the runtime. Cancelling the run withdraws its Open requests. |
 | RunEvent | Recorded | One record of a run, with `sequence` (per run, from 1) and `position` (per daemon, from 1, over all runs). |
@@ -31,7 +31,7 @@ Every command is a `POST` to `/daemon/commands/<name>` with a JSON body.
 |---|---|
 | `open-session` | `SessionExists` |
 | `close-session` | `NoSuchSession`, `SessionStateConflict` (already Closed) |
-| `submit-run` | `NoSuchRunbook`, `IntakeTooLarge` (over 1 MiB), `ContextOutsideRoots`, `NoSuchDaemon`, `BelowConfinementFloor`, `NoSuchSession`, `SessionClosedToRuns` |
+| `submit-run` | `NoSuchRunbook`, `IntakeTooLarge` (over 1,048,576 bytes), `ContextOutsideRoots`, `NoSuchDaemon`, `BelowConfinementFloor`, `NoSuchSession`, `SessionClosedToRuns` |
 | `cancel-run` | `NoSuchRun`, `RunAlreadyEnded` |
 | `answer-decision` | `NoSuchDecisionRequest`, `DecisionNotOfRun`, `DecisionWithdrawn`, `NoSuchRun`, `RunNotWaiting`, `DecisionAlreadyAnswered` |
 
@@ -42,13 +42,24 @@ Notes for a caller:
   from text to text. The daemon mints the run id (a UUID, version 7) and returns it; a client never
   chooses it.
 - A client that wants a safe retry sends an `idempotency_key` (at most 200 characters, unique per
-  daemon). A second submit with a key already used creates no run and answers the first run
-  (outcome `already-submitted`).
-- The first answer to a decision request stands; a second is refused `DecisionAlreadyAnswered`.
+  daemon). A second submit with a key already used creates no run and answers the first run: the
+  outcome is `already-submitted`, status 202 (not a refusal: a retry after a lost answer gets the
+  answer it lost). The first run's id is data in the body, the `run_id` of the event it publishes
+  (`published[0].payload.run_id`, event `SubmitReplayed`), and the `Location` header names the run
+  too (`/daemon/views/run?run_id=<id>`, the same header a first submit has).
+- The intake limit is 1,048,576 bytes of UTF-8, counted by the daemon's handler. The specification
+  counts characters (`intake.count`), which is the weaker bound: a text of at most 1,048,576
+  characters can still be over the limit in bytes, and the handler refuses it `IntakeTooLarge`.
+- The first answer to a decision request stands. The request's state is judged before its run's:
+  a second answer is refused `DecisionAlreadyAnswered` whether its run still waits, has resumed or
+  has ended; an answer to a request withdrawn by a cancel is `DecisionWithdrawn`; `RunNotWaiting`
+  is left for an Open request whose run does not wait.
 
 The runtime's reports (`StartRun`, `FailRunStart`, `WaitOnDecision`, `RequestDecision`,
-`WithdrawDecision`, `ResumeRun`, `RecordRunEvent`, `EndRun`) and `StartDaemon` are issued inside the
-process. They are in the specification and not in the HTTP contract.
+`WithdrawDecision`, `ResumeRun`, `RecordRunEvent`, `EndRun`), `StartDaemon` and `EndOrphanedRun` (the
+daemon's own, actor `DaemonProcess`) are issued inside the process. They are in the specification
+and not in the HTTP contract: the generator gives a route to the commands of the actor `Client` and
+to no other.
 
 ## Views
 
@@ -88,7 +99,7 @@ everything. The `sequence` of an event is only its place within its run.
 
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
 itself have a kind that starts with `runbook.` (`runbook.submitted`, `runbook.cancel-requested`,
-`runbook.start-failed`).
+`runbook.start-failed`, `runbook.run-orphaned`).
 
 ## Running the daemon
 
@@ -135,8 +146,13 @@ State directory:
 | `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
 
 After a restart a run that was `Submitted` and never started becomes `FailedToStart` (event
-`runbook.start-failed`); a run that was `Running` or `WaitingOnDecision` stays so and gets the event
-`runbook.orphaned`, because the stub runtime cannot resume it.
+`runbook.start-failed`). For each run the record holds as `Running` or `WaitingOnDecision` the daemon
+asks the runtime (`Runtime::recover`): `resumed` leaves the run as it is; `gone` ends it with the
+command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (the cause, readable in
+`outcome` of the `run` view), its Open decision requests are withdrawn one by one as a cancel does,
+the event `RunOrphaned` is published and the run's event stream gets one event of kind
+`runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
+nothing. The stub runtime always answers `gone`.
 
 ## Outside the language
 
@@ -148,4 +164,5 @@ After a restart a run that was `Submitted` and never started becomes `FailedToSt
   context root are decided by the handler from the host. The specification takes them as facts
   (`runbook_known`, `context_inside_roots`) so that the refusals are specified and
   scenario-tested; the checks themselves are tested in the same story. The intake size limit is in
-  the specification (it counts characters; the handler holds the byte limit).
+  the specification as a character count, the weaker bound; the handler holds the limit in bytes
+  (1,048,576 bytes of UTF-8).

@@ -6,7 +6,7 @@
 //! The daemon mints run ids (UUID version 7) and fills `daemon_id`, the time and the facts it reads
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
-use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Runtime, StartRequest};
+use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
 use crate::state::{self, DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -20,6 +20,9 @@ use std::thread::JoinHandle;
 /// The intake limit: 1 MiB, counted in bytes of UTF-8 (the specification's character count is the
 /// weaker bound).
 pub const MAX_INTAKE_BYTES: usize = 1_048_576;
+/// The outcome of a run that ended because the runtime held no live run of it when the daemon started
+/// again: the cause, in the `outcome` of the run (`EndOrphanedRun` sets this literal).
+pub const ORPHANED: &str = "orphaned";
 /// The longest client label and idempotency key, in characters.
 pub const MAX_LABEL_CHARS: usize = 200;
 
@@ -151,6 +154,9 @@ pub const OUTCOMES: &[OutcomeSpec] = &[
     o("end-run", "no-run", 404, Some("NoSuchRun")),
     o("end-run", "ended", 202, None),
     o("end-run", "wrong-state", 409, Some("RunStateConflict")),
+    o("end-orphaned-run", "no-run", 404, Some("NoSuchRun")),
+    o("end-orphaned-run", "orphaned", 202, None),
+    o("end-orphaned-run", "wrong-state", 409, Some("RunStateConflict")),
 ];
 
 fn spec(command: &str, outcome: &str) -> &'static OutcomeSpec {
@@ -174,6 +180,7 @@ fn event_name(short: &'static str) -> &'static str {
         "DecisionAnswered" => "sdc.daemon.DecisionAnswered",
         "RunEventRecorded" => "sdc.daemon.RunEventRecorded",
         "RunEnded" => "sdc.daemon.RunEnded",
+        "RunOrphaned" => "sdc.daemon.RunOrphaned",
         other => panic!("no event {other}"),
     }
 }
@@ -339,26 +346,35 @@ impl Daemon {
         }
     }
 
-    /// A run whose runtime is gone: it was Submitted, Running or WaitingOnDecision when the daemon
-    /// stopped. Submitted: the specification has `fail_to_start` from Submitted, so it is
-    /// FailedToStart. Running and WaitingOnDecision: the specification has no transition for a
-    /// runtime that is gone (`cancel` is the client's move), so the run keeps its state and gets the
-    /// daemon event `runbook.orphaned`; a client can cancel it.
+    /// The runs the record holds as live when the daemon starts. Submitted: the specification has
+    /// `fail_to_start` from Submitted, so it is FailedToStart. Running and WaitingOnDecision: the
+    /// daemon asks the runtime (`Runtime::recover`); `Gone` is `EndOrphanedRun` (the run ends with the
+    /// outcome `orphaned` and its Open requests are withdrawn), `Resumed` leaves the run as it is. A
+    /// run that has ended is not asked about, so a second start changes nothing for it.
     fn mark_orphans(&self) -> Result<(), Fault> {
-        let mut st = self.st();
-        let live: Vec<(String, RunState)> = st.runs().iter().filter(|r| r.state.is_live()).map(|r| (r.run_id.clone(), r.state)).collect();
+        let live: Vec<(String, RunState)> = self.st().runs().iter().filter(|r| r.state.is_live()).map(|r| (r.run_id.clone(), r.state)).collect();
         for (run_id, state) in live {
             if state == RunState::Submitted {
-                fail_run_start_locked(&mut st, &run_id, "the daemon stopped before the runtime took the run up")?;
-                continue;
-            }
-            let last = st.events_after(Some(&run_id), None, 0).last().map(|e| e.kind.clone());
-            if last.as_deref() != Some("runbook.orphaned") {
-                let record = json!({"state": state.as_str(), "reason": "the daemon stopped while the run was live: its runtime is gone"});
-                record_event_locked(&mut st, &run_id, "runbook.orphaned", record)?;
+                fail_run_start_locked(&mut self.st(), &run_id, "the daemon stopped before the runtime took the run up")?;
+            } else if self.inner.runtime.recover(&run_id) == Recovery::Gone {
+                self.end_orphaned_run(&run_id)?;
             }
         }
         Ok(())
+    }
+
+    /// `EndOrphanedRun`, issued by the daemon itself (never by a client): the run ends with the outcome
+    /// `orphaned`, then `WithdrawDecision` is issued for each of its Open requests, as a cancel does.
+    pub fn end_orphaned_run(&self, run_id: &str) -> Reply {
+        let mut st = self.st();
+        let out = end_orphaned_run_locked(&mut st, run_id)?;
+        if !out.is_refusal() {
+            let open: Vec<String> = st.open_decisions_of(run_id).iter().map(|d| d.request_id.clone()).collect();
+            for request_id in open {
+                withdraw_decision_locked(&mut st, &request_id)?;
+            }
+        }
+        Ok(out)
     }
 
     // ---- client commands ----
@@ -443,8 +459,11 @@ impl Daemon {
         }
         if let Some(key) = &input.idempotency_key {
             if let Some(first) = st.run_by_key(key) {
-                let mut out = done("submit-run", "already-submitted", vec![("SubmitReplayed", json!({"idempotency_key": key}))]);
-                out.run_id = Some(first.run_id.clone());
+                // The answer names the first run twice: as data of the event it publishes (the body)
+                // and as the run the HTTP binding puts in the Location header.
+                let first = first.run_id.clone();
+                let mut out = done("submit-run", "already-submitted", vec![("SubmitReplayed", json!({"idempotency_key": key, "run_id": first}))]);
+                out.run_id = Some(first);
                 return Ok(out);
             }
         }
@@ -522,17 +541,17 @@ impl Daemon {
         if request.run_id != run_id {
             return Ok(refuse("answer-decision", "not-of-run", json!({"request_id": request_id, "run_id": run_id})));
         }
-        if request.state == DecisionState::Withdrawn {
-            return Ok(refuse("answer-decision", "withdrawn", json!({"request_id": request_id})));
+        // The request's state first, then the run's (decision 16): a second answer names the request
+        // whatever its run is doing.
+        match request.state {
+            DecisionState::Withdrawn => return Ok(refuse("answer-decision", "withdrawn", json!({"request_id": request_id}))),
+            DecisionState::Answered => return Ok(refuse("answer-decision", "already-answered", json!({"request_id": request_id}))),
+            DecisionState::Open => {}
         }
-        let request_state = request.state;
         match st.run(&run_id).map(|r| r.state) {
             None => return Ok(refuse("answer-decision", "no-run", json!({"run_id": run_id}))),
             Some(s) if s != RunState::WaitingOnDecision => return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id}))),
             Some(_) => {}
-        }
-        if request_state != DecisionState::Open {
-            return Ok(refuse("answer-decision", "already-answered", json!({"request_id": request_id})));
         }
         st.commit(Fact::DecisionAnswered {
             request_id: request_id.clone(),
@@ -847,6 +866,20 @@ fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
             Ok(done("fail-run-start", "failed", vec![("RunFailedToStart", json!({"run_id": run_id, "reason": reason}))]))
         }
         Some(_) => Ok(refuse("fail-run-start", "wrong-state", json!({"run_id": run_id}))),
+    }
+}
+
+fn end_orphaned_run_locked(st: &mut State, run_id: &str) -> Reply {
+    match st.run(run_id).map(|r| r.state) {
+        None => Ok(refuse("end-orphaned-run", "no-run", json!({"run_id": run_id}))),
+        Some(state @ (RunState::Running | RunState::WaitingOnDecision)) => {
+            // The run's stream says so while the run is still live (a closed run takes no event).
+            let record = json!({"run_id": run_id, "state": state.as_str(), "reason": "the daemon started again and the runtime holds no live run of this id"});
+            record_event_locked(st, run_id, "runbook.run-orphaned", record)?;
+            st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: state::now() })?;
+            Ok(done("end-orphaned-run", "orphaned", vec![("RunOrphaned", json!({"run_id": run_id}))]))
+        }
+        Some(_) => Ok(refuse("end-orphaned-run", "wrong-state", json!({"run_id": run_id}))),
     }
 }
 
