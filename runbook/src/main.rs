@@ -1,7 +1,8 @@
-//! `runbook`: the one command for running a runbook. This version has `doctor` and `list`;
+//! `runbook`: the one command for running a runbook. This version has `doctor`, `list` and `check`;
 //! `run`, `ui` and `handback` come in later versions and are not stubbed here.
 
 mod assets;
+mod check;
 mod doctor;
 mod list;
 
@@ -33,6 +34,12 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Check the text of a runbook under the asset root (layout, bindings, instruction files, views, cycles list); exit 1 on any finding.
+    Check {
+        /// Machine-readable output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 const USAGE_ERROR: u8 = 64;
@@ -49,6 +56,28 @@ fn main() -> ExitCode {
     match cli.cmd {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
+        Cmd::Check { json } => check_cmd(json),
+    }
+}
+
+fn check_cmd(json: bool) -> ExitCode {
+    let assets = match assets::Lookup::from_process().locate() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("runbook check: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let report = check::run(&assets.root);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&check::json(&report)).unwrap());
+    } else {
+        print!("{}", check::text(&report));
+    }
+    if report.ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
     }
 }
 
