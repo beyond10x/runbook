@@ -35,7 +35,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 - confidence: cited
   path: scripts/run-trial.sh
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 3, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 4, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -70,7 +70,7 @@ the wait. This story fixes both in the tool, the bindings and the driver, with t
   (`slot cancel`) and the tool exits 69. One bound per step, shared by its pool commands through a
   ledger file. The bound is the argv option `--pool-wait <seconds>` (the environment variable
   `SDC_POOL_WAIT` wins, for tests); without either, no bound, as before.
-- The run bound stays the pool's (slot 0.22: 10 minutes of run time, or `slot --timeout <t>`, at most 1 hour). The tool does not name
+- The run bound stays the pool's (slot 0.22: 10 minutes of run time, or `slot --timeout <t>`, at most 30 minutes). The tool does not name
   one: no binding needs more. A job the pool ends at its limit exits 124; the tool exits 70, "ran over its time", and the driver stops with `run_over_time` without a repeat.
 - The driver retries a step whose exit is 69 up to 3 attempts, records nothing, counts no run, and
   then stops with the verdict `pool_wait_spent` (exit 5). Rejected: recording a result such as
