@@ -5,7 +5,8 @@
 //! (`sdc.decision-classes/1`: the class of an action and the side it belongs to) and
 //! `tools/autonomy-levels.json` (`sdc.autonomy-levels/1`: the holder of each class at each level,
 //! the table of `docs/autonomy-levels.md` § 2.2). This module is the one loader of both; the
-//! requester decider reads the classes through it too.
+//! requester decider reads the classes through it too. The run reads them once, before its first
+//! action (`Decider::pin_routing`): the run directory's copy is writable by a bound program.
 //!
 //! The rule is closed. Below A5 the decider takes a decision only where the table gives its class
 //! to `decider`; every other holder (a person, an advised person, a rule, a rule with the decider)
@@ -97,6 +98,12 @@ impl Routing {
     /// The class of a decision (see [`class_of`]).
     pub fn class_of(&self, kind: &str, action: &str) -> String {
         class_of(&self.classes, kind, action)
+    }
+
+    /// The side a class belongs to (`requester` or `delivering`); a class that is not in the file
+    /// is on the delivering side.
+    pub fn side_of(&self, class: &str) -> String {
+        self.classes.get(class).and_then(|c| c["side"].as_str()).unwrap_or("delivering").to_owned()
     }
 
     /// The holder of `class` at `level`; `None` for a class or a level the table does not have.

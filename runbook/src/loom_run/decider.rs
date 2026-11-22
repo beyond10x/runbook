@@ -142,6 +142,9 @@ pub struct NativeDecider {
     principal: String,
     /// `decider.requester`: a decision of a requester-side class goes to the requester decider.
     requester: bool,
+    /// Who decides, read once (see [`Decider::pin_routing`]) and never again: the run's own
+    /// copy of the table is writable by a bound program.
+    routing: std::sync::OnceLock<Result<Routing, String>>,
 }
 
 fn number_key(decider: &Value, key: &str, min: u64) -> Result<Option<u64>, String> {
@@ -246,7 +249,13 @@ impl NativeDecider {
             Some(_) => return Err("decider.requester: true or false".to_owned()),
         };
         let principal = person_step_principal(&json!({"autonomy": "A5", "decider": decider}))?.ok_or("decider: no principal")?;
-        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester })
+        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester, routing: std::sync::OnceLock::new() })
+    }
+
+    /// The table this run is routed by: the read of [`Decider::pin_routing`], or the first read
+    /// when nobody pinned it.
+    pub(super) fn routing(&self, run_dir: &Path) -> Result<&Routing, String> {
+        self.routing.get_or_init(|| Routing::load(run_dir)).as_ref().map_err(Clone::clone)
     }
 
     fn cannot(reason: impl Into<String>) -> Verdict {
@@ -279,8 +288,7 @@ impl NativeDecider {
     /// loaded first, and a table that cannot be read is a person's: no rule and no model decides
     /// without it.
     fn route(&self, level: &str, run_dir: &Path, kind: &str, action: &str, outcome: Option<&str>) -> Result<bool, String> {
-        let load = || Routing::load(run_dir).map_err(|e| format!("reserved for a person: autonomy {level}: the table of who decides cannot be used ({e}), so a person decides"));
-        let routing = load()?;
+        let routing = self.routing(run_dir).map_err(|e| format!("reserved for a person: autonomy {level}: the table of who decides cannot be used ({e}), so a person decides"))?;
         if level == AUTONOMY_DECIDES {
             return Ok(outcome.filter(|_| kind == "close").is_some_and(|outcome| routing.closes_by_rule(level, outcome)));
         }
@@ -540,6 +548,10 @@ const NO_CLAIMS: &str = "claims of the position are not in Loom's output: the de
 const NO_INSTRUCTIONS: &str = "the instruction files are not found: the decider needs instructions/decider/ above the bindings copy";
 
 impl Decider for NativeDecider {
+    fn pin_routing(&self, run_dir: &Path) {
+        let _ = self.routing.get_or_init(|| Routing::load(run_dir));
+    }
+
     fn max_call_micro_usd(&self) -> u64 {
         match self.mode {
             Mode::Rule { .. } => 0,

@@ -65,7 +65,13 @@ Notes.
   for a person. A rule or a model never records an approval or a close under a person's name:
   the principal is `rule:autopilot`, `decider:model`, `decider:approve` or `decider:reject`.
   `driver/examples/sdc/decision-classes.json` and `tools/autonomy-levels.json` are copied beside
-  the run's bindings. A test reads the table of the document and compares it to the JSON.
+  the run's bindings; the copy stays in the run directory as the record of what the run was routed
+  by. A bound program can write that copy under `--confinement local`, so the runner reads both
+  files once, right after the copy is made and before the first action of the run
+  (`Decider::pin_routing`), and routes every decision of the run, the requester's classes
+  included, from that read in memory: a rewrite of the copy during the run changes no routing. A
+  table that cannot be read at that first read is kept as the error, and every decision stops for a
+  person, at every level. A test reads the table of the document and compares it to the JSON.
   The driver's A3 routing (the decider rejects a release, the decider is asked for the close) is
   not ported: the table gives the release and the close at A3 to a person, and a level never widens
   what its table gives.

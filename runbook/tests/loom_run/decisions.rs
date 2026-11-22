@@ -4,6 +4,7 @@
 use super::core::{code, stderr, World};
 use super::fake::{decision_json, tree_run_json};
 use serde_json::json;
+use std::path::Path;
 
 const PERSON_BINDINGS: &str = "format: loom.bindings/1
 protocol: sdc@8
@@ -337,6 +338,41 @@ fn a_level_below_a5_never_widens_for_a_holder_that_is_not_the_decider_or_a_class
         assert_eq!(adapter_starts(&w), 0, "{level} {action}: the decider was asked");
         assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "{level} {action}");
         assert!(w.outcome("r1")["reason"].as_str().unwrap().contains("reserved for a person"), "{level} {action}");
+    }
+}
+
+/// A bound program may write the run's copy of who decides (`tools/autonomy-levels.json`) and of the
+/// classes (`driver/examples/sdc/decision-classes.json`; the copy is writable). The runner reads both
+/// once, before the first action of the run, and routes every decision of the run from that read:
+/// the first step of the run rewrites the table so that the decider holds every class, or moves the
+/// release into the class the decider holds at A3, and the decisions after the rewrite are
+/// routed as before it. No model decides what the first table gave to a person.
+#[test]
+fn a_program_that_rewrites_the_table_of_who_decides_changes_nobody_s_routing_for_the_run() {
+    let everything_to_the_decider = "sed 's/\"rule_and_decider\"/\"decider\"/g; s/\"person\"/\"decider\"/g; s/\"advised\"/\"decider\"/g; s/\"rule\"/\"decider\"/g' tools/autonomy-levels.json > tools/levels.new && mv tools/levels.new tools/autonomy-levels.json\n";
+    let release_into_context = "sed 's|\"sdc.direction/context.approve\"|\"sdc.direction/context.approve\", \"sdc.release/release.publish\"|; s|\"actions\": \\[\"sdc.release/release.publish\"\\]|\"actions\": []|' driver/examples/sdc/decision-classes.json > driver/examples/sdc/classes.new && mv driver/examples/sdc/classes.new driver/examples/sdc/decision-classes.json\n";
+    for (what, rewrite, level, action) in [
+        ("every class to the decider", everything_to_the_decider, "A3", "release.publish"),
+        ("every class to the decider", everything_to_the_decider, "A4", "release.publish"),
+        ("every class to the decider", everything_to_the_decider, "A1", "context.approve"),
+        ("the release into a class the decider holds", release_into_context, "A3", "release.publish"),
+    ] {
+        let w = World::new(&format!("rewrite-{level}-{action}-{}", what.len()));
+        install_decider(&w, &reject_reply("unused").replace("\"reject\"", "\"approve\""));
+        bindings(&w, &bindings_of(action));
+        approve_tree(&w, action);
+        w.fake.hook("tree_run", "1", rewrite);
+        at_level(&w, level);
+        let o = w.run(&w.args("r1", 5_000_000));
+        let rewritten = std::fs::read_to_string(w.run_dir("r1/tools/autonomy-levels.json")).unwrap() + &std::fs::read_to_string(w.run_dir("r1/driver/examples/sdc/decision-classes.json")).unwrap();
+        let repository = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let original = std::fs::read_to_string(repository.join("tools/autonomy-levels.json")).unwrap() + &std::fs::read_to_string(repository.join("driver/examples/sdc/decision-classes.json")).unwrap();
+        assert_ne!(rewritten, original, "{what}: the program did not rewrite the copy");
+        assert_eq!(code(&o), 8, "{what} {level} {action}: {}", stderr(&o));
+        assert_eq!(adapter_starts(&w), 0, "{what} {level} {action}: a model decided what the first table gave to a person");
+        assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "{what} {level} {action}");
+        let reason = w.outcome("r1")["reason"].as_str().unwrap().to_owned();
+        assert!(reason.contains("reserved for a person"), "{what} {level} {action}: {reason}");
     }
 }
 
