@@ -1,0 +1,45 @@
+findings:
+- id: F1
+  type: gap
+  cites: [R1]
+  says: invented finding one
+  options: [fix, accept]
+  default: fix
+  scope_changing: false
+  stage: spec
+  raised_by: program:spec-check
+  status: resolved
+  scope: spec
+  basis: invented basis
+  decision: fix
+  decided_by: agent
+  resolution:
+    default_taken: true
+- id: F2
+  type: gap
+  cites: [R2]
+  says: invented finding two
+  options: [fix, accept]
+  default: fix
+  scope_changing: false
+  stage: plan
+  raised_by: llm:plan-review
+  status: resolved
+  scope: plan
+  basis: invented basis
+  decision: accept
+  decided_by: person:reviewer-1
+  resolution:
+    default_taken: false
+- id: F3
+  type: gap
+  cites: [R1]
+  says: invented finding three
+  options: [fix, accept]
+  default: fix
+  scope_changing: false
+  stage: requirements
+  raised_by: llm:intake
+  status: open
+  scope: requirements
+  basis: invented basis

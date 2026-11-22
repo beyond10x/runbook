@@ -102,10 +102,58 @@ A member with no source in a Loom run is absent (the file or the member), never 
 | `decisions.jsonl` `duration_ms`, `usage`, `cites`, `reasons`, `invalid_reply`, `escalation_suppressed`, `attempt` | the decider returns the answer, the cost and the number of model calls | `run.decider_s` 0; `decision.<class>.invalid_replies`, `retries`, `escalated`, `refused_by_check` 0; `run.decider_calls` counts answered decisions with a model, once each whatever `model_calls` says |
 | `rounds.jsonl` `case_dir` | `tree run --max-steps 1` names no case dir | none (`waiting_on_person_s` is 0: one leg, and the decider answers inside the run) |
 | `oracle.json` | the conformance observation is the driver's | `conformance` reads `not observed` |
-| `decision.json`, `replay.json`, `run.log`, `decider/`, `llm/` at the top | the driver's own files | none read by the report; Loom's tool records are in `work/.sdc/llm/` |
+| `decision.json`, `replay.json`, `run.log`, `decider/`, `llm/` at the top | the driver's own files | none read by the report (`sdc-run-timeline` reads `decider/`); Loom's tool records are in `work/.sdc/llm/` |
 | `run-settings.jsonl` `rework_limit`, `rule_approvals`, `unstick`, `tree` | driver settings with no Loom counterpart | none: `check --runs-dir` compares only the keys the record sets for a `loom` variant. `adapter`, `autonomy`, `decider.*` and `review.adapter` are the settings file as the runner read it (one format, `docs/loom-run-settings.md`), so they are in the line, and `check --runs-dir` passes on a run the launcher started |
 | `run-settings.jsonl` `loom.bin`, `loom.login_file` | never recorded: a path of the binary, a login | not compared |
 | `evidence/<id>.json`, `ir.json`, `bindings.json` | `tree-status.json` is written at the end; the protocol files are in the run directory only when R1 copies them | until then: rework causes read `<kind>:?`, every node reads as kind `other`; see "What R1 must hand over" |
+
+## The two evaluation tools
+
+`sdc-finding-kpis <run dir> [--json]` (`docs/kpis.md` § 4) and `sdc-run-timeline <run dir>`
+(`docs/llm-is-not-the-runtime.md`) read this directory as they read the directory of `sdc-drive`,
+with the same reader for the case store as `sdc-experiment report` (`driver/src/run_metrics.rs`
+`root_case_dir`, `case_dirs`). The kind is read from the files (`driver/src/run_kind.rs`), no flag:
+
+- `settings.json` in the run directory: a Loom run (the loop writes it first);
+- else `store/<root>/events.jsonl`: a driver run (`<root>` is `IDEA-1`, else the one directory of
+  `store/` that holds an `events.jsonl`);
+- neither: exit 2 and one line that names `settings.json` and `store/<case>/events.jsonl`.
+
+Both print the same shape for both kinds. A figure a Loom directory has no source for is `null`,
+never 0 and never a guess; in `sdc-finding-kpis` its object carries a `why`, in `sdc-run-timeline`
+the document's `notes` say so. `sdc-run-metrics` and `sdc-experiment report` read the same absent
+members as 0 (`run.clean` is `closed` alone, above): the two tools here say "no source", those say
+"none occurred".
+
+### `sdc-finding-kpis`
+
+| KPI | source in a Loom run | under Loom |
+|---|---|---|
+| L1 `person_actions` | `store/<root>/**/events.jsonl` `action_finished.principal` (run log `AuthorityRecorded`) | counts `action_finished` only: Loom's run log has no `authority_recorded` event |
+| L1 `person_answers` | the product tree's `work/questions.yaml`, `findings.yaml`, `context.yaml` (the driver reads its copy in `store/<root>/work/`) | as the driver; a missing file counts 0 |
+| L1 `stand_in`, `stand_in_by` | `run-settings.jsonl` has no such member | `null` |
+| L2 | `rounds.jsonl` | as the driver |
+| L7 | `rounds.jsonl`, `run-settings.jsonl`, `run-stopped.json`, and `status.json` `state: closed` where the driver has `decision.json` | as the driver; one leg, so a stop never waits on a person |
+| `forced`, `unstuck`, `stopped_for_fix`, `clean_run` | `defects.jsonl` and `run-stopped.<at>.json` are never written | `null` (`reopens`, `seconds`, the `forced`, `unstuck` and `reopens` of `clean_run` too), with `why` |
+| L3, L4, L5 | `work/findings.yaml`, `questions.yaml`, `context.yaml` | as the driver |
+| L6 | `events.jsonl` `revised` is never written | `value` `null`, `by_artifact` `{}`, with `why` |
+
+### `sdc-run-timeline`
+
+| field | source in a Loom run | under Loom |
+|---|---|---|
+| tree, program and rule spans, times | `store/<root>/**/events.jsonl`, `observed.jsonl` | a take's start is the start of its step: Loom logs one line, at the finish |
+| take `cause` | `evaluated` events and the decision files they name | `null` on every take: Loom's run log has no evaluation record (`ir.json` has the effect only) |
+| model spans | `llm-calls.jsonl` joined to the take; call records in `work/.sdc/llm/<call>/` (`status.json`, `events.jsonl`) | `api_requests`, `tool_calls`, `tool_calls_denied` are `null` for a call whose record directory is missing; `sessions` 0 and no cost for a model step that started no adapter |
+| decider spans | `decisions.jsonl` lines that name a model, call records in `decider/<call>/` | as the driver; a line without a record directory takes its time from `time` and has no duration |
+| idle spans, `waiting_on_person_s` | `rounds.jsonl`, `run-settings.jsonl`, `run-stopped.json`, `status.json` | as the driver (0 for a person: the decider answers inside the run) |
+| `settings` | last line of `run-settings.jsonl` | `efforts` is `{}` (Loom runs the class defaults); `max_llm_calls`, `max_wall_seconds`, `autonomy` as the settings file says |
+| `end` | `status.json` | `null` while the run is open |
+
+`--check` holds the cost to `sdc-run-metrics`' for a Loom run too. The tests are
+`driver/tests/finding_kpis.rs` and the last tests of `driver/tests/run_timeline.rs`, on the
+hand-written directory `driver/tests/fixtures/loom-run/` (invented text; the member shapes are the
+table above).
 
 ## What R1 must hand over (`requests-to-r1.md`)
 

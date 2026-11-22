@@ -1,0 +1,6 @@
+{"event":"session.started","format":"metaharness.event/1","model":"claude-sonnet-5-5","seq":1}
+{"call_id":"t1","event":"tool.requested","format":"metaharness.event/1","name":"Read","seq":2}
+{"event":"usage","format":"metaharness.event/1","request_id":"r1","seq":3,"usage":{"input_tokens":2}}
+{"call_id":"t2","event":"tool.requested","format":"metaharness.event/1","name":"Write","seq":4}
+{"event":"usage","format":"metaharness.event/1","request_id":"r2","seq":5,"usage":{"input_tokens":2}}
+{"event":"session.ended","format":"metaharness.event/1","num_turns":2,"seq":6}

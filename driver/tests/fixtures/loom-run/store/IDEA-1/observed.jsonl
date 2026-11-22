@@ -1,0 +1,6 @@
+{"event":"opened","format":"sdc.observed/1","index":0,"observed_at":"2026-11-22T09:00:00Z"}
+{"event":"action_started","format":"sdc.observed/1","index":1,"observed_at":"2026-11-22T09:00:00Z"}
+{"event":"action_finished","format":"sdc.observed/1","index":2,"observed_at":"2026-11-22T09:00:20Z"}
+{"event":"action_started","format":"sdc.observed/1","index":3,"observed_at":"2026-11-22T09:00:54Z"}
+{"event":"action_finished","format":"sdc.observed/1","index":4,"observed_at":"2026-11-22T09:00:55Z"}
+{"event":"terminated","format":"sdc.observed/1","index":5,"observed_at":"2026-11-22T09:00:55Z"}

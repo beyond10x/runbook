@@ -592,3 +592,93 @@ fn a_product_tree_is_sized_by_its_tests_its_product_lines_and_whether_its_readme
     let v: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(v["readme_says_how_to_start"], false);
 }
+
+// ---- a run directory of `runbook loom-run` ------------------------------------------------------
+
+/// `tests/fixtures/loom-run/` is written by hand in the shape `runbook loom-run` writes (the member
+/// table of docs/loom-run-directory.md), with invented text only: no stub run made it and no real
+/// run directory was copied. Seconds from 09:00:00: root `idea.dissect` 0-20 (model, call record
+/// missing), child `spec.author` 21-50 (model, call record in `work/.sdc/llm`, 2 requests, Read and
+/// Write), `spec.approve` 50-53 by a person, a decider call 53-54 (1 request), root `idea.close`
+/// 54-55 by the decider. Cost 0.25 + 0.5 + 0.125.
+fn loom_fixture() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/loom-run")
+}
+
+fn keys(v: &Value) -> Vec<String> {
+    v.as_object().unwrap().keys().cloned().collect()
+}
+
+#[test]
+fn a_loom_run_directory_gives_the_same_document_shape_as_a_driver_run() {
+    let (code, doc, err) = timeline(&loom_fixture(), &["--check"]);
+    assert_eq!(code, 0, "{err}");
+    let run = scratch("shape").join("demo-run");
+    sdc_run(&run);
+    let (_, driver, _) = timeline(&run, &[]);
+    assert_eq!(keys(&doc), keys(&driver));
+    assert_eq!(keys(&doc["totals"]), keys(&driver["totals"]));
+    assert_eq!(keys(&doc["settings"]), keys(&driver["settings"]));
+    assert_eq!(doc["format"], "sdc.run-timeline/1");
+    assert_eq!(doc["kind"], "sdc");
+    assert_eq!(doc["run"], "loom-run");
+    assert_eq!(doc["end"], json!({"state": "closed", "outcome": "operating", "delivered": true}));
+    assert_eq!(doc["settings"]["models"]["writer"], "claude-sonnet-5-5");
+    assert_eq!(doc["settings"]["autonomy"], "A5");
+    assert_eq!(doc["settings"]["decider"]["kind"], "model");
+    let tree = doc["tree"].as_array().unwrap();
+    assert_eq!(tree.len(), 2);
+    assert_eq!(tree[1]["case"], "IDEA-1.spec");
+    assert_eq!(tree[1]["parent"], "IDEA-1");
+    assert_eq!(tree[1]["stage"], "spec");
+    assert!(doc["notes"].as_array().unwrap().iter().any(|n| n.as_str().unwrap().starts_with("a runbook loom-run directory")));
+    assert!(driver["notes"].as_array().unwrap().iter().all(|n| !n.as_str().unwrap().starts_with("a runbook loom-run directory")));
+}
+
+#[test]
+fn a_loom_run_is_read_into_spans_with_null_for_what_it_does_not_record() {
+    let (code, doc, err) = timeline(&loom_fixture(), &[]);
+    assert_eq!(code, 0, "{err}");
+    let models = lane(&doc, "model");
+    assert_eq!(models.len(), 2);
+    // The call record of `spec.author` is in work/.sdc/llm: requests and tool calls are read from it.
+    let author = models.iter().find(|s| s["action"] == "spec.author").unwrap();
+    assert!(close(&author["t0_s"], 21.0) && close(&author["t1_s"], 50.0));
+    assert_eq!(author["api_requests"], 2);
+    assert_eq!(author["tool_calls"], json!({"Read": 1, "Write": 1}));
+    assert!(close(&author["cost_usd"], 0.5));
+    // `idea.dissect` has a costed line and no record directory: its counts are null, its cost is not.
+    let dissect = models.iter().find(|s| s["action"] == "idea.dissect").unwrap();
+    assert_eq!(dissect["api_requests"], Value::Null);
+    assert_eq!(dissect["tool_calls"], Value::Null);
+    assert!(close(&dissect["cost_usd"], 0.25));
+    // No evaluation record in Loom's run log: no take has a cause.
+    for s in lane(&doc, "program").into_iter().chain(models) {
+        assert_eq!(s["cause"], Value::Null, "{s}");
+    }
+    let programs = lane(&doc, "program");
+    assert_eq!(programs.len(), 2);
+    assert_eq!(programs[0]["principal"], "person:reviewer-1");
+    let deciders = lane(&doc, "decider");
+    assert_eq!(deciders.len(), 1);
+    assert!(close(&deciders[0]["t0_s"], 53.0) && close(&deciders[0]["t1_s"], 54.0));
+    assert_eq!(deciders[0]["api_requests"], 1);
+    assert_eq!(deciders[0]["tool_calls"], json!({"StructuredOutput": 1}));
+    let t = &doc["totals"];
+    assert!(close(&t["cost_usd"], 0.875));
+    assert!(close(&t["wall_s"], 55.0));
+    assert_eq!(t["model_sessions"], 2);
+    assert_eq!(t["api_requests"], 3);
+    assert_eq!(t["api_requests_unrecorded_spans"], 1);
+    assert_eq!(t["waiting_on_person_s"], 0.0);
+}
+
+#[test]
+fn a_directory_of_neither_kind_is_refused_with_exit_2_naming_both_files() {
+    let d = scratch("neither");
+    let out = Command::new(env!("CARGO_BIN_EXE_sdc-run-timeline")).arg(&d).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("settings.json") && err.contains("events.jsonl"), "{err}");
+}
