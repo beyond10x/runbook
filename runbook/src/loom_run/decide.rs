@@ -39,6 +39,11 @@ pub enum Verdict {
 
 /// Answers one decision.
 pub trait Decider {
+    /// Reads, once, what the decider routes by (the table of who decides, from the run directory's
+    /// copy). The runner calls it after the bindings copy is made and before the first action of
+    /// the run: a bound program can write the copy, and a decision of the run is routed from this
+    /// read, never from the file as it is later. A decider that routes by nothing does nothing.
+    fn pin_routing(&self, _run_dir: &Path) {}
     /// The most one call can cost, micro USD (0 for a rule). The ledger reserves it before the call.
     fn max_call_micro_usd(&self) -> u64;
     /// Answers `request`.

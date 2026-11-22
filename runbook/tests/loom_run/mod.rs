@@ -12,6 +12,7 @@ mod inproc;
 mod login;
 mod model_call;
 mod replay;
+mod replay_boundaries;
 mod run_dir;
 mod settings;
 mod slow;

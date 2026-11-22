@@ -20,8 +20,9 @@
 //!   `run-stopped.json`, the virtual seconds into `rounds.jsonl`, each call's mode into
 //!   `llm-calls.jsonl`.
 //!
-//! The adapter finds its plan above its call's record directory (`replay/plan.json`), because the
-//! runner passes a bound program no environment. What the engine cannot give is refused by name
+//! The adapter is handed its plan: the runner passes a bound program no environment, so the path of
+//! the run's `replay/plan.json` is `--replay-plan` of each replayed model node (`settings.replay.plan`)
+//! and `decider.replay_plan` of the decider, and the adapter searches no directory. What the engine cannot give is refused by name
 //! when the settings are made: the driver's switches that are environment variables of its loop
 //! (`--set max_rejections`, `review_retries`, `unstick`) and the two caps that are options of the
 //! runner (`--set max_llm_calls`, `max_wall_seconds`).
@@ -114,12 +115,22 @@ fn run_helper(args: &[String]) -> Result<Value, String> {
     serde_json::from_slice(&out.stdout).map_err(|e| format!("{HELPER} printed no JSON: {e}"))
 }
 
+/// The settings key `replay` is the plan's: it names the adapter of every model node. Without
+/// `--recorded` nothing makes it, so a settings file that names it is refused, by key and option.
+pub fn refuse_key_without_recorded(settings: &Value) -> Result<(), String> {
+    match settings.get("replay") {
+        Some(_) => Err("settings.replay: the plan of --recorded makes it; without --recorded take it out of the settings".to_owned()),
+        None => Ok(()),
+    }
+}
+
 /// The settings of a re-drive: the plan's settings put into `settings`. A member the caller's
 /// settings name wins, except the decider's adapter (a re-drive answers every decision from the
 /// recording) and what a re-drive cannot take from the caller: an `adapter` (every model node has
 /// its own) and a `replay` member. Without `--recorded` the settings are returned as they are.
 pub fn preset(args: &Args, run_dir: &Path, mut settings: Value) -> Result<Value, String> {
     if recorded(args).is_none() {
+        refuse_key_without_recorded(&settings)?;
         return Ok(settings);
     }
     let mut command = prepare_args(args, run_dir)?;
@@ -231,6 +242,7 @@ pub fn seal(args: &Args, run_dir: &Path) {
 #[derive(Debug, Default)]
 pub struct BindingPlan {
     adapter: String,
+    plan: String,
     nodes: Option<Vec<String>>,
     actions: Vec<(String, Conditions)>,
     principal: Option<String>,
@@ -247,6 +259,11 @@ struct Conditions {
 pub fn binding_plan(settings: &Value) -> Result<Option<BindingPlan>, String> {
     let Some(replay) = settings.get("replay") else { return Ok(None) };
     let adapter = replay.get("adapter").and_then(Value::as_str).filter(|a| !a.is_empty()).ok_or("settings.replay.adapter: a path")?.to_owned();
+    // The one adapter of a re-drive is the helper the plan was made by; no other program becomes the adapter of a model node.
+    if Path::new(&adapter).file_name().and_then(|n| n.to_str()) != Some(HELPER) {
+        return Err(format!("settings.replay.adapter: only {HELPER} is the adapter of a re-drive"));
+    }
+    let plan = replay.get("plan").and_then(Value::as_str).filter(|p| Path::new(p).is_absolute()).ok_or("settings.replay.plan: the absolute path of the run's replay/plan.json")?.to_owned();
     let nodes = match replay.get("nodes") {
         None | Some(Value::Null) => None,
         Some(Value::Array(a)) => Some(a.iter().map(|n| n.as_str().map(str::to_owned).ok_or("settings.replay.nodes: names")).collect::<Result<Vec<_>, _>>()?),
@@ -264,7 +281,7 @@ pub fn binding_plan(settings: &Value) -> Result<Option<BindingPlan>, String> {
         actions.push((name.clone(), Conditions { max_runs: number("max_runs")?, timeout_s: number("timeout_s")?, wrap }));
     }
     let principal = replay.get("principal").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned);
-    Ok(Some(BindingPlan { adapter, nodes, actions, principal }))
+    Ok(Some(BindingPlan { adapter, plan, nodes, actions, principal }))
 }
 
 fn key(name: &str) -> Yaml {
@@ -285,6 +302,10 @@ impl BindingPlan {
                 if tool.as_deref() == Some(MODEL_TOOL) {
                     let replayed = self.nodes.as_ref().is_none_or(|n| n.contains(&name));
                     changed |= super::bindings_copy::set_option(argv, "--adapter", if replayed { &self.adapter } else { STUB });
+                    // The adapter takes the plan from this path, never from a file it finds near its call.
+                    if replayed {
+                        changed |= super::bindings_copy::set_option(argv, "--replay-plan", &self.plan);
+                    }
                 }
                 // The source's principal (the driver's SDC_PRINCIPAL, which the aep store records as the actor of a move):
                 // the runner passes a bound program no environment, so the tools take it as an option.
@@ -338,6 +359,7 @@ mod tests {
     fn plan() -> BindingPlan {
         binding_plan(&json!({"replay": {
             "adapter": "/x/sdc-replay",
+            "plan": "/x/run/replay/plan.json",
             "nodes": ["change.implement"],
             "actions": {"change.implement": {"max_runs": 2, "timeout_s": 9}, "tests.run": {"wrap": ["/x/sdc-replay", "program", "--action", "tests.run", "--"]}}
         }})).unwrap().unwrap()
@@ -361,6 +383,38 @@ mod tests {
     }
 
     #[test]
+    fn a_replayed_node_is_handed_the_plan_of_the_run_and_a_stub_node_is_not() {
+        let mut d = doc();
+        let scratch = crate::assets::testdir::Dir::new("replay-plan-option");
+        plan().apply(&mut d, scratch.path());
+        let argv = |i: usize| -> Vec<String> { d["actions"][i]["executor"]["argv"].as_sequence().unwrap().iter().map(|a| a.as_str().unwrap().to_owned()).collect() };
+        assert!(argv(0).windows(2).any(|w| w == ["--replay-plan", "/x/run/replay/plan.json"]), "{:?}", argv(0));
+        assert!(!argv(1).iter().any(|a| a == "--replay-plan"), "{:?}", argv(1));
+    }
+
+    #[test]
+    fn the_adapter_of_the_plan_is_the_replay_helper_and_the_plan_is_a_path() {
+        let plan = |adapter: &str, plan: Value| binding_plan(&json!({"replay": {"adapter": adapter, "plan": plan}}));
+        assert!(plan("/x/sdc-replay", json!("/x/run/replay/plan.json")).unwrap().is_some());
+        for adapter in ["/bin/true", "metaharness", "sdc-replay-not"] {
+            let why = plan(adapter, json!("/x/run/replay/plan.json")).unwrap_err();
+            assert!(why.contains("settings.replay.adapter"), "{adapter}: {why}");
+        }
+        for bad in [json!(null), json!(""), json!("relative/plan.json"), json!(3)] {
+            assert!(plan("/x/sdc-replay", bad.clone()).unwrap_err().contains("settings.replay.plan"), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_replay_key_without_recorded_is_refused_by_name_and_option() {
+        let with_key = json!({"replay": {"adapter": "/bin/true"}});
+        let why = refuse_key_without_recorded(&with_key).unwrap_err();
+        assert!(why.contains("settings.replay") && why.contains("--recorded"), "{why}");
+        assert!(refuse_key_without_recorded(&json!({"adapter": "dry"})).is_ok());
+        assert!(refuse_key_without_recorded(&json!({})).is_ok());
+    }
+
+    #[test]
     fn the_conditions_go_into_the_budget_the_timeout_and_the_argv() {
         let mut d = doc();
         let scratch = crate::assets::testdir::Dir::new("replay-conditions");
@@ -378,8 +432,13 @@ mod tests {
     fn no_replay_member_is_no_plan_and_a_bad_one_is_refused_by_name() {
         assert!(binding_plan(&json!({})).unwrap().is_none());
         assert!(binding_plan(&json!({"replay": {"adapter": ""}})).unwrap_err().contains("settings.replay.adapter"));
-        assert!(binding_plan(&json!({"replay": {"adapter": "a", "nodes": "x"}})).unwrap_err().contains("settings.replay.nodes"));
-        assert!(binding_plan(&json!({"replay": {"adapter": "a", "actions": {"x": {"max_runs": "two"}}}})).unwrap_err().contains("max_runs"));
+        let own = |rest: Value| {
+            let mut r = json!({"adapter": "/x/sdc-replay", "plan": "/x/run/replay/plan.json"});
+            r.as_object_mut().unwrap().extend(rest.as_object().unwrap().clone());
+            json!({"replay": r})
+        };
+        assert!(binding_plan(&own(json!({"nodes": "x"}))).unwrap_err().contains("settings.replay.nodes"));
+        assert!(binding_plan(&own(json!({"actions": {"x": {"max_runs": "two"}}}))).unwrap_err().contains("max_runs"));
     }
 
     #[test]

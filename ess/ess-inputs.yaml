@@ -13,6 +13,9 @@ scenarios:
   - scenarios/decision-escalate-to-an-ineligible-principal-is-refused.yaml
   - scenarios/decision-duplicate-option-letters-are-refused.yaml
   - scenarios/decision-empty-record-id-is-refused.yaml
+  - scenarios/decision-empty-record-id-on-an-unknown-request.yaml
+  - scenarios/decision-option-not-offered-by-a-decider-or-a-rule.yaml
+  - scenarios/decision-option-not-offered-in-a-weak-recommendation.yaml
   - scenarios/daemon-submit-and-run-to-an-outcome.yaml
   - scenarios/daemon-submit-below-the-floor-is-refused.yaml
   - scenarios/daemon-decision-is-answered-and-the-run-resumes.yaml

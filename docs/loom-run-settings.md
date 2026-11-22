@@ -88,10 +88,12 @@ The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rs
 only by the bash adapters it starts; the shell programs of the bindings (`sdc-node`,
 `sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 
-Efforts (`efforts.<role>.effort`), `flags.recorded` and `implement_mode` stay refused in a
-record of a `loom` variant, with the key named: the runner takes the efforts (`efforts` above,
-`sdc-node --effort`), `loom_settings_json` does not write them yet, and the runner has no recorded
-mode. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
+Efforts (`efforts.<role>.effort`) and `implement_mode` stay refused in a record of a `loom`
+variant, with the key named: the runner takes the efforts (`efforts` above, `sdc-node --effort`),
+but the record format does not carry them to it yet. `flags.recorded` is passed on as
+`--recorded`: the runner has a recorded mode (`runbook run --recorded`, `docs/loom-run.md`), and
+`sdc-experiment` passes the replay flags of the record (`REPLAY_FLAGS`) as the options that go with
+it. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
 
 The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the
 file for the strong record and compares it with `runbook/tests/fixtures/loom-run-settings.json`

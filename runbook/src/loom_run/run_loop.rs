@@ -290,6 +290,8 @@ impl Runner<'_> {
         }
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
+        // The copy is made and no bound program has run: who decides is read now and not again.
+        self.decider.pin_routing(&self.run_dir);
         self.answers = Answers::load(&self.bindings_dir)?;
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;

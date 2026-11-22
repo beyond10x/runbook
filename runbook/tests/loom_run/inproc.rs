@@ -36,6 +36,7 @@ impl Rig {
         std::fs::create_dir_all(root.join("runs")).unwrap();
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &root.join("fx"));
         std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
+        super::decider::install_routing_table_at(&root.join("fx"));
         let rig = Rig { root };
         rig.answers(&[json!({"approve": true, "cost_micro_usd": 0})], 0);
         rig

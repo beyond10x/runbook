@@ -522,3 +522,57 @@ fn the_rewritten_copy_loads_in_loom_tree_open() {
     assert!(opened.contains("IDEA-1"), "{opened}");
     run(&["tree".into(), "verify".into(), "--store".into(), store.display().to_string()]);
 }
+
+#[test]
+fn an_effort_and_a_replay_plan_land_on_the_same_nodes_and_the_effort_changes_nothing_else_in_argv() {
+    let replay = json!({"adapter": "/x/sdc-replay", "plan": "/x/run/replay/plan.json", "nodes": ["change.implement", "idea.dissect", "change.review"], "actions": {}});
+    let (_a, was_dst, was) = make("adv-seam-replay-only", &json!({"replay": replay}));
+    was.unwrap();
+    let efforts = json!({"review": {"effort": "max"}, "other": {"effort": "low"}, "implement": {"effort": "xhigh"}});
+    let (_b, is_dst, is) = make("adv-seam-both", &json!({"efforts": efforts, "replay": replay}));
+    is.unwrap();
+    let classes: Value = serde_json::from_str(&std::fs::read_to_string(is_dst.join("tools/node-classes.json")).unwrap()).unwrap();
+    let (was_actions, is_actions) = (actions(&was_dst), actions(&is_dst));
+    assert_eq!(was_actions.len(), is_actions.len());
+    let (mut with_effort, mut stubbed) = (0, 0);
+    for ((name, was), (_, is)) in was_actions.iter().zip(&is_actions) {
+        let (mut was, mut is) = (argv_of_any(was), argv_of_any(is));
+        let own = |argv: &mut Vec<String>, dst: &Path| argv.iter_mut().for_each(|a| *a = a.replace(&dst.display().to_string(), "<copy>"));
+        own(&mut was, &was_dst);
+        own(&mut is, &is_dst);
+        if !is.first().is_some_and(|t| t.ends_with("sdc-node")) {
+            assert_eq!(was, is, "{name}: a node that is no model node changed");
+            continue;
+        }
+        let node = name.split(':').nth(1).unwrap();
+        let want = match class_of(&classes, node).as_str() {
+            "review" => Some("max"),
+            "other" => Some("low"),
+            "implement" => Some("xhigh"),
+            _ => None,
+        };
+        assert_eq!(option_of(&is, "--effort").as_deref(), want, "{name}");
+        if let Some(i) = is.iter().position(|a| a == "--effort") {
+            is.drain(i..i + 2);
+            with_effort += 1;
+        }
+        assert_eq!(was, is, "{name}: the effort changed something else in the argv");
+        let adapter = option_of(&was, "--adapter");
+        if adapter.as_deref() == Some("stub") {
+            stubbed += 1;
+        } else {
+            assert_eq!(adapter.as_deref(), Some("/x/sdc-replay"), "{name}");
+        }
+    }
+    assert!(with_effort >= 5 && stubbed >= 1, "{with_effort} nodes with an effort, {stubbed} on the stub");
+}
+
+#[test]
+fn the_levels_the_copy_accepts_are_the_levels_node_classes_json_lists() {
+    let classes: Value = serde_json::from_str(&std::fs::read_to_string(committed().join("tools/node-classes.json")).unwrap()).unwrap();
+    let listed: Vec<&str> = classes["efforts"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+    for level in &listed {
+        efforts(&json!({"efforts": {"writer": {"effort": level}}})).unwrap_or_else(|e| panic!("{level} is listed in node-classes.json and refused: {e}"));
+    }
+    assert_eq!(EFFORTS.to_vec(), listed);
+}

@@ -297,6 +297,20 @@ fn the_adapter_gets_an_environment_built_here_and_nothing_inherited() {
 }
 
 #[test]
+fn the_adapter_of_a_re_drive_is_handed_the_plan_of_the_run_by_the_settings() {
+    let w = world("r2-replay-plan", &valid("0.1"));
+    let plan = w.run.join("replay/plan.json");
+    let s = settings(&w, json!({"replay_plan": plan.display().to_string()}));
+    ask(&w, &s, &approve_action(&w), 250_000);
+    let env = std::fs::read_to_string(first_record(&w).join("env.txt")).unwrap();
+    assert!(env.contains(&format!("SDC_REPLAY={}\n", plan.display())), "{env}");
+    for bad in [json!(""), json!("relative/plan.json"), json!(3)] {
+        let s = settings(&w, json!({"replay_plan": bad.clone()}));
+        assert!(from_settings(&s).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn a_child_environment_without_path_is_refused() {
     let w = world("r2-nopath", &valid("0.1"));
     let s = settings(&w, json!({}));
@@ -546,9 +560,6 @@ fn a_table_that_is_missing_or_unusable_is_a_person_s_at_every_level_for_every_cl
             let mut decision = close_decision();
             decision["outcome"] = json!("operating");
             for d in [&approve_action(&w), &decision] {
-                if level == "A5" && d["kind"] == "ApproveAction" {
-                    continue;
-                }
                 let why = reason(ask(&w, &s, d, 250_000));
                 assert!(why.starts_with("reserved for a person") && why.contains("a person decides") && why.contains("autonomy-levels.json"), "{what} {level}: {why}");
             }

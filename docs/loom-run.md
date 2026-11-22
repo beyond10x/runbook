@@ -352,15 +352,22 @@ one) or from a run directory of this runner or of the old driver, by the adapter
 `timeout@<case>/<action>#<n>`, `check-fail@<action>#<n>`), `--set k=v` (conditions: `max_runs.<name>`,
 `timeout_s.<name>`), `--take-recorded <actions>` and `--source-tree <commit>`;
 each of them without `--recorded` is exit 64 (`<option> needs --recorded <source>`), as is a source that
-is no directory.
+is no directory. The adapter reads `replay/plan.json` and `replay/calls.jsonl` of the run directory
+at each call. Under `--confinement local` a bound program can write them, and `local` is unconfined
+(see above); under `--confinement substrate` the run directory is out of a bound program's reach.
 
 - The plan of `sdc-replay prepare` becomes settings of the run: the source's autonomy and decider
   (on the adapter `sdc-replay`), and under `replay` the adapter of each model node (`sdc-replay`
   for a node the source sent to a model, `stub` for the others), the principal that the story
   digests were recorded under (`--principal` of `sdc-node` and `sdc-tool.sh`) and the conditions
-  of each action. The runner passes a bound program no environment, so the adapter finds
-  `replay/plan.json` by walking up from its call's record directory. The settings
-  file may not name `adapter` or `replay` (the run is refused and the key named).
+  of each action. The runner passes a bound program no environment, so it hands the adapter the
+  path of the run's `replay/plan.json`: `sdc-node` takes it as `--replay-plan` (in the argv of each
+  replayed node of the bindings copy) and sets `SDC_REPLAY` for its adapter, and the runner's
+  decider takes it from `decider.replay_plan` and sets `SDC_REPLAY` in the adapter's environment.
+  The adapter searches no directory: a `replay/plan.json` inside `work/` is never read. The settings
+  file may not name `adapter` or `replay` (the run is refused and the key named); `replay` without
+  `--recorded` is refused too, exit 2 before the run directory is made, naming the key and the
+  option, and the one adapter a re-drive takes is `sdc-replay`.
 - Conditions are written into the bindings copy (`bindings_copy.rs`): `max_runs` is the binding's
   `budget.max_runs`, `timeout_s` its `timeout_seconds`, and a wrap of the argv (a program the plan names, as for `check-fail`) goes before it.
 - After every step the runner reads `replay/diverged.json`. A call that has no recorded reply
@@ -368,9 +375,33 @@ is no directory.
   run as `stopped: recording diverged`, exit 11, cause `recording_diverged` in `run-stopped.json`
   and `outcome.json`, with the first divergence as the reason (`diverged.json` keeps the first).
   Exit 9 is `denied`, so the old driver's 9 for a divergence is 11 here. `nearest` reuses the
-  nearest recorded reply of the same action; `live` makes the call on `--live-adapter`.
-- At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live, diverged,
-  paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
+  nearest recorded reply of the same action; `live` makes the call on `--live-adapter`. The cap
+  `--live-cap` counts a live call from its start: the adapter appends a line with `"phase":
+  "started"` to `replay/calls.jsonl`, under a lock of that file, before it starts the live program,
+  and the call's own line (`"phase": "finished"`) when the program has ended, so a live call that is
+  ended before it finishes still counts and two adapter processes at a cap of 1 start one live
+  program between them; a line without a phase (an older log) is a finished call. The log is read
+  as bytes, line by line, and a line that is not valid UTF-8 or not a JSON object (a cut-off last
+  line included) counts as one started live call, so a log that cannot be read in full never lifts
+  the cap; the adapter writes a newline first when the last line of the log has none; a log that
+  exists and cannot be opened is refused. `replay.calls.unreadable_lines` is their number. The
+  request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
+  setting that differs from the recorded effort diverges at the first call, as a changed model
+  does (intended). The inputs are compared by digest after what differs between two runs is masked
+  (run directories, home paths, instants, revisions, seconds), and so is the version label of the
+  pinned ESS in the header line of the conformance log (the first line of that shape in
+  `in/tests.txt`, below its preamble, and in no other file, prompt or request; written as `<system> v<n> against <implementation> <version> —
+  passed`; it is rewritten to the label the committed recording was packed with, `0.97.3`, so the
+  recording's digests hold): a new ESS pin does not diverge a recording, a changed test name does.
+  A recording packed by an older `sdc-replay` at another label holds the digest of its own label
+  and diverges at `in/tests.txt` (the mask is not widened to meet it). The divergence message names
+  the label as the cause, and says to pack the recording again, only when that is proven: the
+  digest of the current text, unmasked, is the recorded one. Otherwise it says that `in/tests.txt`
+  changed and, as its own sentence, that a recording packed before the label was masked diverges
+  there for that reason alone; the recording holds digests only, so it cannot tell that case from a
+  changed test at the committed label, and the message gives no advice.
+- At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live (started),
+  live_unfinished, diverged, paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
   `rounds.jsonl` and each call's mode into `llm-calls.jsonl`.
 - `sdc-replay` reads a Loom run directory: the run log `store/runlog-case-<hex>.jsonl` and the
   per-case `events.jsonl` that the run directory projects. Arrival and try of a call: arrival 1 at

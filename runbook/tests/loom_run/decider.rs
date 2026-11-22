@@ -64,11 +64,17 @@ pub fn install_decider(w: &World, reply: &str) {
 /// The repository's own files of who decides at which level (`decision-classes.json` and
 /// `tools/autonomy-levels.json`), beside the bindings of the world, so the copy carries them.
 pub fn install_routing_table(w: &World) {
+    install_routing_table_at(&w.root);
+}
+
+/// The same two files beside the bindings directory of `root`. The table is required at every
+/// level, A5 included, so every world that runs a decision has it.
+pub fn install_routing_table_at(root: &Path) {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    std::fs::create_dir_all(w.root.join("driver/examples/sdc")).unwrap();
-    std::fs::create_dir_all(w.root.join("tools")).unwrap();
-    std::fs::copy(repo.join("driver/examples/sdc/decision-classes.json"), w.root.join("driver/examples/sdc/decision-classes.json")).unwrap();
-    std::fs::copy(repo.join("tools/autonomy-levels.json"), w.root.join("tools/autonomy-levels.json")).unwrap();
+    std::fs::create_dir_all(root.join("driver/examples/sdc")).unwrap();
+    std::fs::create_dir_all(root.join("tools")).unwrap();
+    std::fs::copy(repo.join("driver/examples/sdc/decision-classes.json"), root.join("driver/examples/sdc/decision-classes.json")).unwrap();
+    std::fs::copy(repo.join("tools/autonomy-levels.json"), root.join("tools/autonomy-levels.json")).unwrap();
 }
 
 /// The file `sdc-experiment run` writes for a loom run, as committed in
