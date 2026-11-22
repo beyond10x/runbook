@@ -5,5 +5,6 @@ driver/tests/fixtures/autopilot-stopped driver/tests/run_compare.rs the comparis
 driver/tests/fixtures/bugfix-prompt driver/tests/bugfix_prompt.rs the test reads one file per node, named from the node
 driver/tests/fixtures/conformance driver/tests/conformance.rs the conformance tool reads the whole specification tree
 driver/tests/fixtures/decision-request driver/tests/decision_request.rs the tool under test reads the whole store
+driver/tests/fixtures/loom-run driver/tests/finding_kpis.rs the tools under test read the whole run directory (the same directory is read by driver/tests/run_timeline.rs)
 driver/tests/fixtures/trial-2-train driver/tests/decision_request.rs the tool under test reads the whole store
 driver/tests/fixtures/trial-2b-fresh driver/tests/run_compare.rs the comparison program under test reads the whole run directory
