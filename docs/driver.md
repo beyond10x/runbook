@@ -783,8 +783,9 @@ ends `(forced N)`; `sdc-finding-kpis` (`forced`) and `sdc-run-compare` ("forced 
 stop under final (`approved_on_checks`, `rejected_on_checks`, or the default), so it needs no
 continuation of its own. Without `--keep-going` nothing changes.
 
-**Unstick** (D147, 2026-11-21, every `--autopilot` run; `SDC_UNSTICK=off` turns it off, and it is
-off where its adapter calls no model, `stub` or `dry`). Before autopilot stops for any cause but a
+**Unstick** (D147, 2026-11-21; gone: `runbook run` has no such step, and a run that stops stays
+stopped). What the driver did, as it was: in every `--autopilot` run, with `SDC_UNSTICK=off` to turn
+it off, and off where its adapter called no model, `stub` or `dry`. Before autopilot stopped for any cause but a
 cap (`decider_budget_spent`, `llm_budget_spent`, `step_budget_spent`, `wall_time_spent`) or a
 tool that crashed, the node `run.unstick` (class `unstick` in `tools/node-classes.json`, model
 `SDC_LLM_MODEL_UNSTICK`, default `claude-opus-5-5`; adapter `SDC_UNSTICK_ADAPTER`, else the
@@ -1058,10 +1059,8 @@ A changed effort is a changed request and diverges: a recording made before effo
 Recordings are re-packed after a change to the request shape; `fixtures/recorded/stub` was
 re-packed on the 0.1.1 tree (14 calls: the close is taken by `rule:autopilot`, not the decider).
 
-A re-driven run sets `SDC_UNSTICK=off` unless the source has `run.unstick` calls: a replay
-reproduces the source's calls, and a node the source never called has no recorded reply.
-`run-settings.jsonl` records it as `replay.unstick` (`on`, `why`). To try `run.unstick` on a
-recording without such a call: `--set unstick=on --on-divergence live`.
+A run re-driven by the old driver set `SDC_UNSTICK=off` unless the source had `run.unstick` calls.
+Unstick is gone with the driver: `runbook run --recorded` has no such node and no `--set unstick`.
 
 ## Instructions
 
