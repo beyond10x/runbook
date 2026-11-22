@@ -32,9 +32,10 @@ and opens none, so its run belongs to no session; `--json` shows the daemon's an
 |---|---|---|
 | `runbook run <runbook> --intake <file\|-> [--context <dir>] [--set k=v]... --detach` | `POST /daemon/commands/submit-run` | the run id |
 | `runbook run <runbook> --intake <file\|-> --run <name> --runs-dir <dir> --confinement <level> --settings <file> --spend-ledger <file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>` | none: the run is made in this process | one line on standard error; the exit code is the outcome's (`docs/loom-run.md`) |
-| `runbook run <runbook> … [--dry] [--recorded <dir> [--on-divergence stop\|nearest\|live] [--live-adapter <a>] [--live-cap <n>] [--inject <fault>]... [--set k=v]... [--take-recorded <actions>] [--source-tree <commit>]] [--bugfix <dir>] [--bugfix-ticket <file>] [--watch] [--conformance off\|observe]` | none: the options of the old driver's launcher | `--dry` runs the stub cycle on the adapter `dry`, prints every model command and runs none (no login, spend 0; `docs/loom-run.md` "A dry run"); every other one is accepted and refused with exit 64 and `<option> is not built yet` until its port is built; `--conformance off` is the default and changes nothing; `--conformance observe` is built: after a run that ended closed it writes `oracle.json` into the run directory (`docs/conformance.md`) |
+| `runbook run <runbook> … [--dry] [--recorded <dir> [--on-divergence stop\|nearest\|live] [--live-adapter <a>] [--live-cap <n>] [--inject <fault>]... [--set k=v]... [--take-recorded <actions>] [--source-tree <commit>]] [--bugfix <dir>] [--bugfix-ticket <file>] [--conformance off\|observe]` | none: the options of the old driver's launcher | `--dry` runs the stub cycle on the adapter `dry`, prints every model command and runs none (no login, spend 0; `docs/loom-run.md` "A dry run"); every other one is accepted and refused with exit 64 and `<option> is not built yet` until its port is built; `--conformance off` is the default and changes nothing; `--conformance observe` is built: after a run that ended closed it writes `oracle.json` into the run directory (`docs/conformance.md`) |
 | `runbook run <sdc-bugfix\|sdc> … (--bugfix <dir> \| --bugfix-ticket <file>)` | none: a bug-fix case in this process | opens root `BUG-1` on `sdc-bugfix` after `sdc-bugfix seed` ran in `work/`; a missing directory or file, both options, another runbook or root protocol, or no `sdc-bugfix` helper is refused before anything is written (`docs/loom-run.md`, `docs/bugfix.md`) |
 | `runbook run <runbook> … --goals <file>` | none: the option of the old driver's launcher | copies the goals document unchanged to `work/goals.yaml` of the run before the tree opens; a path that is no file is refused with exit 64; with `decider.requester` in the settings the decider answers the requester-side decisions from it |
+| `runbook run <runbook> … --watch` | none: `sdc-watch` runs beside the run | records every file change of the run in `<run>/fs/changes.jsonl` (`docs/fs-changes.md`); see the `run` item below |
 | `runbook runs list` | `GET /daemon/views/runs` | one line per run, newest first: id, state, runbook, submitted-at, `outcome=` or `failure=` |
 | `runbook runs show <run>` | `GET /daemon/views/run`, `.../open-decisions` | the run's fields as `key: value`, then each open decision request |
 | `runbook runs events <run> [--no-follow]` | `GET /daemon/views/events` as a stream (`--no-follow`: as a page) | the lines of the stream |
@@ -52,6 +53,15 @@ Every command but the in-process `run` takes `--json`, `--daemon` and `--token-f
   In process `--set` is a condition of the replay and needs `--recorded` (exit 64 without it); the
   replay and the other port options are listed in the second row and are not built yet. `--detach` without a daemon exits 64 and says a daemon is needed. `--json` prints the
   body of the submit's answer.
+- `run --watch` (in process only). The run starts the helper `sdc-watch run <run directory>` as its child once the
+  run directory exists, found as the other helpers are (`runbook doctor`: `libexec`, beside the executable, the
+  checkout's `watch/target`, `PATH`), and ends it by its process id when the run ends, whatever the end (closed,
+  stopped, cancelled, a signal, an error). The id is in `<run>/fs/watcher.json` (`runbook.watcher/1`), the
+  watcher's own output is `fs/watch.log`. The watcher ends itself when the runner is killed (`sdc-watch run
+  --parent <pid>`: a parent-death signal and a poll every 200 ms). Without the helper the run is refused before
+  anything is written (exit 2); a helper that does not start ends the run as `error`. Under this runner a change
+  is attributed to the `tree run` step in flight, not to an action (`docs/fs-changes.md`, "What is attributed under each runner"). Without
+  `--watch` no watcher starts and no `fs/` is made.
 - `runs events`. The text is the lines `curl -N -H 'Accept: text/event-stream'` of the run's route
   gives: `id:` (the event's position), `event:` (its kind), `data:` (its row as one line) and a blank
   line per event; the `: keep-alive` comment lines are left out. It follows the stream until the

@@ -149,6 +149,11 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         sinks.push(Box::new(crate::loom_run::dry::CommandSink::new(&run_dir)));
     }
     runner.sinks = sinks;
+    // --watch: the watcher is a child of this run; it ends when `_watch` drops, after the last line is written
+    let _watch = match super::watch::start_if(args.ports.watch, &run_dir) {
+        Ok(w) => w,
+        Err(reason) => return Ok(runner.finish(Outcome::Error { reason })),
+    };
     let outcome = runner.drive(root_name, &protocols, &redacted);
     let outcome = runner.finish(outcome);
     crate::loom_run::conformance::after_close(args, &run_dir, &outcome);

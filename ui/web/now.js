@@ -288,12 +288,12 @@ function progress(rec, maxTurns) {
 const turnBar = (rec, maxTurns) => { const mt = maxTurns ?? rec?.maxTurns; return rec && mt ? `<div class="nc-bar" title="${rec.turns} of at most ${mt} turns"><i style="width:${Math.min(100, (100 * rec.turns) / mt).toFixed(1)}%"></i></div>` : ''; };
 
 const OP = {create: 'A', modify: 'M', delete: 'D', rename: 'R'};
-const BASIS = {'action-window': ['exact', 'attributed exactly: the change fell inside this action’s window and nothing else ran'], 'tool-window': ['inferred', 'inferred from the agent’s event stream: the change fell inside this tool call’s window'], record: ['call', 'in an agent or decider call’s working directory while no action of its case was open and no tool call’s window held it: attributed to the call'], none: ['unattributed', 'nothing was in flight when this changed']};
+const BASIS = {'action-window': ['exact', 'attributed exactly: the change fell inside this action’s window and nothing else ran'], 'step-window': ['exact', 'attributed exactly to the tree-run step in flight: a Loom run has no action start marker, so the step is the finest window'],'tool-window': ['inferred', 'inferred from the agent’s event stream: the change fell inside this tool call’s window'], record: ['call', 'in an agent or decider call’s working directory while no action of its case was open and no tool call’s window held it: attributed to the call'], none: ['unattributed', 'nothing was in flight when this changed']};
 // The tool call that made a change, as name and input; the input is left out when it only repeats
 // the file's own path.
 export function toolText(x) {
   const a = x.attribution || {};
-  if (!a.tool) return {name: a.basis === 'action-window' ? (a.record ? 'the call' : 'the step') : a.basis === 'record' ? 'the call' : '—', input: ''};
+  if (!a.tool) return {name: a.basis === 'action-window' || a.basis === 'step-window' ? (a.record ? 'the call' : 'the step') : a.basis === 'record' ? 'the call' : '—', input: ''};
   let input = String(a.tool.input ?? '').replace(/^.*\/(llm|decider)\/\d+-[^/]+\/cwd\//, '');
   if (input && (input === x.path || (x.path && input.endsWith('/' + x.path)) || (x.path && x.path.endsWith(input)))) input = '';
   return {name: a.tool.name, input, seq: a.tool.seq};
@@ -568,7 +568,7 @@ export function renderChanges(live, cases, onlyCase, now = Date.now()) {
   const groups = [];
   for (const x of list) {
     const a = x.attribution || {};
-    const key = `${a.case || '—'}|${a.action || '—'}|${a.record || ''}`;
+    const key = `${a.case || '—'}|${a.action || '—'}|${a.record || ''}|${a.step ?? ''}`;
     const g = groups[groups.length - 1];
     if (g && g.key === key) g.items.push(x); else groups.push({key, a, items: [x]});
   }
@@ -585,7 +585,7 @@ export function renderChanges(live, cases, onlyCase, now = Date.now()) {
     const gadd = g.items.reduce((n, x) => n + (x.lines_added || 0), 0), gdel = g.items.reduce((n, x) => n + (x.lines_removed || 0), 0);
     const c = cases.find((x) => x.id === g.a.case);
     const kind = g.a.record?.startsWith('decider/') ? 'decider' : g.a.record ? 'llm' : c && g.a.action ? executorOf(c, {action: g.a.action}).kind : 'driver';
-    h += `<div class="cg${live ? ' live' : ''}" data-key="g:${esc(g.key)}:${g.items[0].seq}"><div class="cg-h">${tag(kind)}<b class="mono">${esc(g.a.action || 'no action in flight')}</b><span class="muted mono">${esc(g.a.case || '')}</span>${live ? '<span class="cg-live">live</span>' : ''}<span class="cg-n"><span class="fa">+${gadd}</span> <span class="fd">−${gdel}</span></span><span class="cg-t">${esc(clock(Date.parse(g.items[0].at)))}</span></div>
+    h += `<div class="cg${live ? ' live' : ''}" data-key="g:${esc(g.key)}:${g.items[0].seq}"><div class="cg-h">${tag(kind)}<b class="mono">${esc(g.a.action || (g.a.step != null ? `step ${g.a.step}` : 'no action in flight'))}</b>${g.a.action && g.a.step != null ? `<span class="muted mono">step ${esc(g.a.step)}</span>` : ''}<span class="muted mono">${esc(g.a.case || '')}</span>${live ? '<span class="cg-live">live</span>' : ''}<span class="cg-n"><span class="fa">+${gadd}</span> <span class="fd">−${gdel}</span></span><span class="cg-t">${esc(clock(Date.parse(g.items[0].at)))}</span></div>
       ${g.items.slice().reverse().map((x) => fileRow(x, {two: true})).join('')}</div>`;
   }
   return h + `</div><p class="foot">From <code>fs/changes.jsonl</code> (sdc.fs-change/1). <b>exact</b>: inside one driver action’s window. <b>inferred</b>: matched to one agent tool call by the timestamps of its event stream. Click a file for its diff.</p>`;
@@ -616,7 +616,7 @@ export function renderDiff(x, pos, total) {
   const cut = p.lastIndexOf('/');
   const head = `<div class="dh"><div class="dh-1"><span class="op op-${x.op}">${OP[x.op] || '?'}</span><span class="dh-p"><span class="fdir">${esc(x.root ? x.root + '/' : '')}${esc(cut >= 0 ? p.slice(0, cut + 1) : '')}</span><b>${esc(cut >= 0 ? p.slice(cut + 1) : p)}</b></span>${x.from_path ? `<span class="muted">from ${esc(x.from_path)}</span>` : ''}<span class="fa">+${x.lines_added ?? 0}</span><span class="fd">−${x.lines_removed ?? 0}</span>
       <span class="dh-nav"><button class="ib" data-fsnav="-1" title="previous change (←)"${pos <= 0 ? ' disabled' : ''}>‹</button><span class="dh-pos">${pos + 1} / ${total}</span><button class="ib" data-fsnav="1" title="next change (→)"${pos >= total - 1 ? ' disabled' : ''}>›</button><button class="ib wide" data-fsclose="1">Close</button></span></div>
-    <div class="dh-2"><span class="dh-kv"><i>action</i><b class="mono">${esc(a.action || '—')}</b></span><span class="dh-kv"><i>case</i><span class="mono">${esc(a.case || '—')}</span></span><span class="dh-kv"><i>by</i><span class="mono">${a.tool ? `${esc(a.tool.name)} #${a.tool.seq}${a.tool.input ? ` <span class="muted">${esc(String(a.tool.input).slice(0, 80))}</span>` : ''}` : a.record ? esc(a.record) : 'the step'}</span></span><span class="dh-kv" title="${esc(bt)}"><i>basis</i><span class="fb b-${bl}">${bl}</span> <span class="muted">${esc(a.basis || 'none')}</span></span><span class="dh-kv"><i>at</i><span class="mono">${esc(new Date(Date.parse(x.at)).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}))}</span></span>${lang ? `<span class="dh-lang">${esc(LANG_LABEL[lang])}</span>` : ''}</div></div>`;
+    <div class="dh-2"><span class="dh-kv"><i>action</i><b class="mono">${esc(a.action || '—')}</b></span><span class="dh-kv"><i>case</i><span class="mono">${esc(a.case || '—')}</span></span>${a.step != null ? `<span class="dh-kv"><i>step</i><span class="mono">${esc(a.step)}</span></span>` : ''}<span class="dh-kv"><i>by</i><span class="mono">${a.tool ? `${esc(a.tool.name)} #${a.tool.seq}${a.tool.input ? ` <span class="muted">${esc(String(a.tool.input).slice(0, 80))}</span>` : ''}` : a.record ? esc(a.record) : 'the step'}</span></span><span class="dh-kv" title="${esc(bt)}"><i>basis</i><span class="fb b-${bl}">${bl}</span> <span class="muted">${esc(a.basis || 'none')}</span></span><span class="dh-kv"><i>at</i><span class="mono">${esc(new Date(Date.parse(x.at)).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}))}</span></span>${lang ? `<span class="dh-lang">${esc(LANG_LABEL[lang])}</span>` : ''}</div></div>`;
   let body;
   if (x.binary) body = `<p class="d-note">Binary file: no text diff.</p>`;
   else if (x.too_large) body = `<p class="d-note">Too large to diff (the recorder kept the blobs <code>${esc((x.before || '').slice(0, 12))}</code> → <code>${esc((x.after || '').slice(0, 12))}</code>).</p>`;

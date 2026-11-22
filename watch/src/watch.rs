@@ -61,20 +61,25 @@ pub fn walk(run: &Path, start: &Path, out_rel: Option<&str>, f: &mut dyn FnMut(&
 enum Source {
     Case(String),
     Stream(String),
+    /// Loom run: `rounds.jsonl`, one line per finished step.
+    Rounds,
+    /// Loom run: a call record's `status.json`.
+    Status(String),
 }
 
 fn source_of(rel: &str) -> Option<Source> {
-    let (parent, name) = rel.rsplit_once('/')?;
-    if name != "events.jsonl" {
-        return None;
+    let loom = layout::kind() == layout::Kind::Loom;
+    if loom && rel == "rounds.jsonl" {
+        return Some(Source::Rounds);
     }
+    let (parent, name) = rel.rsplit_once('/')?;
     let c = comps(parent);
-    if layout::is_case_dir(&c) {
-        Some(Source::Case(parent.to_string()))
-    } else if layout::is_record_dir(&c) {
-        Some(Source::Stream(parent.to_string()))
-    } else {
-        None
+    match name {
+        // a Loom run's case logs are a projection written whole, not read
+        "events.jsonl" if layout::is_case_dir(&c) => (!loom).then(|| Source::Case(parent.to_string())),
+        "events.jsonl" if layout::is_record_dir(&c) => Some(Source::Stream(parent.to_string())),
+        "status.json" if loom && layout::is_record_dir(&c) => Some(Source::Status(parent.to_string())),
+        _ => None,
     }
 }
 
@@ -229,6 +234,8 @@ impl Watcher {
                         self.touched.insert(r);
                     }
                 }
+                Some(Source::Rounds) => self.attr.steps_update(ord),
+                Some(Source::Status(r)) => self.attr.status_update(&r, ord),
                 None => file(self, &p, &rel),
             }
         }
@@ -370,6 +377,8 @@ impl Watcher {
                 }
                 return;
             }
+            Some(Source::Rounds) => return self.attr.steps_update(ord),
+            Some(Source::Status(r)) => return self.attr.status_update(&r, ord),
             None => {}
         }
         if layout::root_of(&c, false).is_none() {
@@ -400,6 +409,7 @@ impl Watcher {
         for c in cases {
             self.attr.case_update(&c, ord);
         }
+        self.attr.steps_update(ord);
         self.walk_new(&run);
     }
 

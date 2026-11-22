@@ -15,3 +15,4 @@ mod run_dir;
 mod settings;
 mod slow;
 mod spend;
+mod watch;

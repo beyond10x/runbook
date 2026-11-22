@@ -94,11 +94,6 @@ fn bugfix_and_bugfix_ticket_are_accepted_and_refused_for_what_they_name_that_is_
 }
 
 #[test]
-fn watch_is_accepted_and_refused_until_built() {
-    refused(&scratch("watch"), &["--watch"], "--watch is not built yet");
-}
-
-#[test]
 fn conformance_observe_and_off_are_both_built_and_a_third_mode_is_a_usage_error() {
     let root = scratch("conformance");
     for mode in ["observe", "off"] {
