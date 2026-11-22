@@ -1,17 +1,16 @@
 // The inspector over a runbook that is not SDC. A second runbook (test/second-runbook.mjs: protocol
-// triage.ticket, three actions, files, a record of its own and a decision of its own) is served by four
+// triage.ticket, three actions, files, a record of its own and a decision of its own) is served by three
 // servers of this file, started once for all its tests, each on a port the kernel gives (test/serve.mjs),
 // so two runs on one machine do not meet:
 //   none      --no-view: one flat list of the protocols found in the store, no phase grouping, no SDC label,
 //             and the page says which view is missing
 //   two       --view <file> of two phases, a parser of asks.yaml and the decision of answering an ask: its
 //             phases, its record sentences and its decision are shown
-//   write     the same view with --write: answering the ask writes asks.yaml with the view's field names
 //   foreign   --view views/sdc.view.json over the same store: a view that does not cover the run is not
 //             used (no SDC fallback), the page says which view is missing
 // Plus the view's own rules (web/view.js) without a page: a view of another format is ignored, a member the
 // inspector does not know is refused with a message that names it, a file kind comes from the first rule that
-// matches, a parser from the view, a tool owner from the view.
+// matches, a parser from the view.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync, execFileSync} from 'node:child_process';
 import fs from 'node:fs';
@@ -21,7 +20,7 @@ import {writeSecondRunbook, SECOND, SECOND_VIEW, ASKS} from './second-runbook.mj
 import {startServer} from './serve.mjs';
 import {setView, getView, checkView, fileKindOf, phaseItems} from '../web/view.js';
 import {classify, meaningOf} from '../web/meaning.js';
-import {missingPrograms, principalOk, waitsOnScope, scopeQuestions, amendStall} from '../decisions.mjs';
+import {waitsOnScope, scopeQuestions, amendStall} from '../decisions.mjs';
 import {sdcView} from './sdc-view.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -39,15 +38,11 @@ test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   fs.rmSync(root, {recursive: true, force: true});
   const store = writeSecondRunbook(path.join(root, 'run'));
-  fs.cpSync(path.join(root, 'run'), path.join(root, 'run-write'), {recursive: true});
   const viewFile = path.join(root, 'two-phases.view.json');
   fs.writeFileSync(viewFile, JSON.stringify(SECOND_VIEW, null, 2));
-  const writeView = path.join(root, 'two-phases-write.view.json');
-  fs.writeFileSync(writeView, JSON.stringify({...SECOND_VIEW, tool_owners: {always: ['yq']}}, null, 2));
   const plan = {
     none: [['--no-view'], store],
     two: [['--view', viewFile], store],
-    write: [['--view', writeView, '--write', '--principal', 'owner-1'], path.join(root, 'run-write', 'store')],
     foreign: [['--view', path.join(ui, '..', 'views', 'sdc.view.json')], store],
   };
   for (const [k, [extra, st]] of Object.entries(plan)) {
@@ -125,32 +120,20 @@ test('another runbook, a two-phase view file: the phases of the file are shown, 
   await expect(drawer).not.toContainText('scope.answer');
 });
 
-test('answering an ask writes the record with the view\'s field names and statuses, and refuses what the view does not allow', async ({request}) => {
-  test.skip(!hasYq, 'yq is not on the PATH: the server reads and writes the artifact with it');
-  const dir = path.join(root, 'run-write');
-  const ib = await inbox(request, 'write');
-  const b1 = ib.items.find((x) => x.qid === 'b1');
-  expect(b1).toMatchObject({kind: 'question', case: 'T-3'});
-  const post = (body) => request.post(url('write', '/api/act'), {headers: {'x-sdc-ui': '1'}, data: body});
-  const stale = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: '0'.repeat(64), answer: 'queue-b'});
-  expect((await stale.json()).error).toMatch(/stale view: asks\.yaml changed/);
-  const no = await post({kind: 'answer', rel: 'T-3', qid: 'a2', sha: b1.sha, answer: 'x'});
-  expect((await no.json()).error).toMatch(/no question a2/);
-  const r = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: b1.sha, answer: 'queue-b'});
-  expect(await r.json()).toMatchObject({ok: true, exit: 0, status: 'edited', answered_by: 'owner-1', approved: false});
-  const text = fs.readFileSync(asks(dir, 'T-3'), 'utf8');
-  expect(text).toMatch(/status: edited/);
-  expect(text).toMatch(/reply: queue-b/);
-  expect(text).toMatch(/replied_by: owner-1/);
-  expect(text).not.toMatch(/answer|answered_by/);
-  const again = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: b1.sha, answer: 'queue-a'});
-  expect((await again.json()).error).toMatch(/stale view/);
-  const audit = fs.readFileSync(path.join(dir, 'ui-actions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  expect(audit.find((x) => x.action === 'answer' && x.exit === 0)).toMatchObject({target: 'b1', status: 'edited', answered_by: 'owner-1'});
-  expect((await (await request.get(url('write', '/api/inbox'))).json()).items.find((x) => x.qid === 'b1')).toBeUndefined();
-  // the context act and the continue act are the SDC runbook's: this view has none, so it refuses them
-  const cx = await post({kind: 'context', rel: 'T-3', field: 'x', sha: b1.sha, value: 'v'});
-  expect((await cx.json()).error).toMatch(/no context a person changes here/);
+test('a view with a decision shows it as a read-only card and a line on where it is answered; no route takes an answer', async ({page, request}) => {
+  await open(page, 'two');
+  await page.locator('#decbtn').click();
+  const drawer = page.locator('#drawer');
+  await expect(drawer.locator('.dcard.k-question').first()).toBeVisible();
+  await expect(drawer.locator('#decide-at')).toContainText('runbook decide <run> <request> <answer>');
+  await expect(drawer.locator('button.btn, input, textarea, select')).toHaveCount(0);
+  const before = fs.readFileSync(asks(path.join(root, 'run'), 'T-3'), 'utf8');
+  for (const [method, p] of [['post', '/api/act'], ['put', '/api/act'], ['post', '/api/answer'], ['post', '/daemon/commands/answer-decision']]) {
+    const r = await request[method](url('two', p), {headers: {'x-sdc-ui': '1'}, data: {kind: 'answer', rel: 'T-3', qid: 'b1', answer: 'queue-b'}});
+    expect([404, 405], `${method} ${p}`).toContain(r.status());
+  }
+  expect((await request.get(url('two', '/api/act'))).status()).toBe(404);
+  expect(fs.readFileSync(asks(path.join(root, 'run'), 'T-3'), 'utf8')).toBe(before);
 });
 
 test('a view that does not cover the run is not used: no SDC fallback, the page says which view is missing', async ({page, request}) => {
@@ -203,12 +186,11 @@ test('the server refuses to start with a view that has an unknown member, and na
   expect(r.stderr).toContain(bad);
 });
 
-test('the view rules: format, first matching file rule, parsers, decisions, tool owners; no view means generic', () => {
+test('the view rules: format, first matching file rule, parsers, decisions; no view means generic', () => {
   setView(null);
   expect(classify('notes/idea.yaml')).toEqual({cls: 'code', kind: 'code'});
   expect(classify(SECOND.ask.file)).toEqual({cls: 'code', kind: 'code'});
   expect(phaseItems()).toEqual([]);
-  expect(missingPrograms({drive: '/nonexistent/drive', canon: '/nonexistent/canon'}, {kind: 'continue'}, {PATH: '/nonexistent'})).toEqual(['/nonexistent/drive', '/nonexistent/canon']);
   expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: SECOND.ask.action}]}])).toBe(false);
   expect(amendStall({events: [{event: 'awaiting_person', next: [{action: 'amend.upstream'}]}], bindings: {}}, null)).toBeNull();
   setView({format: 'other/1', phases: {items: [{id: 'x'}]}});
@@ -217,15 +199,10 @@ test('the view rules: format, first matching file rule, parsers, decisions, tool
   expect(phaseItems().map((p) => p.id)).toEqual(['read', 'answer']);
   expect(fileKindOf('notes/ticket.md')).toEqual({cls: 'direction', kind: 'ticket'});
   expect(fileKindOf('tools/classify.ts')).toBeNull();
-  expect(missingPrograms({drive: '/nonexistent/drive', canon: '/nonexistent/canon'}, {kind: 'continue'}, {PATH: '/nonexistent'})).toEqual(['hoist', '/nonexistent/drive', '/nonexistent/canon', 'crane']);
-  // the decision is the view's: its action waits, SDC's does not; its refused answerer is not SDC's
+  // the decision is the view's: its action waits, SDC's does not
   expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: SECOND.ask.action}]}])).toBe(true);
   expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: 'scope.answer'}]}])).toBe(false);
-  expect(principalOk('bot')).toBe(false);
-  expect(principalOk('non-interactive')).toBe(true);
-  expect(principalOk('owner-1')).toBe(true);
   setView(sdcView);
-  expect(principalOk('non-interactive')).toBe(false);
   expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: 'scope.answer'}]}])).toBe(true);
   setView(null);
 });

@@ -134,7 +134,7 @@ test('KPIs: values where recorded, "not recorded" where not, waiting time as a u
 });
 
 test('KPIs: every decider call made counts once per record, whatever became of its reply', () => {
-  // decisions.jsonl as run-trial.sh writes it: a suppressed escalation has the call's cost on its
+  // decisions.jsonl as a run writes it: a suppressed escalation has the call's cost on its
   // escalation_suppressed line and none on the decision after it; a fallback after three invalid
   // replies repeats the last one's call; a rule decider names no model.
   const raw = [

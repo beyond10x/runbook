@@ -28,9 +28,9 @@ test.beforeAll(async ({}, info) => {
   await new Promise((r) => person.on('exit', r));
   const stores = ['agent', 'two', 'decider', 'person'].map((s) => path.join(dir, s, 'store'));
   for (const s of ['agent', 'two', 'decider']) fs.rmSync(path.join(dir, s), {recursive: true, force: true});
-  // sources 5 to 7: runs with a step started and never finished, written without a live driver
-  for (const s of ['gone', 'gone-nofile', 'legacy']) await new Promise((r) => run(['test/fixture-run.mjs', s, path.join(dir, s)]).on('exit', r));
-  const srv = await startServer([...stores, path.resolve(ui, '../runs/trial-todo-1/store'), ...['gone', 'gone-nofile', 'legacy'].map((s) => path.join(dir, s, 'store'))]);
+  // sources 5 and 6: runs with a step started and never finished; gone is a case store of the old runtime, legacy a run directory of the runner
+  for (const s of ['gone', 'legacy']) await new Promise((r) => run(['test/fixture-run.mjs', s, path.join(dir, s)]).on('exit', r));
+  const srv = await startServer([...stores, path.resolve(ui, '../runs/trial-todo-1/store'), ...['gone', 'legacy'].map((s) => path.join(dir, s, 'store'))]);
   base = srv.url;
   procs.push(srv.proc);
 });
@@ -65,13 +65,6 @@ test('one agent in flight: action, model, live progress, elapsed time, files', a
   await expect(card.locator('.nc-case')).toHaveText('IDEA-1.todolist.storage');
   await expect(card.locator('.nc-2')).toContainText('claude-haiku-5-5');
   await expect(page.locator('#now .now-s')).toHaveText('1 running');
-  // the driver says it holds the tree (driver.json), and dates the step (observed.jsonl)
-  await expect(page.locator('#now .now-drv.on')).toContainText('driver attached');
-  await expect(page.locator('#now .now-drv.on')).toContainText('pid ');
-  // the band's layout does not follow the digits of the pid (a 6- or 7-digit pid moved the ux loop's layout shift)
-  const pidWidth = (v) => page.locator('#now .now-pid').evaluate((el, x) => { el.textContent = x; return el.getBoundingClientRect().width; }, v);
-  expect(await pidWidth('1')).toBe(await pidWidth('4194304'));
-  expect(await pidWidth('100291')).toBe(await pidWidth('4194304'));
   const storage = path.join(dir, 'agent/store/IDEA-1/children/IDEA-1.todolist/children/IDEA-1.todolist.storage');
   const obs = fs.readFileSync(path.join(storage, 'observed.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const started = obs.filter((o) => o.event === 'action_started').at(-1);
@@ -85,15 +78,14 @@ test('one agent in flight: action, model, live progress, elapsed time, files', a
   // the call joins its case by request.json.case and says it runs by status.json
   const live0 = await liveOf();
   expect(live0.records[0]).toMatchObject({case: 'IDEA-1.todolist.storage', caseFrom: 'request.json', status: {state: 'running', alive: true}});
-  expect(Object.values(live0.drivers)[0]).toMatchObject({file: true, alive: true, observed: true});
-  // the timer ticks in place: the same node, a later value once the clock has moved, no re-render needed
+  expect(live0.liveness).toMatchObject({state: 'unknown'});
+  // the run directory has no end record and the runner writes no live record: the band says so, and the timer stands
+  await expect(page.locator('#now .now-sub')).toContainText(/live state unknown, last activity/);
   const tk = card.locator('.nc-time .tk');
-  const el = await tk.elementHandle();
   const t1 = await tk.textContent();
   await clock.step(page);
   await clock.step(page);
-  await expect(tk).not.toHaveText(t1);
-  expect(await el.evaluate((n) => n.isConnected)).toBe(true);
+  await expect(tk).toHaveText(t1);
   // the graph and the phase strip point at the same action
   await expect(page.locator('#graph .node.live[data-id="action:change.implement"]')).toBeVisible();
   await expect(page.locator('#phases .phase.ph-live')).toHaveCount(1);
@@ -200,10 +192,9 @@ test('waiting on a person, nothing running', async ({page}, info) => {
   await expect(card.locator('.nc-act')).toHaveText('context.approve');
   await expect(card.locator('.nc-hold')).toContainText('Held by');
   await expect(card.locator('.nc-hold')).toContainText(/You \([a-z][a-z0-9:_-]*\)/);
-  await expect(page.locator('#now .now-drv')).toHaveCount(0);
   await expect(card).toContainText('owner.approve');
-  // no driver attached (the person fixture writes no lock): the clock stands at the last event
-  await expect(page.locator('#now .now-sub')).toHaveText(/^no driver attached, last activity [\d: APM]+$/);
+  // a case store of the old runtime is not live: the clock stands at the last event
+  await expect(page.locator('#now .now-sub')).toHaveText(/^not live, last activity [\d: APM]+$/);
   await expect(card.locator('.tk')).toHaveText('0:00');
   await expect(card).toContainText(/since [\d: APM]+/);
   await page.waitForTimeout(500);
@@ -223,44 +214,38 @@ test('closed run: says so with the outcome', async ({page}, info) => {
   expect(errors).toEqual([]);
 });
 
-// A step started and never finished, no driver alive: "driver gone", not running.
-test('driver.json names a pid that is gone: the started steps say so', async ({page}, info) => {
+// A step started and never finished in a case store of the old runtime: not live, not running.
+test('a case store of the old runtime is not live: the started steps say so', async ({page}, info) => {
   const errors = errorsOf(page);
   await page.goto(base + '/?source=5');
   await expect(page.locator('#now .nc.gone')).toHaveCount(2);
   await expect(page.locator('#now .nc.run')).toHaveCount(0);
   await expect(page.locator('#now .now-s')).toHaveText('Nothing running');
-  await expect(page.locator('#now .now-sub')).toContainText('a started step has no live driver');
-  await expect(page.locator('#now .now-drv.off')).toHaveText('Driver gone');
-  await expect(page.locator('#now .nc.gone .nc-verb').first()).toHaveText('Driver gone');
-  await expect(page.locator('#now .nc.gone').first()).toContainText('which is not running');
-  // no driver attached: every clock stands at the last event
-  await expect(page.locator('#now .now-sub')).toContainText(/a started step has no live driver, last activity [\d: APM]+/);
+  await expect(page.locator('#now .now-sub')).toContainText('a started step never finished, the run is not live');
+  await expect(page.locator('#now .now-drv.off')).toHaveText('Not live');
+  await expect(page.locator('#now .nc.gone .nc-verb').first()).toHaveText('Not live');
+  await expect(page.locator('#now .nc.gone').first()).toContainText('a case store of the old driver');
+  // nothing says it moves: every clock stands at the last event
+  await expect(page.locator('#now .now-sub')).toContainText(/the run is not live, last activity [\d: APM]+/);
   await expect(page.locator('#now .nc.gone .tk').first()).toHaveText('0:00');
   await page.waitForTimeout(400);
   await shot(page, info, 'driver-gone');
   expect(errors).toEqual([]);
 });
 
-test('no driver.json while observed.jsonl exists: driver gone', async ({page}) => {
-  await page.goto(base + '/?source=6');
-  await expect(page.locator('#now .nc.gone')).toHaveCount(2);
-  await expect(page.locator('#now .nc.gone').first()).toContainText('no driver.json while observed.jsonl exists');
-  await expect(page.locator('#now .now-drv.off')).toBeVisible();
-});
-
-test('an old run (no observed.jsonl, no driver.json) renders as before', async ({page}) => {
+test('a run directory of the runner with no observed.jsonl: live state unknown, the steps stay running', async ({page}) => {
   const errors = errorsOf(page);
-  await page.goto(base + '/?source=7');
+  await page.goto(base + '/?source=6');
   await expect(page.locator('#now .nc.run')).toHaveCount(2);
   await expect(page.locator('#now .nc.gone')).toHaveCount(0);
   await expect(page.locator('#now .now-s')).toHaveText('2 running');
   await expect(page.locator('#now .now-drv')).toHaveCount(0);
+  await expect(page.locator('#now .now-sub')).toContainText(/live state unknown, last activity/);
   // the server's own clock: it saw the files a moment ago
   await expect(page.locator('#now .nc.run .tk').first()).toHaveText(/^0:\d\d$/);
-  const live = await (await fetch(base + '/api/live?source=7')).json();
-  expect(Object.values(live.drivers)[0]).toMatchObject({file: false, observed: false});
-  const tree = await (await fetch(base + '/api/tree?source=7')).json();
+  const live = await (await fetch(base + '/api/live?source=6')).json();
+  expect(live.liveness).toMatchObject({state: 'unknown'});
+  const tree = await (await fetch(base + '/api/tree?source=6')).json();
   expect(tree.cases.every((c) => !c.observed && Object.values(c.timeSource).every((s) => s === 'server'))).toBe(true);
   expect(errors).toEqual([]);
 });
@@ -283,19 +268,19 @@ test('a call is in progress by status.json when there is one, by an empty respon
     mk('003-plan.scope', {}, '', {state: 'failed', exit: 1}); // failed
     mk('004-plan.status', {}, ''); // no status.json: the empty response means in progress
     mk('005-plan.other', {}, '{"result":"y"}'); // no status.json, response written
-    await expect.poll(async () => (await (await fetch(base + '/api/live?source=7')).json()).records.map((r) => r.rel).sort(), {timeout: 10000}).toEqual(['llm/001-spec.author', 'llm/004-plan.status']);
-    const live = await (await fetch(base + '/api/live?source=7')).json();
+    await expect.poll(async () => (await (await fetch(base + '/api/live?source=6')).json()).records.map((r) => r.rel).sort(), {timeout: 10000}).toEqual(['llm/001-spec.author', 'llm/004-plan.status']);
+    const live = await (await fetch(base + '/api/live?source=6')).json();
     const a = live.records.find((r) => r.rel === 'llm/001-spec.author');
     expect(a).toMatchObject({case: 'IDEA-1.todolist.spec', caseFrom: 'request.json', status: {state: 'running', pid: deadPid, alive: false}});
     expect(live.records.find((r) => r.rel === 'llm/004-plan.status')).toMatchObject({status: null, case: null, caseFrom: null});
     // the spec.author card takes its call by the case it names, and says the call's process is gone
-    await page.goto(base + '/?source=7');
+    await page.goto(base + '/?source=6');
     const card = page.locator('#now .nc.run', {hasText: 'spec.author'});
     await expect(card.locator('.nc-3')).not.toContainText('no call record yet');
     await expect(card.locator('.nc-warn')).toContainText(`call pid ${deadPid} is gone`);
     // finished by status.json: it leaves the list
     fs.writeFileSync(path.join(run, 'llm/001-spec.author/status.json'), JSON.stringify({format: 'sdc.call-status/1', state: 'finished', pid: deadPid, started_at: a.status && new Date().toISOString(), finished_at: new Date().toISOString(), exit: 0}));
-    await expect.poll(async () => (await (await fetch(base + '/api/live?source=7')).json()).records.map((r) => r.rel), {timeout: 10000}).toEqual(['llm/004-plan.status']);
+    await expect.poll(async () => (await (await fetch(base + '/api/live?source=6')).json()).records.map((r) => r.rel), {timeout: 10000}).toEqual(['llm/004-plan.status']);
   } finally {
     fs.rmSync(path.join(run, 'llm'), {recursive: true, force: true});
   }
