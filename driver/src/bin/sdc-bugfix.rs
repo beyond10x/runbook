@@ -1532,8 +1532,10 @@ struct Job {
 /// `slot: job <id> queued ...` line, printed only for a job that has to wait, and `slot status`
 /// shows the job as `queued` until it starts. A job still queued when the step's bound (`secs`, less
 /// what its earlier jobs waited) is spent is cancelled and the result is an `Err` that starts with
-/// POOL_WAIT. A job with no `queued` line within 3 s was admitted at once. The pool is looked at
-/// after 0.2 s, then at doubling pauses up to SDC_POOL_POLL seconds (default 2).
+/// POOL_WAIT. A start is never inferred from a missing line (on a loaded machine the line comes
+/// seconds late): the line is read for as long as the process lives, and a job that ends without
+/// one was admitted at once and waited nothing. The pool is looked at after 0.2 s, then at doubling
+/// pauses up to SDC_POOL_POLL seconds (default 2).
 fn pool_job(c: &mut Command, errf: &Path, secs: u64) -> R<Job> {
     let poll: f64 = std::env::var("SDC_POOL_POLL").ok().and_then(|v| v.parse().ok()).unwrap_or(2.0);
     let spent = POOL_SPENT_MS.load(Ordering::Relaxed);
@@ -1552,9 +1554,6 @@ fn pool_job(c: &mut Command, errf: &Path, secs: u64) -> R<Job> {
         if id.is_none() {
             let err = fs::read_to_string(errf).unwrap_or_default();
             id = queued.captures(&err).map(|m| m[1].to_string());
-            if id.is_none() && elapsed >= 3000 {
-                started = true;
-            }
         }
         if let Some(i) = &id {
             if pool_state(i).as_deref() != Some("queued") {
@@ -1576,11 +1575,21 @@ fn pool_job(c: &mut Command, errf: &Path, secs: u64) -> R<Job> {
         pause = (pause * 2.0).min(poll);
     }
     let st = child.wait().map_err(|e| e.to_string())?;
-    // A job that started and ended between two looks ran less than one pause: what it took was wait.
-    if !started {
-        POOL_SPENT_MS.store(spent + t0.elapsed().as_millis() as u64, Ordering::Relaxed);
-    }
     let err = fs::read_to_string(errf).unwrap_or_default();
+    if !started {
+        if id.is_none() {
+            id = queued.captures(&err).map(|m| m[1].to_string());
+        }
+        if id.is_some() {
+            // It queued and ended between two looks, so it ran less than one pause: what it took was wait.
+            POOL_SPENT_MS.store(spent + t0.elapsed().as_millis() as u64, Ordering::Relaxed);
+        } else {
+            // The process ended and never printed a queued line: the pool admitted the job at
+            // once and it waited nothing.
+            started = true;
+            POOL_SPENT_MS.store(spent, Ordering::Relaxed);
+        }
+    }
     Ok(Job { code: st.code().unwrap_or(1), id, started, cancelled: cancelled.is_match(&err), err })
 }
 

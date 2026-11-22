@@ -284,9 +284,15 @@ case $POOL_FAKE in
     echo "slot: job $n ended at its run limit" >&2
     exit 124 ;;
 esac
+if [ "$POOL_FAKE" = immediate ]; then
+  : > "$d/started.$n"
+  sleep "${POOL_FAKE_DELAY:-1.2}"
+  exec "$@"
+fi
+sleep "${POOL_FAKE_QUEUED_DELAY:-0}"
 echo "slot: job $n queued for 1 slot(s): 0 free, 3 request(s) ahead" >&2
 case $POOL_FAKE in
-  never) exec sleep 30 ;;
+  never) exec sleep "${POOL_FAKE_SLEEP:-30}" ;;
   cancel-queued) sleep 0.5; echo "slot: job $n cancelled by \`slot cancel\`" >&2; exit 130 ;;
 esac
 sleep "${POOL_FAKE_DELAY:-1.2}"
@@ -371,6 +377,26 @@ fn a_job_that_never_starts_ends_every_bug_fix_step_with_69_and_is_cancelled() {
         assert!(p.text.contains("pool-wait: job 1 was still queued"), "{step}: {}", p.text);
         assert!(!p.text.contains("not red") && !p.text.contains("FAILED"), "{step}: no verdict about the code: {}", p.text);
     }
+}
+
+#[test]
+fn a_queued_line_that_comes_late_does_not_make_the_job_started() {
+    // slot prints its `queued` line 4 s after it was started (a loaded machine). Being started is
+    // never inferred from a missing line, so the 1 s bound still applies once the line is there.
+    // The stand-in's job would stay queued 20 s, so a regression ends the test (with 0) soon.
+    let p = pool_run("late-line", false, &["repro-run"], "never",
+        &[("SDC_POOL_WAIT", "1"), ("POOL_FAKE_QUEUED_DELAY", "4"), ("POOL_FAKE_SLEEP", "20")]);
+    assert_eq!(p.code, 69, "{}", p.text);
+    assert_eq!(p.cancelled(), "1");
+    assert!(p.secs < 12.0, "took {} s", p.secs);
+}
+
+#[test]
+fn a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end() {
+    // 3.5 s of run time with a bound of 1 s: no queued line, so there is nothing to cancel.
+    let p = pool_run("immediate", false, &["repro-run"], "immediate", &[("SDC_POOL_WAIT", "1"), ("POOL_FAKE_DELAY", "3.5")]);
+    assert_eq!(p.code, 0, "{}", p.text);
+    assert_eq!(p.cancelled(), "");
 }
 
 #[test]
