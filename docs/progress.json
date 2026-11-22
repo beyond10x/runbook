@@ -4124,6 +4124,65 @@
       "tree": "ebea58dee2d1b4c9326a07d4e70128fa922bd01b",
       "tree_note": "tag 0.3.1 at main ebea58d: 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation",
       "version": "0.3.1"
+    },
+    {
+      "changes": [
+        {
+          "commit": "e7dfa4b",
+          "effect": "none",
+          "experiment": null,
+          "line": "the Runbook daemon (runbook serve) on its stub runtime, its API specified in ESS, MCP tools and the embedded page; the engine on Loom inside the daemon is not in it"
+        },
+        {
+          "commit": "b49b511",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook loom-run runs one case on a pinned b10x-loom binary, with the decider's answers from a file, and sdc-experiment knows runner loom"
+        },
+        {
+          "commit": "dbd81a2",
+          "effect": "none",
+          "experiment": null,
+          "line": "the record parity-loom-strong-2 ended, all three runs stopped at scope.answer before the answers file existed"
+        }
+      ],
+      "date": "2026-11-22",
+      "experiments": [],
+      "id": "0.4.0",
+      "kind": "release",
+      "label": "0.4.0",
+      "limits": [
+        "No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-4-0), not on the standing rule of docs/releasing.md.",
+        "The full set of finding cycles was not run on this tree, and the engine that runs a case on Loom inside the daemon is not in it."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": "5955f827359378701dba0ca900ba19ba6f490073",
+      "tree_note": "tag 0.4.0 at main 5955f82: 0.3.1 (ebea58d) with the merges of the daemon on its stub runtime (e7dfa4b), of the runner on Loom (b49b511) and the preparation",
+      "version": "0.4.0"
     }
   ],
   "format": "sdc.progress/1",
@@ -5121,7 +5180,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "14c5220d8c79985f4280efd026989d80f7af492f04840af1511d50369813b6c7"
+      "sha256": "805dce1d1af2b5d70417747c6f2e6284385f1deb12d61097b3327f836305542b"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",

@@ -23,6 +23,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.2.1](#021) | release | 2026-11-21 | `99f5617` | no experiment yet | no run | - | - |
 | [0.3.0](#030) | release | 2026-11-22 | `ae7a697` | no experiment yet | no run | - | - |
 | [0.3.1](#031) | release | 2026-11-22 | `ebea58d` | no experiment yet | no run | - | - |
+| [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -409,6 +410,25 @@ Limits of this measurement:
 
 - No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.
 - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
+
+## 0.4.0
+
+Release, 2026-11-22. Tree: `5955f82` (tag 0.4.0 at main 5955f82: 0.3.1 (ebea58d) with the merges of the daemon on its stub runtime (e7dfa4b), of the runner on Loom (b49b511) and the preparation).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `e7dfa4b` | the Runbook daemon (runbook serve) on its stub runtime, its API specified in ESS, MCP tools and the embedded page; the engine on Loom inside the daemon is not in it | no run metric affected |
+| `b49b511` | runbook loom-run runs one case on a pinned b10x-loom binary, with the decider's answers from a file, and sdc-experiment knows runner loom | no run metric affected |
+| `dbd81a2` | the record parity-loom-strong-2 ended, all three runs stopped at scope.answer before the answers file existed | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-4-0), not on the standing rule of docs/releasing.md.
+- The full set of finding cycles was not run on this tree, and the engine that runs a case on Loom inside the daemon is not in it.
 
 ## Experiments in no entry
 
