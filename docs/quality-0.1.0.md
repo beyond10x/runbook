@@ -129,7 +129,7 @@ Only mixed-1 changed (18 to 20).
 ## Where the harness lives
 
 `eval/quality/`: `AGENTS.md:26` maps `eval/` to the eval runner described in
-`docs/eval-design.md`, and decision D13 (`docs/eval-design.md:627`) keeps the KPI suite in
+`docs/eval-design.md`, and decision D13 (`docs/eval-design.md:633`) keeps the KPI suite in
 `sdc/eval/` for now. `eval-design.md` names no product-quality harness; this is the nearest home.
 Run: `npm install` in `eval/quality/`, then with `QUALITY_DIR=<scratch>` (default: the parent of the
 harness directory, where these runs had it): `node blind.mjs <runs> $QUALITY_DIR`;

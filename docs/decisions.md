@@ -207,7 +207,7 @@ such as `roadmap.valid`, `tests.pass`) are named in its reasons but are not cita
 should become `evidence_record` grounds (`record_id` of the evidence behind each claim, or
 `artifact_revision`). And a close needs the case revision in its request.
 
-Since `sdc-reply` (`driver.md`, "Decider replies") the decider cites in three of these forms: an
+Since `sdc-reply` (`docs/loom-run-decisions.md`) the decider cites in three of these forms: an
 id (the claims it is given included), `artifact_revision` with an entry (`context@<rev>#platform`)
 and `path_line` (`context.yaml:13-14`); each is resolved before the reply is taken. Claims are
 still ids, not `evidence_record` grounds.
@@ -215,8 +215,8 @@ still ids, not `evidence_record` grounds.
 ## How the parts use it
 
 - **Driver** (the driver). Where `run` stops with `awaiting_authority` or `awaiting_person`
-  (`driver.md:119-127`), each entry of `next` becomes one `Request`: the action, the capability,
-  the subject and its revision are in that entry. A handoff question (`driver.md:112-114`)
+  (`driver.md:154-162`), each entry of `next` becomes one `Request`: the action, the capability,
+  the subject and its revision are in that entry. A handoff question (`driver.md:147-149`)
   becomes one request per open scope-changing question, its options and default taken from
   `questions.yaml`. The class comes from the action (`autonomy-levels.md:244-256`), the holder
   from the run's level. When the subject moves, the driver supersedes the open request. After a
@@ -230,7 +230,7 @@ still ids, not `evidence_record` grounds.
   (`Escalate` under R∧D→P, `Decide` on the denying option under R∧D*); under D→P it may `Decide`
   or `Escalate`; under D* an escalation is suppressed and `best` is decided. The escalation reuse
   of lines 139-143 of the trial script becomes rule 4, keyed by `question_key`. Each decided request is one
-  `decisions.jsonl` line, which KPI H2 (`kpis.md:123`), R8 (`kpis.md:87`) and R21/R22
+  `decisions.jsonl` line, which KPI H2 (`kpis.md:128`), R8 (`kpis.md:92`) and R21/R22
   (`autonomy-levels.md:499-500`) count and `beyond10x/decider` can learn from.
 - **UI inbox** (`ui/decisions.mjs`, `ui/README.md:42-51`). The inbox is
   `OpenDecisionsForPrincipal(operator)`: per request the question, the options with cost and
@@ -244,9 +244,9 @@ still ids, not `evidence_record` grounds.
 
 | unblocks | Canon record | AEP |
 |---|---|---|
-| approval of a `manual` action (`context.approve`, `vision.approve`, `roadmap.approve`) | the approval evidence (`canon-evidence/1`, kind `*_approval`, producer = principal, subject revision = the request's), through the driver's `approve --action` (`driver.md:216-220`) | `approval-record` with `decides: <artifact>` when the subject is a planning artifact |
+| approval of a `manual` action (`context.approve`, `vision.approve`, `roadmap.approve`) | the approval evidence (`canon-evidence/1`, kind `*_approval`, producer = principal, subject revision = the request's), through the driver's `approve --action` (`driver.md:251-255`) | `approval-record` with `decides: <artifact>` when the subject is a planning artifact |
 | approval of a capability (`change.merge`, `release.approve`) | an `AuthorityDecision` (`canon-authority/1`): `granted` or `denied`, with `principal` and `case_revision` once story:authority-revision-binding lands (`authority-revision-binding.md:46-53`); a bound deny lapses at the next case revision (`:181`) | `approval-record` |
-| outcome that requires a decision (close) | an `ExplicitDecision` (`canon-decisions/1`): decision, outcome, principal, case revision; the driver has no command for it yet (`driver.md:221-222`). The option "leave it untaken" produces no record | none |
+| outcome that requires a decision (close) | an `ExplicitDecision` (`canon-decisions/1`): decision, outcome, principal, case revision; the driver has no command for it yet (`driver.md:256-257`). The option "leave it untaken" produces no record | none |
 | interview question | a new revision of `questions.yaml` with `answer` and `answered_by` (lines 209-212 of the trial script); Canon sees it through the next `questions.check` evidence | none |
 | an Open or Escalated request that blocks a planning artifact | none | `decision-blocker` (open), cleared when the request is Decided |
 

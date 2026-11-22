@@ -69,8 +69,8 @@ The JSON files hold no `arguments` and nothing else that is the same in both for
 
 ## Timeouts
 
-Loom's default is 60 s (`../loom/crates/loom-intake-slice/src/bindings.rs:69`); the driver's is
-1800 s (`driver/src/main.rs:1508`). Each binding with a `timeout_s` keeps its value. A binding
+Loom's default is 60 s (`../loom/crates/loom-intake-slice/src/bindings.rs:69`); the former driver's was
+1800 s (deleted with it). Each binding with a `timeout_s` keeps its value. A binding
 without one gets `timeout_seconds: 1800`, today's effective value, when its program calls `ess`
 beyond `ess specify validate`, `cargo` or `slot` (a compile, a synthesis, a test suite or a
 build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `cmp` or an

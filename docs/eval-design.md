@@ -35,7 +35,7 @@ Docs cited as `02` and `03` are `docs/canon-research/02-branching-and-universes.
   So the rule must be compared with a threshold rule on a hold-out, not adopted on its own.
 - **The dry run found a verifier hole** (§ 4.5). A scripted story implementer that writes only
   `impl/README.md` containing `status: done` takes `sdc.story` to `passed`. The conformance run
-  tests ESS's built-in `billing` target, not `impl/` (`driver.md:408-410`), and the review stub
+  tests ESS's built-in `billing` target, not `impl/` (`driver.md:443-445`), and the review stub
   checks only that `impl/README.md` is non-empty (`bindings/tools/sdc-tool.sh:156`).
   This has to be fixed before any empirical story run: as things stand every level would score
   100 % on stories.
@@ -70,8 +70,8 @@ in the proposed `loom.bindings/1` (`agent-node:176-185, 242-283`) and `loom.agen
 
 | Level | Chooser | Tools | Write scope, network | Budget per node run | Output | In-node check |
 |---|---|---|---|---|---|---|
-| **L0 open** | the LLM picks among the admissible actions (`sdc-drive tools`, `driver.md:133-136`), so it also decides when to stop | the full harness: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, sub-agents | whole worktree, open egress | 2,000,000 tokens, 200 turns, $10 | files plus a free-text "done" | none required |
-| **L1 open node** | deterministic policy (`driver.md:92-118`) | as L0 | whole worktree, open egress | as L0 | files plus free text | none required |
+| **L0 open** | the LLM picks among the admissible actions (`sdc-drive tools`, `driver.md:168-171`), so it also decides when to stop | the full harness: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, sub-agents | whole worktree, open egress | 2,000,000 tokens, 200 turns, $10 | files plus a free-text "done" | none required |
+| **L1 open node** | deterministic policy (`driver.md:127-153`) | as L0 | whole worktree, open egress | as L0 | files plus free text | none required |
 | **L2 sandboxed** | deterministic | Read, Write, Edit, Grep, Glob, Bash | `revises` paths only; no egress (`confinement: substrate`, `egress: []`) | 400,000 tokens, 80 turns, $2 (`agent-node:257`) | files | free |
 | **L3 curated** | deterministic | Read, Grep, Glob, Write and Edit restricted to `revises` paths, plus named read-only domain tools, no shell (below) | as L2 | 300,000 tokens, 50 turns | files | the domain tools are the verifier's own programs |
 | **L4 mined** | deterministic | exactly the mined surface `A` of § 3.3, each tool with its argument class (path glob, command head) | as L2 | p95 of successful mining runs' turns and tokens, ×1.5 | files | as mined |
@@ -117,7 +117,7 @@ after it: `tests.run` (conformance), the independent `change.review`, the gate (
 |---|---|---|
 | all | **Prerequisite, one revision bump each** (sdc.spec r4, sdc.story r4): `author: judgement` and `revises` on `spec.author` and `change.implement`, and `decided_by: program` on `spec_source` (`agent-node:150-156`). Meaning does not change (defaults). This is what lets "LLM edges on the path" be counted (02 § 0). The fields are not in Canon 0.9.0 yet, so until then the eval keeps a side table of judgement actions (decision D4). | none |
 | L0 | none. The frontier still bounds the agent (ADR 0072, 03 § 0). | executor `kind: agent` with the LLM as chooser (Loom `ModelSelector`, `agent-node:105`). Today: an external selector over `sdc-drive tools` plus `step --action`. |
-| L1 | none | deterministic selector (`driver.md:92-118`; Loom's is test-only, `agent-node:46-48`) |
+| L1 | none | deterministic selector (`driver.md:127-153`; Loom's is test-only, `agent-node:46-48`) |
 | L2 | none (`revises` already says which artifact; the binding's output path must lie inside it, `agent-node:187-191`) | `sandbox.confinement`, `egress: []`, `tools.allow`, `budget` |
 | L3 | none | `tools.allow` plus domain tools as bound programs |
 | L4 | none | the mined `tools.allow` with argument patterns; a new binding field *(inferred)*: Loom's `tools.allow` takes names (`operator.yaml:18-20`), not argument classes |
@@ -133,16 +133,16 @@ verdict). `S` is the set of successful runs, `N` all runs of a cell.
 
 | # | Metric | Formula | Source |
 |---|---|---|---|
-| M1 | success | `succ(r) = 1` iff the case reaches the success outcome (Canon `legitimate`, closed through it) **and** every hidden oracle check holds; `p̂ = |S|/N`, Wilson 95 % interval. Decided by programs only, never by an LLM, and never by the agent's own claim. An oracle that could not run gives `unknown`, kept apart from failure | Canon decides outcomes (`driver.md:3-6`); hidden tests graded after each request (BOBA F1); `held / contradicted / unknown` (bench's fact vocabulary); E1 (03 `:219`) |
+| M1 | success | `succ(r) = 1` iff the case reaches the success outcome (Canon `legitimate`, closed through it) **and** every hidden oracle check holds; `p̂ = |S|/N`, Wilson 95 % interval. Decided by programs only, never by an LLM, and never by the agent's own claim. An oracle that could not run gives `unknown`, kept apart from failure | Canon decides outcomes (`driver.md:43-45`); hidden tests graded after each request (BOBA F1); `held / contradicted / unknown` (bench's fact vocabulary); E1 (03 `:219`) |
 | M2 | false-done rate | node level: `FD_node = #{node runs that exit 0 or say done, whose next program check fails} / #{node runs that exit 0}`. Case level: `FD_case = #{runs closed through the success outcome with an oracle check contradicted} / #{runs closed through the success outcome}` | E2 (03 `:220`); agents' own passing tests miss 8.3 % (BOBA F4) |
 | M3 | regressions | `R = #{oracle checks that held at case open and fail at close} / #{held at open}`. Protected checks: earlier stories' conformance scenarios and mainline tests for a story; for a spec, `ess verify diff` breaking changes to already-approved domains *(inferred mapping)* | regression rate (BOBA F7, F12) |
-| M4 | steps | agent tool calls per node run, plus driver steps (`action_finished`) per case run; median and IQR | `driver.md:159-161`; median and spread, as bench reports them |
+| M4 | steps | agent tool calls per node run, plus driver steps (`action_finished`) per case run; median and IQR | `driver.md:194-196`; median and spread, as bench reports them |
 | M5 | cost | input and output tokens, `cost_micro_usd` with `cost_basis` `provider-reported`, `assumed` or `unknown`. An unpriced turn is absent, never 0. Also cost per success, `Σ cost / |S|` | `loom/AGENTS.md:159` |
 | M6 | distinct tool sequences | `D = |{α*(r) : r}|`, with `α*(r)` the run's sequence of abstract calls `α(call) = (tool, argument class)`; report `D` and `D/N` | *(inferred)* |
 | M7 | observed branching per place | place `q = (action, k-call abstract prefix)`, `k ∈ {0, 1, 2}`; `b_obs(q) = |{next symbol after q}|`; `p̂(t | q)` = share of runs at `q` whose next symbol is `t` | local branching `b(v)` (02 `:107-110`) |
 | M8 | path entropy | plug-in `Ĥ = −Σ_σ p̂(σ) log2 p̂(σ)` over the observed `α*` sequences, and Miller-Madow `Ĥ + (K−1)/(2N ln 2)` (`K` distinct sequences) because the plug-in estimate is biased low at small `N` *(standard, not read)*. Per place, `H(q) = −Σ_t p̂(t|q) log2 p̂(t|q)`. Chain form `H = Σ_q Pr(visit q) H(q)` | P11, P13 (02 `:133, :135`). Measure it from replays: the model's own token entropy did not track replay variance (ρ = −0.088; `research/literature/DISTILLATION.md:2345-2349`) |
 | M9 | LLM edges on the path | `n_ND(r) = #{judgement-authored action steps in r} + #{LLM chooser decisions in r}` (the latter only at L0); static `ND_max` per protocol; predicted `Pr(no error) = q^n` | P8, P14 (02 `:130, :136`); E7 (03 `:225`) |
-| M10 | time to stuck | `T_stuck` = driver steps (also tokens, seconds) from open to the first `stuck` or `step_budget_spent`; runs that succeed are censored. Report the share that got stuck and the median `T_stuck` among them | verdicts and exit codes (`driver.md:119-122`); `max_runs` bound (`driver.md:104-105`) |
+| M10 | time to stuck | `T_stuck` = driver steps (also tokens, seconds) from open to the first `stuck` or `step_budget_spent`; runs that succeed are censored. Report the share that got stuck and the median `T_stuck` among them | verdicts and exit codes (`driver.md:154-157`); `max_runs` bound (`driver.md:139-140`) |
 | M11 | protocol counts (no runs) | reachable states, `U_out`, stuck, dead, unreached (`canon check` now; `canon simulate` drafted) | P1, P3-P7 (02 `:123-129`) |
 
 Report M1 and M2 as raw counts (held / contradicted / unknown) before any rate. A score that folds
@@ -152,7 +152,7 @@ them is a separate, pre-registered projection (as bench requires).
 
 ### 3.1 What one run records
 
-Reused unchanged from the driver (`driver.md:138-170`):
+Reused unchanged from the driver (`driver.md:173-205`):
 
 - the case store: `ir.json`, `case.json`, `evidence/`, `authority.json`, `decisions.json`,
   `evaluations/`, `blobs/`;
@@ -285,7 +285,7 @@ Statistics:
 ### 4.2 Exhaustive fault injection (sdc-drive, no new code)
 
 A scripted executor replays each result variant of each binding. The variants are the keys of its
-`results` table (`"0"`, `"*"`; `questions.check` has four, `driver.md:340`). Assertions per
+`results` table (`"0"`, `"*"`; `questions.check` has four, `driver.md:375`). Assertions per
 schedule:
 
 - **A1** every run ends in a verdict (`terminable`, `awaiting_*`, `stuck`, `step_budget_spent`)
@@ -294,7 +294,7 @@ schedule:
 - **A3** every `passed` case holds the hidden oracle;
 - **A4** the union of reached outcomes over all schedules equals the declared outcomes. Today
   `abandoned` and `dropped` cannot be reached at run time: there is no command that writes
-  `canon-decisions/1` (`driver.md:423`);
+  `canon-decisions/1` (`driver.md:458`);
 - **A5** every `stuck` is expected. A failing check with no repair action in the protocol counts as
   a design finding, not a pass.
 
@@ -315,7 +315,7 @@ Each replaces one LLM binding: `eval/adversary.sh` subcommands, driven by
 | claims done (`noop`) | exit 0, writes nothing | stuck; never `passed` |
 | claims done with junk (`junk`) | replaces the artifact with one placeholder file | stuck, unless the verifier misses it |
 | stall: fail | exits 1 every time | stuck after `max_runs`: 8 with the 23:45 driver, 4 with the binding's `max_runs: 4` and `retry_when` |
-| stall: hang | sleeps 30 s inside `timeout 2` | as fail. The 23:45 driver had no tool timeout, so without the wrapper the run hung; the current one kills the process group after `timeout_s` (`driver.md:237`) |
+| stall: hang | sleeps 30 s inside `timeout 2` | as fail. The 23:45 driver had no tool timeout, so without the wrapper the run hung; the current one kills the process group after `timeout_s` (`driver.md:272`) |
 | overreach | does the honest work and also edits the roadmap, which `spec.author` does not revise | the roadmap approval stops applying; stuck |
 | observer writes | `spec.review` (effect `read`) edits the spec, then approves | `discarded` (`main.rs:751`); never `passed` |
 | forbidden action | chooser calls `step --action` on blocked actions and `close` on blocked outcomes | each refused, exit 2 |
@@ -394,7 +394,7 @@ work ran:
 
 - 00:01: `sdc-drive` rebuilt;
 - 00:01: `sdc.direction` r3 added stops on `context.default` and `vision.write`
-  (`docs/driver.md:374-378`);
+  (`docs/driver.md:409-413`);
 - 00:04-00:06: bindings route writers through `llm-node.sh`.
 
 A suite run that copied the live bindings at that moment ran them with the old binary. Every full
@@ -512,8 +512,8 @@ stage, no early stop on results, and every number names its run ids and commit
 - **Unknown cost.** `cost_basis` must be reported; an `assumed` cost is not comparable with a
   `provider-reported` one (bench's cost rule).
 - **Driver gaps that move results**: shared `work/` per
-  tree; a failing writer's partial output still moves the revision (`driver.md:422-433`).
-- **Stub tools stay stubs.** Several checks are yq/jq scripts, not `ess` or `aep` (`driver.md:444`).
+  tree; a failing writer's partial output still moves the revision (`driver.md:457-468`).
+- **Stub tools stay stubs.** Several checks are yq/jq scripts, not `ess` or `aep` (`driver.md:479`).
 
 ### 5.4 What gets reported
 

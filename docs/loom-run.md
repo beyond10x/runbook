@@ -292,7 +292,7 @@ reservation.
 The old driver does not end a run for a model call that exits with a number other than 0 and has no
 cost: it records the action as finished without evidence, the step's retry rule decides (`max_runs`,
 then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of a program end the run
-(`driver/src/main.rs`, `program_error`). `runbook run` does the same:
+(the former driver's `program_error`, deleted with it). `runbook run` does the same:
 
 - A call with an exit other than 0, 126, 127 and 75 and no usable cost is booked at its reservation
   (the spend rule stays fail-closed), written to `llm-calls.jsonl` with `cost_unknown: true`, and the

@@ -1080,19 +1080,17 @@ be inside this driver binding"; `story:instructions-as-files`).
 - A variable part is a placeholder `{{name}}` (lower case and `_`). The tool fills each placeholder
   from a value it computes, in one pass; a placeholder without a value, or a missing file, is a
   program error (exit 126). So is a path that is not `instructions/<...>.md` or has a `..` segment.
-- Three Rust binaries tell a model something and read files too (`story:rust-prompts-as-instruction-files`):
+- Two Rust binaries tell a model something and read files too (`story:rust-prompts-as-instruction-files`):
   `sdc-reply implement-run` in `SDC_IMPLEMENT_MODE=request` (`instructions/change.implement.request.<part>.md`:
   `head`, `build`, `task`, `story`, `rework`, `continuation`, `retry`, `request-failed`, `no-reply`,
   `feedback`, `findings`, `constraints.heading`, `constraints.heading.run`, `requirements.heading`,
   `requirements.acceptance`, `requirements.none`, `spec.heading`, `spec.missing`, `tree.heading`,
   `tree.count`, `tree.count.listed`, `tree.empty`, `tree.file`, `tree.listed`, `tree.listed.item`,
-  `tree.why.not-utf8`, `tree.why.over-cap`), `sdc-conform`
-  (`instructions/conformance.table.md`, `.refused.md`, `.run-fault.md`) and `sdc-unstick`
-  (`instructions/run.unstick.md`, `.retry.md`, `.closing.md`). They share one function,
+  `tree.why.not-utf8`, `tree.why.over-cap`) and `sdc-conform`
+  (`instructions/conformance.table.md`, `.refused.md`, `.run-fault.md`). They share one function,
   `driver/src/instructions.rs` (`render`, included by each binary with `#[path]`), with the rules above;
   an error names the file or the placeholder, and the call ends as a call whose input could not be made
-  (`implement_inputs_missing` for `implement-run`, `table_missing` for `sdc-conform`, exit 1 for
-  `sdc-unstick`). A binary finds `instructions/` as the tools do: the nearest directory above the
+  (`implement_inputs_missing` for `implement-run`, `table_missing` for `sdc-conform`). A binary finds `instructions/` as the tools do: the nearest directory above the
   running binary that holds it (`driver/target/<profile>/<binary>` in this repository).
 
 A binding names the files of its action in the `llm` object, `instructions`: `task` is required, the
@@ -1109,7 +1107,7 @@ directory sits. `bindings/*.yaml` (`loom.bindings/1`) names no instruction file;
 `bindings/PENDING.md` says what brings it.
 
 The prompt each action and decider writes is held byte for byte by `driver/tests/bugfix_prompt.rs`
-against `instructions/golden/` (40 prompts on stub inputs, among them the retry texts, the writer's own failure and a case with no gate command; and 11 of the three Rust binaries under `golden/implement/`, `golden/conform/` and `golden/unstick/`, made without a model: `sdc-reply implement-run --assemble-only` and a script adapter, `sdc-unstick prompt`, `sdc-conform prompt`; a golden no test reads and an instruction file no golden reaches fail `bugfix_prompt`; `SDC_BLESS_PROMPTS=1 cargo test --test
+against `instructions/golden/` (prompts on stub inputs, among them the retry texts, the writer's own failure and a case with no gate command; and those of the two Rust binaries under `golden/implement/` and `golden/conform/`, made without a model: `sdc-reply implement-run --assemble-only` and a script adapter, `sdc-conform prompt`; a golden no test reads and an instruction file no golden reaches fail `bugfix_prompt`; `SDC_BLESS_PROMPTS=1 cargo test --test
 bugfix_prompt` rewrites them, after a change of an instruction that is meant). `bugfix_prompt` also fails
 when a line of an instruction file is found in the three Rust files. Not in files: the section headings
 and the data lines of the request-mode prompt (the story, its requirements and acceptance lines, the specification's

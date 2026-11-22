@@ -61,7 +61,7 @@
 - `runs/` recorded runs: case stores, event logs, LLM and decider records.
 - `scripts/` check and evaluate scripts.
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
-- `docs/` design notes and research results; start with `phases.md`, `driver.md`, `orchestration.md`.
+- `docs/` design notes and research results; start with `phases.md`, `loom-run.md`, `orchestration.md`.
 - `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.
 - `.engineering/planning/` the AEP planning store.
 
@@ -115,11 +115,13 @@
 - No `/home/<name>/` path in any committed file: write repository-relative paths, sibling-relative
   paths (`../canon/…`) in docs, and `$HOME`-based or argument paths in scripts.
 - A run that cannot continue (a defect that needs a code change, a missing capability, or a
-  decision nobody will take) is stopped at once by whoever finds it, the way `docs/loom-run.md`
-  says a run is stopped: a run of an experiment record with
-  `sdc-experiment stop <record | id> --reason "<reason and the fix it waits on>"` (it writes the
-  run's stop record and stops its unit), any other `runbook run` with SIGTERM or SIGINT (it ends
-  as `stopped: signal`, exit 7).
+  decision nobody will take) is stopped at once by whoever finds it. A run of an experiment record
+  is stopped with
+  `sdc-experiment stop <record | id> --run <run name> --reason "<reason and the fix it waits on>"`
+  (it writes that run's stop record and stops its unit; without `--run` it does so for every open
+  run of the record and sets the record `abandoned`; `docs/workflow-metrics.md`). Any other
+  `runbook run` is stopped with SIGTERM or SIGINT (it ends as `stopped: signal`, exit 7;
+  `docs/loom-run.md`).
   No run is left waiting when no person or agent is working on it. Demo and fixture runs are never
   listed beside real runs without a label (the operator, 2026-11-21).
 - Keep-going (the driver's option to collect every defect of a run in `defects.jsonl`) is not

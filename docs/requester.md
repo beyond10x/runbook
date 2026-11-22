@@ -25,7 +25,7 @@ or run. *(inferred)* marks design not observed.
 | 7 | Requester inputs: the request, its subject, the files its grounds cite, idea, dissection, goals, its own earlier decisions; nothing else | independence by construction, checkable as an input list |
 | 8 | No ground in the goals: D→P escalates to the requester person; D\* takes the request's default, marked `no_ground_in_goals` | the existing holder semantics (`autonomy-levels.md:235-236`) |
 | 9 | Answers that a goal states are `answered_by: derived` with a `basis`; scope-changing ones only where the class holder is D (A3 up) | keeps the A0-A2 rule "scope is the person's" (`autonomy-levels.md:244`); see question 1 |
-| 10 | Persona per eval item: goals given to the run, `truth.yaml` hidden beside the oracle | the oracle rule (`eval-design.md:174-177`) |
+| 10 | Persona per eval item: goals given to the run, `truth.yaml` hidden beside the oracle | the oracle rule (`eval-design.md:180-183`) |
 
 ## 1. What exists and is reused
 
@@ -42,7 +42,7 @@ or run. *(inferred)* marks design not observed.
 | AEP `initiative` (draft → proposed → active → implemented), `product-requirements` | `aep plan artifact kinds`, `lifecycle initiative` | time-bound goals, constraints |
 | Brownfield reads context from the repository and adopts `vision:*` | `orchestration.md:318-319` | where an existing repository's goals come from |
 | Cold-read epic: questions carry excerpt, consequences, default reason | `epic:decisions-a-person-can-take-cold` | the request the requester receives |
-| Eval: hidden oracle, no persona, no simulated requester | `eval-design.md:174-177`; `eval/` has none (searched) | built here |
+| Eval: hidden oracle, no persona, no simulated requester | `eval-design.md:180-183`; `eval/` has none (searched) | built here |
 
 Gaps found: `check-questions` accepts a scope-changing answer under any `answered_by` except empty
 and `non-interactive` (`sdc-tool.sh:65-67`), so `derived` passes with no basis checked. The
@@ -96,9 +96,9 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
   document or the output of `sdc-goals resolve` both work. It is artifact `goals` beside `idea`
   (`protocol/sdc.protocol.yaml:10`, `sdc.bindings.json:4`), and also of `sdc.intake` and
   `sdc.direction` (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`, their bindings
-  `:4`). A child's `work/` is a link to its parent's (`driver/src/main.rs:506`), so intake and
+  `:4`). A child's `work/` is a link to its parent's (the former driver's code, deleted), so intake and
   direction read the same file, and each case records the same revision: `t` and the first 16 hex
-  digits of the file's sha256 (`main.rs:191-199`), `none` without `--goals`. No claim reads it and
+  digits of the file's sha256 (the former driver's code, deleted), `none` without `--goals`. No claim reads it and
   no invalidation names it: a revised goals document makes no intake or direction record stale.
   Ground: source `goals`, citation `artifact_revision` with an `entry` id; displayed
   `goals@<rev>#<id>`.

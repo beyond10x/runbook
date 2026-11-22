@@ -329,7 +329,7 @@ fs-change record (`changes.jsonl`, `docs/fs-changes.md`).
 Notes:
 
 - F17 adds the WIP limit as one more factor of an eval cell, beside node, level, adapter and model
-  (`docs/eval-design.md:436`); the chosen defaults go with the other per-level limit defaults
+  (`docs/eval-design.md:442`); the chosen defaults go with the other per-level limit defaults
   (`docs/autonomy-levels.md:358-375`).
 - A limit change during a run is the event `limits_changed` (who, old, new), taken by a person or
   a rule and read at the next admission; it is never retroactive, and no LLM raises a limit

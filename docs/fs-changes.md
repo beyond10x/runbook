@@ -80,7 +80,7 @@ is `step-window`, `tool-window` or `record`.
   - `none`: nothing was in flight; `case` and `action` are null.
 - A record's case: from `decide-request.json` (`case_dir`, `action`) for a decider call; for an
   agent call from its `request.json` (`case`, written by the model node before the adapter runs,
-  `docs/driver.md` "Observation records"), else from `llm-calls.jsonl` (`record` → `case`) once
+  `docs/loom-run.md`, "A failed model call"), else from `llm-calls.jsonl` (`record` → `case`) once
   the call is finished. Only when neither names it (a record from before 2026-11-21, or the first
   moments before `request.json` is written): the case whose open action equals the record's
   action, a guess that the request or the log replaces once either names the case.
@@ -164,8 +164,9 @@ no `seq`.
   (a parent-death signal and a poll every 200 ms); refused when `pid` is not the parent at start.
   `runbook run --watch` starts it so, with `--kind loom`: the watcher ends with the runner, also
   when that is killed with SIGKILL (`docs/cli.md`, `run --watch`).
-- `scripts/watch-run.sh start|stop|status <run-dir>`: background start (returns once watching),
-  stop by PID (waits for the flush). The driver's launcher uses it; `runbook run` does not.
+- A run directory's changes are recorded by `runbook run --watch` (above, `docs/cli.md`, `run
+  --watch`). The shell launcher `scripts/watch-run.sh`, which the former driver's launcher used, is
+  deleted.
 
 ## Limits of the prototype
 

@@ -168,9 +168,10 @@ and `tests.pass`. A fix whose test was never red is therefore refused by the pro
 `cases/12-bugfix-red-first/green-without-red` (a fix and a passed suite, no red) has `change.fix`,
 `story.update` and `fixed` blocked, and the cycle `bugfix-never-red` asserts the same on the run's
 `decision.json` (`repro.red` false, `change.fix` and `tests.run` blocked, `fixed` blocked,
-`not_reproduced` legitimate). The cycles `bugfix-full`, `bugfix-not-red`, `bugfix-edited-test` and
-`bugfix-from-ticket` are cycles of `cycles/tree-suite.yaml` (`task test:cycles-loom`,
-`docs/cycles-suite.md`). `bugfix-full` asserts one red `repro_run`, one `implementation_change` and
+`not_reproduced` legitimate). The cycles `bugfix-full` and `bugfix-never-red` are cycles of
+`cycles/tree-suite.yaml` (`task test:cycles-loom`, `docs/cycles-suite.md`); `bugfix-not-red` and
+`bugfix-edited-test` are in the file marked `pending: true`; `bugfix-from-ticket` is the Rust test
+`runbook/tests/loom_run/bugfix.rs` (`docs/cycles-suite.md`). `bugfix-full` asserts one red `repro_run`, one `implementation_change` and
 one passed `test_run` among the run's evidence records. The order of the three (the red precedes the
 fix, which precedes the green), that the fix and the green name the red's test revision R, and that
 the green's tree digest is set and differs from C1, were asserted by the former cycles script. That
@@ -350,13 +351,13 @@ Command, as given to the former trial script: `bugfix-1 --bugfix driver/examples
 
 Why there are two `dissection.check` records and two `repro.run` records although no writer ran
 twice: the first of each is about an artifact that did not exist yet. The fixed policy takes
-observations before writes (`driver/src/main.rs`, `useful()`). At the opening, `dissection.check` is
+observations before writes (the former driver's `useful()`, deleted). At the opening, `dissection.check` is
 admissible (`dissection.checked` is unknown), so it ran first, against `none`: `e0004`, `invalid`,
 "no bug-dissection.json". Then `bug.dissect` wrote the document, and `e0013` checked the new
 revision: `valid`. Likewise, once the dissection was valid, `repro.run` ran before `test.reproduce`,
 against repro `none`: `e0017`, `not_red`, "no repro/repro.json". That check makes no cargo run. After
 the test was written, `e0026` was red. A record about `none` sends no writer back (`retry_when`
-skips it: `driver/src/main.rs`, `retry_records`), so no LLM call is spent on it. Removing these
+skips it: the former driver's `retry_records`, deleted), so no LLM call is spent on it. Removing these
 records took an evidence kind per writer (a "written" record) and a precondition on it, since
 Canon has no form for the presence of an artifact: `bug.dissect` records `dissection_written`
 (claim `dissection.written`) and `dissection.check` waits for it; `test.reproduce` records
@@ -406,8 +407,9 @@ resets `impl/` to the base plus the test.
 What a parent needs:
 
 - an action with `case_open: {protocol: sdc.bugfix, subject: <artifact>}` and the binding
-  `child: {name, protocol: .../sdc-bugfix.protocol.yaml, bindings: .../sdc-bugfix.bindings.json}`
-  (`docs/driver.md`, "Child cases"). The child's `work/` is a link to the parent's, so the parent
+  `executor: {kind: open, name, bindings: <file>.yaml}` (`docs/loom-bindings.md`; the former
+  driver's `child:` object is in the record `docs/driver.md`, "Child cases"). The child's `work/`
+  is a link to the parent's, so the parent
   writes `bug.yaml` (report, `story`, `base`) and the base copy before it opens the child;
 - a `children` claim that lists `fixed`, and an `case_outcome` evidence kind.
 

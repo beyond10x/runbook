@@ -14,9 +14,10 @@ conformance: spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 n
 
 A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
 scenarios`. It is off by default (since 0.1.4, for its cost; an experiment record turns it on with
-the launch setting `conformance: observe`; skipped on a recorded re-drive, whose recording holds no
-table call). `runbook run --conformance observe` runs it after a run that ended closed (`off` is the
-default; a run that stopped, or a failure of the observation, changes no exit). The workspace is
+the launch setting `conformance: observe`). `runbook run --conformance observe` runs it after a run
+that ended closed (`off` is the default; a run that stopped prints `not observed (the run did not
+close: <label>)`, and neither that nor a failure of the observation changes the exit;
+`runbook/src/loom_run/run_loop.rs`, `runbook/src/loom_run/conformance.rs`). The workspace is
 the run's `work/`, whatever the root case is called, and the code is the library the program is the
 command line of (`driver/src/conform.rs`, `runbook/src/loom_run/conformance.rs`). It runs ess
 through `bindings/tools/sdc-tool.sh ess`, which pins the release, not through the pinned binary

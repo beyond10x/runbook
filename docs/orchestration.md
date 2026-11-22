@@ -59,7 +59,7 @@ compiled outputs to the session scratch directory.
 | Driver: run | `drive` walks `children()` in sorted order, recursing depth first; a child that is not terminable with exactly one outcome **stops the whole run**; only then one step in the parent | `main.rs:791-826`, sort `:288-293` |
 | Driver: step | one action per step, the first `useful` one | `main.rs:602-614` |
 | Driver: lock | one writer per case tree, a lock file with the pid | `main.rs:108-138` |
-| Driver: workspace | all cases of a tree share the root's `work/` | `main.rs:235-237`; `docs/driver.md:470`, `:520-522` (gap 22: "stories run one after another") |
+| Driver: workspace | all cases of a tree share the root's `work/` | `main.rs:235-237`; `docs/driver.md:505`, `:520-522` (gap 22: "stories run one after another") |
 | Trial scripts | the trial script and the full-cycle script: a sequential loop of driver `run` rounds (40 / 30), no `&`, no `wait` | lines 238-240 of the trial script; lines 45-47 of the full-cycle script (both deleted since) |
 | Canon | several children may be open; the `children` form is `unknown` while any is `open`, `false` for good once one ends outside the listed set | Canon `website/docs/reference/protocol.md:188-195`, `:328-339` |
 | Loom today | no child cases: pins Canon 0.8.0 (`case_open` arrived in 0.9.0); no `case_open`/`case_outcome` in `crates/` | `loom/crates/loom-governor/Cargo.toml:15`; grep 2026-11-21 (3 hits, all unrelated names) |

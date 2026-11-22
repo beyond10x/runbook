@@ -214,8 +214,9 @@ that decides deterministically from evidence.
 
 Departures from every source *(inferred)*:
 
-- **Canon chooses the action, not the agent.** The SDC driver picks the next action
-  deterministically (`driver.md` "Fixed policy"). Autonomy here is only about who **decides** at a
+- **Canon chooses the action, not the agent.** The runtime picks the next action
+  from what Canon calls admissible (`docs/loom-run.md`, "What it does"); the former driver's fixed
+  policy is the record in `driver.md`, "The loop". Autonomy here is only about who **decides** at a
   decision point, never about who chooses the next step. The freedom of the agent nodes is a
   separate axis: `eval-design.md` § 1, L0 to L5.
 - **A level is a ceiling and a default, not a certificate.** Per class, the eval decides how high
@@ -256,10 +257,11 @@ Holders:
 | limit hit | `--max-wall-seconds`, `--max-steps`, `timeout_s`, Substrate refusals | R, then P | R, then P | R, then P | R, then P | R, then P | R: end |
 | escalation | decider reply `escalate` or an invalid reply | — | — | P | P | P | D* |
 
-The rule for context, roadmap and release is built (`story:decider-program-approvals`,
-`driver.md` "Approvals by program", data `rule-ends.json`) behind `SDC_RULE_APPROVALS=on`, off by
-default until the experiment `decider-program-approvals` holds; vision has no program check and
-stays D*.
+The rule for context, roadmap and release was built in the former driver
+(`story:decider-program-approvals`, record in `driver.md` "Approvals by program", data
+`rule-ends.json`) behind `SDC_RULE_APPROVALS=on`, off by default until the experiment
+`decider-program-approvals` holds; vision had no program check and stays D*. The rule approver is
+not ported (`docs/driver.md`, "Now").
 
 Rules named in the table *(inferred: proposed, not built)*:
 
@@ -463,19 +465,21 @@ written into each `run-settings.jsonl` line.
 - Every eval run runs at A5. No decision, in any class, waits on a person.
 - Where a lower level would escalate, the **decider's decision is final**: its `best` (approve or
   reject) is taken. An invalid reply is asked again (2 retries), then takes the fallback of its
-  kind (`docs/driver.md`, "Decider replies"); it never counts as a reject by itself.
+  kind (`retries`, `escalate`: `docs/loom-run-settings.md`, "decider"); it never counts as a reject by itself.
 - **A rejected approval in autopilot is not an end** (operator's rule, 2026-11-21). The rejection
   is recorded with its reasons and citations; the action that writes the rejected artifact
   (`change.implement` for `merge.approve`; `context.default`, `vision.write` and `roadmap.write`
   for the direction approvals) runs again with the reasons in its inputs (`in/rejection.json`),
   its checks run again on the new revision, and the approval is asked again. At most 2 rejections (the rework cap, D184:
   `SDC_MAX_REJECTIONS` when set, else `rework_limit` of rule-ends.json; recorded in run-settings.jsonl) are reworked
-  per approval per case: the next one (by default the third) stops the run by `rule:autopilot` with cause `rework_spent`,
+  per approval per case: the next one (by default the third) stopped the run by `rule:autopilot` with cause `rework_spent`,
   naming the approval and every reason. A rejected `release.publish` (the capability
-  `release.approve`, no writer) ends the tree instead: the release is withheld, the epic ends
-  `not_released`, the root `not_delivered`, and the run is closed, not stopped (`docs/driver.md`,
-  "A refused release"). A reject that has neither a writer nor such an end stops with
-  `rejected_without_rework_path`. No message says a person decides.
+  `release.approve`, no writer) ended the tree instead: the release was withheld, the epic ended
+  `not_released`, the root `not_delivered`, and the run was closed, not stopped (record in
+  `docs/driver.md`, "A refused release"). This is the design as the former driver did it; the
+  rework cap and the end by `withhold` are not ported (`docs/driver.md`, "Now"). Under
+  `runbook run` a reject that has neither a writer nor such an end stops with
+  `rejected_without_rework_path` (`docs/loom-run.md`, "The caps"). No message says a person decides.
 - **Every would-be escalation is recorded** as the event `escalation_suppressed`, with the class,
   the subject at revision, the reasons and `best`. It is counted as the KPI R21, escalations
   suppressed (§ 5).

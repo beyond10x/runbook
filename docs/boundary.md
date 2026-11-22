@@ -61,34 +61,34 @@ new home.
 | 1 | Command surface: init, eval, tools, step, run, approve, close | 27-67 | b | Loom CLI. Canon's CLI "must remain a thin shell over pure library semantics" (design.md:1358). |
 | 2 | Case store layout: `ir.json`, `case.json`, `evidence/`, `authority.json`, `decisions.json`, `bindings.json`, `work/` | 314-339 | b | Loom has `FileCaseStore`, atomic writes and a directory lock (`loom-governor/src/file_store.rs:1-30`). Canon is not a database (design.md:1468). |
 | 3 | Compile the protocol once at open and pin the IR digest | 318-323, 340 | b | Loom registers protocols per host (`file_store.rs` header: "Protocol definitions are not stored: the host registers the same protocols"). Compilation itself is Canon's (exists). |
-| 4 | Artifact revision = content digest of what the tool left; case revision counter `cN` | 86-102, 273-287 | b, rule; c, digest | Loom has the counter and per-artifact revisions (`loom-governor/src/lib.rs:188-192`, `update_revision` 1021-1043, same rule: unchanged revision changes nothing). Which digest counts (tree vs ESS `spec_digest`) is SDC's (driver.md:232). |
+| 4 | Artifact revision = content digest of what the tool left; case revision counter `cN` | 86-102, 273-287 | b, rule; c, digest | Loom has the counter and per-artifact revisions (`loom-governor/src/lib.rs:188-192`, `update_revision` 1021-1043, same rule: unchanged revision changes nothing). Which digest counts (tree vs ESS `spec_digest`) is SDC's (driver.md:267). |
 | 5 | State digest over all Canon inputs | 104-112 | b | A runtime replay key. Canon's guarantee it rests on is already Canon's (AGENTS.md:22-26). |
 | 6 | Hash-chained event log | 114-127 | b | Canon is not an event store (design.md:1469). Loom has an `EventSink` (`loom-commission/src/runtime.rs:580`); takt has its own `events.jsonl` (`takt/crates/takt/src/events.rs:1-10`). Whether Loom's sink is hash-chained: not checked. |
-| 7 | Call `canon evaluate`, keep every decision | 129-148 | b | Loom's `CanonGovernor` (driver.md:34, `loom-governor/src/lib.rs:701`). |
+| 7 | Call `canon evaluate`, keep every decision | 129-148 | b | Loom's `CanonGovernor` (driver.md:69, `loom-governor/src/lib.rs:701`). |
 | 8 | Position: open obligations, admissible, approval-required, legitimate outcomes | 150-153, 200-208 | a (exists) | A projection of `canon-decision/1`; Canon's planned `canon frontier` (design.md:1350, `website/docs/status/where-this-stands.md:32`). Low value to move. |
 | 9 | Usefulness, pure part: an action is useful while a kind it may produce has no applicable record at the current revision | 162-176, 190-191 | **a** | Canon's design puts "useful missing evidence" in the frontier (design.md:282-291) and states the agent's question as "admissible and useful" (design.md:604) and the milestone as "a useful frontier" (design.md:1757). The driver re-derives applicability (subject revision, `excluded_evidence`) that Canon already computed: two implementations of one rule (*inferred*: they drift when Canon adds a reason). |
 | 10 | Usefulness, history part: `max_runs`, "succeeded against this snapshot" | 177-186, 192-193 | b | Needs run history, which Canon must not read. Loom has step, run and per-action budgets and an idle bound (`runtime.rs:543-563`). |
 | 11 | `until` claim on a binding | 187-189 | **c → protocol** | Progress logic outside the protocol: `canon check` cannot see it. Canon's claim test `is` (protocol.md:144) expresses "while not true" as a precondition (*inferred*: `any` of `is: false` / `is: unknown`). |
-| 12 | Selection policy: reads before writes, then identifier order | 195-197, 219-221 | b | ADR 0073 (`ActionSelector` in Loom). Loom's `FirstAdmissibleSelector` is "only for tests/examples" (driver.md:34); this deterministic policy is a better default for it. |
+| 12 | Selection policy: reads before writes, then identifier order | 195-197, 219-221 | b | ADR 0073 (`ActionSelector` in Loom). Loom's `FirstAdmissibleSelector` is "only for tests/examples" (driver.md:69); this deterministic policy is a better default for it. |
 | 13 | `--action` must be admissible at this step's evaluation | 216-218 | b | Revalidation before effect: ADR 0072, ADR 0082. Loom has it (`AdmittedRequest`, `loom-commission/src/ports/effect.rs:3-6`). |
 | 14 | Verdicts: terminable, awaiting_authority, stuck; step budget | 222-232, 354-365 | b (run time); a (static) | Loom's `NoUsefulAction`, `AwaitingApproval`, `IdleBound`, step budget (`runtime.rs:543-563`). Finding stuck states before running is Canon's (`docs/canon-simulation-request.md:66-72`). |
-| 15 | Argument check (top-level `required`, `additionalProperties`) | 240-254 | b calls, a owns | Canon says "the runner … validates them against the schema" (protocol.md:92). The dialect is Canon's and `canon validate` already holds schemas to it (`canon/crates/canon/src/validate/arguments.rs`). Recommend: Canon exports a pure `validate_arguments` so each runner does not reimplement a partial dialect (driver.md:224). |
+| 15 | Argument check (top-level `required`, `additionalProperties`) | 240-254 | b calls, a owns | Canon says "the runner … validates them against the schema" (protocol.md:92). The dialect is Canon's and `canon validate` already holds schemas to it (`canon/crates/canon/src/validate/arguments.rs`). Recommend: Canon exports a pure `validate_arguments` so each runner does not reimplement a partial dialect (driver.md:259). |
 | 16 | Binding sanity: `produces` ⊆ `may_produce` | 255-261 | b | Binding is runtime (ADR 0083). Better checked once at binding load than per step. |
 | 17 | Run the bound tool: argv, cwd `work/`, env `SDC_ACTION`/`SDC_ARGS` | 262-267 | b | `EffectPort::invoke` (effect.rs:41-77), Connectors behind it (ADR 0082, ADR 0083). No timeout here; Loom has command timeouts (`loom-intake-slice/src/executor.rs:23-24`, `loom-session-executor/src/lib.rs:617`). |
 | 18 | Keep tool stdout/stderr as a content-addressed blob, never read | 268-272 | b | This is a trace (ADR 0074). In Loom it is the observation that evidence must cite (`loom-commission/src/ports/evidence.rs:1-15`: a record "that names no observation" is refused). |
-| 19 | Exit code → result → `canon-evidence/1` with `subject_revision`, `observed_at = --at`, `producer` | 288-303 | b, mechanism; c, tables | Loom's `EvidenceAdapter::interpret` (evidence.rs:49-51) and `submit_evidence` (116). The tables (`ess … validate` exit 0 → `valid`) are SDC (driver.md:155-174). ADR 0074 allows "an independent verifier may interpret trace data", so a deterministic program's exit code is fine; an LLM's is not. |
+| 19 | Exit code → result → `canon-evidence/1` with `subject_revision`, `observed_at = --at`, `producer` | 288-303 | b, mechanism; c, tables | Loom's `EvidenceAdapter::interpret` (evidence.rs:49-51) and `submit_evidence` (116). The tables (`ess … validate` exit 0 → `valid`) are SDC (driver.md:190-209). ADR 0074 allows "an independent verifier may interpret trace data", so a deterministic program's exit code is fine; an LLM's is not. |
 | 20 | `action_started` / `action_finished` events with state before | 264, 304-306 | b | Loom run events. |
 | 21 | Tools for an external chooser (name, description, input schema) | 344-352 | b | ADR 0072, projected catalogue in Loom. |
-| 22 | Record an authority decision; keep the principal in the log only | 366-376 | **a**, format; b, intake | `canon-authority/1` has only `capability` and `decision` (documents.md:116-121), while `canon-decisions/1` already has `principal` and `case_revision` (documents.md:140-148). A grant given at spec r1 still holds at r2 (driver.md:110-112). Whether a grant applies decides admissibility, so it is semantics. Takt already works around it in its runtime ("the case's authority over the revisions that decision was computed at", `takt/crates/takt/src/replay.rs:7-9`). |
-| 23 | Terminate through an outcome; roll back if Canon refuses | 377-386 | a (exists), b | Legitimacy is Canon's (`illegitimate-termination`, driver.md:203-204); the write and rollback are the store's. |
+| 22 | Record an authority decision; keep the principal in the log only | 366-376 | **a**, format; b, intake | `canon-authority/1` has only `capability` and `decision` (documents.md:116-121), while `canon-decisions/1` already has `principal` and `case_revision` (documents.md:140-148). A grant given at spec r1 still holds at r2 (driver.md:145-147). Whether a grant applies decides admissibility, so it is semantics. Takt already works around it in its runtime ("the case's authority over the revisions that decision was computed at", `takt/crates/takt/src/replay.rs:7-9`). |
+| 23 | Terminate through an outcome; roll back if Canon refuses | 377-386 | a (exists), b | Legitimacy is Canon's (`illegitimate-termination`, driver.md:238-239); the write and rollback are the store's. |
 | 24 | Independence lists per producer in the case | 332-335 | a (exists), c (data) | Canon semantics exist (CANON-INDEPENDENCE-001); Loom stores them (`lib.rs:195-196`); who is independent is SDC data. |
 | 25 | No clock: every instant is `--at` | 5, 40-66 | a (exists), b | Canon rule (AGENTS.md:22-24). Loom has a `Clock` port (`runtime.rs:594-596`) a host can feed from `--at`. |
-| 26 | Explicit outcome decisions (`canon-decisions/1`) | file only, 338 | b | Not implemented in the driver (driver.md:229); Loom has `CanonGovernor::decide` (`lib.rs:1052`). |
-| 27 | Child cases: open on `case_open`, write `case_outcome` back | absent | **b** | Canon has the primitive and says "Canon opens nothing itself; whoever takes the action opens the child case" (protocol.md:93). No `case_outcome`/`child` handling found in `loom-governor`, `loom-commission` or `loom-sdk` (grep, 2026-11-20). The SDC stops `stuck` at `story.open` because of it (driver.md:214-216, 222-223). |
+| 26 | Explicit outcome decisions (`canon-decisions/1`) | file only, 338 | b | Not implemented in the driver (driver.md:264); Loom has `CanonGovernor::decide` (`lib.rs:1052`). |
+| 27 | Child cases: open on `case_open`, write `case_outcome` back | absent | **b** | Canon has the primitive and says "Canon opens nothing itself; whoever takes the action opens the child case" (protocol.md:93). No `case_outcome`/`child` handling found in `loom-governor`, `loom-commission` or `loom-sdk` (grep, 2026-11-20). The SDC stops `stuck` at `story.open` because of it (driver.md:249-251, 257-258). |
 | 28 | Copy a record from another case (`roadmap.read`) | absent | b, with a gap in a | See limitation 4 below. |
-| 29 | Store lock; tool timeout | absent | b | driver.md:230; Loom has both (rows 2 and 17). |
+| 29 | Store lock; tool timeout | absent | b | driver.md:265; Loom has both (rows 2 and 17). |
 | 30 | Replay check | manual (driver.md:95-97) | b | Run `canon evaluate` on the logged inputs and compare digests; takt has `takt replay` (`replay.rs:1-4`). |
-| 31 | Report checks: spec digest, clean tree, timestamp window, no-write for observations | absent | c, with b hooks | driver.md:142-147. The no-write check (tree digest before = after for `effect: read`) is generic (b); the others name ESS and git (c). |
+| 31 | Report checks: spec digest, clean tree, timestamp window, no-write for observations | absent | c, with b hooks | driver.md:177-182. The no-write check (tree digest before = after for `effect: read`) is generic (b); the others name ESS and git (c). |
 
 Count: 3 rows move to Canon or need a Canon change (9, 15's validator, 22), 1 row moves into the
 SDC protocols (11), about 22 are runtime that Loom has or must have, and the rest is SDC data.
@@ -108,7 +108,7 @@ placeholder `LIMITATIONS` at line 106; this section is what it should say.
 | 4 | `epic-imported-evidence.protocol.yaml` | 8 `unproduced-evidence` findings for `roadmap_approval` (output.txt:14-22) | Canon language (small) + runtime | Evidence flows child → parent (`case_outcome`) but has no declared way parent → child. The SDC workaround is an action that "copies" the record (`scripts/roadmap-read-action.yaml`, `sdc-epic.protocol.yaml:103-111`), which only the runtime can honour and which nothing checks is a copy. A declared imported kind (or case input) would make it explicit; the copy itself is the runtime's. Usable today as modelled. |
 | 5 | `story-with-four-gate-kinds.protocol.yaml` | 786,432 states (output.txt:26) | Canon checker; SDC workaround acceptable | Four gate kinds at ×4 each. The SDC collapsed them into one `ess_gate` kind run by one program (protocol-notes.md:164-166). This is also reasonable modelling, at the cost of Canon's explanation naming which of the four checks failed. Cone of influence would not help here (*inferred*: the gate feeds every action); this needs a smarter search or the bounded walk requested in `canon-simulation-request.md:76-81`. |
 | 6 | `child-outcomes-invalidated.protocol.yaml` | `inert-invalidation` (output.txt:30) | Canon language | Canon counts a child's outcome whatever its subject revision: "a record about an earlier revision of its subject, an expired one and an invalidated one still count" (protocol.md:194-196). A spec revised after its stories ended `passed` therefore leaves `children.passed` true in `sdc.epic`. The SDC has no workaround in its protocols (*inferred* from reading `sdc-epic.protocol.yaml`; `gate.passed` is re-checked on the current spec, delivery against it is not). Needs a Canon decision: either the `children` form gains a "current subject revision" option, or a protocol must reopen children itself. |
-| 7 | `missing-artifact/` | `missing-artifact` refusal (output.txt:34) | Runtime convention; optional Canon change | Every declared artifact needs a revision even before it exists. The driver uses a sentinel (`spec none → t2a…`, driver.md:212). Fine as a runtime convention; a Canon "absent" revision would make it explicit (*inferred*, low value). |
+| 7 | `missing-artifact/` | `missing-artifact` refusal (output.txt:34) | Runtime convention; optional Canon change | Every declared artifact needs a revision even before it exists. The driver uses a sentinel (`spec none → t2a…`, driver.md:247). Fine as a runtime convention; a Canon "absent" revision would make it explicit (*inferred*, low value). |
 | 8 | `evidence-with-gitkeep/` | `.gitkeep` refused as not an evidence record (output.txt:38) | Runtime (case-store hygiene) | Canon is right to refuse unknown files in its input. The store should not put placeholder files there. No Canon change. |
 
 Pattern: four of eight (1, 3, 5, and 2's reason) are the checker's bound, and in two of them (1, 3)
@@ -126,7 +126,7 @@ the bound changed what the protocol means. ADR 0094 records the same for
   of the driver is neither kernel nor engineering (section 1). The architecture already names its
   owner, Loom L3 (ADR 0090, ADR 0096); ADR 0096's own context lists takt carrying "its own case,
   frontier and protocol runtime beside Loom's" (ADR 0096). A sixth runtime in sdc repeats that.
-- So I agree with driver.md:19-22 (target home Loom), with one change of order: the missing piece
+- So I agree with driver.md:54-57 (target home Loom), with one change of order: the missing piece
   is in Loom (child cases), so the driver should not grow it first.
 - I disagree with Canon's own statement that argument validation is only the runner's
   (protocol.md:92). The dialect is Canon's; a pure validator in the Canon library costs little and
@@ -138,7 +138,7 @@ Ranked by value per cost; each reason is cited.
 
 1. **Loom: child-case runtime** (open the child on a `case_open` action, keep the parent-child
    link, write the child's terminal outcome as a `case_outcome` record in the parent).
-   Value: it blocks the SDC end to end; the run stops `stuck` at `story.open` (driver.md:214-216)
+   Value: it blocks the SDC end to end; the run stops `stuck` at `story.open` (driver.md:249-251)
    and six of eight SDC protocols open or are opened as children (protocol-notes.md:7-16). Cost:
    no Canon change; Canon's primitive and its checker support exist (protocol.md:93, 188-196;
    `check/mod.rs:225-238`), and Loom already has the store, governor and loop to hang it on. ADR
@@ -147,7 +147,7 @@ Ranked by value per cost; each reason is cited.
 2. **Canon: authority bound to revision and principal.** Add `principal` and `case_revision` to
    `canon-authority/1` entries and apply a grant only at its revision, as `canon-decisions/1`
    already does (documents.md:140-148). Value: closes a safety hole (a grant survives a spec
-   revision, driver.md:110-112) that phases.md:45-46 requires closed, and removes takt's workaround
+   revision, driver.md:145-147) that phases.md:45-46 requires closed, and removes takt's workaround
    (`replay.rs:7-9`). Cost: one document format and one evaluation rule, with the pattern already in
    the codebase. ADR 0083 already plans to change the same structure (capability scopes), so
    both can land in one story (*inferred*).
@@ -156,7 +156,7 @@ Ranked by value per cost; each reason is cited.
    (driver rule, main.rs:155-161), as the design's "useful missing evidence" (design.md:282-291).
    Move each binding's `until` into its action's precondition in the SDC protocols. Value: every
    runtime needs it (the first driver run looped on an admissible, useless action,
-   driver.md:56-57), it removes the driver's second applicability check (main.rs:167-176), and it
+   driver.md:91-92), it removes the driver's second applicability check (main.rs:167-176), and it
    is the run-time half of "an action that is admissible yet can never change any claim"
    (`canon-simulation-request.md:71`). Cost: a pure function over data Canon already computes;
    the `until` move is a protocol edit.

@@ -1,7 +1,7 @@
 # The finding cycles as data: `cycles/suite.yaml`
 
 `story:cycles-suite-as-data`, step 5 of the move of Runbook onto Loom. The finding cycles (each: a
-stub setup, a run, an expected verdict) were code in the former cycles script. `cycles/suite.yaml`
+stub setup, a run, an expected verdict) are code in `scripts/run-finding-cycles.sh`. `cycles/suite.yaml`
 (format `runbook.cycles/1`) is the same list as data. Loom's `tree test --suite` is to read it and the
 script is then deleted. Until then the script runs the cycles and the suite is checked against it.
 
@@ -39,7 +39,7 @@ is dropped.
 `runbook check` (run by `task check:cycles-suite`, part of `task check`) reads the suite and fails when
 it is not format `runbook.cycles/1`, repeats an id, has an entry without an `id` or with a state other
 than `expected`, `pending` or `unlisted`, or names a fixture (`stub.fixtures`) that does not exist
-under the asset root. While the former cycles script existed it also read the script text:
+under the asset root. While `scripts/run-finding-cycles.sh` exists it also reads the script text:
 every `expected=(...)`, `expected+=(...)`, `pending=(...)` and `pending+=(...)` array, a conditional
 append included, and fails when the suite differs from them in the set of ids or in a state. An entry
 with state `unlisted` is not compared with the arrays; it fails only when the script lists its id
@@ -51,10 +51,11 @@ instruction files they name, the placeholders of the instruction files, and the 
 
 ## Running named cycles
 
-A full run of the former cycles script took over an hour. To repeat one cycle
+A full run of `scripts/run-finding-cycles.sh <scratch dir>` takes over an hour. To repeat one cycle
 or a few, name them after the scratch directory:
 
 ```
+scripts/run-finding-cycles.sh <scratch dir> --only <name>[,<name>...]
 task cycles:only SCRATCH=<scratch dir> NAMES=<name>[,<name>...]
 ```
 
@@ -92,8 +93,8 @@ reads another cycle's output gets an entry in `needs`.
 
 `runbook test cycles/tree-suite.yaml --confinement local` runs the file in the `runbook` process
 (Loom's `run_suite`, format `loom.tree-suite/1`); the run holds `runbook` and the bound programs
-only. `task test:cycles-loom` runs it. `cycles/suite.yaml` and the former cycles script stayed as
-they were until the table below had no `pending` and no `not converted` left.
+only. `task test:cycles-loom` runs it. `cycles/suite.yaml` and `scripts/run-finding-cycles.sh` stay as
+they are until the table below has no `pending` and no `not converted` left.
 
 Every entry of `cycles/suite.yaml` is in one of three states:
 
@@ -239,7 +240,7 @@ is held by the tests named):
 
 ### Re-drive entries (9)
 
-These ran the former driver with `--recorded <recording>` over the recorded model calls, with `--inject`
+These run `sdc-drive` with `--recorded <recording>` over the recorded model calls, with `--inject`
 and `--on-divergence`. A `loom.tree-suite/1` cycle opens a tree and runs it; it has no recording to
 replay model calls from and no injected rejection, timeout or failed check. The ten replay entries
 (these nine and `replay-recording-clean`) are Rust tests of `runbook run --recorded`
@@ -263,14 +264,14 @@ tests that need a run (`#[ignore]`d in the default step; `replay-recording-clean
 
 | entry | state | reason |
 |---|---|---|
-| run-stop-decider | not converted | class: a second tool reads a finished run (the former trial script's `--stop`, then `sdc-finding-kpis`) |
+| run-stop-decider | not converted | class: a second tool reads a finished run (`run-trial.sh --stop`, then `sdc-finding-kpis`) |
 | run-metrics | held by a Rust test | `driver/tests/run_metrics.rs` `a_run_directory_of_the_loom_runner_with_a_rejected_approval_gives_the_same_figures` (the hand-written `tests/fixtures/loom-run` with a story case in which `merge.approve` sent `change.implement` back once) |
 | rework-pending-rejection | not converted | class: the store is edited between two runs (a case cut at the rejection) |
 | decider-later-obligation | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `an_obligation_only_a_later_step_meets_is_listed_apart_not_open_and_the_prompt_says_so` (on `prepare` and `prompt` with the compiled `sdc-release` and `sdc-direction` IR: a full `decide` of the runner sends an empty position and the case has no `ir.json`) |
 | writer-not-called | not converted | class: the store is edited between two runs (a program replaced, a finding dismissed) |
 | decider-input | held by Rust tests | `runbook/src/loom_run/decider/tests.rs` `a_close_reads_the_published_readme_and_no_aep_file`, `a_tree_input_keeps_its_cargo_lock_and_leaves_out_other_lock_files_target_and_git`, `the_prompt_of_an_aep_input_says_the_files_belong_to_the_planning_tool`, `under_final_every_prompt_calls_the_answer_the_owners_own_and_offers_no_escalation_to_a_person` |
 | principals | held by a Rust test | `runbook/tests/loom_run/settings.rs` `a_stand_in_names_its_principal_the_run_directory_labels_it_and_no_principal_is_invented` and `a_scripted_decider_takes_the_principal_of_its_answers_from_the_settings`; the refusal of a decision with no principal is the findings tool's (`sdc-findings amend`), not the runner's: the runner runs the printed command and invents no principal |
-| efforts | not converted | held in part as the Rust test `loom_run::dry::efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_default_and_a_bad_level_is_refused` (`runbook/tests/loom_run/dry.rs`): the decider's effort and its refused level. Open: the effort per node class (`efforts.<class>.effort`, `SDC_LLM_EFFORT_<CLASS>`) needs an `--effort` argument on the model node (`sdc-node`) written by the bindings copy (`bindings_copy.rs`); and the stand-in claude adapter run (the environment of a bound program) stays a class of its own |
+| efforts | not converted | held in part as the Rust test `loom_run::dry::efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_default_and_a_bad_level_is_refused` (`runbook/tests/loom_run/dry.rs`): the decider's effort and its refused level. Open: the effort per node class (`efforts.<class>.effort`, `SDC_LLM_EFFORT_<CLASS>`) needs an `--effort` argument on the model node (`bindings/tools/llm-node.sh`, `sdc-node`) written by the bindings copy (`bindings_copy.rs`); and the stand-in claude adapter run (the environment of a bound program) stays a class of its own |
 | replay-recording-clean | held by a Rust test | `runbook/tests/loom_run/replay.rs` `replay_recording_clean_holds_no_home_path_prompt_or_transcript` (the committed recording holds no home path, no prompt text, no transcript) |
 
 ### Trial entries (83)
@@ -324,8 +325,8 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | autopilot-close-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_close_is_a_persons_and_the_decider_is_not_asked` (the table of `tools/autonomy-levels.json` gives the close to a person at A3: exit 8, no model call; the driver asked the decider there, and a level never widens what its table gives); `at_a4_the_decider_is_asked_for_the_close_rejects_and_the_run_stops_unclosed` holds the decider's rejection of the close where the table gives it (A4: exit 9, nothing closed) |
 | conformance-default-off | rust test | `runbook/tests/loom_run/conformance.rs::conformance_default_off`: a closed run without `--conformance observe` (and with `--conformance off`) writes no `oracle.json` and starts no observer; `--conformance observe` on a closed run writes it (`observe_on_a_closed_run_writes_oracle_json_from_the_run_workspace_through_the_pinned_tool`), the observation of a failure is written into it and never changes the exit (`a_failed_observation_is_written_into_oracle_json_and_the_run_exit_stays`). The entry stays in `cycles/suite.yaml` until the script is deleted |
 | rule-approvals | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
-| rule-approvals-check-failed | not converted | class: the rule approver of Runbook (a tampering driver binary on the drive path); the suite's `decide:` has no rule approver to switch |
-| rule-approvals-revision-changed | not converted | class: the rule approver of Runbook (a tampering driver binary on the drive path); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-check-failed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-revision-changed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
 | rule-approvals-off | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
 | rule-approvals-a3 | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
 | keep-going-three | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
@@ -337,7 +338,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | unstick-limit | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
 | unstick-off | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
 | reopen-refused-decision | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
-| decider-release-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_decider_does_not_answer_and_the_run_stops_for_a_person_without_calling_the_model` (the table gives the release to a person up to A4); `a_context_the_decider_rejects_at_a3_ends_without_a_rework_path_and_records_nothing` holds the decider's rejection at A3 on a class the table gives it (exit 10). The second run of the driver's `decide` in the entry is the engine's |
+| decider-release-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_decider_does_not_answer_and_the_run_stops_for_a_person_without_calling_the_model` (the table gives the release to a person up to A4); `a_context_the_decider_rejects_at_a3_ends_without_a_rework_path_and_records_nothing` holds the decider's rejection at A3 on a class the table gives it (exit 10). The second run of `sdc-drive decide` in the entry is the engine's |
 | decider-release-withheld | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | requester-decider | not converted | the port is built: `--goals` and `decider.requester` (`docs/loom-run-decisions.md`); held as fake-Loom tests `requester_decider_*` in `runbook/tests/loom_run/goals.rs`, which test the runner's requester decider alone. The real engine now takes the program of a person action's approval (Loom `70b0e6e0`): `runbook/tests/loom_run/inproc.rs` `a_declared_step_with_a_program_gets_the_decider_as_principal_from_the_engine_and_no_then_runs` runs a declared step with a program and a decider principal through it. What stops the entry is that the suite's `decide:` is a fixed list with no requester decider, as for the other entries of that class |
 | requester-no-ground | not converted | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs` (the runner alone); the engine's half is the same in-process test |
@@ -367,7 +368,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | review-real-path | not converted | class: stand-in model binary through the environment (`METAHARNESS`, `CLAUDE`, `FAKE_MODEL_*`: executable stand-ins and variables of a bound program, which the layout of `.stub/` does not carry), and the same `change.review` inputs as review-reject-once |
 | review-real-path-facts | not converted | same |
 | review-invalid-stop | not converted | same |
-| review-adapter-refused | not converted | same, and the refusal is the exit 64 of the driver before a run, not a cycle's outcome |
+| review-adapter-refused | not converted | same, and the refusal is the exit 64 of `sdc-drive` before a run, not a cycle's outcome |
 | reopen-review-invalid | not converted | same, and a `--reopen` of a stopped run |
 | bugfix-full | converted | the seeds are `cycles/seeds/bugfix-pager/` (the workspace `sdc-bugfix seed` writes); the case ends `fixed` with one red, one fix and one passed suite run |
 | bugfix-not-red | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_reproduced`: the first `repro_run` `not_red` makes `not_reproduced` legitimate and Loom ends the case before the test writer is sent back; the protocol has no claim for "the writer is spent" |

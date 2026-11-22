@@ -1,12 +1,15 @@
 # Parity of a run under the old driver and under Loom
 
-`story:parity-run-on-loom`. The comparison asked whether a case tree reaches the same facts under the old
-driver and under Loom. It did, and the driver's runtime copy is deleted from Runbook
-(`story:driver-runtime-removed`): no new driver run can be made, and the driver side of a comparison
-is a run directory the driver recorded earlier. The sections from "First equal comparison" on are
-records of measured runs, written when the driver binary and its scripts existed; they name those
-files as they were then. This page holds the summary, the rules, the commands, the table of what each Loom member becomes, and what the
-first real run under Loom still has to confirm.
+`story:parity-run-on-loom` (status `active`). The comparison asks whether a case tree reaches the
+same facts under the old driver and under Loom. The runs it measured, on the cycle `stub-cycle`
+with stub executors, compared equal on what both sides record (the sections from "First equal
+comparison" on); five items of "What the first real run needs" are still marked **Open**. The
+driver's runtime copy is deleted from Runbook (`story:driver-runtime-removed`): no new driver run
+can be made, and the driver side of a comparison is a run directory the driver recorded earlier.
+The sections from "First equal comparison" on are records of measured runs, written when the driver
+binary and its scripts existed; they name those files as they were then. This page holds the
+summary, the rules, the commands, the table of what each Loom member becomes, and what the first
+real run under Loom still has to confirm.
 
 ## The summary
 

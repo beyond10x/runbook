@@ -22,9 +22,9 @@ approved yet.
   `idea`), read from the `opened` event.
 - **Case instance**: one case directory of the tree (`store/IDEA-1/`, or a bug-fix run's
   `store/BUG-1/`, then `children/<id>/`, recursively; `run_metrics.rs:710`).
-- **Take**: one `action_started` event, with its `action_finished` (`driver/src/main.rs:1404-1411`).
+- **Take**: one `action_started` event, with its `action_finished` (the former driver's code, deleted).
 - **Real take**: a take with an `action_finished` that is neither `not_called` (the tool did
-  nothing, `docs/driver.md:116-124`) nor could-not-run (exit 75, 126 or 127, `docs/driver.md:146-150`).
+  nothing, `docs/driver.md:151-159`) nor could-not-run (exit 75, 126 or 127, `docs/driver.md:181-185`).
 - **Node kind** (`run_metrics.rs:283`):
   - `approval`: a `manual` binding;
   - `copy`: a `copy` binding;
@@ -44,10 +44,10 @@ approved yet.
 | `instances` | case instances with at least one real take of the node | case tree |
 | `looping_factor` (LF) | `real_takes / instances`. The denominator is the number of takes of a run without rework: such a run takes each action once per case instance (one arrival of the tree at that protocol), so LF 1.0 means no rework (`run_metrics.rs:487`) | as above |
 | `rework_takes` | `real_takes − instances`: every real take of an action after its first in that case | as above |
-| `retries_by_cause` | each rework take gets one cause (`run_metrics.rs:319`). With `retry_of` (the kinds `retry_when` fed back, `driver/src/main.rs:1409`): `A:R`, the action and result of the latest evidence of that kind, e.g. `merge.approve:rejected`. Without it: `arrival:A:R`, the first negative record since the node's previous take, reached through `amend.upstream` or an outside revision. Without either: `decision:<action>`, `arrival:outside`, `arrival:amend.upstream` or `unexplained` | `retry_of`, `evidence/<id>.json` `kind`, `result` |
+| `retries_by_cause` | each rework take gets one cause (`run_metrics.rs:319`). With `retry_of` (the kinds `retry_when` fed back, in the former driver's code, deleted): `A:R`, the action and result of the latest evidence of that kind, e.g. `merge.approve:rejected`. Without it: `arrival:A:R`, the first negative record since the node's previous take, reached through `amend.upstream` or an outside revision. Without either: `decision:<action>`, `arrival:outside`, `arrival:amend.upstream` or `unexplained` | `retry_of`, `evidence/<id>.json` `kind`, `result` |
 | `first_pass_yield` (FPY) | the share of instances with exactly one real take: the first output passed every downstream check and approval (`run_metrics.rs:491`) | as above |
 | `sent_back` | rework takes of writers that name this node as the source of their cause | edges |
-| `driver_s` | Σ over takes of `observed_at(action_finished) − observed_at(action_started)` | `observed.jsonl` (`docs/driver.md:229-232`) |
+| `driver_s` | Σ over takes of `observed_at(action_finished) − observed_at(action_started)` | `observed.jsonl` (`docs/driver.md:264-267`) |
 | `model_s` | Σ `duration_ms / 1000` of the node's model calls | `llm-calls.jsonl` |
 | `llm_calls`, `llm_cost_usd`, `tokens` | the call lines of that case and action. `tokens`: input, output, cache_read, cache_creation, thinking (`usage`) | `llm-calls.jsonl` |
 | `decider_cost_usd`, `decider_calls` | the decider's lines on that case and action (an approval node) | `decisions.jsonl` |
@@ -56,7 +56,7 @@ approved yet.
 | `models`, `efforts` | calls per `model` and per `effort`. `default` when the line has `effort: null`, `unrecorded` when it has no field (before `feat/effort-per-class`) | `llm-calls.jsonl` |
 
 LF and FPY answer the question for writers and approvals. A check runs once per snapshot,
-including before its subject exists (`docs/driver.md:107-110`). Its LF counts those runs too: read
+including before its subject exists (`docs/driver.md:142-145`). Its LF counts those runs too: read
 it as "evaluations per case", not as rework.
 
 ## 3. Edges
@@ -429,8 +429,9 @@ is `operating`. `clean` is `closed` with no reopen (`run-stopped.<x>.json`, `sta
    (`run.delivered`, `run.cost_usd`). Pin `tree_commit` to a commit of `main`.
 3. `sdc-experiment check <id>`; `sdc-experiment run <id> --print`; commit the record.
 4. `sdc-experiment run <id>` in the background. No run is started by hand.
-5. `sdc-experiment status <id>` while it runs; `sdc-experiment stop <id> --reason "<why>"` when it
-   cannot go on.
+5. `sdc-experiment status <id>` while it runs; `sdc-experiment stop <id> --run <run name> --reason "<why>"` when
+   it cannot go on (without `--run` every open run of the record is stopped and the record is set
+   `abandoned`).
 6. When every run has ended: `sdc-experiment report <id>`; the verdict comes from the rule, not
    from reading the numbers. Commit the record, `experiments/<id>/` and `INDEX.md`.
 7. Held and every guard holds: adopt (commit the change; `adoption.decision: adopted`, `commit`).
