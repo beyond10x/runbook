@@ -79,6 +79,9 @@
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
   A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
   same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
+  A new `revision` of a protocol file moves the registration (`<id with . and _ as ->@<revision>`)
+  in `bindings/<name>.yaml` and in every `copy` `from:` in the same commit;
+  `scripts/check-bindings.sh` refuses a mismatch.
   `scripts/check-protocols.sh` is a digest check against the committed `protocol/check-ledger.json`
   (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
   a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`

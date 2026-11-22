@@ -1,5 +1,6 @@
 format: loom.bindings/1
-protocol: sdc-release@1
+protocol: sdc-release@4
+program_root: bindings
 artifacts:
   spec: spec
   release: release

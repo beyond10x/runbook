@@ -1,5 +1,6 @@
 format: loom.bindings/1
-protocol: sdc-story@1
+protocol: sdc-story@7
+program_root: bindings
 artifacts:
   spec: spec
   change: impl
