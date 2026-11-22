@@ -37,8 +37,9 @@
 #   --instructions <json>  the `llm` object's instructions: {"task": "<file>", ...}
 #   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
 #   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
-#   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli adapter (without it
-#                    the adapter reads CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
+#   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli and of the metaharness
+#                    adapter (each copies it into a private directory for its call: a config home, a
+#                    HOME; without it they read CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
 #   --stub <argv>...  the `llm` object's stub; last, it takes the rest of the argv
 # The case id is SDC_CASE, the arguments SDC_ARGS, the feedback document's records SDC_FEEDBACK
 # (each with its log's tail; Loom names no action and no exit of the run that recorded it).

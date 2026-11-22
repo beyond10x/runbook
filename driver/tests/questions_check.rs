@@ -658,4 +658,371 @@ mod loom_mode {
         assert_eq!(l.code, Some(0), "{l:#?}");
         assert!(mark.exists() && l.files.contains_key("dissection.yaml"), "{l:#?}");
     }
+
+    // ------------------------------------------------------------------------------------------
+    // The login of the metaharness adapter, and of the other two model paths, under Loom's
+    // environment (`PATH` and `LOOM_*` alone). Nothing here calls a model: the programs the
+    // adapters start are stand-ins in POSIX sh. A stand-in finds its log directory through its own
+    // resolved path (`<base>/bin/<name>` and `<base>/log`), because the environment is empty.
+
+    const DUMMY_LOGIN: &str = "dummy-login";
+
+    /// A `claude` that makes no request. It exits 9 when the login is not in its config home.
+    /// Otherwise it records the login's text and mode and the HOME it got, copies the files a
+    /// test put beside it (`write-out`: a writer's dissection, `write-decision`: a decider's
+    /// reply) and prints one `result` line as `claude -p` ends a session, with a structured output.
+    const CLAUDE_STANDIN: &str = r#"#!/bin/sh
+me=$(readlink -f "$0"); b=$(dirname "$me")/..; d=$b/log
+if [ ! -f "$CLAUDE_CONFIG_DIR/.credentials.json" ]; then echo login-absent > "$d/claude.$$"; exit 9; fi
+{ echo login-present; echo "login=$(cat "$CLAUDE_CONFIG_DIR/.credentials.json")"
+  echo "mode=$(stat -c %a "$CLAUDE_CONFIG_DIR/.credentials.json")"; echo "home=${HOME:-}"; } > "$d/claude.$$"
+[ -f "$b/write-out" ] && { mkdir -p out && cp "$b/write-out" out/dissection.yaml; }
+[ -f "$b/write-decision" ] && { mkdir -p out && cp "$b/write-decision" out/decision.json; }
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":0,"duration_ms":1,"duration_api_ms":0,"session_id":"s","usage":{"input_tokens":0,"output_tokens":0},"result":"ok","terminal_reason":"completed","structured_output":{"decision":"approve","reasons":["ok"],"cites":[]}}'
+"#;
+
+    /// A `metaharness` that makes no request and refuses as the real one does when its credential
+    /// source is the operator's login and no file is where it looks: `$HOME/.claude/.credentials.json`
+    /// (metaharness `credentials_file`, which reads the process environment's HOME and nothing
+    /// else). It records its argv and what it found there. `fail` in its log directory makes it
+    /// end with exit 1 after it looked.
+    const METAHARNESS_STANDIN: &str = r#"#!/bin/sh
+me=$(readlink -f "$0"); b=$(dirname "$me")/..; d=$b/log
+printf '%s\n' "$@" > "$d/argv.$$"
+cwd=; creds=operator-login
+while [ $# -gt 0 ]; do case $1 in --cwd) cwd=$2; shift 2 ;; --credentials) creds=$2; shift 2 ;; *) shift ;; esac; done
+f=${HOME:-/nonexistent}/.claude/.credentials.json
+echo "home=${HOME:-}" > "$d/seen.$$"
+echo "credentials=$creds" >> "$d/seen.$$"
+if [ "$creds" = operator-login ]; then
+  if [ -z "${HOME:-}" ] || [ ! -f "$f" ]; then
+    echo "metaharness: the adapter refused to plan the launch: the run's credential source needs the operator's credential file and none was named" >&2
+    echo refused >> "$d/seen.$$"; exit 2
+  fi
+  { echo "login=$(cat "$f")"; echo "file-mode=$(stat -c %a "$f")"; echo "home-mode=$(stat -c %a "$HOME")"
+    echo "dir-mode=$(stat -c %a "$HOME/.claude")"; } >> "$d/seen.$$"
+fi
+[ -f "$d/fail" ] && { echo "metaharness: the stand-in ends the session with an error" >&2; exit 1; }
+[ -n "$cwd" ] && [ -f "$b/write-out" ] && { mkdir -p "$cwd/out" && cp "$b/write-out" "$cwd/out/dissection.yaml"; }
+[ -n "$cwd" ] && [ -f "$b/write-decision" ] && { mkdir -p "$cwd/out" && cp "$b/write-decision" "$cwd/out/decision.json"; }
+printf '%s\n' '{"format":"metaharness.event/1","seq":1,"run":"standin","event":"session.ended","is_error":false,"subtype":"success","terminal_reason":"completed","num_turns":1,"duration_ms":1,"total_cost_usd":0.0,"usage":{}}'
+"#;
+
+    /// A `sdc-reply` for the model paths that need the case's store: it answers what the tools ask
+    /// before and after the call with canned documents and hands `adapters` to the real binary.
+    fn reply_standin() -> String {
+        format!(
+            r#"#!/bin/sh
+[ "$1" = adapters ] && exec '{real}' "$@"
+sub=$1; shift
+cwd=
+while [ $# -gt 0 ]; do case $1 in --cwd) cwd=$2; shift 2 ;; *) shift ;; esac; done
+case $sub in
+  review-inputs) mkdir -p "$cwd/in"; printf 'review input\n' > "$cwd/in/review.md"; echo '{{"base":"mainline","document_bytes":13,"coverage":false}}' ;;
+  schema) echo '{{"type":"object"}}' ;;
+  check-review) echo '{{"notes":[]}}' ;;
+  citable) echo '{{"artifacts":[],"examples":{{}}}}' ;;
+  rejections) echo '[]' ;;
+  *) exit 0 ;;
+esac
+"#,
+            real = env!("CARGO_BIN_EXE_sdc-reply")
+        )
+    }
+
+    struct Standin {
+        base: PathBuf,
+        bin: PathBuf,
+        log: PathBuf,
+    }
+
+    impl Standin {
+        /// `<tmp>/loom-mode/<name>-standin/{bin,log}` with the given programs in `bin/`.
+        fn new(name: &str, programs: &[(&str, &str)]) -> Standin {
+            use std::os::unix::fs::PermissionsExt;
+            let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("loom-mode").join(format!("{name}-standin"));
+            let _ = fs::remove_dir_all(&base);
+            let (bin, log) = (base.join("bin"), base.join("log"));
+            fs::create_dir_all(&bin).unwrap();
+            fs::create_dir_all(&log).unwrap();
+            for (n, text) in programs {
+                fs::write(bin.join(n), text).unwrap();
+                fs::set_permissions(bin.join(n), fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            Standin { base, bin, log }
+        }
+
+        /// The PATH of a bound program: the stand-ins first.
+        fn path(&self) -> String {
+            format!("{}:{}", self.bin.display(), path())
+        }
+
+        /// What the stand-ins wrote under `prefix` in their log directory, one text per file.
+        fn logged(&self, prefix: &str) -> Vec<String> {
+            let mut out = Vec::new();
+            for e in fs::read_dir(&self.log).unwrap() {
+                let e = e.unwrap();
+                if e.file_name().to_string_lossy().starts_with(prefix) {
+                    out.push(fs::read_to_string(e.path()).unwrap());
+                }
+            }
+            out
+        }
+    }
+
+    /// The value of `key=` in a stand-in's log text.
+    fn logged_value(text: &str, key: &str) -> String {
+        text.lines().find_map(|l| l.strip_prefix(&format!("{key}="))).unwrap_or_else(|| panic!("no {key}= in {text}")).to_owned()
+    }
+
+    /// A file whose text is `dummy-login`, beside the roots of a test and never inside them.
+    fn dummy_login(r: &(PathBuf, PathBuf)) -> PathBuf {
+        let p = r.1.parent().unwrap().join("dummy-login-file");
+        fs::write(&p, DUMMY_LOGIN).unwrap();
+        p
+    }
+
+    /// Every file below `dir` whose path or text holds one of `needles`.
+    fn hits(dir: &Path, needles: &[String]) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for e in fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let meta = fs::symlink_metadata(&p).unwrap();
+            let name = p.display().to_string();
+            if needles.iter().any(|n| name.contains(n.as_str())) {
+                out.push(p.clone());
+            }
+            if meta.is_dir() {
+                out.extend(hits(&p, needles));
+            } else if meta.is_file() && needles.iter().any(|n| String::from_utf8_lossy(&fs::read(&p).unwrap()).contains(n.as_str())) {
+                out.push(p);
+            }
+        }
+        out
+    }
+
+    /// No private directory of an adapter is left in a call's record directory.
+    fn assert_no_private_copy(rec: &Path) {
+        for e in fs::read_dir(rec).unwrap() {
+            let name = e.unwrap().file_name().to_string_lossy().into_owned();
+            assert!(!name.contains("home"), "{name} is left in {}", rec.display());
+        }
+    }
+
+    fn rec_of(r: &(PathBuf, PathBuf), node: &str) -> PathBuf {
+        r.1.join("work/.sdc/llm").join(format!("001-{node}"))
+    }
+
+    /// `llm-node.sh idea.dissect` started as Loom starts it, on `adapter`, with the dummy login.
+    fn dissect_under_loom(r: &(PathBuf, PathBuf), st: &Standin, adapter: &str, login: Option<&Path>) -> Run {
+        put(r, "idea.yaml", &fs::read_to_string(fx().join("idea.yaml")).unwrap());
+        let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
+        let mut extra = vec!["--adapter", adapter];
+        let login_text = login.map(|l| l.display().to_string());
+        if let Some(l) = &login_text {
+            extra.extend(["--claude-credentials", l.as_str()]);
+        }
+        extra.extend(["--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]);
+        let argv = node_argv("idea.dissect", &stub, &extra);
+        let mut c = Command::new(tools().join("llm-node.sh"));
+        c.args(&argv).env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake");
+        run(&r.1, c, "{}")
+    }
+
+    /// A request for an adapter, as llm-node.sh writes it.
+    fn adapter_request(r: &(PathBuf, PathBuf)) -> PathBuf {
+        let work = r.1.join("work");
+        fs::write(work.join("prompt.md"), "prompt\n").unwrap();
+        fs::create_dir_all(work.join("cwd")).unwrap();
+        let request = serde_json::json!({"record_dir": work.join("rec"), "prompt_file": work.join("prompt.md"), "cwd": work.join("cwd"),
+            "model": "claude-haiku-5-5", "max_turns": 1, "max_budget_usd": 0.1, "operations": ["file.read"], "node": "idea.dissect", "attempt": 1});
+        fs::write(work.join("request.json"), request.to_string()).unwrap();
+        work.join("request.json")
+    }
+
+    #[test]
+    fn a_node_on_the_metaharness_adapter_takes_its_login_from_the_binding_under_loom() {
+        let r = roots("mh-login");
+        let st = Standin::new("mh-login", &[("metaharness", METAHARNESS_STANDIN)]);
+        fs::copy(fx().join("dissection.yaml"), st.base.join("write-out")).unwrap();
+        let login = dummy_login(&r);
+        let l = dissect_under_loom(&r, &st, "metaharness", Some(&login));
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        assert!(l.files.contains_key("dissection.yaml"), "{l:#?}");
+        // The place the real binary looks (`$HOME/.claude/.credentials.json`) held the login, in a
+        // private directory: 700 for the home and its `.claude`, 600 for the file.
+        let seen = st.logged("seen.");
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "{seen:?}");
+        assert_eq!((logged_value(&seen[0], "file-mode"), logged_value(&seen[0], "home-mode"), logged_value(&seen[0], "dir-mode")), ("600".into(), "700".into(), "700".into()), "{seen:?}");
+        // The private home is gone, and the login's path and text are in no file of the tree.
+        assert!(!Path::new(&logged_value(&seen[0], "home")).exists(), "the private home is left: {seen:?}");
+        assert_no_private_copy(&rec_of(&r, "idea.dissect"));
+        let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
+        assert!(found.is_empty(), "the login is in {found:?}");
+    }
+
+    #[test]
+    fn a_failed_metaharness_call_leaves_no_private_copy_of_the_login() {
+        let r = roots("mh-login-fail");
+        let st = Standin::new("mh-login-fail", &[("metaharness", METAHARNESS_STANDIN)]);
+        fs::write(st.log.join("fail"), "").unwrap();
+        let login = dummy_login(&r);
+        let l = dissect_under_loom(&r, &st, "metaharness", Some(&login));
+        assert_eq!(l.code, Some(1), "{l:#?}");
+        let seen = st.logged("seen.");
+        assert_eq!(seen.len(), 1, "{seen:?}");
+        assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "the stand-in did not get the login: {seen:?}");
+        assert!(!Path::new(&logged_value(&seen[0], "home")).exists(), "the private home is left after a failure: {seen:?}");
+        assert_no_private_copy(&rec_of(&r, "idea.dissect"));
+        let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
+        assert!(found.is_empty(), "the login is in {found:?}");
+    }
+
+    #[test]
+    fn the_metaharness_adapter_without_a_login_named_keeps_the_home_it_has() {
+        let r = roots("mh-login-home");
+        let st = Standin::new("mh-login-home", &[("metaharness", METAHARNESS_STANDIN)]);
+        let home = r.1.parent().unwrap().join("driver-home");
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        fs::write(home.join(".claude/.credentials.json"), DUMMY_LOGIN).unwrap();
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("HOME", &home);
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let seen = st.logged("seen.");
+        assert_eq!(logged_value(&seen[0], "home"), home.display().to_string(), "the driver's HOME is kept: {seen:?}");
+        assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN);
+        assert_no_private_copy(&r.1.join("work/rec"));
+    }
+
+    #[test]
+    fn with_a_model_endpoint_the_metaharness_adapter_keeps_credentials_none_and_copies_no_login() {
+        let r = roots("mh-login-endpoint");
+        let st = Standin::new("mh-login-endpoint", &[("metaharness", METAHARNESS_STANDIN)]);
+        let login = dummy_login(&r);
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("SDC_LLM_ENDPOINT", "http://127.0.0.1:9").env("SDC_CLAUDE_CREDENTIALS", &login);
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let seen = st.logged("seen.");
+        assert_eq!(logged_value(&seen[0], "credentials"), "none", "{seen:?}");
+        assert_eq!(logged_value(&seen[0], "home"), "", "no home is made for a run that needs no login: {seen:?}");
+        let argv = st.logged("argv.").concat();
+        assert!(argv.contains("--model-endpoint\nhttp://127.0.0.1:9\n") && argv.contains("--credentials\nnone\n"), "{argv}");
+        assert_no_private_copy(&r.1.join("work/rec"));
+    }
+
+    /// Whether a program of that name is on this process's PATH.
+    fn on_path(name: &str) -> bool {
+        use std::os::unix::fs::PermissionsExt;
+        std::env::var("PATH").unwrap_or_default().split(':').any(|d| fs::metadata(Path::new(d).join(name)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+    }
+
+    /// The real `metaharness` plans the launch from what the adapter gives it, and starts a
+    /// `claude` that is a stand-in (no request). Skipped where there is no `metaharness` on PATH.
+    #[test]
+    fn the_real_metaharness_finds_the_login_the_adapter_gives_it_skipped_without_metaharness_on_path() {
+        if !on_path("metaharness") {
+            eprintln!("skipped: no metaharness on PATH (the forge has none)");
+            return;
+        }
+        let r = roots("mh-login-real");
+        let st = Standin::new("mh-login-real", &[("claude", CLAUDE_STANDIN)]);
+        let login = dummy_login(&r);
+        let request = adapter_request(&r);
+        let mut c = Command::new(tools().join("llm-adapter-metaharness.sh"));
+        c.arg(&request).env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake").env("SDC_CLAUDE_CREDENTIALS", &login);
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let response: serde_json::Value = serde_json::from_str(&l.stdout).unwrap();
+        assert_eq!((response["exit"].as_i64(), response["terminal_reason"].as_str()), (Some(0), Some("completed")), "{l:#?}");
+        let claude = st.logged("claude.");
+        assert_eq!(claude.len(), 1, "the stand-in claude did not run once: {claude:?}\n{l:#?}");
+        assert_eq!((logged_value(&claude[0], "login"), logged_value(&claude[0], "mode")), (DUMMY_LOGIN.into(), "600".into()), "{claude:?}");
+        let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
+        assert!(found.is_empty(), "the login is in {found:?}");
+        assert_no_private_copy(&r.1.join("work/rec"));
+        assert!(!Path::new(&logged_value(&claude[0], "home")).exists(), "the private home is left: {claude:?}");
+    }
+
+    /// The environment `runbook loom-run`'s model decider gives `decider.sh` (`runbook/src/loom_run/decider.rs`,
+    /// `env`): `PATH`, an empty `HOME` inside the run directory, and the `SDC_*` it sets.
+    fn decider_under_loom_run(name: &str, adapter: Option<&str>, st: &Standin) -> (Run, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let r = roots(name);
+        let login = dummy_login(&r);
+        let reply = st.base.join("sdc-reply");
+        fs::write(&reply, reply_standin()).unwrap();
+        fs::set_permissions(&reply, fs::Permissions::from_mode(0o755)).unwrap();
+        let home = r.1.join("home");
+        fs::create_dir_all(&home).unwrap();
+        let rec = r.1.join("rec");
+        let request = serde_json::json!({"type": "approval", "case_dir": r.1.join("case"), "action": "scope.approve", "capability": "ApproveAction",
+            "subject": "scope", "path": null, "revision": "r1", "position": {"claims": {}, "open_obligations": [], "legitimate_outcomes": []},
+            "record_dir": rec});
+        fs::create_dir_all(r.1.join("case")).unwrap();
+        fs::write(r.1.join("request.json"), request.to_string()).unwrap();
+        let mut c = Command::new(tools().join("decider.sh"));
+        c.args(["model"]).arg(r.1.join("request.json")).env_clear().env("PATH", st.path()).env("HOME", &home)
+            .env("SDC_DECIDER_ESCALATE", "stop").env("SDC_LLM_MODEL_DECIDER", "claude-haiku-5-5").env("SDC_DECIDER_MAX_BUDGET_USD", "0.25")
+            .env("SDC_REPLY", &reply).env("SDC_DECIDER_MAX_TURNS", "8").env("SDC_CLAUDE_CREDENTIALS", &login);
+        if let Some(a) = adapter {
+            c.env("SDC_DECIDER_ADAPTER", a);
+        }
+        (run(&r.1, c, ""), rec)
+    }
+
+    #[test]
+    fn the_model_decider_on_the_claude_cli_adapter_finds_its_login_under_loom_run() {
+        let st = Standin::new("decider-claude", &[("claude", CLAUDE_STANDIN)]);
+        let (l, rec) = decider_under_loom_run("decider-claude", Some("claude-cli"), &st);
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let reply: serde_json::Value = serde_json::from_str(l.stdout.trim()).unwrap();
+        assert_eq!((reply["valid"].as_bool(), reply["decision"].as_str(), reply["adapter"].as_str()), (Some(true), Some("approve"), Some("claude-cli")), "{l:#?}");
+        let claude = st.logged("claude.");
+        assert_eq!((claude.len(), logged_value(&claude[0], "login")), (1, DUMMY_LOGIN.to_owned()), "{claude:?}");
+        assert_no_private_copy(&rec);
+    }
+
+    #[test]
+    fn the_model_decider_on_the_default_adapter_finds_its_login_under_loom_run() {
+        let st = Standin::new("decider-default", &[("metaharness", METAHARNESS_STANDIN)]);
+        fs::write(st.base.join("write-decision"), r#"{"decision":"approve","reasons":["ok"],"cites":[]}"#).unwrap();
+        let (l, rec) = decider_under_loom_run("decider-default", None, &st);
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let reply: serde_json::Value = serde_json::from_str(l.stdout.trim()).unwrap();
+        assert_eq!((reply["valid"].as_bool(), reply["decision"].as_str(), reply["adapter"].as_str()), (Some(true), Some("approve"), Some("metaharness")), "{l:#?}");
+        let seen = st.logged("seen.");
+        assert_eq!(logged_value(&seen[0], "login"), DUMMY_LOGIN, "{seen:?}");
+        assert_no_private_copy(&rec);
+    }
+
+    /// `change.review` under Loom, the writers on `--adapter metaharness`: the review class takes
+    /// the claude-cli adapter (`sdc-reply adapters`) and reads the login the binding passes.
+    #[test]
+    fn the_review_step_finds_its_login_under_loom_when_the_writers_run_on_metaharness() {
+        use std::os::unix::fs::PermissionsExt;
+        let r = roots("review-login");
+        let st = Standin::new("review-login", &[("claude", CLAUDE_STANDIN), ("metaharness", METAHARNESS_STANDIN), ("sdc-reply", &reply_standin())]);
+        fs::set_permissions(st.bin.join("sdc-reply"), fs::Permissions::from_mode(0o755)).unwrap();
+        let login = dummy_login(&r);
+        let instructions = r#"{"task":"instructions/change.review.md","inputs":"instructions/change.review.inputs.md","coverage_inputs":"instructions/change.review.coverage.inputs.md","coverage_note":"instructions/change.review.coverage-note.md","facts":"instructions/change.review.facts.md","facts_inputs":"instructions/change.review.facts.inputs.md"}"#;
+        let mut c = Command::new(tools().join("llm-node.sh"));
+        c.args(["change.review", "--model", "claude-haiku-5-5", "--max-turns", "30", "--max-budget-usd", "1", "--operations", "dir.list,file.read,search",
+            "--instructions", instructions, "--adapter", "metaharness", "--claude-credentials"]).arg(&login).args(["--stub", "review-change"])
+            .env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.todo.list");
+        let l = run(&r.1, c, "{}");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let response = &l.files[".sdc/llm/001-change.review/response.json"];
+        assert!(response.contains("\"adapter\": \"claude-cli\""), "{response}");
+        let claude = st.logged("claude.");
+        assert_eq!((claude.len(), logged_value(&claude[0], "login")), (1, DUMMY_LOGIN.to_owned()), "{claude:?}");
+        assert!(st.logged("seen.").is_empty(), "the review step started metaharness");
+        assert_no_private_copy(&rec_of(&r, "change.review"));
+        let found = hits(&r.1, &[login.display().to_string(), DUMMY_LOGIN.to_owned()]);
+        assert!(found.is_empty(), "the login is in {found:?}");
+    }
 }
