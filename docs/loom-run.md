@@ -63,6 +63,13 @@ its output is read like any `tree run`. A printed command that exits non-zero en
 `error`, with its exit code and the last 1500 characters of its standard error in `outcome.json`;
 the runner does not repair or repeat it.
 
+A decision whose action `tools/answers.yaml` of the bindings declares is first answered question by
+question or finding by finding (`docs/loom-run-decisions.md`, "The answers file"): the runner asks the
+decider once per request, applies each answer, runs the file's `then`, and then runs the printed
+command as above with the decider's principal. Each call counts against `decider.max_calls`, the
+call cap and the spend ledger, and each answer is a line of `decisions.jsonl`. Without a
+declaration, or with no request open, nothing changes.
+
 A denied decision that comes back (same case, action, revision and text) ends the run as `denied`
 (exit 9) without asking the decider again; a rejection that sent a writer back returns as a
 decision at a new revision and is asked again. An approved decision that comes back is an `error`
