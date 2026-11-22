@@ -4835,13 +4835,13 @@
       "variants": [
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 3,
           "id": "strong",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "descriptive",
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
@@ -5476,7 +5476,19 @@
     },
     {
       "path": "experiments/parity-loom-strong-3.yaml",
-      "sha256": "5d38ba5fa21ec6d8fa490eecba6591b2ea4df824b10648c9525d4c46e99b0a36"
+      "sha256": "0f0394be3c751fcb3ccdc7f544be8d1c57ed86ce0f63c407eab00e074e3c5651"
+    },
+    {
+      "path": "experiments/parity-loom-strong-3/runs/parity-loom-strong-3.strong.1.json",
+      "sha256": "858164feb2ead06bac7e4f1ad83a5bcead11521ef842c8bcfc9bb5490e3a4955"
+    },
+    {
+      "path": "experiments/parity-loom-strong-3/runs/parity-loom-strong-3.strong.2.json",
+      "sha256": "f1355e21b7d0ae3d4fabc428d62e5a1baa4400e0c4b59ebdf2f53f606abeb01c"
+    },
+    {
+      "path": "experiments/parity-loom-strong-3/runs/parity-loom-strong-3.strong.3.json",
+      "sha256": "455bcb8db2297abcb164e7da1a150ce2a807c33c9dddd46d228e71316bd6a7fe"
     },
     {
       "path": "experiments/parity-loom-strong.yaml",
