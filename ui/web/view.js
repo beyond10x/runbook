@@ -106,26 +106,34 @@ export function checkView(v) {
   return out;
 }
 
-let V = null;
-let rules = [];
+// The current view lives in a state object. The page has one (the module's own). The server serves many
+// runs at once, so it hands in a scope (bindViewScope): a function that returns the state of the request
+// or tick being served (an AsyncLocalStorage store), and an await in the middle of an action cannot see
+// another request's view.
+const shared = {V: null, rules: []};
+let scopeOf = null;
+const cur = () => (scopeOf && scopeOf()) || shared;
+export const bindViewScope = (fn) => { scopeOf = fn; };
+export const newViewState = () => ({V: null, rules: []});
 
 // A view that checkView refuses is not used (the inspector then runs without one); the problems are
 // returned so a caller can say them. A view of another format is refused the same way.
 export function setView(v) {
   const problems = v == null ? [] : checkView(v);
-  V = v && !problems.length ? v : null;
-  rules = [];
-  for (const r of V?.file_kinds?.rules || []) rules.push({re: new RegExp(r.match, r.flags || ''), cls: r.class, kind: r.kind});
+  const st = cur();
+  st.V = v && !problems.length ? v : null;
+  st.rules = [];
+  for (const r of st.V?.file_kinds?.rules || []) st.rules.push({re: new RegExp(r.match, r.flags || ''), cls: r.class, kind: r.kind});
   return problems;
 }
-export const getView = () => V;
+export const getView = () => cur().V;
 
-export const phaseItems = () => (Array.isArray(V?.phases?.items) ? V.phases.items : []);
+export const phaseItems = () => (Array.isArray(cur().V?.phases?.items) ? cur().V.phases.items : []);
 export const phaseStages = () => {
-  const names = Array.isArray(V?.phases?.stages) ? V.phases.stages : [];
+  const names = Array.isArray(cur().V?.phases?.stages) ? cur().V.phases.stages : [];
   return names.map((name) => [name, phaseItems().filter((p) => p.stage === name).map((p) => p.id)]);
 };
-export const absentStages = () => (Array.isArray(V?.phases?.absent) ? V.phases.absent : []);
+export const absentStages = () => (Array.isArray(cur().V?.phases?.absent) ? cur().V.phases.absent : []);
 
 // does a view cover a run whose cases run these protocols? One that lists `protocols` covers a run when one of
 // them matches; else a view with phases covers a run when one of the protocols is the protocol of a phase (an
@@ -141,21 +149,21 @@ export function viewCovers(v, protocols) {
 // the rule a path matches first: {cls, kind}, or null; kind "$basename" is the file name without its extension
 export function fileKindOf(path) {
   const s = String(path || '').replace(/\\/g, '/');
-  for (const r of rules) {
+  for (const r of cur().rules) {
     if (r.re.test(s)) return {cls: r.cls, kind: r.kind === '$basename' ? s.split('/').pop().replace(/\.\w+$/, '') : r.kind};
   }
   return null;
 }
-export const artifactClassOf = (name) => V?.file_kinds?.artifacts?.[name] || null;
-export const parserOf = (kind) => V?.file_kinds?.parsers?.[kind] || null;
+export const artifactClassOf = (name) => cur().V?.file_kinds?.artifacts?.[name] || null;
+export const parserOf = (kind) => cur().V?.file_kinds?.parsers?.[kind] || null;
 
-export const toolOwners = () => V?.tool_owners || null;
-export const runbookName = () => (typeof V?.runbook === 'string' ? V.runbook : null);
+export const toolOwners = () => cur().V?.tool_owners || null;
+export const runbookName = () => (typeof cur().V?.runbook === 'string' ? cur().V.runbook : null);
 
 // the decisions a person can take in this runbook (null each without a view or a member)
-export const scopeAnswer = () => V?.decisions?.scope_answer || null;
-export const stallRule = () => V?.decisions?.stall || null;
-export const contextRule = () => V?.decisions?.context || null;
-export const continueRule = () => V?.decisions?.continue || null;
+export const scopeAnswer = () => cur().V?.decisions?.scope_answer || null;
+export const stallRule = () => cur().V?.decisions?.stall || null;
+export const contextRule = () => cur().V?.decisions?.context || null;
+export const continueRule = () => cur().V?.decisions?.continue || null;
 // the kind of file the questions of a decision are written in (feed: a change of it is a question asked or answered)
 export const questionsKind = () => scopeAnswer()?.artifact || null;

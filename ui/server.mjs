@@ -19,7 +19,8 @@ import {fileURLToPath} from 'node:url';
 import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {classify, meaningOf} from './web/meaning.js';
-import {setView, checkView, viewCovers} from './web/view.js';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
 import {canonPath, drivePath} from './binaries.mjs';
 
@@ -161,8 +162,13 @@ function viewOf(src) {
   viewCache.set(src.index, out);
   return out;
 }
-// the web and server modules hold one current view: set it to the run the work is for
+// the web and server modules hold a current view per request and per tick (an AsyncLocalStorage store
+// the view module reads): inView runs the work for one run under that run's view, and an await inside it
+// cannot see the view another request set meanwhile
+const viewScope = new AsyncLocalStorage();
+bindViewScope(() => viewScope.getStore());
 const useViewOf = (src) => { setView(src ? viewOf(src).view : null); };
+const inView = (src, fn) => viewScope.run(newViewState(), () => { useViewOf(src); return fn(); });
 const viewInfo = (src) => { const {view, sig, ...info} = viewOf(src); return info; };
 const sourceRow = (s) => ({index: s.index, name: s.name, view: viewInfo(s), path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s), experiments: experimentsOf(runDirOf(s))});
 
@@ -777,18 +783,17 @@ function push(name, data) {
 let sourcesSig = '';
 function tick() {
   discover();
-  for (const src of sources) {
-    useViewOf(src);
+  for (const src of sources) inView(src, () => {
     const existed = src.exists;
     src.exists = fs.existsSync(src.path);
     const {changed, runChanged, liveChanged} = scan(src);
     if (changed.length || runChanged || liveChanged || existed !== src.exists) {
       push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
     }
-  }
+  });
   // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
   // was stopped (its state); cost, calls and times are fetched when the picker opens
-  const sig = sources.map((s) => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`).join('|');
+  const sig = sources.map((s) => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`)).join('|');
   if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
 }
 
@@ -800,10 +805,14 @@ const send = (res, code, body, type = 'application/json; charset=utf-8') => {
 };
 
 const server = http.createServer((req, res) => {
+  const src = sources[Number(new URL(req.url, 'http://x').searchParams.get('source') || 0)];
+  inView(src, () => handle(req, res));
+});
+
+function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   const src = sources[Number(url.searchParams.get('source') || 0)];
-  useViewOf(src);
   if (p === '/events') {
     res.writeHead(200, {'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive'});
     res.write(`event: hello\ndata: ${JSON.stringify({versions: sources.map((s) => s.version)})}\n\n`);
@@ -844,18 +853,17 @@ const server = http.createServer((req, res) => {
     if (!writable(src)) return send(res, 403, {error: config.write ? 'refused: this store is not one of --write-only' : 'refused: the server runs without --write'});
     let body = '';
     req.on('data', (d) => { body += d; if (body.length > 65536) req.destroy(); });
-    req.on('end', async () => {
+    req.on('end', () => inView(src, async () => {
       let b;
       try { b = JSON.parse(body); } catch { return send(res, 400, {error: 'bad JSON'}); }
       // an open decision of a stopped run is not taken from here; continuing the run stays possible
       const stop = stoppedOf(runDirOf(src));
       if (stop && b && b.kind !== 'continue') return send(res, 409, {ok: false, error: `refused: the run was stopped by ${stop.by || 'someone'} at ${stop.at}${stop.reason ? ` (${stop.reason})` : ''}; its open decisions are not taken while it is stopped`});
       try {
-        useViewOf(src);
         const out = await act(ctx(src), b, (ev, data) => push(ev, {source: src.index, ...data}));
         send(res, out.ok ? 200 : 409, out);
       } catch (e) { send(res, 500, {error: String(e.message || e)}); }
-    });
+    }));
     return;
   }
   if (p === '/api/blob') {
@@ -869,7 +877,7 @@ const server = http.createServer((req, res) => {
   const abs = path.join(here, 'web', file);
   if (!abs.startsWith(path.join(here, 'web')) || !fs.existsSync(abs)) return send(res, 404, 'not found', 'text/plain');
   return send(res, 200, fs.readFileSync(abs), MIME[path.extname(abs)] || 'application/octet-stream');
-});
+}
 
 tick();
 if (CLOCK) setInterval(() => { const a = readGate(CLOCK, 'at'); if (a !== clockAt) { tick(); clockAt = a; } }, 25);
