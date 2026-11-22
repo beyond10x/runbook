@@ -264,6 +264,8 @@ checks with the real `metaharness` and a stand-in `claude` are skipped where `me
 | model calls | `stopped: llm calls` | 6 | before each step and each decider call |
 | SIGTERM or SIGINT | `stopped: signal` | 7 | the running call is ended (SIGTERM, then SIGKILL); in the library a `handoff_when` check that runs is ended too (Loom `5b3142c7`: refusal `Cancelled: action <action>: the check <program> was cancelled`, `tree run` status 5, `next: [<action>]`), and the run ends `stopped: signal` |
 
+An approval of a person action whose binding names an `argv` runs that program through the runner of the run's `--confinement` (Loom `70b0e6e0`, `tree approve`; in the library `ApproveRequest.runner`). The refusals of it end the run `error` (exit 1) with Loom's text, as every refusal of an answer does: `ConfinementRefused` when no runner is admitted for bound programs, `PersonProgramFailed` when the program exits other than 0, is killed at its timeout, or leaves a placed artifact unreadable; the approval and the run stay in the store (`tree approve` prints the command that takes the action again, with `--confinement`).
+
 Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 64 usage.
 
 ### The spend ledger
@@ -402,8 +404,8 @@ engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and wi
 a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
 cap, a sample of `/proc` that finds no `b10x-loom`, `canon` or `sdc-drive` below the process, the
 environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
-(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `5b3142c7` from
-`~/.local/state/runbook/loom/5b3142c7/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
+(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `70b0e6e0` from
+`~/.local/state/runbook/loom/70b0e6e0/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
 when it is absent) runs the `sdc` stub cycle once through the child and once with Loom as a library (no `--loom`),
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
 compare --product-digests`, which has to end `parity: identical`.
