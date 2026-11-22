@@ -154,6 +154,35 @@ the event `RunOrphaned` is published and the run's event stream gets one event o
 `runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
 nothing. The stub runtime always answers `gone`.
 
+## Conformance
+
+The scenarios of `ess/scenarios/daemon-*.yaml` are compiled to a suite document
+(`ess/generated/conformance/authored.json`, written by `task ess-suite:authored`, compared byte for
+byte by `task check:ess-suite`, which `task check:ess-generated` runs) and run against the real daemon
+over HTTP by `runbook/tests/daemon/conformance.rs`, in the crate's one test binary. The test only
+reads the committed file. It never synthesizes.
+
+What the test does: the five client commands are `POST` calls and every view a `GET` over a real socket;
+the runtime-side commands and the daemon's own `EndOrphanedRun`, which are not on the network, are the
+calls of the command layer that a runtime's reports map to, made by a runtime double that reports
+nothing on its own. The host facts of `submit-run` are made true or false in the host. What it cannot
+ask is `skipped` with the reason, never `passed`: a command as an actor the daemon does not know (it
+authenticates none), and a claim of an exact instant (the daemon stamps its own clock and takes no
+`at`; the scenario still runs and every other claim is read).
+
+The numbers are committed in the test (`GATE`: the scenarios, the executed, the passed, the skipped) and
+may not move the wrong way; the failures are named in `KNOWN_FAILURES` with their reasons, so a different
+failure cannot hide behind them. At the commit that made this section: 12 scenarios of the daemon (3 more
+are of `sdc.decision`, out of the daemon's domain), 10 executed, 4 passed, 6 failed, 2 skipped. The six
+failures are two differences between the specification and the daemon, both listed in the test: the
+daemon writes its own `runbook.submitted` event at sequence 1 of a run, and `CancelRun` and
+`EndOrphanedRun` withdraw the run's open decision requests themselves.
+
+The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`) is not committed:
+ess 0.97.1 took 1048 s on the specification of the first daemon commit and did not finish in 1800 s on
+the current one, a known defect of that release. `CONFORMANCE_SUITE=<file> CONFORMANCE_REPORT=<file>
+cargo test conformance` runs any suite document, a synthesized one included.
+
 ## Outside the language
 
 - SSE. ESS 0.96.0 has no construct for a server-sent event stream; the three views above are the
