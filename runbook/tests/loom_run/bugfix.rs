@@ -432,23 +432,35 @@ fn bugfix_from_ticket_ends_fixed_on_a_git_repository_and_a_dirty_one_is_refused(
     assert!(held.is_empty(), "{held:?}");
 }
 
-/// The prompt of the last `change.fix` call under a run directory, wherever the adapter put it: the
-/// directory of the call ends in `-change.fix`.
+/// The prompt of the last `change.fix` call of a run: `sdc-node` makes the call directory
+/// `work/.sdc/llm/<NNN>-change.fix/` in the root case's work directory (`docs/loom-run-directory.md`)
+/// and writes `prompt.md` there before it starts the adapter.
 fn fix_prompt(run: &Path) -> Option<String> {
     let mut files = Vec::new();
-    walk(run, run, &mut files);
+    walk(&run.join("work/.sdc/llm"), run, &mut files);
     files.sort();
-    let last = files.into_iter().rfind(|f| f.ends_with("-change.fix/prompt.md") && !f.starts_with("work/"))?;
+    let last = files.into_iter().rfind(|f| f.ends_with("-change.fix/prompt.md"))?;
     std::fs::read_to_string(run.join(last)).ok()
 }
 
 #[test]
-#[ignore = "waits for --dry"]
+#[ignore = "slow lane: needs driver/target/debug built (`cargo build --locked --bins` in driver/); the real cycle on the adapter dry, no model call"]
 fn bugfix_from_ticket_with_dry_ends_fixed_and_the_fix_prompt_carries_the_constraints() {
     let scratch = real_scratch("dry");
+    // the effort of a class is on the dry command of its nodes (`efforts` of `cycles/suite.yaml`): the
+    // cycle runs bug.dissect (class other), test.reproduce and change.fix (class implement)
+    let file = scratch.join("settings.json");
+    let mut settings: Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    settings["efforts"] = json!({"other": {"effort": "xhigh"}, "implement": {"effort": "low"}});
+    std::fs::write(&file, serde_json::to_string_pretty(&settings).unwrap()).unwrap();
     let run = real_run(&scratch, "bugfix-from-ticket", &["--dry"]);
     assert_eq!(code(&run), 0, "{}", text(&run));
     check_real_run(&scratch, "bugfix-from-ticket", &text(&run));
+    let commands = std::fs::read_to_string(scratch.join("runs/bugfix-from-ticket/dry-commands.txt")).unwrap();
+    for (node, level) in [("bug.dissect", "xhigh"), ("test.reproduce", "low"), ("change.fix", "low")] {
+        let line = commands.lines().find(|l| l.contains(&format!("-{node}/"))).unwrap_or_else(|| panic!("no dry command of {node}: {commands}"));
+        assert!(line.contains(&format!("'--effort' '{level}'")), "{node}: {line}");
+    }
     // the dry adapter writes each prompt: the constraints are in the fix's, a constraint the ticket lacks is not
     let prompt = fix_prompt(&scratch.join("runs/bugfix-from-ticket")).expect("the dry adapter wrote no change.fix prompt");
     assert!(prompt.contains("- Keep the public API of the crate unchanged."), "{prompt}");

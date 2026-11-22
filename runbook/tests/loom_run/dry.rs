@@ -326,6 +326,82 @@ fn efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_d
     assert!(!w.run_dir("r1").exists(), "a bad effort is refused before the run directory is made");
 }
 
+/// The model nodes of the copy of a dry run of the committed bindings with `efforts` in the settings:
+/// action and the `--effort` value it was given (`None`: the node was given none).
+fn efforts_run(tag: &str, efforts: &Value) -> Vec<(String, Option<String>)> {
+    let w = World::new(tag);
+    committed_bindings(&w);
+    w.fake.answer("tree_run", "default", &tree_run_json("Terminal", 0, Some("operating"), "[]"), 0);
+    let mut settings = json!({"autonomy": "A5", "decider": {"kind": "model", "model": "model-decider", "without_claims": true}});
+    if !efforts.is_null() {
+        settings["efforts"] = efforts.clone();
+    }
+    settings_without_login(&w, &settings);
+    let o = w.run(&dry_args(&w, "r1"));
+    assert_eq!(code(&o), 0, "{tag}: {}", stderr(&o));
+    let copy = w.run_dir("r1").join("bindings");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&copy).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|x| x != "yaml") {
+            continue;
+        }
+        let doc: serde_yaml::Value = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        for action in doc["actions"].as_sequence().into_iter().flatten() {
+            let argv: Vec<String> = action["executor"]["argv"].as_sequence().into_iter().flatten().filter_map(|a| a.as_str().map(str::to_owned)).collect();
+            if argv.iter().any(|a| a == "--adapter") {
+                out.push((action["action"].as_str().unwrap().to_owned(), argv.iter().position(|a| a == "--effort").and_then(|i| argv.get(i + 1)).cloned()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn efforts_the_class_effort_goes_to_each_model_node_of_its_class_and_none_given_leaves_the_class_default() {
+    let classes = read_json(&repo().join("bindings/tools/node-classes.json"));
+    let none = efforts_run("dry-efforts-default", &Value::Null);
+    assert!(none.len() >= 10, "{none:?}");
+    assert!(none.iter().all(|(_, effort)| effort.is_none()), "no effort in the settings: the node keeps the class default: {none:?}");
+
+    let all = efforts_run("dry-efforts-class", &json!({"writer": {"effort": "high"}, "implement": {"effort": "xhigh"}, "review": {"effort": "medium"}, "other": {"effort": "low"}}));
+    assert_eq!(all.len(), none.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for (action, effort) in &all {
+        let want = match class_of(&classes, action).as_str() {
+            "writer" => "high",
+            "implement" => "xhigh",
+            "review" => "medium",
+            _ => "low",
+        };
+        assert_eq!(effort.as_deref(), Some(want), "{action}");
+        seen.insert(want);
+    }
+    assert_eq!(seen.len(), 4, "every class has a node in the committed bindings: {seen:?}");
+}
+
+#[test]
+fn efforts_a_level_outside_the_set_or_a_class_that_is_none_is_refused_by_name_before_the_run_directory_is_made() {
+    for (efforts, name) in [
+        (json!({"writer": {"effort": "bogus"}}), "settings.efforts.writer.effort"),
+        (json!({"review": {"effort": 3}}), "settings.efforts.review.effort"),
+        (json!({"poet": {"effort": "low"}}), "settings.efforts.poet"),
+        (json!({"other": {"level": "low"}}), "settings.efforts.other.level"),
+    ] {
+        let w = World::new("dry-efforts-bad");
+        committed_bindings(&w);
+        settings_without_login(&w, &json!({"autonomy": "A5", "decider": {"kind": "model", "model": "m", "without_claims": true}, "efforts": efforts}));
+        let o = w.run(&dry_args(&w, "r1"));
+        assert_eq!(code(&o), 2, "{efforts}: {}", stderr(&o));
+        assert!(stderr(&o).contains(name), "{efforts}: {}", stderr(&o));
+        if name.ends_with("writer.effort") {
+            assert!(stderr(&o).contains("low, medium, high, xhigh, max"), "{}", stderr(&o));
+        }
+        assert!(!w.run_dir("r1").exists(), "{efforts}: the run directory was made");
+    }
+}
+
 // ---- in process: Loom itself takes the scripted person ----
 
 struct Inproc {

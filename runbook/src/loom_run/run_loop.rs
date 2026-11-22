@@ -82,6 +82,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
     let given = super::replay::preset(args, &run_dir, given)?;
+    bindings_copy::efforts(&given)?;
     let mut settings_value = given.clone();
     settings::fill_decider(&mut settings_value, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
