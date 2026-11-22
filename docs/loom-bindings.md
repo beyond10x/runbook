@@ -231,8 +231,9 @@ Variables beyond `PATH` read under `set -u` (checked 2026-11-22, `story:tool-tex
 | `llm-adapter-metaharness.sh`, `llm-adapter-dry.sh`, `llm-adapter-fixture.sh` | `METAHARNESS`, `SDC_LLM_ENDPOINT`, `SDC_LLM_DRY_LOG`, `SDC_COVERAGE_REPLIES`, `SDC_REPLY` | all read with a default (`${X:-}`): nothing to change |
 | `sdc-tool.sh` `conform-run` | `SDC_ACTION` (the report file name) | read as `${SDC_ACTION:-conform-run}`; the binding states `--action` anyway |
 | `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN`, `ESS_TOOLCHAIN_QUIET` | exported with defaults at the top of the tool: nothing to change |
+| `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN_DIR`, else `XDG_CACHE_HOME`, else `HOME` (the 0.97.1 dispatcher finds and installs the 0.96.0 toolchain below it) | with none of the three set, `spec-validate` exited 1 (`neither XDG_CACHE_HOME nor HOME is set; set ESS_TOOLCHAIN_DIR`); in Loom mode the tool now exports `ESS_TOOLCHAIN_DIR=<home>/.cache/ess/toolchains`, `<home>` from `getent passwd "$(id -u)"`, when none of the three is set; `scripts/check-bindings.sh` runs `spec-validate` under `env -i PATH LOOM_CASE` |
 | `sdc-tool.sh` `slot task` (`conform-run`), `slot cargo test` (`impl-gate`) | none: `PWD` only | nothing to change |
-| `ess`, `slot`, `cargo`, `aep`, `claude`, `jq`, `yq` | `HOME` | started with `env -i PATH=...` they answer `--version` (`slot status` too): they take the home directory from the passwd entry; a build through `cargo` without `HOME` was not run (*inferred*) |
+| `ess`, `slot`, `cargo`, `aep`, `claude`, `jq`, `yq` | `HOME` | started with `env -i PATH=...` they answer `--version` (`slot status` too): they take the home directory from the passwd entry; a build through `cargo` without `HOME` was not run (*inferred*). `ess` is the exception once it hands off to a toolchain (row above). `aep` was run under `env -i PATH=...` for `plan artifact new`, `list`, `move`, `validate --strict`: it opens no file under the home directory and needs nothing |
 
 A host whose user has no passwd entry still needs `story:bound-program-declares-its-environment`
 (wave 9) or `--confinement local`.
