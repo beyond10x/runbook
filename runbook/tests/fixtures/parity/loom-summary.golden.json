@@ -1,0 +1,229 @@
+{
+  "format": "runbook.parity-summary/1",
+  "source": {
+    "runtime": "loom",
+    "status_version": "0.0.0",
+    "run_settings": null
+  },
+  "not_recorded": [
+    "source.run_settings",
+    "copies[].action",
+    "copies[].subject",
+    "copies[].subject_revision",
+    "decision_requests",
+    "protocols[].digest"
+  ],
+  "cases": [
+    {
+      "id": "root",
+      "link": null,
+      "parent": null,
+      "protocol": "tour",
+      "protocol_revision": 3,
+      "outcome": "arrived",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "action": "first.open"
+        },
+        {
+          "index": 1,
+          "kind": "first_leg_opened",
+          "result": null,
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "action": "first.open"
+        },
+        {
+          "index": 2,
+          "kind": "route_approval",
+          "result": "approved",
+          "subject": "route",
+          "subject_revision": "rev-r2",
+          "upstream_revisions": {
+            "route": "rev-r1"
+          },
+          "action": "approval.copy"
+        },
+        {
+          "index": 3,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "action": "second.open"
+        },
+        {
+          "index": 4,
+          "kind": "second_leg_opened",
+          "result": null,
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "action": "second.open"
+        }
+      ],
+      "program_runs": [],
+      "person_steps": []
+    },
+    {
+      "id": "root.first",
+      "link": "first",
+      "parent": "root",
+      "protocol": "tour-leg",
+      "protocol_revision": 2,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "route_check",
+          "result": "invalid",
+          "subject": "route",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "route": "rev-r0"
+          },
+          "action": "route.check"
+        },
+        {
+          "index": 1,
+          "kind": "route_check",
+          "result": "valid",
+          "subject": "route",
+          "subject_revision": "rev-r1",
+          "upstream_revisions": {},
+          "action": "route.check"
+        },
+        {
+          "index": 2,
+          "kind": "route_approval",
+          "result": "approved",
+          "subject": "route",
+          "subject_revision": "rev-r2",
+          "upstream_revisions": {
+            "route": "rev-r1"
+          },
+          "action": "route.approve"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "route.write",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": true
+        },
+        {
+          "action": "route.check",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "route.write",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "route.check",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": [
+        {
+          "order": 0,
+          "action": "route.approve",
+          "answer": "approved",
+          "actor": "person:stand-in",
+          "capability": "guide.approve"
+        }
+      ]
+    },
+    {
+      "id": "root.second",
+      "link": "second",
+      "parent": "root",
+      "protocol": "tour-leg",
+      "protocol_revision": 2,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "ticket_issued",
+          "result": null,
+          "subject": "ticket",
+          "subject_revision": "rev-k1",
+          "upstream_revisions": {},
+          "action": "ticket.issue"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "ticket.issue",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": [
+        {
+          "order": 1,
+          "action": null,
+          "answer": "granted",
+          "actor": "person:stand-in",
+          "capability": "guide.issue"
+        }
+      ]
+    }
+  ],
+  "copies": [
+    {
+      "action": null,
+      "kind": "route_approval",
+      "from_protocol": "tour-leg",
+      "from": "root.first",
+      "to": "root",
+      "subject": null,
+      "subject_revision": null
+    }
+  ],
+  "decision_requests": [],
+  "protocols": [
+    {
+      "id": "tour",
+      "revision": 3,
+      "digest": null
+    },
+    {
+      "id": "tour-leg",
+      "revision": 2,
+      "digest": null
+    }
+  ],
+  "product_tree": [
+    {
+      "path": "a.txt",
+      "sha256": "8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8"
+    },
+    {
+      "path": "sub/b.txt",
+      "sha256": "f44e64e75f3948e9f73f8dfa94721c4ce8cbb4f265c4790c702b2d41cfbf2753"
+    }
+  ]
+}

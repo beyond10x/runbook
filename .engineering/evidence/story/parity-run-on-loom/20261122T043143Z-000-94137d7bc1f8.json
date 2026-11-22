@@ -1,0 +1,13 @@
+{
+  "at": "2026-11-22T04:31:43Z",
+  "actor": "human:operator",
+  "artifact": "story:parity-run-on-loom",
+  "kind": "story",
+  "revision": 12,
+  "change": {
+    "change": "evidence",
+    "kind": "test_result",
+    "source": "cargo test --locked in runbook/ (16 unit, 76 integration tests, 0 failed; the 13 new Loom-side tests each under 60 ms; cargo clippy --locked --all-targets -D warnings clean)",
+    "reference": "runbook/tests/cli.rs"
+  }
+}
