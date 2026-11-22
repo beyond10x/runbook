@@ -2,7 +2,7 @@
 // sources), direction and intake artifacts, decisions, code. Pure functions, used by the server
 // (to classify each fs change once) and by the page; no dependencies.
 
-import {fileKindOf, artifactClassOf} from './view.js';
+import {fileKindOf, artifactClassOf, parserOf} from './view.js';
 
 // ---- a small YAML reader -------------------------------------------------------------------------
 // Block maps and sequences, flow [..] and {..}, quoted and plain scalars, | and > block scalars,
@@ -382,79 +382,117 @@ function spec(p, before, after) {
   return {subject: what, items};
 }
 
-// ---- direction and intake --------------------------------------------------------------------------
-function idList(p, before, after, key, word, describe) {
-  const a = before != null ? parseYaml(before) || {} : {}, b = after != null ? parseYaml(after) || {} : {};
-  const la = Array.isArray(a) ? a : a[key], lb = Array.isArray(b) ? b : b[key];
-  const m = keyed(la, lb, 'id');
-  const items = [];
-  for (const [k, x] of m.added) items.push(it(describe.added(k, x), 'add'));
-  for (const [k] of m.removed) items.push(it(`${word} ${k} removed`, 'del'));
-  for (const [k, x, y] of m.changed) items.push(...describe.changed(k, x, y).map((t) => it(t)));
-  return items;
+// ---- direction and intake: the parsers of the runbook's view ------------------------------------------
+// What a change of a file of one kind means is the runbook's own knowledge (its record shapes, its words):
+// the view says it (file_kinds.parsers, web/view.js) and two engines here read it. keyed-list: a list (or a
+// map) of records with an id, a sentence for a record added, removed or changed. document: a front matter
+// document with sections, optionally with a list of entries in its headings or its summary. A kind with no
+// parser is read as top-level keys.
+
+// {name} a field of the record, {old.name} the field before, {id} the record's id, {$field} (rules with
+// `each`) a changed field's name with spaces, {a|b|'literal'} the first that is not empty, {name!N} the
+// value in quotes clipped to N characters (80 without N), [ ... ] a part left out when a field in it is empty.
+function expand(tpl, ctx) {
+  const lookup = (name) => {
+    if (name === '$field') return String(ctx.field ?? '').replace(/_/g, ' ');
+    const v = name.startsWith('old.') ? ctx.old?.[name.slice(4)] : name === 'id' ? ctx.id : ctx.cur?.[name];
+    return v != null && typeof v === 'object' ? null : v;
+  };
+  const fill = (s, optional) => {
+    let miss = false;
+    const out = s.replace(/\{([^{}]+)\}/g, (_, spec) => {
+      const m = /^(.*)!(\d*)$/.exec(spec);
+      const alts = (m ? m[1] : spec).split('|');
+      let val = null;
+      for (const a of alts) {
+        const lit = /^'(.*)'$/.exec(a);
+        const v = lit ? lit[1] : lookup(a);
+        if (v != null && v !== '') { val = v; break; }
+      }
+      if (val == null) { miss = true; return optional ? '' : m ? q('', m[2] ? Number(m[2]) : 80) : ''; }
+      return m ? q(val, m[2] ? Number(m[2]) : 80) : String(val);
+    });
+    return {out, miss};
+  };
+  return String(tpl).replace(/\[([^[\]]*)\]|\{[^{}]+\}/g, (whole, seg) => {
+    if (seg != null) { const r = fill(seg, true); return r.miss ? '' : r.out; }
+    return fill(whole, false).out;
+  });
 }
+const holds = (w, cur, old) => !w
+  || ((w.set || []).every((f) => cur[f] != null) && (w.was_unset || []).every((f) => old[f] == null)
+    && (w.changed || []).every((f) => !same(old[f], cur[f])) && Object.entries(w.equals || {}).every(([f, v]) => cur[f] === v));
+
+function keyedListSentences(p, kind, before, after) {
+  const idKey = p.id || 'id', word = p.word || kind;
+  const read = (t) => (t != null ? parseYaml(t) || {} : {});
+  const a = read(before), b = read(after);
+  const records = (d) => {
+    if (p.as === 'map') {
+      return Object.entries(d && typeof d === 'object' ? d : {}).map(([k, x]) => ({...(x && typeof x === 'object' && 'value' in x ? x : {value: x}), [idKey]: k}));
+    }
+    return Array.isArray(d) ? d : d?.[p.list || kind];
+  };
+  const m = keyed(records(a), records(b), idKey);
+  const items = [];
+  for (const [k, x] of m.added) {
+    const r = (p.added || []).find((x2) => holds(x2.when, x, {}));
+    items.push(it(expand(r ? r.text : `${word} {id} added`, {cur: x, old: {}, id: k}), 'add'));
+  }
+  for (const [k, x] of m.removed) items.push(it(expand(p.removed || `${word} {id} removed`, {cur: {}, old: x, id: k}), 'del'));
+  for (const [k, x, y] of m.changed) {
+    const out = [];
+    for (const r of p.changed?.rules || []) {
+      const fields = r.each ? Object.keys({...x, ...y}).filter((f) => !(r.except || []).includes(f) && !same(x[f], y[f])) : [null];
+      let fired = false;
+      for (const f of fields) {
+        if (!holds(r.when, y, x)) continue;
+        const v = (r.variants || []).find((x2) => holds(x2.when, y, x));
+        out.push(expand((v || r).text, {cur: y, old: x, id: k, field: f}));
+        fired = true;
+      }
+      if (fired && r.stop) break;
+    }
+    if (!out.length && p.changed?.otherwise) out.push(expand(p.changed.otherwise, {cur: y, old: x, id: k}));
+    items.push(...out.map((t) => it(t)));
+  }
+  return {subject: p.subject || kind, items};
+}
+
+function documentSentences(p, kind, before, after) {
+  const A = before != null ? frontMatter(before) : null, B = after != null ? frontMatter(after) : null;
+  const subject = p.subject || kind, ent = p.entries;
+  const heading = ent?.sections ? new RegExp(ent.sections) : null;
+  const entries = (x) => {
+    if (!x || !ent) return [];
+    const s = sections(x.body);
+    const fromBody = heading ? Object.keys(s).filter((h) => heading.test(h)).map((h) => h.split(':')[0].trim()) : [];
+    if (fromBody.length) return fromBody;
+    const m = ent.summary ? new RegExp(ent.summary, 'i').exec(x.data?.summary || '') : null;
+    return m ? m[1].split(/[,\s]+/).filter(Boolean) : [];
+  };
+  const title = (B || A).data?.title || kind;
+  if (!A) return {subject, items: [it(expand(p.created || `${subject} written: {title!70}`, {cur: {title, entries: entries(B).join(', ')}, old: {}, id: ''}), 'add')]};
+  if (!B) return {subject, items: [it(`${subject} removed`, 'del')]};
+  const items = [];
+  if (ent) {
+    const ea = entries(A), eb = entries(B), s = setDiff(ea, eb);
+    for (const x of s.added) items.push(it(`${subject}: ${ent.word} ${x} added`, 'add'));
+    for (const x of s.removed) items.push(it(`${subject}: ${ent.word} ${x} removed`, 'del'));
+    if (!s.added.length && !s.removed.length && !same(ea, eb)) items.push(it(`${subject}: ${ent.word} order changed (${ea.join(', ')} → ${eb.join(', ')})`));
+  }
+  if (A.data?.status !== B.data?.status) items.push(it(`${subject}: ${A.data?.status ?? '—'} → ${B.data?.status ?? '—'}`));
+  const sa = sections(A.body), sb = sections(B.body);
+  for (const k of Object.keys({...sa, ...sb})) if (sa[k] !== sb[k] && !(heading && heading.test(k))) items.push(it(`${subject}: section ${q(k, 40)} ${sa[k] == null ? 'added' : sb[k] == null ? 'removed' : 'changed'}`, sa[k] == null ? 'add' : sb[k] == null ? 'del' : 'chg'));
+  if (!items.length) items.push(it(`${subject} revised`));
+  return {subject, items};
+}
+
 function direction(p, kind, before, after) {
-  if (kind === 'requirements') return {subject: 'requirements', items: idList(p, before, after, 'requirements', 'requirement', {
-    added: (k, x) => `requirement ${k} added: ${q(x.text, 90)}`,
-    changed: (k, x, y) => [x.text !== y.text ? `requirement ${k} reworded: ${q(y.text, 80)}` : null, ...Object.keys({...x, ...y}).filter((f) => f !== 'text' && !same(x[f], y[f])).map((f) => `requirement ${k}: ${f.replace(/_/g, ' ')} changed`)].filter(Boolean)})};
-  if (kind === 'questions') return {subject: 'questions', items: idList(p, before, after, 'questions', 'question', {
-    added: (k, x) => (x.answer != null ? `question ${k} answered: ${q(x.answer, 60)}${x.answered_by ? ` (by ${x.answered_by})` : ''}` : `question ${k} asked: ${q(x.question, 90)}`),
-    changed: (k, x, y) => {
-      if (x.answer == null && y.answer != null) return [`question ${k} answered: ${q(y.answer, 70)}${y.answered_by ? ` (by ${y.answered_by})` : ''}`];
-      const out = [];
-      if (x.answer !== y.answer) out.push(`question ${k}: answer changed to ${q(y.answer, 60)}`);
-      if (x.status !== y.status) out.push(`question ${k}: ${x.status ?? '—'} → ${y.status ?? '—'}${y.status === 'accepted' && y.answer != null ? ` (${q(y.answer, 50)})` : ''}`);
-      if (x.question !== y.question) out.push(`question ${k} reworded`);
-      return out.length ? out : [`question ${k} changed`];
-    }})};
-  if (kind === 'findings') return {subject: 'findings', items: idList(p, before, after, 'findings', 'finding', {
-    added: (k, x) => `finding ${k} raised${x.raised_by ? ` by ${x.raised_by}` : ''}: ${q(x.text || x.summary || x.finding, 70)}`,
-    changed: (k, x, y) => [x.status !== y.status ? `finding ${k}: ${x.status ?? '—'} → ${y.status ?? '—'}${y.decided_by ? ` (by ${y.decided_by})` : ''}` : `finding ${k} changed`]})};
-  if (kind === 'dissection') return {subject: 'dissection', items: idList(p, before, after, 'items', 'item', {
-    added: (k, x) => `dissection ${k} (${x.type || 'item'}): ${q(x.note || x.span, 70)}`,
-    changed: (k) => [`dissection ${k} changed`]})};
-  if (kind === 'context') {
-    const a = before != null ? parseYaml(before) || {} : {}, b = after != null ? parseYaml(after) || {} : {};
-    const items = [];
-    const val = (x) => (x && typeof x === 'object' && 'value' in x ? x.value : x);
-    for (const k of Object.keys({...a, ...b})) {
-      const x = a[k], y = b[k];
-      if (same(x, y)) continue;
-      if (x === undefined) items.push(it(`context ${k} set: ${q(val(y), 60)}${y?.status ? ` (${y.status})` : ''}`, 'add'));
-      else if (y === undefined) items.push(it(`context ${k} removed`, 'del'));
-      else if (!same(val(x), val(y))) items.push(it(`context ${k}: ${q(val(x), 36)} → ${q(val(y), 36)}${y?.status ? ` (${y.status})` : ''}`));
-      else if (x?.status !== y?.status) items.push(it(`context ${k}: ${x?.status ?? '—'} → ${y?.status ?? '—'}`));
-      else items.push(it(`context ${k}: reason changed`));
-    }
-    return {subject: 'context', items};
-  }
-  if (kind === 'roadmap' || kind === 'vision') {
-    const A = before != null ? frontMatter(before) : null, B = after != null ? frontMatter(after) : null;
-    const epics = (x) => {
-      if (!x) return [];
-      const s = sections(x.body);
-      const fromBody = Object.keys(s).filter((h) => /^[\w.-]+\s*:/.test(h)).map((h) => h.split(':')[0].trim());
-      if (fromBody.length) return fromBody;
-      const m = /epics?:\s*(.*)$/i.exec(x.data?.summary || '');
-      return m ? m[1].split(/[,\s]+/).filter(Boolean) : [];
-    };
-    const title = (B || A).data?.title || kind;
-    if (!A) return {subject: kind, items: [it(kind === 'roadmap' ? `roadmap written: epics ${epics(B).join(', ') || '—'}` : `vision written: ${q(title, 70)}`, 'add')]};
-    if (!B) return {subject: kind, items: [it(`${kind} removed`, 'del')]};
-    const items = [];
-    if (kind === 'roadmap') {
-      const ea = epics(A), eb = epics(B), s = setDiff(ea, eb);
-      for (const x of s.added) items.push(it(`roadmap: epic ${x} added`, 'add'));
-      for (const x of s.removed) items.push(it(`roadmap: epic ${x} removed`, 'del'));
-      if (!s.added.length && !s.removed.length && !same(ea, eb)) items.push(it(`roadmap: epic order changed (${ea.join(', ')} → ${eb.join(', ')})`));
-    }
-    if (A.data?.status !== B.data?.status) items.push(it(`${kind}: ${A.data?.status ?? '—'} → ${B.data?.status ?? '—'}`));
-    const sa = sections(A.body), sb = sections(B.body);
-    for (const k of Object.keys({...sa, ...sb})) if (sa[k] !== sb[k] && !(kind === 'roadmap' && /^[\w.-]+\s*:/.test(k))) items.push(it(`${kind}: section ${q(k, 40)} ${sa[k] == null ? 'added' : sb[k] == null ? 'removed' : 'changed'}`, sa[k] == null ? 'add' : sb[k] == null ? 'del' : 'chg'));
-    if (!items.length) items.push(it(`${kind} revised`));
-    return {subject: kind, items};
-  }
-  // idea and anything else in this class: top-level keys
+  const parser = parserOf(kind);
+  if (parser?.type === 'keyed-list') return keyedListSentences(parser, kind, before, after);
+  if (parser?.type === 'document') return documentSentences(parser, kind, before, after);
+  // a kind with no parser: top-level keys
   const a = before != null ? parseYaml(before) || {} : {}, b = after != null ? parseYaml(after) || {} : {};
   if (typeof a !== 'object' || typeof b !== 'object') throw new Error('not a YAML map');
   const items = Object.keys({...a, ...b}).filter((k) => !same(a[k], b[k])).map((k) => it(`${kind}: ${k} ${a[k] === undefined ? 'set' : b[k] === undefined ? 'removed' : 'changed'}${typeof b[k] === 'string' ? `: ${q(b[k], 60)}` : ''}`, a[k] === undefined ? 'add' : b[k] === undefined ? 'del' : 'chg'));

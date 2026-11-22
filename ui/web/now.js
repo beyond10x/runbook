@@ -10,7 +10,7 @@
 // the progress read from their metaharness event stream; fs/changes.jsonl), llm-calls.jsonl.
 import {actorOf, predicateRefs, VERDICTS, evalAt} from './model.js';
 import {esc} from './lenses.js';
-import {phaseItems} from './view.js';
+import {phaseItems, scopeAnswer, stallRule} from './view.js';
 import {highlightLine, langOf, LANG_LABEL} from './highlight.js';
 import {classify, CLASS_LABEL} from './meaning.js';
 import {holderOf, takenText, fieldsOf, fieldCounts} from './holder.js';
@@ -59,9 +59,9 @@ export function waitOf(c) {
   if (!v) return null;
   const asks = (v.next || []).filter((n) => n && n.action).map((n) => {
     const subject = c.bindings?.[n.action]?.subject || null;
-    // scope.answer belongs to the interview's scope-changing questions (c.scope, from the server):
+    // the scope action (the runbook's view) belongs to the scope-changing questions (c.scope, from the server):
     // the ones nobody named has answered, else the ones answered and waiting for the approval
-    const sq = n.action === 'scope.answer' && c.scope?.questions?.length ? c.scope.questions : null;
+    const sq = n.action === scopeAnswer()?.action && c.scope?.questions?.length ? c.scope.questions : null;
     const questions = sq ? (sq.some((q) => q.awaiting) ? sq.filter((q) => q.awaiting) : sq) : [];
     return {action: n.action, capability: flag(n.command, 'capability'), principal: flag(n.command, 'principal'), handoff: / run --at /.test(n.command || ''),
       subject, revision: subject ? c.case?.artifacts?.[subject]?.revision || null : null, decides: n.decides || '', questions};
@@ -127,8 +127,8 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
     const w = waitOf(c);
     if (!w) continue;
     const since = timeOf(c, w.event);
-    // amend.upstream with no finding for a person is not a decision: nothing can run (decisions.mjs amendStall)
-    if (c.stall && c.stall.needsPerson === 0 && w.asks.length && w.asks.every((a) => a.action === 'amend.upstream')) { stalled.push({c, stall: c.stall, event: w.event, since}); continue; }
+    // the stall action with no record for a person is not a decision: nothing can run (decisions.mjs amendStall)
+    if (c.stall && c.stall.needsPerson === 0 && w.asks.length && w.asks.every((a) => a.action === stallRule()?.action)) { stalled.push({c, stall: c.stall, event: w.event, since}); continue; }
     const asks = w.asks.length ? w.asks : [{action: null, capability: null, principal: null, decides: w.verdict.replace('_', ' ')}];
     for (const a of asks) {
       const record = claim(pool, (r) => r.kind === 'decider' && r.case === c.id && (!a.action || r.action === a.action), since);
@@ -396,7 +396,7 @@ function waitCard(w, now, item) {
 // "No step can run: plan.decompose used its 3 runs (last error: …)"
 export function stallText(stall) {
   const x = stall?.exhausted?.[0];
-  if (!x) return 'No step can run: the driver waits on amend.upstream, but no finding needs a person';
+  if (!x) return `No step can run: the driver waits on ${stallRule()?.action}, but no ${stallRule()?.noun || 'record'} needs a person`;
   return `No step can run: ${x.action} used its ${x.max} runs${x.error ? ` (last error: ${x.error})` : ` (its last run exited ${x.exit}; no error recorded)`}`;
 }
 
@@ -413,9 +413,9 @@ function restCard(st, now) {
       <div class="nc-time"><span class="tk">${esc(clock(s.t))}</span><span class="nc-since">stopped</span></div></div>`;
   }
   if (st.mode === 'stalled') {
-    return st.stalled.map(({c, stall, since: t}) => `<div class="nc idle k-stuck" data-key="rest:stalled:${esc(c.rel)}" data-goto="${esc(c.rel)}" title="${esc(`the driver recorded awaiting_person with next amend.upstream; findings.yaml has no finding with status needs_person`)}">${orb('stuck')}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Stopped</span><b class="nc-act">${esc(c.id)}</b><span class="nc-out bad">no step can run</span></div>
+    return st.stalled.map(({c, stall, since: t}) => `<div class="nc idle k-stuck" data-key="rest:stalled:${esc(c.rel)}" data-goto="${esc(c.rel)}" title="${esc(`the driver recorded awaiting_person with next ${stallRule()?.action}; ${c.bindings?.$artifacts?.[stallRule()?.artifact] || stallRule()?.artifact} has no ${stallRule()?.noun || "record"} with status ${stallRule()?.needs_person || "needs_person"}`)}">${orb('stuck')}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Stopped</span><b class="nc-act">${esc(c.id)}</b><span class="nc-out bad">no step can run</span></div>
       <div class="nc-2 nc-what"><span class="nc-x">${esc(stallText(stall))}</span></div>
-      <div class="nc-3"><span class="nc-why">Not a decision: the driver says it waits on amend.upstream, but no finding has status needs_person.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since ${clock(t)}</span></div>` : ''}</div>`).join('');
+      <div class="nc-3"><span class="nc-why">Not a decision: the driver says it waits on ${esc(stallRule()?.action)}, but no ${esc(stallRule()?.noun || "record")} has status ${esc(stallRule()?.needs_person || "needs_person")}.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since ${clock(t)}</span></div>` : ''}</div>`).join('');
   }
   const last = st.lastT;
   if (st.mode === 'closed') {

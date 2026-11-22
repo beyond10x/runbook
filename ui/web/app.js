@@ -1,7 +1,7 @@
 import {renderGraph} from './graph.js';
 import {renderExplain} from './explain.js';
 import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates, esc} from './lenses.js';
-import {setView} from './view.js';
+import {setView, scopeAnswer} from './view.js';
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
@@ -47,7 +47,17 @@ function ordered() {
 }
 const current = () => S.cases.get(S.sel);
 
+// the runbook's view of this run (the server picks the one that covers the protocols of its cases) and, when none does, which view is missing
+async function loadView() {
+  const [v, info] = await Promise.all([api(`/api/view?source=${S.src}`).catch(() => null), api(`/api/view-info?source=${S.src}`).catch(() => null)]);
+  S.viewInfo = info;
+  const problems = setView(v);
+  if (problems.length) S.viewInfo = {...info, missing: false, problems};
+}
+const viewNote = () => (S.viewInfo?.missing ? `<p class="view-note-t" data-ux="view-note"><b>No view for ${esc(S.viewInfo.protocols.join(', '))}.</b> This run shows the generic parts only: the protocols found in the store, every file by its path, no phases, no file kinds, no decisions of its runbook. Serve its view with <code>--view FILE</code> (format runbook.view/1, for example <code>views/&lt;runbook&gt;.view.json</code>).</p>` : S.viewInfo?.problems?.length ? `<p class="view-note-t" data-ux="view-note"><b>The view was refused.</b> ${esc(S.viewInfo.problems.join('; '))}</p>` : '');
+
 async function loadTree(only) {
+  if (!only || !S.viewInfo?.protocols?.length || only.some((k) => !S.cases.has(k))) await loadView();
   const q = only ? `&cases=${encodeURIComponent(only.join(','))}` : '';
   const t = await api(`/api/tree?source=${S.src}${q}`);
   S.exists = t.exists;
@@ -210,6 +220,7 @@ function render() {
   renderDecisions();
   const cases = ordered();
   if (!cases.length) {
+    patch($('#view-note'), '');
     patch($('#phases'), '');
     patch($('#now'), '');
     patch($('#nowbar'), '');
@@ -237,6 +248,7 @@ function render() {
   if (ns.mode === 'running') S.lastRunAt = now;
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
   else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); patch($('#nowbar'), renderNowBar(ns)); }
+  patch($('#view-note'), viewNote());
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
@@ -373,7 +385,7 @@ async function doAct(kind, el) {
     r = await fetch(`/api/act?source=${S.src}`, {method: 'POST', headers: {'content-type': 'application/json', 'x-sdc-ui': '1'}, body: JSON.stringify(body)}).then((x) => x.json());
   } catch (e) { r = {ok: false, error: String(e)}; }
   S.busy = null;
-  const msg = {approve: `Approved ${item?.subject || ''} ${item?.revision || ''}`, answer: `Answered ${item?.qid}${r.approved ? ` as ${r.answered_by} · ${item.approval?.capability || 'scope.answer'} approved` : ''}`, context: `Changed ${body.field}`, continue: `Started run-trial.sh (pid ${r.pid})`}[kind];
+  const msg = {approve: `Approved ${item?.subject || ''} ${item?.revision || ''}`, answer: `Answered ${item?.qid}${r.approved ? ` as ${r.answered_by} · ${item.approval?.capability || scopeAnswer()?.action} approved` : ''}`, context: `Changed ${body.field}`, continue: `Started ${String(r.argv?.[0] || 'the run').split('/').pop()} (pid ${r.pid})`}[kind];
   S.results[id] = r.ok ? {ok: true, msg, output: r.output} : {ok: false, error: r.error || 'refused', output: r.output};
   S.toast = r.ok ? {ok: true, text: msg + (kind !== 'continue' ? ' · Continue run when you are done deciding' : '')} : {ok: false, text: r.error || 'refused'};
   clearTimeout(S.toastT);
@@ -645,7 +657,6 @@ function connect() {
   if (named) S.src = named.index;
   else if (!q0.has('source')) S.src = defaultSource(S.sources);
   S.meta = await api('/api/meta');
-  setView(await api('/api/view').catch(() => null));
   await loadTree();
   await loadRun();
   await loadLive();

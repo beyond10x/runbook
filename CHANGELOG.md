@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Added
+
+- The run inspector reads what a change of a runbook's records means (`file_kinds.parsers`) and the decisions a person can take (`decisions`) from the view file too, a run is shown with the view that covers its protocols and never with another runbook's, a run no view covers says which view is missing, and a view with a member the inspector does not know is refused with a message that names it (`ui/README.md`, `story:ui-view-data-parsers-and-actions`).
+
 ## [0.3.0] - 2026-11-22
 
 The bindings move onto Loom's program contract and the instructions of the model's calls become

@@ -1,16 +1,17 @@
 // The decisions inbox: what a person must decide in a case tree, and the four acts that decide it.
 //
 // Pending items come from the driver's own records: the `next` list of a case's latest verdict
-// event (awaiting_person, awaiting_authority) and the open scope-changing questions of a
-// `questions` artifact. Acts are whitelisted; each builds an argv (never a shell string), checks
-// that the revision the page showed is still the current one, and appends one line to
-// <run>/ui-actions.jsonl.
+// event (awaiting_person, awaiting_authority) and the open scope-changing questions of the artifact
+// the runbook's view names (decisions.scope_answer). Which action, artifact, fields and command a
+// runbook has is its view (web/view.js, `decisions`); this file knows the runtime's records only.
+// Acts are whitelisted; each builds an argv (never a shell string), checks that the revision the
+// page showed is still the current one, and appends one line to <run>/ui-actions.jsonl.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {execFile, execFileSync, spawn} from 'node:child_process';
 import {principalOf} from './web/principal.js';
-import {toolOwners} from './web/view.js';
+import {toolOwners, scopeAnswer, stallRule, contextRule, continueRule, runbookName} from './web/view.js';
 
 const VERDICTS = ['awaiting_authority', 'awaiting_person', 'stuck', 'step_budget_spent', 'llm_budget_spent', 'wall_time_spent', 'terminable'];
 const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
@@ -57,7 +58,7 @@ function readArtifact(c, name) {
   if (!abs) return {name, missing: true};
   const text = readText(abs);
   if (text == null) return {name, path: c.bindings.$artifacts[name], missing: true};
-  // the driver's revision of a file: t + 16 hex digits of its sha256 (sdc/driver/src/main.rs revision_of)
+  // the driver's revision of a file: t + 16 hex digits of its sha256 (driver/src/main.rs revision_of)
   return {name, path: c.bindings.$artifacts[name], text: text.slice(0, 200000), sha: sha(text), work_revision: `t${sha(text).slice(0, 16)}`, json: /\.ya?ml$/.test(abs) ? yamlJson(abs) : null,
     revision: c.case?.artifacts?.[name]?.revision};
 }
@@ -92,51 +93,61 @@ function pendingApprovals(c) {
 }
 
 // ---- scope-changing questions and the approval that now goes with answering them -----------------------
-// The interview's scope-changing questions are answered through the action `scope.answer`, which
-// needs the capability `scope.answer` (docs/trial-2.md, "Scope-changing answers"): a named principal
-// takes it with the driver's `approve --capability scope.answer --principal P --action scope.answer`, and
-// the program refuses an answer whose answered_by is empty or `non-interactive`.
+// A runbook may have an action that a person's answer to a scope-changing question unlocks: the view names
+// it (decisions.scope_answer: `action`, whose capability is named like it, the `check` action that records
+// the changed artifact, the `artifact` and its `list` of records, the record's `flag` and `fields`). A
+// named principal takes the capability with the driver's `approve --capability C --principal P --action C`,
+// and the program refuses an answer whose answerer is empty or one of `refused_answerers`.
 //
-// The order that works (observed with the driver on a stub store): the person's answer goes into
-// questions.yaml with its status and WITHOUT answered_by; `questions.check` then records the new
-// revision (shape valid, settled `needs_scope_answer`), which keeps scope.answer admissible; the
-// approval runs the driver's scope-answer tool, which writes answered_by = the principal on every
-// scope-changing answer that has none. Writing the principal's name first would make the check
-// answer `settled`, and Canon then no longer asks for scope.answer at all (its precondition is
-// "not once settled"), so the capability would never be exercised.
-export const SCOPE_ACTION = 'scope.answer';
-export const SCOPE_CHECK = 'questions.check';
-export const principalOk = (p) => typeof p === 'string' && /^[A-Za-z0-9._-]+$/.test(p) && p !== 'non-interactive';
-// a case waits on scope.answer when its latest verdict lists it among `next`
+// The order that works (observed with the driver on a stub store): the person's answer goes into the
+// artifact with its status and WITHOUT the answerer; the `check` action then records the new revision
+// (shape valid, settled "needs a scope answer"), which keeps the action admissible; the approval runs
+// the driver's tool, which writes the answerer = the principal on every scope-changing answer that has
+// none. Writing the principal's name first would make the check answer "settled", and Canon then no
+// longer asks for the action at all (its precondition is "not once settled"), so the capability would
+// never be exercised.
+export const scopeAction = () => scopeAnswer()?.action || null;
+export const scopeCheck = () => scopeAnswer()?.check || null;
+export const principalOk = (p) => typeof p === 'string' && /^[A-Za-z0-9._-]+$/.test(p) && !(scopeAnswer()?.refused_answerers || []).includes(p);
+// the record of the scope artifact as the page knows it, under the view's own field names
+const sf = (cfg, name) => cfg?.fields?.[name] || name;
+const openStatus = (cfg) => cfg?.statuses?.open || 'open';
+const questionOf = (cfg, q) => ({id: q[sf(cfg, 'id')], item: q[sf(cfg, 'item')], question: q[sf(cfg, 'question')], options: q[sf(cfg, 'options')] || [], default: q[sf(cfg, 'default')] ?? null,
+  status: q[sf(cfg, 'status')], answer: q[sf(cfg, 'answer')] ?? null, answered_by: q[sf(cfg, 'answered_by')] ?? null,
+  awaiting: q[sf(cfg, 'status')] === openStatus(cfg), scope: !cfg.flag || !!q[cfg.flag]});
+// a case waits on the scope action when its latest verdict lists it among `next`
 export function waitsOnScope(events) {
   const v = lastVerdict(events);
-  return !!v && (v.event === 'awaiting_authority' || v.event === 'awaiting_person') && Array.isArray(v.next) && v.next.some((n) => n?.action === SCOPE_ACTION);
+  const action = scopeAction();
+  return !!action && !!v && (v.event === 'awaiting_authority' || v.event === 'awaiting_person') && Array.isArray(v.next) && v.next.some((n) => n?.action === action);
 }
-// the scope-changing questions of a case's questions artifact; `awaiting` is a question still open
+// the scope-changing questions of a case's scope artifact; `awaiting` is a question still open
 // (an answer with no principal waits for the approval, which names it)
 export function scopeQuestions(c) {
-  const file = artifactPath(c, 'questions');
+  const cfg = scopeAnswer();
+  if (!cfg) return null;
+  const file = artifactPath(c, cfg.artifact);
   const text = file && readText(file);
   if (text == null) return null;
   const j = yamlJson(file);
-  const questions = (j?.questions || []).filter((q) => q.scope_changing).map((q) => ({id: q.id, item: q.item, question: q.question, options: q.options || [], default: q.default ?? null,
-    status: q.status, answer: q.answer ?? null, answered_by: q.answered_by ?? null,
-    awaiting: q.status === 'open'}));
-  return {path: c.bindings.$artifacts.questions, sha: sha(text), questions};
+  const questions = (j?.[cfg.list] || []).map((q) => questionOf(cfg, q)).filter((q) => q.scope).map(({scope, ...q}) => q);
+  return {path: c.bindings.$artifacts[cfg.artifact], sha: sha(text), questions};
 }
 
-// A wait on `amend.upstream` with no finding that needs a person is not a decision: the driver says
-// awaiting_person when nothing else can run, for example when a writer used up its max_runs. Returns
-// null when the case does not wait on amend.upstream; else {needsPerson, exhausted: [{action, runs,
-// max, exit, error}]} with the actions that used up their runs and the last error of each, read from
-// the action's last record (its LLM call's apply.log or stderr, else the step's log blob).
-export const AMEND_ACTION = 'amend.upstream';
+// A wait on the view's stall action (decisions.stall) with no record that needs a person is not a
+// decision: the driver says awaiting_person when nothing else can run, for example when a writer used up
+// its max_runs. Returns null when the runbook has no such rule or the case does not wait on that action;
+// else {needsPerson, exhausted: [{action, runs, max, exit, error}]} with the actions that used up their
+// runs and the last error of each, read from the action's last record (its LLM call's apply.log or
+// stderr, else the step's log blob).
+export const stallAction = () => stallRule()?.action || null;
 export function amendStall(c, runDir) {
+  const rule = stallRule();
   const v = lastVerdict(c.events || []);
-  if (!v || v.event !== 'awaiting_person' || !(v.next || []).some((n) => n?.action === AMEND_ACTION)) return null;
-  const file = artifactPath(c, 'findings');
+  if (!rule || !v || v.event !== 'awaiting_person' || !(v.next || []).some((n) => n?.action === rule.action)) return null;
+  const file = artifactPath(c, rule.artifact);
   const j = file ? yamlJson(file) : null;
-  const needsPerson = (j?.findings || []).filter((f) => f?.status === 'needs_person').length;
+  const needsPerson = (j?.[rule.list] || []).filter((f) => f?.[rule.status || 'status'] === (rule.needs_person || 'needs_person')).length;
   if (needsPerson) return {needsPerson, exhausted: []};
   const exhausted = [];
   for (const [a, b] of Object.entries(c.bindings || {})) {
@@ -177,7 +188,7 @@ export function inbox(ctx) {
         const subject = b.subject || null;
         const revision = subject ? c.case?.artifacts?.[subject]?.revision : null;
         let scope = null;
-        if (cap === SCOPE_ACTION) {
+        if (cap === scopeAction()) {
           // One act for the person: each question still unanswered carries the approval, and the
           // answer that leaves none unanswered records it.
           scope = scopeQuestions(c);
@@ -195,20 +206,22 @@ export function inbox(ctx) {
           unlocks: b.produces ? unlocks(c, b.produces) : null, produces: b.produces || null, scope,
           grant: (readJson(path.join(c.dir, 'authority.json')) || []).find((g) => g.capability === cap) || null});
       } else {
-        // not a decision: amend.upstream with no finding for a person (the Now band says why nothing runs)
-        if (n.action === AMEND_ACTION && amendStall(c, ctx.runDir)?.needsPerson === 0) continue;
+        // not a decision: the stall action with no record for a person (the Now band says why nothing runs)
+        if (n.action === stallAction() && amendStall(c, ctx.runDir)?.needsPerson === 0) continue;
         items.push({...base, id: `resume:${c.rel}:${n.action}`, kind: 'resume'});
       }
     }
-    const qfile = artifactPath(c, 'questions');
+    const sc = scopeAnswer();
+    const qfile = sc ? artifactPath(c, sc.artifact) : null;
     if (qfile && !seenFiles.has(qfile) && fs.existsSync(qfile)) {
       seenFiles.add(qfile);
       const text = readText(qfile);
       const j = yamlJson(qfile);
-      for (const q of j?.questions || []) {
-        if (q.status !== 'open' || !q.scope_changing || asked.has(q.id)) continue;
-        items.push({id: `question:${c.rel}:${q.id}`, kind: 'question', case: c.id, rel: c.rel, qid: q.id, question: q.question, options: q.options || [], default: q.default ?? null,
-          item: q.item, sha: sha(text), path: c.bindings.$artifacts.questions, revision: c.case?.artifacts?.questions?.revision, approval: null});
+      for (const raw of j?.[sc.list] || []) {
+        const q = questionOf(sc, raw);
+        if (!q.awaiting || !q.scope || asked.has(q.id)) continue;
+        items.push({id: `question:${c.rel}:${q.id}`, kind: 'question', case: c.id, rel: c.rel, qid: q.id, question: q.question, options: q.options, default: q.default,
+          item: q.item, sha: sha(text), path: c.bindings.$artifacts[sc.artifact], revision: c.case?.artifacts?.[sc.artifact]?.revision, approval: null});
       }
     }
   }
@@ -253,13 +266,14 @@ export function history(ctx) {
         out.push(row);
       }
     }
-    const qfile = artifactPath(c, 'questions');
+    const sc = scopeAnswer();
+    const qfile = sc ? artifactPath(c, sc.artifact) : null;
     if (!qfile || seenFiles.has(qfile) || !fs.existsSync(qfile)) continue;
     seenFiles.add(qfile);
-    for (const q of yamlJson(qfile)?.questions || []) {
-      if (!q.answered_by) continue;
-      out.push({src: c.bindings.$artifacts.questions, at: q.answered_at || null, principal: q.answered_by, case: c.id, what: q.id, question: q.question,
-        decision: q.answer, reasons: asList(q.reason ?? q.reasons), status: q.status, scope: !!q.scope_changing});
+    for (const q of yamlJson(qfile)?.[sc.list] || []) {
+      if (!q[sf(sc, 'answered_by')]) continue;
+      out.push({src: c.bindings.$artifacts[sc.artifact], at: q[sf(sc, 'answered_at')] || null, principal: q[sf(sc, 'answered_by')], case: c.id, what: q[sf(sc, 'id')], question: q[sf(sc, 'question')],
+        decision: q[sf(sc, 'answer')], reasons: asList(q[sf(sc, 'reason')] ?? q[sf(sc, 'reasons')]), status: q[sf(sc, 'status')], scope: !!(sc.flag && q[sc.flag])});
     }
   }
   // the page's own acts; an approve that the driver recorded joins its event row (it adds the revision)
@@ -311,7 +325,7 @@ export function onPath(p, env = process.env) {
 // binding runs, matched on its first argument) the programs of each subcommand. Without a view only the
 // driver and canon binaries are looked for.
 // kind: approve (with the action it may take), answer, context, check (a driver step of `action`) or
-// continue (scripts/run-trial.sh: the whole trial). Returns the missing programs, [] when all are there.
+// continue (the view's decisions.continue command: the whole trial). Returns the missing programs, [] when all are there.
 export function missingPrograms(ctx, {kind, c = null, action = null}, env = process.env) {
   const owners = toolOwners();
   const need = new Set(owners?.always || []);
@@ -331,9 +345,9 @@ export async function act(ctx, b, emit) {
     const c0 = b.kind === 'continue' ? null : caseOf(ctx, b.rel);
     // an approval may take its manual action; an answer with scope.answer pending runs questions.check
     // and the approval in the same act
-    const scope = b.kind === 'answer' && c0 && pendingApprovals(c0).some((n) => n.action === SCOPE_ACTION);
+    const scope = b.kind === 'answer' && c0 && pendingApprovals(c0).some((n) => n.action === scopeAction());
     const kind = scope ? 'check' : b.kind;
-    const action = b.kind === 'approve' ? b.action : scope ? SCOPE_CHECK : null;
+    const action = b.kind === 'approve' ? b.action : scope ? scopeCheck() : null;
     const missing = missingPrograms(ctx, {kind, c: c0, action});
     if (missing.length) return refuse(missingText(missing), {missing});
   }
@@ -344,49 +358,56 @@ export async function act(ctx, b, emit) {
   if (b.kind === 'approve') return approve(ctx, c, b, refuse, emit);
 
   if (b.kind === 'answer') {
+    const sc = scopeAnswer();
+    if (!sc) return refuse('this runbook has no decision a person answers here: its view has no decisions.scope_answer');
     if (!principalOk(ctx.principal)) return refuse(`the server's principal "${ctx.principal}" cannot answer: the program refuses an empty or non-interactive answerer`);
-    const file = artifactPath(c, 'questions');
+    const file = artifactPath(c, sc.artifact);
     const text = file && readText(file);
-    if (text == null) return refuse('no questions artifact in this case');
-    if (sha(text) !== b.sha) return refuse('stale view: questions.yaml changed since the page showed it; reload and answer again');
-    const q = (yamlJson(file)?.questions || []).find((x) => x.id === b.qid);
+    if (text == null) return refuse(`no ${sc.artifact} artifact in this case`);
+    if (sha(text) !== b.sha) return refuse(`stale view: ${path.basename(file)} changed since the page showed it; reload and answer again`);
+    const q = (yamlJson(file)?.[sc.list] || []).find((x) => x[sf(sc, 'id')] === b.qid);
     if (!q) return refuse(`no question ${b.qid}`);
-    if (!q.scope_changing) return refuse(`question ${b.qid} does not change the scope: the agent answers it`);
-    // with scope.answer pending, a scope-changing answer that names no principal is still the person's to change
-    const scopePending = pendingApprovals(c).some((n) => n.action === SCOPE_ACTION);
-    const unattributed = !q.answered_by || q.answered_by === 'non-interactive';
-    if (q.status !== 'open' && !(scopePending && unattributed)) return refuse(`question ${b.qid} is already ${q.status}`);
+    const rec = questionOf(sc, q);
+    if (!rec.scope) return refuse(`question ${b.qid} does not change the scope: the agent answers it`);
+    // with the scope action pending, a scope-changing answer that names no principal is still the person's to change
+    const scopePending = pendingApprovals(c).some((n) => n.action === scopeAction());
+    const unattributed = !rec.answered_by || (sc.refused_answerers || []).includes(rec.answered_by);
+    if (!rec.awaiting && !(scopePending && unattributed)) return refuse(`question ${b.qid} is already ${rec.status}`);
     if (!str(b.answer)) return refuse('the answer must be 1 to 500 characters on one line');
-    const status = b.answer === q.default ? 'accepted' : 'changed';
-    // Pending scope.answer: the answer waits without answered_by, and the approval's tool names the
-    // principal (see the note on SCOPE_ACTION). Otherwise the answer is attributed at once.
-    const by = scopePending ? 'del(.answered_by)' : '.answered_by = strenv(SDC_BY)';
-    const argv = ['yq', '-i', `(.questions[] | select(.id == strenv(SDC_QID))) |= (.answer = strenv(SDC_ANSWER) | .status = strenv(SDC_STATUS) | ${by})`, file];
-    const r = await run(argv, {env: {...process.env, SDC_QID: b.qid, SDC_ANSWER: b.answer, SDC_STATUS: status, SDC_BY: ctx.principal}});
-    audit(ctx, {action: 'answer', case: c.id, target: b.qid, file: path.relative(ctx.storePath, file), answer: b.answer, status, answered_by: scopePending ? `${ctx.principal} (written by scope.answer)` : ctx.principal, sha_before: b.sha, revision: b.revision, argv, exit: r.exit});
+    const status = b.answer === rec.default ? sc.statuses?.accepted || 'accepted' : sc.statuses?.changed || 'changed';
+    // Pending scope action: the answer waits without the answerer, and the approval's tool names the
+    // principal (see the note on scopeAction). Otherwise the answer is attributed at once.
+    const f = (n) => sf(sc, n);
+    const by = scopePending ? `del(.${f('answered_by')})` : `.${f('answered_by')} = strenv(RB_BY)`;
+    const argv = ['yq', '-i', `(.${sc.list}[] | select(.${f('id')} == strenv(RB_QID))) |= (.${f('answer')} = strenv(RB_ANSWER) | .${f('status')} = strenv(RB_STATUS) | ${by})`, file];
+    const r = await run(argv, {env: {...process.env, RB_QID: b.qid, RB_ANSWER: b.answer, RB_STATUS: status, RB_BY: ctx.principal}});
+    audit(ctx, {action: 'answer', case: c.id, target: b.qid, file: path.relative(ctx.storePath, file), answer: b.answer, status, answered_by: scopePending ? `${ctx.principal} (written by ${scopeAction()})` : ctx.principal, sha_before: b.sha, revision: b.revision, argv, exit: r.exit});
     ctx.refresh();
     emit('act', {kind: 'answer', case: c.id, qid: b.qid, exit: r.exit});
     if (r.exit !== 0) return {ok: false, exit: r.exit, status, error: r.stderr.slice(-500)};
     if (!scopePending) return {ok: true, exit: 0, status, answered_by: ctx.principal, approved: false, remaining: 0};
-    // the last unanswered scope-changing question: the same act records the scope.answer approval
+    // the last unanswered scope-changing question: the same act records the scope action's approval
     const remaining = (scopeQuestions({dir: c.dir, bindings: c.bindings, events: c.events})?.questions || []).filter((x) => x.awaiting).length;
     if (remaining) return {ok: true, exit: 0, status, answered_by: ctx.principal, approved: false, remaining};
-    const a = await approve(ctx, c, {action: SCOPE_ACTION, revision: b.revision}, refuse, emit);
+    const a = await approve(ctx, c, {action: scopeAction(), revision: b.revision}, refuse, emit);
     return {...a, status, answered_by: ctx.principal, approved: !!a.ok, remaining: 0, error: a.ok ? null : `answer written as ${ctx.principal}; ${a.error}`};
   }
 
   if (b.kind === 'context') {
-    const file = artifactPath(c, 'context');
+    const cx = contextRule();
+    if (!cx) return refuse('this runbook has no context a person changes here: its view has no decisions.context');
+    const file = artifactPath(c, cx.artifact);
     const text = file && readText(file);
-    if (text == null) return refuse('no context artifact in this case');
-    if (sha(text) !== b.sha) return refuse('stale view: context.yaml changed since the page showed it; reload and change again');
+    if (text == null) return refuse(`no ${cx.artifact} artifact in this case`);
+    if (sha(text) !== b.sha) return refuse(`stale view: ${path.basename(file)} changed since the page showed it; reload and change again`);
     const j = yamlJson(file) || {};
-    if (!Object.prototype.hasOwnProperty.call(j, b.field) || !/^[a-z_]+$/.test(b.field || '')) return refuse(`no context field ${b.field}`);
+    if (!Object.prototype.hasOwnProperty.call(j, b.field) || !new RegExp(cx.field_pattern || '^[a-z_]+$').test(b.field || '')) return refuse(`no ${cx.artifact} field ${b.field}`);
     if (!str(b.value)) return refuse('the value must be 1 to 500 characters on one line');
     if (b.note != null && b.note !== '' && !str(b.note, 300)) return refuse('the note must be at most 300 characters on one line');
     const reason = `${ctx.principal}, ${now().slice(0, 10)}${b.note ? `, ${b.note}` : ''}`;
-    const argv = ['yq', '-i', '.[strenv(SDC_FIELD)].value = strenv(SDC_VALUE) | .[strenv(SDC_FIELD)].status = "changed" | .[strenv(SDC_FIELD)].reason = strenv(SDC_REASON)', file];
-    const r = await run(argv, {env: {...process.env, SDC_FIELD: b.field, SDC_VALUE: b.value, SDC_REASON: reason}});
+    const cf = (n) => cx.fields?.[n] || n;
+    const argv = ['yq', '-i', `.[strenv(RB_FIELD)].${cf('value')} = strenv(RB_VALUE) | .[strenv(RB_FIELD)].${cf('status')} = strenv(RB_CHANGED) | .[strenv(RB_FIELD)].${cf('reason')} = strenv(RB_REASON)`, file];
+    const r = await run(argv, {env: {...process.env, RB_FIELD: b.field, RB_VALUE: b.value, RB_CHANGED: cx.changed || 'changed', RB_REASON: reason}});
     audit(ctx, {action: 'context', case: c.id, target: b.field, file: path.relative(ctx.storePath, file), value: b.value, reason, sha_before: b.sha, revision: b.revision, argv, exit: r.exit});
     ctx.refresh();
     emit('act', {kind: 'context', case: c.id, field: b.field, exit: r.exit});
@@ -404,7 +425,7 @@ async function approve(ctx, c, b, refuse, emit) {
   const bind = c.bindings[b.action] || {};
   const cap = decl?.requires?.[0]?.capability;
   if (!cap) return refuse(`${b.action} requires no capability`);
-  if (cap === SCOPE_ACTION) {
+  if (cap === scopeAction()) {
     if (!principalOk(ctx.principal)) return refuse(`the server's principal "${ctx.principal}" cannot take scope.answer: the program refuses an empty or non-interactive answerer`);
     // the driver's scope-answer tool gives every scope-changing question still open its default: not for the person to do unseen
     const left = (scopeQuestions(c)?.questions || []).filter((q) => q.awaiting).map((q) => q.id);
@@ -414,21 +435,21 @@ async function approve(ctx, c, b, refuse, emit) {
   const revNow = bind.subject ? caseNow?.artifacts?.[bind.subject]?.revision : null;
   if (bind.subject && revNow !== b.revision) return refuse(`stale view: ${bind.subject} is now ${revNow}, the page showed ${b.revision}; reload and review again`, {revision: b.revision, current: revNow});
   // scope.answer is the action that revises the questions: the person's answers sit in the file before it runs
-  if (bind.subject && b.sha && cap !== SCOPE_ACTION) {
+  if (bind.subject && b.sha && cap !== scopeAction()) {
     const f = artifactPath(c, bind.subject);
     const t = f && readText(f);
     if (t != null && sha(t) !== b.sha) return refuse(`stale view: ${bind.$artifacts?.[bind.subject] || bind.subject} changed on disk since the page showed it; reload and review again`, {revision: b.revision});
     if (t != null && `t${sha(t).slice(0, 16)}` !== revNow) return refuse(`${bind.subject} was changed after the run recorded ${revNow}: continue the run so it checks the new revision, then approve that one`, {revision: b.revision, current: `t${sha(t).slice(0, 16)}`});
   }
-  if (cap === SCOPE_ACTION) {
+  if (cap === scopeAction()) {
     // the person's answers moved the questions to a new revision: Canon needs it checked (shape valid,
     // settled needs_scope_answer) before scope.answer is admissible again
-    const checkArgv = [ctx.drive, '--canon', ctx.canon, '--case-dir', c.dir, 'step', '--at', now(), '--action', SCOPE_CHECK];
+    const checkArgv = [ctx.drive, '--canon', ctx.canon, '--case-dir', c.dir, 'step', '--at', now(), '--action', scopeCheck()];
     const k = await run(checkArgv);
     const kerr = k.exit === 0 ? null : (k.stderr.trim().split('\n').at(-1) || '').slice(0, 400);
-    audit(ctx, {action: 'check', case: c.id, target: SCOPE_CHECK, argv: checkArgv, exit: k.exit, ...(kerr ? {error: kerr} : {})});
+    audit(ctx, {action: 'check', case: c.id, target: scopeCheck(), argv: checkArgv, exit: k.exit, ...(kerr ? {error: kerr} : {})});
     ctx.refresh();
-    if (k.exit !== 0) return {ok: false, exit: k.exit, argv: checkArgv, output: (k.stdout + k.stderr).slice(-6000), error: `${path.basename(ctx.drive)} step ${SCOPE_CHECK} exited ${k.exit}: ${kerr}`};
+    if (k.exit !== 0) return {ok: false, exit: k.exit, argv: checkArgv, output: (k.stdout + k.stderr).slice(-6000), error: `${path.basename(ctx.drive)} step ${scopeCheck()} exited ${k.exit}: ${kerr}`};
   }
   const at = now();
   const argv = [ctx.drive, '--canon', ctx.canon, '--case-dir', c.dir, 'approve', '--at', at, '--capability', cap, '--principal', ctx.principal, ...(bind.manual ? ['--action', b.action] : [])];
@@ -440,7 +461,7 @@ async function approve(ctx, c, b, refuse, emit) {
   return {ok: r.exit === 0, exit: r.exit, argv, output: (r.stdout + r.stderr).slice(-6000), error: r.exit === 0 ? null : `${path.basename(ctx.drive)} approve exited ${r.exit}: ${errLine}`};
 }
 
-// ---- continue the run: scripts/run-trial.sh <run>, output streamed --------------------------------
+// ---- continue the run: the view's command <run>, output streamed --------------------------------
 const procs = new Map();
 export function procState(index) {
   const p = procs.get(index);
@@ -448,23 +469,29 @@ export function procState(index) {
   return {name: p.name, running: p.exit == null, exit: p.exit, started: p.started, log: p.log, tail: p.lines.slice(-400)};
 }
 function continueRun(ctx, b, emit, refuse) {
-  const runs = path.join(ctx.sdc, 'runs');
+  const rule = continueRule();
+  if (!rule) return refuse('this runbook has no command to continue a run from here (its view has no decisions.continue): continue it from a shell');
+  const rb = runbookName();
+  const runs = path.join(ctx.root, rule.runs_dir);
   let runDir;
-  try { runDir = fs.realpathSync(ctx.runDir); } catch { return refuse('no run directory'); }
-  if (path.dirname(runDir) !== fs.realpathSync(runs)) return refuse('this store is not a run under sdc/runs/; continue it from a shell');
+  try { runDir = fs.realpathSync(ctx.runDir); } catch { return refuse("no run directory"); }
+  let runsReal;
+  try { runsReal = fs.realpathSync(runs); } catch { runsReal = null; }
+  if (path.dirname(runDir) !== runsReal) return refuse(`this store is not a run under ${rb ? rb + "/" : ""}${rule.runs_dir}/; continue it from a shell`);
   const name = path.basename(runDir);
-  if (!/^[A-Za-z0-9._-]+$/.test(name)) return refuse('run name has unexpected characters');
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) return refuse("run name has unexpected characters");
   const cur = procs.get(ctx.index);
-  if (cur && cur.exit == null) return refuse(`run-trial.sh ${cur.name} is already running`);
-  const script = path.join(ctx.sdc, 'scripts/run-trial.sh');
-  if (!fs.existsSync(script)) return refuse('scripts/run-trial.sh is missing');
+  if (cur && cur.exit == null) return refuse(`${path.basename(rule.script)} ${cur.name} is already running`);
+  const script = path.resolve(ctx.root, rule.script);
+  if (!script.startsWith(ctx.root + path.sep)) return refuse(`${rule.script} is outside the repository`);
+  if (!fs.existsSync(script)) return refuse(`${rule.script} is missing`);
   const log = path.join(runDir, `ui-continue-${now().replace(/[:]/g, '')}.log`);
   const fd = fs.openSync(log, 'a');
   const argv = [script, name];
-  const child = spawn(script, [name], {cwd: ctx.sdc, stdio: ['ignore', fd, fd], detached: true, env: {...process.env, SDC_PRINCIPAL: ctx.principal}});
+  const child = spawn(script, [name], {cwd: ctx.root, stdio: ['ignore', fd, fd], detached: true, env: {...process.env, ...Object.fromEntries(Object.entries(rule.env || {}).map(([k, v]) => [k, v.replace('{principal}', ctx.principal)]))}});
   fs.closeSync(fd);
   child.unref();
-  const p = {name, started: now(), exit: null, log: path.relative(ctx.sdc, log), lines: [], pos: 0, pid: child.pid};
+  const p = {name, started: now(), exit: null, log: path.relative(ctx.root, log), lines: [], pos: 0, pid: child.pid};
   procs.set(ctx.index, p);
   const pump = () => {
     try {
@@ -484,6 +511,6 @@ function continueRun(ctx, b, emit, refuse) {
   const timer = setInterval(pump, 500);
   child.on('exit', (code) => { setTimeout(() => { pump(); clearInterval(timer); p.exit = code ?? 1; emit('procend', {name, exit: p.exit}); audit(ctx, {action: 'continue-finished', target: name, exit: p.exit}); }, 600); });
   audit(ctx, {action: 'continue', target: name, argv, pid: child.pid, log: p.log});
-  emit('proc', {name, lines: [`$ scripts/run-trial.sh ${name}   (pid ${child.pid}, output in ${p.log})`]});
+  emit('proc', {name, lines: [`$ ${rule.script} ${name}   (pid ${child.pid}, output in ${p.log})`]});
   return {ok: true, pid: child.pid, log: p.log, argv};
 }

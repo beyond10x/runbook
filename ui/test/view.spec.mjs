@@ -1,39 +1,65 @@
 // The inspector over a runbook that is not SDC. A second runbook (test/second-runbook.mjs: protocol
-// triage.ticket, two actions, three files) is served by two servers of this file, started once for all
-// its tests, on ports 7621 and 7622 (SDC_UI_VIEW_PORT, +1):
-//   no view      --no-view: one flat list of the protocols found in the store, no phase grouping, no SDC label
-//   two phases   --view <file> of two phases: the phases of the file are shown
-// Plus the view's own rules (web/view.js) without a page: a view of another format is ignored, a
-// file kind comes from the first rule that matches, a tool owner from the view.
+// triage.ticket, three actions, files, a record of its own and a decision of its own) is served by four
+// servers of this file, started once for all its tests, each on a free port (no fixed port: a probe
+// finds one, so two runs on one machine do not meet):
+//   none      --no-view: one flat list of the protocols found in the store, no phase grouping, no SDC label,
+//             and the page says which view is missing
+//   two       --view <file> of two phases, a parser of asks.yaml and the decision of answering an ask: its
+//             phases, its record sentences and its decision are shown
+//   write     the same view with --write: answering the ask writes asks.yaml with the view's field names
+//   foreign   --view views/sdc.view.json over the same store: a view that does not cover the run is not
+//             used (no SDC fallback), the page says which view is missing
+// Plus the view's own rules (web/view.js) without a page: a view of another format is ignored, a member the
+// inspector does not know is refused with a message that names it, a file kind comes from the first rule that
+// matches, a parser from the view, a tool owner from the view.
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import {spawn, spawnSync, execFileSync} from 'node:child_process';
+import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {writeSecondRunbook, SECOND, SECOND_VIEW} from './second-runbook.mjs';
-import {setView, getView, fileKindOf, phaseItems} from '../web/view.js';
-import {classify} from '../web/meaning.js';
-import {missingPrograms} from '../decisions.mjs';
+import {writeSecondRunbook, SECOND, SECOND_VIEW, ASKS} from './second-runbook.mjs';
+import {setView, getView, checkView, fileKindOf, phaseItems} from '../web/view.js';
+import {classify, meaningOf} from '../web/meaning.js';
+import {missingPrograms, principalOk, waitsOnScope, scopeQuestions, amendStall} from '../decisions.mjs';
+import {sdcView} from './sdc-view.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'view');
-const port0 = Number(process.env.SDC_UI_VIEW_PORT || 7621);
 const servers = [];
+const port = {};
+let hasYq = true;
+try { execFileSync('yq', ['--version'], {stdio: 'ignore'}); } catch { hasYq = false; }
 
-const up = async (port) => { for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${port}/api/sources`); return; } catch { await new Promise((x) => setTimeout(x, 100)); } } throw new Error(`no server on ${port}`); };
+const freePort = () => new Promise((resolve, reject) => {
+  const s = net.createServer();
+  s.on('error', reject);
+  s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
+});
+const up = async (p) => { for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${p}/api/sources`); return; } catch { await new Promise((x) => setTimeout(x, 100)); } } throw new Error(`no server on ${p}`); };
+const url = (k, p = '') => `http://127.0.0.1:${port[k]}${p}`;
+const asks = (dir, id = 'T-2') => path.join(dir, 'store', id, 'work', SECOND.ask.file);
 
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
   fs.rmSync(root, {recursive: true, force: true});
   const store = writeSecondRunbook(path.join(root, 'run'));
+  fs.cpSync(path.join(root, 'run'), path.join(root, 'run-write'), {recursive: true});
   const viewFile = path.join(root, 'two-phases.view.json');
   fs.writeFileSync(viewFile, JSON.stringify(SECOND_VIEW, null, 2));
-  for (const [i, extra] of [['--no-view'], ['--view', viewFile]].entries()) {
-    const port = port0 + i;
-    if (await fetch(`http://127.0.0.1:${port}/api/sources`).then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_VIEW_PORT`);
-    servers.push(spawn(process.execPath, ['server.mjs', '--port', String(port), ...extra, store], {cwd: ui, stdio: 'ignore'}));
-    await up(port);
+  const writeView = path.join(root, 'two-phases-write.view.json');
+  fs.writeFileSync(writeView, JSON.stringify({...SECOND_VIEW, tool_owners: {always: ['yq']}}, null, 2));
+  const plan = {
+    none: [['--no-view'], store],
+    two: [['--view', viewFile], store],
+    write: [['--view', writeView, '--write', '--principal', 'ana'], path.join(root, 'run-write', 'store')],
+    foreign: [['--view', path.join(ui, '..', 'views', 'sdc.view.json')], store],
+  };
+  for (const [k, [extra, st]] of Object.entries(plan)) {
+    port[k] = await freePort();
+    servers.push(spawn(process.execPath, ['server.mjs', '--port', String(port[k]), ...extra, st], {cwd: ui, stdio: 'ignore'}));
+    await up(port[k]);
   }
 });
 test.afterAll(() => { for (const s of servers) s.kill(); });
@@ -43,42 +69,154 @@ async function open(page, k) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => m.type() === 'error' && errors.push(`console: ${m.text()}`));
-  await page.goto(`http://127.0.0.1:${port0 + k}/`);
+  await page.goto(url(k, '/'));
   await expect(page.locator('#graph')).toContainText(SECOND.actions[0]);
   return errors;
 }
+const inbox = async (request, k) => (await (await request.get(url(k, '/api/inbox'))).json());
 
-test('another runbook, no view file: its protocols, actions and files render, no SDC phase, no error', async ({page, request}) => {
-  expect(await (await request.get(`http://127.0.0.1:${port0}/api/view`)).json()).toBeNull();
-  const errors = await open(page, 0);
+test('another runbook, no view file: its protocols, actions and files render, no SDC phase, no error, the missing view is named', async ({page, request}) => {
+  expect(await (await request.get(url('none', '/api/view'))).json()).toBeNull();
+  const errors = await open(page, 'none');
   const phases = page.locator('#phases');
   await expect(phases.locator('.phase')).toHaveCount(1);
   await expect(phases).toContainText(SECOND.protocol);
   await expect(phases).not.toContainText(/Intake|Input|Dissection|Direction|Roadmap|Ticket|Release/);
   await expect(phases.locator('.stage-h').first()).toContainText('Protocols');
+  await expect(page.locator('#view-note')).toContainText(`No view for ${SECOND.protocol}`);
+  await expect(page.locator('#view-note')).toContainText('--view FILE');
   for (const a of SECOND.actions) await expect(page.locator('#graph')).toContainText(a);
   await expect(page.locator('#center')).toContainText(SECOND.protocol);
   for (const f of SECOND.files) await expect(page.locator('#feed')).toContainText(path.basename(f));
+  // the record of its own is a file like any other without a view: its path, no sentence of a parser
+  await expect(page.locator('#feed')).toContainText(SECOND.ask.file);
+  await expect(page.locator('#feed')).not.toContainText('ask a1');
   expect(errors).toEqual([]);
+  // no decision of the runbook is offered without its view: no question card, the wait is a plain approval
+  const ib = await inbox(request, 'none');
+  expect(ib.items.filter((x) => x.kind === 'question')).toEqual([]);
+  expect(ib.items.find((x) => x.action === SECOND.ask.action)).toMatchObject({kind: 'approve', scope: null});
+  const info = await (await request.get(url('none', '/api/view-info'))).json();
+  expect(info).toMatchObject({missing: true, protocols: [SECOND.protocol], file: null});
 });
 
-test('another runbook, a two-phase view file: the phases of the file are shown', async ({page, request}) => {
-  expect((await (await request.get(`http://127.0.0.1:${port0 + 1}/api/view`)).json()).format).toBe('runbook.view/1');
-  const errors = await open(page, 1);
+test('another runbook, a two-phase view file: the phases of the file are shown, its parsed record and its decision too', async ({page, request}) => {
+  const v = await (await request.get(url('two', '/api/view'))).json();
+  expect(v.format).toBe('runbook.view/1');
+  expect(await (await request.get(url('two', '/api/view-info'))).json()).toMatchObject({missing: false, runbook: 'triage'});
+  const errors = await open(page, 'two');
   const phases = page.locator('#phases');
   await expect(phases.locator('.phase')).toHaveCount(2);
   await expect(phases.locator('.stage-h').first()).toContainText('Triage');
   await expect(phases.locator('.phase').nth(0)).toContainText('Read');
   await expect(phases.locator('.phase').nth(1)).toContainText('Answer');
   await expect(phases).not.toContainText(/Intake|Dissection|Roadmap|Ticket|triage\.ticket/);
+  await expect(page.locator('#view-note')).toBeEmpty();
+  // the record of its own, read by the view's parser: sentences in the view's own words
+  const feed = page.locator('#feed');
+  await expect(feed).toContainText('ask a1 raised: “Which queue handles refunds?”');
+  await expect(feed).toContainText('ask a1 answered: “queue-b” by ana');
   expect(errors).toEqual([]);
+  // the decision of its own: the open ask the owner answers, and the approval of the action the view names
+  const ib = await inbox(request, 'two');
+  const a1 = ib.items.find((x) => x.kind === 'question' && x.qid === 'a1');
+  expect(a1).toMatchObject({question: SECOND.ask.text, options: SECOND.ask.options, default: SECOND.ask.options[0], case: 'T-2',
+    approval: expect.objectContaining({action: SECOND.ask.action, capability: SECOND.ask.action, waiting: 1, last: true})});
+  expect(ib.items.find((x) => x.qid === 'a2')).toBeUndefined();
+  expect(ib.items.find((x) => x.qid === 'b1')).toMatchObject({kind: 'question', case: 'T-3', approval: null});
+  await page.locator('#decbtn').click();
+  const drawer = page.locator('#drawer');
+  await expect(drawer).toContainText(SECOND.ask.text);
+  await expect(drawer).toContainText(SECOND.ask.action);
+  await expect(drawer).not.toContainText('scope.answer');
 });
 
-test('the view rules: format, first matching file rule, tool owners; no view means generic', () => {
+test('answering an ask writes the record with the view\'s field names and statuses, and refuses what the view does not allow', async ({request}) => {
+  test.skip(!hasYq, 'yq is not on the PATH: the server reads and writes the artifact with it');
+  const dir = path.join(root, 'run-write');
+  const ib = await inbox(request, 'write');
+  const b1 = ib.items.find((x) => x.qid === 'b1');
+  expect(b1).toMatchObject({kind: 'question', case: 'T-3'});
+  const post = (body) => request.post(url('write', '/api/act'), {headers: {'x-sdc-ui': '1'}, data: body});
+  const stale = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: '0'.repeat(64), answer: 'queue-b'});
+  expect((await stale.json()).error).toMatch(/stale view: asks\.yaml changed/);
+  const no = await post({kind: 'answer', rel: 'T-3', qid: 'a2', sha: b1.sha, answer: 'x'});
+  expect((await no.json()).error).toMatch(/no question a2/);
+  const r = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: b1.sha, answer: 'queue-b'});
+  expect(await r.json()).toMatchObject({ok: true, exit: 0, status: 'edited', answered_by: 'ana', approved: false});
+  const text = fs.readFileSync(asks(dir, 'T-3'), 'utf8');
+  expect(text).toMatch(/status: edited/);
+  expect(text).toMatch(/reply: queue-b/);
+  expect(text).toMatch(/replied_by: ana/);
+  expect(text).not.toMatch(/answer|answered_by/);
+  const again = await post({kind: 'answer', rel: 'T-3', qid: 'b1', sha: b1.sha, answer: 'queue-a'});
+  expect((await again.json()).error).toMatch(/stale view/);
+  const audit = fs.readFileSync(path.join(dir, 'ui-actions.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  expect(audit.find((x) => x.action === 'answer' && x.exit === 0)).toMatchObject({target: 'b1', status: 'edited', answered_by: 'ana'});
+  expect((await (await request.get(url('write', '/api/inbox'))).json()).items.find((x) => x.qid === 'b1')).toBeUndefined();
+  // the context act and the continue act are the SDC runbook's: this view has none, so it refuses them
+  const cx = await post({kind: 'context', rel: 'T-3', field: 'x', sha: b1.sha, value: 'v'});
+  expect((await cx.json()).error).toMatch(/no context a person changes here/);
+});
+
+test('a view that does not cover the run is not used: no SDC fallback, the page says which view is missing', async ({page, request}) => {
+  expect(await (await request.get(url('foreign', '/api/view'))).json()).toBeNull();
+  expect(await (await request.get(url('foreign', '/api/view-info'))).json()).toMatchObject({missing: true, protocols: [SECOND.protocol], file: null});
+  const errors = await open(page, 'foreign');
+  await expect(page.locator('#view-note')).toContainText(`No view for ${SECOND.protocol}`);
+  const phases = page.locator('#phases');
+  await expect(phases.locator('.phase')).toHaveCount(1);
+  await expect(phases).not.toContainText(/Intake|Input|Dissection|Direction|Roadmap|Ticket|Release/);
+  await expect(page.locator('#feed')).not.toContainText('ask a1');
+  expect(errors).toEqual([]);
+  expect((await inbox(request, 'foreign')).items.filter((x) => x.kind === 'question')).toEqual([]);
+});
+
+test('a view with a member the inspector does not know is refused, and the message names it', () => {
+  expect(checkView(SECOND_VIEW)).toEqual([]);
+  expect(checkView(sdcView)).toEqual([]);
+  expect(checkView({...SECOND_VIEW, theme: 'dark'})).toEqual([expect.stringContaining('view member "theme" is not known')]);
+  const deep = structuredClone(SECOND_VIEW);
+  deep.file_kinds.rules[0].colour = 'red';
+  deep.decisions.scope_answer.fields.nickname = 'x';
+  deep.file_kinds.parsers.asks.changed.rules[0].when.sometimes = ['reply'];
+  const said = checkView(deep).join('\n');
+  expect(said).toContain('file_kinds.rules[0].colour: view member "colour" is not known');
+  expect(said).toContain('decisions.scope_answer.fields.nickname: view member "nickname" is not known');
+  expect(said).toContain('file_kinds.parsers.asks.changed.rules[0].when.sometimes: view member "sometimes" is not known');
+  const wrong = structuredClone(SECOND_VIEW);
+  wrong.file_kinds.parsers.asks.type = 'tree';
+  wrong.decisions.scope_answer.flag = 'a b; .x';
+  wrong.phases.items[0].claims = 'ticket.read';
+  const said2 = checkView(wrong).join('\n');
+  expect(said2).toContain('"tree" is not a type of the inspector');
+  expect(said2).toContain('decisions.scope_answer.flag: "a b; .x" is not a field name');
+  expect(said2).toContain('phases.items[0].claims: expected an array, found string');
+  expect(checkView({format: 'other/1'})).toEqual(['format is "other/1", not runbook.view/1']);
+  // a refused view is not used
+  expect(setView({...SECOND_VIEW, theme: 'dark'})).toHaveLength(1);
+  expect(getView()).toBeNull();
+  setView(null);
+});
+
+test('the server refuses to start with a view that has an unknown member, and names it', () => {
+  fs.mkdirSync(root, {recursive: true});
+  const bad = path.join(root, 'bad.view.json');
+  fs.writeFileSync(bad, JSON.stringify({...SECOND_VIEW, decisions: {...SECOND_VIEW.decisions, scope_answer: {...SECOND_VIEW.decisions.scope_answer, escalate: true}}}));
+  const r = spawnSync(process.execPath, ['server.mjs', '--port', '0', '--view', bad, path.join(root, 'run', 'store')], {cwd: ui, encoding: 'utf8', timeout: 20000});
+  expect(r.status).toBe(2);
+  expect(r.stderr).toContain('decisions.scope_answer.escalate: view member "escalate" is not known');
+  expect(r.stderr).toContain(bad);
+});
+
+test('the view rules: format, first matching file rule, parsers, decisions, tool owners; no view means generic', () => {
   setView(null);
   expect(classify('notes/idea.yaml')).toEqual({cls: 'code', kind: 'code'});
+  expect(classify(SECOND.ask.file)).toEqual({cls: 'code', kind: 'code'});
   expect(phaseItems()).toEqual([]);
   expect(missingPrograms({drive: '/nonexistent/drive', canon: '/nonexistent/canon'}, {kind: 'continue'}, {PATH: '/nonexistent'})).toEqual(['/nonexistent/drive', '/nonexistent/canon']);
+  expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: SECOND.ask.action}]}])).toBe(false);
+  expect(amendStall({events: [{event: 'awaiting_person', next: [{action: 'amend.upstream'}]}], bindings: {}}, null)).toBeNull();
   setView({format: 'other/1', phases: {items: [{id: 'x'}]}});
   expect(getView()).toBeNull();
   setView(SECOND_VIEW);
@@ -86,5 +224,42 @@ test('the view rules: format, first matching file rule, tool owners; no view mea
   expect(fileKindOf('notes/ticket.md')).toEqual({cls: 'direction', kind: 'ticket'});
   expect(fileKindOf('tools/classify.ts')).toBeNull();
   expect(missingPrograms({drive: '/nonexistent/drive', canon: '/nonexistent/canon'}, {kind: 'continue'}, {PATH: '/nonexistent'})).toEqual(['hoist', '/nonexistent/drive', '/nonexistent/canon', 'crane']);
+  // the decision is the view's: its action waits, SDC's does not; its refused answerer is not SDC's
+  expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: SECOND.ask.action}]}])).toBe(true);
+  expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: 'scope.answer'}]}])).toBe(false);
+  expect(principalOk('bot')).toBe(false);
+  expect(principalOk('non-interactive')).toBe(true);
+  expect(principalOk('ana')).toBe(true);
+  setView(sdcView);
+  expect(principalOk('non-interactive')).toBe(false);
+  expect(waitsOnScope([{event: 'awaiting_authority', next: [{action: 'scope.answer'}]}])).toBe(true);
+  setView(null);
+});
+
+test('a parser of the view says what a change of its record means; a kind with no parser is read as keys', () => {
+  setView(SECOND_VIEW);
+  const at = (before, after, p = SECOND.ask.file) => meaningOf({path: p}, before, after);
+  const created = at(null, ASKS.raised);
+  expect(created).toMatchObject({cls: 'direction', kind: 'asks', parsed: true, subject: 'asks'});
+  expect(created.items.map((x) => x.text)).toEqual(['ask a1 raised: “Which queue handles refunds?”', 'ask a2 raised: “Is the customer in the EU?”']);
+  expect(at(ASKS.raised, ASKS.answered).items.map((x) => x.text)).toEqual(['ask a1 answered: “queue-b” by ana']);
+  // [ by {replied_by}] is left out when the field is empty
+  expect(at(ASKS.raised, ASKS.answered.replace('  replied_by: ana\n', '')).items.map((x) => x.text)).toEqual(['ask a1 answered: “queue-b”']);
+  expect(at(ASKS.raised, ASKS.raised.replace('needs_owner: true', 'needs_owner: false')).items.map((x) => x.text)).toEqual(['ask a1 changed']);
+  expect(at(ASKS.raised, ASKS.raised.replace(/- id: a2[\s\S]*$/, '')).items.map((x) => x.text)).toEqual(['ask a2 removed']);
+  // a kind the view has a rule for and no parser: top-level keys
+  expect(meaningOf({path: 'notes/ticket.md'}, null, 'x: 1\n').items[0].text).toBe('ticket: x set');
+  // a parser that cannot read the file says so and keeps the class
+  expect(meaningOf({path: SECOND.ask.file}, null, 'a: [unclosed').parsed).toBe(false);
+  setView(null);
+});
+
+test('without a decision rule in the view, nothing is read from the questions of a run', () => {
+  setView(null);
+  expect(scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}})).toBeNull();
+  test.skip(!hasYq, 'yq is not on the PATH');
+  setView(SECOND_VIEW);
+  const q = scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}});
+  expect(q).toMatchObject({path: SECOND.ask.file, questions: [{id: 'a1', question: SECOND.ask.text, status: 'pending', awaiting: true, default: SECOND.ask.options[0]}]});
   setView(null);
 });
