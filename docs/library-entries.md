@@ -11,8 +11,8 @@ by Runbook, and no `cargo check` of a crate that depends on them was run (see "N
 
 States of a row:
 
-- `exists`: public, in a release tag or `main` of that repository, read there. No row has this state
-  today.
+- `exists`: public, in a release tag or `main` of that repository, read there. Canon rows C1 to C6
+  have it (tag `0.10.0`); no Loom row has it.
 - `on a branch`: public at the named commit of the named branch; not in a tag. Whether `main` has it
   was not checked unless the row says so.
 - `requested`: not built. Agreed with the neighbour session on 2026-11-22 (marked "agreed"), or
@@ -25,6 +25,7 @@ Commits the rows were read at. Paths are under `crates/` of that repository.
 
 | label | repository | ref | commit | note |
 |---|---|---|---|---|
+| T | Canon | tag `0.10.0` | `2c7a1ea6a` | read at the tag by Runbook (2026-11-22), not run, not compiled against; the Canon tag Loom pins |
 | C | Canon | `wave/2026-11-21` | `7d1a28a20` | read, not run; also on `origin/wave/2026-11-21` |
 | H | Loom | plan tree `wave/2026-11-21-w7` | `50ddc47d` | in no tag and in no remote branch; the integration head of the same branch was `54204526` when Loom reported the parity path |
 | B | Loom | `impl/tree-run-command` | `c8ca4ad6` (base `5751f164`) | unmerged; holds `loom-tree` |
@@ -39,19 +40,24 @@ and agreed the items marked "agreed" below with the Runbook session after those 
 
 Canon is the kernel. `b10x-canon` and `b10x-canon-expr` are meant for embedders (`README.md:33`);
 the `canon-cli` library is not. Canon has no written version rule for its public functions, and
-`0.10.0` and the next release are not interchangeable. The line numbers below are those of C; the
-same lines in tag `0.10.0` hold other code (`ir/mod.rs:294`, `validate/mod.rs:806`,
-`eval/mod.rs:503` and `simulate/mod.rs:1000` are not the function heads there), and the public items
-at `0.10.0` were not checked.
+`0.10.0` and the next release are not interchangeable. Rows C1 to C6 were read first at C (the
+Canon session's lines, `7d1a28a20`) and then by Runbook at tag `0.10.0` (`2c7a1ea6a`), the Canon
+that Loom pins, on 2026-11-22: the source was read at the tag, not run and not compiled against. At
+the tag every item the rows name is a public function, with the same signature as at C; only the
+lines differ (C has `validate/mod.rs:806`, `ir/mod.rs:294`, `eval/mod.rs:503` and `simulate/mod.rs:1000`),
+and the module paths of the readers and of `render` differ (below). The lines in the table are those
+of the tag. The crate is `b10x-canon`; the library root has the public modules `check`, `conform`,
+`diff`, `eval`, `explain`, `generate`, `ir`, `model`, `simulate` and `validate` (`lib.rs:8-17`).
+`Refusal` is a different type in `eval`, `check` and `simulate`.
 
 | id | capability Runbook needs | crate and public item | read at (paths under `crates/canon/src/`) | state |
 |---|---|---|---|---|
-| C1 | parse a protocol | `b10x-canon`: `model::parse(&str) -> Result<Protocol, ParseError>` | C `model/parse.rs:25` | on a branch (`wave/2026-11-21`) |
-| C2 | validate | `validate::validate(&Protocol) -> Result<(), Vec<Problem>>` | C `validate/mod.rs:806` | on a branch (`wave/2026-11-21`) |
-| C3 | compile (and compose with imports) | `ir::compile(&Protocol) -> Result<Ir, Vec<Problem>>`; with imports `ir::compose(&protocol, &imported)` first; the `ir.json` form is `Ir::canonical_json()` | C `ir/mod.rs:294`, `ir/mod.rs:674`; the line of `compose` was not recorded | on a branch (`wave/2026-11-21`) |
-| C4 | evaluate | `eval::evaluate(&Ir, &Case, &[EvidenceRecord]) -> Result<Decision, Refusal>`, `eval::evaluate_with(...)`; readers `eval::read::read_ir`, `eval::case::read_case`, `eval::evidence::read_evidence`; text `eval::decision::render(&Decision)` (not checked byte-equal to the CLI's stdout) | C `eval/mod.rs:503`, `:509` | on a branch (`wave/2026-11-21`) |
-| C5 | check | `check::check(&Ir, Option<&Properties>) -> Result<Report, Refusal>`; properties `check::properties::read_properties` | C `check/mod.rs:605` | on a branch (`wave/2026-11-21`) |
-| C6 | simulate | `simulate::simulate(&Ir) -> Result<Report, Refusal>` | C `simulate/mod.rs:1000` | on a branch (`wave/2026-11-21`) |
+| C1 | parse a protocol | `b10x-canon`: `model::parse(&str) -> Result<Protocol, ParseError>` | T `model/parse.rs:25` (C: same line) | exists (tag 0.10.0, 2c7a1ea6a) |
+| C2 | validate | `validate::validate(&Protocol) -> Result<(), Vec<Problem>>` | T `validate/mod.rs:748` (C: 806) | exists (tag 0.10.0, 2c7a1ea6a) |
+| C3 | compile (and compose with imports) | `ir::compile(&Protocol) -> Result<Ir, Vec<Problem>>`; with imports `ir::compose(root: &Protocol, imports: &[Protocol]) -> Result<Protocol, Vec<Problem>>` first (re-exported `pub use imports::{DIGEST_PREFIX, compose, digest}`; the module `ir::imports` is private); the `ir.json` form is `Ir::canonical_json(&self) -> String` | T `ir/mod.rs:283`, `ir/imports.rs:67`, `ir/mod.rs:127`, `ir/mod.rs:640` (C: 294, 133, 674) | exists (tag 0.10.0, 2c7a1ea6a) |
+| C4 | evaluate | `eval::evaluate(&Ir, &Case, &[EvidenceRecord]) -> Result<Decision, Refusal>`; `eval::evaluate_with(&Ir, &Case, &[EvidenceRecord], Supplied<'_>) -> Result<Decision, Refusal>` (`Supplied` is public, `Copy` and `Default`: `authority`, `at`, `decisions`, each `Option<&str>`); readers `eval::read_ir(&str) -> Result<Ir, Refusal>`, `eval::read_case(&str) -> Result<Case, Refusal>`, `eval::read_evidence(&str) -> Result<EvidenceRecord, Refusal>`; text `eval::render(&Decision) -> String` and `eval::render_sections(&Decision, &BTreeSet<String>) -> String` (not checked byte-equal to the CLI's stdout). The modules `eval::read`, `eval::case`, `eval::evidence` and `eval::decision` are private, so the paths `eval::read::read_ir`, `eval::case::read_case`, `eval::evidence::read_evidence` and `eval::decision::render` that C's row gave do not compile; the functions are re-exported at `eval::` (`eval/mod.rs:421-424`) | T `eval/mod.rs:493`, `:499`, `eval/read.rs:69`, `eval/case.rs:16`, `eval/evidence.rs:33`, `eval/decision.rs:93` (C: 503, 509, 70) | exists (tag 0.10.0, 2c7a1ea6a) |
+| C5 | check | `check::check(&Ir, Option<&Properties>) -> Result<Report, Refusal>`; properties `check::read_properties(&str) -> Result<Properties, Refusal>` (re-exported at `check/mod.rs:388`; the module `check::properties` is private, so C's path `check::properties::read_properties` does not compile; `Properties` is `model::Properties`) | T `check/mod.rs:605`, `check/properties.rs:15` | exists (tag 0.10.0, 2c7a1ea6a) |
+| C6 | simulate | `simulate::simulate(&Ir) -> Result<Report, Refusal>` | T `simulate/mod.rs:749` (C: 1000) | exists (tag 0.10.0, 2c7a1ea6a) |
 | C7 | the exit-status mapping of `check` | private to `canon-cli` | not read as code; reported by the Canon session | not planned |
 | C8 | import handling | CLI-only (the library has `ir::compose`, row C3, which takes the imported protocols as values) | reported as CLI-only | not planned |
 
@@ -61,7 +67,7 @@ Facts that bear on use:
   decides the plain subjects and the properties from one enumeration. If the gate probe is a
   properties file, one call replaces Runbook's two calls (halves the slow lane of `check-protocols`).
 - Comparing a `simulate` report with a pinned report is Runbook's, not Canon's.
-- Counts: 6 `on a branch`, 2 `not planned`, 0 `exists`, 0 `requested`.
+- Counts: 6 `exists` (tag `0.10.0`), 2 `not planned`, 0 `on a branch`, 0 `requested`.
 
 ## Loom
 
@@ -160,9 +166,10 @@ After that path, in the order Loom set (2026-11-22, not built): `per-run-program
   contains it. No commit has `run_tree` yet. No tag contains `loom-tree` or `loom-decision`; `0.58.0`
   does not, and `50ddc47d` is in no tag and no remote branch, so nothing complete can be pinned
   today.
-- Canon rows are read at `7d1a28a20` on a branch; the Canon version Runbook links is the one Loom
-  pins (today `0.10.0`), so the Canon rows still have to be confirmed at that version (the public
-  items at tag `0.10.0` were not checked).
+- Canon rows C1 to C6 are read at tag `0.10.0` (`2c7a1ea6a`), the Canon version Runbook links: the
+  one Loom pins (`Cargo.toml` of `loom-bindings`, `loom-governor`, `loom-protocols` and `loom-tree`,
+  and `Cargo.lock`, at the Loom integration commit `1016c251`). Read, not run and not compiled
+  against.
 - Toolchain: Runbook pins rustc `1.99.1` in `rust-toolchain.toml`. Loom has no `rust-version` in
   any manifest and no `rust-toolchain.toml`; edition 2024 (`[workspace.package]`); its story
   `rust-1-100-toolchain` is a draft. Whether Loom's crates build with Runbook's rustc: not checked.
@@ -297,4 +304,5 @@ egress set than the running driver's (L19).
 - The scratch `cargo check` of a crate that depends on Loom (and Canon) by git is not done: nothing
   complete can be pinned yet (see "Dependency form and pin"), and whether the crates build with
   rustc `1.99.1` is unknown.
-- No Loom or Canon function was run. Every row is read from source by the neighbour session.
+- No Loom or Canon function was run. Every Loom row is read from source by the neighbour session;
+  Canon rows C1 to C6 were also read by Runbook at tag `0.10.0`, not run and not compiled against.

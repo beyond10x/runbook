@@ -14,7 +14,7 @@ scope:
   path: .engineering/planning/upstream-blocker
 - confidence: inferred
   path: docs/library-entries.md
-revision: 8
+revision: 9
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:30Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:47:31Z", actor: "human:operator", revision: 3, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -96,3 +96,11 @@ State of the acceptance statements on 2026-11-22, in the order above. The story 
 
 This story moves to `implemented` when statement 4 is met (the pin and the scratch `cargo check`)
 and the blockers say what they wait on.
+
+## Canon rows at tag 0.10.0
+
+The six Canon rows (C1 to C6) were read at Canon tag `0.10.0` (`2c7a1ea6a`), the Canon that Loom's
+integration commit `1016c251` pins, on 2026-11-22: all six are public functions with the signature
+the Canon session gave, state `exists`. Read, not run and not compiled against. This replaces the
+statement in "Acceptance" (statement 2) that the rows were not checked at the Canon version Loom
+pins. `upstream-blocker:canon-library-entry` is `cleared`; `loom-library-entry` stays `open`.
