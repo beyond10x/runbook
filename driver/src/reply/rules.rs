@@ -12,6 +12,17 @@ use super::{read_json, sorted};
 /// The principal of an approval taken by the rule.
 pub const RULE_PRINCIPAL: &str = "rule:autopilot";
 
+/// Whether the argv of binding `b` starts a model's program: `sdc-node`, or the model-step script
+/// of the removed driver, which the bindings of `driver/examples/sdc/` still name by its file name.
+pub fn model_step_argv(b: &Value) -> bool {
+    b["argv"].as_array().is_some_and(|a| {
+        a.iter().any(|x| {
+            let name = x.as_str().and_then(|s| s.rsplit('/').next()).unwrap_or("");
+            name == "sdc-node" || name.starts_with("llm-node.")
+        })
+    })
+}
+
 /// Every `(claim id, is)` a condition names.
 pub fn claim_conditions(f: &Value, out: &mut Vec<(String, String)>) {
     match f {
@@ -35,8 +46,7 @@ pub fn program_check(b: &Value, w: &Value) -> Result<(), String> {
     if b["manual"] == true {
         return Err("it is a person's action, not a program check".into());
     }
-    let llm_argv = b["argv"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|s| s.ends_with("/llm-node.sh"))));
-    if !b["llm"].is_null() || llm_argv {
+    if !b["llm"].is_null() || model_step_argv(b) {
         return Err("it is run by a model, not a program check".into());
     }
     let kind = w["kind"].as_str().unwrap_or("");

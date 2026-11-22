@@ -1,6 +1,6 @@
 //! sdc-check-routes: the reject and cap routes of an unattended run, checked statically (D148,
 //! docs/reject-routes.md). Canon's `simulate` exhausts a protocol's states; what it cannot see
-//! lives in the bindings, the driver and scripts/run-trial.sh: which result of which action sends
+//! lives in the bindings and the runner: which result of which action sends
 //! which writer back, the caps, the reject limit and the ends by rule. This reads the compiled IR
 //! of every protocol, every bindings file, node-classes.json, decision-classes.json and the
 //! declared rule ends (driver/examples/sdc/rule-ends.json), and prints one line per state where
@@ -78,7 +78,7 @@ fn bound(p: &Protocol) -> impl Iterator<Item = (&String, &Value)> {
 }
 
 fn is_llm_node(b: &Value) -> bool {
-    b["argv"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|s| s.ends_with("/llm-node.sh"))))
+    sdc_tools::reply::rules::model_step_argv(b)
 }
 
 fn check(protocols: &[Protocol], classes: &Value, ends: &Value) -> Vec<String> {
@@ -364,7 +364,7 @@ mod tests {
                         "doc.approve": {"effect": "write", "requires": [{"capability": "owner.approve"}]}},
             "outcomes": {"passed": {"requires": {"claim": {"id": "doc.ok", "is": "true"}}}}})
     }
-    const LLM: &str = "{dir}/../../../bindings/tools/llm-node.sh";
+    const LLM: &str = "sdc-node";
     fn no_classes() -> Value {
         json!({"classes": {}})
     }

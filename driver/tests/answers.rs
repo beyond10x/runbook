@@ -1,6 +1,6 @@
 //! `sdc-answers`, the programs of `bindings/tools/answers.yaml`: the requests the decider is asked
 //! and the writing of its answers into `questions.yaml` and `findings.yaml` of a workspace, as
-//! `scripts/run-trial.sh` writes them.
+//! the launcher of the old driver wrote them.
 
 use std::fs;
 use std::path::{Path, PathBuf};

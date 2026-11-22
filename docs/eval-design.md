@@ -5,6 +5,7 @@ driver was Runbook's runtime. Its citations and commands name the driver's binar
 and its model-node script as they were then; those files are deleted
 (`story:driver-runtime-removed`) and the runtime is Loom's (`docs/loom-run.md`). The rules on what an
 eval run is (the last section) are stated for `runbook run`.
+The scripts that made the record of the adversary evaluation (`eval/run.sh`, `eval/run-adversaries.sh`, `eval/adversary.sh`) drove the driver binary and are deleted with it; `eval/reports/` and `eval/baseline.json` stay as the record, and a port to `runbook test` entries is not done ([`eval/README.md`](../eval/README.md)).
 
 Question (the operator, 2026-11-20): does a node with fewer possible branches and a smaller agent surface
 give more reliable runs? Can the right surface be found empirically, by running a node with a given

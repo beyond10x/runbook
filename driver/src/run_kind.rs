@@ -6,8 +6,8 @@
 //!
 //! - `Loom`: `runbook loom-run` (`runbook/src/loom_run/`). Its loop writes `settings.json` first, so
 //!   that file is the mark. The case store under `store/<root>/` is a projection of Loom's run logs.
-//! - `Driver`: `sdc-drive` through `scripts/run-trial.sh` or `run-full-cycle.sh`. No `settings.json`;
-//!   the case store is the driver's own.
+//! - `Driver`: the removed driver runtime, whose runs stay on disk. No `settings.json`;
+//!   the case store was the driver's own.
 //!
 //! A directory with neither mark is refused. The mark is looked for in this order: Loom's first,
 //! because a Loom directory also holds the driver's layout.
@@ -34,7 +34,7 @@ pub fn detect(run: &Path) -> Result<RunKind, String> {
         return Ok(RunKind::Driver);
     }
     Err(format!(
-        "{} is not a run directory: it holds neither {LOOM_MARK} (runbook loom-run) nor store/<case>/events.jsonl (sdc-drive)",
+        "{} is not a run directory: it holds neither {LOOM_MARK} (runbook loom-run) nor store/<case>/events.jsonl (a run of the removed driver)",
         run.display()
     ))
 }

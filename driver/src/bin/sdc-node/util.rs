@@ -1,4 +1,4 @@
-//! Small helpers the port of `llm-node.sh` needs: exits, output sinks, child processes, copies,
+//! Small helpers the port of the old model-step script needs: exits, output sinks, child processes, copies,
 //! the UTC clock.
 
 use std::fs::{self, File, OpenOptions};

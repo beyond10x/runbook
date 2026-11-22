@@ -3,7 +3,7 @@
 //! Two kinds of run directory are read into the same document (an `sdc` run is the driver's or a
 //! `runbook loom-run` directory, `run_kind.rs`):
 //!
-//! - `sdc`: a run `scripts/run-trial.sh` or `sdc-experiment run` wrote. Every take of a bound
+//! - `sdc`: a run of the removed driver or `sdc-experiment run` wrote. Every take of a bound
 //!   action is a span: `program` (a tool the driver ran because the action was admissible), `model`
 //!   (a model call as the action's executor, joined from `llm-calls.jsonl` and the call's record
 //!   directory), `rule` (a step whose principal is a rule, `rule:autopilot`); every decider call of

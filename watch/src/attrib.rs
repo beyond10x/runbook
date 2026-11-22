@@ -311,7 +311,7 @@ impl Attributor {
         None
     }
 
-    /// The case an agent call's `request.json` names (`case`, written by llm-node.sh).
+    /// The case an agent call's `request.json` names (`case`, written by `sdc-node`).
     fn request_case(&self, rel: &str) -> Option<String> {
         let t = fs::read_to_string(self.run.join(rel).join("request.json")).ok()?;
         let v: Value = serde_json::from_str(&t).ok()?;

@@ -49,7 +49,8 @@ The driver ran one SDC case on top of Canon. Canon decided every status. It read
 - An LLM executor for the agent nodes (`tools/llm-node.sh`, see "LLM executor") behind a
   pluggable adapter: metaharness (default for a trial), `claude -p`, dry, or any program with the
   same contract. Model `claude-haiku-5-5`, a binding value. The stub stays the default, so
-  `scripts/run-full-cycle.sh` runs unchanged with no LLM.
+  `runbook test cycles/tree-suite.yaml` runs unchanged with no LLM (the script
+  `scripts/run-full-cycle.sh` that did so is deleted).
 - Closed: stops on `context.default` and `vision.write` (sdc.direction r3); a per-action tool
   timeout (`timeout_s`); a store lock; evidence and `action_finished` before the revision bump;
   atomic document writes and an appended log; caps on LLM calls (`run --max-llm-calls`, over the
@@ -57,7 +58,7 @@ The driver ran one SDC case on top of Canon. Canon decided every status. It read
   check sends the writer back, with the check's log as feedback), `handoff` (a writer that did
   what it may hands over to a person), `args_from` (epics and stories come from the planning store,
   not a fixed list), and `run` names the exact command when it waits on a person.
-- Verified 2026-11-21: `scripts/run-full-cycle.sh` exit 0, root `operating`, replay 8 of 8
+- Verified 2026-11-21: `scripts/run-full-cycle.sh` (since deleted) exit 0, root `operating`, replay 8 of 8
   match; `scripts/run-trial.sh --dry trial-dry` exit 0, 10 LLM commands printed and none run,
   replay 8 of 8 match; `check-protocols.sh`, `check-bindings.sh`, `evaluate-cases.sh` exit 0.
 - The trial itself: `docs/trial-1.md` (`runs/trial-todo-1/`: 3 real Haiku calls through
@@ -1117,14 +1118,17 @@ which are results quoted back to the model.
 
 ## Action-to-tool bindings
 
-One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direction`,
-`sdc-epic`, `sdc-spec`, `sdc-plan`, `sdc-story`, `sdc-release` (`.bindings.json`). Every action
-name, produced kind and placed artifact is checked against the compiled protocol by
-`scripts/check-bindings.sh`. Unbound on purpose: `context.change` (a person's edit),
-`spec.reuse`, `spec.reconstruct`, `release.rollback`. Tools are subcommands of
-`bindings/tools/sdc-tool.sh`; agent nodes run `sdc-node` (its shell predecessor is described in "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
-a fixed draft from `fixtures/` (or a fixed `aep plan artifact new` call) and producing no
-evidence, except `spec.author`'s `spec_source=authored`, which records which action wrote it.
+A run uses one file per protocol in `bindings/` (`loom.bindings/1`, `docs/loom-bindings.md`): `sdc`,
+`sdc-intake`, `sdc-direction`, `sdc-epic`, `sdc-spec`, `sdc-plan`, `sdc-story`, `sdc-release` and
+`sdc-bugfix` (`.yaml`). `scripts/check-bindings.sh` checks each against the compiled protocol: every
+action it binds is declared, an action it does not bind has a line in `bindings/PENDING.md`, and
+each program is named as `bindings/tools/<file>` or a bare name from `PATH`. Tools are subcommands
+of `bindings/tools/sdc-tool.sh`; agent nodes run `sdc-node` (its shell predecessor is described in
+"LLM executor"), whose stub mode (`--stub`) runs the `stub-*` subcommands of `sdc-tool.sh`.
+
+The table lists the tool of each action as the former driver's bindings bound it. Where it says
+`driver: open child(ren)` or `driver: copy`, the file in `bindings/` binds the action with
+`executor.kind` `open` or `copy` (`docs/loom-bindings.md`).
 
 | Protocol | Action | Tool | Result → evidence |
 |---|---|---|---|
@@ -1296,6 +1300,10 @@ an approved vision (`va`), and an approved revision must not be rewritten; the o
 recorded the missing stop.
 
 ## Full-cycle run
+
+`scripts/run-full-cycle.sh` is deleted. A full cycle is run by `runbook test cycles/tree-suite.yaml
+--only stub-cycle --confinement local` (or `runbook run`); what follows is the record of the script's
+run.
 
 ```console
 $ scripts/run-full-cycle.sh full-cycle-1 ~/.cache/scratch/<session>/store-full-cycle-1

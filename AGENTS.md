@@ -57,7 +57,7 @@
 - `views/` the view file each runbook ships for the inspector: phases, file kinds, decisions (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
-- `eval/` eval runner, adversaries, levels, reports (`docs/eval-design.md`).
+- `eval/` levels, personas, quality checks and reports; the scripts that drove the old driver are deleted, and `reports/` and `baseline.json` are the record of its evaluation, not ported (`eval/README.md`, `docs/eval-design.md`).
 - `runs/` recorded runs: case stores, event logs, LLM and decider records.
 - `scripts/` check and evaluate scripts.
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).

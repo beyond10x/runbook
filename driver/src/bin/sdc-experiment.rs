@@ -437,7 +437,7 @@ const OPTIONAL_LOOM: [&str; 16] = ["conformance", "loom.login_file", "loom.in_pr
     "decider.adapter", "adapter", "review.adapter", "flags.dry", "flags.recorded", "flags.on_divergence", "flags.live_adapter", "flags.live_cap", "flags.source_tree"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
-/// What the shell programs the bindings run (`llm-node.sh`, `sdc-tool.sh`, the adapters) need on
+/// What the shell programs the bindings run (`sdc-tool.sh`, the adapters) need on
 /// `PATH`; the decider of `runbook run` starts none of them.
 const LOOM_TOOLS: [&str; 2] = ["jq", "yq"];
 const RUNNERS: [&str; 3] = ["sdc", "free-agent", "loom"];
@@ -452,7 +452,7 @@ fn loom_refusal(key: &str) -> Option<&'static str> {
     Some(match key {
         "implement_mode" | "review_mode" | "implement_coverage" | "rule_approvals" =>
             "it is a switch of the old driver and Loom's bindings carry no such switch",
-        k if k.starts_with("efforts.") => "no argument of bindings/tools/llm-node.sh carries an effort in Loom mode, so the class defaults of tools/node-classes.json apply",
+        k if k.starts_with("efforts.") => "no argument of the bindings carries an effort for `sdc-node`, so the class defaults of tools/node-classes.json apply",
         k if k.starts_with("free.") => "it is a setting of runner free-agent",
         _ => return None,
     })
