@@ -151,3 +151,35 @@ through:
 | spec-interp-unsupported | pending | same, story:engine-agents-section |
 | replay-sibling | pending | story:engine-agents-section (`fixtures`) and story:tree-replay-command (`replay`) |
 | pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the format has no member for it |
+
+### Re-drive entries (9)
+
+These run `sdc-drive` with `--recorded <recording>` over the recorded model calls, with `--inject`
+and `--on-divergence`. A `loom.tree-suite/1` cycle opens a tree and runs it; it has no recording to
+replay model calls from and no injected rejection, timeout or failed check.
+
+| entry | state | reason |
+|---|---|---|
+| replay-unchanged | not converted | class: replay of recorded model calls (`--recorded`) and `sdc-replay compare` as a second tool over the run |
+| rule-approvals-default | not converted | class: replay of recorded model calls with a divergence policy (`--on-divergence nearest`) |
+| review-mode-default | not converted | same class |
+| implement-coverage-default | not converted | same class |
+| replay-reject-stop | not converted | class: an injected decision (`--inject reject@...`) into a replay |
+| replay-reject-nearest | not converted | same class, with the call modes of the replay as the check |
+| replay-timeout | not converted | class: an injected timeout of one call (`--inject timeout@...`) into a replay |
+| replay-live-dry | not converted | class: a replay that goes live on divergence (`--live-adapter`, `--live-cap`) |
+| replay-check-fail | not converted | class: an injected failed check (`--inject check-fail@...`) into a replay |
+
+### Other entries (9)
+
+| entry | state | reason |
+|---|---|---|
+| run-stop-decider | not converted | class: a second tool reads a finished run (`run-trial.sh --stop`, then `sdc-finding-kpis`) |
+| run-metrics | not converted | class: a second tool reads a finished run (`sdc-run-metrics`) |
+| rework-pending-rejection | not converted | class: the store is edited between two runs (a case cut at the rejection) |
+| decider-later-obligation | not converted | class: the contents of the decider's call directories (`prompt.md`, the open obligations it was shown) |
+| writer-not-called | not converted | class: the store is edited between two runs (a program replaced, a finding dismissed) |
+| decider-input | not converted | class: the contents of the decider's call directories (the files of its input) |
+| principals | not converted | class: the store is edited between two runs (a decision written by hand), then a refusal of a second tool |
+| efforts | not converted | class: dry runs and a stand-in model adapter written by the cycle: the environment of a bound program |
+| replay-recording-clean | not converted | class: the recording file of the replay tool (`recording.json`) |
