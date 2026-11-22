@@ -337,6 +337,22 @@ errors:
     fields:
       - {name: request_id, type: sdc.decision.DecisionRequestId}
 
+  - name: sdc.decision.OptionNotOffered
+    summary: "The letter names no option of the request: a decision or a verified recommendation takes one of the options the request offers; nothing was recorded."
+    fields:
+      - {name: request_id, type: sdc.decision.DecisionRequestId}
+      - {name: option, type: sdc.decision.OptionLetter}
+
+  - name: sdc.decision.DuplicateOptionLetter
+    summary: "Two options of the request carry the same letter, so a letter would name two options; nothing was opened."
+    fields:
+      - {name: request_id, type: sdc.decision.DecisionRequestId}
+
+  - name: sdc.decision.EmptyRecordId
+    summary: "The produced record names an empty record id, which names no Canon record; nothing was recorded."
+    fields:
+      - {name: request_id, type: sdc.decision.DecisionRequestId}
+
   - name: sdc.decision.AnswerNotAllowed
     summary: "Only a question request takes a free answer; an approval or an outcome is decided by one of its options. Nothing was recorded."
     fields:
@@ -421,6 +437,10 @@ commands:
         when: options.count < 2
         error: sdc.decision.TooFewOptions
         summary: "Fewer than two options: nothing was opened."
+      - name: duplicate-letters
+        when: {not: {distinct: {in: options, as: o, by: o.letter}}}
+        error: sdc.decision.DuplicateOptionLetter
+        summary: "Two options with one letter: a letter names one option of a request, so Decide, Recommend and the consequence a letter reads are never ambiguous. Nothing was opened."
       - name: requested
         creates: sdc.decision.DecisionRequest
         instance: request_id
@@ -493,6 +513,12 @@ commands:
           predicate: unblocks.kind != question
         error: sdc.decision.AnswerNotAllowed
         summary: "Only a question request is recommended a free answer."
+      - name: option-not-offered
+        when: {all: [check_verdict == verified, defined(recommended_option)]}
+        when_subject:
+          predicate: {not: {exists: {in: options, as: o, that: o.letter == input.recommended_option}}}
+        error: sdc.decision.OptionNotOffered
+        summary: "A verified recommendation names a letter the request does not offer: nothing was recorded. A refused check records no option, so it is not asked here (withheld)."
       - name: withheld
         when: check_verdict == refused
         moves: sdc.decision.DecisionRequest.recommend
@@ -582,6 +608,12 @@ commands:
           predicate: {not: {exists: {in: eligible, as: p, that: p == input.principal}}}
         error: sdc.decision.NotEligible
         summary: "The principal is not in the request's eligible list."
+      - name: option-not-offered
+        when: defined(option)
+        when_subject:
+          predicate: {not: {exists: {in: options, as: o, that: o.letter == input.option}}}
+        error: sdc.decision.OptionNotOffered
+        summary: "The letter names no option of the request, so nothing is stored: the guards below read the option's consequence, and the stored letter is the one RecordProduced and the run read."
       - name: decider-under-rule
         when: principal_kind == decider
         when_subject:
@@ -686,7 +718,7 @@ commands:
           sdc.decision.RecommendationTaken:
             request_id: input.request_id
             principal: input.principal
-        summary: "The request is Decided with its recommended option or answer and no produced_record yet."
+        summary: "The request is Decided with its recommended option or answer and no produced_record yet. A recommended option is always one the request offers: Recommend refuses a letter the request does not offer (option-not-offered) and the options never change after Request, so silence and every other principal take an offered letter."
       - name: wrong-state
         wrong_state: true
         error: sdc.decision.DecisionStateConflict
@@ -701,16 +733,20 @@ commands:
       - {name: request_id, type: sdc.decision.DecisionRequestId}
       - {name: produced, type: sdc.decision.ProducedRecord}
     outcomes:
+      - name: empty-record-id
+        when: produced.record == ""
+        error: sdc.decision.EmptyRecordId
+        summary: "An empty record id names no Canon record, and would equal the empty stand-in for a record that is not stored: nothing was recorded."
       - name: no-request
         unknown_instance: true
         error: sdc.decision.NoSuchRequest
         summary: "No request has this id."
       - name: already-recorded
         when_subject:
-          predicate: "coalesce(produced_record.record, \"\") == input.produced.record"
+          predicate: {all: [defined(produced_record), "produced_record.record == input.produced.record"]}
         preserves: sdc.decision.DecisionRequest
         instance: request_id
-        summary: "A record with the same record id is already stored: record ids key idempotence, so a retry after the record was written changes nothing."
+        summary: "A record with the same record id is already stored (defined(produced_record) first: a request that stores no record has nothing to be already recorded): record ids key idempotence, so a retry after the record was written changes nothing."
       - name: produced-conflict
         when_subject:
           predicate: defined(produced_record)
@@ -742,7 +778,7 @@ commands:
     naming:
       wire: escalate
       display: Escalate
-      summary: "Move an Open or Escalated request to a person. A decider or a rule escalates when it will not decide under D→P, R, or R∧D→P, where an Escalate is also the decider's veto (docs/autonomy-levels.md:235-239, escalation.mode person :385). Under P and P+ an Escalate is a person passing the request on to someone else, also from Escalated. Escalate never opens a request: the escalation row of the class table (:257) is not a request class, it gives the holder of the request after Escalate (P at A2 to A4 in SDC's table)."
+      summary: "Move an Open or Escalated request to a person. A decider or a rule escalates when it will not decide under D→P, R, or R∧D→P, where an Escalate is also the decider's veto (docs/autonomy-levels.md:235-239, escalation.mode person :385). Under P and P+ an Escalate is a person passing the request on to someone else, also from Escalated. The named principal must be in the request's eligible list (NotEligible otherwise); Escalate adds nobody to it. Escalate never opens a request: the escalation row of the class table (:257) is not a request class, it gives the holder of the request after Escalate (P at A2 to A4 in SDC's table)."
     input:
       - {name: request_id, type: sdc.decision.DecisionRequestId}
       - {name: escalate_to, type: sdc.decision.Principal}
@@ -757,6 +793,11 @@ commands:
           predicate: {any: [holder == decider_final, holder == rule_final, holder == rule_and_decider_final]}
         error: sdc.decision.EscalationSuppressed
         summary: "Holder D*, R: end or R∧D* (A5, docs/autonomy-levels.md:236, :255-256, :385, :454-459): no person is asked. Under D* the decider's best is taken through Decide or TakeRecommendation and the driver records escalation_suppressed; under R: end and on an R∧D* veto the run ends."
+      - name: target-not-eligible
+        when_subject:
+          predicate: {not: {exists: {in: eligible, as: p, that: p == input.escalate_to}}}
+        error: sdc.decision.NotEligible
+        summary: "The named principal is not in the request's eligible list: the request would wait in the inbox of someone who may not decide it. Escalate adds nobody to eligible; the host hands in the principals who may decide, including the person an escalation can reach."
       - name: escalated
         moves: sdc.decision.DecisionRequest.escalate
         instance: request_id

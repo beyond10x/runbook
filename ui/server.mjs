@@ -1,29 +1,26 @@
 #!/usr/bin/env node
-// sdc-ui: a live inspector for sdc-drive case stores, with a decisions inbox.
+// sdc-ui: a read-only inspector for the case stores of run directories, with a decisions list.
 //
-//   node server.mjs [--port 7490] [--write] [--principal operator] <store-or-case-dir>...
+//   node server.mjs [--port 7490] <store-or-case-dir>...
 //
 // Each argument is a case directory (holds case.json) or a store directory whose subdirectories
 // are root cases. A path that does not exist yet is waited for. The server reads files, polls their
 // stat signatures, and pushes `change` events over SSE. It listens on 127.0.0.1 only.
 //
-// Writes happen only with --write, only through POST /api/act, and only as one of four
-// whitelisted acts (decisions.mjs): approve (the driver's own `approve` command, built as an argv),
-// answer a question and change a context field (yq with the values in the environment), continue
-// the run (scripts/run-trial.sh <run>). Each is refused when the revision the page showed is not the
-// current one, and logged to <run>/ui-actions.jsonl.
+// It writes nothing and starts no program of the runtime: there is no act route, no `--write` and no
+// principal. A decision is answered through the daemon (`runbook serve`, its page or `runbook decide`).
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {inbox, act, procState, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, missingPrograms, missingText, amendStall} from './decisions.mjs';
+import {inbox, history, jsonl, decisionRecord, whoKind, scopeQuestions, waitsOnScope, amendStall} from './decisions.mjs';
 import {unifiedDiff, diffCounts} from './udiff.mjs';
 import {runFacts, applyFacts} from './runfacts.mjs';
 import {classify, meaningOf} from './web/meaning.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
-import {canonPath, drivePath} from './binaries.mjs';
+import {registerRun, runPath, leavesRun, readText, readJson, statOf, exists, statSig, listDir} from './runfiles.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -35,7 +32,6 @@ const sdc = path.resolve(here, '..');
 const args = process.argv.slice(2);
 let port = 7490;
 const host = '127.0.0.1';
-const config = {write: false, writeOnly: new Set(), principal: 'operator'};
 const paths = [];
 // --runs DIR (repeatable): every DIR/<run>/store is a source, and a run that appears later joins live
 const runsDirs = [];
@@ -51,13 +47,9 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--view') viewFiles.push(path.resolve(args[++i]));
   else if (args[i] === '--no-view') noView = true;
   else if (args[i] === '--experiments') expDirs.push(path.resolve(args[++i]));
-  else if (args[i] === '--write') config.write = true;
-  else if (args[i] === '--write-only') { config.write = true; config.writeOnly.add(path.resolve(args[++i])); }
-  else if (args[i] === '--principal') config.principal = args[++i];
+  else if (args[i].startsWith('--')) { console.error(`${args[i]}: unknown option. The inspector reads only: a decision is answered through the daemon (runbook serve, runbook decide)`); process.exit(2); }
   else paths.push(path.resolve(args[i]));
 }
-if (!/^[A-Za-z0-9._-]+$/.test(config.principal)) { console.error('--principal: letters, digits, . _ - only'); process.exit(2); }
-if (config.principal === 'non-interactive') { console.error('--principal: non-interactive is the agent\'s own answerer; name a person'); process.exit(2); }
 for (const r of runsDirs) if (!fs.existsSync(r)) { console.error(`--runs ${r}: no such directory`); process.exit(2); }
 if (!expDirs.length) expDirs.push(path.join(sdc, 'experiments'));
 if (noView && viewFiles.length) { console.error('--view and --no-view exclude each other'); process.exit(2); }
@@ -79,24 +71,26 @@ if (!paths.length && !runsDirs.length) {
   if (!fs.existsSync(d)) { console.error('no store given and the default one is missing: missing run directory runs/full-cycle-1/store (runs/ is git-ignored); pass a store directory: node server.mjs <run>/store'); process.exit(2); }
   paths.push(d);
 }
-for (const w of config.writeOnly) if (!paths.includes(w)) paths.push(w);
-// --write: every store may be acted on; --write-only PATH (repeatable): only those stores
-const writable = (src) => config.write && (!config.writeOnly.size || config.writeOnly.has(src.path));
 
-const readJson = (p, fallback = null) => {
+// Files of the checkout (protocols, docs, eval levels, experiment records) are not files of a run and are read
+// as they are. Every file of a run is read through ./runfiles.mjs, which refuses a link that leaves the run.
+const readRepoJson = (p, fallback = null) => {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return fallback; }
 };
-const readText = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
-const statSig = (p) => { try { const s = fs.statSync(p); return `${s.size}:${s.mtimeMs}`; } catch { return '-'; } };
-const listDir = (p) => { try { return fs.readdirSync(p).sort(); } catch { return []; } };
-const isCase = (p) => fs.existsSync(path.join(p, 'case.json')) || fs.existsSync(path.join(p, 'events.jsonl'));
+const readRepoText = (p) => { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } };
+const repoStatSig = (p) => { try { const s = fs.statSync(p); return `${s.size}:${s.mtimeMs}`; } catch { return '-'; } };
+const listRepoDir = (p) => { try { return fs.readdirSync(p).sort(); } catch { return []; } };
+const isCase = (p) => exists(path.join(p, 'case.json')) || exists(path.join(p, 'events.jsonl'));
 
 function readEvents(dir) {
   const text = readText(path.join(dir, 'events.jsonl')) || '';
   const out = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
-    try { out.push(JSON.parse(line)); } catch { /* a line mid-write */ }
+    let r;
+    try { r = JSON.parse(line); } catch { continue; /* a line mid-write */ }
+    // an event is an object with a numeric seq; any other line is skipped (the inspector shows no skipped lines)
+    if (r && typeof r === 'object' && !Array.isArray(r) && typeof r.seq === 'number') out.push(r);
   }
   return out;
 }
@@ -106,9 +100,11 @@ function readEvents(dir) {
 // (the first 64 KiB, whole lines): `opened` is its first event and the log may be long.
 const HEAD_BYTES = 65536;
 function openedProtocol(dir) {
+  const file = runPath(path.join(dir, 'events.jsonl'));
+  if (!file) return null;
   let fd;
   try {
-    fd = fs.openSync(path.join(dir, 'events.jsonl'), 'r');
+    fd = fs.openSync(file, 'r');
     const buf = Buffer.alloc(HEAD_BYTES);
     const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
     const lines = buf.toString('utf8', 0, n).split('\n');
@@ -128,14 +124,15 @@ const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol |
 // ---- sources ---------------------------------------------------------------------------------
 const nameOf = (p) => { const r = path.relative(path.join(sdc, 'runs'), p); return r.startsWith('..') ? p.split(path.sep).slice(-2).join('/') : r; };
 const sources = [];
-const addSource = (p, found = false) => { const s = {index: sources.length, path: p, name: found || nameOf(p), found: !!found, sig: '', cases: new Map(), version: 0, times: new Map(), liveSig: ''}; sources.push(s); return s; };
+const addSource = (p, found = false) => { const s = {index: sources.length, path: p, name: found || nameOf(p), found: !!found, sig: '', cases: new Map(), version: 0, times: new Map(), liveSig: ''}; sources.push(s); registerRun(runDirOf(s)); return s; };
 for (const p of paths) addSource(p);
 // the runs under --runs that have a store/, in name order at the start; a later one is appended
 // (source indexes never move); returns the ones added. A directory named *.part is a run still being
 // built aside (test/fixture-run.mjs moves it into place when done): it is not a run yet.
 function discover() {
   const added = [];
-  for (const r of runsDirs) for (const n of listDir(r)) {
+  // the runs directory is named by the operator: it is the place runs are found, not a file of one
+  for (const r of runsDirs) for (const n of listRepoDir(r)) {
     if (n.endsWith('.part')) continue;
     const st = path.join(r, n, 'store');
     if (!sources.some((s) => s.path === st) && fs.existsSync(st) && fs.statSync(st).isDirectory()) added.push(addSource(st, path.relative(path.join(sdc, 'runs'), path.join(r, n)).startsWith('..') ? n : path.relative(path.join(sdc, 'runs'), path.join(r, n))));
@@ -151,7 +148,7 @@ function stoppedOf(runDir) {
   if (!j || j.format !== 'sdc.run-stopped/1' || isNaN(Date.parse(j.at))) return null;
   return {at: j.at, by: typeof j.by === 'string' && j.by ? j.by : null, reason: typeof j.reason === 'string' ? j.reason : '', verdict_at_stop: j.verdict_at_stop ?? null, case: j.case ?? null};
 }
-// The run's settings (sdc.run-settings/1, one line per start or resume by scripts/run-trial.sh): the
+// The run's settings (sdc.run-settings/1, one line per start or resume of the run): the
 // last line holds; its decider says who takes the decisions that wait on a person. Null without one.
 function settingsOf(runDir) {
   const text = readText(path.join(runDir, 'run-settings.jsonl')) || '';
@@ -172,7 +169,7 @@ function programOf(runDir) {
   return paid ? {kind: 'real', why: `llm-calls.jsonl: ${paid.model} via ${paid.adapter ?? 'an adapter'}`} : {kind: 'stub', why: 'no run-settings.jsonl, and no model call in llm-calls.jsonl'};
 }
 // when the run last wrote: its directory, its settings, calls and log, its store
-const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => { try { return fs.statSync(p).mtimeMs; } catch { return 0; } }));
+const lastWrite = (runDir, store) => Math.max(0, ...[runDir, store, ...['run-settings.jsonl', 'llm-calls.jsonl', 'run.log'].map((f) => path.join(runDir, f))].map((p) => statOf(p)?.mtimeMs ?? 0));
 // The view of one run: the first loaded view that covers the protocols of its cases (web/view.js viewCovers).
 // A run whose protocols no loaded view covers has none: it renders with the generic parts only and the page
 // says which view is missing (`missing`, `protocols`). No view is a default for another runbook's run.
@@ -195,7 +192,21 @@ bindViewScope(() => viewScope.getStore());
 const useViewOf = (src) => { setView(src ? viewOf(src).view : null); };
 const inView = (src, fn) => viewScope.run(newViewState(), () => { useViewOf(src); return fn(); });
 const viewInfo = (src) => { const {view, sig, ...info} = viewOf(src); return info; };
-const sourceRow = (s) => ({index: s.index, name: s.name, view: viewInfo(s), path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: runSummary(s), experiments: experimentsOf(runDirOf(s))});
+// A run that cannot be read does not stop the server: the throw is caught per run, logged once with the
+// name of its directory, and the other runs go on.
+const unreadable = new Set();
+function guardRun(s, fn, fallback) {
+  try { return fn(); } catch (e) {
+    if (!unreadable.has(s.path)) {
+      unreadable.add(s.path);
+      console.error(`run ${s.name}: cannot be read (${e?.name || 'Error'}: ${String(e?.message || e).split(s.path).join(s.name)})`);
+    }
+    return fallback;
+  }
+}
+const UNREADABLE_RUN = {state: 'idle', started: null, ended: null, last: null, outcome: null, delivered: null, closedBy: null, stopBy: null, cause: null, cost: null, calls: null, work: null, decider: null, setting: null, autonomy: null, forced: 0, unstuck: 0, reopens: 0, unreadable: true};
+const sourceRow = (s) => guardRun(s, () => fullRow(s), {index: s.index, name: s.name, path: s.path, found: s.found, exists: false, version: s.version, cases: 0, run: UNREADABLE_RUN});
+const fullRow = (s) => ({index: s.index, name: s.name, view: viewInfo(s), path: s.path, exists: fs.existsSync(s.path), version: s.version, cases: s.cases.size, runDir: runDirOf(s), found: s.found, stopped: stoppedOf(runDirOf(s)), program: programOf(runDirOf(s)), lastWrite: lastWrite(runDirOf(s), s.path), run: guardRun(s, () => runSummary(s), UNREADABLE_RUN), experiments: experimentsOf(runDirOf(s))});
 
 // ---- experiments: which experiment, variant and ordinal a run belongs to -----------------------------
 // A run directory's experiment.json (sdc.experiment-run/1, written by sdc-experiment run) says it; a run
@@ -240,12 +251,12 @@ function experimentRecord(text) {
 }
 let expCache = {sig: null, records: new Map(), byRun: new Map()};
 function experimentIndex() {
-  const files = expDirs.flatMap((d) => listDir(d).filter((n) => /\.ya?ml$/.test(n)).map((n) => path.join(d, n)));
-  const sig = files.map((f) => `${f}:${statSig(f)}`).join('|');
+  const files = expDirs.flatMap((d) => listRepoDir(d).filter((n) => /\.ya?ml$/.test(n)).map((n) => path.join(d, n)));
+  const sig = files.map((f) => `${f}:${repoStatSig(f)}`).join('|');
   if (expCache.sig === sig) return expCache;
   const records = new Map(), byRun = new Map();
   for (const f of files) {
-    const rec = experimentRecord(readText(f) || '');
+    const rec = experimentRecord(readRepoText(f) || '');
     const id = rec.id || path.basename(f).replace(/\.ya?ml$/, '');
     if (rec.format && rec.format !== 'sdc.experiment/1') continue;
     if (records.has(id)) continue;
@@ -295,49 +306,50 @@ function runSummary(s) {
   const caseDirs = Array.from(s.cases.values());
   const sig = files.map(statSig).join('|') + '#' + caseDirs.map((e) => `${e.dir}:${e.sig}`).join('|');
   let c = summaries.get(s.path);
+  if (c?.failed && c.sig === sig) throw c.failed;
   if (!c || c.sig !== sig) {
-    const st = readJson(files[0]);
-    const status = st && st.format === 'sdc.run-status/1' ? st : null;
-    const stop = readJson(files[1]);
-    const sets = lines(files[2]).filter((r) => r.format === 'sdc.run-settings/1');
-    const calls = lines(files[3]).filter((r) => r.model || r.usage || r.adapter);
-    const decs = lines(files[4]).filter((r) => r.model || r.cost_usd != null || r.cost != null);
-    // the cases' event times: the first and the last, and the root's close
-    let first = null, last = null, term = null;
-    const times = c?.times || new Map();
-    for (const e of caseDirs) {
-      let t = times.get(e.dir);
-      if (!t || t.sig !== e.sig) {
-        const evs = readEvents(e.dir);
-        const ats = evs.map((x) => msOf(x.at)).filter((x) => x != null);
-        const tm = evs.findLast?.((x) => x.event === 'terminated') ?? [...evs].reverse().find((x) => x.event === 'terminated');
-        t = {sig: e.sig, first: ats.length ? Math.min(...ats) : null, last: ats.length ? Math.max(...ats) : null, term: tm ? {at: msOf(tm.at), outcome: tm.outcome ?? null} : null};
-        times.set(e.dir, t);
+    try {
+      const st = readJson(files[0]);
+      const status = st && st.format === 'sdc.run-status/1' ? st : null;
+      const stop = readJson(files[1]);
+      const sets = lines(files[2]).filter((r) => r.format === 'sdc.run-settings/1');
+      const calls = lines(files[3]).filter((r) => r.model || r.usage || r.adapter);
+      const decs = lines(files[4]).filter((r) => r.model || r.cost_usd != null || r.cost != null);
+      // the cases' event times: the first and the last, and the root's close
+      let first = null, last = null, term = null;
+      const times = c?.times || new Map();
+      for (const e of caseDirs) {
+        let t = times.get(e.dir);
+        if (!t || t.sig !== e.sig) {
+          const evs = readEvents(e.dir);
+          const ats = evs.map((x) => msOf(x.at)).filter((x) => x != null);
+          const tm = evs.findLast?.((x) => x.event === 'terminated') ?? [...evs].reverse().find((x) => x.event === 'terminated');
+          t = {sig: e.sig, first: ats.length ? Math.min(...ats) : null, last: ats.length ? Math.max(...ats) : null, term: tm ? {at: msOf(tm.at), outcome: tm.outcome ?? null} : null};
+          times.set(e.dir, t);
+        }
+        if (t.first != null && (first == null || t.first < first)) first = t.first;
+        if (t.last != null && (last == null || t.last > last)) last = t.last;
+        if (e.depth === 0 && t.term) term = t.term;
       }
-      if (t.first != null && (first == null || t.first < first)) first = t.first;
-      if (t.last != null && (last == null || t.last > last)) last = t.last;
-      if (e.depth === 0 && t.term) term = t.term;
-    }
-    const started = msOf(sets[0]?.at) ?? msOf(calls[0]?.started) ?? first;
-    const recorded = fs.existsSync(files[3]) || fs.existsSync(files[4]);
-    const cost = recorded ? calls.reduce((a, r) => a + (Number(r.cost_usd) || 0), 0) + decs.reduce((a, r) => a + (Number(r.cost_usd ?? r.cost) || 0), 0) : null;
-    const v = {
-      started, last,
-      status: status ? {state: status.state ?? null, at: msOf(status.at), outcome: status.outcome ?? null, delivered: typeof status.delivered === 'boolean' ? status.delivered : null, closedBy: status.closed_by ?? null} : null,
-      stop: stop && stop.format === 'sdc.run-stopped/1' && msOf(stop.at) != null ? {at: msOf(stop.at), by: stop.by ?? null, cause: stop.cause || stop.verdict_at_stop || null} : null,
-      term,
-      cost, calls: recorded ? calls.length + decs.length : null, work: recorded ? calls.length : null, decider: recorded ? decs.length : null,
-      setting: settingText(sets.at(-1), calls), autonomy: sets.at(-1)?.autonomy ?? null,
-      forced: count(status?.forced), unstuck: count(status?.unstuck), reopens: count(status?.reopens),
-    };
-    c = {sig, times, v};
-    summaries.set(s.path, c);
+      const started = msOf(sets[0]?.at) ?? msOf(calls[0]?.started) ?? first;
+      const recorded = exists(files[3]) || exists(files[4]);
+      const cost = recorded ? calls.reduce((a, r) => a + (Number(r.cost_usd) || 0), 0) + decs.reduce((a, r) => a + (Number(r.cost_usd ?? r.cost) || 0), 0) : null;
+      const v = {
+        started, last,
+        status: status ? {state: status.state ?? null, at: msOf(status.at), outcome: status.outcome ?? null, delivered: typeof status.delivered === 'boolean' ? status.delivered : null, closedBy: status.closed_by ?? null} : null,
+        stop: stop && stop.format === 'sdc.run-stopped/1' && msOf(stop.at) != null ? {at: msOf(stop.at), by: stop.by ?? null, cause: stop.cause || stop.verdict_at_stop || null} : null,
+        term,
+        cost, calls: recorded ? calls.length + decs.length : null, work: recorded ? calls.length : null, decider: recorded ? decs.length : null,
+        setting: settingText(sets.at(-1), calls), autonomy: sets.at(-1)?.autonomy ?? null,
+        forced: count(status?.forced), unstuck: count(status?.unstuck), reopens: count(status?.reopens),
+      };
+      c = {sig, times, v};
+      summaries.set(s.path, c);
+    } catch (e) { summaries.set(s.path, {sig, failed: e}); throw e; }
   }
   const v = c.v;
-  // running now: a driver holds a case tree (driver.json with a live pid, or a live pid in the tree's lock),
-  // or a model or decider call is in progress (the newest records' status.json: running, its pid alive)
-  const driving = rootsOf(s).some((r) => { const j = readJson(path.join(r, 'driver.json')); const lock = (readText(path.join(r, '.sdc-drive.lock')) || '').trim(); return (j && alive(j.pid)) || (lock && alive(lock)); })
-    || RECORD_KINDS.some((k) => listDir(path.join(runDir, k)).slice(-2).some((n) => { const st = callStatus(path.join(runDir, k, n)); return st?.state === 'running' && alive(st.pid); }));
+  // Whether it is live (livenessOf): the runner writes no pid and no lock, so a run that has not ended is
+  // 'unknown' (a run directory of `runbook run`) or history (any other directory): never 'running'.
   const closed = v.status?.state === 'closed' ? {at: v.status.at, outcome: v.status.outcome ?? v.term?.outcome ?? null, delivered: v.status.delivered}
     : v.term ? {at: v.term.at, outcome: v.term.outcome, delivered: null} : null;
   // How a closed run ended: good when the runner's own record says delivered (status.json) or the view of its
@@ -354,20 +366,22 @@ function runSummary(s) {
       endWhy = `view ${runbook || 'of the run'}: good_outcomes ${hit ? 'lists' : 'does not list'} ${outcome || 'an outcome that is not named'}`;
     } else { end = 'neutral'; endWhy = 'no view names the good ends of this runbook (good_outcomes) and the run does not say it delivered'; }
   }
-  const state = v.stop ? 'stopped' : closed ? 'closed' : driving ? 'running' : 'idle';
-  const ended = state === 'stopped' ? v.stop.at : state === 'closed' ? closed.at ?? v.last : state === 'running' ? null : v.last;
+  const state = v.stop ? 'stopped' : closed ? 'closed' : exists(path.join(runDir, 'settings.json')) ? 'unknown' : 'idle';
+  const ended = state === 'stopped' ? v.stop.at : state === 'closed' ? closed.at ?? v.last : state === 'unknown' ? null : v.last;
   return {state, started: v.started, ended, last: v.last, outcome: closed?.outcome ?? null, delivered: closed ? closed.delivered : null, end, endWhy, closedBy: v.status?.closedBy ?? null,
     stopBy: v.stop?.by ?? null, cause: v.stop?.cause ?? null, cost: v.cost, calls: v.calls, work: v.work, decider: v.decider, setting: v.setting, autonomy: v.autonomy,
     forced: v.forced, unstuck: v.unstuck, reopens: v.reopens};
 }
 
-// When each event was written. The events' own `at` is the instant the caller passed to the whole
-// `sdc-drive run` (every step of one run shares it), so the wall clock of a step comes from here:
+// When each event was written. The events' own `at` is the instant the caller passed to a whole leg
+// of the run (every step of the leg shares it), so the wall clock of a step comes from here:
 // the mtime of events.jsonl when the server saw a line appear. On first sight only the last line
 // is dated (the file's mtime is when that line was appended); earlier ones stay undated.
 function observe(src, dir) {
   let mtime;
-  try { mtime = fs.statSync(path.join(dir, 'events.jsonl')).mtimeMs; } catch { return; }
+  const eventsStat = statOf(path.join(dir, 'events.jsonl'));
+  if (!eventsStat) return;
+  mtime = eventsStat.mtimeMs;
   const evs = readEvents(dir);
   let prev = src.times.get(dir);
   if (prev && evs.length < prev.n) prev = null; // the file was replaced: date it as on first sight
@@ -439,8 +453,8 @@ function scan(src) {
 
 // ---- live: agent and decider calls in progress, and the run's file changes -----------------------
 // A call is in progress while its record directory has request.json and response.json is missing
-// or empty: llm-node.sh and decider.sh redirect the adapter's stdout into response.json, which the
-// shell creates empty when the call starts and fills when it ends.
+// or empty: a model or decider call's adapter stdout goes into response.json, which is created empty
+// when the call starts and filled when it ends.
 // With status.json (sdc.call-status/1) the call says itself: state running is in progress, finished
 // and failed are not, whatever response.json holds. Without it the rule above applies.
 const RECORD_KINDS = ['llm', 'decider'];
@@ -454,38 +468,32 @@ function openRecords(runDir) {
   const out = [];
   for (const kind of RECORD_KINDS) for (const name of listDir(path.join(runDir, kind))) {
     const d = path.join(runDir, kind, name);
-    if (!fs.existsSync(path.join(d, 'request.json'))) continue;
+    if (!exists(path.join(d, 'request.json'))) continue;
     const status = callStatus(d);
     if (status?.state) {
       if (status.state !== 'running') continue;
     } else {
       let resp;
-      try { resp = fs.statSync(path.join(d, 'response.json')); } catch { resp = null; }
+      resp = statOf(path.join(d, 'response.json'));
       if (resp && resp.size > 0) continue;
     }
     out.push({kind, name, dir: d, status});
   }
   return out;
 }
-// Which driver holds each case tree: <root>/driver.json (sdc.driver/1, present while one holds the
-// tree), the pid in <root>/.sdc-drive.lock, and whether any case of the tree has an observed.jsonl.
-function driverOf(root) {
-  const j = readJson(path.join(root, 'driver.json'));
-  const lockPid = (readText(path.join(root, '.sdc-drive.lock')) || '').trim();
-  const file = !!(j && typeof j === 'object');
-  const observed = walk(root, null, 0, []).some((x) => fs.existsSync(path.join(x.dir, 'observed.jsonl')));
-  return {file, pid: file ? j.pid ?? null : null, started_at: file ? j.started_at ?? null : null, argv: file && Array.isArray(j.argv) ? j.argv : null,
-    alive: file && alive(j.pid), lock_pid: lockPid || null, lock_alive: !!lockPid && alive(lockPid), observed};
-}
-function driversOf(src) {
-  const out = {};
-  for (const r of rootsOf(src)) out[path.relative(src.path, r) || '.'] = driverOf(r);
-  return out;
+// Is the run live. `runbook run` writes no pid and no lock file (docs/loom-run-directory.md): what it leaves
+// is settings.json (first), run-stopped.json or status.json (the end). So a run directory with an end record
+// is `ended`; one with settings.json and no end record is `unknown` (running, or killed: the files do not say);
+// any other directory (a case store of the old driver) is `history`: shown, never reported as live.
+function livenessOf(src) {
+  const runDir = runDirOf(src);
+  if (readJson(path.join(runDir, 'run-stopped.json')) || readJson(path.join(runDir, 'status.json'))?.state === 'closed') return {state: 'ended'};
+  if (exists(path.join(runDir, 'settings.json'))) return {state: 'unknown', why: 'the runner writes no record of a live process'};
+  return {state: 'history', why: 'a case store of the old driver: nothing runs it'};
 }
 function liveSignature(src, runDir) {
   const recs = openRecords(runDir).map((r) => `${r.kind}/${r.name}:${statSig(path.join(r.dir, 'events.jsonl'))}:${r.status ? alive(r.status.pid) : '-'}`);
-  const drv = Object.entries(driversOf(src)).map(([k, d]) => `${k}:${d.file}:${d.alive}:${d.lock_alive}:${d.observed}`).join(',');
-  return recs.join('|') + '#' + statSig(path.join(runDir, 'fs', 'changes.jsonl')) + '#' + RECORD_KINDS.map((k) => listDir(path.join(runDir, k)).length).join(',') + '#' + drv;
+  return recs.join('|') + '#' + statSig(path.join(runDir, 'fs', 'changes.jsonl')) + '#' + RECORD_KINDS.map((k) => listDir(path.join(runDir, k)).length).join(',') + '#' + livenessOf(src).state;
 }
 
 const argShort = (input) => {
@@ -506,7 +514,7 @@ function recordProgress(r, runDir) {
   if (hit && hit.sig === sig) return hit.value;
   const req = readJson(path.join(r.dir, 'request.json'), {});
   const dreq = r.kind === 'decider' ? readJson(path.join(r.dir, 'decide-request.json'), {}) : null;
-  const mtime = (f) => { try { return Math.round(fs.statSync(path.join(r.dir, f)).mtimeMs); } catch { return null; } };
+  const mtime = (f) => { const s = statOf(path.join(r.dir, f)); return s ? Math.round(s.mtimeMs) : null; };
   // request.json.case (a case id, or a path whose last part is one) joins the call to its case;
   // before it existed a decider call named its case in decide-request.json and an agent call none
   const caseOf = typeof req.case === 'string' && req.case ? path.basename(req.case) : dreq?.case_dir ? path.basename(dreq.case_dir) : null;
@@ -561,7 +569,7 @@ function recordProgress(r, runDir) {
 // `sdc.fs-attribution/1` line (no seq) replaces the attribution of the change it names.
 const fsCache = new Map();
 function fsChanges(runDir) {
-  const file = path.join(runDir, 'fs', 'changes.jsonl');
+  const file = runPath(path.join(runDir, 'fs', 'changes.jsonl'), runDir);
   let size;
   try { size = fs.statSync(file).size; } catch { fsCache.delete(runDir); return {present: false, list: []}; }
   let c = fsCache.get(runDir);
@@ -606,7 +614,9 @@ function fsChange(runDir, seq) {
   const c = fsCache.get(runDir);
   const loc = c?.at.get(seq);
   if (!loc) return null;
-  const fd = fs.openSync(path.join(runDir, 'fs', 'changes.jsonl'), 'r');
+  const file = runPath(path.join(runDir, 'fs', 'changes.jsonl'), runDir);
+  if (!file) return null;
+  const fd = fs.openSync(file, 'r');
   const buf = Buffer.alloc(loc.len);
   fs.readSync(fd, buf, 0, loc.len, loc.off);
   fs.closeSync(fd);
@@ -637,8 +647,8 @@ function workFacts(src) {
     if (depth > 4 || files.length > 300) return;
     for (const n of listDir(dir)) {
       const p = path.join(dir, n);
-      let st;
-      try { st = fs.statSync(p); } catch { continue; }
+      const st = statOf(p);
+      if (!st) continue;
       if (st.isDirectory()) walkMd(p, `${rel}/${n}`, depth + 1);
       else if (n.endsWith('.md') && st.size < 65536) files.push({path: `${rel}/${n}`.replace(/^\//, ''), text: readText(p) || ''});
     }
@@ -651,7 +661,7 @@ function liveInfo(src) {
   const runDir = runDirOf(src);
   const records = openRecords(runDir).map((r) => recordProgress(r, runDir));
   const changes = fsChanges(runDir);
-  return {now: Date.now(), runDir, records, drivers: driversOf(src), fs: {present: changes.present, changes: changes.list.slice(-3000)}};
+  return {now: Date.now(), runDir, records, liveness: livenessOf(src), fs: {present: changes.present, changes: changes.list.slice(-3000)}};
 }
 
 function loadCase(src, entry) {
@@ -784,28 +794,25 @@ function runInfo(src) {
 // ---- structural data: compiled IRs, canon check output, binding examples, eval levels ----------
 function meta() {
   const compiled = {};
-  for (const f of listDir(path.join(sdc, 'protocol/compiled'))) if (f.endsWith('.ir.json')) {
-    const ir = readJson(path.join(sdc, 'protocol/compiled', f));
+  for (const f of listRepoDir(path.join(sdc, 'protocol/compiled'))) if (f.endsWith('.ir.json')) {
+    const ir = readRepoJson(path.join(sdc, 'protocol/compiled', f));
     if (ir) compiled[ir.protocol.id] = ir;
   }
   const check = {};
-  const text = readText(path.join(sdc, 'docs/check-output.txt')) || '';
+  const text = readRepoText(path.join(sdc, 'docs/check-output.txt')) || '';
   for (const m of text.matchAll(/checked: protocol `([^`]+)` revision (\d+): (\d+) states, (\d+) properties, (\d+) findings?/g)) {
     const key = `${m[1]}@${m[2]}`;
     if (!check[key]) check[key] = {protocol: m[1], revision: Number(m[2]), states: Number(m[3]), properties: Number(m[4]), findings: Number(m[5])};
   }
   const levels = {};
-  for (const f of listDir(path.join(sdc, 'eval/levels'))) if (f.endsWith('.json')) levels[f] = readJson(path.join(sdc, 'eval/levels', f));
-  return {sdc, compiled, check, checkSource: 'docs/check-output.txt', levels,
-    drive: drivePath(sdc), canon: canonPath()};
+  for (const f of listRepoDir(path.join(sdc, 'eval/levels'))) if (f.endsWith('.json')) levels[f] = readRepoJson(path.join(sdc, 'eval/levels', f));
+  return {sdc, compiled, check, checkSource: 'docs/check-output.txt', levels};
 }
 
-// What decisions.mjs needs of a source: its paths, its cases, and the configured principal.
+// What decisions.mjs needs of a source: its paths and its cases.
 function ctx(src) {
   const cases = Array.from(src.cases.values()).map((e) => ({dir: e.dir, rel: path.relative(src.path, e.dir) || '.', ...pick(loadCase(src, e))}));
-  return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, principal: config.principal, write: writable(src), index: src.index,
-    canon: canonPath(), drive: drivePath(sdc),
-    refresh: () => { for (const e of src.cases.values()) e.data = null; }};
+  return {root: sdc, storePath: src.path, runDir: runDirOf(src), cases, index: src.index};
 }
 const pick = (c) => ({id: c.id, case: c.case, ir: c.ir, bindings: c.bindings, parts: c.parts, events: c.events, evaluations: c.evaluations, evidence: c.evidence, parent: c.parent});
 
@@ -832,17 +839,17 @@ function push(name, data) {
 let sourcesSig = '';
 function tick() {
   discover();
-  for (const src of sources) inView(src, () => {
+  for (const src of sources) guardRun(src, () => inView(src, () => {
     const existed = src.exists;
     src.exists = fs.existsSync(src.path);
     const {changed, runChanged, liveChanged} = scan(src);
     if (changed.length || runChanged || liveChanged || existed !== src.exists) {
       push('change', {source: src.index, version: src.version, cases: changed.map((d) => path.relative(src.path, d) || '.'), run: runChanged, live: liveChanged || changed.length > 0});
     }
-  });
+  }));
   // the list the run picker shows: a run that appeared, a store that came, a run that started, closed or
   // was stopped (its state); cost, calls and times are fetched when the picker opens
-  const sig = sources.map((s) => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`)).join('|');
+  const sig = sources.map((s) => guardRun(s, () => inView(s, () => `${s.path}:${fs.existsSync(s.path)}:${statSig(path.join(runDirOf(s), 'run-stopped.json'))}:${runSummary(s).state}`), `${s.path}:unreadable`)).join('|');
   if (sig !== sourcesSig) { if (sourcesSig) push('sources', {count: sources.length}); sourcesSig = sig; }
 }
 
@@ -853,13 +860,40 @@ const send = (res, code, body, type = 'application/json; charset=utf-8') => {
   res.end(shownPaths(typeof body === 'string' ? body : Buffer.isBuffer(body) ? body.toString('utf8') : JSON.stringify(body)));
 };
 
+// A request is for this server when its Host is a loopback name with the port the server listens on (the
+// names the daemon's own guard accepts: 127.0.0.1, localhost, [::1]; the server binds 127.0.0.1 only), and
+// when it names an Origin, that origin is the Host's own. Anything else is a page of another origin or a
+// rebound name, and is refused before any route.
+const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\]):(\d+)$/i;
+const ORIGIN = /^http:\/\/([a-z0-9.[\]:-]+)$/i;
+function addressedToThisServer(req) {
+  const host = req.headers.host || '';
+  const m = LOOPBACK_HOST.exec(host);
+  if (!m || Number(m[2]) !== server.address().port) return false;
+  if (req.headers.origin === undefined) return true;
+  const o = ORIGIN.exec(req.headers.origin);
+  return !!o && o[1].toLowerCase() === host.toLowerCase();
+}
+
+// The one guard of every request: a value a request carries (the request line, a header, a query) that makes
+// the code throw ends in an answer, never in the end of the process.
 const server = http.createServer((req, res) => {
-  const src = sources[Number(new URL(req.url, 'http://x').searchParams.get('source') || 0)];
-  inView(src, () => handle(req, res));
+  try {
+    if (!addressedToThisServer(req)) return send(res, 421, {error: 'this request is not for this server'});
+    let url;
+    try { url = new URL(req.url, 'http://x'); } catch { return send(res, 400, {error: 'bad request'}); }
+    const src = sources[Number(url.searchParams.get('source') || 0)];
+    inView(src, () => handle(req, res, url));
+  } catch (e) {
+    console.error(`sdc-ui: ${req.method} request failed: ${e?.stack || e}`);
+    if (!res.headersSent) send(res, 500, {error: 'internal error'});
+    else res.end();
+  }
 });
 
-function handle(req, res) {
-  const url = new URL(req.url, 'http://x');
+function handle(req, res, url) {
+  // the inspector reads: no route takes a body or a command
+  if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'this server only reads'});
   const p = url.pathname;
   const src = sources[Number(url.searchParams.get('source') || 0)];
   if (p === '/events') {
@@ -882,7 +916,7 @@ function handle(req, res) {
     const cases = all.filter((e) => !want || want.has(path.relative(src.path, e.dir) || '.')).map((e) => loadCase(src, e));
     return send(res, 200, {source: src.index, version: src.version, now: Date.now(), exists: fs.existsSync(src.path), present: all.map((e) => path.relative(src.path, e.dir) || '.'), cases});
   }
-  if (p === '/api/run') return send(res, 200, {...runInfo(src), proc: procState(src.index)});
+  if (p === '/api/run') return send(res, 200, runInfo(src));
   if (p === '/api/live') return send(res, 200, liveInfo(src));
   if (p === '/api/workfacts') return send(res, 200, workFacts(src));
   if (p === '/api/fschange') {
@@ -891,35 +925,13 @@ function handle(req, res) {
   }
   if (p === '/api/inbox') {
     const x = ctx(src);
-    // what the driver needs and this server cannot find: the drawer says so before anyone acts
-    const missing = writable(src) ? missingPrograms(x, {kind: 'continue'}) : [];
-    return send(res, 200, {write: writable(src), principal: config.principal, items: inbox(x), history: history(x), missing, missingText: missing.length ? missingText(missing) : null, stopped: stoppedOf(runDirOf(src))});
-  }
-  if (p === '/api/act') {
-    if (req.method !== 'POST') return send(res, 405, {error: 'POST only'});
-    // same-origin only: a custom header forces a CORS preflight that this server never answers
-    if (req.headers['x-sdc-ui'] !== '1' || !/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host || '')) return send(res, 403, {error: 'refused: not from this page'});
-    if (!writable(src)) return send(res, 403, {error: config.write ? 'refused: this store is not one of --write-only' : 'refused: the server runs without --write'});
-    let body = '';
-    req.on('data', (d) => { body += d; if (body.length > 65536) req.destroy(); });
-    req.on('end', () => inView(src, async () => {
-      let b;
-      try { b = JSON.parse(body); } catch { return send(res, 400, {error: 'bad JSON'}); }
-      // an open decision of a stopped run is not taken from here; continuing the run stays possible
-      const stop = stoppedOf(runDirOf(src));
-      if (stop && b && b.kind !== 'continue') return send(res, 409, {ok: false, error: `refused: the run was stopped by ${stop.by || 'someone'} at ${stop.at}${stop.reason ? ` (${stop.reason})` : ''}; its open decisions are not taken while it is stopped`});
-      try {
-        const out = await act(ctx(src), b, (ev, data) => push(ev, {source: src.index, ...data}));
-        send(res, out.ok ? 200 : 409, out);
-      } catch (e) { send(res, 500, {error: String(e.message || e)}); }
-    }));
-    return;
+    return send(res, 200, {items: inbox(x), history: history(x), stopped: stoppedOf(runDirOf(src))});
   }
   if (p === '/api/blob') {
     const rel = url.searchParams.get('case') || '.';
     const hash = url.searchParams.get('hash') || '';
     if (!/^[0-9a-f]{64}$/.test(hash) || rel.includes('..')) return send(res, 400, {error: 'bad request'});
-    const t = readText(path.join(src.path, rel, 'blobs', hash));
+    const t = readText(path.join(src.path, rel, 'blobs', hash), runDirOf(src));
     return send(res, t == null ? 404 : 200, t == null ? 'not found' : t.slice(0, 200000), 'text/plain; charset=utf-8');
   }
   const file = p === '/' ? 'index.html' : p.slice(1);

@@ -44,7 +44,21 @@ fn world(tag: &str, script: &str) -> World {
     let login = dir.path().join("secret-login-dir/credentials.json");
     std::fs::create_dir_all(login.parent().unwrap()).unwrap();
     std::fs::write(&login, "{}").unwrap();
+    install_routing_table(&run);
     World { _dir: dir, run, work, adapter, reply_bin, login }
+}
+
+fn repository_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+}
+
+/// The two files the routing reads, copied from the repository beside the run directory's root.
+fn install_routing_table(run: &Path) {
+    for file in ["driver/examples/sdc/decision-classes.json", routing::LEVELS_FILE] {
+        let to = run.join(file);
+        std::fs::create_dir_all(to.parent().unwrap()).unwrap();
+        std::fs::copy(repository_root().join(file), to).unwrap();
+    }
 }
 
 /// An adapter that records its environment and its request beside the request, writes `decision`
@@ -283,6 +297,20 @@ fn the_adapter_gets_an_environment_built_here_and_nothing_inherited() {
 }
 
 #[test]
+fn the_adapter_of_a_re_drive_is_handed_the_plan_of_the_run_by_the_settings() {
+    let w = world("r2-replay-plan", &valid("0.1"));
+    let plan = w.run.join("replay/plan.json");
+    let s = settings(&w, json!({"replay_plan": plan.display().to_string()}));
+    ask(&w, &s, &approve_action(&w), 250_000);
+    let env = std::fs::read_to_string(first_record(&w).join("env.txt")).unwrap();
+    assert!(env.contains(&format!("SDC_REPLAY={}\n", plan.display())), "{env}");
+    for bad in [json!(""), json!("relative/plan.json"), json!(3)] {
+        let s = settings(&w, json!({"replay_plan": bad.clone()}));
+        assert!(from_settings(&s).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn a_child_environment_without_path_is_refused() {
     let w = world("r2-nopath", &valid("0.1"));
     let s = settings(&w, json!({}));
@@ -432,10 +460,11 @@ fn only_autonomy_a5_lets_the_decider_answer() {
     let mut s = settings(&w, json!({}));
     let decider = from_settings(&s).unwrap();
     assert!(matches!(ask_with(decider.as_ref(), &w, &approve_action(&w), 250_000, &env_with_path()), Verdict::Answer { .. }));
+    let release = json!({"case": "IDEA-1", "kind": "ApproveAction", "action": "release.publish", "decides": "release.publish of case IDEA-1 at revision 7", "subject": "release", "revision": "r1"});
     for level in ["A0", "A1", "A2", "A3", "A4"] {
         s["autonomy"] = json!(level);
         let d = from_settings(&s).unwrap();
-        let why = reason(ask_with(d.as_ref(), &w, &approve_action(&w), 250_000, &env_with_path()));
+        let why = reason(ask_with(d.as_ref(), &w, &release, 250_000, &env_with_path()));
         assert!(why.starts_with(&format!("reserved for a person: autonomy {level}")), "{why}");
     }
     s.as_object_mut().unwrap().remove("autonomy");
@@ -444,6 +473,178 @@ fn only_autonomy_a5_lets_the_decider_answer() {
     s["autonomy"] = json!("A9");
     assert!(from_settings(&s).err().unwrap().contains("autonomy"));
     assert_eq!(record_dirs(&w.run.join("decider")), 1, "only the A5 decision started the adapter");
+}
+
+#[test]
+fn below_a5_the_decider_answers_only_the_classes_the_table_gives_it_and_under_its_own_principal() {
+    let w = world("r2-routing", &valid("0.1"));
+    let mut s = settings(&w, json!({}));
+    let table = Routing::load(&w.run).unwrap();
+    let cases = [("context.approve", ["A1", "A2", "A3", "A4"]), ("roadmap.approve", ["A1", "A2", "A3", "A4"]), ("release.publish", ["A1", "A2", "A3", "A4"]), ("merge.approve", ["A1", "A2", "A3", "A4"])];
+    let mut asked = 0;
+    for (action, levels) in cases {
+        for level in levels {
+            s["autonomy"] = json!(level);
+            let mut decision = approve_action(&w);
+            decision["action"] = json!(action);
+            let verdict = ask(&w, &s, &decision, 250_000);
+            let takes = table.decider_takes(level, "approval", action);
+            match verdict {
+                Verdict::Answer { principal, .. } => {
+                    assert!(takes, "{level} {action}: answered where the table gives {:?}", table.holder(level, &table.class_of("approval", action)));
+                    assert_eq!(principal.as_deref(), Some("decider:model"), "never a person");
+                    asked += 1;
+                }
+                Verdict::CannotDecide { reason } => {
+                    assert!(!takes, "{level} {action}: {reason}");
+                    assert!(reason.starts_with(&format!("reserved for a person: autonomy {level}")), "{reason}");
+                }
+            }
+        }
+    }
+    assert_eq!(asked, 5, "context at A2 to A4 and roadmap at A3 and A4");
+    assert_eq!(record_dirs(&w.run.join("decider")), asked, "no model call for a class held by someone else");
+}
+
+#[test]
+fn below_a5_an_escalate_is_never_taken_under_final_and_a_close_is_asked_only_where_the_table_gives_it() {
+    let w = world("r2-routing-final", &model(r#"{"decision":"escalate","best":"approve","reasons":["unsure"],"cites":[]}"#, "0.1"));
+    context_yaml(&w);
+    let mut s = settings(&w, json!({"escalate": "final"}));
+    s["autonomy"] = json!("A4");
+    let why = reason(ask(&w, &s, &approve_action(&w), 250_000));
+    assert!(why.contains("escalat"), "{why}");
+    s["autonomy"] = json!("A3");
+    assert!(reason(ask(&w, &s, &close_decision(), 250_000)).starts_with("reserved for a person: autonomy A3 gives the class close"));
+    let w2 = world("r2-routing-close", &valid("0.1"));
+    let mut s = settings(&w2, json!({}));
+    s["autonomy"] = json!("A4");
+    assert!(matches!(ask(&w2, &s, &close_decision(), 250_000), Verdict::Answer { approve: true, .. }));
+}
+
+#[test]
+fn at_a5_a_close_through_an_outcome_the_close_class_lists_is_taken_by_rule_without_a_call() {
+    let w = world("r2-close-rule", "#!/bin/sh\ntouch \"$(dirname \"$1\")/../started\"\n");
+    let mut decision = close_decision();
+    decision["outcome"] = json!("operating");
+    for s in [settings(&w, json!({})), json!({"autonomy": "A5", "decider": {"kind": "rule", "verdict": "reject"}})] {
+        let verdict = ask(&w, &s, &decision, 250_000);
+        assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("rule:autopilot".to_owned()), cost_micro_usd: Some(0), model_calls: 0, reasons: None });
+    }
+    assert_eq!(record_dirs(&w.run.join("decider")), 0);
+    assert!(!w.run.join("started").exists());
+    let w = world("r2-close-kept", &valid("0.1"));
+    let s = settings(&w, json!({}));
+    let kept = close_decision();
+    assert!(matches!(ask(&w, &s, &kept, 250_000), Verdict::Answer { principal: Some(ref p), .. } if p == "decider:model"), "an outcome the class does not list is the decider's");
+}
+
+#[test]
+fn a_table_that_is_missing_or_unusable_is_a_person_s_at_every_level_for_every_class() {
+    let w = world("r2-table-broken", &valid("0.1"));
+    let file = w.run.join(routing::LEVELS_FILE);
+    let good = std::fs::read_to_string(&file).unwrap();
+    let broken: [(&str, String); 6] = [
+        ("not json", "{".to_owned()),
+        ("wrong format", good.replace("sdc.autonomy-levels/1", "sdc.autonomy-levels/2")),
+        ("unknown holder", good.replace("\"decider\"", "\"anyone\"")),
+        ("level missing", good.replace("\"A3\":", "\"A33\":")),
+        ("class missing", good.replace("\"context\": \"decider\", ", "")),
+        ("empty", String::new()),
+    ];
+    let mut s = settings(&w, json!({}));
+    for (what, text) in broken {
+        std::fs::write(&file, text).unwrap();
+        for level in ["A3", "A4", "A5"] {
+            s["autonomy"] = json!(level);
+            let mut decision = close_decision();
+            decision["outcome"] = json!("operating");
+            for d in [&approve_action(&w), &decision] {
+                let why = reason(ask(&w, &s, d, 250_000));
+                assert!(why.starts_with("reserved for a person") && why.contains("a person decides") && why.contains("autonomy-levels.json"), "{what} {level}: {why}");
+            }
+        }
+    }
+    std::fs::remove_file(&file).unwrap();
+    s["autonomy"] = json!("A4");
+    let why = reason(ask(&w, &s, &approve_action(&w), 250_000));
+    assert!(why.contains("a person decides") && why.contains("needed above the bindings copy"), "{why}");
+    assert_eq!(record_dirs(&w.run.join("decider")), 0, "no model call without a table");
+}
+
+#[test]
+fn the_table_loads_and_gives_every_level_every_class_of_the_decision_classes_file() {
+    let r = Routing::load(&repository_root()).unwrap();
+    assert_eq!(r.holder("A3", "close"), Some("person"));
+    assert_eq!(r.holder("A4", "close"), Some("decider"));
+    assert_eq!(r.holder("A4", "merge"), Some("rule_and_decider"));
+    assert_eq!(r.holder("A5", "close"), Some("rule"));
+    assert_eq!(r.holder("A5", "nothing"), None);
+    assert_eq!(r.holder("A9", "close"), None);
+    assert!(r.closes_by_rule("A5", "operating") && !r.closes_by_rule("A5", "kept") && !r.closes_by_rule("A4", "operating"));
+    assert!(r.decider_takes("A2", "approval", "context.approve") && !r.decider_takes("A2", "approval", "roadmap.approve"));
+    assert!(!r.decider_takes("A4", "approval", "merge.approve"), "a rule with the decider is not the decider alone");
+    assert!(!r.decider_takes("A4", "approval", "no.such.action"));
+}
+
+/// The cells of the table of `docs/autonomy-levels.md` § 2.2, read from the document.
+#[test]
+fn the_json_table_equals_the_table_of_the_document() {
+    let text = std::fs::read_to_string(repository_root().join("docs/autonomy-levels.md")).unwrap();
+    let start = text.find("### 2.2").expect("§ 2.2");
+    let section = &text[start..];
+    let rows: Vec<Vec<String>> = section
+        .lines()
+        .filter(|l| l.starts_with('|'))
+        .map(|l| l.trim_matches('|').split('|').map(|c| c.trim().to_owned()).collect())
+        .filter(|r: &Vec<String>| r.len() == 8)
+        .collect();
+    assert!(rows.len() > 10, "{rows:?}");
+    let class_of_label = |label: &str| -> Option<&'static str> {
+        Some(match label {
+            "scope-changing answers" => "scope_changing_answer",
+            "context" => "context",
+            "vision" => "vision",
+            "roadmap" => "roadmap",
+            "spec acceptance" => "spec_acceptance",
+            "story activation" => "story_activation",
+            "code review" => "code_review",
+            "merge" => "merge",
+            "release" => "release",
+            "operate: rollback" => "rollback",
+            "operate: close" => "close",
+            "budget overrun" => "budget_overrun",
+            "limit hit" => "limit_hit",
+            "escalation" => "escalation",
+            _ => return None,
+        })
+    };
+    let holder_of_symbol = |s: &str| -> Option<&'static str> {
+        Some(match s {
+            "P" => "person",
+            "P+" => "advised",
+            "D→P" => "decider",
+            "D*" => "decider_final",
+            "R" | "R, then P" => "rule",
+            "R: end" => "rule_final",
+            "R∧D→P" => "rule_and_decider",
+            "R∧D*" => "rule_and_decider_final",
+            "—" => "none",
+            _ => return None,
+        })
+    };
+    let r = Routing::load(&repository_root()).unwrap();
+    let mut seen = 0;
+    for row in &rows {
+        let Some(class) = class_of_label(&row[0]) else { continue };
+        for (i, level) in ["A0", "A1", "A2", "A3", "A4", "A5"].iter().enumerate() {
+            let cell = row[2 + i].split(" (").next().unwrap().trim();
+            let holder = holder_of_symbol(cell).unwrap_or_else(|| panic!("{} {level}: the symbol {cell:?} has no holder", row[0]));
+            assert_eq!(r.holder(level, class), Some(holder), "{class} at {level}: the document says {cell}");
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 14 * 6, "every class at every level is in the document's table");
 }
 
 #[test]
@@ -535,9 +736,9 @@ fn the_rule_decider_answers_through_this_code_and_starts_no_program() {
 #[test]
 fn the_rule_decider_obeys_the_autonomy_rule_too() {
     let w = world("r2-rule-autonomy", "#!/bin/sh\n");
-    let s = json!({"autonomy": "A2", "decider": {"kind": "rule", "verdict": "approve"}});
+    let s = json!({"autonomy": "A1", "decider": {"kind": "rule", "verdict": "approve"}});
     let why = reason(ask(&w, &s, &approve_action(&w), 0));
-    assert!(why.starts_with("reserved for a person: autonomy A2"), "{why}");
+    assert!(why.starts_with("reserved for a person: autonomy A1"), "{why}");
 }
 
 // --- requests of the answers file ---------------------------------------------------------------
@@ -662,14 +863,23 @@ fn the_call_cap_counts_the_record_directories_of_requests_too() {
 }
 
 #[test]
-fn only_a_decider_at_a5_answers_requests() {
+fn a_decider_answers_requests_at_a_level_where_the_table_gives_the_class_and_never_below_a3() {
     let w = world("ask-a4", &answer_reply("approve", ""));
     let mut below = settings(&w, json!({}));
+    below["autonomy"] = json!("A2");
+    let decider = from_settings(&below).unwrap();
+    assert!(decider.answers_requests());
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    let why = asked.result.unwrap_err();
+    assert!(why.starts_with("reserved for a person: autonomy A2 gives the class scope_changing_answer"), "{why}");
+    assert_eq!((asked.model_calls, record_dirs(&w.run.join("decider"))), (0, 0));
     below["autonomy"] = json!("A4");
     let decider = from_settings(&below).unwrap();
-    assert!(!decider.answers_requests());
     let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
-    assert!(asked.result.unwrap_err().starts_with("reserved for a person"));
+    assert_eq!(asked.result.unwrap().principal.as_deref(), Some("decider:model"));
+    below["autonomy"] = json!("A0");
+    let decider = from_settings(&below).unwrap();
+    assert!(!decider.answers_requests());
     assert!(from_settings(&settings(&w, json!({}))).unwrap().answers_requests());
 }
 
@@ -807,12 +1017,15 @@ fn three_invalid_replies_to_an_approval_end_cannot_decide_naming_the_last_reason
 }
 
 #[test]
-#[ignore = "the runner ends CannotDecide after the retries; the driver took approved_on_checks (an approval whose checks are all true), and the runner has no claim values to check"]
-fn three_invalid_replies_to_an_approval_whose_checks_are_true_are_approved_on_the_checks() {
+fn three_invalid_replies_to_an_approval_whose_checks_are_true_stay_cannot_decide_and_are_never_approved_on_the_checks() {
+    // The driver took `approved_on_checks` here. The runner has no claim values to check, and an
+    // approval nobody validly gave is not recorded: the run stops for a person.
     let w = world("p9-invalid-approval-checks", &model(NOPE, "0.05"));
     context_yaml(&w);
     let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 900_000);
-    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    assert!(matches!(verdict, Verdict::CannotDecide { .. }), "{verdict:?}");
+    assert!(!matches!(verdict, Verdict::Answer { .. }));
+    assert_eq!(record_dirs(&w.run.join("decider")), 3);
 }
 
 #[test]
@@ -858,8 +1071,8 @@ fn a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered() 
 }
 
 fn close_decision() -> Value {
-    json!({"case": "IDEA-1", "kind": "Close", "action": null, "outcome": "operating", "decides": "close case IDEA-1 through operating",
-        "command": ["b10x-loom", "tree", "close", "--store", "/nonexistent/store", "--case", "IDEA-1", "--outcome", "operating"]})
+    json!({"case": "IDEA-1", "kind": "Close", "action": null, "outcome": "kept", "decides": "close case IDEA-1 through kept",
+        "command": ["b10x-loom", "tree", "close", "--store", "/nonexistent/store", "--case", "IDEA-1", "--outcome", "kept"]})
 }
 
 #[test]

@@ -23,7 +23,7 @@
 #                   protocol/simulate/<name>.txt and the ledger for a deliberate change.
 # SDC_SIMULATE=off skips the simulate step; --record and --repin refuse it (exit 2).
 #
-# The digest of a protocol: sha256 over the Canon commit of driver/canon-pin.json, the sha256 of
+# The digest of a protocol: sha256 over the Canon commit of runbook/Cargo.lock, the sha256 of
 # this script, of the protocol file and of its pinned simulate report. The seal of a ledger entry:
 # sha256 over its digest and its result fields (check, probe, simulate), written by --record; the
 # fast lane fails when an entry's result fields no longer match their seal (a hand edit).
@@ -91,14 +91,14 @@ unit() {
   local ok=1 t0=$EPOCHREALTIME check_line="" probe_line="" sim_line="" rc report code now was
   {
     if [[ $part == check ]]; then
-      report=$("$canon" check --path "$f" 2>&1) && rc=0 || rc=$?
+      report=$("$runbook" canon check --path "$f" 2>&1) && rc=0 || rc=$?
       echo "$report"
       check_line=$(grep -m1 '^checked:' <<< "$report" || true)
       (( rc == 0 )) || ok=0
     fi
 
     if [[ $part == probe ]]; then
-      report=$("$canon" check --path "$probes/$name.gate-probe.yaml" 2>&1 || true)
+      report=$("$runbook" canon check --path "$probes/$name.gate-probe.yaml" 2>&1 || true)
       echo "$report"
       if [[ $(grep -c '^error\|^finding\|unreachable\|unsatisfiable\|unproduced\|bypass' <<< "$report") -eq 1 ]] \
         && grep -q 'unreachable-outcome.*probe.passed_without_gate' <<< "$report"; then
@@ -118,7 +118,7 @@ unit() {
     else
       report=$dir/$name.sim
       code=0
-      "$canon" simulate --path "$f" > "$report" 2> "$report.err" || code=$?
+      "$runbook" canon simulate --path "$f" > "$report" 2> "$report.err" || code=$?
       if (( code > 1 )) || [[ -s $report.err ]]; then
         echo "simulate: $name: canon simulate exit $code"; cat "$report.err"; ok=0
       else
@@ -149,10 +149,10 @@ unit() {
   (( ok == 1 ))
 }
 
-pin_commit=$(jq -r .commit "$sdc/driver/canon-pin.json")
+pin_commit=$(sed -n '/^name = "b10x-canon"$/,/^$/s/^source = .*#\(.*\)"$/\1/p' "$sdc/runbook/Cargo.lock")
 
 if [[ ${1:-} == --unit ]]; then
-  canon_resolve || exit 1
+  runbook_resolve || exit 1
   unit "$2" "$3" "$4" "$5"
   exit $?
 fi
@@ -176,13 +176,13 @@ t_start=$EPOCHREALTIME
 mkdir -p "$out" "$probes" "$sdc/target/protocol-check"
 fail=0
 
-# protocol/simulate/CANON_REV is the pinned commit of driver/canon-pin.json (a prefix of it).
+# protocol/simulate/CANON_REV is the pinned commit of runbook/Cargo.lock (a prefix of it).
 simulate_rev=$(tr -d '[:space:]' < "$simulate_dir/CANON_REV")
 if [[ -z $simulate_rev || $pin_commit != "$simulate_rev"* ]]; then
-  echo "protocol/simulate/CANON_REV ($simulate_rev) is not the commit pinned in driver/canon-pin.json ($pin_commit)"
+  echo "protocol/simulate/CANON_REV ($simulate_rev) is not the commit pinned in runbook/Cargo.lock ($pin_commit)"
   exit 1
 fi
-canon_resolve install || exit 1
+runbook_resolve || exit 1
 
 work=$(mktemp -d "$sdc/target/protocol-check/run.XXXXXX")
 trap 'rm -rf "$work"' EXIT
@@ -195,8 +195,8 @@ n_stale=0
 for name in "${names[@]}"; do
   f=$sdc/protocol/$name.protocol.yaml
   t0=$EPOCHREALTIME
-  "$canon" validate --path "$f"
-  "$canon" compile --path "$f" > "$out/$name.ir.json"
+  "$runbook" canon validate --path "$f"
+  "$runbook" canon compile --path "$f" > "$out/$name.ir.json"
   [[ $probe_names == *" $name "* ]] && gen_probe "$name"
   t_vc[$name]=$(elapsed "$t0" "$EPOCHREALTIME")
 done

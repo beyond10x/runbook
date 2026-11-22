@@ -58,6 +58,8 @@ fn world(tag: &str) -> World {
     std::os::unix::fs::symlink(repo().join("instructions/decider"), run.join("instructions/decider")).unwrap();
     std::fs::create_dir_all(run.join("driver/examples/sdc")).unwrap();
     std::fs::copy(repo().join("driver/examples/sdc/decision-classes.json"), run.join("driver/examples/sdc/decision-classes.json")).unwrap();
+    std::fs::create_dir_all(run.join("tools")).unwrap();
+    std::fs::copy(repo().join(routing::LEVELS_FILE), run.join(routing::LEVELS_FILE)).unwrap();
     std::fs::create_dir_all(run.join("bindings/tools")).unwrap();
     std::fs::copy(repo().join("bindings/tools/node-classes.json"), run.join("bindings/tools/node-classes.json")).unwrap();
     let adapter = run.join("bindings/tools/adapter.sh");
@@ -197,8 +199,9 @@ fn the_class_of_a_decision_is_read_from_decision_classes_and_its_side_routes_it(
         ("question", "scope.answer", "scope_changing_answer", "requester"),
         ("finding", "amend.upstream", "finding", "delivering"),
     ] {
-        let found = requester::route(&root, kind, action).unwrap();
-        assert_eq!((found.class.as_str(), found.side.as_str()), (class, side), "{kind} {action}");
+        let found = routing::Routing::load(&root).unwrap().class_of(kind, action);
+        let found_side = routing::Routing::load(&root).unwrap().side_of(&found);
+        assert_eq!((found.as_str(), found_side.as_str()), (class, side), "{kind} {action}");
     }
 }
 

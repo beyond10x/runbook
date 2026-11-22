@@ -218,6 +218,38 @@ fn a_question_missing_its_consequences_is_refused_naming_them() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("consequences"));
 }
 
+/// `sdc.decision.Request` refuses two options with one letter (`duplicate-letters`). The tool
+/// letters its options A, B, C in order, so letters never repeat; it runs out of letters after Z,
+/// where a 27th option would get a character that is no letter and a 257th a repeated one.
+#[test]
+fn a_question_with_more_options_than_letters_is_refused() {
+    let dir = scratch("many");
+    let case = dir.join("trial-x/store/IDEA-1/children/IDEA-1.intake");
+    copy_dir(&fixture_case().join("work"), &case.join("work"));
+    fs::copy(fixture_case().join("case.json"), case.join("case.json")).unwrap();
+    let path = case.join("work/questions.yaml");
+    let text = fs::read_to_string(&path).unwrap();
+    let mut doc: serde_yaml::Value = serde_yaml::from_str(&text).unwrap();
+    let answers: Vec<String> = (0..27).map(|i| format!("answer {i}")).collect();
+    let consequences: Vec<serde_yaml::Value> = answers
+        .iter()
+        .map(|a| serde_yaml::to_value(json!({"does": format!("take {a}"), "cost": "none"})).unwrap())
+        .collect();
+    let q = doc["questions"][0].as_mapping_mut().unwrap();
+    q.insert("options".into(), serde_yaml::to_value(&answers).unwrap());
+    q.insert("default".into(), "answer 0".into());
+    q.insert("consequences".into(), consequences.into());
+    fs::write(&path, serde_yaml::to_string(&doc).unwrap()).unwrap();
+    let out = run(&case, &["q1"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "stdout: {}",
+        String::from_utf8_lossy(&out.stdout).chars().take(400).collect::<String>()
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("26 options"));
+}
+
 fn copy_dir(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
     for e in fs::read_dir(from).unwrap() {

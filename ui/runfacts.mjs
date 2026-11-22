@@ -6,26 +6,29 @@
 // artifacts and no program. YAML is read with the reader the inspector already uses for `work/questions.yaml`
 // (`yq`, decisions.mjs); nothing here adds a dependency. A part that cannot be read is named in `parts`, and the
 // page says "not available for this run" for it.
-import fs from 'node:fs';
+// Every read of a file of the run goes through ./runfiles.mjs (`listDir`, `statOf`, `runPath`): a copy that is
+// a link leaving the run is not listed, not statted and not handed to `yq`.
 import path from 'node:path';
 import {yamlJson} from './decisions.mjs';
+import {listDir, statOf, runPath} from './runfiles.mjs';
 
 // the registration stem of a protocol id: `.` and `_` written as `-` (runbook/src/loom_run/run_dir.rs `stem`)
 const stem = (id) => String(id ?? '').replace(/[._]/g, '-');
-const yamlFiles = (dir) => { try { return fs.readdirSync(dir).filter((n) => n.endsWith('.yaml')).sort(); } catch { return []; } };
-const sigOf = (dir) => yamlFiles(dir).map((n) => { try { const st = fs.statSync(path.join(dir, n)); return `${n}:${st.size}:${st.mtimeMs}`; } catch { return n; } }).join('|');
+const yamlFiles = (dir, runDir) => listDir(dir, runDir).filter((n) => n.endsWith('.yaml'));
+const sigOf = (dir, runDir) => yamlFiles(dir, runDir).map((n) => { const st = statOf(path.join(dir, n), runDir); return st ? `${n}:${st.size}:${st.mtimeMs}` : n; }).join('|');
 const cache = new Map();
 
 // {protocols: [doc], bindings: [doc], unreadable: [file name]} for one run directory, cached on the files' signatures
 export function runFacts(runDir) {
   const pdir = path.join(runDir, 'protocols'), bdir = path.join(runDir, 'bindings');
-  const sig = `${sigOf(pdir)}#${sigOf(bdir)}`;
+  const sig = `${sigOf(pdir, runDir)}#${sigOf(bdir, runDir)}`;
   const hit = cache.get(runDir);
   if (hit && hit.sig === sig) return hit.facts;
   const facts = {protocols: [], bindings: [], unreadable: []};
   for (const [dir, list] of [[pdir, facts.protocols], [bdir, facts.bindings]]) {
-    for (const n of yamlFiles(dir)) {
-      const doc = yamlJson(path.join(dir, n));
+    for (const n of yamlFiles(dir, runDir)) {
+      const real = runPath(path.join(dir, n), runDir);
+      const doc = real ? yamlJson(real) : null;
       if (doc && typeof doc === 'object' && !Array.isArray(doc)) list.push(doc); else facts.unreadable.push(`${path.basename(dir)}/${n}`);
     }
   }

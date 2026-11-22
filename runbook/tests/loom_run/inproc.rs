@@ -36,6 +36,7 @@ impl Rig {
         std::fs::create_dir_all(root.join("runs")).unwrap();
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &root.join("fx"));
         std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
+        super::decider::install_routing_table_at(&root.join("fx"));
         let rig = Rig { root };
         rig.answers(&[json!({"approve": true, "cost_micro_usd": 0})], 0);
         rig
@@ -429,6 +430,42 @@ fn a_declared_answer_is_given_on_the_library_host_through_the_same_loop() {
     assert!(decisions.contains("\"question\":\"q1\"") && decisions.contains("\"answer\":\"A\""), "{decisions}");
 }
 
+const ANSWERS_FILE_WITHOUT_THEN: &str = "format: runbook.loom-run-answers/1
+answers:
+- action: draft.review
+  on: ApproveAction
+  requests: [tools/ask-requests.sh]
+  apply: [tools/ask-apply.sh, '{id}', '{answer}', '{principal}']
+";
+
+/// The way `scope.answer` is bound in `bindings/sdc-intake.yaml`: the answers file has no `then`, the
+/// step's own program is run by the engine at the approval, and gets the principal the decider took
+/// the step as (the copy of the bindings binds the step to it).
+#[test]
+fn a_declared_step_with_a_program_gets_the_decider_as_principal_from_the_engine_and_no_then_runs() {
+    let rig = Rig::new("declared-program");
+    let tools = rig.root.join("fx/bindings/tools");
+    let exe = |name: &str, body: &str| {
+        let file = tools.join(name);
+        std::fs::write(&file, format!("#!/bin/sh\n{body}")).unwrap();
+        std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    };
+    std::fs::write(tools.join("answers.yaml"), ANSWERS_FILE_WITHOUT_THEN).unwrap();
+    exe("ask-requests.sh", "printf '%s\\n' '{\"type\":\"question\",\"id\":\"q1\",\"question\":{\"id\":\"q1\",\"default\":\"A\"}}'\n");
+    exe("ask-apply.sh", "printf '%s %s %s\\n' \"$1\" \"$2\" \"$3\" >> asked.txt\n");
+    review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
+    rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "autonomy": "A5", "decider": {"kind": "rule", "verdict": "approve"}}));
+    let started = Instant::now();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert!(started.elapsed() < Duration::from_secs(20), "slow: {:?}", started.elapsed());
+    assert_eq!(rig.outcome("r1")["reason"], "delivered");
+    let work = rig.work("r1");
+    assert_eq!(std::fs::read_to_string(work.join("asked.txt")).unwrap(), "q1 A decider:approve\n");
+    assert_eq!(std::fs::read_to_string(work.join("review-note.txt")).unwrap(), "decider:approve\n", "the engine ran the step's program once, as the decider");
+    assert_eq!(rig.events("r1").iter().filter(|e| e["event"] == "declared_taken").count(), 1);
+}
+
 /// The case of the review decision, read from the run's own events.
 fn then_case(rig: &Rig) -> String {
     let events = rig.events("r1");
@@ -455,4 +492,72 @@ fn a_bound_program_gets_path_and_loom_variables_and_nothing_of_the_runbook_proce
         // PWD, SHLVL and _ are the shell's own
         assert!(*name == "PATH" || name.starts_with("LOOM_") || matches!(*name, "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is in the environment of the bound program:\n{dump}");
     }
+}
+
+// ---- a person's step that runs a program (Loom story person-action-runs-a-program) ----
+
+/// The review step of the fixture bound to a program `tools/review-note.sh` with `script`, given the
+/// principal in one whole argv entry.
+fn review_program(rig: &Rig, script: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let bindings = rig.root.join("fx/bindings");
+    let file = bindings.join("engine-draft.yaml");
+    let text = std::fs::read_to_string(&file).unwrap();
+    let bound = text.replace("      principal: reviewer\n", "      principal: reviewer\n      argv: [tools/review-note.sh, \"{principal}\"]\n");
+    assert_ne!(bound, text, "the review step was not found");
+    std::fs::write(&file, bound).unwrap();
+    let tool = bindings.join("tools/review-note.sh");
+    std::fs::write(&tool, script).unwrap();
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+fn the_approval_of_a_person_step_runs_its_program_with_the_approving_principal() {
+    let rig = Rig::new("person-program");
+    review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
+    let started = Instant::now();
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert!(started.elapsed() < Duration::from_secs(60), "slow: {:?}", started.elapsed());
+    assert_eq!(rig.outcome("r1")["reason"], "delivered");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("review-note.txt")).unwrap(), "reviewer\n", "the program ran once, with the principal of the approval");
+}
+
+#[test]
+fn a_person_program_that_fails_ends_the_run_with_the_engines_refusal() {
+    let rig = Rig::new("person-program-fails");
+    review_program(&rig, "#!/bin/sh\nexit 3\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "error", "{outcome}");
+    assert!(outcome["reason"].as_str().unwrap().contains("PersonProgramFailed"), "{outcome}");
+    assert!(!rig.work("r1").join("review-note.txt").exists());
+}
+
+// ---- the program of a person's action: its environment, and who may take it ----
+
+#[test]
+fn the_program_of_a_person_action_gets_path_and_loom_variables_and_nothing_of_the_runbook_process() {
+    let rig = Rig::new("person-env");
+    review_program(&rig, "#!/bin/sh\nenv > \"$PWD/person-env-dump.txt\"\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let dump = std::fs::read_to_string(rig.work("r1").join("person-env-dump.txt")).unwrap();
+    for needle in ["marker-value-8842", "RUNBOOK_MARKER_VARIABLE", "sk-fake-token-5517", "ANTHROPIC_API_KEY", "/marker-home-dir"] {
+        assert!(!dump.contains(needle), "{needle} reached the program of a person action:\n{dump}");
+    }
+    for name in dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)) {
+        assert!(name == "PATH" || name.starts_with("LOOM_") || matches!(name, "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is in the environment of the program of a person action:\n{dump}");
+    }
+}
+
+#[test]
+fn an_answer_under_a_model_principal_cannot_take_a_person_action() {
+    let rig = Rig::new("person-model");
+    review_program(&rig, "#!/bin/sh\nprintf '%s\\n' \"$1\" >> review-note.txt\n");
+    rig.settings(&json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "principal": "decider:model", "cost_micro_usd": 0}]}}));
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert!(!rig.work("r1").join("review-note.txt").exists(), "the program of the person action ran for a model");
 }

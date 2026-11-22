@@ -2,7 +2,7 @@
 // search field and the runs, most recent first, each row saying what the run is. Six runs played by
 // test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/picker, then
 // given what a real run leaves behind:
-//   live-a    running (driver.json with a live pid), decider Opus, work Sonnet
+//   live-a    a run directory with settings.json and no end record: live state unknown, decider Opus, work Sonnet
 //   done-ok   closed, delivered (status.json, with reopens and forced), cost and calls recorded
 //   done-bad  closed, not delivered (status.json)
 //   halted    stopped by a rule (run-stopped.json, cause writer_spent)
@@ -34,7 +34,7 @@ const settings = (adapter, decider, work) => JSON.stringify({format: 'sdc.run-se
 const status = (extra) => JSON.stringify({format: 'sdc.run-status/1', at: iso(T0 + 30 * 60000), state: 'closed', note: null, closed_by: 'rule:autopilot', ...extra});
 // each run: its files, and how many minutes ago it last wrote
 const RUNS = {
-  'live-a': {files: {'run-settings.jsonl': settings('metaharness', 'claude-opus-5-5', 'claude-sonnet-5-5')}, ago: 0, driver: true},
+  'live-a': {files: {'run-settings.jsonl': settings('metaharness', 'claude-opus-5-5', 'claude-sonnet-5-5'), 'settings.json': '{}'}, ago: 0},
   'done-ok': {files: {'run-settings.jsonl': settings('metaharness', 'claude-haiku-5-5', 'claude-sonnet-5-5'), 'status.json': status({outcome: 'operating', delivered: true, reopens: 2, forced: 1}),
     'llm-calls.jsonl': [0.5, 0.25].map((c) => JSON.stringify({action: 'spec.author', adapter: 'metaharness', model: 'claude-sonnet-5-5', cost_usd: c, exit: 0})).join('\n') + '\n',
     'decisions.jsonl': JSON.stringify({time: iso(T0 + 60000), case: 'IDEA-1', principal: 'decider:haiku', decision: 'approve', model: 'claude-haiku-5-5', cost_usd: 0.25}) + '\n'}, ago: 10},
@@ -63,9 +63,6 @@ test.beforeAll(async ({}, info) => {
     if (p.status !== 0) throw new Error(`fixture ${name}: ${p.stderr}`);
     for (const f of ['run-settings.jsonl', 'llm-calls.jsonl', 'decisions.jsonl', 'status.json', 'run-stopped.json']) fs.rmSync(path.join(dir, f), {force: true});
     for (const [f, text] of Object.entries(r.files)) fs.writeFileSync(path.join(dir, f), text);
-    // a driver holds the tree: this test's own process stands in for it (alive while the test runs)
-    const root = fs.readdirSync(path.join(dir, 'store')).map((n) => path.join(dir, 'store', n)).find((p) => fs.existsSync(path.join(p, 'case.json')));
-    if (r.driver) fs.writeFileSync(path.join(root, 'driver.json'), JSON.stringify({format: 'sdc.driver/1', pid: process.pid, started_at: iso(T0)}));
     const t = new Date(Date.now() - r.ago * 60000);
     for (const p of [dir, path.join(dir, 'store'), path.join(dir, 'run.log'), ...Object.keys(r.files).map((f) => path.join(dir, f))]) if (fs.existsSync(p)) fs.utimesSync(p, t, t);
   }
@@ -78,7 +75,7 @@ const rowOf = (page, name) => page.locator(`#pk-o-${src(name)}`);
 
 test('one request carries every row: state, times, cost and calls, models, counts', () => {
   const run = Object.fromEntries(sources.map((s) => [s.name, s.run]));
-  expect(run['live-a']).toMatchObject({state: 'running', setting: 'decider Opus · work Sonnet', ended: null});
+  expect(run['live-a']).toMatchObject({state: 'unknown', setting: 'decider Opus · work Sonnet', ended: null});
   expect(run['done-ok']).toMatchObject({state: 'closed', outcome: 'operating', delivered: true, cost: 1, calls: 3, work: 2, decider: 1, reopens: 2, forced: 1, unstuck: null});
   expect(run['done-ok'].ended - run['done-ok'].started).toBe(30 * 60000);
   expect(run['done-bad']).toMatchObject({state: 'closed', outcome: 'not_delivered', delivered: false});
@@ -87,14 +84,14 @@ test('one request carries every row: state, times, cost and calls, models, count
   expect(sources.find((s) => s.name === 'canned').program.kind).toBe('stub');
 });
 
-test('each row says its state in words and a shape; running on top, then recent, stub runs collapsed', async ({page}) => {
+test('each row says its state in words and a shape; liveness unknown said as such, stub runs collapsed', async ({page}) => {
   await page.goto(`${base}/?run=done-ok`);
   await expect(page.locator('#runpick .pk-nm')).toHaveText('done-ok');
   await open(page);
   const groups = await page.locator('#pk-list').evaluate((el) => [...el.querySelectorAll('[role=group]')].map((g) => [g.getAttribute('aria-label'), [...g.querySelectorAll('.pk-rn')].map((n) => n.textContent)]));
-  expect(groups).toEqual([['Running now', ['live-a']], ['Recent', ['done-ok', 'done-bad', 'halted', 'paused']]]);
+  expect(groups).toEqual([['Recent', ['live-a', 'done-ok', 'done-bad', 'halted', 'paused']]]);
   await expect(page.locator('#pk-stubs')).toHaveText('Show stub and fixture runs (1)');
-  const states = {'live-a': ['m-run', 'running'], 'done-ok': ['m-ok', 'closed · operating'], 'done-bad': ['m-bad', 'closed · not delivered'], 'halted': ['m-stop', 'stopped · writer spent'], 'paused': ['m-idle', 'not running']};
+  const states = {'live-a': ['m-idle', 'live state unknown'], 'done-ok': ['m-ok', 'closed · operating'], 'done-bad': ['m-bad', 'closed · not delivered'], 'halted': ['m-stop', 'stopped · writer spent'], 'paused': ['m-idle', 'not running']};
   for (const [name, [cls, text]] of Object.entries(states)) {
     await expect(rowOf(page, name).locator('.pk-mk')).toHaveClass(new RegExp(cls));
     await expect(rowOf(page, name).locator('.pk-mt')).toHaveText(text);
@@ -105,10 +102,6 @@ test('each row says its state in words and a shape; running on top, then recent,
   const ok = rowOf(page, 'done-ok').locator('.pk-r2');
   for (const t of ['started 50 min ago', 'took 30:00', '$1.00', '3 calls', 'decider Haiku · work Sonnet', '2 reopens', '1 forced']) await expect(ok).toContainText(t);
   await expect(ok.locator('[title^="started "]')).toHaveCount(1);
-  // a running run's duration is live
-  const dur = rowOf(page, 'live-a').locator('[data-run-since]');
-  const d0 = await dur.textContent();
-  await expect(dur).not.toHaveText(d0, {timeout: 3000});
   // the stub group opens on demand, its run labelled
   await page.locator('#pk-stubs').click();
   await expect(page.locator('#pk-list .g-stub .pk-rn')).toHaveText(['canned']);

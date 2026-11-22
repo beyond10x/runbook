@@ -1,0 +1,136 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: decision-option-not-offered
+summary: "A letter the request does not offer is refused by Decide and by a verified Recommend, and never reaches the stored decision or recommendation; silence therefore never decides a letter nobody offered."
+
+timeline:
+  - at: 2026-11-22T09:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+      case_id: "IDEA-2.billing.refunds"
+      question_key: "IDEA-2.billing.refunds|roadmap.approve|"
+      unblocks: {kind: approval, action: "roadmap.approve", capability: "owner.approve"}
+      subject_artifact: "roadmap"
+      subject_revision: "t1r1"
+      subject_path: "aep/initiative/roadmap.md"
+      question: "Approve the roadmap at revision t1r1?"
+      options:
+        - letter: "A"
+          does: "Grant owner.approve at this case revision."
+          cost: "None beyond the approval."
+          consequence: {admits: ["roadmap.approve"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny owner.approve."
+          cost: "The roadmap is revised first."
+          consequence: {admits: [], blocks: ["roadmap.approve"], grant: denied, produces: canon_authority}
+      autonomy_level: A1
+      decision_class: roadmap
+      holder: person
+      eligible: ["operator"]
+      addressed_to: "operator"
+      opened_at: 2026-11-22T09:00:00Z
+      expires_at: 2026-11-22T12:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+          case_id: "IDEA-2.billing.refunds"
+          subject_artifact: "roadmap"
+          subject_revision: "t1r1"
+
+  - at: 2026-11-22T09:01:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+      recommended_option: "Z"
+      strength: strong
+      default_on_silence: true
+      grounds:
+        - source: policy
+          citation: {form: record_id, value: {store: canon_evidence, record_id: "e0140-roadmap.review"}}
+          supports: "Z"
+          how: "The policy names an option that the request does not offer."
+      proposed_by: llm
+      check_verdict: verified
+      check_report: "1 ground, 1 resolves"
+    outcome: option-not-offered
+
+  - at: 2026-11-22T09:02:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+      recommended_option: "Z"
+      strength: strong
+      default_on_silence: true
+      grounds: []
+      proposed_by: llm
+      check_verdict: refused
+      check_report: "option Z is not an option of the request"
+    outcome: withheld
+    events:
+      - event: sdc.decision.RecommendationWithheld
+        payload:
+          request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+          reason: "option Z is not an option of the request"
+
+  - at: 2026-11-22T09:03:00Z
+    command: sdc.decision.Recommend
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+      recommended_option: "A"
+      strength: strong
+      default_on_silence: true
+      grounds:
+        - source: policy
+          citation: {form: record_id, value: {store: canon_evidence, record_id: "e0140-roadmap.review"}}
+          supports: "A"
+          how: "The roadmap review passed."
+      proposed_by: rule
+      check_verdict: verified
+      check_report: "1 ground, 1 resolves"
+    outcome: recommended
+    events:
+      - event: sdc.decision.RecommendationRecorded
+        payload:
+          request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+          recommended_option: "A"
+          strength: strong
+
+  - at: 2026-11-22T09:04:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Person
+    input:
+      request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+      option: "Z"
+      principal: "operator"
+      principal_kind: person
+      decided_at: 2026-11-22T09:04:00Z
+      reasons: ["Typed a letter that is not on the list."]
+    outcome: option-not-offered
+
+  - at: 2026-11-22T12:00:00Z
+    command: sdc.decision.TakeRecommendation
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+      principal: "silence"
+      principal_kind: silence
+      decided_at: 2026-11-22T12:00:00Z
+      reasons: ["No answer before expires_at."]
+    outcome: taken
+    events:
+      - event: sdc.decision.RecommendationTaken
+        payload:
+          request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1"
+          principal: "silence"
+
+assert:
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "roadmap"}
+    contains: {request_id: "DR-IDEA-2.billing.refunds-roadmap.approve-1", state: Decided, decided_option: "A", decided_by: "silence"}

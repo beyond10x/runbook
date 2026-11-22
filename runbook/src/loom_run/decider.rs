@@ -19,15 +19,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// The only autonomy level at which the decider answers; every other level (and none) is reserved
-/// for a person. The driver (`scripts/run-trial.sh`, `SDC_AUTONOMY`) hands every decision to the
-/// decider at A5 and to a person at A0; A1 to A4 have no per-class routing there ("not built") and
-/// a person holds some decisions of each, so the runner stops for a person.
+/// The autonomy level at which the decider takes every decision (but the close of a case, which a
+/// rule takes). At A1 to A4 it takes only the decisions the holder table gives to `decider` at that
+/// level (`routing.rs`, `tools/autonomy-levels.json`); A0 and no level are a person's.
 pub const AUTONOMY_DECIDES: &str = "A5";
 
 const AUTONOMY_LEVELS: [&str; 6] = ["A0", "A1", "A2", "A3", "A4", "A5"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const MODEL_KEYS: [&str; 14] = [
+const MODEL_KEYS: [&str; 15] = [
     "requester",
     "without_claims",
     "kind",
@@ -42,6 +41,7 @@ const MODEL_KEYS: [&str; 14] = [
     "retries",
     "timeout_seconds",
     "reply_bin",
+    "replay_plan",
 ];
 const RULE_KEYS: [&str; 3] = ["kind", "verdict", "timeout_seconds"];
 /// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
@@ -77,6 +77,13 @@ pub fn from_settings(settings: &Value) -> Result<Box<dyn Decider>, String> {
 /// steps keep the principal the bindings name (a person). A decider kind that is not one of these
 /// (a scripted double, no decider) leaves the steps alone.
 pub fn person_step_principal(settings: &Value) -> Result<Option<String>, String> {
+    Ok(step_principal(settings)?.and_then(|(level, principal)| (level == AUTONOMY_DECIDES).then_some(principal)))
+}
+
+/// The level (A1 to A5) and the principal of a run whose decider is of kind `model` or `rule`;
+/// `None` for A0, no level, no decider or another kind. At A5 every person step is the decider's;
+/// at A1 to A4 only the steps whose class the holder table gives to the decider (`Routing`).
+pub fn step_principal(settings: &Value) -> Result<Option<(String, String)>, String> {
     let level = autonomy(settings)?;
     let decider = match settings.get("decider") {
         Some(decider) => decider,
@@ -87,7 +94,7 @@ pub fn person_step_principal(settings: &Value) -> Result<Option<String>, String>
         Some("rule") => format!("decider:{}", rule_verdict(decider)?),
         _ => return Ok(None),
     };
-    Ok((level.as_deref() == Some(AUTONOMY_DECIDES)).then_some(principal))
+    Ok(level.filter(|l| l != "A0").map(|l| (l, principal)))
 }
 
 fn autonomy(settings: &Value) -> Result<Option<String>, String> {
@@ -115,6 +122,7 @@ enum Mode {
         final_escalate: bool,
         retries: u64,
         reply_bin: Option<PathBuf>,
+        replay_plan: Option<PathBuf>,
         without_claims: bool,
     },
     Rule {
@@ -134,6 +142,9 @@ pub struct NativeDecider {
     principal: String,
     /// `decider.requester`: a decision of a requester-side class goes to the requester decider.
     requester: bool,
+    /// Who decides, read once (see [`Decider::pin_routing`]) and never again: the run's own
+    /// copy of the table is writable by a bound program.
+    routing: std::sync::OnceLock<Result<Routing, String>>,
 }
 
 fn number_key(decider: &Value, key: &str, min: u64) -> Result<Option<u64>, String> {
@@ -159,6 +170,13 @@ fn path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
         None => Ok(None),
         Some(Value::String(s)) if !s.is_empty() => Ok(Some(s.clone())),
         Some(_) => Err(format!("decider.{key}: a path")),
+    }
+}
+
+fn absolute_path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
+    match path_key(decider, key)? {
+        Some(p) if !Path::new(&p).is_absolute() => Err(format!("decider.{key}: an absolute path")),
+        other => Ok(other),
     }
 }
 
@@ -220,6 +238,7 @@ impl NativeDecider {
                 final_escalate: escalate,
                 retries: number_key(decider, "retries", 0)?.unwrap_or(DEFAULT_RETRIES),
                 reply_bin: path_key(decider, "reply_bin")?.map(PathBuf::from),
+                replay_plan: absolute_path_key(decider, "replay_plan")?.map(PathBuf::from),
                 without_claims,
             };
             (mode, max_calls, max_call)
@@ -230,11 +249,55 @@ impl NativeDecider {
             Some(_) => return Err("decider.requester: true or false".to_owned()),
         };
         let principal = person_step_principal(&json!({"autonomy": "A5", "decider": decider}))?.ok_or("decider: no principal")?;
-        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester })
+        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester, routing: std::sync::OnceLock::new() })
+    }
+
+    /// The table this run is routed by: the read of [`Decider::pin_routing`], or the first read
+    /// when nobody pinned it.
+    pub(super) fn routing(&self, run_dir: &Path) -> Result<&Routing, String> {
+        self.routing.get_or_init(|| Routing::load(run_dir)).as_ref().map_err(Clone::clone)
     }
 
     fn cannot(reason: impl Into<String>) -> Verdict {
         Verdict::CannotDecide { reason: reason.into() }
+    }
+
+    /// The level the decider works at (A1 to A5); A0 and no level are for a person.
+    fn level(&self) -> Result<&str, String> {
+        match self.autonomy.as_deref() {
+            Some("A0") | None => {
+                let level = self.autonomy.as_deref().map(|l| format!("autonomy {l}")).unwrap_or_else(|| "no autonomy level named".to_owned());
+                Err(format!("reserved for a person: {level}; the decider decides at A1 to A5"))
+            }
+            Some(level) => Ok(level),
+        }
+    }
+
+    /// Whether `escalate: final` applies: at A5 only. Below A5 an escalate stops the run for a
+    /// person, whatever the settings say (holder `decider`, not `decider_final`).
+    pub(super) fn final_escalate(&self) -> bool {
+        matches!(self.mode, Mode::Model { final_escalate: true, .. }) && self.autonomy.as_deref() == Some(AUTONOMY_DECIDES)
+    }
+
+    /// What the level lets the decider do with a decision of `kind` (`approval`, `close`,
+    /// `question` or `finding`) on `action`. `Ok(false)`: the decider takes it. `Ok(true)`: a rule
+    /// takes it (the close of the root case at A5: `rule:autopilot`, no decider call). `Err`: it
+    /// stays with a person, with the reason. A5 gives every decision to the decider except that
+    /// close. Below A5 only a class the table gives to `decider` is taken; any other holder and a
+    /// class the table does not know are a person's. At every level, A5 included, the table is
+    /// loaded first, and a table that cannot be read is a person's: no rule and no model decides
+    /// without it.
+    fn route(&self, level: &str, run_dir: &Path, kind: &str, action: &str, outcome: Option<&str>) -> Result<bool, String> {
+        let routing = self.routing(run_dir).map_err(|e| format!("reserved for a person: autonomy {level}: the table of who decides cannot be used ({e}), so a person decides"))?;
+        if level == AUTONOMY_DECIDES {
+            return Ok(outcome.filter(|_| kind == "close").is_some_and(|outcome| routing.closes_by_rule(level, outcome)));
+        }
+        let class = routing.class_of(kind, action);
+        match routing.holder(level, &class) {
+            Some("decider") => Ok(false),
+            Some(holder) => Err(format!("reserved for a person: autonomy {level} gives the class {class} ({action}) to {holder}, not to the decider")),
+            None => Err(format!("reserved for a person: autonomy {level} has no holder for the class {class} ({action})")),
+        }
     }
 
     fn redact(&self, text: &str) -> String {
@@ -312,6 +375,10 @@ impl NativeDecider {
         if let Mode::Model { reply_bin: Some(reply_bin), .. } = &self.mode {
             env.push(("SDC_REPLY".to_owned(), reply_bin.display().to_string()));
         }
+        if let Mode::Model { replay_plan: Some(plan), .. } = &self.mode {
+            // A re-drive's adapter takes the plan of the run from this path and searches nowhere.
+            env.push(("SDC_REPLAY".to_owned(), plan.display().to_string()));
+        }
         if let (Mode::Model { .. }, Some(login)) = (&self.mode, &self.login_file) {
             // The link in the run's private directory, when there is one: the real path then
             // stays in the settings alone.
@@ -327,7 +394,7 @@ impl NativeDecider {
     fn reply(&self, body: &Value, rec: &Path, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Value, String> {
         let replied = match &self.mode {
             Mode::Rule { verdict } => Replied { reply: rules::rule_reply(verdict, body), stderr: String::new() },
-            Mode::Model { model, adapter, effort, max_turns, final_escalate, .. } => {
+            Mode::Model { model, adapter, effort, max_turns, .. } => {
                 let tools = request.run_dir.join("bindings").join("tools");
                 let root = instructions_root(&tools).ok_or("the instruction files are not found: the decider needs instructions/decider/ above the bindings copy")?;
                 let env = self.env(request)?;
@@ -341,7 +408,7 @@ impl NativeDecider {
                     adapter: adapter.as_deref(),
                     effort: effort.as_deref(),
                     max_turns: *max_turns,
-                    final_escalate: *final_escalate,
+                    final_escalate: self.final_escalate(),
                     budget_micro_usd,
                     env: &env,
                     timeout: self.timeout,
@@ -380,7 +447,7 @@ impl NativeDecider {
     }
 
     fn decide_model(&self, request: &DecisionRequest<'_>, approval: &Approval) -> Verdict {
-        let Mode::Model { final_escalate, retries, without_claims, .. } = &self.mode else {
+        let Mode::Model { retries, without_claims, .. } = &self.mode else {
             return Self::cannot("not a model decider");
         };
         let kind = if approval.close_outcome.is_some() { "close" } else { "approval" };
@@ -424,6 +491,9 @@ impl NativeDecider {
             let mut body = decide_request(approval, &case_dir, &rec, retry);
             if let Some(class) = &routed {
                 requester::tag(&mut body, class, request.run_dir);
+                if let Some(level) = &self.autonomy {
+                    body["autonomy"] = json!(level);
+                }
             }
             if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
                 return Self::cannot(format!("decider request file: {}", e.kind()));
@@ -459,7 +529,7 @@ impl NativeDecider {
                 Some("reject") => false,
                 Some("escalate") => {
                     let reasons = reply.get("reasons").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")).unwrap_or_default();
-                    if !*final_escalate {
+                    if !self.final_escalate() {
                         return Self::cannot(format!("reserved for a person: the decider escalated (escalate stop): {}", self.redact(&reasons)));
                     }
                     // escalate final: the decider's `best` is taken (the driver: escalation_suppressed), reject when none.
@@ -478,6 +548,10 @@ const NO_CLAIMS: &str = "claims of the position are not in Loom's output: the de
 const NO_INSTRUCTIONS: &str = "the instruction files are not found: the decider needs instructions/decider/ above the bindings copy";
 
 impl Decider for NativeDecider {
+    fn pin_routing(&self, run_dir: &Path) {
+        let _ = self.routing.get_or_init(|| Routing::load(run_dir));
+    }
+
     fn max_call_micro_usd(&self) -> u64 {
         match self.mode {
             Mode::Rule { .. } => 0,
@@ -486,14 +560,19 @@ impl Decider for NativeDecider {
     }
 
     fn decide(&self, request: &DecisionRequest<'_>) -> Verdict {
-        if self.autonomy.as_deref() != Some(AUTONOMY_DECIDES) {
-            let level = self.autonomy.as_deref().map(|l| format!("autonomy {l}")).unwrap_or_else(|| "no autonomy level named".to_owned());
-            return Self::cannot(format!("reserved for a person: {level}; the decider decides only at {AUTONOMY_DECIDES}"));
-        }
+        let level = match self.level() {
+            Ok(level) => level,
+            Err(reason) => return Self::cannot(reason),
+        };
         let approval = match read_approval(request, Some(&request.run_dir.join("bindings"))) {
             Ok(approval) => approval,
             Err(reason) => return Self::cannot(reason),
         };
+        match self.route(level, request.run_dir, if approval.close_outcome.is_some() { "close" } else { "approval" }, &approval.action, approval.close_outcome.as_deref()) {
+            Err(reason) => return Self::cannot(reason),
+            Ok(true) => return Verdict::Answer { approve: true, principal: Some(routing::AUTOPILOT.to_owned()), cost_micro_usd: Some(0), model_calls: 0, reasons: None },
+            Ok(false) => {}
+        }
         match &self.mode {
             Mode::Rule { verdict } => self.decide_rule(verdict, request, &approval),
             Mode::Model { .. } => self.decide_model(request, &approval),
@@ -501,7 +580,7 @@ impl Decider for NativeDecider {
     }
 
     fn answers_requests(&self) -> bool {
-        self.autonomy.as_deref() == Some(AUTONOMY_DECIDES)
+        self.level().is_ok()
     }
 
     fn ask(&self, request: &AskRequest<'_>) -> Asked {
@@ -515,11 +594,13 @@ mod call;
 mod inputs;
 mod prompt;
 mod requester;
+mod routing;
 mod rules;
 mod validate;
 
 use approval::*;
 use call::{ModelCall, Replied};
+pub use routing::Routing;
 
 // The tests of this module: `src/loom_run/decider/tests.rs`. The crate is a binary, so an
 // integration test (tests/cli.rs) reaches the code only through the command line.

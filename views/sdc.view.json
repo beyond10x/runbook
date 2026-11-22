@@ -500,54 +500,12 @@
       }
     }
   },
-  "tool_owners": {
-    "always": [
-      "yq"
-    ],
-    "driver": [
-      "jq"
-    ],
-    "continue": [
-      "ess",
-      "aep"
-    ],
-    "tools": [
-      {
-        "argv0": "sdc-tool\\.sh$",
-        "subcommands": [
-          {
-            "match": "^(ess-gate|spec-validate|spec-compile|spec-synthesize|plan-cover|plan-cover-shape)$",
-            "needs": [
-              "ess"
-            ]
-          },
-          {
-            "match": "^(conform-run|story-tests|story-tests-run|impl-gate)$",
-            "needs": [
-              "ess",
-              "slot"
-            ]
-          },
-          {
-            "match": "^(stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status)$",
-            "needs": [
-              "aep"
-            ]
-          }
-        ]
-      }
-    ]
-  },
   "decisions": {
     "scope_answer": {
       "action": "scope.answer",
-      "check": "questions.check",
       "artifact": "questions",
       "list": "questions",
-      "flag": "scope_changing",
-      "refused_answerers": [
-        "non-interactive"
-      ]
+      "flag": "scope_changing"
     },
     "stall": {
       "action": "amend.upstream",
@@ -556,18 +514,6 @@
       "noun": "finding",
       "status": "status",
       "needs_person": "needs_person"
-    },
-    "context": {
-      "artifact": "context",
-      "field_pattern": "^[a-z_]+$",
-      "changed": "changed"
-    },
-    "continue": {
-      "script": "scripts/run-trial.sh",
-      "runs_dir": "runs",
-      "env": {
-        "SDC_PRINCIPAL": "{principal}"
-      }
     }
   }
 }

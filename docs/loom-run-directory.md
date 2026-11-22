@@ -148,7 +148,7 @@ members as 0 (`run.clean` is `closed` alone, above): the two tools here say "no 
 | model spans | `llm-calls.jsonl` joined to the take; call records in `work/.sdc/llm/<call>/` (`status.json`, `events.jsonl`) | `api_requests`, `tool_calls`, `tool_calls_denied` are `null` for a call whose record directory is missing; `sessions` 0 and no cost for a model step that started no adapter |
 | decider spans | `decisions.jsonl` lines that name a model, call records in `decider/<call>/` | as the driver; a line without a record directory takes its time from `time` and has no duration |
 | idle spans, `waiting_on_person_s` | `rounds.jsonl`, `run-settings.jsonl`, `run-stopped.json`, `status.json` | as the driver (0 for a person: the decider answers inside the run) |
-| `settings` | last line of `run-settings.jsonl` | `efforts` is `{}` (Loom runs the class defaults); `max_llm_calls`, `max_wall_seconds`, `autonomy` as the settings file says |
+| `settings` | last line of `run-settings.jsonl` | `efforts` is what the settings file gives (`{}`: Loom runs the class defaults); `max_llm_calls`, `max_wall_seconds`, `autonomy` as the settings file says |
 | `end` | `status.json` | `null` while the run is open |
 
 `--check` holds the cost to `sdc-run-metrics`' for a Loom run too. The tests are

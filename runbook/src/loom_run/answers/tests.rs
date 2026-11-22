@@ -131,7 +131,7 @@ fn the_file_committed_in_the_bindings_is_valid_and_declares_both_steps() {
     let bindings = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("bindings");
     let answers = Answers::load(&bindings).unwrap();
     let question = answers.find("ApproveAction", "scope.answer").unwrap();
-    assert!(question.then.is_some());
+    assert!(question.then.is_none(), "the program of scope.answer is the binding's own: Loom runs it at the approval");
     assert!(answers.find("Handoff", "amend.upstream").unwrap().then.is_none());
     assert!(is_answer_step_in(&bindings, "scope.answer"));
     assert!(!is_answer_step_in(&bindings, "amend.upstream"));

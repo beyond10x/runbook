@@ -10,9 +10,5 @@ export const SLOW = {
   'screens-runs.spec.mjs': 'tours the recorded runs runs/full-cycle-1 and runs/trial-todo-1, billing cases included',
   'meaning-runs.spec.mjs': 'reads the specification files of runs/trial-todo-1',
   'live.spec.mjs': 'replays runs/full-cycle-1 into a store the caller names (SDC_UI_LIVE_DIR, SDC_UI_LIVE_SOURCE)',
-  'decisions.spec.mjs': 'needs a write server the caller started over copies of a trial store (SDC_UI_WRITE_URL)',
-  'scope.spec.mjs': 'makes stores with the built driver (driver/target/debug/sdc-drive) and a canon binary (SDC_UI_CANON)',
-  'preflight.spec.mjs': 'makes a store with the built driver and a canon binary',
-  'paths-served.spec.mjs': 'makes a store with the built driver and a canon binary',
 };
 export const slowFiles = Object.keys(SLOW);

@@ -108,4 +108,6 @@ actions:
     executor:
       kind: person
       principal: person:owner
+      argv: [tools/sdc-tool.sh, scope-answer, "{principal}", --action, scope.answer]
     budget: {max_runs: 8}
+    timeout_seconds: 300

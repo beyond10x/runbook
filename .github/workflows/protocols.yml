@@ -5,14 +5,16 @@ on:
     branches: [main]
     paths:
       - 'protocol/**'
-      - 'driver/canon-pin.json'
+      - 'runbook/Cargo.lock'
+      - 'runbook/src/canon_cmd.rs'
       - 'scripts/check-protocols.sh'
       - 'scripts/evaluate-cases.sh'
       - '.github/workflows/protocols.yml'
   pull_request:
     paths:
       - 'protocol/**'
-      - 'driver/canon-pin.json'
+      - 'runbook/Cargo.lock'
+      - 'runbook/src/canon_cmd.rs'
       - 'scripts/check-protocols.sh'
       - 'scripts/evaluate-cases.sh'
       - '.github/workflows/protocols.yml'
@@ -46,6 +48,8 @@ jobs:
           pin=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
           used=$(sed -n 's/^ *toolchain: *//p' .github/workflows/protocols.yml | tr -d "\"'" | sort -u)
           test -n "$pin" && test "$used" = "$pin" || { echo "the workflow installs rustc '$used' and rust-toolchain.toml pins '$pin'"; exit 1; }
+      - name: Build runbook once, which holds Canon as a library
+        run: cargo build --locked --manifest-path runbook/Cargo.toml --bin runbook
       - name: Check every protocol for real and compare the ledger byte for byte
         run: |
           set -euo pipefail

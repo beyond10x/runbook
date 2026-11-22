@@ -18,10 +18,14 @@ use std::path::{Path, PathBuf};
 /// The top-level keys of the settings that `materialise` knows. `login_file` is R1's; `autonomy`
 /// and `decider` are read by the decider as well; `max_llm_calls` and `max_wall_seconds` belong to
 /// the runner's caps and are accepted and ignored here.
-pub const SETTINGS_KEYS: [&str; 8] = ["login_file", "autonomy", "decider", "adapter", "models", "review", "max_llm_calls", "max_wall_seconds"];
+pub const SETTINGS_KEYS: [&str; 10] = ["login_file", "autonomy", "decider", "adapter", "models", "efforts", "review", "max_llm_calls", "max_wall_seconds", "replay"];
 /// The roles whose model, turns and budget a run sets (`bindings/tools/node-classes.json`).
 pub const ROLES: [&str; 4] = ["writer", "implement", "review", "other"];
 const ROLE_KEYS: [&str; 3] = ["model", "max_turns", "max_budget_usd"];
+/// The reasoning efforts a model node takes (`efforts` of `bindings/tools/node-classes.json`).
+const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+/// The member of `efforts.<role>` that names the level.
+const EFFORT_KEY: &str = "effort";
 const ADAPTERS: [&str; 3] = ["metaharness", "claude-cli", "dry"];
 /// What a checkout holds beside `bindings/` that the tools of the copy read from their root
 /// (`$here/../..`): the instruction files, the fixtures and the rule file of the driver, and the
@@ -40,13 +44,31 @@ struct RoleSet {
     model: Option<String>,
     max_turns: Option<u64>,
     max_budget_usd: Option<String>,
+    effort: Option<String>,
 }
 
 struct Plan {
     principal: Option<String>,
+    /// Below A5: the level, the decider's principal and the holder table; a person step is the
+    /// decider's only where the table gives its class to the decider. `None`: no such run, or a table
+    /// that cannot be read (every step keeps its person).
+    routed: Option<(String, String, decider::Routing)>,
     roles: BTreeMap<String, RoleSet>,
     adapter: Option<String>,
     login: Option<PathBuf>,
+    replay: Option<crate::loom_run::replay::BindingPlan>,
+}
+
+impl Plan {
+    /// The principal the person step `action` is given: the decider's at A5, below A5 only where the
+    /// holder table gives the class of the action to the decider.
+    fn principal_of(&self, action: &str) -> Option<&str> {
+        if let Some(principal) = &self.principal {
+            return Some(principal);
+        }
+        let (level, principal, routing) = self.routed.as_ref()?;
+        routing.decider_takes(level, "approval", action).then_some(principal.as_str())
+    }
 }
 
 fn object<'a>(value: &'a Value, what: &str) -> Result<&'a serde_json::Map<String, Value>, String> {
@@ -58,6 +80,31 @@ fn plain(value: &Value, what: &str) -> Result<String, String> {
         Value::String(s) if !s.is_empty() && !s.chars().any(char::is_whitespace) => Ok(s.clone()),
         _ => Err(format!("{what}: a non-empty text without white space")),
     }
+}
+
+/// The reasoning effort of each role the settings name (`efforts.<role>.effort`). A role that is
+/// none, a member that is not `effort`, and a level outside the allowed set are refused with the
+/// setting's name: both model CLIs ignore an unknown level with a warning and run at their own
+/// default. The run checks this before it creates its directory.
+pub fn efforts(settings: &Value) -> Result<BTreeMap<String, String>, String> {
+    let mut out = BTreeMap::new();
+    let Some(efforts) = settings.get("efforts") else { return Ok(out) };
+    for (role, set) in object(efforts, "settings.efforts")? {
+        if !ROLES.contains(&role.as_str()) {
+            return Err(format!("settings.efforts.{role}: not a role ({})", ROLES.join(", ")));
+        }
+        for (key, value) in object(set, &format!("settings.efforts.{role}"))? {
+            let what = format!("settings.efforts.{role}.{key}");
+            if key != EFFORT_KEY {
+                return Err(format!("{what}: not a setting a run knows under Loom (known: {EFFORT_KEY})"));
+            }
+            match value.as_str() {
+                Some(level) if EFFORTS.contains(&level) => out.insert(role.clone(), level.to_owned()),
+                _ => return Err(format!("{what}: {value} is not a reasoning effort ({})", EFFORTS.join(", "))),
+            };
+        }
+    }
+    Ok(out)
 }
 
 fn read_plan(settings: &Value) -> Result<Plan, String> {
@@ -111,6 +158,9 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
             roles.insert(role.clone(), out);
         }
     }
+    for (role, level) in efforts(settings)? {
+        roles.entry(role).or_default().effort = Some(level);
+    }
     let login = match top.get(crate::loom_run::settings::LOGIN_KEY) {
         None | Some(Value::Null) => None,
         Some(Value::String(path)) if !path.is_empty() => {
@@ -122,7 +172,8 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
         }
         Some(_) => return Err("login_file: a path".to_owned()),
     };
-    Ok(Plan { principal, roles, adapter, login })
+    let replay = crate::loom_run::replay::binding_plan(settings)?;
+    Ok(Plan { principal, routed: None, roles, adapter, login, replay })
 }
 
 /// Copies the bindings directory `src` into `dst` (which does not exist yet) and applies
@@ -138,7 +189,10 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
 /// nodes holds, and the settings must come with one. An unknown key in `settings` is refused by
 /// name before anything is written. The login file's path is in no error and no return value.
 pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &Value, login_link: Option<&Path>) -> Result<PathBuf, String> {
-    let plan = read_plan(settings)?;
+    let mut plan = read_plan(settings)?;
+    if let Some((level, principal)) = decider::step_principal(settings)?.filter(|(level, _)| level != decider::AUTONOMY_DECIDES) {
+        plan.routed = src.parent().and_then(|root| decider::Routing::load(root).ok()).map(|routing| (level, principal, routing));
+    }
     if dst.exists() {
         return Err(format!("{}: exists", dst.display()));
     }
@@ -221,7 +275,11 @@ fn rewrite_files(dst: &Path, plan: &Plan, login: Option<&str>) -> Result<(), Str
     for file in files {
         let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let mut doc: Yaml = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
-        if rewrite_document(&mut doc, plan, &classes, login, &tools, &answers) {
+        let mut changed = rewrite_document(&mut doc, plan, &classes, login, &tools, &answers);
+        if let Some(replay) = &plan.replay {
+            changed |= replay.apply(&mut doc, dst);
+        }
+        if changed {
             let out = serde_yaml::to_string(&doc).map_err(|e| format!("{}: {e}", file.display()))?;
             std::fs::write(&file, out).map_err(|e| format!("{}: {e}", file.display()))?;
         }
@@ -251,7 +309,7 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
         if kind.as_deref() == Some("person") {
             // A step whose outcome is a person's own text (an answer) keeps its person unless the
             // answers file declares it: only the file says what the decider answers there.
-            if let Some(principal) = plan.principal.as_deref().filter(|_| answers.decider_takes(&name, action)) {
+            if let Some(principal) = plan.principal_of(&name).filter(|_| answers.decider_takes(&name, action)) {
                 let old = action.get("executor").and_then(Yaml::as_mapping).and_then(|m| text(m, "principal"));
                 if let Some(executor) = action.get_mut("executor").and_then(Yaml::as_mapping_mut) {
                     executor.insert(key("principal"), key(principal));
@@ -285,6 +343,9 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
                 if let Some(usd) = &set.max_budget_usd {
                     changed |= set_option(argv, "--max-budget-usd", usd);
                 }
+                if let Some(effort) = &set.effort {
+                    changed |= set_option(argv, "--effort", effort);
+                }
             }
             if let Some(adapter) = &plan.adapter {
                 changed |= set_option(argv, "--adapter", adapter);
@@ -300,7 +361,7 @@ fn rewrite_document(doc: &mut Yaml, plan: &Plan, classes: &Value, login: Option<
 /// Sets option `name` of the model tool's argv (`tool action [--name value]... [--stub ...]`):
 /// replaces its value, or inserts the pair right after the action name (the options precede
 /// `--stub`, which takes the rest of the argv). True when the argv changed.
-fn set_option(argv: &mut Vec<Yaml>, name: &str, value: &str) -> bool {
+pub(super) fn set_option(argv: &mut Vec<Yaml>, name: &str, value: &str) -> bool {
     let stub = argv.iter().position(|a| a.as_str() == Some("--stub")).unwrap_or(argv.len());
     let mut i = 2;
     while i + 1 < stub {

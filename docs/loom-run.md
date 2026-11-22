@@ -29,8 +29,8 @@ a mapping with a `text` member is the idea file as it is, any other text becomes
 `--detach`. The settings file has one format, `runbook.loom-run-settings/1`
 (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every `tree run` (`local` is
 unconfined and declared insecure; `substrate` is Substrate's linux adapter). Exit codes: 0 ended,
-1 error, 2 refused before anything was written, 3 stuck, 4 to 9 stopped (spend cap, wall time, model
-calls, signal, decider, denied), 64 usage. The subcommand was called `loom-run` before; this is the
+1 error, 2 refused before anything was written, 3 stuck, 4 to 11 stopped (spend cap, wall time, model
+calls, signal, decider, denied, rejected, recording diverged), 64 usage. The subcommand was called `loom-run` before; this is the
 same code, moved (`runbook/src/loom_run/`), and the run directory is the one it wrote.
 
 A bug-fix case: `--bugfix <seed dir>` or `--bugfix-ticket <ticket file>` (one of them; both is exit 64,
@@ -264,7 +264,9 @@ checks with the real `metaharness` and a stand-in `claude` are skipped where `me
 | model calls | `stopped: llm calls` | 6 | before each step and each decider call |
 | SIGTERM or SIGINT | `stopped: signal` | 7 | the running call is ended (SIGTERM, then SIGKILL); in the library a `handoff_when` check that runs is ended too (Loom `5b3142c7`: refusal `Cancelled: action <action>: the check <program> was cancelled`, `tree run` status 5, `next: [<action>]`), and the run ends `stopped: signal` |
 
-Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 64 usage.
+An approval of a person action whose binding names an `argv` runs that program through the runner of the run's `--confinement` (Loom `70b0e6e0`, `tree approve`; in the library `ApproveRequest.runner`). The refusals of it end the run `error` (exit 1) with Loom's text, as every refusal of an answer does: `ConfinementRefused` when no runner is admitted for bound programs, `PersonProgramFailed` when the program exits other than 0, is killed at its timeout, or leaves a placed artifact unreadable; the approval and the run stay in the store (`tree approve` prints the command that takes the action again, with `--confinement`).
+
+Other exits: 0 ended, 1 error, 2 refused, 3 stuck, 8 `stopped: decider`, 9 `denied`, 10 `stopped: rejected` (a rejection of an action with no `rejected` result; cause `rejected_without_rework_path`), 11 `stopped: recording diverged` (`--recorded`), 64 usage.
 
 ### The spend ledger
 
@@ -324,12 +326,118 @@ It sets three things before the run opens and keeps every required option requir
   decider or an autonomy that the settings name is kept, except an adapter, which is refused.
 - A dry call costs 0. The spend ledger stays at 0 and no login file is read (`login_file` is not
   needed). A dry call still counts against `--max-llm-calls`.
+- The effort of a node is on its dry command as `'--effort' '<level>'`: the setting
+  `efforts.<role>.effort` (`docs/loom-run-settings.md`), written by the bindings copy as `--effort`
+  of `sdc-node`, else the class default of `node-classes.json`. The two adapters that take an effort
+  (`metaharness`, `claude-cli`) pass it on as `--effort`; the adapter `dry` builds the metaharness
+  command, so it shows it. A level outside `low`, `medium`, `high`, `xhigh`, `max` is refused before
+  the run directory is made.
+- A dry call writes the prompt it would have sent to `prompt.md` of its call directory
+  (`work/.sdc/llm/<NNN>-<action>/`, `docs/loom-run-directory.md`): the program `sdc-node` composes
+  it before it starts the adapter.
 
 Every command a dry call would have run is printed on standard output as
 `  would run: metaharness <arguments>` (the prompt as `"$(cat <prompt file>)"`) and appended to
 `dry-commands.txt` of the run directory. `settings.json` and the first line of `run-settings.jsonl`
 carry `dry: true` and `stand_in: "runbook run --dry"`: the run is no evaluation's. The tests are in
 `runbook/tests/loom_run/dry.rs`.
+
+### A recorded run
+
+`--recorded <source>` re-drives the case tree with every model call and every decider call answered
+from a recording (a directory of `sdc-replay pack`, `driver/examples/sdc/fixtures/recorded/stub` is
+one) or from a run directory of this runner or of the old driver, by the adapter half of
+`sdc-replay`. No model is called and no login file is read. Options: `--on-divergence stop|nearest|live`
+(default `stop`), `--live-adapter`, `--live-cap`, `--inject <fault>` (repeatable: `reject@<decision>#<n>[=<reason>]`,
+`timeout@<case>/<action>#<n>`, `check-fail@<action>#<n>`), `--set k=v` (conditions: `max_runs.<name>`,
+`timeout_s.<name>`), `--take-recorded <actions>` and `--source-tree <commit>`;
+each of them without `--recorded` is exit 64 (`<option> needs --recorded <source>`), as is a source that
+is no directory. The adapter reads `replay/plan.json` and `replay/calls.jsonl` of the run directory
+at each call. Under `--confinement local` a bound program can write them, and `local` is unconfined
+(see above); under `--confinement substrate` the run directory is out of a bound program's reach.
+
+- The plan of `sdc-replay prepare` becomes settings of the run: the source's autonomy and decider
+  (on the adapter `sdc-replay`), and under `replay` the adapter of each model node (`sdc-replay`
+  for a node the source sent to a model, `stub` for the others), the principal that the story
+  digests were recorded under (`--principal` of `sdc-node` and `sdc-tool.sh`) and the conditions
+  of each action. The runner passes a bound program no environment, so it hands the adapter the
+  path of the run's `replay/plan.json`: `sdc-node` takes it as `--replay-plan` (in the argv of each
+  replayed node of the bindings copy) and sets `SDC_REPLAY` for its adapter, and the runner's
+  decider takes it from `decider.replay_plan` and sets `SDC_REPLAY` in the adapter's environment.
+  The adapter searches no directory: a `replay/plan.json` inside `work/` is never read. The settings
+  file may not name `adapter` or `replay` (the run is refused and the key named); `replay` without
+  `--recorded` is refused too, exit 2 before the run directory is made, naming the key and the
+  option, and the one adapter a re-drive takes is `sdc-replay`.
+- Conditions are written into the bindings copy (`bindings_copy.rs`): `max_runs` is the binding's
+  `budget.max_runs`, `timeout_s` its `timeout_seconds`, and a wrap of the argv (a program the plan names, as for `check-fail`) goes before it.
+- After every step the runner reads `replay/diverged.json`. A call that has no recorded reply
+  under `stop` (or no reply to reuse, or a live call over `--live-cap`, which fails closed) ends the
+  run as `stopped: recording diverged`, exit 11, cause `recording_diverged` in `run-stopped.json`
+  and `outcome.json`, with the first divergence as the reason (`diverged.json` keeps the first).
+  Exit 9 is `denied`, so the old driver's 9 for a divergence is 11 here. `nearest` reuses the
+  nearest recorded reply of the same action; `live` makes the call on `--live-adapter`. The cap
+  `--live-cap` counts a live call from its start: the adapter appends a line with `"phase":
+  "started"` to `replay/calls.jsonl`, under a lock of that file, before it starts the live program,
+  and the call's own line (`"phase": "finished"`) when the program has ended, so a live call that is
+  ended before it finishes still counts and two adapter processes at a cap of 1 start one live
+  program between them; a line without a phase (an older log) is a finished call. The log is read
+  as bytes, line by line, and a line that is not valid UTF-8 or not a JSON object (a cut-off last
+  line included) counts as one started live call, so a log that cannot be read in full never lifts
+  the cap; the adapter writes a newline first when the last line of the log has none; a log that
+  exists and cannot be opened is refused. `replay.calls.unreadable_lines` is their number. The
+  request a call is compared by holds the model and the reasoning effort, so a caller's `efforts`
+  setting that differs from the recorded effort diverges at the first call, as a changed model
+  does (intended). The inputs are compared by digest after what differs between two runs is masked
+  (run directories, home paths, instants, revisions, seconds), and so is the version label of the
+  pinned ESS in the header line of the conformance log (the first line of that shape in
+  `in/tests.txt`, below its preamble, and in no other file, prompt or request; written as `<system> v<n> against <implementation> <version> —
+  passed`; it is rewritten to the label the committed recording was packed with, `0.97.3`, so the
+  recording's digests hold): a new ESS pin does not diverge a recording, a changed test name does.
+  A recording packed by an older `sdc-replay` at another label holds the digest of its own label
+  and diverges at `in/tests.txt` (the mask is not widened to meet it). The divergence message names
+  the label as the cause, and says to pack the recording again, only when that is proven: the
+  digest of the current text, unmasked, is the recorded one. Otherwise it says that `in/tests.txt`
+  changed and, as its own sentence, that a recording packed before the label was masked diverges
+  there for that reason alone; the recording holds digests only, so it cannot tell that case from a
+  changed test at the committed label, and the message gives no advice.
+- At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live (started),
+  live_unfinished, diverged, paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
+  `rounds.jsonl` and each call's mode into `llm-calls.jsonl`.
+- `sdc-replay` reads a Loom run directory: the run log `store/runlog-case-<hex>.jsonl` and the
+  per-case `events.jsonl` that the run directory projects. Arrival and try of a call: arrival 1 at
+  the first `Evaluated` line of a case; a later arrival is a change of `case_revision` between two
+  `Evaluated` lines with no `ActionFinished` or `ChildClosed` between them (a rejection that sends
+  a writer back is not an arrival of its own); try is the number of finished runs since the last
+  arrival (not exits 126, 127, 75, 69, 70) plus 1. A decider call is keyed by case, name, arrival
+  and try, and its own `in/decision.json` and `in/checks.json` are Loom's and are not compared.
+  Recordings of the old driver replay as before.
+- Differences from the old launcher, each by what the engine does: the old exit 4 `writer_spent` is
+  `stuck` (exit 3); a timed-out call (exit 124) is not retried, because the binding of
+  `change.implement` has no result for it and Loom refuses it (`ResultNotInTable`), so the tree stops
+  `stuck` (`--inject timeout@...`); `--set max_rejections`, `review_retries` and `unstick`, and
+  `max_llm_calls` and `max_wall_seconds` (use the runner's options), are refused with a line;
+  no `review_mode` setting is recorded; `--take-recorded` needs a run directory, not a packed
+  recording; `--source-tree` is passed to `sdc-replay prepare` as before.
+- The committed recording `driver/examples/sdc/fixtures/recorded/stub` was packed again from a run
+  of this runner (source tree `a9ca39348b84`, `calls/` unchanged): the old one no longer replayed
+  strictly, because the ess pin moved (0.97.0 to 0.97.3) and `diff` orders in the C locale. The old
+  launcher diverges identically on `in/tests.txt`, so this was a defect already present.
+
+The tests are in `runbook/tests/loom_run/replay.rs`. A re-drive takes about 70 Loom steps, so no
+test makes one, and the nine tests that read a run are the slow lane `task test:replay`, not the
+default test step (they are `#[ignore]`d; the default `cargo nextest run` starts no setup step). The
+lane runs them with `--run-ignored only` on the nextest profile `replay`, whose setup step
+`replay-runs` (`runbook/.config/nextest.toml`, `runbook/tests/replay-runs.sh`) makes the six runs
+once, all at once, in `${XDG_STATE_HOME:-$HOME/.local/state}/runbook/replay-tests` (cargo refuses
+a crate below the `[workspace]` of `runbook/`, so not under `target/`; runs older than 120 minutes
+are removed), and the tests read them (`RUNBOOK_REPLAY_RUNS`); a test takes 0.01 s to 0.05 s. The
+setup step may take 300 s, a test 60 s. The lane needs `driver/target/debug` built (the task builds
+it). A run is about 64 Loom rounds and 25 CPU seconds (measured 2026-11-22: the six together 150
+CPU seconds; setup 88 s wall at host load 70 to 90, 116 s at load 40 to 50 on a later run, and
+over 180 s at load 100 to 127). The tests that need no run stay in the default step: the option
+refusals (`runbook/tests/loom_run/flags.rs`), the settings and the reading of `diverged.json`
+(unit tests in `runbook/src/loom_run/replay.rs`), the clean recording, the indexer on the
+committed recording and the plan-only settings (`replay.rs` of the tests), each under 0.1 s.
 
 ### Fail closed
 
@@ -402,8 +510,8 @@ engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and wi
 a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
 cap, a sample of `/proc` that finds no `b10x-loom`, `canon` or `sdc-drive` below the process, the
 environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
-(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `5b3142c7` from
-`~/.local/state/runbook/loom/5b3142c7/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
+(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `70b0e6e0` from
+`~/.local/state/runbook/loom/70b0e6e0/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
 when it is absent) runs the `sdc` stub cycle once through the child and once with Loom as a library (no `--loom`),
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
 compare --product-digests`, which has to end `parity: identical`.

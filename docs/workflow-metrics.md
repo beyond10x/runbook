@@ -288,11 +288,13 @@ programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the u
 bindings) must be on the login's `PATH` and `run` refuses to start without them.
 
 Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
-`implement_coverage`, `rule_approvals` (switches of the old driver), `conformance`,
-`flags.recorded` (each waits for its port into `runbook run`; in `sdc-experiment.rs` one function
-per setting, marked `// port: <name>`, which the port removes), `efforts.<class>.effort` (no
-argument of `sdc-node` in Loom mode carries an effort, so the class defaults of
-`tools/node-classes.json` apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`) or a
+`implement_coverage`, `rule_approvals` (switches of the old driver), `conformance`
+(waits for its port into `runbook run`; in `sdc-experiment.rs` one function per setting, marked
+`// port: <name>`, which the port removes), `efforts.<class>.effort` (the runner takes the
+efforts, but the record format does not carry them to it yet, so the class defaults of
+`tools/node-classes.json` apply), `free.*`. `flags.recorded` is not refused: it is passed on as
+`runbook run --recorded`, with `flags.on_divergence`, `flags.live_adapter`, `flags.live_cap` and
+`flags.source_tree` as the options that go with it. A `loom` input is an `idea` (the case is `IDEA-1`) or a
 `seed` input (a bug-fix case): a seed input starts `runbook run sdc-bugfix --bugfix <build>/<seed> --root-protocol sdc-bugfix@<revision> --case BUG-1`, its text being the intake (`docs/loom-run.md`). A record that compares the
 runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
 `max_llm_calls`) in `fixed`.
@@ -362,7 +364,7 @@ inputs:
 - {name: invoices, kind: idea, text: Bill customers with invoices., sha256: <sha256 of the text>}
 tree_commit: null
 fixed:
-  loom.bin: ~/.local/state/runbook/loom/5b3142c7/b10x-loom
+  loom.bin: ~/.local/state/runbook/loom/70b0e6e0/b10x-loom
   loom.sha256: <64 hex digits>
   loom.confinement: local
   loom.cap_micro_usd: 5000000
@@ -467,7 +469,7 @@ These metrics extend the eval design's metrics; they do not redefine them.
 - **Revisions.** A run made before the launcher does not record the driver and bindings
   revision: `opened.bindings` names a worktree path, not a commit, and runs from different hours
   ran different code. A launched run records its `tree_commit` in `experiment.json`; the canon
-  binary is pinned in `driver/canon-pin.json` and checked by the scripts.
+  library is pinned in `runbook/Cargo.lock` (`runbook canon`, formerly a `canon` binary pinned in `driver/canon-pin.json`).
 - **Effort.** Absent before `feat/effort-per-class`; those runs read `unrecorded`.
 - **Quality of the delivered app.** No run writes `oracle.json`.
 - **Retries inside a session.** An invalid model reply retried inside `llm-node.sh` (review

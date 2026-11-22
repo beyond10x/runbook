@@ -22,6 +22,7 @@ export function runState(s) {
   if (r.daemon) return r.daemon;
   if (s && s.exists === false) return {cls: 'wait', text: 'waiting for its store', short: 'waiting'};
   if (r.state === 'running') return {cls: 'run', text: 'running', short: 'running'};
+  if (r.state === 'unknown') return {cls: 'idle', text: 'live state unknown', short: 'unknown'};
   if (r.state === 'stopped') return {cls: 'stop', text: `stopped · ${words(r.cause) || `by ${r.stopBy || 'someone'}`}`, short: 'stopped'};
   if (r.state === 'closed' && endOf(r) === 'good') return {cls: 'ok', text: `closed · ${words(r.outcome) || 'delivered'}`, short: 'closed'};
   if (r.state === 'closed' && endOf(r) === 'bad') return {cls: 'bad', text: `closed · not delivered${r.outcome && !/^not.delivered$/.test(r.outcome) ? ` (${words(r.outcome)})` : ''}`, short: 'not delivered'};

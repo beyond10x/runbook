@@ -1,5 +1,5 @@
-//! The UI in the binary (story `ui-embedded-in-the-binary`, slice 1): the files of `ui/web/` are
-//! compiled in and `runbook serve --ui` serves them beside the API, behind the daemon's token rule.
+//! The UI in the binary (story `ui-embedded-in-the-binary`, slice 1): the files of `ui/web/` and
+//! `ui/daemon/` are compiled in and `runbook serve --ui` serves them beside the API, behind the daemon's token rule.
 
 use super::commands::Fx;
 use super::http::{send, Resp};
@@ -17,6 +17,11 @@ fn web_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/web")
 }
 
+/// The code only the daemon serves (the inspector's server has no such file).
+fn daemon_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/daemon")
+}
+
 fn files_on_disk() -> Vec<(String, Vec<u8>)> {
     fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, Vec<u8>)>) {
         for e in std::fs::read_dir(dir).unwrap() {
@@ -30,6 +35,7 @@ fn files_on_disk() -> Vec<(String, Vec<u8>)> {
     }
     let mut out = Vec::new();
     walk(&web_dir(), &web_dir(), &mut out);
+    walk(&daemon_dir(), &daemon_dir(), &mut out);
     out.sort();
     out
 }
@@ -91,14 +97,14 @@ fn every_file_of_ui_web_is_served_at_its_path_byte_for_byte() {
 fn the_embedded_list_is_the_directory_and_the_committed_files() {
     let embedded: Vec<String> = ui_embed::paths().iter().map(|p| p.to_string()).collect();
     let disk: Vec<String> = files_on_disk().into_iter().map(|(p, _)| p).collect();
-    assert_eq!(embedded, disk, "a file of ui/web/ is not embedded, or an embedded file is gone");
-    // the tracked files only: an untracked file in ui/web/ would be compiled into a binary that no commit holds
+    assert_eq!(embedded, disk, "a file of ui/web/ or ui/daemon/ is not embedded, or an embedded file is gone");
+    // the tracked files only: an untracked file in ui/web/ or ui/daemon/ would be compiled into a binary that no commit holds
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let out = Command::new("git").args(["ls-files", "ui/web"]).current_dir(root).output().expect("git runs");
-    assert!(out.status.success(), "git ls-files ui/web failed");
-    let mut tracked: Vec<String> = String::from_utf8(out.stdout).unwrap().lines().map(|l| l.strip_prefix("ui/web/").unwrap().to_string()).collect();
+    let out = Command::new("git").args(["ls-files", "ui/web", "ui/daemon"]).current_dir(root).output().expect("git runs");
+    assert!(out.status.success(), "git ls-files ui/web ui/daemon failed");
+    let mut tracked: Vec<String> = String::from_utf8(out.stdout).unwrap().lines().map(|l| l.strip_prefix("ui/web/").or_else(|| l.strip_prefix("ui/daemon/")).unwrap().to_string()).collect();
     tracked.sort();
-    assert_eq!(embedded, tracked, "the embedded set is the committed files of ui/web/, nothing else");
+    assert_eq!(embedded, tracked, "the embedded set is the committed files of ui/web/ and ui/daemon/, nothing else");
 }
 
 #[test]

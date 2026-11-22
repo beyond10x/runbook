@@ -573,9 +573,15 @@ impl RunDirWriter {
             "stopped: llm calls" => "llm_calls_spent",
             "stopped: signal" => "signal",
             "stopped: decider" => "decider_cannot_decide",
+            "stopped: rejected" => "rejected_without_rework_path",
             _ => "error",
         };
-        let reason = reason.map_or_else(|| outcome.to_string(), |r| format!("{outcome}: {r}"));
+        let reason = match reason {
+            // The reason of a rejection names the step and the case first, as the driver's did.
+            Some(r) if cause == "rejected_without_rework_path" => r.to_owned(),
+            Some(r) => format!("{outcome}: {r}"),
+            None => outcome.to_string(),
+        };
         self.write_stop(at, cause, &reason)
     }
 

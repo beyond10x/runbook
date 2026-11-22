@@ -48,11 +48,13 @@ pub struct Setup {
     pub case: String,
     /// The feedback records file, when the run has feedback.
     pub feedback: Option<PathBuf>,
+    /// The reasoning effort the caller names (`--effort`); the class default applies without it.
+    pub effort: Option<String>,
 }
 
-const VALUED: [&str; 10] = [
+const VALUED: [&str; 12] = [
     "--model", "--max-turns", "--max-budget-usd", "--operations", "--instructions", "--adapter", "--principal",
-    "--stub-fixtures", "--stub-counter", "--claude-credentials",
+    "--stub-fixtures", "--stub-counter", "--claude-credentials", "--effort", "--replay-plan",
 ];
 
 /// Reads standard input and `rest` (the arguments after the action name) as the Loom branch of the
@@ -97,6 +99,7 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
 
     let cfg = build_cfg(node, &opt, stub)?;
     let here = tools_directory(node, tools_dir)?;
+    check_effort(node, &here, given("--effort").as_deref())?;
     let root = here.parent().and_then(Path::parent).map(Path::to_path_buf).unwrap_or_else(|| here.clone());
 
     let sibling = |name: &str| which(name).unwrap_or_else(|| root.join("driver/target/debug").join(name));
@@ -107,6 +110,7 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     for (flag, var) in [
         ("--adapter", "SDC_LLM_ADAPTER"),
         ("--principal", "SDC_PRINCIPAL"),
+        ("--replay-plan", "SDC_REPLAY"),
         ("--stub-fixtures", "SDC_STUB_FIXTURES"),
         ("--stub-counter", "SDC_STUB_COUNTER"),
     ] {
@@ -126,7 +130,19 @@ pub fn setup(node: &str, rest: &[String]) -> R<Setup> {
     if let Some(doc) = env_set("LOOM_RETRY_FEEDBACK") {
         feedback = retry_feedback(node, &work, Path::new(&doc))?.or(feedback);
     }
-    Ok(Setup { here, root, args, cfg, case, feedback })
+    Ok(Setup { here, root, args, cfg, case, feedback, effort: given("--effort") })
+}
+
+/// `--effort` is one of the levels `node-classes.json` lists (`efforts`): both model CLIs ignore an
+/// unknown level with a warning and run at their own default, so the program refuses it.
+fn check_effort(node: &str, here: &Path, effort: Option<&str>) -> R<()> {
+    let Some(effort) = effort else { return Ok(()) };
+    let classes = fs::read_to_string(here.join("node-classes.json")).ok().and_then(|t| Ov::parse(&t).ok());
+    let levels: Vec<String> = classes.as_ref().and_then(|c| c.get("efforts")).map(|l| l.items().iter().map(|v| v.raw()).collect()).unwrap_or_default();
+    if levels.iter().any(|l| l == effort) {
+        return Ok(());
+    }
+    Err(die(format!("llm-node: {node} could not run: --effort takes one of {}, got {effort}", levels.join(", ")), 64))
 }
 
 /// The tools directory: the option, else the `bindings/tools` of the repository this binary was

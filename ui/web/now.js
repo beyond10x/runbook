@@ -5,7 +5,7 @@
 //
 // Signals: a case's events.jsonl (`action_started` without a later `action_finished` is in flight;
 // the latest verdict event says what it waits on), `times` (the server's wall clock of each event:
-// the events' own `at` is the instant passed to the whole `sdc-drive run`, not the step's), the
+// the events' own `at` is the instant passed to the whole run, not the step's), the
 // server's /api/live (llm/ and decider/ record directories whose response.json is still empty, with
 // the progress read from their metaharness event stream; fs/changes.jsonl), llm-calls.jsonl.
 import {actorOf, predicateRefs, VERDICTS, evalAt} from './model.js';
@@ -69,19 +69,11 @@ export function waitOf(c) {
   return {c, event: v, verdict: v.event, asks};
 }
 
-// What the driver is doing to a case tree, from /api/live `drivers` (driver.json, sdc.driver/1, present
-// while a driver holds the tree; the pid in the lock file; whether any case has an observed.jsonl):
-// attached (its pid runs), gone (driver.json names a pid that is not running, or no driver.json and
-// no live lock while an observed.jsonl exists), unknown (an old run: no signal, nothing to say).
-export function driverState(c, live) {
-  const d = live?.drivers?.[c.tree];
-  if (!d) return {state: 'unknown'};
-  if (d.file) {
-    return d.alive ? {state: 'attached', pid: d.pid, started: Date.parse(d.started_at) || null, argv: d.argv, via: 'driver.json'}
-      : {state: 'gone', pid: d.pid, why: `driver.json names pid ${d.pid}, which is not running`};
-  }
-  if (d.lock_alive) return {state: 'attached', pid: d.lock_pid, started: null, argv: null, via: 'lock'};
-  if (d.observed) return {state: 'gone', pid: null, why: 'no driver.json while observed.jsonl exists'};
+// Whether anything runs the run, from /api/live `liveness` (server.mjs livenessOf). The runner writes no pid
+// and no lock, so the page never says a run is live: `history` (a case store of the old driver) is not live,
+// and a step started there and never finished is 'gone'; any other state says nothing: 'unknown'.
+export function liveState(c, live) {
+  if (live?.liveness?.state === 'history') return {state: 'gone', why: live.liveness.why};
   return {state: 'unknown'};
 }
 
@@ -106,22 +98,22 @@ export function changesFor(live, caseId, action, record, since) {
 
 export function nowState(cases, live, run, nowMs = Date.now()) {
   const pool = (live?.records || []).slice();
-  const drivers = new Map();
-  for (const c of cases) if (!drivers.has(c.tree)) drivers.set(c.tree, driverState(c, live));
-  const driver = {attached: [...drivers.values()].filter((d) => d.state === 'attached'), gone: [...drivers.values()].filter((d) => d.state === 'gone')};
+  const lives = new Map();
+  for (const c of cases) if (!lives.has(c.tree)) lives.set(c.tree, liveState(c, live));
+  const runner = {gone: [...lives.values()].filter((d) => d.state === 'gone')};
   const all = inFlight(cases).map(({c, start}) => {
     const since = timeOf(c, start);
     const record = start.llm || c.bindings?.[start.action]?.llm ? claim(pool, (r) => r.kind === 'llm' && r.action === start.action && (!r.case || r.case === c.id), since) : null;
     const exec = executorOf(c, start, record);
     const t0 = since ?? record?.started ?? null;
     return {c, start, action: start.action, exec, kind: exec.kind, since: t0, sinceSrc: since != null ? c.timeSource?.[start.seq] || 'server' : record?.started != null ? 'call' : null, approx: t0 == null ? at(start) : null, record,
-      driver: drivers.get(c.tree) || {state: 'unknown'},
+      runner: lives.get(c.tree) || {state: 'unknown'},
       timeout: start.timeout_s ? start.timeout_s * 1000 : null, files: changesFor(live, c.id, start.action, record?.rel, t0)};
   });
   const byStart = (a, b) => (a.since ?? a.approx ?? 0) - (b.since ?? b.approx ?? 0) || a.c.depth - b.c.depth;
-  // a step started and never finished, with no driver alive to finish it, is not running
-  const running = all.filter((r) => r.driver.state !== 'gone').sort(byStart);
-  const gone = all.filter((r) => r.driver.state === 'gone').sort(byStart);
+  // a step started and never finished in a run that is not live is not running
+  const running = all.filter((r) => r.runner.state !== 'gone').sort(byStart);
+  const gone = all.filter((r) => r.runner.state === 'gone').sort(byStart);
   const waiting = [], stalled = [];
   for (const c of cases) {
     const w = waitOf(c);
@@ -150,11 +142,11 @@ export function nowState(cases, live, run, nowMs = Date.now()) {
   const stopped = run?.stopped && !isNaN(Date.parse(run.stopped.at)) ? {...run.stopped, t: Date.parse(run.stopped.at)} : null;
   let mode = stopped ? 'stopped' : running.length ? 'running' : gone.length ? 'gone' : waiting.length ? 'waiting' : stalled.length ? 'stalled' : term ? 'closed' : stuck.length ? 'stuck' : terminable.length ? 'terminable' : between.length ? 'between' : 'idle';
   const lastT = Math.max(0, ...cases.map((c) => Math.max(0, ...Object.values(c.times || {}))));
-  // no stop record, not closed and no driver attached (no live driver.json pid, no live lock): nothing
-  // moves the run, so its clocks stand at the last event (the page's clock is that time)
+  // no stop record and not closed: the runner records no live process, so nothing says the run moves and
+  // its clocks stand at the last event (the page's clock is that time)
   const lastAt = lastT || Math.max(0, ...cases.flatMap((c) => c.events.map((e) => Date.parse(e.at) || 0))) || null;
-  const idle = !stopped && !term && !driver.attached.length && mode !== 'closed' && lastAt ? {t: lastAt} : null;
-  return {mode, stopped, idle, autopilot: autopilot(run?.settings), running, gone, driver, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
+  const idle = !stopped && !term && mode !== 'closed' && lastAt ? {t: lastAt} : null;
+  return {mode, stopped, idle, autopilot: autopilot(run?.settings), liveness: live?.liveness?.state || 'unknown', running, gone, runner, waiting, stalled, root, term, stuck, terminable, between, recent: recentSteps(cases, run, 4), lastT: lastT || null, now: nowMs,
     steps: cases.reduce((n, c) => n + c.events.filter((e) => e.event === 'action_finished').length, 0)};
 }
 function lastVerdictish(c) {
@@ -332,12 +324,12 @@ function goneCard(r, now) {
   const rec = r.record;
   const t = r.since ?? r.approx;
   const call = rec ? (rec.status?.alive ? `<span class="nc-warn">its call (pid ${esc(rec.status.pid)}) still runs</span>` : '') : '';
-  return `<div class="nc gone k-stuck" data-key="gone:${esc(r.c.rel)}:${r.start.seq}" data-goto="${esc(r.c.rel)}" data-node="action:${esc(r.action)}" title="${esc(`${r.action} in ${r.c.id}: started, not finished\n${r.driver.why}${rec ? `\nrecord ${rec.rel}` : ''}`)}">
+  return `<div class="nc gone k-stuck" data-key="gone:${esc(r.c.rel)}:${r.start.seq}" data-goto="${esc(r.c.rel)}" data-node="action:${esc(r.action)}" title="${esc(`${r.action} in ${r.c.id}: started, not finished\n${r.runner.why}${rec ? `\nrecord ${rec.rel}` : ''}`)}">
     ${orb('stuck', false)}
     <div class="nc-main">
-      <div class="nc-1"><span class="nc-verb bad">Driver gone</span><b class="nc-act">${esc(r.action)}</b><span class="nc-in">in</span><span class="nc-case">${esc(r.c.id)}</span></div>
-      <div class="nc-2"><span class="nc-x">Started and never finished. ${esc(r.driver.why)}.</span>${call}</div>
-      <div class="nc-3"><span class="nc-why">Nothing runs this step now. Continue the run to have a driver take the tree again.</span></div>
+      <div class="nc-1"><span class="nc-verb bad">Not live</span><b class="nc-act">${esc(r.action)}</b><span class="nc-in">in</span><span class="nc-case">${esc(r.c.id)}</span></div>
+      <div class="nc-2"><span class="nc-x">Started and never finished. ${esc(r.runner.why)}.</span>${call}</div>
+      <div class="nc-3"><span class="nc-why">Nothing runs this step now.</span></div>
     </div>
     <div class="nc-time">${t != null ? `<span class="tk">${fmtDur(now - t)}</span>` : '<span class="tk">—</span>'}<span class="nc-since">${r.since != null ? `started ${clock(r.since)}` : r.approx != null ? `run since ${clock(r.approx)}` : ''}</span></div>
   </div>`;
@@ -352,7 +344,7 @@ function runCard(r, now) {
   const t = r.since ?? r.approx;
   const over = r.timeout && r.since != null && now - r.since > r.timeout;
   const prog = r.kind === 'llm' ? (rec ? progress(rec, r.exec.maxTurns) : `<span class="np-s">no call record yet</span>`) : '';
-  return `<div class="nc run k-${r.kind}${over ? ' over' : ''}" data-key="run:${esc(r.c.rel)}:${r.start.seq}" data-goto="${esc(r.c.rel)}" data-node="action:${esc(r.action)}" title="${esc(`${r.action} in ${r.c.id}\n${KIND_LABEL[r.kind]}: ${r.exec.detail}${r.since != null ? `\nstarted ${new Date(r.since).toLocaleString()} (${SINCE_SRC[r.sinceSrc] || r.sinceSrc})` : '\nstart time not observed (the event carries only the run’s --at)'}${r.driver.state === 'attached' ? `\ndriver pid ${r.driver.pid}` : ''}${rec ? `\nrecord ${rec.rel}` : ''}`)}">
+  return `<div class="nc run k-${r.kind}${over ? ' over' : ''}" data-key="run:${esc(r.c.rel)}:${r.start.seq}" data-goto="${esc(r.c.rel)}" data-node="action:${esc(r.action)}" title="${esc(`${r.action} in ${r.c.id}\n${KIND_LABEL[r.kind]}: ${r.exec.detail}${r.since != null ? `\nstarted ${new Date(r.since).toLocaleString()} (${SINCE_SRC[r.sinceSrc] || r.sinceSrc})` : '\nstart time not observed (the event carries only the run’s --at)'}${rec ? `\nrecord ${rec.rel}` : ''}`)}">
     ${orb(r.kind, true)}
     <div class="nc-main">
       <div class="nc-1"><span class="nc-verb">Running</span><b class="nc-act">${esc(r.action)}</b><span class="nc-in">in</span><span class="nc-case">${esc(r.c.id)}</span></div>
@@ -434,7 +426,7 @@ function restCard(st, now) {
     const c = st.between[st.between.length - 1];
     const t = Math.max(0, ...Object.values(c.times || {})) || null;
     return `<div class="nc idle k-driver" data-key="rest:between" data-goto="${esc(c.rel)}">${orb('driver', true)}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Between steps</span><b class="nc-act">${esc(c.id)}</b></div>
-      <div class="nc-2"><span class="nc-x">No action in flight. ${st.idle ? 'No driver is attached to choose the next step' : 'The driver is evaluating or choosing the next step'}${st.between.length > 1 ? ` (${st.between.length} open cases)` : ''}.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since the last event</span></div>` : ''}</div>`;
+      <div class="nc-2"><span class="nc-x">No action in flight. ${st.liveness === 'history' ? 'This run is not live: nothing chooses the next step' : 'Whether anything chooses the next step is not recorded'}${st.between.length > 1 ? ` (${st.between.length} open cases)` : ''}.</span></div></div>${t ? `<div class="nc-time">${since(t, now)}<span class="nc-since">since the last event</span></div>` : ''}</div>`;
   }
   return `<div class="nc idle k-idle" data-key="rest:idle">${orb('idle')}<div class="nc-main"><div class="nc-1"><span class="nc-verb">Idle</span></div><div class="nc-2"><span class="nc-x">Nothing running.</span></div></div></div>`;
 }
@@ -449,16 +441,13 @@ function trail(st, now) {
   }).join('')}</div>`;
 }
 
-// Whether a driver is attached, where the run says so (driver.json, the lock, observed.jsonl); an old run says nothing.
-function driverChip(st) {
-  const d = st.driver;
-  if (d?.attached.length) {
-    const x = d.attached[0];
-    return `<span class="now-drv on" title="${esc(`${x.via}${x.argv ? `\n${x.argv.join(' ')}` : ''}`)}">driver attached<i>pid <b class="now-pid">${esc(x.pid)}</b>${x.started ? ` · since ${clock(x.started)}` : ''}</i></span>`;
-  }
-  // the absence of a driver is never a status of its own (UXF-010): only a started step that nothing
-  // finishes says "Driver gone"; a wait, a stop and the end are said in words by the band's head
-  if (d?.gone.length && st.mode === 'gone') return `<span class="now-drv off" title="${esc(d.gone[0].why)}">Driver gone</span>`;
+// That a run is not live, where the page can tell (a case store of the old driver). The runner records no live
+// process, so a run it wrote is never marked live or not live here.
+// Not live is never a status of its own (UXF-010): only a started step that nothing finishes says it;
+// a wait, a stop and the end are said in words by the band's head.
+function liveChip(st) {
+  const d = st.runner;
+  if (d?.gone.length && st.mode === 'gone') return `<span class="now-drv off" title="${esc(d.gone[0].why)}">Not live</span>`;
   return '';
 }
 
@@ -492,9 +481,9 @@ function wasText(st) {
 export function nowSay(st) {
   const said = sayNow(st);
   if (!st.idle) return said;
-  // a started step with no live driver already says the driver is gone
-  if (st.mode === 'gone') return {head: said.head, sub: said.sub.replace(/^a started step has no live driver/, (m) => `${m}, last activity ${clock(st.idle.t)}`)};
-  const idle = `no driver attached, last activity ${clock(st.idle.t)}`;
+  // a started step in a run that is not live already says so
+  if (st.mode === 'gone') return {head: said.head, sub: said.sub.replace(/^a started step never finished, the run is not live/, (m) => `${m}, last activity ${clock(st.idle.t)}`)};
+  const idle = `${st.liveness === 'history' ? 'not live' : 'live state unknown'}, last activity ${clock(st.idle.t)}`;
   return {head: said.head, sub: said.sub ? `${idle} · ${said.sub}` : idle};
 }
 function sayNow(st) {
@@ -524,7 +513,7 @@ function sayNow(st) {
   if (st.mode === 'stalled') return {head: stallText(st.stalled[0].stall), sub: st.stalled.length > 1 ? `${st.stalled.length} cases` : ''};
   if (st.mode === 'closed') return {head: `Closed${st.term?.outcome ? `: ended ${st.term.outcome}` : ''}`, sub: ''};
   const head = {running: `${st.running.length} running`, gone: 'Nothing running', terminable: 'Nothing running', between: 'Between steps', idle: 'Nothing running'}[st.mode];
-  const sub = st.mode === 'gone' ? `a started step has no live driver${n ? ` · ${n} waiting` : ''}` : st.mode === 'running' && n ? `${n} waiting${mine && !st.autopilot ? ` on you` : ''}` : '';
+  const sub = st.mode === 'gone' ? `a started step never finished, the run is not live${n ? ` · ${n} waiting` : ''}` : st.mode === 'running' && n ? `${n} waiting${mine && !st.autopilot ? ` on you` : ''}` : '';
   return {head, sub};
 }
 
@@ -534,7 +523,7 @@ export function renderNow(st, now, items = [], stub = null) {
   const {head, sub} = nowSay(st);
   const itemOf = (w) => (items || []).find((i) => i.case === w.c.id && (i.action === w.action || i.approval?.action === w.action));
   const cards = st.mode === 'stopped' ? restCard(st, now) : st.running.map((r) => runCard(r, now)).join('') + st.gone.map((r) => goneCard(r, now)).join('') + st.waiting.map((w) => waitCard(w, now, itemOf(w))).join('') + (st.running.length || st.gone.length || st.waiting.length ? '' : restCard(st, now));
-  return `${stub ? `<div class="now-stub" data-key="stub" title="${esc(stub.why)}">${esc(STUB_NOTE)}</div>` : ''}<div class="now-h" data-key="h"><span class="now-l">Now</span><span class="now-s m-${st.mode}"${head.length > 80 ? ` title="${esc(head)}"` : ''}><i></i><span class="now-st">${esc(head)}</span></span>${sub ? `<span class="now-sub">${esc(sub)}</span>` : ''}${driverChip(st)}</div>
+  return `${stub ? `<div class="now-stub" data-key="stub" title="${esc(stub.why)}">${esc(STUB_NOTE)}</div>` : ''}<div class="now-h" data-key="h"><span class="now-l">Now</span><span class="now-s m-${st.mode}"${head.length > 80 ? ` title="${esc(head)}"` : ''}><i></i><span class="now-st">${esc(head)}</span></span>${sub ? `<span class="now-sub">${esc(sub)}</span>` : ''}${liveChip(st)}</div>
     <div class="now-cards n${st.mode === 'stopped' ? 1 : Math.min(3, st.running.length + st.gone.length + st.waiting.length || 1)}" data-key="cards">${cards}</div>${trail(st, now)}`;
 }
 
@@ -546,7 +535,7 @@ export function nowBar(st) {
   let step;
   if (st.mode === 'stopped') step = wasLines(st)[0]?.text.replace(/^was /, 'Was ') || 'Nothing was running or waiting';
   else if (st.running.length) step = st.running.map((r) => `${r.action} · ${KIND_LABEL[r.kind] || r.kind}${r.kind === 'llm' && r.exec?.model ? ` ${r.exec.model}` : ''}`).join(' and ');
-  else if (st.gone.length) step = `${st.gone[0].action}: started, its driver is gone`;
+  else if (st.gone.length) step = `${st.gone[0].action}: started, never finished, the run is not live`;
   else if (st.waiting.length) step = `${st.waiting[0].action || st.waiting[0].verdict.replace(/_/g, ' ')} · held by ${holder(st.waiting[0])}${st.waiting.length > 1 ? ` (+${st.waiting.length - 1})` : ''}`;
   else if (st.mode === 'closed') step = `${st.root?.id || 'the run'} ended ${st.term?.outcome || ''}`.trim();
   else if (st.mode === 'stalled') step = `${st.stalled[0].c.id}: no step can run`;

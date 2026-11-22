@@ -1,0 +1,78 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: decision-duplicate-option-letters-are-refused
+summary: "Request refuses two options with one letter and opens nothing; the same options with distinct letters open the request."
+
+timeline:
+  - at: 2026-11-22T11:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-4.billing.dunning-roadmap.approve-1"
+      case_id: "IDEA-4.billing.dunning"
+      question_key: "IDEA-4.billing.dunning|roadmap.approve|"
+      unblocks: {kind: approval, action: "roadmap.approve", capability: "owner.approve"}
+      subject_artifact: "roadmap"
+      subject_revision: "t3r1"
+      subject_path: "aep/initiative/roadmap.md"
+      question: "Approve the roadmap at revision t3r1?"
+      options:
+        - letter: "A"
+          does: "Grant owner.approve at this case revision."
+          cost: "None beyond the approval."
+          consequence: {admits: ["roadmap.approve"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "A"
+          does: "Deny owner.approve."
+          cost: "The roadmap is revised first."
+          consequence: {admits: [], blocks: ["roadmap.approve"], grant: denied, produces: canon_authority}
+      autonomy_level: A1
+      decision_class: roadmap
+      holder: person
+      eligible: ["operator"]
+      addressed_to: "operator"
+      opened_at: 2026-11-22T11:00:00Z
+    outcome: duplicate-letters
+
+  - at: 2026-11-22T11:01:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-4.billing.dunning-roadmap.approve-2"
+      case_id: "IDEA-4.billing.dunning"
+      question_key: "IDEA-4.billing.dunning|roadmap.approve|"
+      unblocks: {kind: approval, action: "roadmap.approve", capability: "owner.approve"}
+      subject_artifact: "roadmap"
+      subject_revision: "t3r1"
+      subject_path: "aep/initiative/roadmap.md"
+      question: "Approve the roadmap at revision t3r1?"
+      options:
+        - letter: "A"
+          does: "Grant owner.approve at this case revision."
+          cost: "None beyond the approval."
+          consequence: {admits: ["roadmap.approve"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny owner.approve."
+          cost: "The roadmap is revised first."
+          consequence: {admits: [], blocks: ["roadmap.approve"], grant: denied, produces: canon_authority}
+      autonomy_level: A1
+      decision_class: roadmap
+      holder: person
+      eligible: ["operator"]
+      addressed_to: "operator"
+      opened_at: 2026-11-22T11:01:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-4.billing.dunning-roadmap.approve-2"
+          case_id: "IDEA-4.billing.dunning"
+          subject_artifact: "roadmap"
+          subject_revision: "t3r1"
+
+assert:
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "roadmap"}
+    contains: {request_id: "DR-IDEA-4.billing.dunning-roadmap.approve-2", state: Open}
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "roadmap"}
+    excludes: {request_id: "DR-IDEA-4.billing.dunning-roadmap.approve-1"}

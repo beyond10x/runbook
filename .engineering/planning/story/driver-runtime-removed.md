@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:driver-runtime-removed
 kind: story
-status: proposed
+status: active
 title: The driver runtime removed
 summary: After parity, driver/src/main.rs, the driver scripts and the two tools that only they use are deleted and nothing references them.
 tags:
@@ -14,15 +14,25 @@ relations:
 - informed_by: upstream-blocker:loom-decider-per-class
 scope:
 - confidence: cited
+  path: .github/workflows
+- confidence: inferred
+  path: .gitignore
+- confidence: cited
   path: AGENTS.md
+- confidence: cited
+  path: CHANGELOG.md
 - confidence: cited
   path: README.md
 - confidence: cited
   path: Taskfile.yml
 - confidence: cited
   path: bindings
+- confidence: inferred
+  path: cycles
 - confidence: cited
   path: cycles/suite.yaml
+- confidence: cited
+  path: cycles/tree-suite.yaml
 - confidence: cited
   path: docs
 - confidence: cited
@@ -30,16 +40,53 @@ scope:
 - confidence: cited
   path: driver/canon-pin.json
 - confidence: cited
+  path: driver/examples
+- confidence: cited
+  path: driver/src
+- confidence: cited
   path: driver/src/bin/sdc-experiment.rs
 - confidence: cited
   path: driver/src/main.rs
 - confidence: cited
   path: driver/tests
+- confidence: inferred
+  path: driver/unreferenced-keep.txt
+- confidence: cited
+  path: ess
+- confidence: inferred
+  path: eval
+- confidence: cited
+  path: eval/README.md
+- confidence: inferred
+  path: instructions
+- confidence: cited
+  path: plugin
+- confidence: inferred
+  path: protocol
+- confidence: cited
+  path: protocol/check-ledger.json
+- confidence: cited
+  path: runbook
 - confidence: cited
   path: scripts
-revision: 3
+- confidence: cited
+  path: scripts/run-full-cycle.sh
+- confidence: cited
+  path: tools/autonomy-levels.json
+- confidence: cited
+  path: ui
+- confidence: cited
+  path: views
+- confidence: inferred
+  path: watch
+- confidence: inferred
+  path: website/data
+- confidence: cited
+  path: website/docs
+revision: 28
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:37Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
+- {from: "proposed", to: "active", at: "2026-11-22T19:09:57Z", actor: "human:operator", revision: 28, executor: "agent:runbook"}
 ---
 # Story: driver-runtime-removed
 
@@ -89,8 +136,9 @@ side and overlaps this story. `driver/canon-pin.json` and the Canon binary resol
   prints nothing; the pin is `runbook/Cargo.lock`.
 - `sdc-experiment run <id>` starts its runs with `runbook run`; a record for one stub run ends with
   exit 0 (a test on a fixture record, no model call).
-- `task check` exits 0 within 120 s; `runbook test cycles/suite.yaml` prints every entry as
-  `expected`; the process tree of a run holds `runbook` and the bound programs of the bindings and
+- `task check` exits 0 within 120 s; `runbook test cycles/tree-suite.yaml` prints every entry
+  as `expected`, or as `pending` with the gap or the Loom story it waits for (the operator's decision
+  of 2026-11-22: the deletion does not wait for the pending entries); the process tree of a run holds `runbook` and the bound programs of the bindings and
   no `sdc-drive`, `canon` or `b10x-loom`.
 - `AGENTS.md`'s directory map and rules no longer name the deleted files, and
   `docs/driver.md` and `docs/layers.md` say the runtime is Loom's.
@@ -103,3 +151,10 @@ side and overlaps this story. `driver/canon-pin.json` and the Canon binary resol
 `tools/decider.sh`, the bindings that name them, `PENDING.md`), `cycles/suite.yaml` (its
 `script:` and `driver:` fields), `Taskfile.yml`, `AGENTS.md`, `README.md`, `docs/`,
 `driver/tests/`, `ui/README.md`. A wide file set: it runs alone, after K.
+
+Added for wave 2026-11-22-w1, read from the diffs of the built units (cited): `runbook`, `ui`,
+`driver/examples`, `driver/src`, `plugin`, `website/docs`, `views`, `tools/autonomy-levels.json`,
+`cycles/tree-suite.yaml`, `protocol/check-ledger.json`, `.github/workflows`, `ess`,
+`eval/README.md`, `scripts/run-full-cycle.sh`, `CHANGELOG.md`. From the briefs of the three units
+not built yet (inferred): `protocol`, `website/data`, `instructions`, `.gitignore`, `cycles`,
+`eval`, `driver/unreferenced-keep.txt`, `watch`.

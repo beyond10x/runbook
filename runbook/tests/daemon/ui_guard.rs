@@ -351,6 +351,9 @@ fn the_build_refuses_a_symbolic_link_in_ui_web_to_a_file_or_a_directory_and_name
         std::fs::create_dir_all(w.join("fonts")).unwrap();
         std::fs::write(w.join("index.html"), "<html></html>").unwrap();
         std::fs::write(w.join("fonts/a.woff2"), "x").unwrap();
+        let d = fx.dir.join(name).join("ui/daemon");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("decide.js"), "x").unwrap();
         w
     };
     web("plain");
@@ -378,4 +381,14 @@ fn the_build_refuses_a_symbolic_link_in_ui_web_to_a_file_or_a_directory_and_name
     symlink(fx.dir.join("nothing"), w.join("gone.js")).unwrap();
     let (ok, err) = run_build(&fx, &script, "dangling");
     assert!(!ok && err.contains("gone.js"), "{err}");
+    // ui/daemon/ is held to the same rule
+    web("daemon-link");
+    symlink(&outside, fx.dir.join("daemon-link/ui/daemon/leak.js")).unwrap();
+    let (ok, err) = run_build(&fx, &script, "daemon-link");
+    assert!(!ok && err.contains("leak.js") && err.contains("symbolic link"), "{err}");
+    // a path in both directories is refused: the inspector's file would be the daemon's too
+    let w = web("both");
+    std::fs::write(w.join("decide.js"), "x").unwrap();
+    let (ok, err) = run_build(&fx, &script, "both");
+    assert!(!ok && err.contains("decide.js") && err.contains("both"), "{err}");
 }

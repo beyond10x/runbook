@@ -162,7 +162,7 @@ for (const s of scenarios) {
     };
     for (let i = 0; i < 40 && !(await truthOn()); i++) await env.step(page);
     await moment(page, vp, s.name, 'truth');
-    if (s.write) { await openSheet(page, 'drawer'); await moment(page, vp, s.name, 'drawer', {sheet: 'drawer'}); await closeSheet(page, 'drawer'); }
+    if (s.decide) { await openSheet(page, 'drawer'); await moment(page, vp, s.name, 'drawer', {sheet: 'drawer'}); await closeSheet(page, 'drawer'); }
     // the run picker as a full-screen sheet (D-009), on the recorded run of the closed scenario
     if (s.name === 'closed') { await openSheet(page, 'picker'); await moment(page, vp, s.name, 'picker', {sheet: 'picker'}); await closeSheet(page, 'picker'); }
     if (s.tasks.some((t) => /open the (diff of the )?last change/.test(t))) {
@@ -173,7 +173,7 @@ for (const s of scenarios) {
       await moment(page, vp, s.name, 'diff', {sheet: 'diff'});
       await closeSheet(page, 'diff');
     }
-    if (s.anchor && !s.write) {
+    if (s.anchor && !s.decide) {
       await openSheet(page, 'rail'); await moment(page, vp, s.name, 'rail', {sheet: 'rail'}); await closeSheet(page, 'rail');
       await moment(page, vp, s.name, 'graph');
     }

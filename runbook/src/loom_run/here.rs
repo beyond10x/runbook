@@ -67,25 +67,25 @@ pub struct HereOptions {
     /// The stub cycle: every model node on the adapter dry, print every model command, run none, approve person steps by script.
     #[arg(long, conflicts_with = "detach")]
     pub dry: bool,
-    /// Re-drive a recorded run (a run directory or a recording), answering each call with the recorded reply. Not built yet.
+    /// Re-drive a recorded run (a run directory or a recording), answering each model call and each decision with the recorded reply; `--set KEY=VALUE` sets its conditions (`max_runs.<node>`, `timeout.<node>`).
     #[arg(long, value_name = "DIR", conflicts_with = "detach")]
     pub recorded: Option<PathBuf>,
-    /// With `--recorded`, what a call with no recorded reply does: stop, take the nearest reply, or go live. Not built yet.
+    /// With `--recorded`, what a call with no recorded reply does: stop (exit 11), take the nearest reply, or go live.
     #[arg(long, value_enum, value_name = "POLICY", conflicts_with = "detach")]
     pub on_divergence: Option<OnDivergence>,
-    /// With `--recorded`, the adapter of a live call: `dry`, `metaharness`, `claude-cli` or a path. Not built yet.
+    /// With `--recorded`, the adapter of a live call: `dry`, `metaharness`, `claude-cli` or a path.
     #[arg(long, value_name = "ADAPTER", conflicts_with = "detach")]
     pub live_adapter: Option<String>,
-    /// With `--recorded`, the most live calls. Not built yet.
+    /// With `--recorded`, the most live calls (default 5; a spent cap stops the run).
     #[arg(long, value_name = "N", conflicts_with = "detach")]
     pub live_cap: Option<u64>,
-    /// With `--recorded`, a fault to inject; repeatable. Not built yet.
+    /// With `--recorded`, a fault to inject (`reject@<action>#<try>=<reason>`, `timeout@<node>#<try>`, `check-fail@<action>#<try>`); repeatable.
     #[arg(long, value_name = "FAULT", conflicts_with = "detach")]
     pub inject: Vec<String>,
-    /// With `--recorded`, the actions whose recorded results are taken as they are. Not built yet.
+    /// With `--recorded`, the actions whose recorded results are taken as they are.
     #[arg(long, value_name = "ACTIONS", conflicts_with = "detach")]
     pub take_recorded: Option<String>,
-    /// With `--recorded`, the commit of the recorded run's source tree. Not built yet.
+    /// With `--recorded`, the commit of the recorded run's source tree.
     #[arg(long, value_name = "COMMIT", conflicts_with = "detach")]
     pub source_tree: Option<String>,
     /// Open a bug-fix case from a seed directory.

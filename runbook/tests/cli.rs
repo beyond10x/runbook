@@ -4,6 +4,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod linked_canon;
+mod canon_cmd;
 mod ess_digest;
 mod loom_run;
 mod reply_lib;
@@ -43,11 +45,9 @@ impl World {
     }
 
     fn fake(&self, name: &str) {
-        let canon = format!("canon {}", canon_pin()["version"].as_str().unwrap());
         let out = match name {
             "yq" => "yq version v4.30.8",
             "jq" => "jq-1.7",
-            "canon" => canon.as_str(),
             _ => "1.2.3",
         };
         let p = self.root.join("bin").join(name);
@@ -96,8 +96,8 @@ const TOOLS: [&str; 3] = [
     "bindings/tools/llm-adapter-claude-cli.sh",
 ];
 
-const PROGRAMS: [&str; 14] =
-    ["canon", "bash", "jq", "yq", "git", "claude", "aep", "ess", "task", "slot", "cargo", "cargo-clippy", "rustfmt", "node"];
+const PROGRAMS: [&str; 13] =
+    ["bash", "jq", "yq", "git", "claude", "aep", "ess", "task", "slot", "cargo", "cargo-clippy", "rustfmt", "node"];
 const HELPERS: [&str; 10] = [
     "sdc-drive",
     "sdc-node",
@@ -149,7 +149,7 @@ fn doctor_prints_one_fail_line_per_missing_program_and_exits_1() {
     assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
     let out = stdout(&o);
     let missing = failed(&o);
-    for want in ["canon", "claude-login", "ess", "task", "slot", "clippy", "rustfmt", "node"] {
+    for want in ["claude-login", "ess", "task", "slot", "clippy", "rustfmt", "node"] {
         assert_eq!(missing.iter().filter(|m| *m == want).count(), 1, "{want} in\n{out}");
         let line = line_of(&o, want);
         assert!(line.starts_with("fail") && line.contains("missing") && line.contains("required") && line.contains("-- fix:"), "{line}");
@@ -209,7 +209,7 @@ fn a_python_yq_is_not_the_yq() {
 #[test]
 fn doctor_for_one_runbook_checks_only_what_it_needs() {
     let w = World::new("doctor-for");
-    w.fakes(&["canon", "bash", "jq", "yq", "git", "claude", "aep", "cargo", "cargo-clippy", "rustfmt"]);
+    w.fakes(&["bash", "jq", "yq", "git", "claude", "aep", "cargo", "cargo-clippy", "rustfmt"]);
     w.fakes(&HELPERS);
     w.login("{}");
     let o = w.run(&["doctor", "--for", "sdc-bugfix"], &[]);
@@ -244,59 +244,12 @@ fn doctor_json_reports_every_check() {
 }
 
 fn canon_pin() -> serde_json::Value {
-    serde_json::from_str(&std::fs::read_to_string(repo().join("driver/canon-pin.json")).unwrap()).unwrap()
-}
-
-fn fake_canon_at(p: &Path, version: &str) {
-    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
-    std::fs::write(p, format!("#!/bin/sh\necho 'canon {version}'\n")).unwrap();
-    std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-fn canon_path(o: &Output) -> String {
-    let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
-    let c = v["checks"].as_array().unwrap().iter().find(|c| c["name"] == "canon").unwrap().clone();
-    c["path"].as_str().unwrap_or_default().to_string()
-}
-
-#[test]
-fn doctor_finds_the_cached_pinned_canon_and_ignores_a_sibling_checkout() {
-    let w = World::new("doctor-canon-cache");
-    w.fakes(&PROGRAMS[1..]);
-    w.fakes(&HELPERS);
-    w.login("{}");
-    fake_canon_at(&w.root.join("canon/target/debug/canon"), canon_pin()["version"].as_str().unwrap());
-    let o = w.run(&["doctor"], &[]);
-    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
-    assert_eq!(failed(&o), ["canon"]);
-    assert!(line_of(&o, "canon").contains("-- fix:"));
-    let pin = canon_pin();
-    let cached = w.root.join("home/.cache/sdc/canon-simulate").join(&pin["commit"].as_str().unwrap()[..8]).join("bin/canon");
-    fake_canon_at(&cached, pin["version"].as_str().unwrap());
-    let o = w.run(&["doctor", "--json"], &[]);
-    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
-    assert_eq!(canon_path(&o), cached.to_str().unwrap());
-    let o = w.run(&["doctor"], &[]);
-    assert!(line_of(&o, "canon").starts_with("pass") && line_of(&o, "canon").contains("(the pin)"), "{}", line_of(&o, "canon"));
-}
-
-#[test]
-fn doctor_fails_a_canon_whose_version_is_not_the_pin() {
-    let w = World::new("doctor-canon-version");
-    w.fakes(&PROGRAMS[1..]);
-    w.fakes(&HELPERS);
-    w.login("{}");
-    let wrong = w.root.join("elsewhere/canon");
-    fake_canon_at(&wrong, "0.9.0");
-    let o = w.run(&["doctor"], &[("CANON", wrong.to_str().unwrap())]);
-    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
-    assert_eq!(failed(&o), ["canon"]);
-    let line = line_of(&o, "canon");
-    let want = format!("0.9.0, pin is {}", canon_pin()["version"].as_str().unwrap());
-    assert!(line.contains(&want) && line.contains("-- fix:"), "{line}");
-    fake_canon_at(&wrong, canon_pin()["version"].as_str().unwrap());
-    let o = w.run(&["doctor"], &[("CANON", wrong.to_str().unwrap())]);
-    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    let lock = std::fs::read_to_string(repo().join("runbook/Cargo.lock")).unwrap();
+    let entry = &lock[lock.find("name = \"b10x-canon\"\n").unwrap()..];
+    let mut lines = entry.lines().skip(1);
+    let version = lines.next().unwrap().trim_start_matches("version = \"").trim_end_matches('"');
+    let commit = lines.next().unwrap().rsplit('#').next().unwrap().trim_end_matches('"');
+    serde_json::json!({"version": version, "commit": commit})
 }
 
 #[test]
@@ -1292,7 +1245,7 @@ const LANE_PROTOCOLS: [&str; 2] = ["sdc", "sdc-epic"];
 
 /// A scratch copy of what `scripts/check-protocols.sh` reads for `LANE_PROTOCOLS` (their sources,
 /// their pinned simulate reports and their entries of the committed ledger, byte for byte), and a
-/// stub canon that validates and compiles anything: the fast lane takes every result from the
+/// stub `runbook` that validates and compiles anything: the fast lane takes every result from the
 /// ledger and runs no real check.
 fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", std::process::id()));
@@ -1312,18 +1265,17 @@ fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
     ledger["protocols"].as_object_mut().unwrap().retain(|k, _| LANE_PROTOCOLS.contains(&k.as_str()));
     assert_eq!(ledger["protocols"].as_object().unwrap().len(), LANE_PROTOCOLS.len());
     std::fs::write(root.join("protocol/check-ledger.json"), serde_json::to_string_pretty(&ledger).unwrap() + "\n").unwrap();
-    std::fs::create_dir_all(root.join("driver")).unwrap();
-    std::fs::copy(repo().join("driver/canon-pin.json"), root.join("driver/canon-pin.json")).unwrap();
-    let stub = root.join("canon-stub");
-    let version = canon_pin()["version"].as_str().unwrap().to_string();
-    std::fs::write(&stub, format!("#!/bin/sh\ncase \"$1\" in --version) echo 'canon {version}';; compile) echo '{{}}';; esac\n")).unwrap();
+    std::fs::create_dir_all(root.join("runbook")).unwrap();
+    std::fs::copy(repo().join("runbook/Cargo.lock"), root.join("runbook/Cargo.lock")).unwrap();
+    let stub = root.join("runbook-stub");
+    std::fs::write(&stub, "#!/bin/sh\ncase \"$2\" in compile) echo '{}';; esac\n").unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
     (root, stub)
 }
 
 fn check_protocols(root: &Path, stub: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
     let mut c = Command::new("bash");
-    c.arg(root.join("scripts/check-protocols.sh")).args(args).env("CANON", stub);
+    c.arg(root.join("scripts/check-protocols.sh")).args(args).env("RUNBOOK_BIN", stub);
     for (k, v) in env {
         c.env(k, v);
     }

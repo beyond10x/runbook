@@ -81,6 +81,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
     let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
+    let given = super::replay::preset(args, &run_dir, given)?;
+    bindings_copy::efforts(&given)?;
     let mut settings_value = given.clone();
     settings::fill_decider(&mut settings_value, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
@@ -104,6 +106,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
     let redacted = crate::loom_run::dry::mark(args.ports.dry, redacted);
+    super::replay::prepare(args, &run_dir)?;
+    let redacted = super::replay::mark(args, &run_dir, redacted);
     let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
     let start = clock.now_secs();
     let env = child::child_env(&run_dir);
@@ -155,7 +159,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         Err(reason) => return Ok(runner.finish(Outcome::Error { reason })),
     };
     let outcome = runner.drive(root_name, &protocols, &redacted);
-    let outcome = runner.finish(outcome);
+    let outcome = runner.finish(super::replay::diverged(&run_dir, outcome));
+    super::replay::seal(args, &run_dir);
     crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
     Ok(outcome)
 }
@@ -285,6 +290,8 @@ impl Runner<'_> {
         }
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
+        // The copy is made and no bound program has run: who decides is read now and not again.
+        self.decider.pin_routing(&self.run_dir);
         self.answers = Answers::load(&self.bindings_dir)?;
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
         super::bugfix::seed(self.args, &self.workspace, &self.env)?;
@@ -313,6 +320,9 @@ impl Runner<'_> {
             self.steps += u64::try_from(steps).unwrap_or(0);
             self.refresh_status()?;
             self.emit(Event::StepMade { index, exit: code, stop, steps })?;
+            if let Some(diverged) = super::replay::stopped(&self.run_dir) {
+                return Ok(diverged);
+            }
             match code {
                 0 => {
                     let tree_outcome = tree.get("detail").and_then(Value::as_str).map(str::to_owned);
@@ -476,7 +486,12 @@ impl Runner<'_> {
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
             }
             let mut answer = Answer { decision: &decision, kind: &kind, approve, principal: principal.as_deref(), result: None, reasons_file: None, deny: false };
-            let principal = self.host.principal(&answer);
+            // A printed close names no principal; the record names who decided it (`rule:autopilot`,
+            // `decider:model`), never a person.
+            let principal = match self.host.principal(&answer) {
+                p if p.is_empty() => answer.principal.unwrap_or_default().to_owned(),
+                p => p,
+            };
             match kind.as_str() {
                 // A close the decider does not want is not run: Loom prints one per outcome.
                 "Close" if !approve => {}
@@ -568,6 +583,21 @@ impl Runner<'_> {
                 return Ok(None);
             }
             let listed = if declared.is_empty() { "none".to_owned() } else { declared.join(", ") };
+            if !approve {
+                // A rejection nothing can record: no rework path. The run is stopped, with the step,
+                // the case and what the rejection said, and nothing is sent to Loom.
+                let case = decision.get("case").and_then(Value::as_str).unwrap_or("");
+                let who = answer.principal.unwrap_or("the decider");
+                let subject = decision.get("subject").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("it");
+                let revision = decision.get("revision").and_then(Value::as_str).unwrap_or("");
+                let said = reasons.map(|r| r.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|r| !r.is_empty()).unwrap_or_else(|| "no reasons given".to_owned());
+                let said: String = said.chars().take(400).collect();
+                return Err(Halt::Done(Outcome::StoppedRejected {
+                    reason: format!(
+                        "{action} in {case}: {who} rejected {subject} {revision} ({said}); rejected_without_rework_path: the bindings declare the results {listed} for the action, so nothing records a rejection and no step reworks the rejected revision; it waits on a protocol path for a rejected revision"
+                    ),
+                }));
+            }
             return Err(Halt::Failed(format!("the decider answered {result} for action {action}, but the bindings of the run declare the results {listed} for it: Loom would refuse the result")));
         }
         answer.result = Some(result);

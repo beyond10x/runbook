@@ -15,8 +15,8 @@ export function actorOf(c, action) {
     return p?.state === 'unavailable' ? {kind: 'unavailable', why: `not available for this run: ${p.why}`} : {kind: 'unbound', why: 'no binding in this case\'s bindings.json'};
   }
   if (b.llm) return {kind: 'llm', why: 'binding has `llm` (agent node)'};
-  if (b.manual) return {kind: 'person', why: 'binding is `manual`: only `sdc-drive approve --action` takes it'};
-  if (b.child) return {kind: 'driver', why: 'binding opens child cases (sdc-drive, TEMPORARY Loom copy)'};
+  if (b.manual) return {kind: 'person', why: 'binding is `manual`: only a recorded decision takes it'};
+  if (b.child) return {kind: 'driver', why: 'binding opens child cases'};
   if (b.copy) return {kind: 'driver', why: `binding copies \`${b.copy.kind}\` from \`${b.copy.from}\``};
   const argv = (b.argv || []).join(' ');
   if (/llm/i.test(b.producer || '') || LLM_ARGV.test(argv)) return {kind: 'llm', why: `argv \`${(b.argv || []).slice(1).join(' ')}\` is an LLM executor (stub or adapter)`};

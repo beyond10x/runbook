@@ -414,15 +414,13 @@ fn a_run_that_prints_no_json_is_reported_with_the_program_and_its_first_line() {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let pin = fs::read_to_string(root.join("driver/canon-pin.json")).unwrap();
-    let version = pin.lines().find_map(|l| l.trim().strip_prefix("\"version\": \"")).and_then(|r| r.split('"').next()).unwrap().to_string();
     let script = |name: &str, body: String| {
         let p = dir.join(name);
         fs::write(&p, body).unwrap();
         fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
         p
     };
-    let canon = script("canon", format!("#!/bin/sh\necho 'canon {version}'\n"));
+    let canon = script("canon", "#!/bin/sh\necho 'canon stub'\n".into());
     let drive = script(
         "drive",
         "#!/bin/bash\nwhile (($#)); do [[ $1 == --case-dir ]] && d=$2; shift; done\n[[ -d $d/work ]] || { mkdir -p \"$d/work\"; exit 0; }\n\

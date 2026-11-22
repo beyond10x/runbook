@@ -1,5 +1,5 @@
-//! The web UI inside the binary: the files of `ui/web/` are compiled in (`build.rs` lists the
-//! directory) and `runbook serve --ui` serves them beside the API.
+//! The web UI inside the binary: the files of `ui/web/` and `ui/daemon/` are compiled in (`build.rs` lists the
+//! directories) and `runbook serve --ui` serves them beside the API.
 //!
 //! A request is looked up by its path exactly as it was sent: a path that is not in the list (a
 //! directory, `..`, an encoded form of either) answers 404, and nothing is read from the disk at
@@ -26,7 +26,7 @@ include!(concat!(env!("OUT_DIR"), "/ui_files.rs"));
 /// The name of the cookie that carries the token a browser handed over.
 pub const COOKIE: &str = "runbook_ui";
 
-/// The embedded files: their paths below `ui/web/`, sorted.
+/// The embedded files: their paths below `ui/web/` or `ui/daemon/`, sorted.
 pub fn paths() -> Vec<&'static str> {
     FILES.iter().map(|(p, _)| *p).collect()
 }

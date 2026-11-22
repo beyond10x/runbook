@@ -11,12 +11,11 @@
 //   file_kinds   {rules: [{match, flags?, class, kind}], artifacts: {artifact name: class},
 //                parsers?: {kind: parser}}   a parser says what a change of a file of that kind means:
 //                {type: "keyed-list", ...} or {type: "document", ...}, see ui/README.md
-//   tool_owners  {always, driver, continue: [program], tools: [{argv0, subcommands: [{match, needs}]}]}
-//   decisions    {scope_answer?, stall?, context?, continue?}: which decisions a person can take
+//   decisions    {scope_answer?, stall?}: which decisions a person takes, as the page shows them (it answers none)
 // The server serves the view of a run at /api/view?source=N (null without one); the page and the server both
 // call setView. A view with a member this file does not know is refused with a message that names it.
 // Without a view: phases are one flat list of the protocols found in the store, a file's label is its
-// name (class code), no tool has an owner, no decision is offered but the approvals the store itself
+// name (class code), no tool has an owner, the decisions shown are the approvals the store itself
 // asks for. No dependencies; runs in the page and in node.
 export const VIEW_FORMAT = 'runbook.view/1';
 
@@ -54,15 +53,9 @@ export const VIEW_SCHEMA = T.obj({
     artifacts: T.map(T.str),
     parsers: T.map({t: 'typed', by: {'keyed-list': KEYED_LIST, document: DOCUMENT}}),
   }),
-  tool_owners: T.obj({
-    always: T.strs, driver: T.strs, continue: T.strs,
-    tools: T.arr(T.obj({argv0: T.str, subcommands: T.arr(T.obj({match: T.str, needs: T.strs}))})),
-  }),
   decisions: T.obj({
-    scope_answer: T.obj({action: T.str, check: T.str, artifact: T.str, list: T.str, flag: ident, fields: RECORD_FIELDS, statuses: T.obj({open: T.str, accepted: T.str, changed: T.str}), refused_answerers: T.strs}),
+    scope_answer: T.obj({action: T.str, artifact: T.str, list: T.str, flag: ident, fields: RECORD_FIELDS, statuses: T.obj({open: T.str, accepted: T.str, changed: T.str})}),
     stall: T.obj({action: T.str, artifact: T.str, list: T.str, noun: T.str, status: ident, needs_person: T.str}),
-    context: T.obj({artifact: T.str, field_pattern: T.str, changed: T.str, fields: T.obj({value: ident, status: ident, reason: ident})}),
-    continue: T.obj({script: T.str, runs_dir: T.str, env: T.map(T.str)}),
   }),
 });
 
@@ -161,13 +154,8 @@ export function fileKindOf(path) {
 export const artifactClassOf = (name) => cur().V?.file_kinds?.artifacts?.[name] || null;
 export const parserOf = (kind) => cur().V?.file_kinds?.parsers?.[kind] || null;
 
-export const toolOwners = () => cur().V?.tool_owners || null;
-export const runbookName = () => (typeof cur().V?.runbook === 'string' ? cur().V.runbook : null);
-
-// the decisions a person can take in this runbook (null each without a view or a member)
+// the decisions a person takes in this runbook, as the page shows them (null each without a view or a member)
 export const scopeAnswer = () => cur().V?.decisions?.scope_answer || null;
 export const stallRule = () => cur().V?.decisions?.stall || null;
-export const contextRule = () => cur().V?.decisions?.context || null;
-export const continueRule = () => cur().V?.decisions?.continue || null;
 // the kind of file the questions of a decision are written in (feed: a change of it is a question asked or answered)
 export const questionsKind = () => scopeAnswer()?.artifact || null;
