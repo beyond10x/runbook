@@ -8,3 +8,4 @@ mod clock;
 mod conformance;
 mod mcp;
 mod cli_client;
+mod engine;

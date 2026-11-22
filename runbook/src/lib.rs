@@ -5,6 +5,7 @@ pub mod api;
 pub mod client;
 pub mod clock;
 pub mod commands;
+pub mod engine;
 pub mod mcp;
 pub mod runtime;
 pub mod serve;

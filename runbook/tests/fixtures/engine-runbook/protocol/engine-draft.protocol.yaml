@@ -1,0 +1,26 @@
+format: protocol/1
+protocol:
+  id: engine.draft
+  revision: 1
+  description: >-
+    A draft a writer program writes and a reviewer reviews. The reviewer approves the draft or rejects it with reasons, and a rejected draft is written again. The case passes once the draft is approved.
+artifacts:
+  idea: {}
+  draft: {}
+evidence_kinds:
+  draft_review: {}
+claims:
+  draft.approved:
+    true_when:
+      evidence: {kind: draft_review, subject: draft, result: approved}
+actions:
+  draft.write:
+    effect: write
+    precondition: {claim: draft.approved, is: false}
+  draft.review:
+    effect: write
+    may_produce:
+      - evidence: draft_review
+outcomes:
+  passed:
+    requires: {claim: draft.approved}

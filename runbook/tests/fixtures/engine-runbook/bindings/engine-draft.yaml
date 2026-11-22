@@ -1,0 +1,23 @@
+format: loom.bindings/1
+protocol: engine-draft@1
+program_root: bindings
+artifacts:
+  idea: idea.yaml
+  draft: draft.txt
+actions:
+  - action: draft.write
+    executor:
+      kind: program
+      argv: [tools/draft-write.sh]
+    retry_when:
+      draft_review: [rejected]
+  - action: draft.review
+    executor:
+      kind: person
+      principal: reviewer
+    evidence:
+      - kind: draft_review
+        subject: draft
+        producer: reviewer
+        from: effect
+        results: {performed: approved, rejected: rejected}
