@@ -451,7 +451,7 @@ fn every_agent_binding_names_its_instruction_file_and_the_tools_hold_no_instruct
 fn every_instruction_file_is_reached_by_a_golden() {
     let root = repo().join("instructions");
     let mut goldens = String::new();
-    for group in ["llm-node", "decider"] {
+    for group in ["llm-node", "decider", "implement", "conform", "unstick"] {
         for e in fs::read_dir(root.join("golden").join(group)).unwrap() {
             goldens.push_str(&fs::read_to_string(e.unwrap().path()).unwrap());
         }
@@ -499,5 +499,141 @@ fn an_instruction_path_outside_instructions_is_refused() {
         let err = String::from_utf8_lossy(&o.stderr);
         assert_eq!(o.status.code(), Some(126), "{path}: stderr {err}");
         assert!(err.contains(path) && err.contains("instructions/<...>.md"), "{path}: stderr {err}");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The model instructions of the three Rust binaries (story:rust-prompts-as-instruction-files):
+// `sdc-reply implement-run` (SDC_IMPLEMENT_MODE=request), `sdc-conform` (the table node) and
+// `sdc-unstick`. No model is called: `implement-run --assemble-only` and an adapter script write
+// the prompts, `sdc-unstick prompt` and `sdc-conform prompt` print theirs.
+
+fn bin_out(bin: &str, args: &[&str]) -> String {
+    let o = Command::new(bin).args(args).output().unwrap();
+    assert!(o.status.success(), "{bin} {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+    String::from_utf8(o.stdout).unwrap()
+}
+
+fn names(of: &[&str]) -> std::collections::BTreeSet<String> {
+    of.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn the_prompt_of_sdc_unstick_is_its_golden_byte_for_byte() {
+    let dir = scratch("unstick");
+    for (name, f) in [("stop.json", r#"{"case_dir":"/nonexistent","cause":"c","reason":"r"}"#), ("moves.json", "[]"), ("decision.json", "{}")] {
+        fs::write(dir.join(name), f).unwrap();
+    }
+    for (name, extra) in [("first", vec![]), ("retry", vec!["--attempt", "2", "--invalid", "move x is not one of the ids in moves"])] {
+        let rec = dir.join(name);
+        let mut args: Vec<String> = ["prompt", "--stop", "stop.json", "--moves", "moves.json", "--decision", "decision.json", "--record"]
+            .iter().map(|s| s.to_string()).collect();
+        args.push(rec.display().to_string());
+        args.extend(extra.iter().map(|s| s.to_string()));
+        let o = Command::new(env!("CARGO_BIN_EXE_sdc-unstick")).args(&args).current_dir(&dir).output().unwrap();
+        assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+        compare("unstick", name, &fs::read_to_string(rec.join("prompt.md")).unwrap());
+    }
+    if std::env::var("SDC_BLESS_PROMPTS").is_err() {
+        assert_eq!(golden_names("unstick"), names(&["first", "retry"]));
+    }
+}
+
+#[test]
+fn the_prompt_of_the_conformance_table_node_is_its_golden_byte_for_byte() {
+    let bin = env!("CARGO_BIN_EXE_sdc-conform");
+    compare("conform", "first", &bin_out(bin, &["prompt"]));
+    compare("conform", "refused", &bin_out(bin, &["prompt", "--attempt", "2", "--refused", "view chores.list.OpenChores is not covered", "--refused", "start.from names no README line"]));
+    compare("conform", "run-fault", &bin_out(bin, &["prompt", "--attempt", "3", "--run-fault", "the product answered 401 to every request", "--run-fault", "a capture never appeared"]));
+    if std::env::var("SDC_BLESS_PROMPTS").is_err() {
+        assert_eq!(golden_names("conform"), names(&["first", "refused", "run-fault"]));
+    }
+}
+
+/// A story case for `sdc-reply implement-run`: story, requirements, a compiled spec with two
+/// commands (one covered), the product tree of the stub fixture in out/impl.
+fn implement_call(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let root = scratch(name);
+    let (case, rec, cwd) = (root.join("case"), root.join("rec"), root.join("rec/cwd"));
+    let w = case.join("work");
+    for (p, t) in [
+        ("aep/story/invoices.md", "---\nid: story:invoices\nsummary: Invoices. covers billing.invoice.CreateInvoice\n---\n# Invoices\n\n## Acceptance\n\n- an invoice is created\n"),
+        ("requirements.yaml", "requirements:\n  - id: r1\n    text: A clerk creates invoices.\n    spec_domains: [billing.invoice]\n  - id: r2\n    text: The customer is emailed.\n    spec_domains: [billing.email]\n"),
+    ] {
+        fs::create_dir_all(w.join(p).parent().unwrap()).unwrap();
+        fs::write(w.join(p), t).unwrap();
+    }
+    let ir = serde_json::json!({"commands": {
+        "billing.invoice.CreateInvoice": {"name": "billing.invoice.CreateInvoice", "domain": "billing.invoice", "naming": {},
+            "outcomes": [{"name": "created", "subject": {"entity": "billing.invoice.Invoice"}}, {"name": "refused", "error": "billing.invoice.NoCustomer"}]},
+        "billing.email.SendEmail": {"name": "billing.email.SendEmail", "domain": "billing.email", "outcomes": []}},
+        "views": {"billing.invoice.OpenInvoices": {"name": "billing.invoice.OpenInvoices", "domain": "billing.invoice", "source": "billing.invoice.Invoice"}},
+        "entities": {"billing.invoice.Invoice": {"name": "billing.invoice.Invoice", "fields": [{"name": "id", "type_ref": {"name": "billing.invoice.InvoiceId"}}]}},
+        "errors": {"billing.invoice.NoCustomer": {"name": "billing.invoice.NoCustomer"}},
+        "types": {"billing.invoice.InvoiceId": {"name": "billing.invoice.InvoiceId"}}, "events": {}});
+    fs::create_dir_all(w.join(".sdc/gate")).unwrap();
+    fs::write(w.join(".sdc/gate/ir.json"), ir.to_string()).unwrap();
+    copy_dir(&manifest().join("examples/sdc/fixtures/impl"), &cwd.join("out/impl"));
+    fs::write(rec.join("request.json"), r#"{"model":"m","node":"change.implement","implement_mode":"request"}"#).unwrap();
+    (case, rec, cwd)
+}
+
+/// An adapter that answers request k with `replies/<k>.json` (if any), prints a response and
+/// exits with `exit`.
+fn implement_adapter(rec: &Path, replies: &[&str], exit: i32) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let rp = rec.parent().unwrap().join("replies");
+    fs::create_dir_all(&rp).unwrap();
+    for (k, r) in replies.iter().enumerate() {
+        fs::write(rp.join(format!("{}.json", k + 1)), r).unwrap();
+    }
+    let script = rec.parent().unwrap().join("adapter.sh");
+    fs::write(&script, format!("#!/bin/sh\nd=$(dirname \"$1\"); k=${{d##*req-}}\ncp \"{}/$k.json\" \"$d/structured-output.json\" 2>/dev/null\necho '{{\"adapter\": \"test\", \"subtype\": \"error_max_turns\"}}'\nexit {exit}\n", rp.display())).unwrap();
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    script
+}
+
+fn implement_run(case: &Path, rec: &Path, cwd: &Path, extra: &[&str]) {
+    let o = Command::new(env!("CARGO_BIN_EXE_sdc-reply"))
+        .args(["implement-run", "--rec"]).arg(rec).arg("--cwd").arg(cwd).arg("--case-dir").arg(case)
+        .args(["--story", "invoices"]).args(extra).output().unwrap();
+    assert!(!String::from_utf8_lossy(&o.stdout).contains("implement_inputs_missing"), "{}", String::from_utf8_lossy(&o.stdout));
+}
+
+#[test]
+fn the_prompts_of_implement_request_mode_are_their_goldens_byte_for_byte() {
+    let take = |rec: &Path, req: usize| fs::read_to_string(rec.join(format!("req-{req}/prompt.md"))).unwrap();
+    // The first request, without build constraints, findings or feedback.
+    let (case, rec, cwd) = implement_call("implement-first");
+    implement_run(&case, &rec, &cwd, &["--assemble-only"]);
+    compare("implement", "request", &fs::read_to_string(rec.join("prompt.md")).unwrap());
+    // A rework: build constraints, the run's findings, the feedback and the rejection.
+    let (case, rec, cwd) = implement_call("implement-rework");
+    for (p, t) in [("build-constraints.yaml", "format: sdc.build-constraints/1\nlanguage: rust\ntext: Rust 2021, std only, no Postgres.\n"),
+        ("findings.yaml", "findings:\n- id: f1\n  status: resolved\n")] {
+        fs::write(case.join("work").join(p), t).unwrap();
+    }
+    fs::create_dir_all(cwd.join("in")).unwrap();
+    fs::write(cwd.join("in/feedback.md"), "## conformance_run = failed\nassertion failed: fixture-failure\n").unwrap();
+    fs::write(cwd.join("in/rejection.json"), r#"{"format":"sdc.rejection/1","approval":"change.review","revision":"t1","principal":"person:reviewer","count":1,"reasons":["impl/README.md:1: names no command (violates r1)","the refusal of an empty customer is missing"]}"#).unwrap();
+    implement_run(&case, &rec, &cwd, &["--assemble-only", "--rework-limit", "2"]);
+    compare("implement", "request.rework", &fs::read_to_string(rec.join("prompt.md")).unwrap());
+    // A reply that leaves a file remaining: the second request is the continuation.
+    let (case, rec, cwd) = implement_call("implement-continuation");
+    let one = r#"{"files":[{"path":"src/lib.rs","content":"pub mod b;\n"}],"note":"part 1","findings":[],"remaining":["tests/billing.rs"]}"#;
+    let adapter = implement_adapter(&rec, &[one], 0);
+    implement_run(&case, &rec, &cwd, &["--adapter", adapter.to_str().unwrap()]);
+    compare("implement", "request.continuation", &take(&rec, 2));
+    // A reply the program check refused, one that is no reply, and a request that failed: the retry text of each.
+    let bad = r#"{"files":[{"path":"../escape.rs","content":"x"}],"note":"","findings":[],"remaining":[]}"#;
+    for (name, replies, exit) in [("request.retry", vec![bad], 0), ("request.retry-no-reply", vec![], 0), ("request.retry-failed", vec![], 3)] {
+        let (case, rec, cwd) = implement_call(&format!("implement-{name}"));
+        let adapter = implement_adapter(&rec, &replies, exit);
+        implement_run(&case, &rec, &cwd, &["--adapter", adapter.to_str().unwrap()]);
+        compare("implement", name, &take(&rec, 2));
+    }
+    if std::env::var("SDC_BLESS_PROMPTS").is_err() {
+        let want = ["request", "request.rework", "request.continuation", "request.retry", "request.retry-no-reply", "request.retry-failed"];
+        assert_eq!(golden_names("implement"), names(&want));
     }
 }

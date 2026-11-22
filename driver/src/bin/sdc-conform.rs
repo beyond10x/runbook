@@ -57,7 +57,8 @@ const USAGE: &str = "usage: sdc-conform observe <run dir> [--tables <n>] [--tabl
        sdc-conform summary <run dir>
        sdc-conform check-table --ir <ir.json> --table <table.json> --tree <delivered tree>
        sdc-conform ess-path [--pin <ess-pin.json>]
-       sdc-conform ess-install [--archive <file>] [--pin <ess-pin.json>]";
+       sdc-conform ess-install [--archive <file>] [--pin <ess-pin.json>]
+       sdc-conform prompt [--attempt <n>] [--refused <why>]... [--run-fault <why>]...";
 const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 const DEFAULT_TABLES: usize = 3;
 /// Node sessions per table slot: three for the check, one retry after a faulty run, one more.
@@ -1211,6 +1212,22 @@ fn main() -> ExitCode {
                     ExitCode::from(2)
                 }
             }
+        }
+        Some("prompt") => {
+            let all = |name: &str| -> Vec<String> { args.windows(2).filter(|w| w[0] == name).map(|w| w[1].clone()).collect() };
+            let (refused, faults) = (all("--refused"), all("--run-fault"));
+            let feedback = match (refused.is_empty(), faults.is_empty()) {
+                (true, true) => Feedback::None,
+                (false, true) => Feedback::Check(refused),
+                (true, false) => Feedback::Run(faults),
+                (false, false) => {
+                    eprintln!("sdc-conform: prompt: --refused and --run-fault do not go together");
+                    return ExitCode::from(64);
+                }
+            };
+            let attempt = arg(&args, "--attempt").and_then(|a| a.parse().ok()).unwrap_or(1);
+            print!("{}", prompt(attempt, &feedback));
+            ExitCode::SUCCESS
         }
         Some("ess-path") => match resolve_ess(&pin) {
             Ok(e) => {
