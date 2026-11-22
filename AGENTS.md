@@ -51,6 +51,9 @@
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
 - The driver tests run as `slot task test:driver` (cargo-nextest, `driver/.config/nextest.toml`): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `driver/tests/main.rs` is the one integration-test binary: a new test file needs a `mod` line there (`autotests = false`); each test is its own process, so a product made once per run is a cache on disk under `driver/target/` (see `schemas()` in `driver/tests/decision_request.rs`).
+- The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
+  slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
+  ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate
   confinement and process start (`docs/layers.md:47-52`). A capability missing in one of them is
@@ -66,6 +69,9 @@
   (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
   a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`
   and commit the ledger; `task check:protocols:slow` regenerates it in full and compares bytes.
+  The fast lane (under 1 s) is part of `task check`; each ledger entry carries a seal over its digest
+  and result fields, so a hand edit of a result fails it. CI runs the slow lane
+  (`.github/workflows/protocols.yml`) when `protocol/**`, `driver/canon-pin.json` or the script changed.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the

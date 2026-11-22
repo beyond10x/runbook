@@ -2,7 +2,7 @@
 // experiment.json (sdc.experiment-run/1: experiment, variant, ordinal, tree_commit, …) or by its name in an
 // experiment record's variants[].runs (experiments/<id>.yaml, sdc.experiment/1). Eight runs played by
 // test/fixture-run.mjs (person) into SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/experiments/runs, two
-// records beside them, served by a server of its own on port 7538 (SDC_UI_EXPERIMENTS_PORT):
+// records beside them, served by a server of its own (a port the kernel gives):
 //   alpha    cmp-effort low #1 and other-rec v #1 (two records), closed delivered
 //   bravo    cmp-effort low #2, closed delivered with a forced decision (not a clean pass)
 //   charlie  cmp-effort high #1, stopped
@@ -17,14 +17,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 import {axeViolations} from '../ux/core/contract.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const top = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'experiments');
 const runs = path.join(top, 'runs'), records = path.join(top, 'records');
-const port = Number(process.env.SDC_UI_EXPERIMENTS_PORT || 7538);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const T0 = Date.now() - 60 * 60000;
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
 const settings = JSON.stringify({format: 'sdc.run-settings/1', at: iso(T0), leg: 'started', autonomy: 'A5', adapter: 'metaharness',
@@ -89,7 +89,7 @@ test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'own serve
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   needRun(fixtureSource('person'), 'run-picker-experiments.spec.mjs (fixture source)', test);
   fs.rmSync(top, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
@@ -107,9 +107,7 @@ test.beforeAll(async ({}, info) => {
     const t = new Date(Date.now() - r.ago * 60000);
     for (const q of [dir, path.join(dir, 'store'), path.join(dir, 'run.log'), path.join(dir, 'run-settings.jsonl'), ...Object.keys(r.files).map((f) => path.join(dir, f))]) if (fs.existsSync(q)) fs.utimesSync(q, t, t);
   }
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_EXPERIMENTS_PORT`);
-  procs.push(spawn(process.execPath, ['server.mjs', '--port', String(port), '--runs', runs, '--experiments', records], {cwd: ui, stdio: 'ignore'}));
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  { const s = await startServer(['--runs', runs, '--experiments', records]); base = s.url; procs.push(s.proc); }
   sources = await (await fetch(base + '/api/sources')).json();
 });
 

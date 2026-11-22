@@ -17,10 +17,21 @@ tasks:
     cmds:
       - node server.mjs --port {{.PORT | default "7490"}} --write --principal {{.PRINCIPAL | default "operator"}} {{.CLI_ARGS | default "../runs/trial-todo-1/store"}}
 
-  now:
-    desc: Test the now band, what changed, the KPI strip and file changes against played fixture runs, with screenshots
+  test:
+    desc: "The UI test step (the gate's lane): needs no runs/ directory, no built binary and no server of its own; every server it starts takes a free port. Four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Run it as `task test` in ui/."
     cmds:
-      - slot npx playwright test test/now-model.spec.mjs test/now.spec.mjs test/meaning-model.spec.mjs test/changes.spec.mjs --workers=2
+      - slot npx playwright test --workers=4
+
+  slow:
+    desc: "The slow lane (test/lanes.mjs names each spec and what it needs): specs that read runs/, the built driver and a canon binary (SDC_UI_CANON). Not part of the step; 180 s a test, no run budget."
+    cmds:
+      - slot npx playwright test -c playwright.slow.config.mjs --workers=2
+
+  now:
+    desc: "Test the now band, what changed, the KPI strip and file changes against played fixture runs (slow lane, needs runs/trial-todo-1), with screenshots"
+    cmds:
+      - slot npx playwright test -c playwright.slow.config.mjs test/now.spec.mjs test/meaning-runs.spec.mjs test/changes.spec.mjs --workers=2
+      - slot npx playwright test test/now-model.spec.mjs test/meaning-model.spec.mjs --workers=2
 
   ux:
     desc: UI loop fast loop (L0 to L3 at the gating viewports), then the ratchet against ux/baseline.json
@@ -41,7 +52,7 @@ tasks:
       - node ux/core/round.mjs {{.ROUND}} --gating 1600x1000,1366x768,805x1270,390x844
 
   screenshots:
-    desc: Take screenshots of every view from a running server
+    desc: Take the screenshots of the gate lane (every spec that takes one, over the committed fixture; the slow lane takes those of the recorded runs)
     cmds:
       - npm install --no-audit --no-fund
       - slot npx playwright test --workers=2

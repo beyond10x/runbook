@@ -1,6 +1,6 @@
 // "What changed", the KPI strip and the collapsible right panel, against the `changes` fixture (every
 // class of change, test/fixture-run.mjs) and the recorded trial-todo-1 run (no fs/changes.jsonl).
-// Own server on port 7503 (wide) / 7504 (laptop), SDC_UI_CHANGES_PORT to move.
+// Own server per project, on a port the kernel gives (test/serve.mjs).
 // Screenshots: screenshots/<project>-changes-*.png.
 import {test, expect} from '@playwright/test';
 import {spawn} from 'node:child_process';
@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -18,15 +19,13 @@ let base;
 test.beforeAll(async ({}, info) => {
   needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'changes.spec.mjs (fixture source)', test);
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'changes.spec.mjs', test);
-  const k = info.project.name === 'wide' ? 0 : 1;
-  const port = Number(process.env.SDC_UI_CHANGES_PORT || 7503) + k;
   const dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
-  base = `http://127.0.0.1:${port}`;
   fs.mkdirSync(dir, {recursive: true});
   const run = (args) => { const p = spawn('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
   await new Promise((r) => run(['test/fixture-run.mjs', 'changes', path.join(dir, 'changes')]).on('exit', r));
-  run(['server.mjs', '--port', String(port), path.join(dir, 'changes', 'store'), path.resolve(ui, '../runs/trial-todo-1/store')]);
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+  const s = await startServer([path.join(dir, 'changes', 'store'), path.resolve(ui, '../runs/trial-todo-1/store')]);
+  base = s.url;
+  procs.push(s.proc);
 });
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
 const shot = (page, info, name) => page.screenshot({path: path.join(shots, `${info.project.name}-changes-${name}.png`)});

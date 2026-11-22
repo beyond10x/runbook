@@ -265,61 +265,38 @@ node server.mjs --port 7495 ~/scratch/runs/agent/store
 ## Screenshots and tests
 
 ```console
-npm install
-slot npx playwright test --workers=2
+npm ci
+task test               # the test step: Playwright, four workers, 60 s a test, 120 s the run
+task slow               # the slow lane: specs that need runs/, the built driver or a canon binary
 ```
 
-Writes `screenshots/{wide,laptop}-*.png` from a server on port 7490 (`SDC_UI_URL` to change).
-`test/now.spec.mjs` starts its own server (ports 7496, 7497, 7500, 7501; `SDC_UI_NOW_PORT` moves them) over runs it plays
-with `test/fixture-run.mjs` into `test/fixtures/runs/` (`SDC_UI_FIXTURE_DIR`) and writes
-`screenshots/*-now-*.png`; with `SDC_UI_WATCH_RUN` (a run recorded by sdc-watch, such as the copy
-`../watch/tests/e2e.sh <scratch>` leaves in `<scratch>/e2e/trial-todo-1`) it also checks the
-real recorder's changes. `test/now-model.spec.mjs` tests the derivation without a browser.
-`test/changes.spec.mjs` (ports 7503, 7504; `SDC_UI_CHANGES_PORT`) plays the `changes` fixture (every
-class of change) and checks the feed, the KPI strip and the panel rail, writing
-`screenshots/*-changes-*.png`; `test/meaning-model.spec.mjs` tests the YAML reader, the change
-classes and sentences, the feed and the KPIs without a browser.
-`test/decisions.spec.mjs` acts, so it runs only against copies of a store: set `SDC_UI_WRITE_URL`
-to a `--write` server over the copies and `SDC_UI_WRITE_DIRS` to their two run directories.
-`test/scope.spec.mjs` is self-contained: `test/scope-fixture.mjs <dir> [one|two]` makes a store
-with the real driver and the stub executors, stopped at `awaiting_authority` for `scope.answer`
-(needs `driver/target/debug/sdc-drive` and canon), and the spec answers through a `--write --principal anna`
-server of its own on port 7522 (`SDC_UI_SCOPE_PORT`). `fixture-run.mjs` writes `observed.jsonl`,
-`driver.json`, `request.json.case` and `status.json` for `agent`, `two` and `decider`, and the old
-files only for `person`; `gone`, `gone-nofile` and `legacy` are static runs for the absence cases.
-`test/holder-model.spec.mjs` tests the Now band's wording, the holder of a decision and the fields
-of one approval without a browser.
-`test/preflight.spec.mjs` (port 7524, `SDC_UI_PREFLIGHT_PORT`) starts a server whose PATH has jq and
-no yq: every act that would start the driver or a tool is refused with the missing programs named
-(nothing runs, no check is recorded), and the Decisions drawer shows the same message up front.
-`test/stopped.spec.mjs` (port 7528, `SDC_UI_STOPPED_PORT`) serves `--runs` over played runs (`person`,
-`held` with a decider in its settings, `stopped`, and `late`, which appears while the page is open)
-and checks the stopped state, the failed waiting KPI and the live store list; `test/autopilot.spec.mjs`
-(port 7530, `SDC_UI_AUTOPILOT_PORT`) checks that an autopilot run (fixture `autopilot`) never names a
-person and that a legacy run (fixture `human`) says "recorded as human". Screenshots at both gating
-viewports: `screenshots/{1600x1000,1366x768}-{stopped,stopped-drawer,held,autopilot,autopilot-drawer,human}.png`.
-`test/run-picker.spec.mjs` (port 7536, `SDC_UI_PICKER_PORT`) serves `--runs` over six played runs
-(running with a live driver, closed delivered, closed not delivered, stopped, not running, stub) and
-checks the run fields of `/api/sources`, the picker's groups, rows, search and keyboard, its fit in
-the operator tile and the phone sheet: `screenshots/{1600x1000,805x1270,390x844}-run-picker.png`.
-`test/run-picker-experiments.spec.mjs` (port 7538, `SDC_UI_EXPERIMENTS_PORT`) serves eight played runs
-and two experiment records (`--experiments`): the experiments in `/api/sources` from `experiment.json`
-and from the records, the groups, their heads and order, a run in two records, search by experiment
-and variant, and the keyboard on a head.
-`test/stall-model.spec.mjs` tests the stalled case (a wait on `amend.upstream` with no finding for a
-person names the writer that used its runs and its last error).
-`test/paths.spec.mjs` (port 7526, `SDC_UI_PATHS_PORT`) fails when a file git would commit under
-`ui/` or any page or API answer names an absolute home path; the server shows paths relative to
-the repository, its workspace (`../`) or `~`.
-`runs/` is git-ignored, and the suite exits 0 on a checkout without it. `stopped.spec.mjs` and
-`autopilot.spec.mjs` play their runs from `test/recorded/trial-todo-1-slim`, a committed slim copy of
-`runs/trial-todo-1` (cases intake and direction; no prompt, transcript or answer of an LLM, no
-absolute home path; remade with `node test/slim-source.mjs`). `now.spec.mjs`, `changes.spec.mjs`,
-`meaning-model.spec.mjs` and `live.spec.mjs` need the recorded runs `runs/trial-todo-1` and
-`runs/full-cycle-1`, `screens.spec.mjs` a server over `runs/full-cycle-1`, and `scope.spec.mjs`,
-`preflight.spec.mjs` and the second test of `paths.spec.mjs` the built `sdc-drive` and `canon`:
-without them they are skipped through `test/need-run.mjs`, the reason naming what is missing. The
-ux loop and the server without arguments still need the recorded runs and say which is missing.
+The test step needs no `runs/`, no built binary and no server of your own: every server a spec
+starts is `server.mjs --port 0`, which takes a free port from the kernel and prints it
+(`test/serve.mjs`). It writes `screenshots/{wide,laptop}-*.png` from the committed fixture
+(`test/recorded/trial-todo-1-slim`, a slim copy of `runs/trial-todo-1`: cases intake and direction;
+no prompt, transcript or answer of an LLM, no absolute home path, a reason names the role and never
+a person; remade with `node test/slim-source.mjs`). `test/lanes.mjs` names each spec of the slow lane
+and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`, `screens-runs`,
+`meaning-runs`), a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`;
+`decisions`: a `--write` server over copies of a store, `SDC_UI_WRITE_URL`, `SDC_UI_WRITE_DIRS`), or
+the built driver and a canon binary (`scope`, `preflight`, `paths-served`).
+
+The server reads the canon binary from `SDC_UI_CANON` and the driver from `SDC_UI_DRIVE`; without
+them it looks for `~/beyond10x/canon/target/debug/canon` and `driver/target/debug/sdc-drive`. A
+binary that is not there is a refusal that names it. The fixtures of the slow lane read
+`SDC_UI_CANON` too, so the fixture and the server use one canon.
+
+`test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
+`stall-model.spec.mjs` test the derivations without a browser. `test/scope.spec.mjs` makes a store
+with the real driver and the stub executors (`test/scope-fixture.mjs <dir> [one|two]`, stopped at
+`awaiting_authority` for `scope.answer`) and answers through a `--write --principal anna` server of
+its own. `test/preflight.spec.mjs` starts a server whose PATH has jq and no yq: every act that
+would start the driver or a tool is refused with the missing programs named (nothing runs, no check
+is recorded), and the Decisions drawer shows the same message up front. `test/view-race.spec.mjs`
+holds two sources with two views on one write server and checks that an act that waits in its tool
+keeps its own view. `test/paths.spec.mjs` fails when a file git would commit under `ui/` or any
+page or API answer names an absolute home path; the server shows paths relative to the repository,
+its workspace (`../`) or `~`.
 
 ## UI iteration loop
 
@@ -388,7 +365,7 @@ at 360x800, 414x896 and 768x1024:
 `ux/core/phone.mjs` measures these facts (generic); `ux/specs/phone.spec.mjs` is the phone layout
 contract at every key moment of the six scenarios and of the recorded runs `trial-2-train`,
 `trial-3-haiku` and `trial-todo-1` (skipped without `runs/`), with metrics `phone.*` in the
-ratchet; `test/mobile.spec.mjs` (port 7532, `SDC_UI_MOBILE_PORT`) holds one test per phone finding
+ratchet; `test/mobile.spec.mjs` holds one test per phone finding
 (UXF-016 to UXF-026) over played runs that need no `runs/`. In `ux/specs/loop.spec.mjs` the
 screen-only user may scroll the page at a phone size; what it scrolls to costs a glance 3. Round
 R-03: `ux/rounds/R-03/`.

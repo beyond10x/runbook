@@ -21,10 +21,12 @@
 #   --record        like the default, and writes the ledger entries of the protocols it re-checked.
 #   --repin         (or SDC_SIMULATE_REPIN=1) like --slow, rewrites the pinned simulate reports
 #                   protocol/simulate/<name>.txt and the ledger for a deliberate change.
-# SDC_SIMULATE=off skips the simulate step; nothing is recorded then.
+# SDC_SIMULATE=off skips the simulate step; --record and --repin refuse it (exit 2).
 #
 # The digest of a protocol: sha256 over the Canon commit of driver/canon-pin.json, the sha256 of
-# this script, of the protocol file and of its pinned simulate report.
+# this script, of the protocol file and of its pinned simulate report. The seal of a ledger entry:
+# sha256 over its digest and its result fields (check, probe, simulate), written by --record; the
+# fast lane fails when an entry's result fields no longer match their seal (a hand edit).
 set -euo pipefail
 
 sdc=$(cd "$(dirname "$0")/.." && pwd)
@@ -69,6 +71,13 @@ digest_of() {
   printf 'canon %s\nscript %s\nprotocol %s\nreport %s\n' "$pin_commit" \
     "$(sha256sum < "$sdc/scripts/check-protocols.sh" | cut -d' ' -f1)" \
     "$(sha256sum < "$sdc/protocol/$name.protocol.yaml" | cut -d' ' -f1)" "$report" \
+    | sha256sum | cut -d' ' -f1
+}
+
+# seal_of <ledger file> <name>: sha256 over the digest and the result fields of one ledger entry.
+# --record writes it beside them; the fast lane recomputes it, so a hand edit of a result field fails.
+seal_of() {
+  jq -r --arg n "$2" '.protocols[$n] | "\(.digest)\ncheck \(.check)\nprobe \(.probe // "")\nsimulate \(.simulate)"' "$1" \
     | sha256sum | cut -d' ' -f1
 }
 
@@ -159,8 +168,8 @@ for arg in "$@"; do
   esac
 done
 (( repin )) && lane_slow=1
-if (( record )) && [[ ${SDC_SIMULATE:-on} == off ]]; then
-  echo "--record with SDC_SIMULATE=off would record unchecked results"; exit 2
+if (( record || repin )) && [[ ${SDC_SIMULATE:-on} == off ]]; then
+  echo "--record and --repin with SDC_SIMULATE=off would record unchecked results (simulate: skipped)"; exit 2
 fi
 
 t_start=$EPOCHREALTIME
@@ -196,7 +205,12 @@ done
 ledger_in=$ledger; [[ -f $ledger ]] || ledger_in=$work/empty-ledger.json
 for name in "${names[@]}"; do
   have=$(jq -r --arg n "$name" '.protocols[$n].digest // ""' "$ledger_in")
-  if (( lane_slow )) || [[ $have != "$(digest_of "$name")" ]]; then stale[$name]=1; n_stale=$((n_stale + 1)); fi
+  if (( lane_slow )) || [[ $have != "$(digest_of "$name")" ]]; then
+    stale[$name]=1; n_stale=$((n_stale + 1))
+  elif [[ $(jq -r --arg n "$name" '.protocols[$n].seal // ""' "$ledger_in") != "$(seal_of "$ledger_in" "$name")" ]]; then
+    echo "protocol/check-ledger.json: $name: the result fields do not match the seal --record wrote (edited by hand?); run scripts/check-protocols.sh --record"
+    fail=1
+  fi
 done
 
 # The real checks of the protocols the ledger does not cover: one job per costly canon call, beside
@@ -245,6 +259,9 @@ for name in "${names[@]}"; do
   [[ -n ${stale[$name]:-} && -f $work/$name.json ]] || continue
   jq --arg n "$name" --arg d "$(digest_of "$name")" --slurpfile r "$work/$name.json" \
     '.protocols[$n] = ({digest: $d, probe: null} + ($r[0] | del(.ok)))' "$work/ledger-work.json" > "$work/ledger-next.json"
+  mv "$work/ledger-next.json" "$work/ledger-work.json"
+  jq --arg n "$name" --arg s "$(seal_of "$work/ledger-work.json" "$name")" '.protocols[$n].seal = $s' \
+    "$work/ledger-work.json" > "$work/ledger-next.json"
   mv "$work/ledger-next.json" "$work/ledger-work.json"
 done
 jq -S --arg c "$pin_commit" --argjson names "$(printf '%s\n' "${names[@]}" | jq -R . | jq -s .)" \

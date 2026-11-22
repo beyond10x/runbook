@@ -1,7 +1,7 @@
 // "It should never say person if there isn't a person" (the operator, 2026-11-21). A run in autopilot
 // (run-settings.jsonl: autonomy A5, stand_in true; every principal decider:haiku) and a legacy run whose
 // records say "human" without an id, played by test/fixture-run.mjs into SDC_UI_FIXTURE_DIR (default
-// test/fixtures/runs)/principals, served by a server of its own on port 7530 (SDC_UI_AUTOPILOT_PORT)
+// test/fixtures/runs)/principals, served by a server of its own (test/serve.mjs: a port the kernel gives)
 // over the runs directory. Screenshots: screenshots/{1600x1000,1366x768}-autopilot.png, -human.png.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
@@ -9,13 +9,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'principals');
-const port = Number(process.env.SDC_UI_AUTOPILOT_PORT || 7530);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const GATING = [{name: '1600x1000', width: 1600, height: 1000}, {name: '1366x768', width: 1366, height: 768}];
 const procs = [];
 let sources;
@@ -38,19 +38,17 @@ test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); }
 
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   needRun(fixtureSource('autopilot'), 'autopilot.spec.mjs (fixture source)', test);
   fs.rmSync(runs, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
   const r = spawnSync('node', ['test/fixture-run.mjs', 'human', path.join(runs, 'human')], {cwd: ui, encoding: 'utf8'});
   if (r.status !== 0) throw new Error(`fixture human: ${r.stderr}`);
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_AUTOPILOT_PORT`);
-  procs.push(spawn(process.execPath, ['server.mjs', '--port', String(port), '--write', '--principal', 'operator', '--runs', runs], {cwd: ui, stdio: 'ignore'}));
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  { const s = await startServer(['--write', '--principal', 'operator', '--runs', runs]); base = s.url; procs.push(s.proc); }
 });
 
 test('autopilot: the decider is deciding or no decision is pending, never a person, never "waiting on you"', async ({page}) => {
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   // the decider's call plays slowly enough to be seen deciding
   procs.push(spawn('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '0.6'], {cwd: ui, stdio: 'ignore'}));
   for (let i = 0; i < 100 && !fs.existsSync(path.join(runs, 'autopilot', 'store')); i++) await new Promise((x) => setTimeout(x, 100));

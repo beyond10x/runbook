@@ -7,16 +7,26 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the CI change classifier and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier and the planning store.
+    deps:
+      - test:driver
+      - test:ui
     cmds:
       - task: check:ci-paths
       - task: check:cycles-suite
+      - task: check:protocols
       - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
-      - task: test:driver
       - for c in watch goals runbook; do (cd "$c" && cargo test --locked) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
+
+  test:ui:
+    dir: ui
+    desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
+    cmds:
+      - '[ -d node_modules ] || npm ci --no-audit --no-fund'
+      - slot npx playwright test --workers=4
 
   test:driver:
     silent: true

@@ -5,9 +5,11 @@ mod assets;
 mod check;
 mod doctor;
 mod list;
+mod parity;
 
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Parser)]
@@ -40,6 +42,44 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
+    Parity {
+        #[command(subcommand)]
+        cmd: ParityCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum ParityCmd {
+    /// Write the runtime-neutral summary (`runbook.parity-summary/1`) of a finished run of the old driver.
+    Summarize {
+        /// The run directory the scripts wrote (`runs/<name>`).
+        #[arg(long, value_name = "DIR")]
+        driver: PathBuf,
+        /// The case store of the run (the directory that holds the root case).
+        #[arg(long, value_name = "DIR")]
+        store: PathBuf,
+        /// Write the summary here instead of to standard output.
+        #[arg(long, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+    /// Compare two summaries: exit 0 and one line when equal, exit 1 and one line per difference otherwise.
+    Compare {
+        /// Print the table of what is compared and how, and exit.
+        #[arg(long)]
+        rules: bool,
+        /// Also compare the sha256 of every product file.
+        #[arg(long)]
+        product_digests: bool,
+        #[arg(required_unless_present = "rules")]
+        a: Option<PathBuf>,
+        #[arg(required_unless_present = "rules")]
+        b: Option<PathBuf>,
+    },
+    /// Print the person steps of a run in order, as JSON: the `tree approve` calls a second runtime must make.
+    Approvals {
+        summary: PathBuf,
+    },
 }
 
 const USAGE_ERROR: u8 = 64;
@@ -57,6 +97,60 @@ fn main() -> ExitCode {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
+        Cmd::Parity { cmd } => parity_cmd(cmd),
+    }
+}
+
+/// Exit 2 is an error (unreadable input); exit 1 is a difference.
+fn parity_cmd(cmd: ParityCmd) -> ExitCode {
+    let fail = |e: String| {
+        eprintln!("runbook parity: {e}");
+        ExitCode::from(2)
+    };
+    match cmd {
+        ParityCmd::Summarize { driver, store, output } => {
+            let v = match parity::read(&parity::Source::Driver { run: driver, store }) {
+                Ok(v) => v,
+                Err(e) => return fail(e),
+            };
+            let text = serde_json::to_string_pretty(&v).unwrap() + "\n";
+            match output {
+                Some(p) => {
+                    if let Err(e) = std::fs::write(&p, text) {
+                        return fail(format!("{}: {e}", p.display()));
+                    }
+                    println!("summary: {}", parity::counts(&v));
+                }
+                None => print!("{text}"),
+            }
+            ExitCode::SUCCESS
+        }
+        ParityCmd::Compare { rules: true, .. } => {
+            print!("{}", parity::rules_text());
+            ExitCode::SUCCESS
+        }
+        ParityCmd::Compare { product_digests, a: Some(a), b: Some(b), .. } => {
+            let (a, b) = match (parity::load(&a), parity::load(&b)) {
+                (Ok(a), Ok(b)) => (a, b),
+                (Err(e), _) | (_, Err(e)) => return fail(e),
+            };
+            let diffs = parity::compare(&a, &b, &parity::Options { product_digests });
+            if diffs.is_empty() {
+                println!("equal: {}", parity::counts(&a));
+                ExitCode::SUCCESS
+            } else {
+                diffs.iter().for_each(|d| println!("{d}"));
+                ExitCode::from(1)
+            }
+        }
+        ParityCmd::Compare { .. } => ExitCode::from(USAGE_ERROR),
+        ParityCmd::Approvals { summary } => match parity::load(&summary) {
+            Ok(v) => {
+                println!("{}", serde_json::to_string_pretty(&parity::approvals(&v)).unwrap());
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(e),
+        },
     }
 }
 
