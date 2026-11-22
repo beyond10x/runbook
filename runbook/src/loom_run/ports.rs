@@ -95,7 +95,7 @@ pub struct Bugfix {
 /// The options of the six ports.
 #[derive(Clone, Debug, Default)]
 pub struct Ports {
-    /// `--dry`: the stub cycle, every model command printed and none run.
+    /// `--dry`: the stub cycle, every model command printed and none run (built: `dry.rs`).
     pub dry: bool,
     /// The replay options.
     pub replay: Replay,

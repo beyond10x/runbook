@@ -433,8 +433,8 @@ const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
 /// `loom` settings that are optional: the path of the login file the model adapter reads, the way
 /// to Loom that is the library, and the members of `runbook.loom-run-settings/1` that only some
 /// deciders and adapters take.
-const OPTIONAL_LOOM: [&str; 9] = ["loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
-    "decider.adapter", "adapter", "review.adapter"];
+const OPTIONAL_LOOM: [&str; 10] = ["loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+    "decider.adapter", "adapter", "review.adapter", "flags.dry"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
 /// What the shell programs the bindings run (`llm-node.sh`, `sdc-tool.sh`, the adapters) need on
@@ -449,7 +449,7 @@ const NOT_RECORDED: [&str; 6] = ["decider.adapter", "review.adapter", "flags.dry
 /// Why a setting of the old driver is refused for a `loom` variant, or `None` when it is no
 /// setting of the old driver. Each one is a decision (docs/workflow-metrics.md, "Runner loom").
 fn loom_refusal(key: &str) -> Option<&'static str> {
-    if let Some(why) = port_dry(key).or_else(|| port_recorded(key)).or_else(|| port_conformance(key)) {
+    if let Some(why) = port_recorded(key).or_else(|| port_conformance(key)) {
         return Some(why);
     }
     Some(match key {
@@ -459,12 +459,6 @@ fn loom_refusal(key: &str) -> Option<&'static str> {
         k if k.starts_with("free.") => "it is a setting of runner free-agent",
         _ => return None,
     })
-}
-
-/// The refusal of `flags.dry` until `runbook run` has `--dry`; the port removes this function.
-// port: dry
-fn port_dry(key: &str) -> Option<&'static str> {
-    (key == "flags.dry").then_some("`runbook run` has no --dry yet")
 }
 
 /// The refusal of `flags.recorded` (and with it the replay flags) until `runbook run` replays a
@@ -528,6 +522,12 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
     one_of("adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
     one_of("decider.adapter", &["metaharness", "claude-cli"], p, "metaharness or claude-cli");
     one_of("review.adapter", &["claude-cli"], p, "claude-cli (the only review adapter expressible under Loom)");
+    one_of("flags.dry", &["true"], p, "'true' (leave it out for a run that calls models)");
+    if v.settings.contains_key("flags.dry") {
+        for k in ["adapter", "decider.adapter"].iter().filter(|k| v.settings.contains_key(**k)) {
+            p.push(format!("variant {:?}: {k} is not set with flags.dry: `runbook run --dry` runs every model node and a model decider on the adapter dry", v.id));
+        }
+    }
     match v.settings.get("decider.kind").map(String::as_str) {
         Some("model") => {
             if !v.settings.contains_key("decider.model") {
@@ -2133,6 +2133,9 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     add("--cap-micro-usd", g("loom.cap_micro_usd"));
     add("--max-llm-calls", g("max_llm_calls"));
     add("--max-wall-seconds", g("max_wall_seconds"));
+    if settings.get("flags.dry").is_some_and(|x| x == "true") {
+        v.push("--dry".into());
+    }
     Ok(v)
 }
 
