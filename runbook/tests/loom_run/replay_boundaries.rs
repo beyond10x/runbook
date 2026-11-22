@@ -8,6 +8,7 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
@@ -456,4 +457,120 @@ fn a_changed_test_at_the_committed_label_is_not_told_to_be_packed_again() {
     let (mode, said) = replayed("test-changed", &[("tests.txt", &preamble_log("0.97.3", "1.0.0"))], &[("tests.txt", &preamble_log("0.97.3", "1.0.0").replace("test a", "test b"))]);
     assert_eq!(mode, "diverged", "{said}");
     assert!(!said.contains("pack the recording again"), "{said}");
+}
+
+fn executable(path: &Path, text: &str) {
+    put(path, text);
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+/// A run directory shaped like the runner's, a stub live adapter that appends a line to `marker` at
+/// each start, and the adapter half of `sdc-replay`, started as the runner starts it (`SDC_REPLAY`).
+struct Replay {
+    root: PathBuf,
+    marker: PathBuf,
+    live: PathBuf,
+}
+
+impl Replay {
+    fn new(tag: &str) -> Replay {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("run-copy-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let marker = root.join("live-starts");
+        let live = root.join("live.sh");
+        executable(&live, &format!("#!/bin/sh\necho started >> {}\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", marker.display()));
+        Replay { root, marker, live }
+    }
+
+    fn run(&self) -> PathBuf {
+        self.root.join("run")
+    }
+
+    fn plan_path(&self) -> PathBuf {
+        self.run().join("replay/plan.json")
+    }
+
+    fn plan_text(&self, policy: &str, bin: &Path, cap: Value) -> String {
+        json!({"format": "sdc.replay-plan/1", "out": self.run().display().to_string(), "policy": policy,
+            "live": {"adapter": "stand-in", "bin": bin.display().to_string(), "cap": cap}, "injections": []})
+        .to_string()
+    }
+
+    fn write_plan(&self, policy: &str, cap: Value) {
+        put(&self.plan_path(), &self.plan_text(policy, &self.live, cap));
+        put(&self.run().join("replay/index.json"), &json!({"format": "sdc.replay-index/1", "calls": []}).to_string());
+    }
+
+    fn request(&self) -> PathBuf {
+        let rec = self.run().join("work/.sdc/llm/001-change.fix");
+        std::fs::create_dir_all(rec.join("cwd/in")).unwrap();
+        let request = json!({"node": "change.fix", "case": "C-1", "model": "m", "record_dir": rec.display().to_string(),
+            "cwd": rec.join("cwd").display().to_string(), "case_dir": self.run().join("work").display().to_string()});
+        put(&rec.join("request.json"), &request.to_string());
+        rec.join("request.json")
+    }
+
+    fn command(&self) -> Command {
+        let bin = repo().join("driver/target/debug/sdc-replay");
+        assert!(bin.is_file(), "{} is not built", bin.display());
+        let mut c = Command::new(bin);
+        c.arg(self.request()).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("SDC_REPLAY", self.plan_path());
+        c
+    }
+
+    fn call(&self) -> i32 {
+        self.command().status().unwrap().code().unwrap()
+    }
+
+    fn starts(&self) -> usize {
+        std::fs::read_to_string(&self.marker).map(|t| t.lines().count()).unwrap_or(0)
+    }
+}
+
+/// Records what `local` allows: a program that can write the run directory rewrites the plan and the call log and the adapter obeys them; turned around by `story:replay-plan-out-of-the-run-copy`.
+#[test]
+fn under_local_the_adapter_obeys_a_plan_and_a_call_log_rewritten_after_the_run_began() {
+    let r = Replay::new("rewrite");
+    r.write_plan("stop", json!(0));
+    assert_eq!((r.call(), r.starts()), (75, 0), "the plan of the run says stop: no live call");
+    let rewrite = r.root.join("rewrite.sh");
+    executable(
+        &rewrite,
+        &format!("#!/bin/sh\ncat > '{}' <<'PLAN'\n{}\nPLAN\n: > '{}'\n", r.plan_path().display(), r.plan_text("live", &r.live, json!(99)), r.run().join("replay/calls.jsonl").display()),
+    );
+    assert!(Command::new(&rewrite).status().unwrap().success());
+    assert_eq!((r.call(), r.starts()), (0, 1), "a live call that the run's plan did not allow was started as the adapter's program (a fix that pins the plan flips this case)");
+}
+
+
+/// Invariant 5: a replay that falls back to a live call counts that call against the cap before it
+/// starts. The adapter appends the call to `replay/calls.jsonl` when the call has finished. A live
+/// call that is ended before (the action's time limit, a signal) is never counted, so the next call
+/// starts another live call under a cap of 1.
+#[test]
+fn a_live_call_that_is_ended_before_it_finishes_counts_against_the_cap() {
+    let r = Replay::new("cap-late");
+    let pid_file = r.root.join("live-pid");
+    // The first start waits (and is ended); the second answers at once.
+    executable(
+        &r.live,
+        &format!(
+            "#!/bin/sh\necho started >> '{m}'\nif [ \"$(wc -l < '{m}')\" -ge 2 ]; then echo '{{\"exit\": 0, \"cost_usd\": 0}}'; exit 0; fi\necho $$ > '{p}'\nexec sleep 60\n",
+            m = r.marker.display(),
+            p = pid_file.display()
+        ),
+    );
+    r.write_plan("live", json!(1));
+    let mut first = r.command().spawn().unwrap();
+    let limit = Instant::now() + Duration::from_secs(20);
+    while !pid_file.exists() {
+        assert!(Instant::now() < limit, "the live adapter did not start");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    first.kill().unwrap();
+    let _ = first.wait();
+    let live_pid = std::fs::read_to_string(&pid_file).unwrap().trim().to_owned();
+    let _ = Command::new("kill").args(["-KILL", &live_pid]).status();
+    let second = r.call();
+    assert_eq!((r.starts(), second), (1, 75), "the cap is 1 and one live call was started and ended: the second call must diverge, not start another live call (live starts: {}, exit {second})", r.starts());
 }
