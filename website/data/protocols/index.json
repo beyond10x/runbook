@@ -682,7 +682,7 @@
       "date": "2026-11-22",
       "limits": [
         "The daemon runs cases on its stub runtime only; the engine that runs a case on Loom inside the daemon is not in this release.",
-        "`runbook loom-run` needs a `b10x-loom` binary built from a Loom commit that is not published; the tree pins `5af3f9c2`.",
+        "`runbook loom-run` needs a `b10x-loom` binary built from Loom commit `5af3f9c2`. That commit is on the forge on the branch `wave/2026-11-21-w7` and in no Loom release; no binary of it is published, so it is built from source.",
         "No parity verdict between the driver and Loom exists: no run through Loom has closed. The three runs of `parity-loom-strong-3` passed `scope.answer` and ended at a finding with no declared request (1) and at `change.review` exiting 2 under Loom (2); the three of `parity-loom-strong-2` stopped at `scope.answer`.",
         "The fix of a step that ended before any adapter is tested on a hand-made call directory only; no run through Loom has used it, and `change.review` still exits 2 under Loom: this release does not change what the step reads.",
         "The driver and its scripts are still the default runner of every experiment record.",
@@ -903,7 +903,7 @@
     },
     {
       "path": "docs/releases/0.4.1.md",
-      "sha256": "6d94c19a559de88a35aa657c17437454b80897cdbb033673b176a1216cf5b605"
+      "sha256": "97d49c14a940961aef87b7618c7a1b5e3045d99c3f3bf57430c5b6d5a77bf3f7"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
