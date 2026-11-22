@@ -158,14 +158,18 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 29 converted, 25 pending (5 wait for a story the pinned Loom has not shipped and are
-not run; 20 run and still fail), 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
+130 entries: 36 converted, 18 pending (5 wait for a story the pinned Loom has not shipped and are
+not run; 13 run and still fail), 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
 
 The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run of all
 50 cycles took 764 s of cycle time (about 12.7 min wall) and ended `20 of 20 as expected, 30
 pending`. The ten slowest cycles took 35.9 s (`implement-percause`, pending), 27.5 s (`trace-gap`),
 26.8, 26.8, 26.3, 26.1, 24.2, 24.0, 21.4 and 20.8 s. Every cycle converted by then took between 10.6 s and 27.5 s,
-so all of them are over 5 s. The five converted later (the four coverage cycles and `writer-own-error`) took 13.2, 8.5, 10.3, 10.1 and 3.1 s in single runs; `writer-own-error` is the only cycle of the file under 5 s. The time is
+so all of them are over 5 s. The five converted later (the four coverage cycles and `writer-own-error`) took 13.2, 8.5, 10.3, 10.1 and 3.1 s in single runs; `writer-own-error` is the only cycle of the file under 5 s. The seven cycles converted since (the `change.review` ones, run
+beside other work of the host, not as part of a whole run) took 14.1 s to 25.3 s each in the last run (`review-reject-once`
+25.3 s, `review-minimal-input` 23.3 s, `implement-request-review-rework` 19.0 s, `review-spent` 18.4 s,
+`coverage-complete` 17.5 s, `review-invalid` 14.4 s, `review-invalid-named` 14.1 s; 28.3 s to 46.9 s in the first); the totals of the whole
+file were not measured again. The time is
 the bound programs, one cycle after another: a cycle that goes through to the end runs 213 bound
 programs (read from `observations.json` of two cycles), about 0.1 s each, so about 20 s. `runbook
 test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's; no cycle is near it.
@@ -203,10 +207,10 @@ cycles would have to share an opened tree (the format has no member for it).
 | scope-answer | pending | stops at `scope.answer` of `root.intake`: a program on a person action's approval is in Loom's drafting, no story id yet |
 | scope-changed | pending | same: `scope.answer` as a program on a person action's approval |
 | intake-decision | pending | same: `scope.answer` as a program on a person action's approval |
-| review-reject-once | pending | the scripted reviews are seeded (`.stub/`) and the run stops at `change.review`, exit 4: `change.review has no inputs: no conformance run recorded on change revision none`; the node's inputs (`sdc-reply review-inputs`) read the driver's case directory, which Loom gives no program (story:bound-agent-node) |
-| review-minimal-input | pending | same stop (exit 4), with `review_mode: facts` |
-| review-invalid | pending | same stop (exit 4); the two old checks pass for that reason and not for the scripted reply, and the added `refused-for-the-cited-line` fails |
-| review-spent | pending | same stop: no rejection is recorded (expected 3, found 0) |
+| review-reject-once | converted | the scripted reviews are seeds (`.stub/`); the inputs of `change.review` are read from record files of the workspace (`.sdc/records/`, `docs/loom-bindings.md`); the producer `llm-review` is read from the case file of the store (`doc` in `store`), since a `records` item carries no producer |
+| review-minimal-input | converted | with `review_mode: facts` |
+| review-invalid | converted | the refusal of the cited line 9999 is read from the call's `review-check.err` |
+| review-spent | converted | the three rejections are counted from the records of the workspace and the case |
 | spec-own-default | converted | the one model call is a line of `.sdc/llm/calls.jsonl`; the absent `writer_spent` is no `Stopped` event of the case |
 | plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
 | spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
@@ -248,7 +252,7 @@ replay model calls from and no injected rejection, timeout or failed check.
 ### Trial entries (83)
 
 These run the whole cycle under Runbook's autopilot (`--autopilot`, a decider that answers each stop) or
-with a model adapter's replies scripted. Twenty-six are in the file: fourteen converted and twelve
+with a model adapter's replies scripted. Twenty-six are in the file: seventeen converted and nine
 pending cycles (the scripted-reply entries among them have their replies as seeds; the four bugfix
 cycles are two converted and two pending); the other 57 are not converted. The classes of the 57 and
 of the four bugfix cycles that were in the first count and are in the file now:
@@ -320,17 +324,17 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | finding-refused-reask | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-dropped | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-spent-abandoned | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| review-invalid-named | pending | the run stops at the inputs of `change.review` (no conformance run recorded, exit 4: story:bound-agent-node), not at the scripted invalid review; `stop-names-the-review` fails |
+| review-invalid-named | converted | |
 | writer-own-error | converted | `questions.answer` records `answer_applied` (`sdc.intake` revision 10: exit 0 empty, exit 1 `refused`) and its binding has `retry_when: {answer_applied: [refused]}`: the refused apply is a retry record, the next run reads its log in `in/feedback.md`; the fixture never fixes the answer, so the run ends after the third refusal (`RunsSpent`, stop at `scope.answer`, exit 3) |
 | implement-percause | pending | stops at the finding that `amend.upstream` raises after a test failure, exit 3: a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
 | writer-sees-test-failure | converted | the failing test's message and the absence of a pool line are read from the second call's `in/feedback.md` (`files`, `follow: file`) |
 | implement-request-build | converted | the request record (`reply-schema.json`, `implement-inputs.json`) is read the same way; not said: the written `impl/src/lib.rs` equal to the fixture's file, and a non-empty `commands` in the inputs |
 | implement-request-tests-rework | converted | the second request is read from `.sdc/llm/002-change.implement/prompt.md` |
-| implement-request-review-rework | pending | stops at the inputs of `change.review`, exit 4, as review-reject-once |
+| implement-request-review-rework | converted | |
 | implement-request-invalid-retry | converted | |
 | implement-request-invalid-named | converted | the cause `implement_reply_invalid` is a field of the call line; not said: the old driver's `run-stopped.json`, here the stop is exit 4 |
 | implement-request-path-escape | converted | |
-| coverage-complete | pending | stops at the inputs of `change.review`, exit 4, as review-reject-once |
+| coverage-complete | converted | |
 | coverage-not-built | converted | `sdc.story` revision 8: `llm-node.sh` runs `sdc-reply check-coverage` after the writer under Loom (`SDC_IMPLEMENT_COVERAGE` from `.stub/settings.yaml`) and exits 8 on a refusal; the binding records exit 8 as `implementation_change` `coverage_refused` and `retry_when` lists it; `tests.run` is not admissible on a revision with that record |
 | coverage-line-outside | converted | same form |
 | coverage-test-missing | converted | same form |
