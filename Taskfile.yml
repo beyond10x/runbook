@@ -11,10 +11,33 @@ tasks:
     cmds:
       - task: check:ci-paths
       - task: check:cycles-suite
-      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - task: test:driver
+      - for c in watch goals runbook; do (cd "$c" && cargo test --locked) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
+
+  test:driver:
+    silent: true
+    dir: driver
+    desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. Needs cargo-nextest."
+    cmds:
+      - cargo nextest run --locked --no-run
+      - |
+        set -u
+        log=target/nextest-driver.log
+        code=0
+        cargo nextest run --locked > "$log" 2>&1 || code=$?
+        cat "$log"
+        echo "ten slowest tests:"
+        awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
+        secs=$(sed -n 's/^ *Summary \[ *\([0-9.]*\)s\].*/\1/p' "$log" | tail -1)
+        budget=${SDC_TEST_BUDGET_SECONDS:-120}
+        if [ -z "$secs" ]; then echo "no nextest summary: the test run did not finish"; exit 1; fi
+        if awk -v s="$secs" -v b="$budget" 'BEGIN { exit !(s > b) }'; then echo "the test run took ${secs}s, over the ${budget}s budget"; exit 1; fi
+        echo "test run ${secs}s of ${budget}s"
+        exit $code
 
   check:ci-paths:
     silent: true

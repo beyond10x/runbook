@@ -50,6 +50,7 @@
   no new bash tool is added, and each is retired by a Rust binary or by Loom.
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
+- The driver tests run as `slot task test:driver` (cargo-nextest, `driver/.config/nextest.toml`): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `driver/tests/main.rs` is the one integration-test binary: a new test file needs a `mod` line there (`autotests = false`); each test is its own process, so a product made once per run is a cache on disk under `driver/target/` (see `schemas()` in `driver/tests/decision_request.rs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate
   confinement and process start (`docs/layers.md:47-52`). A capability missing in one of them is
