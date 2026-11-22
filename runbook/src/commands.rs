@@ -727,7 +727,7 @@ impl Daemon {
         self.st()
             .open_decisions_of(run_id)
             .into_iter()
-            .map(|d| json!({"request_id": d.request_id, "run_id": d.run_id, "question": d.question, "options": d.options, "opened_at": d.opened_at}))
+            .map(|d| json!({"request_id": d.request_id, "run_id": d.run_id, "case_id": d.case_id, "action": d.action, "capability": d.capability, "question": d.question, "options": d.options, "opened_at": d.opened_at}))
             .collect()
     }
 

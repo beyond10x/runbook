@@ -1212,6 +1212,9 @@ views:
     fields:
       - {name: request_id, type: sdc.daemon.DecisionRequestId}
       - {name: run_id, type: sdc.daemon.RunId}
+      - {name: case_id, type: String, summary: "The case the runtime opened the request for: which step asks."}
+      - {name: action, type: String, summary: "The action of the case that asks."}
+      - {name: capability, type: String, summary: "The capability the answer is for."}
       - {name: question, type: String}
       - {name: options, type: "List<sdc.decision.DecisionOption>"}
       - {name: opened_at, type: Timestamp}

@@ -93,7 +93,7 @@ Every view is a `GET` to `/daemon/views/<name>`, its parameters in the query.
 | `runs-in-state` | `state` | the runs in a state |
 | `runs-of-session-in-state` | `session_id`, `state` | both filters |
 | `run` | `run_id` | one run with everything it was submitted with |
-| `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones) |
+| `open-decisions` | `run_id` | the run's Open decision requests (not the Withdrawn ones), each with the `case_id`, the `action` and the `capability` of the step that asks |
 | `decisions` | `run_id` | every decision request of the run, with its state |
 | `sessions` | none | every session |
 | `configuration` | none | the daemon's configuration: its id, confinement floor, principal and start time |
@@ -307,8 +307,8 @@ Without `--ui`, `GET /` is `404`.
   the events of every run; the feed of the selected run is the events of that run. The Decisions drawer
   lists the open decision requests of the selected run, read from `GET /daemon/views/open-decisions`:
   the question and each option as the view has them (letter, what it does, cost, what it admits and
-  blocks), and an answer is one option or free text. The view does not carry the case, the action or
-  the capability of a request, so the page does not show which step asked. The daemon records no event
+  blocks), and an answer is one option or free text. Each card names the step that asks: the case, the
+  action and the capability of the request, as text. The daemon records no event
   when a run starts to wait or goes on, so the page reads the runs and the open decisions again after
   its own answer and every two seconds while it is visible. The case tree, the graph and the phases need
   views the daemon does not have yet: the inventory is in the story `ui-embedded-in-the-binary`, section

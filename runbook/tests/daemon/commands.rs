@@ -402,6 +402,7 @@ fn a_decision_is_answered_once_and_the_run_goes_on() {
     let open = fx.d().open_decisions_of_run(&run);
     assert_eq!(open[0]["request_id"], "q1");
     assert_eq!(open[0]["question"], "Approve?");
+    assert_eq!((open[0]["case_id"].clone(), open[0]["action"].clone(), open[0]["capability"].clone()), (json!("case-1"), json!("intake.approve"), json!("approve")), "the row names the step that asks");
     assert_eq!(open[0]["options"][0]["letter"], "A");
     let o = fx.answer(&run, "q1");
     assert_eq!((o.name, o.status), ("answered", 202));

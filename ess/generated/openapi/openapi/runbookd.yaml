@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:ac3a72538bd74a0a61aa1628ce0ab6e1201900c6e8a712c21cbe5781586ba45f
+# contract digest slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:ac3a72538bd74a0a61aa1628ce0ab6e1201900c6e8a712c21cbe5781586ba45f
+    contract_digest: slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -1526,6 +1526,15 @@ components:
           $ref: '#/components/schemas/sdc.daemon.DecisionRequestId'
         run_id:
           $ref: '#/components/schemas/sdc.daemon.RunId'
+        case_id:
+          description: 'The case the runtime opened the request for: which step asks.'
+          type: string
+        action:
+          description: The action of the case that asks.
+          type: string
+        capability:
+          description: The capability the answer is for.
+          type: string
         question:
           type: string
         options:
@@ -1538,6 +1547,9 @@ components:
       required:
       - request_id
       - run_id
+      - case_id
+      - action
+      - capability
       - question
       - options
       - opened_at

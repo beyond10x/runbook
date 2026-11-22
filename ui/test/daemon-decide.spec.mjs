@@ -116,6 +116,9 @@ test('a run that waits shows its open decisions, and an answer from the page end
   // what is asked and the options the daemon's view names
   const first = card(page, 0);
   await expect(first).toContainText('Approve the release plan');
+  await expect(first.locator('[data-field=case_id]')).toHaveText('case case-1');
+  await expect(first.locator('[data-field=action]')).toHaveText('action stub.approve');
+  await expect(first.locator('[data-field=capability]')).toHaveText('capability approve');
   await expect(first.locator('button[data-answer="A"]')).toContainText('yes');
   await expect(first.locator('button[data-answer="B"]')).toContainText('no');
   await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'none');
