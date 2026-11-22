@@ -686,7 +686,7 @@
         "No parity verdict between the driver and Loom exists: the three runs of `parity-loom-strong-2` stopped at `scope.answer` before the answers file existed (0.136, 0.116 and 0.114 USD, 59, 48 and 46 s, furthest stage `intake`).",
         "The driver and its scripts are still the default runner of every experiment record.",
         "The full set of finding cycles was not run on this tree; the last full runs were on `8bddf508` and `b44f99b9b` (126 of 127 expected cycles as expected, `pool-wait` failed; fixed in `4133330ac`, not run again in full; `docs/releases/0.3.1.md`, \"Checks\").",
-        "The nine runs of `experiments/release-0.3.1.yaml` are running and have no result yet.",
+        "The nine runs of `experiments/release-0.3.1.yaml` ended on 2026-11-22; the result is in `experiments/release-0.3.1/report.md`.",
         "Every limit of 0.3.1 that this note does not change stands, among them that under Loom the exits 69 and 70 are recorded as `failed` and that the comparison of the stub cycle covers no run with a model."
       ],
       "notes": "docs/releases/0.4.0.md",
@@ -880,7 +880,7 @@
     },
     {
       "path": "docs/releases/0.4.0.md",
-      "sha256": "5ae2b6675f6cdb9085e9b60f98e53c66dae44b96dcee6812ad4e831e87568747"
+      "sha256": "f96279bd3896724c8d668be7d7e9d7d4e26c26cf3074e2c0b58c2eb653b66591"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

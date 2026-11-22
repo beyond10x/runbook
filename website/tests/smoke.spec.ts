@@ -36,6 +36,52 @@ for (const route of ROUTES) {
   });
 }
 
+type LedgerRun = {clean_pass: boolean; cost_usd: number | null};
+type LedgerEntry = {
+  kind: string;
+  version: string | null;
+  label: string;
+  settings: Array<{setting: string; runs: LedgerRun[]}>;
+};
+
+const ledger: {entries: LedgerEntry[]} = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'progress.json'), 'utf8'));
+
+function versionKey(v: string): number[] {
+  return v.split('.').map((p) => Number.parseInt(p, 10) || 0);
+}
+
+/** The releases with committed runs, in version order, as the evaluation page charts them. */
+function releasesWithRuns(): LedgerEntry[] {
+  return ledger.entries
+    .filter((e) => e.kind === 'release' && e.settings.length > 0)
+    .sort((a, b) => {
+      const x = versionKey(a.version ?? a.label);
+      const y = versionKey(b.version ?? b.label);
+      for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+      return 0;
+    });
+}
+
+/** The labels of the releases that have a run with a cost: the columns of the cost chart. */
+function releasesWithCost(): string[] {
+  return releasesWithRuns()
+    .filter((e) => e.settings.some((c) => c.runs.some((r) => typeof r.cost_usd === 'number')))
+    .map((e) => e.label);
+}
+
+/** The settings of the latest release with runs, in the order of the ledger's cells, with their runs. */
+function latestRelease(): {label: string; settings: Array<{setting: string; runs: LedgerRun[]}>} {
+  const e = releasesWithRuns().at(-1)!;
+  const ids = [...new Set(e.settings.map((c) => c.setting))];
+  return {label: e.label, settings: ids.map((id) => ({setting: id, runs: e.settings.filter((c) => c.setting === id).flatMap((c) => c.runs)}))};
+}
+
+function medianOf(values: number[]): number {
+  const v = [...values].sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
 async function checkFlow(page: Page, width: number): Promise<void> {
   const boxes = await page.locator('.sdc-flow:not(.sdc-flow--actions) .sdc-flow__box').evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({w: r.width, h: r.height})));
   expect(boxes.length).toBeGreaterThan(5);
@@ -71,12 +117,14 @@ async function checkEvaluation(page: Page): Promise<void> {
     await expect(page.locator(`#${id}`)).toBeAttached();
   }
   const labels = await page.locator('#metric-cost .sdc-metric__release').allTextContents();
-  expect(labels).toEqual(['0.1.0', '0.1.2']);
+  expect(labels.slice(0, 2), 'the first two releases with runs do not change').toEqual(['0.1.0', '0.1.2']);
+  expect(labels, 'the releases of docs/progress.json with a cost, in version order').toEqual(releasesWithCost());
   await expect(page.locator('.sdc-metric__nodata')).toHaveCount(0);
   await expect(page.locator('#no-runs')).toHaveText(/^No runs yet on: 0\.1\.1, 0\.1\.3, 0\.1\.4(, \d+\.\d+\.\d+)*\.$/);
   await expect(page.locator('#runs')).toBeAttached();
   const runHeads = await page.locator('section[aria-labelledby="runs"] > section > h3').allTextContents();
-  expect(runHeads.map((h) => h.split(' ·')[0])).toEqual(['Release 0.1.2', 'Release 0.1.0']);
+  expect(runHeads.map((h) => h.split(' ·')[0]).slice(-2), 'the first two releases with runs, newest last').toEqual(['Release 0.1.2', 'Release 0.1.0']);
+  expect(runHeads.map((h) => h.split(' ·')[0]), 'newest release first').toEqual(releasesWithRuns().map((e) => `Release ${e.label}`).reverse());
   await expect(page.locator('#runs-none')).toHaveText(/^No runs yet on: 0\.1\.1, 0\.1\.3, 0\.1\.4(, \d+\.\d+\.\d+)*\.$/);
 
   const order = await page.evaluate(() =>
@@ -85,10 +133,14 @@ async function checkEvaluation(page: Page): Promise<void> {
   expect(order, 'sections in the decided order').toEqual([...order].sort((a, b) => a - b));
   const tilesTop = order[0];
   expect(tilesTop, 'tiles in the first screen').toBeLessThan(page.viewportSize()!.height);
-  await expect(page.locator('#tile-clean')).toContainText('release 0.1.2');
-  await expect(page.locator('#tile-clean li')).toHaveText([/haiku\s*2 of 3/, /mixed\s*2 of 3/, /strong\s*3 of 3/]);
-  await expect(page.locator('#tile-cost')).toContainText('$4.70');
-  await expect(page.locator('#tile-wall')).toContainText('release 0.1.2');
+  const latest = latestRelease();
+  await expect(page.locator('#tile-clean')).toContainText(`release ${latest.label}`);
+  await expect(page.locator('#tile-clean li')).toHaveText(latest.settings.map((s) => new RegExp(`${s.setting}\\s*${s.runs.filter((r) => r.clean_pass).length} of ${s.runs.length}`)));
+  for (const s of latest.settings) {
+    const median = medianOf(s.runs.map((r) => r.cost_usd).filter((x): x is number => typeof x === 'number'));
+    await expect(page.locator('#tile-cost li').filter({hasText: s.setting}), `median cost of ${s.setting}`).toContainText(`$${median.toFixed(2)}`);
+  }
+  await expect(page.locator('#tile-wall')).toContainText(`release ${latest.label}`);
   await expect(page.locator('#tile-target .sdc-tile__big')).toHaveText('$0.47');
   await expect(page.locator('#tile-target')).toContainText('to go');
   await expect(page.locator('#tile-target')).toContainText('free-agent-0.1.0');
@@ -105,11 +157,13 @@ async function checkEvaluation(page: Page): Promise<void> {
   await expect(page.locator('#metric-cost .sdc-metric__ref--target .sdc-metric__reflabel')).toHaveText('target');
   await expect(page.locator('#metric-wall .sdc-metric__key--reference')).toContainText('free agent median 3 min');
   await expect(page.locator('#metric-wall .sdc-metric__ref--reference .sdc-metric__reflabel')).toHaveText('free agent');
-  await expect(page.locator('#cost-split')).toContainText('release 0.1.2');
+  await expect(page.locator('#cost-split')).toContainText(`release ${latest.label}`);
   await expect(page.locator('#cost-split .sdc-split__row')).toHaveCount(3);
   await expect(page.locator('#cost-split tbody tr').filter({hasText: 'decider'})).toHaveCount(1);
   const split = (await page.locator('#cost-split svg[role="img"]').getAttribute('aria-label')) ?? '';
-  expect(split).toContain('Sonnet work, Opus decider, n 3: $4.66');
+  const strongRuns = latest.settings.find((s) => s.setting === 'strong')!.runs;
+  const strongMean = strongRuns.reduce((a, r) => a + r.cost_usd!, 0) / strongRuns.length;
+  expect(split).toContain(`Sonnet work, Opus decider, n ${strongRuns.length}: $${strongMean.toFixed(2)}`);
 
   const exp = page.locator('section[aria-labelledby="experiments"] tbody tr');
   expect(await exp.count()).toBeGreaterThanOrEqual(5);

@@ -4088,17 +4088,668 @@
         }
       ],
       "date": "2026-11-22",
-      "experiments": [],
+      "experiments": [
+        {
+          "hypothesis": null,
+          "id": "release-0.3.1",
+          "kind": "prospective",
+          "known_confounds": [
+            {
+              "key": "unstick",
+              "note": "run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick, as in release-0.1.2. An unstuck run is not a clean pass."
+            },
+            {
+              "key": "canon",
+              "note": "release-0.1.2 used the canon binary of the canon checkout at run time; 0.3.1 pins Canon 0.10.0 (driver/canon-pin.json) and every script refuses another version, so the two series differ in the Canon version."
+            },
+            {
+              "key": "ess",
+              "note": "sdc-tool.sh runs ess 0.96.0 whatever ess is on PATH (docs/releases/0.3.0.md); release-0.1.2 used the installed ess."
+            },
+            {
+              "key": "instructions",
+              "note": "what a model call is told moved from code to files under instructions/ (622819b) with 40 golden prompts held byte for byte; its effect is unmeasured (experiments/releases.yaml)."
+            },
+            {
+              "key": "launcher",
+              "note": "both series are started by sdc-experiment run, with experiment.json; the run directory and the build of the tree are made by the tool."
+            },
+            {
+              "key": "switches",
+              "note": "SDC_IMPLEMENT_MODE, SDC_RULE_APPROVALS, SDC_REVIEW_MODE and SDC_IMPLEMENT_COVERAGE are set in `fixed` to their defaults (session, off, session, off), so run-settings.jsonl records them and none of the four is on; no 0.3.1 run measures a switch."
+            },
+            {
+              "key": "pool-wait",
+              "note": "the wait for a slot of the shared build pool is bounded and reported apart in 0.3.1 (exit 69 repeated, then pool_wait_spent; exit 70, run_over_time), which release-0.1.2 did not have; a run of 0.3.1 that waits in the pool ends differently from a run of 0.1.2 that waited, and the queue of the host differs between the two series."
+            }
+          ],
+          "primary": null,
+          "purpose": "Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults.",
+          "tree": "ebea58d",
+          "variants": [
+            {
+              "clean_passes": 3,
+              "ended": 3,
+              "id": "strong",
+              "listed": 3,
+              "primary": null
+            },
+            {
+              "clean_passes": 3,
+              "ended": 3,
+              "id": "mixed",
+              "listed": 3,
+              "primary": null
+            },
+            {
+              "clean_passes": 1,
+              "ended": 3,
+              "id": "haiku",
+              "listed": 3,
+              "primary": null
+            }
+          ],
+          "verdict": "descriptive",
+          "why": "no hypothesis: the record describes its runs and decides nothing"
+        }
+      ],
       "id": "0.3.1",
       "kind": "release",
       "label": "0.3.1",
       "limits": [
-        "No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.",
-        "Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time."
+        "The baseline on this tree is release-0.3.1 (three runs per setting, 26.48 USD in all): all nine runs ended on 2026-11-22; clean passes strong 3 of 3, mixed 3 of 3, haiku 1 of 3; haiku.1 closed without a clean pass and haiku.3 stopped with writer_spent in IDEA-1.list.spec. The record is descriptive and decides nothing; its report makes no comparison with release-0.1.2 (strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean).",
+        "Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.",
+        "`release-0.3.1`, known confound `unstick`: run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick, as in release-0.1.2. An unstuck run is not a clean pass.",
+        "`release-0.3.1`, known confound `canon`: release-0.1.2 used the canon binary of the canon checkout at run time; 0.3.1 pins Canon 0.10.0 (driver/canon-pin.json) and every script refuses another version, so the two series differ in the Canon version.",
+        "`release-0.3.1`, known confound `ess`: sdc-tool.sh runs ess 0.96.0 whatever ess is on PATH (docs/releases/0.3.0.md); release-0.1.2 used the installed ess.",
+        "`release-0.3.1`, known confound `instructions`: what a model call is told moved from code to files under instructions/ (622819b) with 40 golden prompts held byte for byte; its effect is unmeasured (experiments/releases.yaml).",
+        "`release-0.3.1`, known confound `launcher`: both series are started by sdc-experiment run, with experiment.json; the run directory and the build of the tree are made by the tool.",
+        "`release-0.3.1`, known confound `switches`: SDC_IMPLEMENT_MODE, SDC_RULE_APPROVALS, SDC_REVIEW_MODE and SDC_IMPLEMENT_COVERAGE are set in `fixed` to their defaults (session, off, session, off), so run-settings.jsonl records them and none of the four is on; no 0.3.1 run measures a switch.",
+        "`release-0.3.1`, known confound `pool-wait`: the wait for a slot of the shared build pool is bounded and reported apart in 0.3.1 (exit 69 repeated, then pool_wait_spent; exit 70, run_over_time), which release-0.1.2 did not have; a run of 0.3.1 that waits in the pool ends differently from a run of 0.1.2 that waited, and the queue of the host differs between the two series."
       ],
-      "settings": [],
+      "settings": [
+        {
+          "clean_pass_cost_usd": {
+            "max": 1.222691,
+            "median": 1.222691,
+            "min": 1.222691,
+            "n": 1
+          },
+          "clean_pass_wall_s": {
+            "max": 2692.0,
+            "median": 2692.0,
+            "min": 2692.0,
+            "n": 1
+          },
+          "clean_passes": 1,
+          "ended": 3,
+          "experiment": "release-0.3.1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 0.333333,
+          "runs": [
+            {
+              "clean_pass": false,
+              "conformance": null,
+              "cost_usd": 1.539999,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.539999,
+                "decider_calls": 19,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.727,
+                "forced": 0,
+                "llm_calls": 29,
+                "looping_factor": 2.455,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 1.5,
+                    "real_takes": 3,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 2,
+                    "looping_factor": 1.0,
+                    "real_takes": 2,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 15.0,
+                    "real_takes": 15,
+                    "rework_takes": 14
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 0,
+                "rework_takes": 146,
+                "stop_cause": null,
+                "unstuck": 1,
+                "waiting_on_person_s": 0,
+                "wall_s": 3824
+              },
+              "run": "release-0.3.1.haiku.1",
+              "wall_s": 3824.0
+            },
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 1.222691,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 1.222691,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.727,
+                "forced": 0,
+                "llm_calls": 19,
+                "looping_factor": 1.455,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.0,
+                    "instances": 2,
+                    "looping_factor": 3.0,
+                    "real_takes": 6,
+                    "rework_takes": 4
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.5,
+                    "instances": 2,
+                    "looping_factor": 1.5,
+                    "real_takes": 3,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 57,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 2692
+              },
+              "run": "release-0.3.1.haiku.2",
+              "wall_s": 2692.0
+            },
+            {
+              "clean_pass": false,
+              "conformance": null,
+              "cost_usd": 0.39624,
+              "end": "stopped: writer_spent in IDEA-1.list.spec",
+              "metrics": {
+                "closed": false,
+                "cost_usd": 0.39624,
+                "decider_calls": 12,
+                "delivered": false,
+                "end_kind": "stopped",
+                "first_pass_yield": 0.75,
+                "forced": 0,
+                "llm_calls": 18,
+                "looping_factor": 2.25,
+                "merge_rejections": null,
+                "nodes": {
+                  "change.implement": null,
+                  "change.review": null,
+                  "plan.decompose": null,
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 10.0,
+                    "real_takes": 10,
+                    "rework_takes": 9
+                  }
+                },
+                "outcome": null,
+                "reopens": 0,
+                "review_rejections": null,
+                "rework_takes": 89,
+                "stop_cause": "writer_spent",
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1680
+              },
+              "run": "release-0.3.1.haiku.3",
+              "wall_s": 1680.0
+            }
+          ],
+          "setting": "haiku",
+          "small_n": false,
+          "variant": "haiku"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 2.943113,
+            "median": 2.54455,
+            "min": 2.290674,
+            "n": 3
+          },
+          "clean_pass_wall_s": {
+            "max": 1790.0,
+            "median": 1579.0,
+            "min": 1574.0,
+            "n": 3
+          },
+          "clean_passes": 3,
+          "ended": 3,
+          "experiment": "release-0.3.1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 1.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 2.943113,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.943113,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.667,
+                "forced": 0,
+                "llm_calls": 22,
+                "looping_factor": 1.5,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 3.0,
+                    "real_takes": 3,
+                    "rework_takes": 2
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 45,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1579
+              },
+              "run": "release-0.3.1.mixed.1",
+              "wall_s": 1579.0
+            },
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 2.54455,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.54455,
+                "decider_calls": 17,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.833,
+                "forced": 0,
+                "llm_calls": 19,
+                "looping_factor": 1.333,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 3,
+                    "looping_factor": 1.0,
+                    "real_takes": 3,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 0,
+                "rework_takes": 40,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1790
+              },
+              "run": "release-0.3.1.mixed.2",
+              "wall_s": 1790.0
+            },
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 2.290674,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 2.290674,
+                "decider_calls": 16,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.583,
+                "forced": 0,
+                "llm_calls": 24,
+                "looping_factor": 1.667,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 53,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1574
+              },
+              "run": "release-0.3.1.mixed.3",
+              "wall_s": 1574.0
+            }
+          ],
+          "setting": "mixed",
+          "small_n": false,
+          "variant": "mixed"
+        },
+        {
+          "clean_pass_cost_usd": {
+            "max": 6.59697,
+            "median": 5.475371,
+            "min": 3.468171,
+            "n": 3
+          },
+          "clean_pass_wall_s": {
+            "max": 1432.0,
+            "median": 1164.0,
+            "min": 710.0,
+            "n": 3
+          },
+          "clean_passes": 3,
+          "ended": 3,
+          "experiment": "release-0.3.1",
+          "not_ended": 0,
+          "not_ended_runs": [],
+          "rate": 1.0,
+          "runs": [
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 3.468171,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 3.468171,
+                "decider_calls": 11,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.818,
+                "forced": 0,
+                "llm_calls": 15,
+                "looping_factor": 1.182,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 1.0,
+                    "instances": 2,
+                    "looping_factor": 1.0,
+                    "real_takes": 2,
+                    "rework_takes": 0
+                  },
+                  "change.review": {
+                    "first_pass_yield": 1.0,
+                    "instances": 2,
+                    "looping_factor": 1.0,
+                    "real_takes": 2,
+                    "rework_takes": 0
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 0,
+                "rework_takes": 41,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 710
+              },
+              "run": "release-0.3.1.strong.1",
+              "wall_s": 710.0
+            },
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 5.475371,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 5.475371,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.667,
+                "forced": 0,
+                "llm_calls": 20,
+                "looping_factor": 1.333,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.667,
+                    "instances": 3,
+                    "looping_factor": 1.333333,
+                    "real_takes": 4,
+                    "rework_takes": 1
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 1,
+                "rework_takes": 51,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1164
+              },
+              "run": "release-0.3.1.strong.2",
+              "wall_s": 1164.0
+            },
+            {
+              "clean_pass": true,
+              "conformance": null,
+              "cost_usd": 6.59697,
+              "end": "closed: operating",
+              "metrics": {
+                "closed": true,
+                "cost_usd": 6.59697,
+                "decider_calls": 13,
+                "delivered": true,
+                "end_kind": "closed",
+                "first_pass_yield": 0.583,
+                "forced": 0,
+                "llm_calls": 22,
+                "looping_factor": 1.417,
+                "merge_rejections": 0,
+                "nodes": {
+                  "change.implement": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "change.review": {
+                    "first_pass_yield": 0.333,
+                    "instances": 3,
+                    "looping_factor": 1.666667,
+                    "real_takes": 5,
+                    "rework_takes": 2
+                  },
+                  "plan.decompose": {
+                    "first_pass_yield": 1.0,
+                    "instances": 1,
+                    "looping_factor": 1.0,
+                    "real_takes": 1,
+                    "rework_takes": 0
+                  },
+                  "spec.author": {
+                    "first_pass_yield": 0.0,
+                    "instances": 1,
+                    "looping_factor": 2.0,
+                    "real_takes": 2,
+                    "rework_takes": 1
+                  }
+                },
+                "outcome": "operating",
+                "reopens": 0,
+                "review_rejections": 2,
+                "rework_takes": 57,
+                "stop_cause": null,
+                "unstuck": 0,
+                "waiting_on_person_s": 0,
+                "wall_s": 1432
+              },
+              "run": "release-0.3.1.strong.3",
+              "wall_s": 1432.0
+            }
+          ],
+          "setting": "strong",
+          "small_n": false,
+          "variant": "strong"
+        }
+      ],
       "totals": {
-        "clean_passes": 0,
+        "clean_passes": 7,
         "conformance": {
           "agreement": null,
           "agreement_of": 0,
@@ -4111,15 +4762,15 @@
           "no_figure": 0,
           "node_cost_runs": 0,
           "node_cost_usd": null,
-          "not_observed": 0,
+          "not_observed": 9,
           "p": 0,
           "u": 0,
           "unknown": 0
         },
-        "ended": 0,
+        "ended": 9,
         "not_ended": 0,
-        "rate": null,
-        "small_n": true
+        "rate": 0.777778,
+        "small_n": false
       },
       "tree": "ebea58dee2d1b4c9326a07d4e70128fa922bd01b",
       "tree_note": "tag 0.3.1 at main ebea58d: 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation",
@@ -4905,69 +5556,6 @@
     },
     {
       "hypothesis": null,
-      "id": "release-0.3.1",
-      "kind": "prospective",
-      "known_confounds": [
-        {
-          "key": "unstick",
-          "note": "run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick, as in release-0.1.2. An unstuck run is not a clean pass."
-        },
-        {
-          "key": "canon",
-          "note": "release-0.1.2 used the canon binary of the canon checkout at run time; 0.3.1 pins Canon 0.10.0 (driver/canon-pin.json) and every script refuses another version, so the two series differ in the Canon version."
-        },
-        {
-          "key": "ess",
-          "note": "sdc-tool.sh runs ess 0.96.0 whatever ess is on PATH (docs/releases/0.3.0.md); release-0.1.2 used the installed ess."
-        },
-        {
-          "key": "instructions",
-          "note": "what a model call is told moved from code to files under instructions/ (622819b) with 40 golden prompts held byte for byte; its effect is unmeasured (experiments/releases.yaml)."
-        },
-        {
-          "key": "launcher",
-          "note": "both series are started by sdc-experiment run, with experiment.json; the run directory and the build of the tree are made by the tool."
-        },
-        {
-          "key": "switches",
-          "note": "SDC_IMPLEMENT_MODE, SDC_RULE_APPROVALS, SDC_REVIEW_MODE and SDC_IMPLEMENT_COVERAGE are set in `fixed` to their defaults (session, off, session, off), so run-settings.jsonl records them and none of the four is on; no 0.3.1 run measures a switch."
-        },
-        {
-          "key": "pool-wait",
-          "note": "the wait for a slot of the shared build pool is bounded and reported apart in 0.3.1 (exit 69 repeated, then pool_wait_spent; exit 70, run_over_time), which release-0.1.2 did not have; a run of 0.3.1 that waits in the pool ends differently from a run of 0.1.2 that waited, and the queue of the host differs between the two series."
-        }
-      ],
-      "primary": null,
-      "purpose": "Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults.",
-      "tree": "ebea58d",
-      "variants": [
-        {
-          "clean_passes": 0,
-          "ended": 0,
-          "id": "strong",
-          "listed": 0,
-          "primary": null
-        },
-        {
-          "clean_passes": 0,
-          "ended": 0,
-          "id": "mixed",
-          "listed": 0,
-          "primary": null
-        },
-        {
-          "clean_passes": 0,
-          "ended": 0,
-          "id": "haiku",
-          "listed": 0,
-          "primary": null
-        }
-      ],
-      "verdict": "planned, no run yet",
-      "why": "no hypothesis: the record describes its runs and decides nothing"
-    },
-    {
-      "hypothesis": null,
       "id": "review-haiku-replay",
       "kind": "prospective",
       "known_confounds": [
@@ -5180,7 +5768,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "805dce1d1af2b5d70417747c6f2e6284385f1deb12d61097b3327f836305542b"
+      "sha256": "2898b7e0b2f1e45ea36547aad2a57211c31a9d9a9a579949952e32d099f98551"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
@@ -5572,7 +6160,43 @@
     },
     {
       "path": "experiments/release-0.3.1.yaml",
-      "sha256": "3ba77efed8f2ac6a5cbaa7796973057398aea4de4029fe4c4d966b6937025a8c"
+      "sha256": "aa81f1410864608e536f2830ba6b63f46d813f00c340b237ac1c2499c1f3029d"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.haiku.1.json",
+      "sha256": "52b5ee0dae4f1916d116caad1ff37860715a335f4b8fbe25382b71b1b6e4994b"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.haiku.2.json",
+      "sha256": "f5e51adc0ba76a2763b260c71b4066fb2fd49edab85699b05b38c11f29ea2896"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.haiku.3.json",
+      "sha256": "235f90d4c87dad6a101b5b57f1ff02b6019b009164c340afd506c1ba2e22f138"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.mixed.1.json",
+      "sha256": "47328cd3737d102e3eb3162efae4e2b2016c8402de41312c651c6a3df74bd2aa"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.mixed.2.json",
+      "sha256": "99be7132468aaf2e313821542f4cd108773c83d65f1350c7eaa415f264c7db01"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.mixed.3.json",
+      "sha256": "0fbc28febba8d02c1c8e01998bca5c218b69926c8d58c4e2c75ff0aa91c51528"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.strong.1.json",
+      "sha256": "09ad20740d50f9ee7eeb8f3446ebde7dfca585c6095f780392f1fc74409436be"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.strong.2.json",
+      "sha256": "aec00f2899dbaada00e75a95e1781689bd31e3795bfab0581d3caadbe2734783"
+    },
+    {
+      "path": "experiments/release-0.3.1/runs/release-0.3.1.strong.3.json",
+      "sha256": "bd10eded51d2e187bb0448f6ddba8fa72e324572b1b875ecada7c9723b955389"
     },
     {
       "path": "experiments/review-haiku-replay.yaml",
