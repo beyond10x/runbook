@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- The ESS pins move from 0.97.3 to 0.97.4 (faster synthesis, suites byte-identical to 0.97.3, no breaking change): `driver/ess-pin.json` (tag `0.97.4`, commit `b076ef00be`; archive sha256 equal to the release's `SHA256SUMS`), `requires: ess 0.97.4` in `ess/ess-inputs.yaml` and the `ESS_TOOLCHAIN` default of `bindings/tools/sdc-tool.sh`. `ess/generated/conformance/DIGEST` moved with its source `ess/ess-inputs.yaml`; `suite.json`, the schema and the OpenAPI output are byte-identical.
+
 ## [0.5.0] - 2026-11-22
 
 The runner on the Loom engine. `runbook run <runbook>` runs a case in this process with Loom linked as

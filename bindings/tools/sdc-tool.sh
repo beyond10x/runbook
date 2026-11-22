@@ -73,16 +73,16 @@ case $1 in
       trap 'rm -f "$SDC_POOL_LEDGER"' EXIT
     fi ;;
 esac
-# The ess release every tool here runs: 0.97.3, the release `driver/ess-pin.json` pins (0.96.0 until
+# The ess release every tool here runs: 0.97.4, the release `driver/ess-pin.json` pins (0.96.0 until
 # 2026-11-22; the committed recordings, records and experiment runs before that were made with
 # 0.96.0). Since 2026-11-21 the `ess` on PATH can be a version dispatcher
-# (0.97.1 and later, 0.97.3 included) that runs itself in a case tree, where no `ess-inputs.yaml`
+# (0.97.1 and later, 0.97.4 included) that runs itself in a case tree, where no `ess-inputs.yaml`
 # pins a release; its output
 # differs (the conformance line names the ess version, and `--strict-requires` refuses a spec that
 # requires an older one), so in/tests.txt and the gates would depend on what is installed.
 # ESS_TOOLCHAIN names the release to the dispatcher (a caller's value wins) and ESS_TOOLCHAIN_QUIET
 # keeps its "delegating" note out of the logs; a plain ess binary ignores both.
-export ESS_TOOLCHAIN=${ESS_TOOLCHAIN:-0.97.3} ESS_TOOLCHAIN_QUIET=${ESS_TOOLCHAIN_QUIET:-1}
+export ESS_TOOLCHAIN=${ESS_TOOLCHAIN:-0.97.4} ESS_TOOLCHAIN_QUIET=${ESS_TOOLCHAIN_QUIET:-1}
 
 # Exit 0 when every line of stdin is "true".
 all_true() { ! grep -qv '^true$'; }
