@@ -181,7 +181,8 @@ html:not(.rp-open) #view-note { margin-right: 44px; }
 .ph-waiting .pl { color: var(--text); }
 .ph-stuck .pdot { border-color: var(--false); background: var(--false); }
 .ph-stuck .ps { color: var(--false); }
-.ph-none .pl { color: var(--text-3); }
+.ph-none .pl, .ph-unrecorded .pl { color: var(--text-3); }
+.ph-unrecorded .ps { color: var(--text-3); font-size: 10px; }
 .ph-front:not(.ph-done) .pdot { border-color: var(--accent-2); background: var(--accent); animation: glowdot 1.8s ease-in-out infinite; }
 .ph-front:not(.ph-done) .pl { color: #fff; }
 .ph-front.ph-waiting .pdot { border-color: var(--appr); background: var(--appr); animation: glowamber 1.8s ease-in-out infinite; }
@@ -221,6 +222,7 @@ main { flex: 1; display: grid; grid-template-columns: 272px minmax(0, 1fr) 420px
 .bar { flex: 1; height: 3px; background: rgba(255, 255, 255, .06); border-radius: 3px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: linear-gradient(90deg, rgba(61, 220, 151, .6), var(--true)); border-radius: 3px; transition: width .5s cubic-bezier(.3, .7, .4, 1); }
 .cnt { font-variant-numeric: tabular-nums; width: 32px; text-align: right; }
+.cnt.nr-cnt { width: auto; flex: 1; font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
 .empty { padding: 32px 16px; text-align: center; color: var(--text-2); }
 .empty code { display: block; word-break: break-all; margin: 8px 0; }
 .spinner { width: 20px; height: 20px; margin: 0 auto 12px; border-radius: 50%; border: 2px solid var(--line-2); border-top-color: var(--accent); animation: spin 1s linear infinite; }
