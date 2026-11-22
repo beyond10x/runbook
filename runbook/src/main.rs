@@ -51,14 +51,21 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum ParityCmd {
-    /// Write the runtime-neutral summary (`runbook.parity-summary/1`) of a finished run of the old driver.
+    /// Write the runtime-neutral summary (`runbook.parity-summary/1`) of a finished run: of the old
+    /// driver (`--driver` and `--store`) or of Loom (`--loom-status`).
     Summarize {
         /// The run directory the scripts wrote (`runs/<name>`).
-        #[arg(long, value_name = "DIR")]
-        driver: PathBuf,
+        #[arg(long, value_name = "DIR", requires = "store", conflicts_with = "loom_status", required_unless_present = "loom_status")]
+        driver: Option<PathBuf>,
         /// The case store of the run (the directory that holds the root case).
-        #[arg(long, value_name = "DIR")]
-        store: PathBuf,
+        #[arg(long, value_name = "DIR", requires = "driver")]
+        store: Option<PathBuf>,
+        /// A file holding the JSON `b10x-loom tree status` printed (format `loom.tree-status/1`).
+        #[arg(long, value_name = "FILE")]
+        loom_status: Option<PathBuf>,
+        /// The product tree of a Loom run; the status's `workspace` when not given.
+        #[arg(long, value_name = "DIR", requires = "loom_status")]
+        product_tree: Option<PathBuf>,
         /// Write the summary here instead of to standard output.
         #[arg(long, value_name = "FILE")]
         output: Option<PathBuf>,
@@ -108,8 +115,13 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
         ExitCode::from(2)
     };
     match cmd {
-        ParityCmd::Summarize { driver, store, output } => {
-            let v = match parity::read(&parity::Source::Driver { run: driver, store }) {
+        ParityCmd::Summarize { driver, store, loom_status, product_tree, output } => {
+            let source = match (driver, store, loom_status) {
+                (Some(run), Some(store), None) => parity::Source::Driver { run, store },
+                (None, None, Some(status)) => parity::Source::Loom { status, product_tree },
+                _ => return ExitCode::from(USAGE_ERROR),
+            };
+            let v = match parity::read(&source) {
                 Ok(v) => v,
                 Err(e) => return fail(e),
             };
@@ -135,11 +147,14 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
                 (Err(e), _) | (_, Err(e)) => return fail(e),
             };
             let diffs = parity::compare(&a, &b, &parity::Options { product_digests });
+            let notes = parity::not_recorded_notes(&a, &b);
             if diffs.is_empty() {
-                println!("equal: {}", parity::counts(&a));
+                let what = if notes.is_empty() { "equal" } else { "equal on what both sides record" };
+                println!("{what}: {}", parity::counts(&a));
+                notes.iter().for_each(|n| println!("{n}"));
                 ExitCode::SUCCESS
             } else {
-                diffs.iter().for_each(|d| println!("{d}"));
+                diffs.iter().chain(&notes).for_each(|d| println!("{d}"));
                 ExitCode::from(1)
             }
         }

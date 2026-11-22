@@ -1,16 +1,18 @@
 # Parity of a run under the old driver and under Loom
 
 `story:parity-run-on-loom`. The comparison asks whether a case tree reaches the same facts under the old
-driver (`sdc-drive`) and under Loom. When it does, the driver's runtime copy leaves Runbook. This page is
-the driver's half: the summary, the rules and the commands. Loom's reader of the same summary is the
-story's next step.
+driver (`sdc-drive`) and under Loom. When it does, the driver's runtime copy leaves Runbook. This page
+holds the summary, the rules, the commands, the table of what each Loom member becomes, and what the
+first real run under Loom still has to confirm.
 
 ## The summary
 
 `runbook.parity-summary/1`, JSON, stable key order, no absolute path and no time. Members:
 
 - `format`, `source` (the runtime and its run settings), `not_recorded` (member paths the runtime
-  records nothing for; for the driver: the question and the options of a decision request).
+  records nothing for; for the driver: the question and the options of a decision request; for Loom:
+  the rows of the table below marked `(not recorded)`). A member listed there holds null or an empty
+  list, and that is no fact: `compare` does not compare it.
 - `cases[]`, root first, then each case in the order the log opened it: `id`, `link` (the name of the
   case link: the driver names a child `<parent id>.<name>`; null for the root), `parent`, `protocol`,
   `protocol_revision`, `outcome` (null while the case runs on), `stop` (null, or `{cause}`:
@@ -47,16 +49,169 @@ are not); never compared (`source`, `not_recorded`). File digests of the product
 with `--product-digests`: a stub run is deterministic, a model run is not. A test fails when a member of
 a summary has no row.
 
+A third answer besides equal and different: a member exactly one side lists under `not_recorded` (or
+lies below a member it lists) is not compared, and `compare` names it on a line
+`not recorded on one side: <member> (not recorded by a|b)`. When nothing differs the first line then
+reads `equal on what both sides record:` instead of `equal:`, and the exit is 0. A member both sides
+list is skipped and not named. The driver lists `decision_requests[].question` and `.options`, Loom
+lists `decision_requests`: the driver's two are below Loom's, so only Loom's is named.
+
 ## How to run it
 
 ```
 RUNS=<dir>/runs scripts/run-full-cycle.sh stub-cycle <dir>/store-stub-cycle
 runbook parity summarize --driver <dir>/runs/stub-cycle --store <dir>/store-stub-cycle --output a.json
+b10x-loom tree status --store <loom store> > status.json
+runbook parity summarize --loom-status status.json --product-tree <product dir> --output b.json
 runbook parity compare --product-digests a.json b.json
 runbook parity approvals a.json
 ```
 
+`--loom-status <file>` is the JSON `tree status` printed. The reader takes nothing else of Loom: no store
+file, no run log. `--product-tree <dir>` is the directory walked for `product_tree[]`; without it the
+status's `workspace` is walked. `--loom-status` does not go with `--driver` or `--store`.
+
 `compare` exits 0 and prints one `equal:` line, or exits 1 and prints one line per difference: the member
-path, a's value, b's value. Exit 2 is an input that cannot be read. `approvals` prints the person steps in
+path, a's value, b's value. Exit 2 is an input that cannot be read. `summarize` exits 2 and names the
+member and the case when `tree status` leaves out a member the reader needs (a case without `name`, a
+run without `exit`, ...), and names the format when it is not `loom.tree-status/1`. `approvals` prints the person steps in
 order (`path` from the root, `case` link name, `action`, `capability`, `answer`, `actor`): the
 `tree approve` calls a run under Loom must make to follow the same path.
+
+## From Loom's status to the summary
+
+Read at Loom commit `1016c251` (`crates/loom-tree/src/status.rs`, `encode.rs`, `read.rs`). The table
+is `RULES` in `runbook/src/parity.rs` printed by `runbook parity compare --rules`: the columns
+`Loom member` and `Rule` are its last two, and a test fails when this page and the code differ. The
+`Driver` column is where the driver reader finds the member. `[]` is any list index. A Loom member
+named `cases[].x` is a member `x` of one entry of `cases[]`. A rule that names words (`Allow = granted`)
+is the one place the two vocabularies meet: another word is an error, not a default.
+
+Not one-to-one: `cases[].stop` (Loom keeps the last stop even after the case went on, and has one
+`BudgetSpent` where the driver names the budget), `cases[].evidence[].action` (a child's `case_outcome`
+record has none in Loom), `program_runs[].attempt` (counted, not read), `person_steps[].order` and
+`.answer` (by the instant recorded; the answer of an approval with an action is the record's result),
+`copies[]` (three members not recorded), `protocols[].digest` and `decision_requests` (not recorded).
+
+| Summary member | Driver | Loom member | Rule |
+|---|---|---|---|
+| `format` | constant | format | must be loom.tree-status/1, else refused by name; the summary's format is its own |
+| `source` | `run-settings.jsonl`, first line | format, version | runtime loom, status_version the version; no path of the store is copied |
+| `source.run_settings` | `run-settings.jsonl`, first line | (not recorded) | tree status holds no run settings |
+| `not_recorded` | constant: the question and the options of a decision request | the rows of this table marked not recorded | listed in the order of this table |
+| `cases[].id` | `case.json` `id` | cases[].case | as is; Loom ids (root, root.first) and the driver's compare by pattern |
+| `cases[].link` | the case id without the parent's id and a dot | cases[].name | as is; none on the root (null); another case without a name is an error |
+| `cases[].parent` | the case directory it lies below | cases[].parent | as is; none on the root only; a parent that is not a case of the tree is an error |
+| `cases[].protocol` | `case.json` `protocol` | cases[].protocol_id | as is (the id without @revision) |
+| `cases[].protocol_revision` | `opened` event, `protocol.revision` | cases[].protocol_revision | text to integer; anything else is an error |
+| `cases[].outcome` | `case.json` `termination` | cases[].outcome | as is; none is null (the case runs on) |
+| `cases[].stop` | newest evaluation, `bindings.json`, last budget event | cases[].stop | null when the case has an outcome (its last stop is then old); none without an outcome is null |
+| `cases[].stop.cause` | newest evaluation, `bindings.json`, last budget event | cases[].stop | the stop's name in the words of the summary; another name is an error (AwaitingPerson = awaiting_person, AwaitingAuthority = awaiting_authority, Stuck = stopped, BudgetSpent = budget_spent) |
+| `cases[].open_obligations[]` | newest evaluation, obligations with status open | cases[].open_obligations[] | as is |
+| `cases[].evidence[].index` | position in the order the log names the records | cases[].evidence[].index | as is |
+| `cases[].evidence[].kind` | `evidence/<id>.json` | cases[].evidence[].kind | as is |
+| `cases[].evidence[].result` | `evidence/<id>.json` | cases[].evidence[].result | as is; none is null |
+| `cases[].evidence[].subject` | `evidence/<id>.json` | cases[].evidence[].subject | as is |
+| `cases[].evidence[].subject_revision` | `evidence/<id>.json` | cases[].evidence[].subject_revision | as is |
+| `cases[].evidence[].upstream_revisions.*` | `evidence/<id>.json` | cases[].evidence[].upstream_revisions.* | as is |
+| `cases[].evidence[].action` | the action started or finished that names the record | cases[].evidence[].action | as is, none is null; a case_outcome record with none takes the action of the next record (the opening step's own) |
+| `cases[].program_runs[].action` | `action_finished` events with an argv and no principal | cases[].runs[].action | as is |
+| `cases[].program_runs[].attempt` | `action_finished` events with an argv and no principal | (counted) | n-th run of the action in the case's runs[]; Loom's attempt counts within a retry chain and is not read |
+| `cases[].program_runs[].exit` | `action_finished` events with an argv and no principal | cases[].runs[].exit | as is; none is an error (no status to compare) |
+| `cases[].program_runs[].retry_followed` | `action_finished` events with an argv and no principal | cases[].runs[].retried | as is |
+| `cases[].person_steps[].order` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].at | position by (at, case position, approval position) over every approval of the tree |
+| `cases[].person_steps[].action` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].action | as is; none is null (a grant) |
+| `cases[].person_steps[].capability` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].capability | as is |
+| `cases[].person_steps[].answer` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].answer | Allow with an action: the result of the n-th record of that action in the case; Allow without: granted; Deny: denied (Allow = granted, Deny = denied) |
+| `cases[].person_steps[].actor` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].actor | as is; equal only when the Loom run passed the principal the driver run used |
+| `copies[].action` | `action_started` with `copy`, then `action_finished` | (not recorded) | a copy entry holds source_case, target_case and record_kind only |
+| `copies[].kind` | `action_started` with `copy`, then `action_finished` | cases[].copies[].record_kind | as is |
+| `copies[].from_protocol` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | protocol_id of that case |
+| `copies[].from` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | as is |
+| `copies[].to` | `action_started` with `copy`, then `action_finished` | cases[].copies[].target_case | as is |
+| `copies[].subject` | `action_started` with `copy`, then `action_finished` | (not recorded) | the entry names no record |
+| `copies[].subject_revision` | `action_started` with `copy`, then `action_finished` | (not recorded) | the entry names no record |
+| `decision_requests` | `decision_recorded` events | (not recorded) | tree status holds no decision record (stop_next names the open ones only) |
+| `decision_requests[].id` | `decision_recorded` events | (under a member not recorded) | an empty list |
+| `decision_requests[].case` | `decision_recorded` events | (under a member not recorded) | an empty list |
+| `decision_requests[].question` | `decision_recorded` events | (under a member not recorded) | an empty list |
+| `decision_requests[].options[]` | `decision_recorded` events | (under a member not recorded) | an empty list |
+| `decision_requests[].answer` | `decision_recorded` events | (under a member not recorded) | an empty list |
+| `decision_requests[].who` | `decision_recorded` events | (under a member not recorded) | an empty list |
+| `protocols[].id` | `opened` event | cases[].protocol_id | the distinct protocols of the cases, by id then revision |
+| `protocols[].revision` | `opened` event | cases[].protocol_revision | as for the case |
+| `protocols[].digest` | `opened` event | (not recorded) | the status's protocols[] is empty and is not read |
+| `product_tree[].path` | the root case's `work/` | --product-tree, else workspace | the directory walked as the driver's work/ is |
+| `product_tree[].sha256` | the root case's `work/` | --product-tree, else workspace | the same digest of the same file |
+
+Not recorded, and what compare says: `source.run_settings`, `copies[].action`, `copies[].subject`,
+`copies[].subject_revision`, `decision_requests`, `protocols[].digest`. `compare` of a driver summary and
+a Loom summary names each as `not recorded on one side` and compares nothing there. Two of them do real
+work on the driver side and are lost on Loom's: a copy's `subject_revision` (the evidence lists still
+carry the revision of the copied record in the target case) and the stand-in settings of the run.
+
+## What the first real run needs
+
+Each line is something the reader assumes about `loom.tree-status/1` that Loom's code at `1016c251`
+does not settle. A first real run confirms it or the reader changes. File and line are Loom's.
+
+1. The link name. The brief said a case's name is joined from `children[].name` and `outcome_evidence`,
+   and that an evidence entry may carry a `name` later. At `1016c251` neither exists: the name is the
+   member `name` of the case entry (`status.rs:148`, `encode.rs:48`) and an evidence entry has no
+   `name` (`encode.rs:71-94`). The reader reads the case's `name`. A later `name` on the evidence entry
+   is not read.
+2. Case order. `status.rs:38-39` says root first and each case before its children in the order opened;
+   `tree` itself (`CanonGovernor::tree`) was not read. The reader orders by `parent` links, siblings in
+   the order the status lists them, and assumes that is the order they were opened.
+3. The stop of a parent. `last_stop` takes the last `stopped` line of the case's own log
+   (`status.rs:177-188`); a run that waits on a child names the child (`tree_run.rs:463-475`). Whether the
+   parent's log holds a `stopped` line is not settled. The driver derives the parent's stop from its own
+   evaluation, so a parent over a waiting child may show a stop on one side and none on the other.
+4. Stop words. `TreeStop` is `Terminal, AwaitingPerson, AwaitingAuthority, Stuck, BudgetSpent`
+   (`ess/domains/tree.yaml:31`); the status holds the variant name (`status.rs:183`, `tree_run.rs:664`).
+   `Stuck` is read as the driver's fallback `stopped` and `BudgetSpent` as `budget_spent`. The driver
+   names the budget (`step_budget_spent`, `wall_time_spent`, ...); the status does not
+   (`encode.rs:225-232`, the name sits in the run's `detail`), so a run stopped on a budget differs on
+   `stop.cause`. `Terminal` on a case with no outcome is an error.
+5. Outcomes and obligations. Outcome names (`status.rs:140-143`, examples `arrived`, `passed` at
+   `tree_run.rs:650,657`) and obligation ids (`status.rs:118-123`) are the protocol's and Canon's; the
+   reader assumes the driver's `termination` and obligation ids are the same strings for the same
+   protocol.
+6. Evidence order and the opening record. The records are in the order received (`status.rs:190-191`).
+   A child's `case_outcome` record has no `action` (`tree_run.rs:691-692`); the reader gives it the
+   action of the next record that has one, taken to be the step that opened the child, as the driver
+   does. A `case_outcome` record with no such record after it is an error.
+7. Run order and `exit`. Runs are "in the order the store keeps their observations" (`status.rs:237`);
+   taken as chronological. `exit` is left out when the payload holds no integer (`status.rs:272`,
+   `encode.rs:99`), for example a program a signal ended: the reader refuses that status.
+8. Retries. `retried` (`status.rs:256-269`) is read as the driver's `retry_followed`: the next run of the
+   action carries a non-empty `retry_of`. Loom's `attempt` counts within a retry chain, so a rerun with
+   no `retry_of` starts at 1; the summary counts the runs of the action instead and does not read it.
+9. The instant of an approval. `at` is the line's time (`status.rs:322`); every test passes one fixed
+   instant with `--at` (`tree_run.rs:36`). The reader orders person steps by `at` as text, then by the
+   case's place and the approval's. When a run passes one instant, `order` is by case, not by time, and
+   may differ from the driver's.
+10. The answer of an approval with an action. `action` is set only for an allowed approval followed at
+    once by the finish of a person action (`status.rs:308-316`). The reader takes the result of the
+    n-th record with that action in the case (the label is `status.rs:212-216`) as the driver's word
+    (`approved`), which assumes one record per finish. No such record is an error. A denial never has an
+    action, and `Deny` is read as the driver's `denied` (`driver/src/main.rs:1885`).
+11. The actor. `actor` is the principal passed on the command line (`status.rs:321`); it equals the
+    driver's only when the Loom run was given the principal the driver run recorded (`person:stand-in`).
+12. Copies. An entry holds `source_case`, `target_case` and `record_kind` (`encode.rs:120-126`). The
+    record is not named, so `action`, `subject` and `subject_revision` are not recorded. An entry whose
+    kind cannot be found is left out by Loom (`status.rs:343-351`) and shows up as a missing copy.
+13. Protocols. `protocol_id` and `protocol_revision` come from splitting `protocol` at the last `@`
+    (`status.rs:130-133`); a protocol with no `@` has an empty revision and the reader refuses it. The
+    status's own `protocols[]` is always empty (`status.rs:165`) and is not read, so no digest.
+14. The product tree. `workspace` is `manifest.workspace` (`status.rs:162`). The test fixture of Loom
+    copies the bindings files and the stubs into its workspace (`tree_run.rs:66-79`); if a real
+    workspace holds files the driver's `work/` does not, `product_tree[]` differs by path. Pass the
+    directory that holds the product alone with `--product-tree`.
+15. A damaged log. A run log that does not verify reads as empty (`status.rs:171-174`): the stop,
+    the approvals and the actions are then missing without a word. Run `tree verify` before reading.
+16. Decisions. The status holds no decision that was recorded; `stop_next` names the open ones only
+    (`status.rs:129,151`). The driver's `decision_recorded` events have nothing to be compared to.
+17. The document. The reader takes the whole of what `tree status` printed as a file
+    (`tree_run.rs:795-807`), checks `format` (`read.rs:175-191`) and needs `version`
+    (`read.rs:194`); a status of another format, or none, is refused by name.

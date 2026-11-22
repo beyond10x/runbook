@@ -1,0 +1,183 @@
+{
+  "format": "loom.tree-status/1",
+  "version": "0.0.0",
+  "store": "store",
+  "workspace": "workspace",
+  "root": "root",
+  "cases": [
+    {
+      "case": "root",
+      "protocol": "tour@3",
+      "revision": 6,
+      "outcome": "arrived",
+      "open_obligations": [],
+      "case_file": "store/case-root.json",
+      "run_log": "store/runlog-root.jsonl",
+      "protocol_id": "tour",
+      "protocol_revision": "3",
+      "stop_next": [],
+      "evidence": [
+        {
+          "index": 0,
+          "evidence_id": "ev-r0",
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "producer": "loom"
+        },
+        {
+          "index": 1,
+          "evidence_id": "ev-r1",
+          "kind": "first_leg_opened",
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "producer": "loom",
+          "action": "first.open"
+        },
+        {
+          "index": 2,
+          "evidence_id": "ev-r2",
+          "kind": "route_approval",
+          "result": "approved",
+          "subject": "route",
+          "subject_revision": "rev-r2",
+          "upstream_revisions": {"route": "rev-r1"},
+          "producer": "guide",
+          "action": "approval.copy"
+        },
+        {
+          "index": 3,
+          "evidence_id": "ev-r3",
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "producer": "loom"
+        },
+        {
+          "index": 4,
+          "evidence_id": "ev-r4",
+          "kind": "second_leg_opened",
+          "subject": "tour",
+          "subject_revision": "rev-t1",
+          "upstream_revisions": {},
+          "producer": "loom",
+          "action": "second.open"
+        }
+      ],
+      "runs": [],
+      "approvals": [],
+      "copies": [
+        {"source_case": "root.first", "target_case": "root", "record_kind": "route_approval"}
+      ]
+    },
+    {
+      "case": "root.first",
+      "parent": "root",
+      "protocol": "tour-leg@2",
+      "revision": 9,
+      "outcome": "passed",
+      "open_obligations": [],
+      "case_file": "store/case-root.first.json",
+      "run_log": "store/runlog-root.first.jsonl",
+      "name": "first",
+      "protocol_id": "tour-leg",
+      "protocol_revision": "2",
+      "stop_next": [],
+      "evidence": [
+        {
+          "index": 0,
+          "evidence_id": "ev-f0",
+          "kind": "route_check",
+          "result": "invalid",
+          "subject": "route",
+          "subject_revision": "none",
+          "upstream_revisions": {"route": "rev-r0"},
+          "producer": "check",
+          "action": "route.check"
+        },
+        {
+          "index": 1,
+          "evidence_id": "ev-f1",
+          "kind": "route_check",
+          "result": "valid",
+          "subject": "route",
+          "subject_revision": "rev-r1",
+          "upstream_revisions": {},
+          "producer": "check",
+          "action": "route.check"
+        },
+        {
+          "index": 2,
+          "evidence_id": "ev-f2",
+          "kind": "route_approval",
+          "result": "approved",
+          "subject": "route",
+          "subject_revision": "rev-r2",
+          "upstream_revisions": {"route": "rev-r1"},
+          "producer": "guide",
+          "action": "route.approve"
+        }
+      ],
+      "runs": [
+        {"action": "route.write", "exit": 0, "attempt": 1, "retried": true, "retry_of": []},
+        {"action": "route.check", "exit": 1, "attempt": 1, "retried": false, "retry_of": []},
+        {"action": "route.write", "exit": 0, "attempt": 2, "retried": false, "retry_of": ["ev-f0"]},
+        {"action": "route.check", "exit": 0, "attempt": 1, "retried": false, "retry_of": []}
+      ],
+      "approvals": [
+        {
+          "capability": "guide.approve",
+          "action": "route.approve",
+          "answer": "Allow",
+          "actor": "person:stand-in",
+          "at": "2026-01-01T00:00:01Z"
+        }
+      ],
+      "copies": []
+    },
+    {
+      "case": "root.second",
+      "parent": "root",
+      "protocol": "tour-leg@2",
+      "revision": 4,
+      "outcome": "passed",
+      "open_obligations": [],
+      "case_file": "store/case-root.second.json",
+      "run_log": "store/runlog-root.second.jsonl",
+      "name": "second",
+      "protocol_id": "tour-leg",
+      "protocol_revision": "2",
+      "stop_next": [],
+      "evidence": [
+        {
+          "index": 0,
+          "evidence_id": "ev-s0",
+          "kind": "ticket_issued",
+          "subject": "ticket",
+          "subject_revision": "rev-k1",
+          "upstream_revisions": {},
+          "producer": "issuer",
+          "action": "ticket.issue"
+        }
+      ],
+      "runs": [
+        {"action": "ticket.issue", "exit": 0, "attempt": 1, "retried": false, "retry_of": []}
+      ],
+      "approvals": [
+        {
+          "capability": "guide.issue",
+          "answer": "Allow",
+          "actor": "person:stand-in",
+          "at": "2026-01-01T00:00:02Z"
+        }
+      ],
+      "copies": []
+    }
+  ],
+  "protocols": []
+}

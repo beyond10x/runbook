@@ -1189,24 +1189,6 @@ fn parity_compare_refuses_what_is_no_summary() {
 
 #[test]
 fn parity_rules_table_covers_every_member_of_a_summary() {
-    fn paths(tpl: &str, v: &Value, out: &mut std::collections::BTreeSet<String>) {
-        match v {
-            Value::Object(m) => m.iter().for_each(|(k, x)| {
-                let t = if tpl.is_empty() {
-                    k.clone()
-                } else if tpl.ends_with("upstream_revisions") {
-                    format!("{tpl}.*")
-                } else {
-                    format!("{tpl}.{k}")
-                };
-                paths(&t, x, out)
-            }),
-            Value::Array(l) => l.iter().for_each(|x| paths(&format!("{tpl}[]"), x, out)),
-            _ => {
-                out.insert(tpl.to_string());
-            }
-        }
-    }
     let o = parity(&["compare", "--rules"]);
     assert_eq!(o.status.code(), Some(0));
     let table = stdout(&o);
@@ -1214,7 +1196,7 @@ fn parity_rules_table_covers_every_member_of_a_summary() {
     assert!(table.contains("source | never compared") && table.contains("product_tree[].sha256 | equal by value only with --product-digests"));
     let s = Synth::new("rules");
     let mut have = std::collections::BTreeSet::new();
-    paths("", &read_summary(&s.summary("a.json", &base())), &mut have);
+    summary_paths("", &read_summary(&s.summary("a.json", &base())), &mut have);
     assert!(have.contains("cases[].evidence[].upstream_revisions.*"));
     for m in &have {
         let covered = rows.contains(&m.as_str()) || ["source.", "not_recorded[]"].iter().any(|p| m.starts_with(p));
@@ -1348,5 +1330,372 @@ fn protocol_record_and_repin_refuse_simulate_off() {
         let o = check_protocols(&root, &stub, &[flag], &[("SDC_SIMULATE", "off")]);
         assert_eq!(o.status.code(), Some(2), "{flag}: {}", stdout(&o));
         assert!(stdout(&o).contains("SDC_SIMULATE=off"), "{flag}: {}", stdout(&o));
+    }
+}
+
+// ---- runbook parity: Loom's side, read from a hand-written `tree status` document
+//
+// `fixtures/parity/` holds a small tree under made-up ids: `loom-status.json` follows Loom's
+// encoder member for member (a parent with two children, one approval with an action, one grant
+// without, one retried run, one copied record), `driver-summary.json` is the driver-side summary
+// of the same tree, `loom-summary.golden.json` is what the reader must write, and `product/` is
+// the product tree. No test starts a process of Loom or of the driver.
+
+/// Every member path of a summary, as the rules table names them.
+fn summary_paths(tpl: &str, v: &Value, out: &mut std::collections::BTreeSet<String>) {
+    match v {
+        Value::Object(m) => m.iter().for_each(|(k, x)| {
+            let t = if tpl.is_empty() {
+                k.clone()
+            } else if tpl.ends_with("upstream_revisions") {
+                format!("{tpl}.*")
+            } else {
+                format!("{tpl}.{k}")
+            };
+            summary_paths(&t, x, out)
+        }),
+        Value::Array(l) => l.iter().for_each(|x| summary_paths(&format!("{tpl}[]"), x, out)),
+        _ => {
+            out.insert(tpl.to_string());
+        }
+    }
+}
+
+fn pfx() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parity")
+}
+
+/// Each test of this section ends within 5 s and says how long it took (`--nocapture`).
+struct Timed(&'static str, std::time::Instant);
+
+impl Timed {
+    fn start(name: &'static str) -> Timed {
+        Timed(name, std::time::Instant::now())
+    }
+}
+
+impl Drop for Timed {
+    fn drop(&mut self) {
+        let took = self.1.elapsed();
+        eprintln!("time {}: {took:?}", self.0);
+        if !std::thread::panicking() {
+            assert!(took < std::time::Duration::from_secs(5), "{} took {took:?}", self.0);
+        }
+    }
+}
+
+fn pfx_json(name: &str) -> Value {
+    serde_json::from_str(&std::fs::read_to_string(pfx().join(name)).unwrap()).unwrap()
+}
+
+/// The status of the fixture after `edit`, written to a scratch file named by `tag`.
+fn loom_status_file(s: &Synth, tag: &str, edit: impl Fn(&mut Value)) -> PathBuf {
+    let mut v = pfx_json("loom-status.json");
+    edit(&mut v);
+    s.put_json(&format!("{tag}.status.json"), &v);
+    s.root.join(format!("{tag}.status.json"))
+}
+
+fn loom_summarize(status: &Path, extra: &[&str]) -> Output {
+    let tree = pfx().join("product");
+    let mut args = vec!["summarize", "--loom-status", path_str(status)];
+    if !extra.contains(&"--product-tree") {
+        args.extend(["--product-tree", path_str(&tree)]);
+    }
+    args.extend(extra);
+    parity(&args)
+}
+
+/// The Loom-side summary of the fixture after `edit`, as a file named by `tag`.
+fn loom_summary_file(s: &Synth, tag: &str, edit: impl Fn(&mut Value)) -> PathBuf {
+    let status = loom_status_file(s, tag, edit);
+    let out = s.root.join(format!("{tag}.summary.json"));
+    let o = loom_summarize(&status, &["--output", path_str(&out)]);
+    assert_eq!(o.status.code(), Some(0), "{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+    out
+}
+
+/// The case of a status by id.
+fn case_mut<'a>(v: &'a mut Value, id: &str) -> &'a mut Value {
+    v["cases"].as_array_mut().unwrap().iter_mut().find(|c| c["case"] == id).unwrap()
+}
+
+#[test]
+fn parity_loom_summary_is_the_golden_file() {
+    let _t = Timed::start("parity_loom_summary_is_the_golden_file");
+    let s = Synth::new("loom-golden");
+    let o = loom_summarize(&pfx().join("loom-status.json"), &[]);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let golden = std::fs::read_to_string(pfx().join("loom-summary.golden.json")).unwrap();
+    assert_eq!(stdout(&o), golden);
+    assert!(!golden.contains("2026-01-01") && !golden.contains("store/"), "a time or a path of the status in the summary");
+    let out = s.root.join("o.json");
+    let o = loom_summarize(&pfx().join("loom-status.json"), &["--output", path_str(&out)]);
+    assert_eq!(stdout(&o).trim(), "summary: 3 cases, 9 evidence records, 5 program runs, 2 person steps, 2 product files");
+}
+
+#[test]
+fn parity_loom_summary_lists_what_the_status_does_not_record() {
+    let _t = Timed::start("parity_loom_summary_lists_what_the_status_does_not_record");
+    let v = pfx_json("loom-summary.golden.json");
+    assert_eq!(
+        v["not_recorded"],
+        json!(["source.run_settings", "copies[].action", "copies[].subject", "copies[].subject_revision", "decision_requests", "protocols[].digest"])
+    );
+    assert_eq!(v["source"], json!({"runtime": "loom", "status_version": "0.0.0", "run_settings": null}));
+    assert_eq!(v["decision_requests"], json!([]));
+    let copy = &v["copies"][0];
+    assert_eq!((&copy["action"], &copy["subject"], &copy["subject_revision"]), (&Value::Null, &Value::Null, &Value::Null));
+    assert_eq!(v["protocols"][0]["digest"], Value::Null);
+    let table = stdout(&parity(&["compare", "--rules"]));
+    for m in v["not_recorded"].as_array().unwrap() {
+        let row = table.lines().find(|l| l.starts_with(&format!("{} | ", m.as_str().unwrap()))).unwrap();
+        assert!(row.contains(" | (not recorded) | "), "{row}");
+    }
+}
+
+#[test]
+fn parity_loom_summary_maps_the_words_and_counts_the_attempts() {
+    let _t = Timed::start("parity_loom_summary_maps_the_words_and_counts_the_attempts");
+    let v = pfx_json("loom-summary.golden.json");
+    let first = &v["cases"][1];
+    assert_eq!((first["id"].as_str(), first["link"].as_str(), first["parent"].as_str()), (Some("root.first"), Some("first"), Some("root")));
+    assert_eq!(first["protocol"], "tour-leg");
+    assert_eq!(first["protocol_revision"], 2);
+    // Loom's attempt of the second check is 1 (a run that retries nothing); the summary counts the runs of the action
+    let runs: Vec<(String, i64, i64, bool)> = first["program_runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["action"].as_str().unwrap().to_string(), r["attempt"].as_i64().unwrap(), r["exit"].as_i64().unwrap(), r["retry_followed"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(
+        runs,
+        [("route.write".into(), 1, 0, true), ("route.check".into(), 1, 1, false), ("route.write".into(), 2, 0, false), ("route.check".into(), 2, 0, false)]
+    );
+    // Allow with an action is the result of the action's record; Allow without one is granted
+    assert_eq!(first["person_steps"][0]["answer"], "approved");
+    assert_eq!(v["cases"][2]["person_steps"][0]["answer"], "granted");
+    assert_eq!(v["cases"][2]["person_steps"][0]["action"], Value::Null);
+    // a case_outcome record takes the action of the step that opened the child
+    assert_eq!(v["cases"][0]["evidence"][0]["action"], "first.open");
+    assert_eq!(v["cases"][0]["evidence"][3]["action"], "second.open");
+}
+
+#[test]
+fn parity_loom_and_driver_summaries_of_one_tree_compare_equal() {
+    let _t = Timed::start("parity_loom_and_driver_summaries_of_one_tree_compare_equal");
+    let s = Synth::new("loom-equal");
+    let b = loom_summary_file(&s, "b", |_| {});
+    let a = pfx().join("driver-summary.json");
+    for (x, y, by) in [(&a, &b, "b"), (&b, &a, "a")] {
+        let o = parity(&["compare", "--product-digests", path_str(x), path_str(y)]);
+        assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+        let lines: Vec<String> = stdout(&o).lines().map(String::from).collect();
+        assert_eq!(lines[0], "equal on what both sides record: 3 cases, 9 evidence records, 5 program runs, 2 person steps, 2 product files");
+        // the driver lists the question and the options of a decision request, Loom the whole list
+        let expect: Vec<String> = ["source.run_settings", "copies[].action", "copies[].subject", "copies[].subject_revision", "decision_requests", "protocols[].digest"]
+            .iter()
+            .map(|m| format!("not recorded on one side: {m} (not recorded by {by})"))
+            .collect();
+        assert_eq!(lines[1..], expect[..]);
+    }
+}
+
+#[test]
+fn parity_a_member_one_side_does_not_record_is_no_difference_of_values() {
+    let _t = Timed::start("parity_a_member_one_side_does_not_record_is_no_difference_of_values");
+    let s = Synth::new("loom-notrec");
+    let b = loom_summary_file(&s, "b", |_| {});
+    let mut d = pfx_json("driver-summary.json");
+    d["copies"][0]["subject"] = json!("another");
+    d["copies"][0]["action"] = json!("another.copy");
+    d["decision_requests"] = json!([{"id": "q1", "case": "T-1", "question": null, "options": [], "answer": "yes", "who": "person:stand-in"}]);
+    d["protocols"][0]["digest"] = json!("another");
+    s.put_json("d.json", &d);
+    let o = parity(&["compare", path_str(&s.root.join("d.json")), path_str(&b)]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+    assert!(stdout(&o).contains("not recorded on one side: copies[].subject (not recorded by b)"), "{}", stdout(&o));
+    // what both record is still compared
+    d["copies"][0]["kind"] = json!("another_kind");
+    s.put_json("d.json", &d);
+    let o = parity(&["compare", path_str(&s.root.join("d.json")), path_str(&b)]);
+    assert_eq!(o.status.code(), Some(1));
+    assert!(stdout(&o).lines().any(|l| l == r#"copies[0].kind: a="another_kind" b="route_approval""#), "{}", stdout(&o));
+}
+
+/// Exit code and the lines of `compare` of the driver fixture against the Loom fixture after `edit`,
+/// without the notes of members not recorded.
+fn compare_loom_variant(tag: &str, edit: impl Fn(&mut Value)) -> (i32, Vec<String>) {
+    let s = Synth::new(tag);
+    let b = loom_summary_file(&s, "b", edit);
+    let o = parity(&["compare", "--product-digests", path_str(&pfx().join("driver-summary.json")), path_str(&b)]);
+    let lines = stdout(&o).lines().filter(|l| !l.starts_with("not recorded on one side")).map(String::from).collect();
+    (o.status.code().unwrap(), lines)
+}
+
+#[test]
+fn parity_loom_red_a_record_missing_on_the_loom_side() {
+    let _t = Timed::start("parity_loom_red_a_record_missing_on_the_loom_side");
+    let (code, lines) = compare_loom_variant("loom-red-record", |v| {
+        case_mut(v, "root.second")["evidence"].as_array_mut().unwrap().pop();
+    });
+    assert_eq!(code, 1, "{lines:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("cases[2].evidence[0]: a={") && lines[0].ends_with("b=(absent)"), "{lines:?}");
+    assert!(lines[0].contains("ticket_issued"), "{lines:?}");
+}
+
+#[test]
+fn parity_loom_red_another_outcome_of_one_child() {
+    let _t = Timed::start("parity_loom_red_another_outcome_of_one_child");
+    let (code, lines) = compare_loom_variant("loom-red-outcome", |v| case_mut(v, "root.second")["outcome"] = json!("failed"));
+    assert_eq!(code, 1, "{lines:?}");
+    assert_eq!(lines, [r#"cases[2].outcome: a="passed" b="failed""#]);
+}
+
+#[test]
+fn parity_loom_red_a_denial_against_the_drivers_approval() {
+    let _t = Timed::start("parity_loom_red_a_denial_against_the_drivers_approval");
+    let (code, lines) = compare_loom_variant("loom-red-deny", |v| {
+        let a = &mut case_mut(v, "root.first")["approvals"][0];
+        a["answer"] = json!("Deny");
+        a.as_object_mut().unwrap().remove("action");
+    });
+    assert_eq!(code, 1, "{lines:?}");
+    assert!(lines.contains(&r#"cases[1].person_steps[0].answer: a="approved" b="denied""#.to_string()), "{lines:?}");
+    assert!(lines.contains(&r#"cases[1].person_steps[0].action: a="route.approve" b=null"#.to_string()), "{lines:?}");
+}
+
+#[test]
+fn parity_loom_stops_are_read_in_the_words_of_the_summary() {
+    let _t = Timed::start("parity_loom_stops_are_read_in_the_words_of_the_summary");
+    let s = Synth::new("loom-stop");
+    for (stop, cause) in [("AwaitingPerson", "awaiting_person"), ("AwaitingAuthority", "awaiting_authority"), ("Stuck", "stopped"), ("BudgetSpent", "budget_spent")] {
+        let f = loom_summary_file(&s, "w", |v| {
+            let c = case_mut(v, "root.second");
+            c.as_object_mut().unwrap().remove("outcome");
+            c["stop"] = json!(stop);
+        });
+        let v: Value = read_summary(&f);
+        assert_eq!(v["cases"][2]["outcome"], Value::Null);
+        assert_eq!(v["cases"][2]["stop"], json!({"cause": cause}), "{stop}");
+    }
+    // the last stop of a case that went on is old: an outcome wins; no stop on a running case is null
+    let f = loom_summary_file(&s, "old", |v| case_mut(v, "root.second")["stop"] = json!("AwaitingPerson"));
+    assert_eq!(read_summary(&f)["cases"][2]["stop"], Value::Null);
+    let f = loom_summary_file(&s, "run", |v| {
+        case_mut(v, "root.second").as_object_mut().unwrap().remove("outcome");
+    });
+    let v = read_summary(&f);
+    assert_eq!((&v["cases"][2]["outcome"], &v["cases"][2]["stop"]), (&Value::Null, &Value::Null));
+}
+
+#[test]
+fn parity_loom_orders_cases_below_their_parent_and_person_steps_by_instant() {
+    let _t = Timed::start("parity_loom_orders_cases_below_their_parent_and_person_steps_by_instant");
+    let s = Synth::new("loom-order");
+    let f = loom_summary_file(&s, "o", |v| {
+        let mut deep = case_mut(v, "root.second").clone();
+        deep["case"] = json!("root.first.deep");
+        deep["parent"] = json!("root.first");
+        deep["name"] = json!("deep");
+        deep["approvals"] = json!([]);
+        v["cases"].as_array_mut().unwrap().push(deep);
+        case_mut(v, "root.first")["approvals"][0]["at"] = json!("2026-01-01T00:00:09Z");
+    });
+    let v = read_summary(&f);
+    let ids: Vec<&str> = v["cases"].as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["root", "root.first", "root.first.deep", "root.second"]);
+    assert_eq!(v["cases"][1]["person_steps"][0]["order"], 1);
+    assert_eq!(v["cases"][3]["person_steps"][0]["order"], 0);
+}
+
+#[test]
+fn parity_loom_reader_refuses_a_status_it_cannot_read_by_name() {
+    let _t = Timed::start("parity_loom_reader_refuses_a_status_it_cannot_read_by_name");
+    let s = Synth::new("loom-refuse");
+    let refuse = |tag: &str, edit: &dyn Fn(&mut Value), words: &[&str]| {
+        let status = loom_status_file(&s, tag, edit);
+        let o = loom_summarize(&status, &[]);
+        let err = String::from_utf8_lossy(&o.stderr).into_owned();
+        assert_eq!(o.status.code(), Some(2), "{tag}: {}{err}", stdout(&o));
+        assert!(stdout(&o).is_empty(), "{tag}: a summary was written: {}", stdout(&o));
+        for w in words {
+            assert!(err.contains(w), "{tag}: {err} lacks {w}");
+        }
+    };
+    let remove = |v: &mut Value, name: &str| drop(v.as_object_mut().unwrap().remove(name));
+    refuse("fmt", &|v| v["format"] = json!("loom.tree-status/2"), &["loom.tree-status/2", "loom.tree-status/1"]);
+    refuse("nofmt", &|v| remove(v, "format"), &["no format"]);
+    refuse("name", &|v| remove(case_mut(v, "root.first"), "name"), &["case root.first", "name"]);
+    refuse("parent", &|v| remove(case_mut(v, "root.second"), "parent"), &["case root.second", "parent"]);
+    refuse("lost", &|v| case_mut(v, "root.second")["parent"] = json!("root.nowhere"), &["case root.second", "parent", "root.nowhere"]);
+    refuse("protocol_id", &|v| remove(case_mut(v, "root.second"), "protocol_id"), &["case root.second", "protocol_id"]);
+    refuse("revision", &|v| case_mut(v, "root.second")["protocol_revision"] = json!("two"), &["case root.second", "protocol_revision", "two"]);
+    refuse("kind", &|v| remove(&mut case_mut(v, "root.first")["evidence"][1], "kind"), &["case root.first", "evidence[1]", "kind"]);
+    refuse("exit", &|v| remove(&mut case_mut(v, "root.first")["runs"][0], "exit"), &["case root.first", "runs[0]", "exit"]);
+    refuse("capability", &|v| remove(&mut case_mut(v, "root.first")["approvals"][0], "capability"), &["case root.first", "approvals[0]", "capability"]);
+    refuse("answer", &|v| case_mut(v, "root.first")["approvals"][0]["answer"] = json!("Maybe"), &["case root.first", "approvals[0]", "answer", "Maybe"]);
+    refuse(
+        "stop",
+        &|v| {
+            let c = case_mut(v, "root.second");
+            c.as_object_mut().unwrap().remove("outcome");
+            c["stop"] = json!("Elsewhere");
+        },
+        &["case root.second", "stop", "Elsewhere"],
+    );
+    refuse("noresult", &|v| case_mut(v, "root.first")["evidence"].as_array_mut().unwrap().truncate(2), &["case root.first", "approvals[0]", "route.approve"]);
+    refuse("copy", &|v| case_mut(v, "root")["copies"][0]["source_case"] = json!("root.third"), &["case root", "copies", "root.third"]);
+    refuse("outcome-action", &|v| case_mut(v, "root")["evidence"].as_array_mut().unwrap().truncate(4), &["case root", "evidence[3]", "action"]);
+    refuse("cases", &|v| remove(v, "cases"), &["cases"]);
+    // a product tree that is not there
+    let o = loom_summarize(&pfx().join("loom-status.json"), &["--product-tree", path_str(&s.root.join("nothing"))]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("nothing"));
+    // the status's own workspace is the tree when none is given, and it is not there
+    let o = parity(&["summarize", "--loom-status", path_str(&pfx().join("loom-status.json"))]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("workspace"), "{}", String::from_utf8_lossy(&o.stderr));
+    // a file that is no JSON
+    s.put("bad.json", "{\"format\":");
+    let o = loom_summarize(&s.root.join("bad.json"), &[]);
+    assert_eq!(o.status.code(), Some(2));
+}
+
+#[test]
+fn parity_summarize_takes_one_source() {
+    let _t = Timed::start("parity_summarize_takes_one_source");
+    let st = pfx().join("loom-status.json");
+    let o = parity(&["summarize", "--loom-status", path_str(&st), "--driver", "x", "--store", "y"]);
+    assert_eq!(o.status.code(), Some(64));
+    let o = parity(&["summarize"]);
+    assert_eq!(o.status.code(), Some(64));
+    let o = parity(&["summarize", "--product-tree", "x"]);
+    assert_eq!(o.status.code(), Some(64));
+}
+
+#[test]
+fn parity_rules_table_and_the_docs_table_say_the_same() {
+    let _t = Timed::start("parity_rules_table_and_the_docs_table_say_the_same");
+    let table = stdout(&parity(&["compare", "--rules"]));
+    let docs = std::fs::read_to_string(repo().join("docs/parity.md")).unwrap();
+    let mut rows = 0;
+    for l in table.lines().skip(1).filter(|l| l.matches(" | ").count() == 4) {
+        let c: Vec<&str> = l.split(" | ").collect();
+        let line = docs.lines().find(|d| d.starts_with(&format!("| `{}` | ", c[0]))).unwrap_or_else(|| panic!("no row of {} in docs/parity.md", c[0]));
+        assert!(line.ends_with(&format!(" | {} | {} |", c[3], c[4])), "the docs row of {} differs from the table: {line}", c[0]);
+        rows += 1;
+    }
+    assert!(rows > 40, "{rows} rows");
+    // every member of both summaries has a row
+    let mut have = std::collections::BTreeSet::new();
+    summary_paths("", &pfx_json("loom-summary.golden.json"), &mut have);
+    summary_paths("", &pfx_json("driver-summary.json"), &mut have);
+    let rows: Vec<&str> = table.lines().skip(1).filter_map(|l| l.split(" | ").next()).collect();
+    for m in &have {
+        let covered = rows.contains(&m.as_str()) || ["source.", "not_recorded[]"].iter().any(|p| m.starts_with(p));
+        assert!(covered, "member {m} has no row in the rules table");
     }
 }
