@@ -554,6 +554,22 @@ fn the_rust_binaries_hold_no_instruction_text() {
         }
         assert!(text.contains("instructions::render") || text.contains("text(\""), "{src} reads no instruction file");
     }
+    // `sdc-node` and the runner's decider took over from `llm-node.sh` and `decider.sh`, the two
+    // programs this guard held before: they are held to the same rule.
+    let mut sources = Vec::new();
+    program_sources(&manifest().join("src/bin/sdc-node"), &[], &mut sources);
+    sources.push((manifest().join("src/bin/sdc-node.rs"), fs::read_to_string(manifest().join("src/bin/sdc-node.rs")).unwrap()));
+    program_sources(&repo().join("runbook/src/loom_run/decider"), &["tests.rs", "requester_tests.rs", "golden.rs"], &mut sources);
+    assert!(lines.len() > 100 && sources.len() > 8, "found {} lines and {} sources", lines.len(), sources.len());
+    for (p, text) in &sources {
+        if let Some(l) = first_instruction_line_in(text, &lines) {
+            panic!("{} holds instruction text: {l}", p.display());
+        }
+    }
+    // The scan can fail: the same source with one instruction line pasted into a string constant.
+    let (p, text) = &sources[0];
+    let mutant = format!("{text}\nconst PASTED: &str = \"{}\";\n", lines[0].replace('"', "\\\""));
+    assert!(first_instruction_line_in(&mutant, &lines).is_some(), "the scan misses a line pasted into {}", p.display());
     // The lines above only find a copy of a line of a file. A heading or a note of a few words is
     // found in what the binary renders: the request-mode prompt of three calls (the specification
     // lacks the story's command and impl/ is empty; the tree is past the cap; every section).
@@ -609,4 +625,21 @@ fn words_outside_files_and_inputs(prompt: &str, case: &Path, cwd: &Path) -> Vec<
     stray.sort();
     stray.dedup();
     stray
+}
+
+fn first_instruction_line_in(text: &str, lines: &[String]) -> Option<String> {
+    let text = text.replace("\\\"", "\"");
+    lines.iter().find(|l| text.contains(l.as_str())).cloned()
+}
+
+/// The `.rs` files under `dir` (but the file names in `skip`), with their text.
+fn program_sources(dir: &Path, skip: &[&str], out: &mut Vec<(PathBuf, String)>) {
+    for e in fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_dir() {
+            program_sources(&p, skip, out);
+        } else if p.extension().is_some_and(|x| x == "rs") && !skip.iter().any(|s| p.file_name().unwrap() == *s) {
+            out.push((p.clone(), fs::read_to_string(&p).unwrap()));
+        }
+    }
 }

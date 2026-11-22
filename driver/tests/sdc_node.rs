@@ -1765,3 +1765,28 @@ fn the_implement_nothing_recorded_line_is_its_golden_byte_for_byte() {
     assert!(!r.stdout.is_empty(), "{r:#?}");
     compare("node-log", "implement.nothing-recorded", &r.stdout);
 }
+
+/// `bindings/tools/node-classes.json` gives each class the nodes it covers. A node
+/// that no binding names is data of something deleted (the class `unstick` and its node
+/// `run.unstick` outlived `sdc-unstick` and `run-trial.sh`).
+#[test]
+fn every_node_a_class_names_is_a_node_some_binding_runs() {
+    let classes: serde_json::Value = serde_json::from_str(&fs::read_to_string(repo().join("bindings/tools/node-classes.json")).unwrap()).unwrap();
+    let mut live = String::new();
+    for e in fs::read_dir(repo().join("bindings")).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_some_and(|x| x == "yaml") {
+            live.push_str(&fs::read_to_string(&p).unwrap());
+        }
+    }
+    let token = |n: &str| live.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))).any(|t| t == n);
+    let mut dead = Vec::new();
+    for (class, nodes) in classes["classes"].as_object().unwrap() {
+        for n in nodes.as_array().unwrap().iter().filter_map(|n| n.as_str()) {
+            if !token(n) {
+                dead.push(format!("{class}: {n}"));
+            }
+        }
+    }
+    assert!(dead.is_empty(), "node-classes.json names nodes that no binding in bindings/*.yaml has: {dead:?}");
+}

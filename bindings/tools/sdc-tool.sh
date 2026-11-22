@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # The SDC example's tools, one subcommand per binding. Run with cwd = the case tree's shared work/
-# directory, by Loom (Loom mode: LOOM_CASE is set) or, in driver mode, by the variables of the removed driver. Each check is
+# directory. A run reaches it one way: Loom starts it (Loom mode: LOOM_CASE is set). The branches
+# that read SDC_CASE and the other SDC_* variables alone (no LOOM_CASE) are reached by
+# `sdc-conform` (its `ess` calls) and by the tests `driver/tests/impl_gate.rs` and
+# `driver/tests/questions_check.rs`, which set those variables themselves. Each check is
 # deterministic and reports only through its exit code; each `stub-*` is a stand-in for an LLM
 # executor: it writes a fixed draft and decides nothing.
 #
 # Loom mode (docs/loom-bindings.md, "Tool changes for Loom's program contract"): Loom starts a
 # bound program with PATH and LOOM_CASE alone and its arguments as one JSON object on standard
-# input, which no subcommand here takes. What the driver gives as variables comes from the case id
-# (SDC_CASE) and from argv entries the binding states after the subcommand: --action <id>
+# input, which no subcommand here takes. What the other branches read as variables comes from the
+# case id (SDC_CASE) and from argv entries the binding states after the subcommand: --action <id>
 # (SDC_ACTION), --principal <principal> (SDC_PRINCIPAL), --stub-fixtures <dir> (SDC_STUB_FIXTURES)
 # and --stub-counter <dir> (SDC_STUB_COUNTER). They are exported, so the programs started here read
-# them as under the driver. sdc-findings and sdc-bugfix come from PATH, else from the driver
-# crate's build in this repository, never from HOME. Without LOOM_CASE none of this runs.
+# them the same way in both modes. sdc-findings and sdc-bugfix come from PATH, else from the driver
+# crate's build in this repository, never from HOME. Without LOOM_CASE the argv entries above are not read.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -211,7 +214,7 @@ bugfix() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
   "$b" "$@"
 }
-# Run a command; under Loom (the old driver keeps the step's log itself) also keep its log as the
+# Run a command; under Loom also keep its log as the
 # record of <kind> about the tree <tree> (sdc-reply record): the change.review inputs read it from
 # the workspace, since Loom gives a program no case store.  recorded <kind> <tree> <command>...
 recorded() {

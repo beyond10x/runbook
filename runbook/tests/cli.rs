@@ -1940,3 +1940,19 @@ fn parity_compare_still_tells_the_revision_of_another_record_apart() {
     assert_eq!(code, 1, "{lines:?}");
     assert_eq!(lines, [r#"cases[0].evidence[2].subject_revision: a="r2" b="r1""#]);
 }
+
+/// `docs/cycles-suite.md` says every entry is in one of four states, each in exactly one spelling: a
+/// row with any other word, a free-text variant included, fails the check and the finding names it.
+#[test]
+fn check_fails_a_row_whose_state_is_none_of_the_four() {
+    let w = World::new("check-row-state-word");
+    let co = text_copy(&w);
+    edit(&co, "docs/cycles-suite.md", "| pool-wait | dropped with the driver |", "| pool-wait | banana |");
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "banana"]);
+    edit(&co, "docs/cycles-suite.md", "| pool-wait | banana |", "| pool-wait | held in part by a Rust test |");
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "held in part by a Rust test"]);
+    edit(&co, "docs/cycles-suite.md", "| pool-wait | held in part by a Rust test |", "| pool-wait | dropped with the driver |");
+    assert_eq!(check(&w, &co).status.code(), Some(0));
+}
