@@ -71,7 +71,7 @@ const F_APPLY: &str = "awk -v id=\"$1\" -v ans=\"$2\" -v who=\"$3\" '
 cur && /^  status: / { print \"  decision: \" ans; print \"  decided_by: \" who }' findings.yaml > findings.yaml.new && mv findings.yaml.new findings.yaml
 ";
 
-const QUESTIONS_TWO: &str = "questions:
+pub(super) const QUESTIONS_TWO: &str = "questions:
 - id: q1
   scope_changing: true
   status: open
@@ -108,7 +108,7 @@ const ESCALATE: &str = "{\"valid\":true,\"decision\":\"escalate\",\"reasons\":[\
 
 /// The world: bindings with the two actions, the answers file (unless `answers` is false), its
 /// programs, and a fake decider that answers `B` to everything.
-fn world(tag: &str, answers: bool) -> World {
+pub(super) fn world(tag: &str, answers: bool) -> World {
     let w = World::new(tag);
     install_decider(&w, &reply("B"));
     let tools = w.root.join("bindings/tools");
@@ -128,7 +128,7 @@ fn scope_decision() -> String {
 }
 
 /// A tree that stops once at a scope.answer approval with `questions` in the workspace, then ends.
-fn question_tree(w: &World, questions: &str) {
+pub(super) fn question_tree(w: &World, questions: &str) {
     let f = &w.fake;
     f.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", scope_decision())), 3);
     f.hook("tree_run", "1", &format!("cat > work/questions.yaml <<'EOF'\n{questions}EOF\n"));

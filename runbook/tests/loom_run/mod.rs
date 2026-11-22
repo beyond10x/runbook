@@ -4,6 +4,7 @@ mod decider;
 mod decisions;
 mod fake;
 mod flags;
+mod goals;
 mod inproc;
 mod login;
 mod model_call;

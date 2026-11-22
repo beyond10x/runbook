@@ -94,7 +94,7 @@ pub struct HereOptions {
     /// Open a bug-fix case from a ticket file (`sdc.ticket/1`). Not built yet.
     #[arg(long, value_name = "FILE", conflicts_with = "detach")]
     pub bugfix_ticket: Option<PathBuf>,
-    /// The requester's goals document, copied into the root case's workspace. Not built yet.
+    /// The requester's goals document, copied unchanged to `work/goals.yaml` of the run.
     #[arg(long, value_name = "FILE", conflicts_with = "detach")]
     pub goals: Option<PathBuf>,
     /// Record every file change of the run beside it (`fs/changes.jsonl`). Not built yet.
