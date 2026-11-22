@@ -73,11 +73,12 @@
       "executor": {
         "kind": "program",
         "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix repro-run",
+        "program": "sdc-tool.sh bugfix repro-run --pool-wait 1200",
         "results": {
           "*": "not_red",
           "0": "red"
-        }
+        },
+        "timeout_s": 3000
       },
       "name": "repro.run",
       "precondition": [
@@ -197,11 +198,12 @@
       "executor": {
         "kind": "program",
         "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix tests-run",
+        "program": "sdc-tool.sh bugfix tests-run --pool-wait 1200",
         "results": {
           "*": "failed",
           "0": "passed"
-        }
+        },
+        "timeout_s": 3000
       },
       "name": "tests.run",
       "precondition": [
@@ -288,11 +290,12 @@
       "executor": {
         "kind": "program",
         "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix gate-run",
+        "program": "sdc-tool.sh bugfix gate-run --pool-wait 1200",
         "results": {
           "*": "failed",
           "0": "passed"
-        }
+        },
+        "timeout_s": 4200
       },
       "name": "gate.run",
       "precondition": [
