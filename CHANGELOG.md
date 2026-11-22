@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- `scripts/check-protocols.sh` ends in under a minute instead of about 10: it checks the digest of each protocol's sources against the committed `protocol/check-ledger.json` and runs `canon check`, the gate probe and `canon simulate` only for a protocol whose digest changed (`--record` writes the ledger, `task check:protocols:slow` regenerates it in full and compares bytes), prints the time per protocol and fails above 120 s (`story:check-protocols-budget`).
+
 ## [0.3.0] - 2026-11-22
 
 The bindings move onto Loom's program contract and the instructions of the model's calls become

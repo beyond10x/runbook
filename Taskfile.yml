@@ -88,9 +88,14 @@ tasks:
         exit $fail
 
   check:protocols:
-    desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).
+    desc: Validate, compile, check, probe and simulate the nine protocols from protocol/check-ledger.json (fast lane, 120 s budget; re-checks a protocol whose sources changed).
     cmds:
       - scripts/check-protocols.sh
+
+  check:protocols:slow:
+    desc: Re-run every protocol check for real and compare the ledger byte for byte (slow lane; run it in the background when the protocols, the Canon pin or the script changed).
+    cmds:
+      - scripts/check-protocols.sh --slow
 
   docs:generate:
     desc: Write the site's protocol data, website/data/protocols/, from the protocols and their bindings.

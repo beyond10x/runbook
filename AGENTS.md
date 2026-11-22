@@ -61,6 +61,10 @@
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
   A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
   same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
+  `scripts/check-protocols.sh` is a digest check against the committed `protocol/check-ledger.json`
+  (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
+  a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`
+  and commit the ledger; `task check:protocols:slow` regenerates it in full and compares bytes.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the
