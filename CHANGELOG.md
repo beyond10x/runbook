@@ -7,6 +7,21 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-22
+
+The runner routes decisions by autonomy level and can re-drive a recording. `runbook run` reads
+`tools/autonomy-levels.json` once before the first action and stops every decision for a person when
+it cannot, at A5 too; `runbook run --recorded <source>` re-drives a case tree from a recording with
+`--on-divergence` and `--live-cap`; `runbook canon` runs the linked Canon library, so `runbook doctor`
+needs no `canon` binary; the effort per node class reaches a model node (`sdc-node --effort`); and the
+run inspector is read-only. Breaking: the inspector's acts, `POST /api/act` and its options `--write`,
+`--write-only` and `--principal` are gone; a run with no readable routing table stops every decision for
+a person, at A5 too; the decision contract refuses a letter nobody offered, an escalation to a principal
+who is not eligible, a repeated option letter and an empty record id. The three evaluation runs of
+`experiments/parity-loom-strong-4.yaml` on this code delivered 0 of 3. The old driver (`sdc-drive`,
+`scripts/run-trial.sh`, `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is still in the tree.
+Loom is pinned at `70b0e6e0` and Canon at 0.11.0. The longer note is `docs/releases/0.6.0.md`.
+
 ### Added
 
 - `runbook run` routes decisions by autonomy level: `tools/autonomy-levels.json` (`sdc.autonomy-levels/1`, the table of `docs/autonomy-levels.md` § 2.2, a test compares the two) names the holder of each class at each level, and one loader (`runbook/src/loom_run/decider/routing.rs`, shared with the requester decider's class reader) reads it. At A1 to A4 the decider answers only a class the table gives to `decider` and the copy of the bindings gives the decider's principal only to those person steps; every other holder, an unknown class and a missing or inconsistent table stop the run for a person with no model call, and `escalate: final` applies at A5 only. The table is read first at every level, A5 included: with no readable table no rule and no model decides, and the run ends as a decision that waits for a person (exit 8). At A5 the close through `operating` is taken by `rule:autopilot` with no decider call. The record of a close names its decider (`rule:autopilot`, `decider:model`), never a person. A rejection of an action that declares no `rejected` result stops the run `stopped: rejected` (exit 10, cause `rejected_without_rework_path`, reason `<step> in <case>: …`) instead of `error`; the reason of a stop at a handoff names no person. The `#[ignore]`d tests of the six runner differences are rewritten and run: `approved_on_checks` is not in the runner (no claim values; an approval nobody validly gave stays `CannotDecide`), and the release and the close at A3 are a person's under the table (`docs/loom-run-decisions.md`, `docs/cycles-suite.md`).
