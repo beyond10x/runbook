@@ -27,7 +27,7 @@ actions:
   - action: plan.decompose
     executor:
       kind: program
-      argv: [tools/llm-node.sh, plan.decompose, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/plan.decompose.md","inputs":"instructions/plan.decompose.inputs.md"}', --stub, stub-decompose]
+      argv: [sdc-node, plan.decompose, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/plan.decompose.md","inputs":"instructions/plan.decompose.inputs.md"}', --stub, stub-decompose]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -85,3 +85,4 @@ actions:
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"
+    handoff_when: [tools/sdc-tool.sh, findings-wait, --action, amend.upstream]

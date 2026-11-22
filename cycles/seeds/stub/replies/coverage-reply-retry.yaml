@@ -1,0 +1,7 @@
+rounds:
+  - - requirements:
+        - {id: r1, status: built, at: [], test: create_invoice}
+        - {id: r2, status: not_built, reason: x}
+    - requirements:
+        - {id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}
+        - {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}

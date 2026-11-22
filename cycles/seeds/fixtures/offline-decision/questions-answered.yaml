@@ -1,0 +1,23 @@
+questions:
+  - id: q1
+    item: d3
+    question: Which states does an invoice go through?
+    default: draft, issued, paid, cancelled
+    scope_changing: false
+    status: accepted
+    answer: draft, issued, paid, cancelled
+  - id: q2
+    item: d4
+    question: Who may cancel an invoice?
+    default: the billing clerk, before it is paid
+    scope_changing: false
+    status: accepted
+    answer: the billing clerk, before it is paid
+  - id: q3
+    item: d1
+    question: Where does the service run?
+    default: a hosted web server reachable over the internet
+    scope_changing: false
+    status: accepted
+    answer: a hosted web server reachable over the internet
+    answered_by: non-interactive

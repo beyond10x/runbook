@@ -1,0 +1,5 @@
+exit 0
+stdout:
+| repro-install: impl/ is mainline/ plus tests/last_page.rs
+stderr:
+written:

@@ -179,6 +179,7 @@ suite cannot yet say it (`unexpressed` in `cycles/suite.yaml`), so the script do
 
 ```console
 $ scripts/run-trial.sh <run> --bugfix <seed dir> ["<bug report>"] [--autopilot | --dry]
+$ runbook run sdc-bugfix --bugfix <seed dir> --intake <bug report> ...      # on Loom (docs/loom-run.md)
 ```
 
 This opens root `BUG-1` on `sdc.bugfix`. `sdc-bugfix seed` copies the code tree (`<seed dir>` when
@@ -225,6 +226,7 @@ defines the document it writes and makes the bug-fix runbook take it.
 
 ```console
 $ scripts/run-trial.sh <run> --bugfix-ticket <ticket file> [--autopilot | --dry]
+$ runbook run sdc-bugfix --bugfix-ticket <ticket file> --intake <any text> ...   # on Loom: the intake is not read for the ticket
 $ sdc-bugfix seed --ticket <ticket file> [--repo <worktree>]      # what run-trial.sh calls in work/
 $ sdc-bugfix schema ticket                                         # the JSON schema of the format
 ```
@@ -355,8 +357,13 @@ revision: `valid`. Likewise, once the dissection was valid, `repro.run` ran befo
 against repro `none`: `e0017`, `not_red`, "no repro/repro.json". That check makes no cargo run. After
 the test was written, `e0026` was red. A record about `none` sends no writer back (`retry_when`
 skips it: `driver/src/main.rs`, `retry_records`), so no LLM call is spent on it. Removing these
-records would take an evidence kind per writer (a "written" record, 4 times the states each) or a
-precondition on the presence of an artifact, which Canon has no form for.
+records took an evidence kind per writer (a "written" record) and a precondition on it, since
+Canon has no form for the presence of an artifact: `bug.dissect` records `dissection_written`
+(claim `dissection.written`) and `dissection.check` waits for it; `test.reproduce` records
+`repro_written` (claim `repro.written`) and `repro.run` waits for it. Loom runs a read before a
+write and ends the case at the first legitimate outcome, so with the first record about `none`
+(`invalid`, `not_red`) it ended `not_reproduced` before any writer ran. A run now holds one
+`dissection_check` and one `repro_run` per written revision.
 
 ## Seed runs (2026-11-21, real, autopilot)
 

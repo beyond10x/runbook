@@ -1,0 +1,41 @@
+exit 3
+stdout:
+| llm-node: spec.author: the model call exited 3: the model stopped
+stderr:
+written:
+a601f1c07b05bf5c  .sdc/llm/001-spec.author/prompt.md
+6f16506b9066d8f4  .sdc/llm/001-spec.author/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-spec.author/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-spec.author/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-spec.author",
+    |   "node": "spec.author",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 40,
+    |   "max_budget_usd": 2
+    | }
+872783fc9c32faad  .sdc/llm/001-spec.author/response.json
+    | {"error":"the model stopped"}
+a549171f77c50353  .sdc/llm/001-spec.author/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 3
+    | }
+51e883385b131443  .sdc/llm/calls.jsonl
+    | {"action":"spec.author","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":null,"model":"claude-haiku-5-5","effort":"high","class":"writer","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":40,"max_budget_usd":2,"exit":3,"applied_exit":3,"output":"spec","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-spec.author"}
+1dc7017cf914ecf4  .sdc/llm/001-spec.author/cwd/ (24 files)

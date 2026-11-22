@@ -1,0 +1,5 @@
+exit 64
+stdout:
+stderr:
+| llm-node: --model takes a value
+written:

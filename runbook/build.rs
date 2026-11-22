@@ -26,8 +26,34 @@ fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, PathBuf)>) {
     }
 }
 
+/// The commit of the Loom this build links: the `#<commit>` of the `source` of `b10x-loom-tree` in
+/// `Cargo.lock` (the manifest's `rev` is what that was resolved from). Read here, never typed.
+fn loom_commit(lock: &Path) -> String {
+    let text = std::fs::read_to_string(lock).unwrap_or_else(|e| panic!("cannot read {}: {e}", lock.display()));
+    let mut in_package = false;
+    for line in text.lines() {
+        if line == "[[package]]" {
+            in_package = false;
+        } else if line == "name = \"b10x-loom-tree\"" {
+            in_package = true;
+        } else if in_package {
+            if let Some(source) = line.strip_prefix("source = \"") {
+                let commit = source.rsplit_once('#').map(|(_, c)| c.trim_end_matches('"')).unwrap_or("");
+                if commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return commit.to_string();
+                }
+                panic!("the source of b10x-loom-tree in {} names no commit: {source}", lock.display());
+            }
+        }
+    }
+    panic!("{} holds no package b10x-loom-tree with a source", lock.display());
+}
+
 fn main() {
     let manifest = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
+    let lock = manifest.join("Cargo.lock");
+    println!("cargo:rerun-if-changed={}", lock.display());
+    println!("cargo:rustc-env=RUNBOOK_LOOM_COMMIT={}", loom_commit(&lock));
     let web = manifest.join("../ui/web");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed={}", web.display());

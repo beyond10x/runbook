@@ -1,0 +1,17 @@
+exit 0
+stdout:
+stderr:
+written:
+2842052a65fe76cc  requirements.yaml
+    | requirements:
+    |   - id: r1
+    |     text: A billing clerk creates, issues, pays and cancels invoices.
+    |     cites: [d1, q1, q2]
+    |     spec_domains: [billing.invoice]
+    |   - id: r2
+    |     text: The customer is emailed when an invoice is created.
+    |     cites: [d2]
+    |     spec_domains: [billing.email]
+    | # rework 2 of the rejection of requirements.check at abc123:
+    | # - The refusal of an empty title is missing.
+    | # - Say who may cancel.

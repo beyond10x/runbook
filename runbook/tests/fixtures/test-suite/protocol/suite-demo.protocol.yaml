@@ -1,0 +1,25 @@
+format: protocol/1
+protocol:
+  id: suite.demo
+  revision: 1
+  description: >-
+    The protocol of the runbook test fixture. A writer program writes a note, a check reads it, and the case is written once the note is valid.
+artifacts:
+  note: {}
+evidence_kinds:
+  note_check: {}
+claims:
+  note.valid:
+    true_when:
+      evidence: {kind: note_check, subject: note, result: valid}
+actions:
+  note.write:
+    effect: write
+    precondition: {claim: note.valid, is: false}
+  note.check:
+    effect: read
+    may_produce:
+      - evidence: note_check
+outcomes:
+  written:
+    requires: {claim: note.valid}

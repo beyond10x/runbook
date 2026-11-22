@@ -1,0 +1,11 @@
+node: spec.author
+findings:
+  - key: superseded-spec-1
+    type: missing_decision
+    cites: [r1]
+    says: No input says where the invoices are stored, so the spec assumes a Postgres database as the invoice store.
+    options:
+      - Postgres database for the invoices
+      - hosted key-value store for the invoices
+    default: Postgres database for the invoices
+    scope_changing: false

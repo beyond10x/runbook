@@ -1,0 +1,38 @@
+exit 0
+stdout:
+| promote: f1 open: s
+stderr:
+written:
+2febba1eafea2ab4  findings.yaml
+    | findings:
+    | - id: f1
+    |   type: missing_decision
+    |   cites:
+    |   - r1
+    |   says: s
+    |   options:
+    |   - a
+    |   - b
+    |   default: a
+    |   scope_changing: false
+    |   stage: requirements
+    |   raised_by: llm:requirements.normalise
+    |   status: open
+8bc0022aea70d303  requirements.yaml
+    | requirements:
+    | - id: r1
+    |   text: A billing clerk creates, issues, pays and cancels invoices.
+    |   cites:
+    |   - d1
+    |   - q1
+    |   - q2
+    |   spec_domains:
+    |   - billing.invoice
+    | - id: r2
+    |   text: The customer is emailed when an invoice is created.
+    |   cites:
+    |   - d2
+    |   spec_domains:
+    |   - billing.email
+    | open_findings:
+    | - f1

@@ -1,19 +1,23 @@
-//! The loop of `runbook loom-run`.
+//! The loop of `runbook run`. It exists once: it reaches Loom through a [`LoomHost`], the
+//! child process or the library (`host.rs`).
 
 use crate::loom_run::answers::Answers;
 use crate::loom_run::bindings_copy;
 use crate::loom_run::budget;
-use crate::loom_run::child::{self, EndedBy};
+use crate::loom_run::child;
+use crate::loom_run::child_host::ChildHost;
 use crate::loom_run::cost::CostReader;
 use crate::loom_run::decide::{self, Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider;
 use crate::loom_run::events::{Cap, CostSource, Event, EventSink};
+use crate::loom_run::host::{tail_of, Answer, Call, Halt, Identity, LoomHost, Opening};
 use crate::loom_run::ledger::{Ledger, Reservation};
+use crate::loom_run::library::{self, LibraryHost};
 use crate::loom_run::private::PrivateDir;
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
-use crate::loom_run::{Args, Outcome};
+use crate::loom_run::{Args, Outcome, Way};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -59,23 +63,34 @@ pub fn run(args: &Args) -> Result<Outcome, String> {
 
 /// [`run`] with the clock and the cancel flag given.
 pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<Outcome, String> {
-    let sha = file_sha256(&args.loom).map_err(|e| format!("--loom: {e}"))?;
-    if sha != args.loom_sha256.trim().to_ascii_lowercase() {
-        return Err(format!("--loom has sha256 {sha}, not the {} that --loom-sha256 names", args.loom_sha256));
-    }
+    // The way to Loom is checked before anything else: one of the two, and a binary that is the
+    // file its digest names, or a level the library can give.
+    let (identity, library) = match args.way()? {
+        Way::Child { loom, sha256 } => {
+            let sha = file_sha256(loom).map_err(|e| format!("--loom: {e}"))?;
+            if sha != sha256.trim().to_ascii_lowercase() {
+                return Err(format!("--loom has sha256 {sha}, not the {sha256} that --loom-sha256 names"));
+            }
+            (Identity::Binary { sha256: sha }, None)
+        }
+        Way::Library => (Identity::Library { commit: library::COMMIT }, Some(library::prepare(args.confinement)?)),
+    };
     check_name(&args.run)?;
+    super::bugfix::check(args)?;
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
     let mut settings_value = given.clone();
-    settings::fill_decider(&mut settings_value, &run_dir, std::env::var_os("PATH").as_deref())?;
+    settings::fill_decider(&mut settings_value, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
         Some(d) => d?,
         None => decider::from_settings(&settings_value)?,
     };
+    super::goals::check_settings(&args.ports, &settings_value)?;
     let protocols = protocol_files(&args.protocols)?;
-    if !args.idea.is_file() {
-        return Err(format!("--idea {} is not a file", args.idea.display()));
+    if args.intake.is_empty() {
+        return Err("--intake is empty: a run needs the idea's text".to_owned());
     }
     if !args.bindings.is_dir() {
         return Err(format!("--bindings {} is not a directory", args.bindings.display()));
@@ -87,18 +102,31 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let private = PrivateDir::create(&args.run, login.as_deref())?;
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
-    let redacted = settings::with_run(&settings::redacted(&given), args, &sha);
+    let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
+    let redacted = crate::loom_run::dry::mark(args.ports.dry, redacted);
     let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
+    let start = clock.now_secs();
+    let env = child::child_env(&run_dir);
+    let store = run_dir.join("store");
+    let host: Box<dyn LoomHost + '_> = match (&identity, library) {
+        (Identity::Binary { .. }, _) => {
+            let loom = args.loom.clone().ok_or("--loom is not given")?;
+            Box::new(ChildHost::new(loom, env.clone(), run_dir.clone(), store.clone(), args.confinement, clock, cancel, start.saturating_add(args.max_wall_seconds)))
+        }
+        (Identity::Library { .. }, Some((level, runner))) => Box::new(LibraryHost::new(store.clone(), run_dir.join("work"), level, runner, cancel)),
+        (Identity::Library { .. }, None) => return Err("the library was not prepared".to_owned()),
+    };
     let mut runner = Runner {
         args,
         clock,
         cancel,
+        host,
         settings: settings_value,
         run_dir: run_dir.clone(),
         workspace: run_dir.join("work"),
-        store: run_dir.join("store"),
+        store,
         bindings_dir: run_dir.join("bindings"),
-        env: child::child_env(&run_dir),
+        env,
         decider,
         sinks: Vec::new(),
         reader: CostReader::with_home(std::env::var("HOME").ok()),
@@ -106,7 +134,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         llm_calls: 0,
         steps: 0,
         spent: 0,
-        start: clock.now_secs(),
+        start,
         wall_cap_noted: false,
         decided: std::collections::HashMap::new(),
         answers: Answers::default(),
@@ -117,9 +145,19 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
     sinks.push(Box::new(RunDirWriter::open(&run_dir, &redacted)?));
+    if args.ports.dry {
+        sinks.push(Box::new(crate::loom_run::dry::CommandSink::new(&run_dir)));
+    }
     runner.sinks = sinks;
+    // --watch: the watcher is a child of this run; it ends when `_watch` drops, after the last line is written
+    let _watch = match super::watch::start_if(args.ports.watch, &run_dir) {
+        Ok(w) => w,
+        Err(reason) => return Ok(runner.finish(Outcome::Error { reason })),
+    };
     let outcome = runner.drive(root_name, &protocols, &redacted);
-    Ok(runner.finish(outcome))
+    let outcome = runner.finish(outcome);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
+    Ok(outcome)
 }
 
 fn file_sha256(path: &Path) -> Result<String, String> {
@@ -159,6 +197,7 @@ struct Runner<'a> {
     args: &'a Args,
     clock: &'a dyn Clock,
     cancel: &'a AtomicBool,
+    host: Box<dyn LoomHost + 'a>,
     settings: Value,
     run_dir: PathBuf,
     workspace: PathBuf,
@@ -182,33 +221,11 @@ struct Runner<'a> {
     login_link: Option<PathBuf>,
 }
 
-/// A way out of the loop that is not an error.
-enum Halt {
-    Done(Outcome),
-    Failed(String),
-    /// A `b10x-loom` call failed: the exit code and the tail of standard error go to the outcome.
-    Loom { reason: String, exit: Option<i32>, stderr_tail: String },
-}
-
-/// The last 1500 characters of what a child printed on standard error.
-fn tail_of(stderr: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stderr);
-    let text = text.trim_end();
-    let skip = text.chars().count().saturating_sub(1500);
-    text.chars().skip(skip).collect()
-}
-
 /// The key of a decision for "asked before": case, action, revision and the text Loom gave (an
 /// opaque string here; it is never parsed).
 fn decision_key(decision: &Value) -> String {
     let get = |k: &str| decision.get(k).and_then(Value::as_str).unwrap_or("");
     format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", get("case"), get("action"), get("revision"), get("decides"))
-}
-
-impl From<String> for Halt {
-    fn from(reason: String) -> Halt {
-        Halt::Failed(reason)
-    }
 }
 
 impl Runner<'_> {
@@ -224,19 +241,13 @@ impl Runner<'_> {
         self.start.saturating_add(self.args.max_wall_seconds)
     }
 
-    fn loom(&self, words: &[&str], extra: &[String]) -> Result<child::ChildResult, Halt> {
-        let mut argv: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
-        argv.extend(extra.iter().cloned());
-        self.loom_argv(&argv)
-    }
-
-    fn loom_argv(&self, argv: &[String]) -> Result<child::ChildResult, Halt> {
-        let clock = self.clock;
-        let result = child::run(&self.args.loom, argv, &self.env, &self.run_dir, self.cancel, self.deadline(), &|| clock.now_secs())?;
-        match result.ended_by {
-            Some(EndedBy::Signal) => Err(Halt::Done(Outcome::StoppedSignal)),
-            Some(EndedBy::WallTime) => Err(Halt::Done(Outcome::StoppedWallTime)),
-            None => Ok(result),
+    /// A refusal of Loom that fails the run: a child's has an exit code and a standard error that go
+    /// to the outcome; the library's has neither, so it is a plain error with its reason.
+    fn loom_halt(&self, child_reason: String, library_reason: String, r: &Call) -> Halt {
+        if self.host.has_exit_codes() {
+            Halt::Loom { reason: child_reason, exit: r.code, stderr_tail: tail_of(&r.stderr) }
+        } else {
+            Halt::Failed(library_reason)
         }
     }
 
@@ -275,31 +286,18 @@ impl Runner<'_> {
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         self.answers = Answers::load(&self.bindings_dir)?;
-        std::fs::copy(&self.args.idea, self.workspace.join("idea.yaml")).map_err(|e| format!("--idea: {e}"))?;
+        std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
+        super::bugfix::seed(self.args, &self.workspace, &self.env)?;
+        if let Some(goals) = &self.args.ports.goals {
+            super::goals::copy(goals, &self.workspace)?;
+        }
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
         for (_, file) in protocols {
             let name = file.file_name().ok_or_else(|| format!("{}: no file name", file.display()))?;
             std::fs::copy(file, copies.join(name)).map_err(|e| format!("{}: {e}", file.display()))?;
         }
-        for (name, file) in protocols {
-            let r = self.loom(&["protocols", "add", name], &["--file".to_owned(), file.display().to_string()])?;
-            expect_exit0(&r, &format!("protocols add {name}"))?;
-        }
-        let open = [
-            "--protocol".to_owned(),
-            self.args.root_protocol.clone(),
-            "--store".to_owned(),
-            self.store.display().to_string(),
-            "--bindings".to_owned(),
-            root_file.display().to_string(),
-            "--workspace".to_owned(),
-            self.workspace.display().to_string(),
-            "--case".to_owned(),
-            self.args.case.clone(),
-        ];
-        let r = self.loom(&["tree", "open"], &open)?;
-        expect_exit0(&r, "tree open")?;
+        self.host.open(&Opening { protocols, protocol_dir: &copies, root_protocol: &self.args.root_protocol, root_file: &root_file, case: &self.args.case })?;
         let mut index = 0u64;
         loop {
             self.check_stop()?;
@@ -307,16 +305,7 @@ impl Runner<'_> {
                 self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
                 return Ok(Outcome::StoppedLlmCalls);
             }
-            let mut argv = vec!["tree".to_owned(), "run".to_owned()];
-            argv.extend([
-                "--store".to_owned(),
-                self.store.display().to_string(),
-                "--confinement".to_owned(),
-                self.args.confinement.as_arg().to_owned(),
-                "--max-steps".to_owned(),
-                "1".to_owned(),
-            ]);
-            let result = self.costed_loom(&argv)?;
+            let result = self.costed(None)?;
             index += 1;
             let (code, tree) = parse_run(&result)?;
             let stop = tree.get("stop").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -333,7 +322,7 @@ impl Runner<'_> {
                 5 if steps > 0 => {}
                 5 => return Err(Halt::Failed("tree run ended its budget without a step".to_owned())),
                 3 => self.answer_decisions(&tree)?,
-                other => return Err(Halt::Loom { reason: format!("b10x-loom tree run exited {other}, an exit code the runner does not know"), exit: Some(other), stderr_tail: tail_of(&result.stderr) }),
+                other => return Err(self.loom_halt(format!("b10x-loom tree run exited {other}, an exit code the runner does not know"), format!("Loom stopped the tree with status {other}, which the runner does not know"), &result)),
             }
         }
     }
@@ -341,11 +330,14 @@ impl Runner<'_> {
     /// Runs a `b10x-loom` call that may start model programs: the ledger reserves what the largest
     /// per-call budget of the bindings copy allows (at most what the cap has left), the copy is
     /// limited to it, and what the call spent is booked after it.
-    fn costed_loom(&mut self, argv: &[String]) -> Result<child::ChildResult, Halt> {
+    fn costed(&mut self, handoff: Option<&Answer<'_>>) -> Result<Call, Halt> {
         let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
         let reservation = self.reserve(want)?;
         budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
-        let result = self.loom_argv(argv);
+        let result = match handoff {
+            None => self.host.step(),
+            Some(answer) => self.host.handoff(answer),
+        };
         let cost_halt = self.book_step(&reservation);
         let result = result?;
         cost_halt?;
@@ -357,10 +349,11 @@ impl Runner<'_> {
     /// `XDG_DATA_HOME` of the run), and a store read with another catalog answers
     /// `GovernorUnavailable`.
     fn refresh_status(&mut self) -> Result<(), Halt> {
-        let store = ["--store".to_owned(), self.store.display().to_string()];
-        let r = self.loom(&["tree", "status"], &store)?;
+        let r = self.host.status()?;
         if r.code != Some(0) {
-            return Err(Halt::Loom { reason: format!("b10x-loom tree status refused (exit {:?}); it needs the protocol catalog of the run", r.code), exit: r.code, stderr_tail: tail_of(&r.stderr) });
+            let child = format!("b10x-loom tree status refused (exit {:?}); it needs the protocol catalog of the run", r.code);
+            let library = format!("Loom refused the tree status: {}", tail_of(&r.stderr));
+            return Err(self.loom_halt(child, library, &r));
         }
         run_files::write_status(&self.run_dir, &r.stdout)?;
         Ok(())
@@ -443,8 +436,8 @@ impl Runner<'_> {
                 Some(true) => return Err(Halt::Failed(format!("a decision of kind {kind} was approved and asked again"))),
                 None => {}
             }
-            let words = command_words(&decision)?;
-            if self.answer_declared(&decision, &kind, &case, &words)? {
+            self.host.admit(&decision)?;
+            if self.answer_declared(&decision, &kind, &case)? {
                 continue;
             }
             let want = self.decider.max_call_micro_usd();
@@ -467,7 +460,7 @@ impl Runner<'_> {
             let (approve, principal, cost, calls, reasons) = match verdict {
                 Verdict::CannotDecide { reason } => {
                     self.ledger().release(&reservation)?;
-                    return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{reason} (decision kind {kind:?})") }));
+                    return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{} in {case}: {reason} (decision kind {kind:?})", decision.get("action").and_then(Value::as_str).unwrap_or(&kind)) }));
                 }
                 Verdict::Answer { cost_micro_usd: None, .. } => {
                     self.ledger().commit(&reservation, &self.args.run, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
@@ -482,20 +475,24 @@ impl Runner<'_> {
             if cost > 0 || calls > 0 {
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
             }
-            let (mut argv, principal) = command_argv(&words, principal.as_deref());
+            let mut answer = Answer { decision: &decision, kind: &kind, approve, principal: principal.as_deref(), result: None, reasons_file: None, deny: false };
+            let principal = self.host.principal(&answer);
             match kind.as_str() {
                 // A close the decider does not want is not run: Loom prints one per outcome.
                 "Close" if !approve => {}
                 "Close" => {
-                    let r = self.loom_argv(&argv)?;
-                    expect_exit0(&r, "the printed command for a decision of kind Close")?;
+                    self.host.answer(&answer)?;
                     closed.push(case);
                 }
-                "Handoff" => self.run_handoff(&argv)?,
+                "Handoff" => {
+                    if self.host.runs_handoff() {
+                        self.run_handoff(&answer)?;
+                    }
+                }
                 _ => {
-                    self.add_result(&decision, &mut argv, approve, reasons.as_deref())?;
-                    let r = self.loom_argv(&argv)?;
-                    expect_exit0(&r, &format!("the printed command for a decision of kind {kind}"))?;
+                    let reasons_file = self.person_answer(&mut answer, reasons.as_deref())?;
+                    answer.reasons_file = reasons_file.as_deref();
+                    self.host.answer(&answer)?;
                 }
             }
             self.decided.insert(key, approve);
@@ -506,12 +503,12 @@ impl Runner<'_> {
 
     /// A handoff's printed command is `tree run`: it runs as printed, through the ledger like every
     /// call that may start a model program, and what it printed is read like any `tree run`.
-    fn run_handoff(&mut self, argv: &[String]) -> Result<(), Halt> {
+    fn run_handoff(&mut self, answer: &Answer<'_>) -> Result<(), Halt> {
         if self.llm_calls >= self.args.max_llm_calls {
             self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
             return Err(Halt::Done(Outcome::StoppedLlmCalls));
         }
-        let result = self.costed_loom(argv)?;
+        let result = self.costed(Some(answer))?;
         let (_, tree) = parse_run(&result)?;
         let steps = tree.get("steps").and_then(Value::as_i64).unwrap_or(0);
         self.steps += u64::try_from(steps).unwrap_or(0);
@@ -552,33 +549,32 @@ impl Runner<'_> {
         Ok(declared)
     }
 
-    /// Names the result of a person action on the printed command (`--result`) where the action
-    /// declares results: `performed` for an approval, `rejected` and the reasons for a rejection.
-    /// A result the action does not declare ends the run before Loom is called. A decision with no
-    /// action (an approval of a capability) takes no result; its rejection is Loom's `--deny`.
-    fn add_result(&mut self, decision: &Value, argv: &mut Vec<String>, approve: bool, reasons: Option<&str>) -> Result<(), Halt> {
+    /// Names the result of a person action (`result`) where the action declares results:
+    /// `performed` for an approval, `rejected` and a reasons file for a rejection (returned). A
+    /// result the action does not declare ends the run before Loom is called. A decision with no
+    /// action (an approval of a capability) takes no result; its rejection is a denial (`deny`).
+    fn person_answer(&mut self, answer: &mut Answer<'_>, reasons: Option<&str>) -> Result<Option<PathBuf>, Halt> {
+        let decision = answer.decision;
+        let approve = answer.approve;
         let action = decision.get("action").and_then(Value::as_str).filter(|a| !a.is_empty());
-        let Some(action) = action.filter(|_| argv.iter().any(|a| a == "--action")) else {
-            if !approve {
-                argv.push("--deny".to_owned());
-            }
-            return Ok(());
+        let Some(action) = action.filter(|_| answer.kind == "ApproveAction") else {
+            answer.deny = !approve;
+            return Ok(None);
         };
         let declared = self.declared_results(action)?.unwrap_or_default();
         let result = if approve { "performed" } else { "rejected" };
         if !declared.iter().any(|k| k == result) {
             if approve && declared.is_empty() {
-                return Ok(());
+                return Ok(None);
             }
             let listed = if declared.is_empty() { "none".to_owned() } else { declared.join(", ") };
             return Err(Halt::Failed(format!("the decider answered {result} for action {action}, but the bindings of the run declare the results {listed} for it: Loom would refuse the result")));
         }
-        argv.extend(["--result".to_owned(), result.to_owned()]);
-        if !approve || reasons.is_some_and(|r| !r.trim().is_empty()) {
-            let file = self.write_reasons(action, reasons)?;
-            argv.extend(["--reasons-file".to_owned(), file.display().to_string()]);
+        answer.result = Some(result);
+        if approve && !reasons.is_some_and(|r| !r.trim().is_empty()) {
+            return Ok(None);
         }
-        Ok(())
+        Ok(Some(self.write_reasons(action, reasons)?))
     }
 
     /// Writes the reasons of a rejection into the workspace (Loom reads a regular file below it,
@@ -622,17 +618,7 @@ impl Runner<'_> {
     fn finish(&mut self, outcome: Outcome) -> Outcome {
         let mut outcome = outcome;
         if self.store.join("tree.json").exists() && outcome != Outcome::StoppedSignal {
-            let never = AtomicBool::new(false);
-            let clock = self.clock;
-            let store = ["--store".to_owned(), self.store.display().to_string()];
-            let call = |words: &[&str]| {
-                let mut argv: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
-                argv.extend(store.iter().cloned());
-                let deadline = clock.now_secs().saturating_add(120);
-                child::run(&self.args.loom, &argv, &self.env, &self.run_dir, &never, deadline, &|| clock.now_secs())
-            };
-            let status = call(&["tree", "status"]);
-            let verify = call(&["tree", "verify"]);
+            let (status, verify) = self.host.conclude();
             let (status_exit, verify_exit) = match (status, verify) {
                 (Ok(s), Ok(v)) => {
                     let se = s.code.unwrap_or(-1);
@@ -641,10 +627,12 @@ impl Runner<'_> {
                         outcome = Outcome::Error { reason: e };
                     }
                     if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
-                        outcome = Outcome::LoomFailed {
-                            reason: format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label()),
-                            exit: Some(se),
-                            stderr_tail: tail_of(&s.stderr),
+                        let child = format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label());
+                        let library = format!("Loom refused the tree status after the run ended as {}: {}", outcome.label(), tail_of(&s.stderr));
+                        outcome = match self.loom_halt(child, library, &s) {
+                            Halt::Loom { reason, exit, stderr_tail } => Outcome::LoomFailed { reason, exit, stderr_tail },
+                            Halt::Failed(reason) => Outcome::Error { reason },
+                            Halt::Done(done) => done,
                         };
                     }
                     if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
@@ -678,23 +666,16 @@ impl Runner<'_> {
             llm_calls: self.llm_calls,
         };
         if let Err(e) = self.emit(ended) {
-            eprintln!("runbook loom-run: the end of the run could not be written: {e}");
+            eprintln!("runbook run: the end of the run could not be written: {e}");
             outcome = Outcome::Error { reason: e };
         }
         outcome
     }
 }
 
-fn expect_exit0(r: &child::ChildResult, what: &str) -> Result<(), Halt> {
-    if r.code == Some(0) {
-        return Ok(());
-    }
-    Err(Halt::Loom { reason: format!("b10x-loom {what} exited {:?}", r.code), exit: r.code, stderr_tail: tail_of(&r.stderr) })
-}
-
 /// The exit code and the JSON object `tree run` printed; fails for an exit code the runner does
 /// not know or output that is not the expected JSON.
-fn parse_run(r: &child::ChildResult) -> Result<(i32, Value), Halt> {
+fn parse_run(r: &Call) -> Result<(i32, Value), Halt> {
     let Some(code) = r.code else {
         return Err(Halt::Loom { reason: "b10x-loom tree run was ended by a signal it did not get from the runner".to_owned(), exit: None, stderr_tail: tail_of(&r.stderr) });
     };
@@ -706,39 +687,6 @@ fn parse_run(r: &child::ChildResult) -> Result<(i32, Value), Halt> {
         return Err(Halt::Failed("tree run printed JSON without stop and steps".to_owned()));
     }
     Ok((code, v))
-}
-
-/// The words of a decision's `command`: text, the first being the program name Loom printed.
-fn command_words(decision: &Value) -> Result<Vec<String>, String> {
-    let words: Vec<String> = decision
-        .get("command")
-        .and_then(Value::as_array)
-        .ok_or("a decision has no command")?
-        .iter()
-        .map(|w| w.as_str().map(str::to_owned).ok_or("a word of a decision's command is not text"))
-        .collect::<Result<_, _>>()?;
-    if words.first().map(String::as_str) != Some("b10x-loom") || words.len() < 2 {
-        return Err("a decision's command does not start with b10x-loom and a subcommand".to_owned());
-    }
-    Ok(words)
-}
-
-/// The argv (after the program) of a decision's command. The command is data and runs as Loom
-/// printed it; the answer adds to it in `add_result` and replaces one value here: the one after
-/// `--principal`, by the decider's principal when it gave one. The principal returned is the one
-/// in the argv ("" when the command has none).
-fn command_argv(words: &[String], principal: Option<&str>) -> (Vec<String>, String) {
-    let mut argv: Vec<String> = words[1..].to_vec();
-    let mut used = String::new();
-    for i in 0..argv.len().saturating_sub(1) {
-        if argv[i] == "--principal" {
-            if let Some(p) = principal {
-                argv[i + 1] = p.to_owned();
-            }
-            used = argv[i + 1].clone();
-        }
-    }
-    (argv, used)
 }
 
 mod declared;
@@ -775,7 +723,6 @@ mod tests {
         }
         std::fs::write(root.join("protocols/sdc.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc\n  revision: 8\n").unwrap();
         std::fs::write(root.join("bindings/sdc.yaml"), "format: loom.bindings/1\n").unwrap();
-        std::fs::write(root.join("idea.yaml"), "text: x\n").unwrap();
         std::fs::write(root.join("settings.json"), "{}").unwrap();
         let f = fake::Fake::new(&root.join("fake"));
         f.open_ok();
@@ -786,19 +733,20 @@ mod tests {
         Args {
             run: "r1".into(),
             runs_dir: root.join("runs"),
-            loom: f.bin(),
-            loom_sha256: f.sha256(),
+            loom: Some(f.bin()),
+            loom_sha256: Some(f.sha256()),
             bindings: root.join("bindings"),
             protocols: root.join("protocols"),
             root_protocol: "sdc@8".into(),
             case: "IDEA-1".into(),
-            idea: root.join("idea.yaml"),
+            intake: "text: x\n".into(),
             confinement: Confinement::Local,
             settings: root.join("settings.json"),
             spend_ledger: root.join("ledger.json"),
             cap_micro_usd: 1_000_000,
             max_llm_calls: 100,
             max_wall_seconds: wall,
+            ports: Default::default(),
         }
     }
 

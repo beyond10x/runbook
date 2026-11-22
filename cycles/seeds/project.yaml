@@ -1,0 +1,6 @@
+version: aep.project/5
+protocol: adp/1
+profile: development.standard
+planning_scope: "sdc"
+store:
+  git: {}

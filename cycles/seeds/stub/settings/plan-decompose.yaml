@@ -1,0 +1,2 @@
+adapter: fixture
+nodes: [plan.decompose]

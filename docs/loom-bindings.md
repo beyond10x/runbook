@@ -53,8 +53,8 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. The file names `program_root: bindings`, so Loom (at `af8de2c9`) reads the path beside the bindings file; `scripts/check-bindings.sh` refuses a file that binds a program without it | 13 |
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
-| `handoff_when` | pending | 17 |
-| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `tools/llm-node.sh` since step 2: `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
+| `handoff_when` | `handoff_when`: the argv `tools/sdc-tool.sh findings-wait --action amend.upstream`, run by Loom before the writer (exit 0 offers the handoff, another exit lets the writer run); the old driver reads the JSON file and never this one | 17 |
+| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `sdc-node` (since step 2 of `tools/llm-node.sh`): `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
 | `timeout_s` | `timeout_seconds` (see "Timeouts") | 25 |
@@ -85,7 +85,7 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
 | 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:246`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
-| 3000, 3000, 4200 | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
+| 3000, 3000, 4200 (3600 in `bindings/sdc-bugfix.yaml`: Loom refuses more, `TimeoutOutOfRange`) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
 | 600 | bugfix `bug.dissect` | `timeout_s` of the JSON |
@@ -114,7 +114,6 @@ proposed order of Loom's open stories, 2026-11-21).
 | `story:bound-agent-node` | 4 | `agent` executors for the 14 agent nodes: adapter, model, `max_turns`, `max_budget_micro_usd`, `tools.allow` (D18-D20, D22) |
 | N8 | 4 | `{work}` in `handoff` (D14) |
 | N3 fixture adapter | 5 | the stub of each agent node (D21) |
-| G3 | 8 | `handoff_when` (D17) |
 | G4 | 10 | initial child revisions (D30), only if step 3 shows `sdc.epic` needs them |
 
 The exit lists: every program binding states program-error exits `[75, 126, 127]` (today's
@@ -167,7 +166,7 @@ Each tool has two modes. With `LOOM_CASE` unset it runs as before, for `sdc-driv
 input, the case id from `LOOM_CASE`, the epic and the story from `LOOM_PARENT_CASE_NAME` and `LOOM_CASE_NAME` (the names Loom gave the cases; without them the cut of the case id), retry feedback from the `loom.retry-feedback/1` document that
 `LOOM_RETRY_FEEDBACK` names, the start directory at the workspace root, and everything the driver
 gave in a variable as an argv entry of the binding (`sdc-tool.sh <sub> ... --action <id>`;
-`llm-node.sh <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] [--instructions <json>] --stub
+`sdc-node <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] [--instructions <json>] --stub
 <argv>`). The tools map these inputs onto the driver's variables and export them, so the programs
 they start (`sdc-findings`, `sdc-bugfix`, `sdc-reply`, the adapters) run unchanged. The driver
 crate's programs come from `PATH`, else from `driver/target/debug/` of this checkout, found from
@@ -194,7 +193,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `list-stories)`, `epic=$(cut` | `SDC_CASE` (`list-stories`: the epic) | `LOOM_PARENT_CASE_NAME`, else `LOOM_CASE_NAME` (an epic case), else the cut of `LOOM_CASE`; given to `arguments_from` too | done |
 | `scope-answer)` | `$2`, the `{principal}` argument (`scope-answer`) | argv from G2 | pending: G2 (wave 3) |
 
-`bindings/tools/llm-node.sh`
+`bindings/tools/llm-node.sh` (the old driver runs the script; every `bindings/*.yaml` argv runs the program `sdc-node`, which reads the same variables under Loom, from the argv entries alone)
 
 | Marker | Reads | Under Loom | Status |
 |---|---|---|---|
@@ -214,7 +213,8 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `A=$(jq -r '.approval` | `SDC_CASE_DIR` (`bindings.json`: the rejected subject's path) | `artifacts` of the `bindings/*.yaml` file that binds the rejecting approval | done |
 | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | the default `work/.sdc/llm/` | pending: `story:agent-node-run-records` |
 | `epic=$(cut`, `story=$(cut` | `SDC_CASE` (epic and story ids) | `LOOM_PARENT_CASE_NAME` (epic) and `LOOM_CASE_NAME` (story) when Loom sets them, else the cut of `LOOM_CASE` | done |
-| `SDC_CASE_DIR`, `case_dir=` | `SDC_CASE_DIR` (`change.review` inputs, the request record, implement request mode) | the directory above the workspace | pending: `story:bound-agent-node` |
+| `SDC_CASE_DIR`, `case_dir=` | `SDC_CASE_DIR` (implement request mode) | the directory above the workspace | pending: `story:bound-agent-node` |
+| `case_dir=`, `sdc-reply review-inputs`, `schema --type review`, `check-review`, `rejections` | `case.json` (the revisions), `events.jsonl`, `evidence/`, `blobs/` (the conformance run on the change revision, the gate run on the spec revision, the earlier rejections of `change.review`) | record files of the workspace under `.sdc/records/`, one small file per fact, written by the tool that owns it: `conformance_run/<digest>.log` (`sdc-tool.sh story-tests`, tests.run) and `ess_gate/<digest>.log` (`sdc-tool.sh ess-gate`, spec.gate), each the step's log about the tree (`impl`, `spec`) whose content has that digest (`sdc-reply record`; the digest leaves out `target`, `.sdc` and `.derived-from`, like the review's diff), and `rejections/change.review/<n>.json` (`sdc-reply check-review`, on a rejection). `sdc-reply` takes both sources behind one type (`Facts`: the driver's case directory, or the workspace when `LOOM_CASE` is set); the request record's `case_dir` stays empty under Loom, and the fixture adapter, which runs in the workspace, names `<workspace>/..` to count the rejections the same way | done |
 | `SDC_RUN_SETTINGS` | `SDC_RUN_SETTINGS` | the default: no rework limit | pending: N9 |
 | `SDC_LLM_MODEL`, `SDC_LLM_EFFORT` | `SDC_LLM_MODEL[_<CLASS>]`, `SDC_LLM_EFFORT[_<CLASS>]` | the binding's `--model`; the class's default effort | pending: N9 |
 | `SDC_REVIEW_RETRIES` | `SDC_REVIEW_RETRIES` | the default 2 | pending: N9 |
@@ -227,7 +227,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `sdc-bugfix.rs:1382` | `PATH` | unchanged: Loom gives `PATH` | done |
 | `sdc-findings.rs:1435` | `SDC_STUB_REFUSE_DECISION` (stub cycles) | the default: none | pending: N3 |
 | `sdc-findings.rs:1552` | `SDC_CONSISTENCY_RULES` | unchanged: both tools pass `--rules` | done |
-| `sdc-reply.rs:310-314` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `llm-node.sh` exports `--adapter`; the class adapters take their defaults | pending: N9 |
+| `reply/adapters.rs` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `llm-node.sh` exports `--adapter`; the class adapters take their defaults | pending: N9 |
 
 Variables beyond `PATH` read under `set -u` (checked 2026-11-22, `story:tool-texts-and-paths`):
 

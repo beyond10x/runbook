@@ -14,7 +14,7 @@ first real run under Loom still has to confirm.
   the rows of the table below marked `(not recorded)`, and, when the summary is read from the status
   alone (`--loom-status`), the rows that name the run directory). A member listed there holds null
   or an empty list, and that is no fact: `compare` does not compare it. A summary read from the run
-  directory of `runbook loom-run` (`--loom-run`) records the run-directory members and lists only
+  directory of `runbook run` (`--loom-run`) records the run-directory members and lists only
   `decision_requests[].question` and `.options`, as the driver does.
 - `cases[]`, root first, then each case in the order the log opened it: `id`, `link` (the name of the
   case link: the driver names a child `<parent id>.<name>`; null for the root), `parent`, `protocol`,
@@ -61,9 +61,9 @@ child's `case_outcome` record, is described under "Known differences of the two 
   equal; the summaries keep what each runtime recorded. The rule cannot tell apart two ids that differ
   only in `.`, `_` and `-` (`sdc.intake`, `sdc_intake` and `sdc-intake` are one id to it). Two ids that
   differ in a letter or a digit still differ.
-- Feedback copies (`product_tree[.sdc/loom-feedback/**]`). In Loom mode `bindings/tools/llm-node.sh`
+- Feedback copies (`product_tree[.sdc/loom-feedback/**]`). In Loom mode `sdc-node`
   copies the document that `LOOM_RETRY_FEEDBACK` names, and the log tails it cites, into
-  `.sdc/loom-feedback/<16 hex>/` in the workspace (`bindings/tools/llm-node.sh:94-104`; the directory
+  `.sdc/loom-feedback/<16 hex>/` in the workspace (`sdc-node`; the directory
   name is the first 16 hex digits of the document's sha256, so it differs between runs). Runbook's own
   script writes the files. Loom sets the variable on a writer step whenever the case holds records of
   the kinds and results the writer's `retry_when` lists, at a revision of their subject that is not
@@ -78,7 +78,15 @@ child's `case_outcome` record, is described under "Known differences of the two 
   `plan.decompose` run names the same three kinds in `retry_of`. The listing of the product tree
   leaves out everything under `.sdc/loom-feedback/`, on both sides, where the summary is written
   (`walk_product`); it is the transport of feedback, not product. Another directory under `.sdc/` is
-  listed as before.
+  listed as before, except `.sdc/records/`.
+- Record files (`product_tree[.sdc/records/**]`). Under Loom a bound program gets its working
+  directory and no case store, so `sdc-tool.sh` writes the records that the inputs of `change.review`
+  read (a test run's log, the gate's log) with `sdc-reply record` into `.sdc/records/` of the
+  workspace (`docs/loom-bindings.md`). The driver keeps the same facts in its case store and writes
+  no file. The log of a test run holds the order of the tests and the elapsed time of that one run,
+  so two runs of the same cycle differ in it (the child and the library run of `task
+  test:loom-in-process` differed in `.sdc/records/conformance_run/<16 hex>.log`, 2026-11-22). The
+  listing of the product tree leaves out `.sdc/records/` on both sides, like `.sdc/loom-feedback/`.
 
 A third answer besides equal and different: a member exactly one side lists under `not_recorded` (or
 lies below a member it lists) is not compared, and `compare` names it on a line
@@ -132,7 +140,7 @@ runbook parity compare --product-digests a.json b.json
 runbook parity approvals a.json
 ```
 
-For a run of `runbook loom-run` read the run directory instead of the status alone:
+For a run of `runbook run` read the run directory instead of the status alone:
 
 ```
 runbook parity summarize --loom-run <runs-dir>/<name> --output b.json
@@ -206,7 +214,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `cases[].person_steps[].action` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].action | as is; none is null (a grant) |
 | `cases[].person_steps[].capability` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].capability | as is |
 | `cases[].person_steps[].answer` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].answer | Allow with an action: the result of the n-th record of that action in the case; Allow without: granted; Deny: denied (Allow = granted, Deny = denied) |
-| `cases[].person_steps[].actor` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].actor | as is; equal only when the Loom run answered with the principal the driver run used: under `runbook loom-run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none |
+| `cases[].person_steps[].actor` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].actor | as is; equal only when the Loom run answered with the principal the driver run used: under `runbook run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none |
 | `copies[].action` | `action_started` with `copy`, then `action_finished` | cases[].evidence[].action | the n-th record of copies[].kind in the target case whose action the source case's records of that kind do not name; the entry itself names source_case, target_case and record_kind only |
 | `copies[].kind` | `action_started` with `copy`, then `action_finished` | cases[].copies[].record_kind | as is |
 | `copies[].from_protocol` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | protocol_id of that case; compared by registration stem |
@@ -226,6 +234,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `protocols[].digest` | `opened` event | run directory: protocols/*.protocol.yaml | sha256 of the file the runner copied for that id and revision; the status protocols[] is empty and is not read (not recorded) |
 | `product_tree[].path` | the root case's `work/` | --product-tree, else workspace | the directory walked as the driver's work/ is |
 | `product_tree[.sdc/loom-feedback/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
+| `product_tree[.sdc/records/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
 | `product_tree[].sha256` | the root case's `work/` | --product-tree, else workspace | the same digest of the same file |
 
 Where the seven values come from now (each row of the table above names its source): the six
@@ -305,7 +314,7 @@ Two things the run showed that are not differences of the comparison:
   binaries (`story:driver-tools-find-binaries-without-build-dir`).
 - Three files under `.sdc/loom-feedback/<16 hex>/` although neither run shows a retry
   (`retry_followed` is 0 in both summaries). Not a defect: Loom hands retry feedback to a writer
-  whose `retry_when` records exist, not only after a retry, and `llm-node.sh` copies it there;
+  whose `retry_when` records exist, not only after a retry, and `sdc-node` copies it there;
   the driver hands the same three records over as well ("The rules", feedback copies).
 
 The comparison was made against Loom `2c0a6f48` (the table below was read at `1016c251`).

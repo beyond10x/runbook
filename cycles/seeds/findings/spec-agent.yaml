@@ -1,0 +1,11 @@
+node: spec.author
+findings:
+  - key: spec-agent-1
+    type: missing_decision
+    cites: [r1]
+    says: r1 does not say whether a cancelled invoice keeps its number or frees it for reuse
+    options:
+      - a cancelled invoice keeps its number
+      - the number of a cancelled invoice is freed for reuse
+    default: a cancelled invoice keeps its number
+    scope_changing: false

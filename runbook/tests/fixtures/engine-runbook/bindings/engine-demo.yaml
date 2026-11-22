@@ -1,0 +1,17 @@
+format: loom.bindings/1
+protocol: engine-demo@1
+program_root: bindings
+artifacts:
+  idea: idea.yaml
+actions:
+  - action: draft.open
+    executor:
+      kind: open
+      name: draft
+      bindings: engine-draft.yaml
+    evidence:
+      - kind: draft_opened
+        subject: idea
+        producer: loom
+        from: effect
+        results: {performed: opened}

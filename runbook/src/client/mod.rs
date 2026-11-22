@@ -2,9 +2,9 @@
 //!
 //! Each command is one call of a route of the daemon (`api`), with the input types of the server's own
 //! routes, and prints what the route returns: text lines by default, the route's JSON with `--json`.
-//! `runbook run` without `--detach` is the in-process engine, which is not built here: it exits 64
-//! and names the story that builds it. The client opens no session: `SubmitRun` takes none, and a run
-//! without one belongs to the daemon alone.
+//! `runbook run` without `--detach` is not a client: the binary runs the case in its own process
+//! (`loom_run/here.rs`) and only the options and the intake reader are shared. The client opens no
+//! session: `SubmitRun` takes none, and a run without one belongs to the daemon alone.
 //!
 //! The token is read from a file (`--token-file`, `RUNBOOK_TOKEN_FILE`) whose mode gives nothing to
 //! group or others; it is never taken from argv or a plain environment value, and `http` never lets it
@@ -26,9 +26,6 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
-
-/// The story that builds the in-process engine `runbook run` waits for.
-pub const ENGINE_STORY: &str = "story:engine-on-loom-library-entry";
 
 const RESUME_BACKOFF: Duration = Duration::from_millis(100);
 
@@ -54,7 +51,7 @@ pub struct RunArgs {
     /// The context directory; the daemon copies it into the run's workspace and needs it under one of its context roots.
     #[arg(long, value_name = "DIR")]
     pub context: Option<PathBuf>,
-    /// A setting of the run; repeatable, each key once.
+    /// A setting of the run, `KEY=VALUE`; repeatable, each key once. With `--detach` it goes to the daemon; in process it is a condition of the replay (`--recorded`).
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
     /// Submit the run to the daemon, print its id and return at once.
@@ -213,9 +210,6 @@ fn connect(remote: &Remote) -> Result<Api, Failure> {
 // ---- run --detach ----
 
 fn run_detached(args: RunArgs) -> Result<(), Failure> {
-    if !args.detach {
-        return Err(Failure::usage(format!("running in process waits for {ENGINE_STORY}; submit to a daemon with --detach and --daemon <url>")));
-    }
     let settings = settings_of(&args.set)?;
     let api = connect(&args.remote)?;
     let intake = read_intake(&args.intake)?;
@@ -243,7 +237,7 @@ fn settings_of(set: &[String]) -> Result<BTreeMap<String, String>, Failure> {
     Ok(settings)
 }
 
-fn read_intake(source: &str) -> Result<String, Failure> {
+pub fn read_intake(source: &str) -> Result<String, Failure> {
     let mut bytes = Vec::new();
     let limit = MAX_INTAKE_BYTES as u64 + 1;
     let read = if source == "-" { io::stdin().lock().take(limit).read_to_end(&mut bytes) } else { std::fs::File::open(source).and_then(|f| f.take(limit).read_to_end(&mut bytes)) };

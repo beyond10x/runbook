@@ -1,4 +1,4 @@
-# The settings file of `runbook loom-run`: `runbook.loom-run-settings/1`
+# The settings file of `runbook run`: `runbook.loom-run-settings/1`
 
 One JSON object, named by `--settings`. One format serves the loop (`docs/loom-run.md`), the decider
 and the bindings copy (`docs/loom-run-decisions.md`) and the run directory writer
@@ -16,7 +16,7 @@ key that repeats an option must agree with it; the option decides and a differen
 |---|---|---|---|---|
 | `format` | text | none | `normalise` | when present, `runbook.loom-run-settings/1` |
 | `run` | text | none | `normalise` | when present, equal to `--run` |
-| `loom` | object | none | `normalise` | `sha256`, `confinement`, `cap_micro_usd` (each equal to its option `--loom-sha256`, `--confinement`, `--cap-micro-usd`), `login_file` (see below). `loom.bin` and any other member are refused: the binary is the option `--loom` |
+| `loom` | object | none | `normalise` | `sha256` (equal to `--loom-sha256`; refused when Loom is a library (no `--loom`)), `in_process` (`true`, only when Loom is a library), `confinement`, `cap_micro_usd` (each equal to its option `--confinement`, `--cap-micro-usd`), `login_file` (see below). `loom.bin` and any other member are refused: the binary is the option `--loom` |
 | `login_file` | path | none | `materialise`, decider | absolute path of the login file, a file that exists. `loom.login_file` is the same setting; give one of them. It is replaced by `named` in every file the runner writes |
 | `max_llm_calls` | whole number | none | `normalise` | when present, equal to `--max-llm-calls`; null or text is refused |
 | `max_wall_seconds` | whole number | none | `normalise` | when present, equal to `--max-wall-seconds` |
@@ -35,17 +35,18 @@ binary.
 
 | Key | Type | Default | Kinds | Meaning |
 |---|---|---|---|---|
-| `kind` | `model`, `rule`, `scripted` | none: refused | all | `model`: one `decider.sh model` call per decision. `rule`: `decider.sh approve` or `reject`. `scripted`: the test double |
-| `model` | text | none: refused | model | `SDC_LLM_MODEL_DECIDER` |
+| `kind` | `model`, `rule`, `scripted` | none: refused | all | `model`: one call of the adapter per decision, made by the decider inside the runner. `rule`: the runner answers by the rule `approve` or `reject`, no program. `scripted`: the test double |
+| `model` | text | none: refused | model | `model` of the adapter's request |
 | `verdict` | `approve`, `reject` | none: refused | rule | the rule's answer |
 | `without_claims` | true, false | false | model | the run's acknowledgement that Loom's output holds no claims; without it every decision is `CannotDecide` |
-| `reply_bin` | path | the `sdc-reply` found on the runner's `PATH` | model | the `sdc-reply` binary; none found: refused ("decider.reply_bin: missing") |
-| `program` | | the copy's `bindings/tools/decider.sh` | model, rule | set by the runner; a value in the file is refused |
-| `adapter` | text | none | model | `SDC_DECIDER_ADAPTER` |
-| `effort` | `low`, `medium`, `high`, `xhigh`, `max` | none | model | `SDC_LLM_EFFORT_DECIDER` |
-| `max_turns` | whole number, 1 or more | none | model | `SDC_DECIDER_MAX_TURNS` |
+| `reply_bin` | path | the `sdc-reply` found on the runner's `PATH`, else none | model | handed to the adapter as `SDC_REPLY` (the decider itself reads no `sdc-reply`; a scripted adapter of a test may) |
+| `program` | | | | not a setting: the decider runs inside the runner; a value in the file is refused |
+| `adapter` | text | `metaharness` | model | the adapter program: `metaharness`, `claude-cli`, `dry` (of the bindings copy), `stub` (no call: every decision is an invalid reply) or a path |
+| `effort` | `low`, `medium`, `high`, `xhigh`, `max` | `node-classes.json` of the copy (xhigh) | model | `effort` of the adapter's request |
+| `max_turns` | whole number, 1 or more | 8 | model | `max_turns` of the adapter's request |
 | `max_budget_usd` | number above 0 | 0.25 | model | most one decider call may cost |
 | `max_calls`, `max_decider_calls` | whole number, 1 or more | 20 | model | most decider model calls; the two names are one limit, give one |
+| `requester` | true, false | false | model | with `--goals`: the decisions of the requester-side classes are answered from the goals as `decider:requester` (`docs/loom-run-decisions.md` "The requester decider"); true without `--goals` is refused |
 | `escalate` | `final`, `stop` | `stop` | model | what an `escalate` reply does |
 | `retries` | whole number | 2 | model | asks again after an invalid reply |
 | `timeout_seconds` | whole number, 1 or more | 900 | model, rule | the program's whole process group is ended at the limit |
@@ -57,7 +58,7 @@ binary.
 Both sides use this format. The writer is `loom_settings_json` in `driver/src/bin/sdc-experiment.rs`
 (`runner: loom` records). It writes `format`, `run`, `autonomy`, `decider.kind`, `decider.model` (or
 `decider.verdict` for `rule`), `models.<role>.model` for the four roles, `max_llm_calls`,
-`max_wall_seconds`, `loom.sha256`, `loom.confinement`, `loom.cap_micro_usd` and `loom.login_file`
+`max_wall_seconds`, `loom.sha256` (`loom.in_process: true` in its place for a record that sets it), `loom.confinement`, `loom.cap_micro_usd` and `loom.login_file`
 (only when the record names one), and, when the record sets them:
 
 | Record key | File key |
@@ -74,17 +75,21 @@ kind (`decider:model`, `decider:<verdict>`). A `scripted` decider (the stub-cycl
 its principal in the file, and `decider.principal` is the default of its answers (an answer's own
 `principal` wins). Nothing about the principal is fixed in the runner for one cycle.
 
-`sdc-reply`, `jq`, `yq` and `rsync` are reached through `PATH`, not through `decider.reply_bin`. The
+`sdc-reply`, `jq` and `yq` are reached through `PATH`, not through `decider.reply_bin`. The
 launcher puts the build's `driver/target/debug` first on the unit's `PATH` (`sdc-reply`,
-`sdc-findings` and `sdc-bugfix` are there) and refuses to start when `jq`, `yq` or `rsync` is on no
-directory of that `PATH`. The reason: `b10x-loom` gives every bound program the `PATH` the runner was
-started with, and the model nodes of the bindings (`llm-node.sh`) call `sdc-reply` too, so a directory
+`sdc-findings` and `sdc-bugfix` are there) and refuses to start when `jq` or `yq` is on no
+directory of that `PATH` (the shell programs of the bindings need them; `rsync` is no longer
+needed by a run). The reason: `b10x-loom` gives every bound program the `PATH` the runner was
+started with, and the model nodes of the bindings (`sdc-node`) call `sdc-reply` too, so a directory
 on `PATH` reaches the decider and the nodes, and a `decider.reply_bin` would reach the decider only.
 `decider.reply_bin` stays accepted in the file for a caller that does not control `PATH`.
+The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rsync`: `jq` is needed
+only by the bash adapters it starts; the shell programs of the bindings (`sdc-node`,
+`sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 
-Efforts (`efforts.<role>.effort`) and flags (`flags.*`), and `implement_mode`, stay refused in a
-record of a `loom` variant, with the key named: `llm-node.sh` has no option for an effort under
-Loom, and the runner has no dry or recorded mode.
+Efforts (`efforts.<role>.effort`), `flags.recorded` and `implement_mode` stay refused in a
+record of a `loom` variant, with the key named: `sdc-node` has no option for an effort under
+Loom, and the runner has no recorded mode. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
 
 The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the
 file for the strong record and compares it with `runbook/tests/fixtures/loom-run-settings.json`

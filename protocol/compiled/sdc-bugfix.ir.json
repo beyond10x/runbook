@@ -3,7 +3,11 @@
     "bug.dissect": {
       "description": "dissect the bug report into the dissection document; while no valid dissection is recorded",
       "effect": "write",
-      "may_produce": [],
+      "may_produce": [
+        {
+          "evidence": "dissection_written"
+        }
+      ],
       "precondition": {
         "any": [
           {
@@ -39,7 +43,7 @@
       "requires": []
     },
     "dissection.check": {
-      "description": "check the current dissection; once per dissection revision",
+      "description": "check the current dissection; once per dissection revision, and only once the writer has left one (a check of a dissection that does not exist yet would end the case not_reproduced)",
       "effect": "read",
       "may_produce": [
         {
@@ -47,10 +51,20 @@
         }
       ],
       "precondition": {
-        "claim": {
-          "id": "dissection.checked",
-          "is": "unknown"
-        }
+        "all": [
+          {
+            "claim": {
+              "id": "dissection.checked",
+              "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "dissection.written",
+              "is": "true"
+            }
+          }
+        ]
       },
       "requires": []
     },
@@ -93,7 +107,7 @@
       "requires": []
     },
     "repro.run": {
-      "description": "run the reproducing test on the code tree; once per repro revision, once the dissection is valid",
+      "description": "run the reproducing test on the code tree; once per repro revision, once the dissection is valid and the test writer has left a repro record (a run against no test would end the case not_reproduced)",
       "effect": "read",
       "may_produce": [
         {
@@ -112,6 +126,12 @@
             "claim": {
               "id": "repro.checked",
               "is": "unknown"
+            }
+          },
+          {
+            "claim": {
+              "id": "repro.written",
+              "is": "true"
             }
           }
         ]
@@ -153,7 +173,11 @@
     "test.reproduce": {
       "description": "write one test that reproduces the bug, into the code tree and the repro record, without changing any other file; once the dissection is valid and while no red is recorded",
       "effect": "write",
-      "may_produce": [],
+      "may_produce": [
+        {
+          "evidence": "repro_written"
+        }
+      ],
       "precondition": {
         "all": [
           {
@@ -263,6 +287,16 @@
         }
       }
     },
+    "dissection.written": {
+      "description": "the current dissection revision is the output of a dissection writer run",
+      "true_when": {
+        "evidence": {
+          "kind": "dissection_written",
+          "result": null,
+          "subject": "dissection"
+        }
+      }
+    },
     "gate.checked": {
       "description": "a gate run is recorded about the current code revision, whatever its result",
       "true_when": {
@@ -303,6 +337,16 @@
         }
       }
     },
+    "repro.written": {
+      "description": "the current repro revision is the output of a test writer run",
+      "true_when": {
+        "evidence": {
+          "kind": "repro_written",
+          "result": null,
+          "subject": "repro"
+        }
+      }
+    },
     "story.updated": {
       "description": "the bug's story is implemented in the current planning store",
       "true_when": {
@@ -338,6 +382,9 @@
     "dissection_check": {
       "description": "a program's check of the dissection against its schema and the code tree; valid or invalid"
     },
+    "dissection_written": {
+      "description": "the record that the dissection writer ran and left the dissection document at a new revision"
+    },
     "gate_run": {
       "description": "the code tree's gate run by a program: build, test, lint with warnings as errors, format check; passed or failed"
     },
@@ -346,6 +393,9 @@
     },
     "repro_run": {
       "description": "a program runs the reproducing test on the code tree with the code otherwise unchanged; red when the test compiles and fails and every other test passes, not_red otherwise (it passes, it does not compile, another test fails, or the code was changed)"
+    },
+    "repro_written": {
+      "description": "the record that the test writer ran and left the repro record at a new revision"
     },
     "story_record": {
       "description": "the record that the bug's story was moved to implemented in the planning store"

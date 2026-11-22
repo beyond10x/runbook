@@ -1,0 +1,17 @@
+exit 126
+stdout:
+stderr:
+| llm-node: change.implement could not run: no story requirements: sdc-reply coverage: aep/story/list.md has no summary
+written:
+045f96f22859bc80  .sdc/llm/001-change.implement/coverage-check.err
+    | sdc-reply coverage: aep/story/list.md has no summary
+393871f13dac47b7  .sdc/llm/001-change.implement/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 126
+    | }
+a9a5889f53fc8d1e  .sdc/llm/001-change.implement/cwd/ (23 files)

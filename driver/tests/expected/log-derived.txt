@@ -1,0 +1,7 @@
+exit 0
+stdout:
+| llm-node: spec.author not called: the decisions since spec/ was written are the defaults it raised and follows (f1); spec/ marked as derived from the amended requirements
+stderr:
+written:
+43cb99a51a277e81  spec/.derived-from
+    | requirements e23630e115159d67 resolved f1

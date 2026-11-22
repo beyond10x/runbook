@@ -314,7 +314,7 @@
       "protocol": "sdc.epic",
       "protocol_revision": 5,
       "semantics": {
-        "canon": "0.10.0",
+        "canon": "0.11.0",
         "format": "canon-decision/1"
       }
     },

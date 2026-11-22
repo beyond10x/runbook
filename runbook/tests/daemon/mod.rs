@@ -13,6 +13,8 @@ mod ui_embed;
 mod ui_embed_review;
 mod mcp;
 mod cli_client;
+mod engine;
+mod engine_slow;
 mod ui_guard;
 mod ui_decide;
 mod ui_decide_review;

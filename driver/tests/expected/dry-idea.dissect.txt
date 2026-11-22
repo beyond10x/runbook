@@ -1,0 +1,76 @@
+exit 0
+stdout:
+stderr:
+| would run: metaharness 'run' 'claude' '--frame' '<root>/work/.sdc/llm/001-idea.dissect/frame.json' '--decisions' 'frame' '--cwd' '<root>/work/.sdc/llm/001-idea.dissect/cwd' '--scratch-cwd' '--model' 'claude-haiku-5-5' '--max-turns' '15' '--max-budget-usd' '0.5' '--retain-dir' '<root>/work/.sdc/llm/001-idea.dissect/transcripts' '--effort' 'high' '-p' "$(cat <root>/work/.sdc/llm/001-idea.dissect/prompt.md)"
+written:
+e3b0c44298fc1c14  .sdc/llm/001-idea.dissect/apply.log
+f1acdead596db019  .sdc/llm/001-idea.dissect/argv.json
+    | [
+    |   "<root>/work/.sdc/llm/001-idea.dissect/metaharness-stand-in",
+    |   "run",
+    |   "claude",
+    |   "--frame",
+    |   "<root>/work/.sdc/llm/001-idea.dissect/frame.json",
+    |   "--decisions",
+    |   "frame",
+    |   "--cwd",
+    |   "<root>/work/.sdc/llm/001-idea.dissect/cwd",
+    |   "--scratch-cwd",
+    |   "--model",
+    |   "claude-haiku-5-5",
+    |   "--max-turns",
+    |   "15",
+    |   "--max-budget-usd",
+    |   "0.5",
+    |   "--retain-dir",
+    |   "<root>/work/.sdc/llm/001-idea.dissect/transcripts",
+    |   "--effort",
+    |   "high",
+    |   "-p",
+    |   "<prompt_file>"
+    | ]
+e3b0c44298fc1c14  .sdc/llm/001-idea.dissect/events.jsonl
+e0a76dd634585ff6  .sdc/llm/001-idea.dissect/frame.json
+717fe598a52d1b6e  .sdc/llm/001-idea.dissect/prompt.md
+6c3e7224b5dcae53  .sdc/llm/001-idea.dissect/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-idea.dissect/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-idea.dissect/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-idea.dissect",
+    |   "node": "idea.dissect",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+9d02aa0ca0480a59  .sdc/llm/001-idea.dissect/response.json
+    | {
+    |   "adapter": "dry",
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "exit": 0,
+    |   "dry": true
+    | }
+3c9f144425dbbf41  .sdc/llm/001-idea.dissect/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-idea.dissect/stderr.txt
+f387c3d4fbb6e9eb  .sdc/llm/calls.jsonl
+    | {"action":"idea.dissect","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":"dry","model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":0,"output":"dissection.yaml","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":true,"record":"<root>/work/.sdc/llm/001-idea.dissect"}
+8cac9f4d30aa88f4  .sdc/llm/001-idea.dissect/cwd/ (1 files)

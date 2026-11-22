@@ -1,0 +1,7 @@
+audience: {value: billing clerks of one company, status: default}
+source_language: {value: en, status: default}
+target_language: {value: en, status: default}
+platform: {value: linux server, status: default}
+kind: {value: service, status: default}
+deployment: {value: 'a daemon serving a JSON API, with its own data file', status: changed, reason: 'the person, as in trial 1'}
+licence: {value: proprietary, status: default}

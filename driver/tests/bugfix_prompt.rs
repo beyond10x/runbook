@@ -235,12 +235,6 @@ fn node_work(name: &str) -> (PathBuf, PathBuf) {
     (dir, work)
 }
 
-fn run_node(case: &str, node: &str, setup: impl Fn(&Path, &Path), env: &[(&str, &str)]) -> String {
-    let work = run_node_in(case, node, setup, env);
-    let p = work.join(format!(".sdc/llm/001-{node}/prompt.md"));
-    fs::read_to_string(&p).unwrap_or_else(|_| panic!("{case}: no prompt.md at {}", p.display()))
-}
-
 /// Runs the node and returns its work/: the record of the call is under `.sdc/llm/001-<node>/`.
 fn run_node_in(case: &str, node: &str, setup: impl Fn(&Path, &Path), env: &[(&str, &str)]) -> PathBuf {
     let (dir, work) = node_work(case);
@@ -274,62 +268,28 @@ const AGENT_NODES: [&str; 14] = [
     "change.fix",
 ];
 
+/// The goldens that `sdc_node.rs` compares in its own cases (a ticket, no gate, feedback, the review
+/// on a coverage document, the implementer sent back or asked again, ...).
+const VARIANT_GOLDENS: [&str; 11] = [
+    "change.fix.ticket", "test.reproduce.ticket", "change.fix.no-gate", "change.fix.feedback", "change.review.coverage",
+    "change.review.facts", "change.review.retry", "change.implement.coverage", "change.implement.rework",
+    "change.implement.rework-coverage", "change.implement.coverage-retry",
+];
+
+/// Each agent node's prompt, written by the program `sdc-node` under Loom (one start per node, on
+/// the adapter `true`), is its golden byte for byte. A golden no test reads is a failure.
 #[test]
 fn the_prompt_of_each_agent_node_is_its_golden_byte_for_byte() {
-    let none = |_: &Path, _: &Path| {};
-    let mut seen: Vec<String> = Vec::new();
-    let mut cmp = |name: &str, text: &str| {
-        compare("llm-node", name, text);
-        seen.push(name.to_string());
-    };
     for node in AGENT_NODES {
-        cmp(node, &run_node(node, node, none, &[]));
+        compare("llm-node", node, &super::sdc_node::loom_prompt(node));
     }
-    cmp("change.implement.coverage", &run_node("impl-cov", "change.implement", none, &[("SDC_IMPLEMENT_COVERAGE", "on")]));
-    cmp("change.review.facts", &run_node("review-facts", "change.review", none, &[("SDC_REVIEW_MODE", "facts")]));
-    cmp("change.review.coverage", &run_node("review-cov", "change.review", none, &[("STUB_COVERAGE", "true")]));
-    let ticket = |_: &Path, w: &Path| {
-        fs::write(w.join("bug.yaml"), "title: t\ntext: Invented report.\nticket:\n  id: PAGER-7\n  kind: bug\nconstraints:\n- Keep the public API of the crate unchanged.\n- Add no dependency.\n").unwrap();
-    };
-    cmp("change.fix.ticket", &run_node("fix-ticket", "change.fix", ticket, &[]));
-    cmp("test.reproduce.ticket", &run_node("repro-ticket", "test.reproduce", ticket, &[]));
-    // A rejected approval of the writer's output: the rework text, with and without the coverage document.
-    let rejected = |d: &Path, _: &Path| {
-        let rej = d.join("rejection.json");
-        fs::write(&rej, r#"{"format":"sdc.rejection/1","approval":"change.approve","revision":"abc123","principal":"person:reviewer","count":1,"reasons":["The refusal of an empty title is missing."],"subject":"change"}"#).unwrap();
-        fs::write(d.join("feedback.json"), format!(r#"[{{"kind":"approval","result":"rejected","action":"change.approve","exit":6,"log":"{}"}}]"#, rej.display())).unwrap();
-    };
-    let fb = |case: &str| format!("{}/instructions/{case}/feedback.json", env!("CARGO_TARGET_TMPDIR"));
-    cmp("change.implement.rework", &run_node("impl-rework", "change.implement", rejected, &[("SDC_FEEDBACK", &fb("impl-rework"))]));
-    cmp("change.implement.rework-coverage", &run_node("impl-rework-cov", "change.implement", rejected,
-        &[("SDC_FEEDBACK", &fb("impl-rework-cov")), ("SDC_IMPLEMENT_COVERAGE", "on")]));
-    // A check that failed on the current revision: in/feedback.md is one more input.
-    let failed = |d: &Path, _: &Path| {
-        let log = d.join("check.log");
-        fs::write(&log, "test result: FAILED. 1 failed\n").unwrap();
-        fs::write(d.join("feedback.json"), format!(r#"[{{"kind":"tests","result":"fail","action":"tests.run","exit":1,"log":"{}"}}]"#, log.display())).unwrap();
-    };
-    cmp("change.fix.feedback", &run_node("fix-feedback", "change.fix", failed, &[("SDC_FEEDBACK", &fb("fix-feedback"))]));
-    // The retry texts: a review reply and a coverage document the program check refused, asked again.
-    cmp("change.review.retry", &run_node("review-retry", "change.review", none, &[("STUB_REVIEW_FAIL", "1"), ("SDC_REVIEW_RETRIES", "1")]));
-    cmp("change.implement.coverage-retry", &run_node("impl-cov-retry", "change.implement", none,
-        &[("SDC_IMPLEMENT_COVERAGE", "on"), ("STUB_COVERAGE_FAIL", "1"), ("SDC_COVERAGE_RETRIES", "1")]));
-    // The writer's own last run failed: its log is the feedback, and the note names why.
-    let own_failure = |d: &Path, _: &Path| {
-        let case_dir = d.join("case");
-        fs::create_dir_all(case_dir.join("blobs")).unwrap();
-        fs::write(case_dir.join("blobs/run1"), "error: the writer stopped\n").unwrap();
-        fs::write(case_dir.join("events.jsonl"), "{\"event\":\"action_finished\",\"action\":\"change.fix\",\"exit\":1,\"log\":\"run1\"}\n").unwrap();
-    };
-    let case_dir = format!("{}/instructions/fix-own-failure/case", env!("CARGO_TARGET_TMPDIR"));
-    cmp("change.fix.feedback-run", &run_node("fix-own-failure", "change.fix", own_failure, &[("SDC_CASE_DIR", &case_dir)]));
-    // A case whose checks.yaml names no gate command.
-    let no_gate = |_: &Path, w: &Path| {
-        fs::write(w.join("checks.yaml"), "format: sdc.checks/1\ntest: [cargo, test]\nrepro: [cargo, test]\ntest_file: '^tests/[a-z_]+\\.rs$'\n").unwrap();
-    };
-    cmp("change.fix.no-gate", &run_node("fix-no-gate", "change.fix", no_gate, &[]));
     if std::env::var("SDC_BLESS_PROMPTS").is_err() {
-        assert_eq!(seen.iter().cloned().collect::<std::collections::BTreeSet<_>>(), golden_names("llm-node"), "a golden no test reads, or a prompt with no golden");
+        let cases = include_str!("sdc_node.rs");
+        for name in VARIANT_GOLDENS {
+            assert!(cases.contains(&format!("\"llm-node\", \"{name}\"")), "no case of sdc_node.rs reads the golden {name}");
+        }
+        let seen: std::collections::BTreeSet<String> = AGENT_NODES.iter().chain(VARIANT_GOLDENS.iter()).map(|n| n.to_string()).collect();
+        assert_eq!(seen, golden_names("llm-node"), "a golden no test reads, or a prompt with no golden");
     }
 }
 
@@ -533,6 +493,10 @@ fn every_agent_binding_names_its_instruction_file_and_the_tools_hold_no_instruct
     }
 }
 
+/// Instruction files that only the old driver's script (`llm-node.sh`, no Loom mode) reads, for the
+/// feedback of a writer's own failed run. No program under Loom reads them, so no golden does.
+const OLD_DRIVER_ONLY: [&str; 2] = ["shared/feedback-run.heading.md", "shared/feedback-run.inputs.md"];
+
 /// Every instruction file is reached by a golden: each line of its text outside the `{{name}}`
 /// placeholders (a line of 12 characters or more) is in some golden prompt.
 #[test]
@@ -547,11 +511,13 @@ fn every_instruction_file_is_reached_by_a_golden() {
         "unstick",
         "feedback",
         "requester-request",
+        "node-log",
     ] {
         for e in fs::read_dir(root.join("golden").join(group)).unwrap() {
             goldens.push_str(&fs::read_to_string(e.unwrap().path()).unwrap());
         }
     }
+    let old_driver_script = fs::read_to_string(manifest().join("../bindings/tools/llm-node.sh")).unwrap();
     let placeholder = regex::Regex::new(r"\{\{[a-z_]+\}\}").unwrap();
     let mut stack = vec![root.clone()];
     let mut unreached = Vec::new();
@@ -565,6 +531,11 @@ fn every_instruction_file_is_reached_by_a_golden() {
                 continue;
             }
             let text = fs::read_to_string(&p).unwrap();
+            let rel = p.strip_prefix(&root).unwrap().to_string_lossy().into_owned();
+            if OLD_DRIVER_ONLY.contains(&rel.as_str()) {
+                assert!(old_driver_script.contains(&format!("$shared/{}", rel.trim_start_matches("shared/"))), "{rel} is read by no one");
+                continue;
+            }
             let missing: Vec<&str> = placeholder
                 .split(&text)
                 .flat_map(str::lines)
@@ -827,8 +798,12 @@ fn the_three_rust_binaries_hold_no_instruction_text() {
             }
         }
     }
-    for src in ["src/bin/sdc-conform.rs", "src/bin/sdc-unstick.rs", "src/bin/sdc-reply/implement.rs"] {
-        let text = fs::read_to_string(manifest().join(src)).unwrap().replace("\\\"", "\"");
+    let implement = ["mod", "tree", "reply", "assemble", "run"].map(|f| format!("src/reply/implement/{f}.rs"));
+    let implement_text = implement.iter().map(|f| fs::read_to_string(manifest().join(f)).unwrap()).collect::<Vec<_>>().join("\n");
+    for (src, text) in [("src/conform.rs", fs::read_to_string(manifest().join("src/conform.rs")).unwrap()),
+        ("src/bin/sdc-unstick.rs", fs::read_to_string(manifest().join("src/bin/sdc-unstick.rs")).unwrap()),
+        ("src/reply/implement/", implement_text)] {
+        let text = text.replace("\\\"", "\"");
         for l in &lines {
             assert!(!text.contains(l.as_str()), "{src} still holds instruction text: {l}");
         }

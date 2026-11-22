@@ -181,6 +181,33 @@ After that path, in the order Loom set (2026-11-22, not built): `per-run-program
 `concurrent-confined-runs` (L18), then `cancel-a-running-bound-program` (L15), then
 `tree-waits-open-decision-requests` (L13).
 
+## States at `5af3f9c2`
+
+Loom commit `5af3f9c2` (git dependency of `runbook/Cargo.toml`, `rev` in `Cargo.lock`), read from
+the source and used by `runbook::engine` (`docs/engine.md`) on 2026-11-22. Paths are under `crates/`
+of Loom. This table supersedes the state column above for the rows it names; the older text stays as
+the record of what was asked.
+
+| row | state at `5af3f9c2` | read at | used by the engine |
+|---|---|---|---|
+| L2 | exists: `read_protocols_directory(&Path) -> Result<ProtocolDirectory, Refused>` | `loom-tree/src/protocols.rs:84` | yes, instead of `add_yaml` |
+| L4 | exists | `loom-tree/src/open.rs:93` | yes |
+| L6 | exists: `run_tree(store, catalog, &RunSettings, observer, cancel)`; `RunSettings` | `loom-tree/src/run.rs:126`, `:86` | yes, from a plain thread |
+| L7 | exists: `RunObserver`, one call per run-log line | `loom-tree/src/run.rs:73` | yes; lines are also re-read from the store, so none is lost |
+| L8 | exists: `read_log` is `b10x_loom_runlog::verify`; `tree_status` | `loom-tree/src/lib.rs:53`, `loom-tree/src/status.rs:67` | yes |
+| L9 | exists: `status_json(&TreeStatus) -> Value` | `loom-tree/src/encode.rs:158` | slow lane only |
+| L10 | exists | `loom-tree/src/approve.rs:75` | yes |
+| L14 | exists as `cancel: Option<&AtomicBool>`, asked before each step only | `loom-tree/src/run.rs:126`, `:166` | yes |
+| L15 | exists at `23f1f4b3` (Loom commit `f9a80257`): a cancel ends a running bound program; at `5af3f9c2` it was not built and a cancel set during a program waited for it | `loom-tree/src/run.rs` | yes; the gate test `a_cancel_while_a_program_runs_ends_the_program_and_the_run_and_starts_no_later_step` holds it |
+| L16 | exists: `EngineConfinement`, `EngineRunner`, `ConfinementAdapter`, `UNCONFINED_FLAG_REASON` re-exported | `loom-tree/src/lib.rs:48-52` | yes, `local` under test, `linux` not |
+| L17 | not built: no function lists the levels; the engine decides them (`local`; `linux` where the process may delegate a cgroup) | none | yes |
+| L22 | not built: no `pub use b10x_canon`; Runbook names no Canon dependency and `Cargo.lock` has the tag `0.10.0` through Loom; it names three Loom crates (`b10x-loom-tree`, `b10x-loom-runlog`, `b10x-loom-protocols`) because `b10x-loom-tree` re-exports neither the line encoder nor `ProtocolCatalog` | `loom-tree/src/lib.rs:48-75` | yes |
+| `close` | exists: `close(&CloseRequest) -> Result<CaseClosed, Refused>` | `loom-tree/src/close.rs:52` | yes, the answer to a `Close` decision |
+| store lock | exists: `StoreLock` is a `flock`; a dead holder lets go | `loom-tree/src/lock.rs:25`, `:82` | `Engine::store_state` |
+| person principal | `NextDecision` carries none; a person action needs the binding's | `generated/rust/loom/src/tree.rs:102`, `loom-tree/src/person.rs:65` | the daemon's `answered_by` is passed as is |
+
+Rows L1, L3, L5, L11 to L13, L18 to L21 and L23 were not used and their state was not read again.
+
 ## Dependency form and pin
 
 - Form: git dependencies in `runbook/Cargo.toml`, `git = "https://github.com/beyond10x/loom"` with
@@ -261,12 +288,12 @@ After that path, in the order Loom set (2026-11-22, not built): `per-run-program
   `cancel-a-running-bound-program` and before `named-egress-per-action`, the first story that
   gives a tree step egress under Substrate. It is needed before agent nodes with egress run in the
   daemon.
-- Cancel is at step boundaries: the runtime asks `host_stop` before each step (L14). A bound program
-  already running is not cancelled; it ends at its timeout, the binding's `timeout_seconds` (default
-  60, `bindings/src/program.rs:215`), when Substrate ends the child and Loom sends `Signal::Kill`
-  after a drain margin (`confinement.rs:771`, `:808-820`). After L15 a cancel ends a running
-  program within about 7 s; the step ends `Cancelled` with no evidence record, no result-table row
-  and no retry.
+- Cancel is asked before each step: the runtime asks `host_stop` before each step (L14). At
+  `5af3f9c2` a bound program already running was not cancelled; it ended at its timeout, the
+  binding's `timeout_seconds` (default 60, `bindings/src/program.rs:215`), when Substrate ends the
+  child and Loom sends `Signal::Kill` after a drain margin (`confinement.rs:771`, `:808-820`). Since
+  L15 (`23f1f4b3`) a cancel ends a running program within about 7 s, and since `5b3142c7` a running `handoff_when` check too; the step ends `Cancelled` with
+  no evidence record, no result-table row and no retry.
 - Child processes go through `TestRunner::run_child`, which blocks to the end (`confinement.rs:78-103`).
   The only programs Loom starts are `git`, `ess`, `cargo` and the connectors program; it starts no
   `substrate` binary (no `Command::new("substrate…")` in any `crates/*/src`).

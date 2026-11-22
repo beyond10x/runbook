@@ -1,5 +1,6 @@
 //! The run end to end with the model decider: the loop, the real decider of `decider.rs` starting a
-//! fake `bindings/tools/decider.sh` of the run's bindings copy, the run directory writer, and a fake
+//! fake adapter `bindings/tools/llm-adapter-claude-cli.sh` of the run's bindings copy, the run
+//! directory writer, and a fake
 //! `b10x-loom`. The unit tests of the decider and of the bindings copy are in
 //! `src/loom_run/decider/tests.rs` and `src/loom_run/bindings_copy/tests.rs`.
 //!
@@ -12,19 +13,48 @@ use serde_json::{json, Value};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-const DECIDER_SH: &str = "#!/bin/sh\nd=$(dirname \"$0\")\nprintf '%s\\n' \"$@\" > \"$d/args.txt\"\nenv > \"$d/env.txt\"\ncat \"$d/reply.json\"\n";
+/// The fake adapter of the decider (`decider.adapter` is `claude-cli`): it counts its starts in `n`,
+/// keeps the decider's request of each as `request.<n>.json`, the adapter request as
+/// `adapter-request.json`, its arguments as `args.txt` and its environment as `env.txt` and
+/// `env.<n>.txt`, writes the model's `out/decision.json` from `decision.<n>.json` (else
+/// `decision.json`) and prints `response.<n>.json` (else `response.json`).
+const ADAPTER_SH: &str = "#!/bin/sh\nd=$(dirname \"$0\")\nrec=$(dirname \"$1\")\nn=$(cat \"$d/n\" 2>/dev/null || echo 0)\nn=$((n + 1))\necho $n > \"$d/n\"\nprintf '%s\\n' \"$@\" > \"$d/args.txt\"\nenv > \"$d/env.txt\"\nenv > \"$d/env.$n.txt\"\ncp \"$1\" \"$d/adapter-request.json\"\ncp \"$rec/decide-request.json\" \"$d/request.$n.json\"\ns=\nif [ -f \"$d/decision.$n.json\" ]; then s=.$n; fi\ncp \"$d/decision$s.json\" \"$rec/cwd/out/decision.json\"\ncat \"$d/response$s.json\"\n";
 
-/// Puts a fake `decider.sh` that prints `reply` into the bindings of the world, the instruction
-/// directory the model decider needs above them, and a file for `sdc-reply`.
+/// Sets what the fake adapter's model does at its `suffix` start (`""` for every start, `".2"` for the
+/// second): `reply` has the members of a reply (`decision`, `answer`, `best`, `reasons`, `cites`, then
+/// `adapter`, `model`, `cost_usd`) and is split into the model's file and the adapter's printed response.
+pub fn set_reply(w: &World, suffix: &str, reply: &str) {
+    let reply: Value = serde_json::from_str(reply).unwrap();
+    let (mut decision, mut response) = (serde_json::Map::new(), serde_json::Map::new());
+    for (k, v) in reply.as_object().unwrap() {
+        match k.as_str() {
+            "decision" | "answer" | "best" | "reasons" | "cites" => decision.insert(k.clone(), v.clone()),
+            "valid" => None,
+            _ => response.insert(k.clone(), v.clone()),
+        };
+    }
+    decision.entry("reasons").or_insert(json!(["fine"]));
+    decision.entry("cites").or_insert(json!([]));
+    let tools = w.root.join("bindings/tools");
+    std::fs::write(tools.join(format!("decision{suffix}.json")), Value::Object(decision).to_string()).unwrap();
+    std::fs::write(tools.join(format!("response{suffix}.json")), Value::Object(response).to_string()).unwrap();
+}
+
+/// Puts the fake adapter into the bindings of the world, the instruction files the model decider
+/// needs above them (the repository's own), and a file for `sdc-reply`; the model's reply is `reply`.
 pub fn install_decider(w: &World, reply: &str) {
     let tools = w.root.join("bindings/tools");
     std::fs::create_dir_all(&tools).unwrap();
-    let script = tools.join("decider.sh");
-    std::fs::write(&script, DECIDER_SH).unwrap();
+    let script = tools.join("llm-adapter-claude-cli.sh");
+    std::fs::write(&script, ADAPTER_SH).unwrap();
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    std::fs::write(tools.join("reply.json"), reply).unwrap();
-    std::fs::create_dir_all(w.root.join("instructions/decider")).unwrap();
-    std::fs::write(w.root.join("instructions/decider/approval.md"), "decide\n").unwrap();
+    set_reply(w, "", reply);
+    let target = w.root.join("instructions/decider");
+    std::fs::create_dir_all(&target).unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("instructions/decider");
+    for entry in std::fs::read_dir(source).unwrap().filter_map(Result::ok) {
+        std::fs::copy(entry.path(), target.join(entry.file_name())).unwrap();
+    }
     std::fs::write(w.root.join("sdc-reply"), "#!/bin/sh\n").unwrap();
     std::fs::create_dir_all(w.root.join("driver/examples/sdc")).unwrap();
     std::fs::write(w.root.join("driver/examples/sdc/rule-ends.json"), "{}\n").unwrap();
@@ -104,14 +134,15 @@ fn two_model_steps_and_an_approval_by_the_model_decider_end_delivered_with_the_r
     let copy = w.run_dir("r1/bindings/tools");
     assert!(w.run_dir("r1/instructions/decider/approval.md").is_file() && w.run_dir("r1/driver/examples/sdc/rule-ends.json").is_file(), "the tools read their root: instructions and driver/examples beside the copy");
     let args = std::fs::read_to_string(copy.join("args.txt")).unwrap();
-    assert!(args.starts_with("model\n"), "{args}");
-    // decider.sh got the built environment and nothing of the runner's.
+    assert!(args.trim_end().ends_with("/request.json"), "the adapter is started with its request file: {args}");
+    // the adapter got the built environment and nothing of the runner's.
     let env = std::fs::read_to_string(copy.join("env.txt")).unwrap();
     for needle in ["SDC_SECRET_MARKER", "ANTHROPIC_API_KEY", "marker-home-dir", "LOGIN-FILE-MARKER"] {
-        assert!(!env.contains(needle), "{needle} reached decider.sh: {env}");
+        assert!(!env.contains(needle), "{needle} reached the adapter: {env}");
     }
     assert!(env.contains(&format!("HOME={}", w.run_dir("r1/home").display())), "{env}");
-    assert!(env.contains("SDC_LLM_MODEL_DECIDER=claude-opus-5-5") && env.contains("SDC_DECIDER_ESCALATE=final"), "{env}");
+    let asked: Value = serde_json::from_str(&std::fs::read_to_string(copy.join("adapter-request.json")).unwrap()).unwrap();
+    assert_eq!(asked["model"], "claude-opus-5-5");
     // The run directory of the writer: what it can say from the events of this run.
     let dir = w.run_dir("r1");
     assert_eq!(lines(&dir.join("run-settings.jsonl")).len(), 1);
@@ -130,7 +161,7 @@ fn two_model_steps_and_an_approval_by_the_model_decider_end_delivered_with_the_r
     let recorded: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap()).unwrap();
     assert_eq!(recorded["login_file"], "named");
     assert_eq!(recorded["loom"]["cap_micro_usd"], 5_000_000);
-    assert!(recorded["decider"].get("program").is_none(), "the path of the copy's decider is not recorded: {recorded}");
+    assert!(recorded["decider"].get("program").is_none(), "no program of the copy is recorded: {recorded}");
 }
 
 #[test]

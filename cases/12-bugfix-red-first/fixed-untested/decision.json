@@ -76,6 +76,9 @@
     "dissection.valid": {
       "value": "true"
     },
+    "dissection.written": {
+      "value": "unknown"
+    },
     "gate.checked": {
       "value": "unknown"
     },
@@ -87,6 +90,9 @@
     },
     "repro.red": {
       "value": "true"
+    },
+    "repro.written": {
+      "value": "unknown"
     },
     "story.updated": {
       "value": "unknown"
@@ -178,6 +184,16 @@
         ],
         "value": "true"
       },
+      "dissection.written": {
+        "because": [
+          {
+            "kind": "dissection_written",
+            "status": "absent",
+            "subject": "dissection"
+          }
+        ],
+        "value": "unknown"
+      },
       "gate.checked": {
         "because": [
           {
@@ -215,6 +231,16 @@
           }
         ],
         "value": "true"
+      },
+      "repro.written": {
+        "because": [
+          {
+            "kind": "repro_written",
+            "status": "absent",
+            "subject": "repro"
+          }
+        ],
+        "value": "unknown"
       },
       "story.updated": {
         "because": [
@@ -279,7 +305,7 @@
       "protocol": "sdc.bugfix",
       "protocol_revision": 1,
       "semantics": {
-        "canon": "0.10.0",
+        "canon": "0.11.0",
         "format": "canon-decision/1"
       }
     },

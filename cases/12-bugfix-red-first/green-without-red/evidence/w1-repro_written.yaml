@@ -1,0 +1,7 @@
+format: canon-evidence/1
+id: w1
+kind: repro_written
+subject: repro
+subject_revision: r1
+producer: llm-node
+observed_at: 2026-11-21T09:00:00Z

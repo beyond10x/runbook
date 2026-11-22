@@ -1,0 +1,10 @@
+node: change.implement
+rounds:
+  - []
+  - - key: story-second-person
+      type: ambiguity
+      cites: [r1]
+      says: r1 does not say whether an invoice number is shown to the customer before the invoice is issued
+      options: [only once the invoice is issued, from the draft on]
+      default: only once the invoice is issued
+      scope_changing: true

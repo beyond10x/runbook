@@ -1,0 +1,16 @@
+format: loom.bindings/1
+protocol: sdc-bugfix@1
+program_root: bindings
+artifacts:
+  bug: bug.yaml
+actions:
+  - action: seed.check
+    executor:
+      kind: program
+      argv: [tools/seed-check.sh]
+    evidence:
+      - kind: seed_check
+        subject: bug
+        producer: seed-check
+        from: exit
+        results: {"0": found, "*": missing}

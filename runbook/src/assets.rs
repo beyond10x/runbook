@@ -79,7 +79,6 @@ pub const LAYOUT: &[Part] = &[
     Part { name: "cycles/", path: "cycles", shape: Shape::Dir, by: "every runbook: the finding cycles as data" },
     Part { name: "ui/", path: "ui", shape: Shape::Dir, by: "every runbook: the run inspector" },
     Part { name: "bindings/tools/sdc-tool.sh", path: "bindings/tools/sdc-tool.sh", shape: Shape::Program, by: "every runbook: the tool the story and plan nodes run" },
-    Part { name: "bindings/tools/llm-node.sh", path: "bindings/tools/llm-node.sh", shape: Shape::Program, by: "every runbook: the model nodes" },
     Part { name: "bindings/tools/decider.sh", path: "bindings/tools/decider.sh", shape: Shape::Program, by: "every runbook: the decider" },
     Part { name: "bindings/tools/llm-adapter-claude-cli.sh", path: "bindings/tools/llm-adapter-claude-cli.sh", shape: Shape::Program, by: "every runbook: the adapter that runs the claude CLI" },
 ];

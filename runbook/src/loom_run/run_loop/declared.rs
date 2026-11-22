@@ -18,7 +18,7 @@ impl Runner<'_> {
     /// Takes the decision when the answers file declares its kind and action and the decider answers
     /// requests; `Ok(false)` leaves it to the decider as before (nothing declared, a decider that
     /// answers no request, or a requests program that printed none).
-    pub(super) fn answer_declared(&mut self, decision: &Value, kind: &str, case: &str, words: &[String]) -> Result<bool, Halt> {
+    pub(super) fn answer_declared(&mut self, decision: &Value, kind: &str, case: &str) -> Result<bool, Halt> {
         let action = decision.get("action").and_then(Value::as_str).unwrap_or("").to_owned();
         let Some(declaration) = self.answers.find(kind, &action).cloned() else { return Ok(false) };
         if !self.decider.answers_requests() {
@@ -78,10 +78,10 @@ impl Runner<'_> {
             }
             let answer = match asked.result {
                 Ok(answer) => answer,
-                Err(reason) => return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{reason} (decision kind {kind:?})") })),
+                Err(reason) => return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{action} in {case}: {reason} (decision kind {kind:?})") })),
             };
             self.answered.insert(count_key, times + 1);
-            let who = answer.principal.clone().unwrap_or_else(|| command_argv(words, None).1);
+            let who = answer.principal.clone().unwrap_or_else(|| self.host.principal(&Answer { decision, kind, approve: true, principal: None, result: None, reasons_file: None, deny: false }));
             let applied = place.run(&declaration.apply, &[("id", &request.id), ("answer", &answer.answer), ("principal", &who), ("case", case), ("type", &request.kind)])?;
             ran_ok(&declaration.apply, &applied)?;
             given.push((request.id.clone(), answer.answer));
@@ -92,13 +92,17 @@ impl Runner<'_> {
             let done = place.run(then, &[("principal", &who), ("case", case)])?;
             ran_ok(then, &done)?;
         }
-        let (mut argv, principal) = command_argv(words, Some(&who));
+        let principal_arg = if who.is_empty() { None } else { Some(who.as_str()) };
+        let mut answer = Answer { decision, kind, approve: true, principal: principal_arg, result: None, reasons_file: None, deny: false };
+        let principal = self.host.principal(&answer);
         if kind == "Handoff" {
-            self.run_handoff(&argv)?;
+            if self.host.runs_handoff() {
+                self.run_handoff(&answer)?;
+            }
         } else {
-            self.add_result(decision, &mut argv, true, Some(&answers::reasons_text(&given)))?;
-            let r = self.loom_argv(&argv)?;
-            expect_exit0(&r, &format!("the printed command for a decision of kind {kind}"))?;
+            let reasons_file = self.person_answer(&mut answer, Some(&answers::reasons_text(&given)))?;
+            answer.reasons_file = reasons_file.as_deref();
+            self.host.answer(&answer)?;
         }
         self.emit(Event::DeclaredTaken { decision: decision.clone(), principal })?;
         Ok(true)

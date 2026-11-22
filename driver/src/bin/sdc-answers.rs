@@ -1,4 +1,4 @@
-//! sdc-answers: the two programs `bindings/tools/answers.yaml` names for `runbook loom-run`, which
+//! sdc-answers: the two programs `bindings/tools/answers.yaml` names for `runbook run`, which
 //! put the decider's answer where the driver's `scripts/run-trial.sh` puts it: a scope-changing
 //! question (`answer_questions`, lines 1122 to 1148) and a finding (`decide_findings`, lines 1150
 //! to 1227). They run in the workspace of the case, as Loom starts a bound program.

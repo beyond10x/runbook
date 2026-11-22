@@ -10,7 +10,11 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
+        "producer": "llm-node",
         "program": "llm-node.sh bug.dissect",
+        "results": {
+          "0": null
+        },
         "retry_when": [
           "dissection_check"
         ],
@@ -33,14 +37,16 @@
           "text": "claim is unknown:"
         }
       ],
-      "produces": [],
+      "produces": [
+        "dissection_written"
+      ],
       "step": 0,
       "waits_for": []
     },
     {
       "arguments": [],
       "capabilities": [],
-      "description": "check the current dissection; once per dissection revision",
+      "description": "check the current dissection; once per dissection revision, and only once the writer has left one (a check of a dissection that does not exist yet would end the case not_reproduced)",
       "effect": "read",
       "executor": {
         "kind": "program",
@@ -55,6 +61,15 @@
       "precondition": [
         {
           "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.written",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
           "reference": "claim:dissection.checked",
           "text": "claim is unknown:"
         }
@@ -62,47 +77,9 @@
       "produces": [
         "dissection_check"
       ],
-      "step": 0,
-      "waits_for": []
-    },
-    {
-      "arguments": [],
-      "capabilities": [],
-      "description": "run the reproducing test on the code tree; once per repro revision, once the dissection is valid",
-      "effect": "read",
-      "executor": {
-        "kind": "program",
-        "producer": "sdc-bugfix",
-        "program": "sdc-tool.sh bugfix repro-run --pool-wait 1200",
-        "results": {
-          "*": "not_red",
-          "0": "red"
-        },
-        "timeout_s": 3000
-      },
-      "name": "repro.run",
-      "precondition": [
-        {
-          "depth": 0,
-          "text": "all of"
-        },
-        {
-          "depth": 1,
-          "reference": "claim:dissection.valid",
-          "text": "claim"
-        },
-        {
-          "depth": 1,
-          "reference": "claim:repro.checked",
-          "text": "claim is unknown:"
-        }
-      ],
-      "produces": [
-        "repro_run"
-      ],
       "step": 1,
       "waits_for": [
-        "dissection.check"
+        "bug.dissect"
       ]
     },
     {
@@ -115,7 +92,11 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "implement",
+        "producer": "llm-node",
         "program": "llm-node.sh test.reproduce",
+        "results": {
+          "0": null
+        },
         "retry_when": [
           "repro_run"
         ],
@@ -147,10 +128,58 @@
           "text": "claim is unknown:"
         }
       ],
-      "produces": [],
-      "step": 1,
+      "produces": [
+        "repro_written"
+      ],
+      "step": 2,
       "waits_for": [
         "dissection.check"
+      ]
+    },
+    {
+      "arguments": [],
+      "capabilities": [],
+      "description": "run the reproducing test on the code tree; once per repro revision, once the dissection is valid and the test writer has left a repro record (a run against no test would end the case not_reproduced)",
+      "effect": "read",
+      "executor": {
+        "kind": "program",
+        "producer": "sdc-bugfix",
+        "program": "sdc-tool.sh bugfix repro-run --pool-wait 1200",
+        "results": {
+          "*": "not_red",
+          "0": "red"
+        },
+        "timeout_s": 3000
+      },
+      "name": "repro.run",
+      "precondition": [
+        {
+          "depth": 0,
+          "text": "all of"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:dissection.valid",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.written",
+          "text": "claim"
+        },
+        {
+          "depth": 1,
+          "reference": "claim:repro.checked",
+          "text": "claim is unknown:"
+        }
+      ],
+      "produces": [
+        "repro_run"
+      ],
+      "step": 3,
+      "waits_for": [
+        "dissection.check",
+        "test.reproduce"
       ]
     },
     {
@@ -185,7 +214,7 @@
       "produces": [
         "implementation_change"
       ],
-      "step": 2,
+      "step": 4,
       "waits_for": [
         "repro.run"
       ]
@@ -230,7 +259,7 @@
       "produces": [
         "test_run"
       ],
-      "step": 3,
+      "step": 5,
       "waits_for": [
         "change.fix",
         "repro.run"
@@ -275,7 +304,7 @@
       "produces": [
         "story_record"
       ],
-      "step": 4,
+      "step": 6,
       "waits_for": [
         "change.fix",
         "repro.run",
@@ -327,7 +356,7 @@
       "produces": [
         "gate_run"
       ],
-      "step": 5,
+      "step": 7,
       "waits_for": [
         "change.fix",
         "story.update",
@@ -402,6 +431,18 @@
       ]
     },
     {
+      "description": "the current dissection revision is the output of a dissection writer run",
+      "name": "dissection.written",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:dissection_written",
+          "suffix": "about dissection",
+          "text": "any evidence:"
+        }
+      ]
+    },
+    {
       "description": "a gate run is recorded about the current code revision, whatever its result",
       "name": "gate.checked",
       "true_when": [
@@ -446,6 +487,18 @@
           "reference": "evidence:repro_run",
           "suffix": "about repro",
           "text": "evidence = red:"
+        }
+      ]
+    },
+    {
+      "description": "the current repro revision is the output of a test writer run",
+      "name": "repro.written",
+      "true_when": [
+        {
+          "depth": 0,
+          "reference": "evidence:repro_written",
+          "suffix": "about repro",
+          "text": "any evidence:"
         }
       ]
     },
@@ -496,6 +549,13 @@
       ]
     },
     {
+      "description": "the record that the dissection writer ran and left the dissection document at a new revision",
+      "name": "dissection_written",
+      "produced_by": [
+        "bug.dissect"
+      ]
+    },
+    {
       "description": "the code tree's gate run by a program: build, test, lint with warnings as errors, format check; passed or failed",
       "name": "gate_run",
       "produced_by": [
@@ -517,6 +577,13 @@
       ]
     },
     {
+      "description": "the record that the test writer ran and left the repro record at a new revision",
+      "name": "repro_written",
+      "produced_by": [
+        "test.reproduce"
+      ]
+    },
+    {
       "description": "the record that the bug's story was moved to implemented in the planning store",
       "name": "story_record",
       "produced_by": [
@@ -534,6 +601,11 @@
   "format": "sdc.protocol-site/1",
   "graph": {
     "edges": [
+      {
+        "from": "action:bug.dissect",
+        "kind": "produces",
+        "to": "evidence:dissection_written"
+      },
       {
         "from": "action:change.fix",
         "kind": "produces",
@@ -558,6 +630,11 @@
         "from": "action:story.update",
         "kind": "produces",
         "to": "evidence:story_record"
+      },
+      {
+        "from": "action:test.reproduce",
+        "kind": "produces",
+        "to": "evidence:repro_written"
       },
       {
         "from": "action:tests.run",
@@ -629,6 +706,11 @@
         "to": "outcome:not_reproduced"
       },
       {
+        "from": "claim:dissection.written",
+        "kind": "gates",
+        "to": "action:dissection.check"
+      },
+      {
         "from": "claim:gate.checked",
         "kind": "gates",
         "qualifier": "unknown",
@@ -695,6 +777,11 @@
         "to": "outcome:not_reproduced"
       },
       {
+        "from": "claim:repro.written",
+        "kind": "gates",
+        "to": "action:repro.run"
+      },
+      {
         "from": "claim:story.updated",
         "kind": "gates",
         "to": "action:gate.run"
@@ -743,6 +830,11 @@
         "to": "claim:dissection.valid"
       },
       {
+        "from": "evidence:dissection_written",
+        "kind": "establishes",
+        "to": "claim:dissection.written"
+      },
+      {
         "from": "evidence:gate_run",
         "kind": "establishes",
         "to": "claim:gate.checked"
@@ -768,6 +860,11 @@
         "kind": "establishes",
         "qualifier": "red",
         "to": "claim:repro.red"
+      },
+      {
+        "from": "evidence:repro_written",
+        "kind": "establishes",
+        "to": "claim:repro.written"
       },
       {
         "from": "evidence:story_record",
@@ -833,6 +930,11 @@
         "name": "dissection_check"
       },
       {
+        "id": "evidence:dissection_written",
+        "kind": "evidence",
+        "name": "dissection_written"
+      },
+      {
         "id": "evidence:gate_run",
         "kind": "evidence",
         "name": "gate_run"
@@ -846,6 +948,11 @@
         "id": "evidence:repro_run",
         "kind": "evidence",
         "name": "repro_run"
+      },
+      {
+        "id": "evidence:repro_written",
+        "kind": "evidence",
+        "name": "repro_written"
       },
       {
         "id": "evidence:story_record",
@@ -873,6 +980,11 @@
         "name": "dissection.valid"
       },
       {
+        "id": "claim:dissection.written",
+        "kind": "claim",
+        "name": "dissection.written"
+      },
+      {
         "id": "claim:gate.checked",
         "kind": "claim",
         "name": "gate.checked"
@@ -891,6 +1003,11 @@
         "id": "claim:repro.red",
         "kind": "claim",
         "name": "repro.red"
+      },
+      {
+        "id": "claim:repro.written",
+        "kind": "claim",
+        "name": "repro.written"
       },
       {
         "id": "claim:story.updated",
@@ -1031,9 +1148,9 @@
       "not_fixed": 2,
       "not_reproduced": 2
     },
-    "canon": "2c7a1ea6",
+    "canon": "e81f970d",
     "findings": 0,
-    "reachable": 11,
+    "reachable": 13,
     "revision": 1,
     "source": "protocol/simulate/sdc-bugfix.txt",
     "stuck_or_cycle": 0,

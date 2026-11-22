@@ -1,5 +1,7 @@
-//! The real deciders of `runbook loom-run`: the choice from the run settings and the decider that
-//! starts `bindings/tools/decider.sh` of the bindings copy for one decision.
+//! The real deciders of `runbook run`: the choice from the run settings and the decider that
+//! answers one decision in this process: a rule by itself, a model decision through the adapter
+//! program of the settings (`decider/`: rules, the model call, the inputs and the prompt, the check
+//! of the reply).
 //!
 //! The table of what the driver decided, what Loom can ask today and what this module does with
 //! each is in `docs/loom-run-decisions.md`. Short form: an entry of `decisions[]` of kind
@@ -12,7 +14,7 @@ use crate::loom_run::answers::{self, AskRequest, Asked};
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
 use serde_json::{json, Map, Value};
 use std::io::Read;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -26,9 +28,9 @@ pub const AUTONOMY_DECIDES: &str = "A5";
 const AUTONOMY_LEVELS: [&str; 6] = ["A0", "A1", "A2", "A3", "A4", "A5"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 const MODEL_KEYS: [&str; 14] = [
+    "requester",
     "without_claims",
     "kind",
-    "program",
     "model",
     "adapter",
     "effort",
@@ -41,7 +43,7 @@ const MODEL_KEYS: [&str; 14] = [
     "timeout_seconds",
     "reply_bin",
 ];
-const RULE_KEYS: [&str; 4] = ["kind", "program", "verdict", "timeout_seconds"];
+const RULE_KEYS: [&str; 3] = ["kind", "verdict", "timeout_seconds"];
 /// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
 const APPROVAL_KINDS: [&str; 3] = ["ApproveAction", "Approve", "Close"];
 /// Driver default of `SDC_MAX_DECIDER_CALLS`.
@@ -54,16 +56,15 @@ const DEFAULT_TIMEOUT_SECONDS: u64 = 900;
 const OUTPUT_CAP: u64 = 1 << 20;
 
 /// Chooses the decider from the run settings. No `decider` key: the refusing default.
-/// `"scripted"`: R1's test double. `"model"`: one `decider.sh model` call per decision. `"rule"`:
-/// `decider.sh approve` or `decider.sh reject` (the driver's `SDC_DECIDER=approve|reject`; the
-/// driver's `SDC_RULE_APPROVALS` is not mapped, see the docs). An unknown key or kind is refused
-/// by name.
+/// `"scripted"`: R1's test double. `"model"`: one model call per decision. `"rule"`:
+/// the rule `approve` or `reject` (the driver's `SDC_DECIDER=approve|reject`; the driver's
+/// `SDC_RULE_APPROVALS` is not mapped, see the docs). An unknown key or kind is refused by name.
 pub fn from_settings(settings: &Value) -> Result<Box<dyn Decider>, String> {
     match settings.get("decider") {
         None => Ok(Box::new(RefusingDecider)),
         Some(decider) => match decider.get("kind").and_then(Value::as_str) {
             Some("scripted") => ScriptedDecider::from_value(decider).map(|d| Box::new(d) as Box<dyn Decider>),
-            Some("model") | Some("rule") => ProgramDecider::parse(settings, decider).map(|d| Box::new(d) as Box<dyn Decider>),
+            Some("model") | Some("rule") => NativeDecider::parse(settings, decider).map(|d| Box::new(d) as Box<dyn Decider>),
             Some(other) => Err(format!("decider.kind {other}: not known (model, rule, scripted)")),
             None => Err("decider.kind: missing".to_owned()),
         },
@@ -104,6 +105,7 @@ fn rule_verdict(decider: &Value) -> Result<&str, String> {
     }
 }
 
+
 enum Mode {
     Model {
         model: String,
@@ -112,7 +114,7 @@ enum Mode {
         max_turns: Option<u64>,
         final_escalate: bool,
         retries: u64,
-        reply_bin: PathBuf,
+        reply_bin: Option<PathBuf>,
         without_claims: bool,
     },
     Rule {
@@ -120,16 +122,18 @@ enum Mode {
     },
 }
 
-/// A decider that starts the bindings copy's `decider.sh` once per decision.
-pub struct ProgramDecider {
+/// The decider of a run: answers a decision in this process. A rule answers by itself; a model
+/// decision starts the adapter program of its settings (and nothing else) once per attempt.
+pub struct NativeDecider {
     mode: Mode,
-    program: PathBuf,
     max_calls: u64,
     max_call_micro_usd: u64,
     timeout: Duration,
     autonomy: Option<String>,
     login_file: Option<String>,
     principal: String,
+    /// `decider.requester`: a decision of a requester-side class goes to the requester decider.
+    requester: bool,
 }
 
 fn number_key(decider: &Value, key: &str, min: u64) -> Result<Option<u64>, String> {
@@ -158,10 +162,10 @@ fn path_key(decider: &Value, key: &str) -> Result<Option<String>, String> {
     }
 }
 
-impl ProgramDecider {
+impl NativeDecider {
     /// Reads `settings.decider` (kind `model` or `rule`) and the top-level `autonomy` and
     /// `login_file`.
-    pub fn parse(settings: &Value, decider: &Value) -> Result<ProgramDecider, String> {
+    pub fn parse(settings: &Value, decider: &Value) -> Result<NativeDecider, String> {
         let object = decider.as_object().ok_or("decider: an object")?;
         let kind = decider.get("kind").and_then(Value::as_str).unwrap_or("");
         let allowed: &[&str] = if kind == "rule" { &RULE_KEYS } else { &MODEL_KEYS };
@@ -170,7 +174,6 @@ impl ProgramDecider {
                 return Err(format!("decider.{key}: not a key of a decider of kind {kind}"));
             }
         }
-        let program = path_key(decider, "program")?.ok_or("decider.program: missing (the decider.sh of the bindings copy)")?;
         let timeout = Duration::from_secs(number_key(decider, "timeout_seconds", 1)?.unwrap_or(DEFAULT_TIMEOUT_SECONDS));
         let level = autonomy(settings)?;
         let login_file = match settings.get(crate::loom_run::settings::LOGIN_KEY) {
@@ -216,13 +219,18 @@ impl ProgramDecider {
                 max_turns: number_key(decider, "max_turns", 1)?,
                 final_escalate: escalate,
                 retries: number_key(decider, "retries", 0)?.unwrap_or(DEFAULT_RETRIES),
-                reply_bin: PathBuf::from(path_key(decider, "reply_bin")?.ok_or("decider.reply_bin: missing (the sdc-reply binary decider.sh reads the reply schema from)")?),
+                reply_bin: path_key(decider, "reply_bin")?.map(PathBuf::from),
                 without_claims,
             };
             (mode, max_calls, max_call)
         };
+        let requester = match decider.get("requester") {
+            None => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("decider.requester: true or false".to_owned()),
+        };
         let principal = person_step_principal(&json!({"autonomy": "A5", "decider": decider}))?.ok_or("decider: no principal")?;
-        Ok(ProgramDecider { mode, program: PathBuf::from(program), max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal })
+        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester })
     }
 
     fn cannot(reason: impl Into<String>) -> Verdict {
@@ -237,141 +245,8 @@ impl ProgramDecider {
     }
 }
 
-/// The approval a decision entry asks for, read with an explicit path for every absent member.
-struct Approval {
-    case: String,
-    action: String,
-    capability: Option<String>,
-    subject: String,
-    revision: String,
-    path: Option<String>,
-    /// The outcome of a `Close` entry; the decision is then a close, not an approval.
-    close_outcome: Option<String>,
-}
-
-fn text_member<'a>(decision: &'a Value, name: &str) -> Option<&'a str> {
-    decision.get(name).and_then(Value::as_str).filter(|s| !s.is_empty())
-}
-
-fn plain_name(name: &str) -> bool {
-    !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0')
-}
-
-fn read_approval(request: &DecisionRequest<'_>, bindings: Option<&Path>) -> Result<Approval, String> {
-    let decision = request.decision;
-    let kind = text_member(decision, "kind").ok_or("the decision has no kind")?;
-    if !APPROVAL_KINDS.contains(&kind) {
-        return Err(match kind {
-            "Handoff" => "kind Handoff: a writer's handoff text names work for a person; the printed `tree run` changes nothing until that work is done, and the decider has no reply for it".to_owned(),
-            other => format!("kind {other} not known"),
-        });
-    }
-    let case = text_member(decision, "case").ok_or("the decision names no case")?.to_owned();
-    if !plain_name(&case) {
-        return Err("the case name is not a plain name".to_owned());
-    }
-    if kind == "Close" {
-        let outcome = text_member(decision, "outcome").ok_or("the Close decision names no outcome (member `outcome` absent)")?.to_owned();
-        return Ok(Approval { case, action: "close".to_owned(), capability: None, subject: String::new(), revision: String::new(), path: None, close_outcome: Some(outcome) });
-    }
-    let action = text_member(decision, "action").ok_or("the decision names no action (member `action` absent)")?.to_owned();
-    if bindings.is_some_and(|dir| answers::is_answer_step_in(dir, &action)) {
-        return Err(format!(
-            "{action} is a step whose outcome is a person's text, not a recorded result: Loom's approval of it carries no answer, and the answers file of the bindings ({}) declares nothing for it",
-            answers::FILE
-        ));
-    }
-    let subject = text_member(decision, "subject").ok_or("the decision names no subject (member `subject` absent): decider.sh cannot say what is decided")?.to_owned();
-    let revision = text_member(decision, "revision").ok_or("the decision names no revision (member `revision` absent): decider.sh cannot say which revision is decided")?.to_owned();
-    let path = match text_member(decision, "path") {
-        None => None,
-        Some(path) => {
-            let relative = Path::new(path)
-                .strip_prefix(request.workspace)
-                .map_err(|_| "the decision's path is not inside the workspace".to_owned())?;
-            if relative.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
-                return Err("the decision's path has a segment that is not a plain name".to_owned());
-            }
-            Some(relative.to_string_lossy().into_owned())
-        }
-    };
-    Ok(Approval { case, action, capability: text_member(decision, "capability").map(str::to_owned), subject, revision, path, close_outcome: None })
-}
-
-fn hex(text: &str) -> String {
-    text.bytes().map(|b| format!("{b:02x}")).collect()
-}
-
-/// The artifacts of a case with their revisions, from Loom's case file (`case_file` of
-/// `tree status`: `<store>/case-<hex of the case id>.json`, store named by `--store` of the
-/// decision's `command`). Empty when the file cannot be read.
-fn case_artifacts(decision: &Value, case: &str) -> Vec<(String, String)> {
-    let words: Vec<&str> = decision.get("command").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
-    let store = match words.iter().position(|w| *w == "--store").and_then(|i| words.get(i + 1)) {
-        Some(store) => PathBuf::from(store),
-        None => return Vec::new(),
-    };
-    let file = store.join(format!("case-{}.json", hex(case)));
-    let document: Value = match std::fs::read_to_string(file).ok().and_then(|t| serde_json::from_str(&t).ok()) {
-        Some(document) => document,
-        None => return Vec::new(),
-    };
-    document
-        .get("artifacts")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| Some((item.get("artifact")?.as_str()?.to_owned(), item.get("revision")?.as_str()?.to_owned())))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// The directory `decider.sh` takes as `case_dir`: `case.json` (`id` from the decision's `case`,
-/// `artifacts` from Loom's case file and the decision's own subject) and `work` (a link to the
-/// workspace). Under `<run dir>/decider-cases/<case>/`.
-fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) -> Result<PathBuf, String> {
-    let dir = request.run_dir.join("decider-cases").join(&approval.case);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("decider case directory: {e}"))?;
-    let mut artifacts = Map::new();
-    for (name, revision) in case_artifacts(request.decision, &approval.case) {
-        artifacts.insert(name, json!({ "revision": revision }));
-    }
-    if !approval.subject.is_empty() {
-        artifacts.insert(approval.subject.clone(), json!({ "revision": approval.revision }));
-    }
-    let case = json!({"id": approval.case, "artifacts": artifacts});
-    std::fs::write(dir.join("case.json"), format!("{case}\n")).map_err(|e| format!("decider case file: {e}"))?;
-    let work = dir.join("work");
-    if std::fs::symlink_metadata(&work).is_ok() {
-        std::fs::remove_file(&work).map_err(|e| format!("decider case directory: {e}"))?;
-    }
-    std::os::unix::fs::symlink(request.workspace, &work).map_err(|e| format!("decider case directory: {e}"))?;
-    Ok(dir)
-}
-
-fn record_dirs(base: &Path) -> u64 {
-    std::fs::read_dir(base)
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false) && e.file_name() != "rule")
-                .count() as u64
-        })
-        .unwrap_or(0)
-}
-
-fn safe_part(text: &str) -> String {
-    text.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' { c } else { '_' }).collect()
-}
-
-fn usd_text(micro: u64) -> String {
-    format!("{}.{:06}", micro / 1_000_000, micro % 1_000_000)
-}
-
 struct Ran {
-    code: Option<i32>,
+    code: i32,
     stdout: String,
     stderr: String,
 }
@@ -382,7 +257,7 @@ fn run_program(program: &Path, args: &[&str], env: &[(String, String)], cwd: &Pa
     let mut command = Command::new(program);
     command.args(args).env_clear().envs(env.iter().map(|(k, v)| (k, v))).current_dir(cwd);
     command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).process_group(0);
-    let mut child = command.spawn().map_err(|e| format!("could not start the decider program: {}", e.kind()))?;
+    let mut child = command.spawn().map_err(|e| format!("could not start the decider's adapter program: {}", e.kind()))?;
     let mut out = child.stdout.take().ok_or("no stdout")?;
     let mut err = child.stderr.take().ok_or("no stderr")?;
     let out_reader = std::thread::spawn(move || {
@@ -401,10 +276,11 @@ fn run_program(program: &Path, args: &[&str], env: &[(String, String)], cwd: &Pa
             Ok(Some(status)) => {
                 let stdout = out_reader.join().unwrap_or_default();
                 let stderr = err_reader.join().unwrap_or_default();
-                return Ok(Ran { code: status.code(), stdout: String::from_utf8_lossy(&stdout).into_owned(), stderr: String::from_utf8_lossy(&stderr).into_owned() });
+                let code = status.code().or_else(|| status.signal().map(|s| 128 + s)).unwrap_or(1);
+                return Ok(Ran { code, stdout: String::from_utf8_lossy(&stdout).into_owned(), stderr: String::from_utf8_lossy(&stderr).into_owned() });
             }
             Ok(None) => {}
-            Err(e) => return Err(format!("could not wait for the decider program: {}", e.kind())),
+            Err(e) => return Err(format!("could not wait for the decider's adapter program: {}", e.kind())),
         }
         if Instant::now() >= deadline {
             let group = format!("-{}", child.id());
@@ -413,19 +289,17 @@ fn run_program(program: &Path, args: &[&str], env: &[(String, String)], cwd: &Pa
                 let _ = child.kill();
             }
             let _ = child.wait();
-            return Err(format!("the decider program ran over its time limit of {} s and was ended", timeout.as_secs()));
+            return Err(format!("the decider's adapter program ran over its time limit of {} s and was ended", timeout.as_secs()));
         }
         std::thread::sleep(Duration::from_millis(10));
     }
 }
 
-fn tail(text: &str, lines: usize) -> String {
-    let all: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    all[all.len().saturating_sub(lines)..].join(" | ")
-}
-
-impl ProgramDecider {
-    fn env(&self, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Vec<(String, String)>, String> {
+impl NativeDecider {
+    /// The environment of the adapter program: the runner's `PATH`, a `HOME` inside the run
+    /// directory, the `sdc-reply` the settings or the runner's `PATH` name (the scripted adapter of
+    /// the tests reads it) and the login link. Nothing of the runner's own environment.
+    fn env(&self, request: &DecisionRequest<'_>) -> Result<Vec<(String, String)>, String> {
         let path = request
             .child_env
             .iter()
@@ -435,28 +309,49 @@ impl ProgramDecider {
         let home = request.run_dir.join("home");
         std::fs::create_dir_all(&home).map_err(|e| format!("decider home directory: {}", e.kind()))?;
         let mut env = vec![("PATH".to_owned(), path), ("HOME".to_owned(), home.display().to_string())];
-        if let Mode::Model { model, adapter, effort, max_turns, final_escalate, reply_bin, .. } = &self.mode {
-            env.push(("SDC_DECIDER_ESCALATE".to_owned(), if *final_escalate { "final" } else { "stop" }.to_owned()));
-            env.push(("SDC_LLM_MODEL_DECIDER".to_owned(), model.clone()));
-            env.push(("SDC_DECIDER_MAX_BUDGET_USD".to_owned(), usd_text(budget_micro_usd)));
+        if let Mode::Model { reply_bin: Some(reply_bin), .. } = &self.mode {
             env.push(("SDC_REPLY".to_owned(), reply_bin.display().to_string()));
-            if let Some(adapter) = adapter {
-                env.push(("SDC_DECIDER_ADAPTER".to_owned(), adapter.clone()));
-            }
-            if let Some(effort) = effort {
-                env.push(("SDC_LLM_EFFORT_DECIDER".to_owned(), effort.clone()));
-            }
-            if let Some(turns) = max_turns {
-                env.push(("SDC_DECIDER_MAX_TURNS".to_owned(), turns.to_string()));
-            }
-            if let Some(login) = &self.login_file {
-                // The link in the run's private directory, when there is one: the real path then
-                // stays in the settings alone.
-                let value = request.login_link.map_or_else(|| login.clone(), |link| link.display().to_string());
-                env.push(("SDC_CLAUDE_CREDENTIALS".to_owned(), value));
-            }
+        }
+        if let (Mode::Model { .. }, Some(login)) = (&self.mode, &self.login_file) {
+            // The link in the run's private directory, when there is one: the real path then
+            // stays in the settings alone.
+            let value = request.login_link.map_or_else(|| login.clone(), |link| link.display().to_string());
+            env.push(("SDC_CLAUDE_CREDENTIALS".to_owned(), value));
         }
         Ok(env)
+    }
+
+    /// The reply of the decider to the request `body` in the record directory `rec`: by rule, or
+    /// from one model call. The reply and what the adapter wrote on its standard error are kept in
+    /// `rec` (`reply.json`, `decider-stderr.txt`), the login path replaced by `<login file>`.
+    fn reply(&self, body: &Value, rec: &Path, request: &DecisionRequest<'_>, budget_micro_usd: u64) -> Result<Value, String> {
+        let replied = match &self.mode {
+            Mode::Rule { verdict } => Replied { reply: rules::rule_reply(verdict, body), stderr: String::new() },
+            Mode::Model { model, adapter, effort, max_turns, final_escalate, .. } => {
+                let tools = request.run_dir.join("bindings").join("tools");
+                let root = instructions_root(&tools).ok_or("the instruction files are not found: the decider needs instructions/decider/ above the bindings copy")?;
+                let env = self.env(request)?;
+                let call_of = if self.requester && body["side"] == "requester" { requester::run } else { call::run };
+                call_of(&ModelCall {
+                    req: body,
+                    rec,
+                    tools: &tools,
+                    root: &root,
+                    model,
+                    adapter: adapter.as_deref(),
+                    effort: effort.as_deref(),
+                    max_turns: *max_turns,
+                    final_escalate: *final_escalate,
+                    budget_micro_usd,
+                    env: &env,
+                    timeout: self.timeout,
+                })
+                .map_err(|reason| self.redact(&reason))?
+            }
+        };
+        let _ = std::fs::write(rec.join("decider-stderr.txt"), self.redact(&replied.stderr));
+        let _ = std::fs::write(rec.join("reply.json"), self.redact(&format!("{}\n", replied.reply)));
+        Ok(replied.reply)
     }
 
     fn decide_rule(&self, verdict: &str, request: &DecisionRequest<'_>, approval: &Approval) -> Verdict {
@@ -465,70 +360,45 @@ impl ProgramDecider {
             return Self::cannot(format!("decider record directory: {}", e.kind()));
         }
         let body = decide_request(approval, &PathBuf::new(), &rec, None);
-        let req_file = rec.join("decide-request.json");
-        if let Err(e) = std::fs::write(&req_file, format!("{body}\n")) {
+        if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
             return Self::cannot(format!("decider request file: {}", e.kind()));
         }
-        let env = match self.env(request, 0) {
-            Ok(env) => env,
+        let reply = match self.reply(&body, &rec, request, 0) {
+            Ok(reply) => reply,
             Err(reason) => return Self::cannot(reason),
         };
-        let ran = match run_program(&self.program, &[verdict, &req_file.display().to_string()], &env, &rec, self.timeout) {
-            Ok(ran) => ran,
-            Err(reason) => return Self::cannot(reason),
-        };
-        match self.read_reply(&ran, &rec) {
-            Err(reason) => Self::cannot(reason),
-            Ok(reply) => {
-                if reply.get("valid") == Some(&Value::Bool(false)) {
-                    return Self::cannot("the rule decider's reply is not valid");
-                }
-                match reply.get("decision").and_then(Value::as_str) {
-                    Some(d @ ("approve" | "reject")) => Verdict::Answer {
-                        approve: d == "approve",
-                        principal: Some(self.principal.clone()),
-                        cost_micro_usd: Some(0),
-                        model_calls: 0,
-                        reasons: if d == "reject" { reply_reasons(&reply).map(|t| self.redact(&t)) } else { None },
-                    },
-                    _ => Self::cannot("the rule decider's reply has no decision approve or reject"),
-                }
-            }
-        }
-    }
-
-    /// Checks the exit and parses stdout as one JSON object; writes redacted copies into `rec`.
-    fn read_reply(&self, ran: &Ran, rec: &Path) -> Result<Value, String> {
-        let _ = std::fs::write(rec.join("decider-stderr.txt"), self.redact(&ran.stderr));
-        let _ = std::fs::write(rec.join("reply.json"), self.redact(&ran.stdout));
-        match ran.code {
-            Some(0) => {}
-            Some(code) => return Err(format!("decider.sh exited {code}: {}", self.redact(&tail(&ran.stderr, 3)))),
-            None => return Err(format!("decider.sh was ended by a signal: {}", self.redact(&tail(&ran.stderr, 3)))),
-        }
-        match serde_json::from_str::<Value>(ran.stdout.trim()) {
-            Ok(reply) if reply.is_object() => Ok(reply),
-            _ => Err("decider.sh printed no single JSON object".to_owned()),
+        match reply.get("decision").and_then(Value::as_str) {
+            Some(d @ ("approve" | "reject")) => Verdict::Answer {
+                approve: d == "approve",
+                principal: Some(self.principal.clone()),
+                cost_micro_usd: Some(0),
+                model_calls: 0,
+                reasons: if d == "reject" { reply_reasons(&reply).map(|t| self.redact(&t)) } else { None },
+            },
+            _ => Self::cannot(format!("the rule decider's reply has no decision approve or reject (rule {verdict})")),
         }
     }
 
     fn decide_model(&self, request: &DecisionRequest<'_>, approval: &Approval) -> Verdict {
-        let Mode::Model { final_escalate, retries, reply_bin, without_claims, .. } = &self.mode else {
+        let Mode::Model { final_escalate, retries, without_claims, .. } = &self.mode else {
             return Self::cannot("not a model decider");
         };
-        if !without_claims {
-            // Loom's decisions[] holds no claim values (`position.claims`): decider.sh tells the
+        let kind = if approval.close_outcome.is_some() { "close" } else { "approval" };
+        let routed = match self.requester_class(request.run_dir, kind, &approval.action) {
+            Ok(class) => class,
+            Err(reason) => return Self::cannot(reason),
+        };
+        if !without_claims && routed.is_none() {
+            // Loom's decisions[] holds no claim values (`position.claims`): the decider tells the
             // model to check claims in in/checks.json that it is not given. The setting
-            // `without_claims: true` is the run's explicit acknowledgement of that.
-            return Self::cannot("claims of the position are not in Loom's output: decider.sh tells the model to read them from in/checks.json (member `position.claims`) and decisions[] holds none; set decider.without_claims to run the model decider without them");
-        }
-        if !reply_bin.is_file() {
-            return Self::cannot("sdc-reply (decider.reply_bin) is not a file: decider.sh needs it for the reply schema, the citable artifacts and the prior rejections");
+            // `without_claims: true` is the run's explicit acknowledgement of that. The requester
+            // reads no claims.
+            return Self::cannot(NO_CLAIMS);
         }
         let budget = request.budget_micro_usd.min(self.max_call_micro_usd);
         let decider_dir = request.run_dir.join("decider");
-        if instructions_root(&self.program).is_none() {
-            return Self::cannot("the instruction files are not found: decider.sh needs instructions/decider/ above the bindings copy");
+        if instructions_root(&request.run_dir.join("bindings").join("tools")).is_none() {
+            return Self::cannot(NO_INSTRUCTIONS);
         }
         let case_dir = match make_case_dir(request, approval) {
             Ok(dir) => dir,
@@ -551,23 +421,17 @@ impl ProgramDecider {
                 return Self::cannot(format!("decider record directory: {}", e.kind()));
             }
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let body = decide_request(approval, &case_dir, &rec, retry);
-            let req_file = rec.join("decide-request.json");
-            if let Err(e) = std::fs::write(&req_file, format!("{body}\n")) {
+            let mut body = decide_request(approval, &case_dir, &rec, retry);
+            if let Some(class) = &routed {
+                requester::tag(&mut body, class, request.run_dir);
+            }
+            if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
                 return Self::cannot(format!("decider request file: {}", e.kind()));
             }
             if let Err(e) = std::fs::write(rec.join("loom-decision.json"), format!("{}\n", request.decision)) {
                 return Self::cannot(format!("decider record file: {}", e.kind()));
             }
-            let env = match self.env(request, budget - spent_micro) {
-                Ok(env) => env,
-                Err(reason) => return Self::cannot(reason),
-            };
-            let ran = match run_program(&self.program, &["model", &req_file.display().to_string()], &env, &rec, self.timeout) {
-                Ok(ran) => ran,
-                Err(reason) => return Self::cannot(self.redact(&reason)),
-            };
-            let reply = match self.read_reply(&ran, &rec) {
+            let reply = match self.reply(&body, &rec, request, budget - spent_micro) {
                 Ok(reply) => reply,
                 Err(reason) => return Self::cannot(reason),
             };
@@ -604,12 +468,16 @@ impl ProgramDecider {
                 _ => return Self::cannot("the decider's reply has no decision approve, reject or escalate"),
             };
             let reasons = if decision { None } else { reply_reasons(&reply).map(|t| self.redact(&t)) };
-            return Verdict::Answer { approve: decision, principal: Some(self.principal.clone()), cost_micro_usd: Some(spent), model_calls: calls, reasons };
+            return Verdict::Answer { approve: decision, principal: Some(self.principal_for(routed.is_some()).to_owned()), cost_micro_usd: Some(spent), model_calls: calls, reasons };
         }
     }
 }
 
-impl Decider for ProgramDecider {
+/// The text `decide_model` gives when the settings do not acknowledge missing claims.
+const NO_CLAIMS: &str = "claims of the position are not in Loom's output: the decider tells the model to read them from in/checks.json (member `position.claims`) and decisions[] holds none; set decider.without_claims to run the model decider without them";
+const NO_INSTRUCTIONS: &str = "the instruction files are not found: the decider needs instructions/decider/ above the bindings copy";
+
+impl Decider for NativeDecider {
     fn max_call_micro_usd(&self) -> u64 {
         match self.mode {
             Mode::Rule { .. } => 0,
@@ -622,7 +490,7 @@ impl Decider for ProgramDecider {
             let level = self.autonomy.as_deref().map(|l| format!("autonomy {l}")).unwrap_or_else(|| "no autonomy level named".to_owned());
             return Self::cannot(format!("reserved for a person: {level}; the decider decides only at {AUTONOMY_DECIDES}"));
         }
-        let approval = match read_approval(request, self.program.parent().and_then(Path::parent)) {
+        let approval = match read_approval(request, Some(&request.run_dir.join("bindings"))) {
             Ok(approval) => approval,
             Err(reason) => return Self::cannot(reason),
         };
@@ -641,22 +509,34 @@ impl Decider for ProgramDecider {
     }
 }
 
+mod approval;
 mod ask;
+mod call;
+mod inputs;
+mod prompt;
+mod requester;
+mod rules;
+mod validate;
+
+use approval::*;
+use call::{ModelCall, Replied};
 
 // The tests of this module: `src/loom_run/decider/tests.rs`. The crate is a binary, so an
 // integration test (tests/cli.rs) reaches the code only through the command line.
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod requester_tests;
+// The slow lane `task test:decider-parity` (decider.sh against this decider), deleted with decider.sh.
+#[cfg(test)]
+mod parity;
+#[cfg(test)]
+mod parity_cases;
 
-fn cost_micro(reply: &Value) -> Option<u64> {
-    let usd = reply.get("cost_usd")?.as_f64()?;
-    (usd.is_finite() && usd >= 0.0).then(|| (usd * 1_000_000.0).round() as u64)
-}
-
-/// The directory above the bindings copy's tools directory that holds `instructions/`, found the
-/// way `decider.sh` finds it (the nearest directory above its own that has one).
-pub fn instructions_root(program: &Path) -> Option<PathBuf> {
-    let mut dir = program.parent()?.to_path_buf();
+/// The directory above the bindings copy's tools directory that holds `instructions/`: the nearest
+/// directory, the tools directory itself first, that has one.
+pub fn instructions_root(tools: &Path) -> Option<PathBuf> {
+    let mut dir = tools.to_path_buf();
     loop {
         if dir.join("instructions").is_dir() {
             return Some(dir);
@@ -665,39 +545,4 @@ pub fn instructions_root(program: &Path) -> Option<PathBuf> {
             return None;
         }
     }
-}
-
-/// The request `decider.sh` reads (`decider.sh <kind> <request.json>`; its header names the
-/// members), built from the decision entry: `type` approval, the case directory, the subject, and
-/// an empty `position` (Loom's output holds no claim values).
-fn decide_request(approval: &Approval, case_dir: &Path, record_dir: &Path, retry: Option<(u64, String)>) -> Value {
-    let mut request = json!({
-        "type": "approval",
-        "case_dir": case_dir.display().to_string(),
-        "action": approval.action,
-        "capability": approval.capability,
-        "subject": approval.subject,
-        "path": approval.path,
-        "revision": approval.revision,
-        "position": {"claims": {}, "open_obligations": [], "legitimate_outcomes": []},
-        "record_dir": record_dir.display().to_string(),
-    });
-    if let Some(outcome) = &approval.close_outcome {
-        request["type"] = json!("close");
-        request["outcome"] = json!(outcome);
-        for member in ["action", "capability", "subject", "path", "revision"] {
-            request[member] = Value::Null;
-        }
-    }
-    if let Some((attempt, why)) = retry {
-        request["retry"] = json!({"attempt": attempt, "invalid_reason": why});
-    }
-    request
-}
-
-/// The decider's reasons of a reply: the `reasons` text members joined by line breaks.
-fn reply_reasons(reply: &Value) -> Option<String> {
-    let items = reply.get("reasons").and_then(Value::as_array)?;
-    let text = items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n");
-    (!text.trim().is_empty()).then_some(text)
 }

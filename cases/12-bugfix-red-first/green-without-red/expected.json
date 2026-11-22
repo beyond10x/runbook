@@ -13,10 +13,12 @@
     "change.built": "true",
     "dissection.checked": "true",
     "dissection.valid": "true",
+    "dissection.written": "unknown",
     "gate.checked": "unknown",
     "gate.passed": "unknown",
     "repro.checked": "unknown",
     "repro.red": "unknown",
+    "repro.written": "true",
     "story.updated": "unknown",
     "tests.pass": "true",
     "tests.run_recorded": "true"

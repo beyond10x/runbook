@@ -1,0 +1,45 @@
+exit 0
+stdout:
+| promote: f1 open: r1 does not say whether a cancelled invoice keeps its number
+stderr:
+written:
+f4191871c2653c4e (document)  .sdc/stub-findings.spec.author.yaml
+4355a46b19d348dc  .sdc/stub-round.spec.author
+    | 1
+4355a46b19d348dc  .sdc/stub-tree.billing-spec
+    | 1
+e69351c0550ab94b  findings.yaml
+    | findings:
+    | - id: f1
+    |   type: missing_decision
+    |   cites:
+    |   - r1
+    |   says: r1 does not say whether a cancelled invoice keeps its number
+    |   options:
+    |   - it keeps its number
+    |   - its number is freed
+    |   default: it keeps its number
+    |   scope_changing: false
+    |   stage: spec
+    |   raised_by: llm:spec.author
+    |   status: open
+8bc0022aea70d303  requirements.yaml
+    | requirements:
+    | - id: r1
+    |   text: A billing clerk creates, issues, pays and cancels invoices.
+    |   cites:
+    |   - d1
+    |   - q1
+    |   - q2
+    |   spec_domains:
+    |   - billing.invoice
+    | - id: r2
+    |   text: The customer is emailed when an invoice is created.
+    |   cites:
+    |   - d2
+    |   spec_domains:
+    |   - billing.email
+    | open_findings:
+    | - f1
+24a0cb029a451c17  spec/.derived-from
+    | requirements 8bc0022aea70d303 resolved 

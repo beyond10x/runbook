@@ -1,0 +1,30 @@
+format: protocol/1
+protocol:
+  id: engine-demo
+  revision: 1
+  description: >-
+    The root of the engine tests' runbook. It opens one drafting case for the idea and is delivered once that case passed.
+artifacts:
+  idea: {}
+evidence_kinds:
+  case_outcome: {}
+  draft_opened: {}
+claims:
+  draft.opened:
+    true_when:
+      evidence: {kind: draft_opened, subject: idea, result: opened}
+  draft.passed:
+    true_when:
+      children: {in: [passed]}
+actions:
+  draft.open:
+    effect: write
+    case_open: {protocol: engine.draft, subject: idea}
+    may_produce:
+      - evidence: draft_opened
+outcomes:
+  delivered:
+    requires:
+      all:
+        - {claim: draft.opened}
+        - {claim: draft.passed}

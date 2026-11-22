@@ -17,7 +17,7 @@ actions:
   - action: spec.author
     executor:
       kind: program
-      argv: [tools/llm-node.sh, spec.author, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}', --stub, stub-tree, billing-spec, spec]
+      argv: [sdc-node, spec.author, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}', --stub, stub-tree, billing-spec, spec]
     arguments_from: [tools/sdc-tool.sh, spec-domain, --action, spec.author]
     budget: {max_runs: 4}
     timeout_seconds: 1500
@@ -104,3 +104,4 @@ actions:
     budget: {max_runs: 12}
     timeout_seconds: 300
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"
+    handoff_when: [tools/sdc-tool.sh, findings-wait, --action, amend.upstream]

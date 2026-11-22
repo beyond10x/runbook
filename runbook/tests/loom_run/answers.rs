@@ -2,10 +2,10 @@
 //! (`tools/answers.yaml`, `src/loom_run/answers.rs`): ask the decider once per request, write each
 //! answer into the workspace through the file's programs, take the step, then run the command Loom
 //! printed. The programs here are POSIX sh the test writes; the runner knows the file's format and
-//! nothing about the work files. A fake `b10x-loom` and a fake `decider.sh`: no model call.
+//! nothing about the work files. A fake `b10x-loom` and a fake decider adapter: no model call.
 
 use super::core::{code, spent, stderr, World};
-use super::decider::{fixture_settings, install_decider, lines, write_settings};
+use super::decider::{fixture_settings, install_decider, lines, set_reply, write_settings};
 use super::fake::{decision_json, tree_run_json};
 use serde_json::{json, Value};
 use std::os::unix::fs::PermissionsExt;
@@ -71,7 +71,7 @@ const F_APPLY: &str = "awk -v id=\"$1\" -v ans=\"$2\" -v who=\"$3\" '
 cur && /^  status: / { print \"  decision: \" ans; print \"  decided_by: \" who }' findings.yaml > findings.yaml.new && mv findings.yaml.new findings.yaml
 ";
 
-const QUESTIONS_TWO: &str = "questions:
+pub(super) const QUESTIONS_TWO: &str = "questions:
 - id: q1
   scope_changing: true
   status: open
@@ -100,8 +100,6 @@ fn write_exe(path: &PathBuf, body: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-const DECIDER_SH: &str = "#!/bin/sh\nd=$(dirname \"$0\")\nn=$(cat \"$d/n\" 2>/dev/null || echo 0)\nn=$((n + 1))\necho $n > \"$d/n\"\ncp \"$2\" \"$d/request.$n.json\"\nenv > \"$d/env.$n.txt\"\nif [ -f \"$d/reply.$n.json\" ]; then cat \"$d/reply.$n.json\"; else cat \"$d/reply.json\"; fi\n";
-
 fn reply(answer: &str) -> String {
     format!("{{\"valid\":true,\"decision\":\"approve\",\"answer\":\"{answer}\",\"reasons\":[\"it follows from the idea\"],\"cites\":[],\"cost_usd\":0.02,\"adapter\":\"fake\",\"model\":\"claude-opus-5-5\"}}\n")
 }
@@ -110,11 +108,10 @@ const ESCALATE: &str = "{\"valid\":true,\"decision\":\"escalate\",\"reasons\":[\
 
 /// The world: bindings with the two actions, the answers file (unless `answers` is false), its
 /// programs, and a fake decider that answers `B` to everything.
-fn world(tag: &str, answers: bool) -> World {
+pub(super) fn world(tag: &str, answers: bool) -> World {
     let w = World::new(tag);
     install_decider(&w, &reply("B"));
     let tools = w.root.join("bindings/tools");
-    write_exe(&tools.join("decider.sh"), DECIDER_SH);
     std::fs::write(w.root.join("bindings/sdc.yaml"), BINDINGS).unwrap();
     for (name, body) in [("q-requests.sh", Q_REQUESTS), ("q-apply.sh", Q_APPLY), ("f-requests.sh", F_REQUESTS), ("f-apply.sh", F_APPLY)] {
         write_exe(&tools.join(name), &format!("#!/bin/sh\n{ENV_NOTE}{body}"));
@@ -131,7 +128,7 @@ fn scope_decision() -> String {
 }
 
 /// A tree that stops once at a scope.answer approval with `questions` in the workspace, then ends.
-fn question_tree(w: &World, questions: &str) {
+pub(super) fn question_tree(w: &World, questions: &str) {
     let f = &w.fake;
     f.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 0, None, &format!("[{}]", scope_decision())), 3);
     f.hook("tree_run", "1", &format!("cat > work/questions.yaml <<'EOF'\n{questions}EOF\n"));
@@ -168,7 +165,7 @@ fn read(w: &World, file: &str) -> String {
 #[test]
 fn two_scope_questions_are_answered_one_by_one_and_the_step_is_taken_by_the_decider() {
     let w = world("ans-questions", true);
-    std::fs::write(w.root.join("bindings/tools/reply.2.json"), reply("D")).unwrap();
+    set_reply(&w, ".2", &reply("D"));
     question_tree(&w, QUESTIONS_TWO);
     let started = std::time::Instant::now();
     let o = go(&w, json!({}));
@@ -205,7 +202,7 @@ fn two_scope_questions_are_answered_one_by_one_and_the_step_is_taken_by_the_deci
 #[test]
 fn a_finding_that_needs_a_person_is_answered_at_its_handoff_and_the_run_goes_on() {
     let w = world("ans-finding", true);
-    std::fs::write(w.root.join("bindings/tools/reply.json"), reply("keep-both")).unwrap();
+    set_reply(&w, "", &reply("keep-both"));
     handoff_tree(&w, FINDINGS_ONE);
     let o = go(&w, json!({}));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
@@ -228,7 +225,7 @@ fn a_finding_that_needs_a_person_is_answered_at_its_handoff_and_the_run_goes_on(
 #[test]
 fn an_escalation_under_stop_ends_the_run_for_a_person_with_the_deciders_reasons() {
     let w = world("ans-stop", true);
-    std::fs::write(w.root.join("bindings/tools/reply.json"), ESCALATE).unwrap();
+    set_reply(&w, "", ESCALATE);
     question_tree(&w, QUESTIONS_TWO);
     let o = go(&w, json!({"escalate": "stop"}));
     assert_eq!(code(&o), 8, "{}", stderr(&o));
@@ -248,7 +245,7 @@ fn an_escalation_under_stop_ends_the_run_for_a_person_with_the_deciders_reasons(
 #[test]
 fn an_escalation_under_final_takes_the_default_of_the_question_and_says_so() {
     let w = world("ans-final", true);
-    std::fs::write(w.root.join("bindings/tools/reply.json"), ESCALATE).unwrap();
+    set_reply(&w, "", ESCALATE);
     question_tree(&w, QUESTIONS_TWO);
     let o = go(&w, json!({"escalate": "final"}));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
@@ -270,6 +267,11 @@ fn the_decider_call_cap_ends_the_run_when_the_answers_would_exceed_it() {
     assert_eq!(code(&o), 8, "{}", stderr(&o));
     let reason = w.outcome("r1")["reason"].as_str().unwrap().to_owned();
     assert!(reason.contains("decider budget spent: 1 decider calls"), "{reason}");
+    // `cycles/suite.yaml` decider-budget-reason: the stop reason names the step, the case and the cap.
+    assert!(reason.contains("scope.answer in IDEA-1.intake: ") && reason.contains("(max_calls)"), "{reason}");
+    let stop: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/run-stopped.json")).unwrap()).unwrap();
+    assert_eq!(stop["cause"], "decider_cannot_decide");
+    assert!(stop["reason"].as_str().unwrap().contains("scope.answer in IDEA-1.intake: decider budget spent"), "{stop}");
     let q = read(&w, "questions.yaml");
     assert_eq!(q.matches("answered_by: decider:model").count(), 1, "the first answer stays, the second was never asked: {q}");
     assert!(w.fake.calls_of(&["tree", "approve"]).is_empty());

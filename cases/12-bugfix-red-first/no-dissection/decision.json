@@ -98,6 +98,9 @@
     "dissection.valid": {
       "value": "false"
     },
+    "dissection.written": {
+      "value": "unknown"
+    },
     "gate.checked": {
       "value": "unknown"
     },
@@ -108,6 +111,9 @@
       "value": "unknown"
     },
     "repro.red": {
+      "value": "unknown"
+    },
+    "repro.written": {
       "value": "unknown"
     },
     "story.updated": {
@@ -235,6 +241,16 @@
         ],
         "value": "false"
       },
+      "dissection.written": {
+        "because": [
+          {
+            "kind": "dissection_written",
+            "status": "absent",
+            "subject": "dissection"
+          }
+        ],
+        "value": "unknown"
+      },
       "gate.checked": {
         "because": [
           {
@@ -269,6 +285,16 @@
         "because": [
           {
             "kind": "repro_run",
+            "status": "absent",
+            "subject": "repro"
+          }
+        ],
+        "value": "unknown"
+      },
+      "repro.written": {
+        "because": [
+          {
+            "kind": "repro_written",
             "status": "absent",
             "subject": "repro"
           }
@@ -336,7 +362,7 @@
       "protocol": "sdc.bugfix",
       "protocol_revision": 1,
       "semantics": {
-        "canon": "0.10.0",
+        "canon": "0.11.0",
         "format": "canon-decision/1"
       }
     },
@@ -374,6 +400,11 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "bug.dissect": [
+      "dissection_written"
+    ]
+  },
   "outcomes": {
     "fixed": {
       "reasons": [

@@ -1,0 +1,55 @@
+exit 2
+stdout:
+| llm-node: change.implement recorded nothing (call llm/001-change.implement, adapter <root>/adapters/req-exits): implement_reply_invalid after 3 request(s), 2 retries: the request failed (adapter exit 3): no reply was taken; if the files did not fit in one reply, write fewer, each complete, and list the rest in `remaining`
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-change.implement/adapter-stderr.txt
+c0439473e432c1f1  .sdc/llm/001-change.implement/implement-inputs.json
+1b990bb733b7723a  .sdc/llm/001-change.implement/implement-run.out
+    | implement_reply_invalid after 3 request(s), 2 retries: the request failed (adapter exit 3): no reply was taken; if the files did not fit in one reply, write fewer, each complete, and list the rest in `remaining`
+6ce89923076d1e16  .sdc/llm/001-change.implement/prompt.md
+3c0a043a5e781f7b  .sdc/llm/001-change.implement/reply-schema.json
+6ce89923076d1e16  .sdc/llm/001-change.implement/req-1/prompt.md
+bcbdaa133f986aa8  .sdc/llm/001-change.implement/req-1/request.json
+3a4cf0c2dcbd2606  .sdc/llm/001-change.implement/req-1/response.json
+    | {"error":"the model stopped"}
+17debd7456c98a43  .sdc/llm/001-change.implement/req-2/prompt.md
+971385ef7477f6dc  .sdc/llm/001-change.implement/req-2/request.json
+3a4cf0c2dcbd2606  .sdc/llm/001-change.implement/req-2/response.json
+    | {"error":"the model stopped"}
+17debd7456c98a43  .sdc/llm/001-change.implement/req-3/prompt.md
+8b98809960d5f057  .sdc/llm/001-change.implement/req-3/request.json
+3a4cf0c2dcbd2606  .sdc/llm/001-change.implement/req-3/response.json
+    | {"error":"the model stopped"}
+ed0b37a1e88a583a  .sdc/llm/001-change.implement/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-change.implement/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-change.implement/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-change.implement",
+    |   "node": "change.implement",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [],
+    |   "max_turns": 3,
+    |   "max_budget_usd": 2,
+    |   "implement_mode": "request",
+    |   "max_output_tokens": 32000
+    | }
+fa042e78a4b98f79  .sdc/llm/001-change.implement/requests.jsonl
+e51596a4a04b2d17  .sdc/llm/001-change.implement/response.json
+    | {"adapter":null,"api_error_status":null,"cause":"implement_reply_invalid","continuations":0,"cost_usd":null,"duration_ms":null,"effort":null,"exit":2,"implement_mode":"request","is_error":null,"model":null,"num_turns":null,"observed_models":null,"offered_tools":null,"reply_retries":2,"requests":3,"schema_constrained":null,"subtype":null,"terminal_reason":null,"tool_calls":[],"usage":null,"wall_ms":null}
+b3978cfc57ceaf12  .sdc/llm/001-change.implement/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 2
+    | }
+099ce78bba7c6f74  .sdc/llm/calls.jsonl
+    | {"action":"change.implement","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":null,"model":"claude-haiku-5-5","effort":"high","class":"implement","allowed_operations":[],"max_turns":3,"max_budget_usd":2,"exit":2,"applied_exit":2,"output":"impl","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":[],"dry":false,"record":"<root>/work/.sdc/llm/001-change.implement","implement_mode":"request","requests":3,"continuations":0,"reply_retries":2,"cause":"implement_reply_invalid"}
+e6d2169c90554990  .sdc/llm/001-change.implement/cwd/ (6 files)

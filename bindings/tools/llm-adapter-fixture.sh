@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # LLM adapter for tests, no LLM (contract: llm-adapter-metaharness.sh). It writes the node's stub
-# output into the call's out/, so llm-node.sh applies it exactly as it applies a real reply: the
+# output into the call's out/, so sdc-node applies it exactly as it applies a real reply: the
 # apply step (for example questions.answer's refusal to take a changed scope-changing question)
 # runs, which the stub adapter skips. Only for nodes whose stub is `stub-file <fixture> <artifact>`
 # or `stub-tree <fixture dir> <tree>` (spec.author); use it with SDC_LLM_NODES naming those nodes. SDC_STUB_FIXTURES applies as for the stub.
@@ -87,7 +87,11 @@ if [[ $node == requester.* ]]; then
 fi
 if [[ $node == change.review ]]; then
   mkdir -p "$cwd/out"
-  p=$("${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}" rejections --case-dir "$(jq -r .case_dir "$1")" --action change.review | jq length)
+  # The request names no case directory under Loom (it gives none): sdc-reply takes the records of
+  # the workspace, which is the directory this adapter runs in, `work` beside its parent.
+  review_case_dir=$(jq -r .case_dir "$1")
+  [[ -n $review_case_dir || -z ${LOOM_CASE:-} ]] || review_case_dir=$PWD/..
+  p=$("${SDC_REPLY:-$here/../../driver/target/debug/sdc-reply}" rejections --case-dir "$review_case_dir" --action change.review | jq length)
   jq -n --argjson r "${SDC_REVIEW_REPLIES:-"{}"}" --argjson p "${p:-0}" --argjson n "$(jq '.review_attempt // 1' "$1")" '
     ($r.rounds // [] | .[$p] // last) | if type == "array" then (.[$n - 1] // last) else . end
     // {decision: "approved", summary: "fixture review: approved", findings: []}' > "$cwd/out/review.json" || exit 1
@@ -127,7 +131,7 @@ o=$(jq -c --arg n "$node" '.[$n] // empty' <<< "${SDC_FIXTURE_STUB:-null}")
 [[ ${a[0]:-} == stub-file || ${a[0]:-} == stub-tree ]] && [[ -n ${a[2]:-} ]] ||
   { echo "llm-adapter-fixture: node $node has no stub-file or stub-tree stub" >&2; exit 64; }
 mkdir -p "$cwd/out"
-# Run in the call's directory; a stub-tree's call count stays in work/.sdc (llm-node.sh runs this in
+# Run in the call's directory; a stub-tree's call count stays in work/.sdc (sdc-node runs this in
 # work/), so <name>.<n> of SDC_STUB_FIXTURES counts the stub's and this adapter's calls together.
 w=$PWD
 mkdir -p "$w/.sdc"

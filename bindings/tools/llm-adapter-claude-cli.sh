@@ -10,7 +10,7 @@
 # `--disable-slash-commands`, auto-memory and the git status block (user name, branch) off. The login is the one file `.credentials.json`
 # copied into that config home for the call (mode 600, removed on exit; SDC_CLAUDE_CREDENTIALS,
 # else $CLAUDE_CONFIG_DIR or ~/.claude), or ANTHROPIC_API_KEY from the environment. A call
-# is the same on any host: its effort is the request's (set by llm-node.sh / decider.sh), and
+# is the same on any host: its effort is the request's (set by sdc-node / decider.sh), and
 # CLAUDE_CODE_EFFORT_LEVEL, which would override it, is unset for the child.
 set -uo pipefail
 for p in jq claude; do command -v "$p" >/dev/null 2>&1 || { echo "llm-adapter-claude-cli.sh: $p is not on PATH" >&2; exit 127; }; done # program error, not a result
@@ -19,7 +19,7 @@ r() { jq -r "$1" <<< "$req"; }
 rec=$(r .record_dir)
 mkdir -p "$rec"
 # The config home holds the copy of the login. When the login is a file in a directory of the user's
-# with mode 700 (the private directory of `runbook loom-run`), the whole config home is made there,
+# with mode 700 (the private directory of `runbook run`), the whole config home is made there,
 # never in the record directory, which lies in the run directory: a SIGKILL of this script leaves the
 # home, and the runner removes its private directory with all it holds. Otherwise (the driver's runs)
 # it is made in the record directory, as it always was.
@@ -38,7 +38,7 @@ if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
     [[ -n $config || -z ${HOME:-} ]] || config=$HOME/.claude
     [[ -z $config ]] || creds=$config/.credentials.json
   fi
-  [[ -n $creds ]] || { echo "llm-adapter-claude-cli.sh: no login: none of SDC_CLAUDE_CREDENTIALS, CLAUDE_CONFIG_DIR, HOME and ANTHROPIC_API_KEY is set (a Loom program gets PATH alone: the binding passes --claude-credentials <file> to llm-node.sh)" >&2; exit 127; }
+  [[ -n $creds ]] || { echo "llm-adapter-claude-cli.sh: no login: none of SDC_CLAUDE_CREDENTIALS, CLAUDE_CONFIG_DIR, HOME and ANTHROPIC_API_KEY is set (a Loom program gets PATH alone: the binding passes --claude-credentials <file> to sdc-node)" >&2; exit 127; }
   [[ -f $creds ]] || { echo "llm-adapter-claude-cli.sh: no login ($creds) and no ANTHROPIC_API_KEY" >&2; exit 127; }
   install -m 600 "$creds" "$home/.credentials.json" || exit 127
 fi

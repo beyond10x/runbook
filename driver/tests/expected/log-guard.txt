@@ -1,0 +1,5 @@
+exit 0
+stdout:
+| llm-node: questions.write not called: questions.yaml exists and no check found it invalid
+stderr:
+written:

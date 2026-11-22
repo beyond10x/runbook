@@ -15,9 +15,13 @@ pub const LOOM_STATUS_FORMAT: &str = "loom.tree-status/1";
 /// Directory names left out of the product tree, at any depth.
 const EXCLUDED_DIRS: [&str; 3] = ["target", "node_modules", ".git"];
 
-/// Where Loom's `llm-node.sh` copies the retry feedback it was given, relative to the product
-/// tree. Left out of the listing of both runtimes (rule `product_tree[.sdc/loom-feedback/**]`).
-const FEEDBACK_DIR: &str = ".sdc/loom-feedback";
+/// Workspace directories that only carry facts to a program under Loom, relative to the product
+/// tree: the retry feedback `sdc-node` copies (`.sdc/loom-feedback`) and the record files
+/// `sdc-reply record` writes, since Loom gives a program no case store (`.sdc/records`; the log
+/// of a test run in them has the test order and the elapsed time of that run). Left out of the
+/// listing of both runtimes (rules `product_tree[.sdc/loom-feedback/**]` and
+/// `product_tree[.sdc/records/**]`).
+const TRANSPORT_DIRS: [&str; 2] = [".sdc/loom-feedback", ".sdc/records"];
 
 /// The kind of the record a child's outcome leaves in its parent (both readers name it so; the
 /// summary holds no other mark of the action that opened the child).
@@ -34,7 +38,7 @@ pub enum Source {
     /// A file holding the JSON `tree status` printed; the product tree is `product_tree`, or the
     /// status's `workspace` when none is given.
     Loom { status: PathBuf, product_tree: Option<PathBuf> },
-    /// The run directory `runbook loom-run` wrote: its `tree-status.json` and `work/`, and what only
+    /// The run directory `runbook run` wrote: its `tree-status.json` and `work/`, and what only
     /// that directory holds (`run-settings.jsonl`, `decisions.jsonl`, `protocols/`).
     LoomRun { dir: PathBuf },
 }
@@ -93,7 +97,7 @@ fn word(member: &str, loom_word: &str) -> Option<&'static str> {
 const NOT_RECORDED: &str = "(not recorded)";
 /// What the Loom column says of a member under a member that is itself not recorded.
 const UNDER: &str = "(under a member not recorded)";
-/// What the Loom column says of a member that only the run directory of `runbook loom-run` holds
+/// What the Loom column says of a member that only the run directory of `runbook run` holds
 /// (`summarize --loom-run`); a summary read from the status alone lists it under `not_recorded`.
 const FROM_SETTINGS: &str = "run directory: run-settings.jsonl";
 const FROM_DECISIONS: &str = "run directory: decisions.jsonl";
@@ -140,7 +144,7 @@ const RULES: &[Rule] = &[
         rule("cases[].person_steps[].answer", How::Value, "the answer or approval that ended the step", "cases[].approvals[].answer", "Allow with an action: the result of the n-th record of that action in the case; Allow without: granted; Deny: denied"),
         &[("Allow", "granted"), ("Deny", "denied")],
     ),
-    rule("cases[].person_steps[].actor", How::Value, "who took the step", "cases[].approvals[].actor", "as is; equal only when the Loom run answered with the principal the driver run used: under `runbook loom-run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none"),
+    rule("cases[].person_steps[].actor", How::Value, "who took the step", "cases[].approvals[].actor", "as is; equal only when the Loom run answered with the principal the driver run used: under `runbook run` that is `decider.principal` of the settings for a scripted decider (default of its answers), `decider:model` or `decider:<verdict>` for a model or rule decider, and the principal Loom printed (`operator` for a capability approval) when the settings name none"),
     rule("copies[].action", How::Value, "the copy action", "cases[].evidence[].action", "the n-th record of copies[].kind in the target case whose action the source case's records of that kind do not name; the entry itself names source_case, target_case and record_kind only"),
     rule("copies[].kind", How::Value, "evidence kind copied", "cases[].copies[].record_kind", "as is"),
     rule("copies[].from_protocol", How::Stem, "protocol of the source case, compared as its registration stem", "cases[].copies[].source_case", "protocol_id of that case; compared by registration stem"),
@@ -159,7 +163,8 @@ const RULES: &[Rule] = &[
     rule("protocols[].revision", How::Value, "the protocol's own revision", "cases[].protocol_revision", "as for the case"),
     rule("protocols[].digest", How::Pattern("d"), "each runtime digests its own form of the protocol", FROM_PROTOCOLS, "sha256 of the file the runner copied for that id and revision; the status protocols[] is empty and is not read (not recorded)"),
     rule("product_tree[].path", How::Value, "the set of files: a path missing on one side is a difference", "--product-tree, else workspace", "the directory walked as the driver's work/ is"),
-    rule("product_tree[.sdc/loom-feedback/**]", How::Never, "the retry feedback that Loom's llm-node.sh copies into the workspace; the driver hands the same feedback over in a variable and writes no file: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
+    rule("product_tree[.sdc/loom-feedback/**]", How::Never, "the retry feedback that Loom's sdc-node copies into the workspace; the driver hands the same feedback over in a variable and writes no file: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
+    rule("product_tree[.sdc/records/**]", How::Never, "the record files `sdc-reply record` writes into the workspace for the inputs of change.review, since Loom gives a program no case store; the driver keeps the same facts in its case store and writes no file; the log of a test run in them carries the test order and the elapsed time of that run: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
     rule("product_tree[].sha256", How::Digest, "compared only with --product-digests (a stub run is deterministic, a model run is not); stamps like 2026-11-20T12:00:00Z in text files are read as <time> (aep writes the wall clock into planning files)", "--product-tree, else workspace", "the same digest of the same file"),
 ];
 
@@ -516,7 +521,7 @@ fn walk_product(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) -> 
             continue;
         } else if ty.is_dir() {
             let rel = p.strip_prefix(root).unwrap().to_string_lossy();
-            if !EXCLUDED_DIRS.contains(&name.as_str()) && rel != FEEDBACK_DIR {
+            if !EXCLUDED_DIRS.contains(&name.as_str()) && !TRANSPORT_DIRS.contains(&&*rel) {
                 walk_product(root, &p, out)?;
             }
         } else if ty.is_file() {
@@ -863,7 +868,7 @@ fn read_loom(status: &Path, product_tree: Option<&Path>, run: Option<&RunInfo>) 
     loom_summary(&doc, product_tree, run).map_err(|e| format!("{}: {e}", status.display()))
 }
 
-/// What the run directory of `runbook loom-run` holds that `tree status` does not.
+/// What the run directory of `runbook run` holds that `tree status` does not.
 struct RunInfo {
     /// `source.run_settings`.
     settings: Value,

@@ -33,7 +33,7 @@ tasks:
       - slot npx playwright test --workers=4
 
   test:loom-real:
-    desc: "Slow lane of runbook/: the stub cycle through runbook loom-run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."
+    desc: "Slow lane of runbook/: the stub cycle through runbook run on the real b10x-loom (no model call, scripted approvals, confinement local) compared with the committed driver summary; needs RUNBOOK_LOOM_BIN (the real binary) and RUNBOOK_LOOM_WORK (a directory outside the repository), takes minutes, run it in the background."
     requires:
       vars: [RUNBOOK_LOOM_BIN, RUNBOOK_LOOM_WORK]
     env:
@@ -43,6 +43,47 @@ tasks:
     cmds:
       - cd driver && cargo build --locked
       - cd runbook && cargo test --locked --test cli the_stub_cycle_on_the_real_loom -- --ignored
+
+  test:engine-real:
+    desc: "Slow lane of runbook/: the sdc stub cycle through the daemon over the in-process Loom engine (runbook::engine) on the repository's own protocols and bindings, confinement local, no model call, every approval scripted; then `runbook parity summarize` of its tree status against the driver summary (printed, not asserted). Needs RUNBOOK_ENGINE_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background."
+    requires:
+      vars: [RUNBOOK_ENGINE_WORK]
+    env:
+      RUNBOOK_ENGINE_WORK: "{{.RUNBOOK_ENGINE_WORK}}"
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked
+      - cd runbook && PATH="$PWD/../driver/target/debug:$PATH" cargo test --locked --test cli the_stub_cycle_through_the_engine -- --ignored --nocapture
+
+  test:cycles-loom:
+    desc: "Slow lane: the finding cycles of cycles/tree-suite.yaml through `runbook test` (Loom's run_suite in the runbook process), confinement local, no model call. Builds the driver binaries and runbook first. Prints one line per cycle, the ten slowest and `N of M as expected, P pending`. ONLY=<name>[,<name>...] runs named cycles. Start it in the background, not under `slot`: it waits on the bound programs (docs/cycles-suite.md)."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked --bins
+      - cd goals && cargo build --locked
+      - cd runbook && cargo build --locked --bin runbook
+      - PATH="$PWD/driver/target/debug:$PATH" RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+
+  test:loom-in-process:
+    desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook run --loom` (the child binary, default ~/.local/state/runbook/loom/5b3142c7/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once with Loom as a library (no `--loom`), then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
+    requires:
+      vars: [RUNBOOK_LOOM_WORK]
+    env:
+      RUNBOOK_LOOM_WORK: "{{.RUNBOOK_LOOM_WORK}}"
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked
+      - cd runbook && cargo test --locked --test cli the_stub_cycle_through_the_child_and_in_process -- --ignored --nocapture
+
+  test:decider-parity:
+    desc: "Slow lane of runbook/, not part of `task check`: every case (rule approve and reject, the dry and stub adapters, a scripted adapter that writes a fixed out/decision.json: valid, invalid JSON, missing cites, escalate with and without best; on an approval, a question, a finding and a close; and the requester agent on an approval, a close and a question: an option, a free answer, no ground under stop and final, refused grounds, a missing reply, the dry adapter) runs once through bindings/tools/decider.sh and once through the Rust decider, and the reply, the standard error and every file of the call directory must be equal byte for byte after the times are masked; it prints `cases compared N, differences D` and fails on D above 0. DECIDER_PARITY_ONLY=<text> runs the cases whose name has it. The fixtures are invented text; the lane and its fixtures (runbook/src/loom_run/decider/parity.rs, parity_cases.rs) are deleted with decider.sh. Needs jq, yq, rsync; builds the driver for sdc-reply and the goals crate for sdc-goals; makes no model call; start it in the background, without the slot prefix."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked --bins
+      - cd goals && cargo build --locked
+      - cd runbook && cargo test --locked --bin runbook loom_run::decider::parity::the_rust_decider -- --ignored --nocapture
 
   test:driver:
     silent: true
@@ -70,6 +111,7 @@ tasks:
     dir: runbook
     desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml). Needs cargo-nextest."
     cmds:
+      - cargo build --locked --manifest-path ../watch/Cargo.toml
       - cargo nextest run --locked --color never --no-run
       - |
         set -u
@@ -124,7 +166,7 @@ tasks:
         planning|docs/x.md
         code|instructions/x.md
         code|instructions/golden/decider/x.md README.md
-        code|bindings/tools/llm-node.sh
+        code|bindings/tools/sdc-tool.sh
         code|bindings/PENDING.md
         code|cycles/suite.yaml
         code|views/sdc.view.json

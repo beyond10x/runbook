@@ -10,10 +10,7 @@
 use super::*;
 use crate::loom_run::answers::{decision_line, Given};
 
-/// The text `decide_model` gives when the settings do not acknowledge missing claims.
-const NO_CLAIMS: &str = "claims of the position are not in Loom's output: decider.sh tells the model to read them from in/checks.json (member `position.claims`) and decisions[] holds none; set decider.without_claims to run the model decider without them";
-
-impl ProgramDecider {
+impl NativeDecider {
     pub(super) fn ask_request(&self, r: &AskRequest<'_>) -> Asked {
         if self.autonomy.as_deref() != Some(AUTONOMY_DECIDES) {
             return Asked::cannot(format!("reserved for a person: the decider decides only at {AUTONOMY_DECIDES}"));
@@ -24,36 +21,24 @@ impl ProgramDecider {
             Err(reason) => return Asked::cannot(reason),
         };
         match &self.mode {
-            Mode::Rule { verdict } => self.ask_rule(verdict, r, &dreq, &approval),
+            Mode::Rule { .. } => self.ask_rule(r, &dreq, &approval),
             Mode::Model { .. } => self.ask_model(r, &dreq, &approval),
         }
     }
 
-    fn ask_rule(&self, verdict: &str, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
+    fn ask_rule(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
         let rec = r.run_dir.join("decider").join("rule");
         if let Err(e) = std::fs::create_dir_all(&rec) {
             return Asked::cannot(format!("decider record directory: {}", e.kind()));
         }
         let body = ask_body(r, approval, &PathBuf::new(), &rec, None);
-        let req_file = rec.join("decide-request.json");
-        if let Err(e) = std::fs::write(&req_file, format!("{body}\n")) {
+        if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
             return Asked::cannot(format!("decider request file: {}", e.kind()));
         }
-        let env = match self.env(dreq, 0) {
-            Ok(env) => env,
-            Err(reason) => return Asked::cannot(reason),
-        };
-        let ran = match run_program(&self.program, &[verdict, &req_file.display().to_string()], &env, &rec, self.timeout) {
-            Ok(ran) => ran,
-            Err(reason) => return Asked::cannot(reason),
-        };
-        let reply = match self.read_reply(&ran, &rec) {
+        let reply = match self.reply(&body, &rec, dreq, 0) {
             Ok(reply) => reply,
             Err(reason) => return Asked::cannot(reason),
         };
-        if reply.get("valid") == Some(&Value::Bool(false)) {
-            return Asked::cannot("the rule decider's reply is not valid");
-        }
         match (reply.get("decision").and_then(Value::as_str), reply.get("answer").and_then(Value::as_str).filter(|a| !a.is_empty())) {
             (Some("approve"), Some(answer)) => Asked {
                 lines: vec![decision_line(r.decision, r.request, &approval.revision, "approve", &reply, &self.principal, json!({}))],
@@ -67,17 +52,33 @@ impl ProgramDecider {
     }
 
     fn ask_model(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
-        let Mode::Model { final_escalate, retries, reply_bin, without_claims, .. } = &self.mode else {
+        let Mode::Model { without_claims, .. } = &self.mode else {
             return Asked::cannot("not a model decider");
         };
-        if !without_claims {
+        let routed = match self.requester_class(r.run_dir, &r.request.kind, &approval.action) {
+            Ok(class) => class,
+            Err(reason) => return Asked::cannot(reason),
+        };
+        if !without_claims && routed.is_none() {
             return Asked::cannot(NO_CLAIMS);
         }
-        if !reply_bin.is_file() {
-            return Asked::cannot("sdc-reply (decider.reply_bin) is not a file: decider.sh needs it for the reply schema, the citable artifacts and the prior rejections");
+        let mut asked = self.ask_model_routed(r, dreq, approval, routed.as_deref());
+        if let Some(class) = &routed {
+            for line in &mut asked.lines {
+                line["class"] = json!(class);
+                line["side"] = json!("requester");
+            }
         }
-        if instructions_root(&self.program).is_none() {
-            return Asked::cannot("the instruction files are not found: decider.sh needs instructions/decider/ above the bindings copy");
+        asked
+    }
+
+    fn ask_model_routed(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval, routed: Option<&str>) -> Asked {
+        let Mode::Model { final_escalate, retries, .. } = &self.mode else {
+            return Asked::cannot("not a model decider");
+        };
+        let principal = self.principal_for(routed.is_some());
+        if instructions_root(&r.run_dir.join("bindings").join("tools")).is_none() {
+            return Asked::cannot(NO_INSTRUCTIONS);
         }
         let budget = r.budget_micro_usd.min(self.max_call_micro_usd);
         let decider_dir = r.run_dir.join("decider");
@@ -104,27 +105,15 @@ impl ProgramDecider {
                 return asked;
             }
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let body = ask_body(r, approval, &case_dir, &rec, retry);
-            let req_file = rec.join("decide-request.json");
-            if let Err(e) = std::fs::write(&req_file, format!("{body}\n")).and_then(|()| std::fs::write(rec.join("loom-decision.json"), format!("{}\n", r.decision))) {
+            let mut body = ask_body(r, approval, &case_dir, &rec, retry);
+            if let Some(class) = routed {
+                requester::tag(&mut body, class, r.run_dir);
+            }
+            if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")).and_then(|()| std::fs::write(rec.join("loom-decision.json"), format!("{}\n", r.decision))) {
                 asked.result = Err(format!("decider request file: {}", e.kind()));
                 return asked;
             }
-            let env = match self.env(dreq, budget - asked.cost_micro_usd) {
-                Ok(env) => env,
-                Err(reason) => {
-                    asked.result = Err(reason);
-                    return asked;
-                }
-            };
-            let ran = match run_program(&self.program, &["model", &req_file.display().to_string()], &env, &rec, self.timeout) {
-                Ok(ran) => ran,
-                Err(reason) => {
-                    asked.result = Err(self.redact(&reason));
-                    return asked;
-                }
-            };
-            let reply = match self.read_reply(&ran, &rec) {
+            let reply = match self.reply(&body, &rec, dreq, budget - asked.cost_micro_usd) {
                 Ok(reply) => reply,
                 Err(reason) => {
                     asked.result = Err(reason);
@@ -134,7 +123,7 @@ impl ProgramDecider {
             if reply.get("adapter").and_then(Value::as_str) != Some("rule") && reply.get("dry") != Some(&Value::Bool(true)) {
                 asked.model_calls += 1;
             }
-            let line = |outcome: &str, reply: &Value, extra: Value| decision_line(r.decision, r.request, &approval.revision, outcome, reply, &self.principal, extra);
+            let line = |outcome: &str, reply: &Value, extra: Value| decision_line(r.decision, r.request, &approval.revision, outcome, reply, principal, extra);
             if reply.get("valid") == Some(&Value::Bool(false)) {
                 invalid_reason = reply.get("invalid_reason").and_then(Value::as_str).unwrap_or("invalid").to_owned();
                 if let Some(cost) = cost_micro(&reply) {
@@ -150,7 +139,7 @@ impl ProgramDecider {
                         };
                         let taken = with_answer(&reply, &answer, vec![format!("invalid decider reply after {retries} retries ({}): the default taken", self.redact(&invalid_reason))]);
                         asked.lines.push(line("approve", &taken, json!({"fallback": "invalid_reply_default", "attempts": attempt})));
-                        asked.result = Ok(Given { answer, principal: Some(self.principal.clone()) });
+                        asked.result = Ok(Given { answer, principal: Some(principal.to_owned()) });
                     } else {
                         asked.lines.push(line("escalate", &reply, json!({"attempts": attempt})));
                         asked.result = Err(format!("invalid decider reply after {attempt} attempts: {}", self.redact(&invalid_reason)));
@@ -174,7 +163,7 @@ impl ProgramDecider {
                         return asked;
                     };
                     asked.lines.push(line("approve", &reply, attempts));
-                    asked.result = Ok(Given { answer: answer.to_owned(), principal: Some(self.principal.clone()) });
+                    asked.result = Ok(Given { answer: answer.to_owned(), principal: Some(principal.to_owned()) });
                 }
                 Some("escalate") => {
                     let reasons = reply.get("reasons").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")).unwrap_or_default();
@@ -195,7 +184,7 @@ impl ProgramDecider {
                     taken["usage"] = Value::Null;
                     taken["cost_usd"] = Value::Null;
                     asked.lines.push(line("approve", &taken, json!({"suppressed": true})));
-                    asked.result = Ok(Given { answer, principal: Some(self.principal.clone()) });
+                    asked.result = Ok(Given { answer, principal: Some(principal.to_owned()) });
                 }
                 Some("reject") => {
                     asked.lines.push(line("reject", &reply, attempts));

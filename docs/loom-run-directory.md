@@ -1,6 +1,6 @@
 # The run directory of a Loom run
 
-`runbook loom-run` writes one directory per run, `<runs-dir>/<name>/`. This page says which files in
+`runbook run` writes one directory per run, `<runs-dir>/<name>/`. This page says which files in
 it `sdc-experiment report` and `runbook parity summarize` read, where each value comes from in a Loom
 run, what a Loom run does not record, and which quality measures of
 `experiments/release-0.1.2/report.md` the directory can give. The writer is
@@ -20,6 +20,7 @@ run, what a Loom run does not record, and which quality measures of
       loom/verify.json   the verify result without absolute paths
       run-settings.jsonl llm-calls.jsonl decisions.jsonl rounds.jsonl   append-only records
       run-stopped.json   the stop record, when the run did not close
+      dry-commands.txt   the commands a --dry run printed, one per line (only with --dry)
       status.json        the close record, when the tree ended
 ```
 
@@ -58,7 +59,7 @@ Contract: `driver/src/run_metrics.rs` `load` and `load_case` (the table of unit 
 | `store/<root>/events.jsonl` | the file | one per case; the root is `store/<root case id>/`, a child `.../children/<case id>/` below its parent (from `ChildOpened`) |
 | | `opened` `protocol.id`, `.revision` | run log `CaseOpened.protocol` (`sdc-intake@9`); the id from `protocols/*.protocol.yaml` (`protocol.id`), else `sdc-<stage>` read back as `sdc.<stage>` |
 | | `action_started` `action` | run log `ActionFinished.action`: Loom logs no start, so start and finish are written together |
-| | `action_started` `llm` | the binding's `executor.argv[0]` ends in `llm-node.sh` (`bindings/<protocol>.yaml` of the run) |
+| | `action_started` `llm` | the binding's `executor.argv[0]` is `sdc-node` (`bindings/<protocol>.yaml` of the run) |
 | | `action_started` `retry_of` | `tree-status.json` `cases[].runs[n].retry_of` of the n-th program run of the case; empty until a status exists |
 | | `action_finished` `action`, `exit` | run log `ActionFinished.action`, `.exit` (written as text) |
 | | `action_finished` `principal` | run log `AuthorityRecorded.principal` (decision `Allow`) before the `ActionFinished` of a step that is not a program |
@@ -95,13 +96,13 @@ A member with no source in a Loom run is absent (the file or the member), never 
 
 | member | why | measure of the report it affects |
 |---|---|---|
-| `defects.jsonl`, `status.json` `forced`, `unstuck`, `reopens`, `run-stopped.<at>.json` | `runbook loom-run` has no keep-going mode, no unstick and no reopen | `run.clean` is `closed` alone; the driver runs' `unstick` confound is absent; the clean-pass count is not the same test |
+| `defects.jsonl`, `status.json` `forced`, `unstuck`, `reopens`, `run-stopped.<at>.json` | `runbook run` has no keep-going mode, no unstick and no reopen | `run.clean` is `closed` alone; the driver runs' `unstick` confound is absent; the clean-pass count is not the same test |
 | `events.jsonl` `revised`, `authority_recorded` | Loom's run log has no such line | rework cause labels `decision:<action>` and `arrival:outside` read `unexplained` (Loops table, edge names); causes through `retry_of` are unaffected |
 | `action_finished` `not_called`, `refused.kind` | Loom has no not-called action and no run-own postcondition | `not_called` is 0; the cause `<kind>:refused` cannot occur |
 | start of an action | the run log has one line, at the finish | node `driver_s`, `loop_driver_s` and `loop_wall_s` come from the step's span: every action of one step has the same span (not the totals `driver_s` and `wall_s`) |
 | `decisions.jsonl` `duration_ms`, `usage`, `cites`, `reasons`, `invalid_reply`, `escalation_suppressed`, `attempt` | the decider returns the answer, the cost and the number of model calls | `run.decider_s` 0; `decision.<class>.invalid_replies`, `retries`, `escalated`, `refused_by_check` 0; `run.decider_calls` counts answered decisions with a model, once each whatever `model_calls` says |
 | `rounds.jsonl` `case_dir` | `tree run --max-steps 1` names no case dir | none (`waiting_on_person_s` is 0: one leg, and the decider answers inside the run) |
-| `oracle.json` | the conformance observation is the driver's | `conformance` reads `not observed` |
+| `oracle.json` | written only by `runbook run --conformance observe`, after a run that ended closed (`runbook/src/loom_run/conformance.rs`, `docs/conformance.md`): absent without the option, and for a run that did not close | without the file `conformance` reads `not observed` |
 | `decision.json`, `replay.json`, `run.log`, `decider/`, `llm/` at the top | the driver's own files | none read by the report (`sdc-run-timeline` reads `decider/`); Loom's tool records are in `work/.sdc/llm/` |
 | `run-settings.jsonl` `rework_limit`, `rule_approvals`, `unstick`, `tree` | driver settings with no Loom counterpart | none: `check --runs-dir` compares only the keys the record sets for a `loom` variant. `adapter`, `autonomy`, `decider.*` and `review.adapter` are the settings file as the runner read it (one format, `docs/loom-run-settings.md`), so they are in the line, and `check --runs-dir` passes on a run the launcher started |
 | `run-settings.jsonl` `loom.bin`, `loom.login_file` | never recorded: a path of the binary, a login | not compared |

@@ -2,7 +2,7 @@
 
 The SDC is a family of eight Canon `protocol/1` documents under `protocol/`, one case per stage,
 composed with child cases. Sources: `docs/phases.md` (phase model), `docs/intake.md` (intake
-stages and evidence names), Canon 0.10.0 at commit 2c7a1ea6.
+stages and evidence names), Canon 0.11.0 at commit e81f970d.
 
 | Protocol | File | Opens | Success outcome |
 |---|---|---|---|
@@ -150,13 +150,16 @@ log in `SDC_FEEDBACK` (the tools write it to the writer's `in/rejection.json`).
 
 **Stated limit, sdc.release.** `release.approve` stays a capability of `release.publish`, with no
 approval record and no `rejected` result: the same treatment (`release_approval` with a manual
-`release.approve`) gives 98,304 states, past the bound of 65,536. Dropping the capability to fit
-would leave authority resting on a manual record alone, which is not allowed. A refused release
+`release.approve`) gives 98,304 states, past the bound of 65,536 that Canon enforced when this was
+written. The pinned Canon (`driver/canon-pin.json`) enforces no such bound: it checks `sdc.story`
+at 196,608 states and `sdc.intake` at 98,304 with no finding. Dropping the capability to fit the
+bound would leave authority resting on a manual record alone, which is not allowed. A refused release
 therefore records nothing in the case; the tools stop such a run with a named cause
 (`rejected_without_rework_path`), and the case's way out stays `withheld` on
 `explicitly_withheld` (the release case has no writer that answers a rejection: `release.build`
-rebuilds the same merged changes; the rework happens in the stories). Canon's state-space bound
-per slice (unreleased) is what lifts this limit.
+rebuilds the same merged changes; the rework happens in the stories). The limit is now a choice of
+this design and no longer Canon's: the pinned Canon checks `sdc.intake` at the same 98,304 states
+(the treatment is not tried on `sdc.release` here).
 
 Cases: `06-approval-once/{context,roadmap,merge}/{approved,rejected,revised,rechecked}` and
 `06-approval-once/vision/{approved,rejected,revised}`.
@@ -276,7 +279,7 @@ slow lane (`--slow`, `task check:protocols:slow`) or a changed protocol runs the
 difference fails with a unified diff and
 `simulate: <protocol>: findings changed (was N, now M)`; one line per protocol gives reachable,
 terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
-`2c7a1ea6`, the commit of Canon's release tag `0.10.0`, the first release with `simulate` (until
+`e81f970d`, the commit of Canon's release tag `0.11.0` (`2c7a1ea6`, tag `0.10.0`, until 2026-11-22; before it, until
 SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
 protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
 `${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on
@@ -342,6 +345,24 @@ check (sdc.intake); requirements → context check; vision → roadmap approval 
 spec → plan validation and coverage (sdc.plan); spec → implementation record and conformance run
 (sdc.story); spec → release conformance (sdc.release).
 
+
+## A writer that Loom sends back on its own run
+
+Loom sends a writer back by `retry_when`, which lists a result of an evidence kind recorded about
+the current revision of an artifact; a run that records nothing cannot be retried. The driver's
+`postcondition` and a writer's own refused apply record nothing, so under Loom they take a record
+of their own:
+
+| Protocol | Writer | Record | Exit | Effect |
+|---|---|---|---|---|
+| sdc.story (8) | `change.implement` | `implementation_change` result `coverage_refused` | 8 (`sdc-reply check-coverage` refused, run by `sdc-node` under Loom only) | claim `change.coverage_refused`; `tests.run` is admissible only while it is false or unknown, so no conformance run is due on that revision (`tests.run` is a read action and Loom orders it before the write action `change.implement`) |
+| sdc.intake (10) | `questions.answer` | `answer_applied` result `refused` | 1 (the apply step refused the answers) | none: the writer's `retry_when` sends it back |
+
+The retry gives the writer the refused run's output (the tail Loom keeps of the cited blob) as
+`in/feedback.md`. The driver's records are unchanged: it never records `coverage_refused` or
+`answer_applied`, so `change.coverage_refused` stays unknown and `tests.run` stays admissible as
+before. `canon check` counts 196,608 states for sdc.story (was 49,152) and 98,304 for sdc.intake
+(was 49,152) and reports no finding at the pinned Canon.
 ## Reconciliation with docs/intake.md
 
 - Kept as named: `idea_shape`, `questions_shape`, `questions_settled`, `spec_validation`,
@@ -384,7 +405,9 @@ not something Canon checks across cases (inferred: Canon checks one protocol at 
 Reproduce with `scripts/limitations.sh`; its output is `docs/limitations/output.txt`, the inputs
 are in `docs/limitations/`.
 
-1. **State-space bound, 65536.** It decides the shape of the whole family. Each evidence kind
+1. **State-space bound, 65536.** Canon enforced it when the family was shaped; the pinned Canon
+   enforces no bound (`sdc.story` is checked at 196,608 states, `sdc.intake` at 98,304). It decided
+   the shape of the whole family, which stays as it is. Each evidence kind
    matched with one result costs 4 values, with an invalidation upstream 16, a capability 3, a
    decision 2, a `children` form with one listed outcome 8 times 9 for its history. Refusals hit:
    - one protocol for idea, spec, stories, release and operate (`monolith.protocol.yaml`):

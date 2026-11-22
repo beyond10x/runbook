@@ -1,0 +1,8 @@
+rounds:
+  - decision: rejected
+    summary: "fixture: the README does not say how to run it"
+    findings:
+      - {kind: violation, at: "impl/README.md:1", violates: r1, says: "fixture: the README names no command to run the service"}
+  - decision: approved
+    summary: "fixture: the rework addresses the finding"
+    findings: []

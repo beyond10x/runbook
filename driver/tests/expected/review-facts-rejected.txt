@@ -1,0 +1,57 @@
+exit 1
+stdout:
+| {"approval":"change.review","case":"sdc.billing.list","citations":[{"at":"impl/README.md","in_diff":false,"kind":"violation","listed":true,"violates":"r1"}],"count":1,"format":"sdc.rejection/1","notes":[],"principal":"llm-review:claude-haiku-5-5","reasons":["impl/README.md: the README names no command (violates r1)"],"revision":"d3e191bcba860e8c","subject":"change","summary":"s"}
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-change.review/adapter-stderr.txt
+8d4505b9abe0dd17  .sdc/llm/001-change.review/prompt.md
+d8ac83e3670a84be  .sdc/llm/001-change.review/reply-schema.json
+91b2b717533602d6  .sdc/llm/001-change.review/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-change.review/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-change.review/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-change.review",
+    |   "node": "change.review",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [],
+    |   "max_turns": 4,
+    |   "max_budget_usd": 1,
+    |   "json_schema": "<root>/work/.sdc/llm/001-change.review/reply-schema.json",
+    |   "review_attempt": 1
+    | }
+6d4720765a39df19  .sdc/llm/001-change.review/response.json
+    | {
+    |   "adapter": "fixture",
+    |   "model": "claude-haiku-5-5",
+    |   "exit": 0,
+    |   "duration_ms": 0,
+    |   "cost_usd": 0,
+    |   "num_turns": 0,
+    |   "usage": null,
+    |   "tool_calls": [],
+    |   "offered_tools": [],
+    |   "node": "change.review"
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-change.review/review-check.err
+de14afddf600452d  .sdc/llm/001-change.review/review-check.out
+    | {"approval":"change.review","case":"sdc.billing.list","citations":[{"at":"impl/README.md","in_diff":false,"kind":"violation","listed":true,"violates":"r1"}],"count":1,"format":"sdc.rejection/1","notes":[],"principal":"llm-review:claude-haiku-5-5","reasons":["impl/README.md: the README names no command (violates r1)"],"revision":"d3e191bcba860e8c","subject":"change","summary":"s"}
+0661dc1c544176e6  .sdc/llm/001-change.review/review-inputs.json
+    | {"base":"mainline","build_constraints":false,"changed_files":["tests/last_page.rs"],"covers":["billing.invoice.CreateInvoice"],"document":"in/review.md","document_bytes":1687,"gate":false,"listed_files":5,"requirements":["r1"],"story":"list","uncovered":["r2"]}
+359e2264d4067fdb  .sdc/llm/001-change.review/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+0f9671cc317dd6e0  .sdc/llm/calls.jsonl
+    | {"action":"change.review","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"fixture","model":"claude-haiku-5-5","effort":"high","class":"review","allowed_operations":[],"max_turns":4,"max_budget_usd":1,"exit":0,"applied_exit":1,"output":"code_review","duration_ms":0,"cost_usd":0,"num_turns":0,"usage":null,"offered_tools":[],"tool_calls":[],"dry":false,"record":"<root>/work/.sdc/llm/001-change.review","input_bytes":1687}
+45e2466377a0e508  .sdc/records/rejections/change.review/001.json
+    | {"at":"<instant>","citations":[{"at":"impl/README.md","in_diff":false,"kind":"violation","listed":true,"violates":"r1"}],"principal":"llm-review:claude-haiku-5-5","reasons":["impl/README.md: the README names no command (violates r1)"],"record":"001","revision":"d3e191bcba860e8c"}
+66ac4deb366faf08  .sdc/llm/001-change.review/cwd/ (7 files)

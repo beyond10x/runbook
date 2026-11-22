@@ -212,6 +212,22 @@ bugfix() {
   [[ -x $b ]] || { echo "sdc-tool: sdc-bugfix not found ($b)" >&2; exit 127; }
   "$b" "$@"
 }
+# Run a command; under Loom (the old driver keeps the step's log itself) also keep its log as the
+# record of <kind> about the tree <tree> (sdc-reply record): the change.review inputs read it from
+# the workspace, since Loom gives a program no case store.  recorded <kind> <tree> <command>...
+recorded() {
+  local kind=$1 tree=$2 log rc b
+  shift 2
+  [[ -n ${LOOM_CASE:-} ]] || { "$@"; return; }
+  b=$(sibling sdc-reply)
+  [[ -x $b ]] || { echo "sdc-tool: sdc-reply not found (looked at PATH, then $root/driver/target/debug/sdc-reply): $* could not run" >&2; exit 127; }
+  log=$(mktemp .sdc/record-log.XXXXXX) || exit 126
+  "$@" > "$log" 2>&1; rc=$?
+  cat "$log"
+  "$b" record --kind "$kind" --tree "$tree" --log "$log" > /dev/null || rc=126
+  rm -f "$log"
+  return $rc
+}
 # The specification's conformance as the spec stage checks it (spec.synthesize, and spec.gate's
 # ess-gate): the suite is synthesized with no refusal, then run against ESS's interpreter of the
 # specification (`--target interpreted --strict`), and every scenario must pass. A scenario the
@@ -243,15 +259,15 @@ spec_conform() {
 }
 
 case $1 in
-  ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
+  ess|ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
   conform-run|story-tests|story-tests-run|impl-gate) need ess slot ;;
   stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status) need aep ;;
 esac
 # The case's aep store keeps aep's own lifecycles, not those of a project above the case directory
-# (runs/ inside this repository is under development.standard); see llm-node.sh.
+# (runs/ inside this repository is under development.standard); see sdc-node.
 aep() { command aep "$@" --root .; }
 # aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, as in
-# llm-node.sh: SDC_PRINCIPAL when it is a <kind>:<name> principal and no person, else agent:<action>.
+# sdc-node: SDC_PRINCIPAL when it is a <kind>:<name> principal and no person, else agent:<action>.
 executor=agent:${SDC_ACTION:-sdc-tool}
 aep_actor=${SDC_PRINCIPAL:-}
 [[ $aep_actor =~ ^[a-z][a-z-]*:[^[:space:]]+$ && $aep_actor != human:* && $aep_actor != person:* ]] || aep_actor=$executor
@@ -367,11 +383,14 @@ roadmap-validate) [[ -f aep/initiative/roadmap.md ]] && aep plan artifact valida
 
 # --- ESS: the gate as one program, and its parts --------------------------------------------
 ess-gate)
-  mkdir -p .sdc/gate
-  ess specify validate --path spec --strict-requires &&
-  ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null &&
-  ! grep -rn 'UNMAPPED:' spec &&
-  spec_conform .sdc/gate/suite.json ;;
+  ess_gate() {
+    mkdir -p .sdc/gate
+    ess specify validate --path spec --strict-requires &&
+    ess specify compile --path spec --out .sdc/gate/ir.json >/dev/null &&
+    ! grep -rn 'UNMAPPED:' spec &&
+    spec_conform .sdc/gate/suite.json
+  }
+  recorded ess_gate spec ess_gate ;;
 spec-validate) ess specify validate --path spec --strict-requires ;;
 spec-compile) ess specify compile --path spec --out .sdc/spec-ir.json ;;
 spec-scan) grep -rn 'UNMAPPED:' spec; [[ $? == 1 ]] ;;
@@ -545,7 +564,7 @@ release-build)
 publish) rm -rf published && mkdir -p published && cp -r release/. published/ ;;
 observe) cmp -s published/PROVENANCE release/PROVENANCE ;;
 review-spec) test -f spec/system.yaml && [[ ! -e spec/.review-reject ]] ;; # .review-reject: a fixture tree the stub reviewer rejects (docs/reject-routes.md R8)
-review-change) test -s impl/README.md ;; # change.review's stub; the review itself: tools/llm-node.sh change.review
+review-change) test -s impl/README.md ;; # change.review's stub; the review itself: sdc-node change.review
 
 # --- the late-finding loop (docs/trial-2.md, "The late-finding loop") ------------------------
 # Each stage's check is its own check, then the finding gate: exit 1 when its own check fails,
@@ -564,7 +583,7 @@ check-requirements|check-context|spec-trace|plan-cover)
   (( rc == 0 )) || exit 5 ;;
 story-tests)
   findings gate story || exit 5
-  "$here/sdc-tool.sh" story-tests-run "${2:?implementation tree}" ;;
+  recorded conformance_run "${2:?implementation tree}" "$here/sdc-tool.sh" story-tests-run "$2" ;;
 amend) findings amend "${2:?stage}" ;;
 # amend.upstream's handoff_when (sdc-drive): exit 0 while a finding waits for a person's decision:
 # none yet, or one that names no principal (`decided_by: person:<id>`, `decider:<kind>`, or
@@ -591,6 +610,8 @@ scope-answer)
 consistency) findings consistency ;;
 # --- sdc.bugfix (docs/bugfix.md): its checks are the driver crate's sdc-bugfix binary -----------
 bugfix) shift; bugfix "$@" ;;
+# --- ess itself, as `runbook run --conformance observe` runs it: the release this script pins
+ess) shift; ess "$@" ;;
 stub-repro) "$here/sdc-tool.sh" stub-tree "$2" repro && bugfix repro-install ;;
 *) echo "unknown tool $1" >&2; exit 64 ;;
 esac

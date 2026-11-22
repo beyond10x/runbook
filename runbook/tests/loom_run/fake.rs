@@ -1,4 +1,4 @@
-//! A fake `b10x-loom` for the tests of `runbook loom-run`: a shell script the test writes at run
+//! A fake `b10x-loom` for the tests of `runbook run`: a shell script the test writes at run
 //! time. It records the argv and the environment of every call and answers from a scripted list.
 //!
 //! Layout of a fake's directory `D`:

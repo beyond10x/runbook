@@ -28,6 +28,12 @@ artifacts:
     description: the planning store holding the bug's story
 
 evidence_kinds:
+  dissection_written:
+    description: >-
+      the record that the dissection writer ran and left the dissection document at a new revision
+  repro_written:
+    description: >-
+      the record that the test writer ran and left the repro record at a new revision
   dissection_check:
     description: >-
       a program's check of the dissection against its schema and the code tree; valid or invalid
@@ -50,6 +56,12 @@ evidence_kinds:
       check; passed or failed
 
 claims:
+  dissection.written:
+    description: the current dissection revision is the output of a dissection writer run
+    true_when:
+      evidence:
+        kind: dissection_written
+        subject: dissection
   dissection.valid:
     description: the current dissection is valid
     true_when:
@@ -69,6 +81,12 @@ claims:
       evidence:
         kind: repro_run
         result: red
+        subject: repro
+  repro.written:
+    description: the current repro revision is the output of a test writer run
+    true_when:
+      evidence:
+        kind: repro_written
         subject: repro
   repro.checked:
     description: a run of the current reproducing test is recorded, whatever its result
@@ -126,12 +144,18 @@ actions:
           is: "false"
         - claim: dissection.valid
           is: unknown
+    may_produce:
+      - evidence: dissection_written
   dissection.check:
-    description: check the current dissection; once per dissection revision
+    description: >-
+      check the current dissection; once per dissection revision, and only once the writer has
+      left one (a check of a dissection that does not exist yet would end the case not_reproduced)
     effect: read
     precondition:
-      claim: dissection.checked
-      is: unknown
+      all:
+        - claim: dissection.written
+        - claim: dissection.checked
+          is: unknown
     may_produce:
       - evidence: dissection_check
   test.reproduce:
@@ -147,14 +171,18 @@ actions:
               is: "false"
             - claim: repro.red
               is: unknown
+    may_produce:
+      - evidence: repro_written
   repro.run:
     description: >-
       run the reproducing test on the code tree; once per repro revision, once the dissection is
-      valid
+      valid and the test writer has left a repro record (a run against no test would end the case
+      not_reproduced)
     effect: read
     precondition:
       all:
         - claim: dissection.valid
+        - claim: repro.written
         - claim: repro.checked
           is: unknown
     may_produce:

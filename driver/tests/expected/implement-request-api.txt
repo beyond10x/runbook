@@ -1,0 +1,47 @@
+exit 75
+stdout:
+| llm-node: change.implement could not run: request 1: api_error 529; nothing applied, resume later
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-change.implement/adapter-stderr.txt
+c0439473e432c1f1  .sdc/llm/001-change.implement/implement-inputs.json
+e2624fde2f130453  .sdc/llm/001-change.implement/implement-run.out
+    | request 1: api_error 529
+6ce89923076d1e16  .sdc/llm/001-change.implement/prompt.md
+3c0a043a5e781f7b  .sdc/llm/001-change.implement/reply-schema.json
+6ce89923076d1e16  .sdc/llm/001-change.implement/req-1/prompt.md
+bcbdaa133f986aa8  .sdc/llm/001-change.implement/req-1/request.json
+862ffbe5f014cc7b  .sdc/llm/001-change.implement/req-1/response.json
+    | {"api_error_status":529,"terminal_reason":"api_error"}
+ed0b37a1e88a583a  .sdc/llm/001-change.implement/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-change.implement/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-change.implement/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-change.implement",
+    |   "node": "change.implement",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [],
+    |   "max_turns": 3,
+    |   "max_budget_usd": 2,
+    |   "implement_mode": "request",
+    |   "max_output_tokens": 32000
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-change.implement/requests.jsonl
+d6599cd8fcad8c53  .sdc/llm/001-change.implement/response.json
+    | {"adapter":null,"api_error_status":529,"cause":null,"continuations":0,"cost_usd":null,"duration_ms":null,"effort":null,"exit":75,"implement_mode":"request","is_error":null,"model":null,"num_turns":null,"observed_models":null,"offered_tools":null,"reply_retries":0,"requests":1,"schema_constrained":null,"subtype":null,"terminal_reason":"api_error","tool_calls":[],"usage":null,"wall_ms":null}
+6f924ec2e4a438a3  .sdc/llm/001-change.implement/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 75
+    | }
+00afcbc9af75c771  .sdc/llm/calls.jsonl
+    | {"action":"change.implement","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":null,"model":"claude-haiku-5-5","effort":"high","class":"implement","allowed_operations":[],"max_turns":3,"max_budget_usd":2,"exit":75,"applied_exit":75,"output":"impl","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":[],"dry":false,"record":"<root>/work/.sdc/llm/001-change.implement","implement_mode":"request","requests":1,"continuations":0,"reply_retries":0,"cause":null}
+e6d2169c90554990  .sdc/llm/001-change.implement/cwd/ (6 files)

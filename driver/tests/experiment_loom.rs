@@ -13,6 +13,9 @@ use serde_json::{json, Value};
 
 const IDEA: &str = "Bill customers with invoices.";
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
+/// The file of the `runbook` crate that makes `runbook run` run in process (`sdc-experiment` reads
+/// it as the sign of a build that has it).
+const IN_PROCESS_RUN: &str = "runbook/src/loom_run/here.rs";
 const LOOM_SHA: &str = "d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567";
 
 fn scratch(name: &str) -> PathBuf {
@@ -113,6 +116,8 @@ fn fake_build(d: &Path, revision: u32, with_crate: bool) -> PathBuf {
     if with_crate {
         fs::create_dir_all(b.join("runbook")).unwrap();
         fs::write(b.join("runbook/Cargo.toml"), "[package]\nname = \"runbook\"\n").unwrap();
+        fs::create_dir_all(b.join("runbook/src/loom_run")).unwrap();
+        fs::write(b.join(IN_PROCESS_RUN), "// runbook run in process\n").unwrap();
     }
     d.join("b")
 }
@@ -173,14 +178,18 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert!(out.contains(&format!("{k} is a setting of a model decider, not of kind rule")), "{k}: {out}");
     }
     // A setting that has no counterpart under Loom stays refused, and the refusal names the key.
-    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.dry", "true"), ("flags.recorded", "true"),
-        ("conformance", "observe"), ("rule_approvals", "x"), ("free.model", "m")] {
+    for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.recorded", "true"),
+        ("rule_approvals", "x"), ("free.model", "m")] {
         let mut f = fixed();
         f.push((k.to_string(), v.to_string()));
         write_record(&d, &record_with(&f, "null", "planned", ("", "")));
         let (code, out) = experiment(&["check", "lx"], &d);
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(&format!("{k} is refused for a loom variant")), "{k}: {out}");
+        // The settings that wait for a port of `runbook run` say so.
+        if k == "flags.recorded" {
+            assert!(out.contains("`runbook run` "), "{k}: {out}");
+        }
     }
     // A setting nobody knows, and bad values.
     for (k, v, want) in [("bogus.key", "1", "bogus.key is no loom launch setting"),
@@ -211,6 +220,108 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     let (code, out) = experiment(&["check", "lx"], &d);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("a loom variant starts from an idea input"), "{out}");
+    // A seed input is the bug-fix case that `runbook run --bugfix` opens: it needs its directory.
+    write_record(&d, &example("null").replace("kind: idea", "kind: seed"));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("a seed needs `seed`, its directory relative to the tree") && !out.contains("a loom variant starts from"), "{out}");
+    write_record(&d, &example("null").replace("kind: idea", "kind: seed, seed: driver/examples/sdc/fixtures/bugfix-pager"));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
+}
+
+/// A seed input starts `runbook run sdc-bugfix --bugfix <seed directory of the tree>`: the root
+/// protocol is the bug-fix one, the case is `BUG-1`, the intake is the bug report.
+#[test]
+fn a_seed_input_starts_the_bug_fix_runbook_with_bugfix_and_its_root_protocol() {
+    let d = scratch("seed-input");
+    let builds = fake_build(&d, 11, true);
+    fs::write(builds.join(COMMIT).join("protocol/sdc-bugfix.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc.bugfix\n  revision: 1\n").unwrap();
+    write_record(&d, &example(COMMIT).replace("kind: idea", "kind: seed, seed: driver/examples/sdc/fixtures/bugfix-pager"));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+    let build = builds.join(COMMIT);
+    let launch = builds.parent().unwrap().join("launch").join("lx");
+    let runs = d.join("runs");
+    let want = format!(
+        "  {} run sdc-bugfix --run lx.low.1 --runs-dir {} --loom /opt/loom/b10x-loom --loom-sha256 {LOOM_SHA} --bindings {} --protocols {} \
+         --root-protocol sdc-bugfix@1 --case BUG-1 --bugfix {} --intake {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
+         --max-llm-calls 100 --max-wall-seconds 3600",
+        build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
+        build.join("driver/examples/sdc/fixtures/bugfix-pager").display(), launch.join("lx.low.1").join("idea.yaml").display(),
+        launch.join("lx.low.1").join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+    assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
+    // a build without the bug-fix root protocol is refused for that file
+    fs::remove_file(build.join("protocol/sdc-bugfix.protocol.yaml")).unwrap();
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("has no protocol/sdc-bugfix.protocol.yaml"), "{out}");
+}
+
+/// A planned record of the old driver: no `runner`, the settings of its launch table.
+fn old_driver_record(status: &str) -> String {
+    format!(
+        r#"format: sdc.experiment/1
+id: lx
+kind: prospective
+status: {status}
+created: 2026-11-21
+title: A record of the old driver
+purpose: Whether the launcher still starts a run of the old driver.
+inputs:
+- {{name: invoices, kind: idea, text: {IDEA}, sha256: {}}}
+tree_commit: {COMMIT}
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-sonnet-5-5
+  decider.kind: haiku
+  decider.model: claude-opus-5-5
+  decider.escalate: final
+  decider.max_decider_calls: 40
+  adapter: metaharness
+  max_llm_calls: 150
+  autonomy: A5
+variants:
+- {{id: old, settings: {{}}, runs: []}}
+runs_per_variant: 1
+pass_rule: clean-delivery
+decision_rule: {{rule: descriptive, text: the record describes its runs and decides nothing}}
+"#,
+        sha(IDEA)
+    )
+}
+
+#[test]
+fn a_record_of_the_old_driver_is_still_checked_and_is_refused_at_run_with_one_line() {
+    let d = scratch("old-driver");
+    let builds = fake_build(&d, 8, true);
+    let units = d.join("units.log");
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    // A launch that got past the refusal would call `systemd-run`: this one writes it down.
+    executable(&tools.join("systemd-run"), &format!("#!/bin/sh\necho \"$@\" >> {}\n", units.display()));
+    let path = format!("{}:/usr/bin:/bin", tools.display());
+    for runner_line in ["", "runner: sdc, "] {
+        let text = old_driver_record("planned").replace("- {id: old, ", &format!("- {{id: old, {runner_line}"));
+        write_record(&d, &text);
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 0, "check still reads a record of the old driver ({runner_line:?}): {out}");
+        let runs = d.join("runs");
+        let args = ["run", "lx", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", runs.to_str().unwrap()];
+        let (code, out) = experiment_env(&args, &d, &[("PATH", &path), ("HOME", d.to_str().unwrap())]);
+        assert_eq!(code, 1, "{out}");
+        assert_eq!(out.lines().count(), 1, "one line: {out}");
+        assert!(out.contains("the old driver, which is gone") && out.contains("runner: loom"), "{out}");
+        assert!(!out.contains("run-trial.sh") && !out.contains("sdc-drive"), "{out}");
+        assert!(!units.exists(), "no unit was started");
+        assert!(!d.join("runs").exists(), "no run directory was made");
+    }
+    // `--print` takes the same path: nothing is printed for a record of the old driver.
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("the old driver, which is gone"), "{out}");
 }
 
 #[test]
@@ -226,8 +337,8 @@ fn run_print_gives_each_run_its_unit_and_the_exact_loom_run_command() {
     let launch = builds.parent().unwrap().join("launch").join("lx");
     for (name, calls) in [("lx.low.1", "100"), ("lx.high.1", "200")] {
         let want = format!(
-            "  {} loom-run --run {name} --runs-dir {} --loom /opt/loom/b10x-loom --loom-sha256 {LOOM_SHA} --bindings {} --protocols {} \
-             --root-protocol sdc@11 --case IDEA-1 --idea {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
+            "  {} run sdc --run {name} --runs-dir {} --loom /opt/loom/b10x-loom --loom-sha256 {LOOM_SHA} --bindings {} --protocols {} \
+             --root-protocol sdc@11 --case IDEA-1 --intake {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
              --max-llm-calls {calls} --max-wall-seconds 3600",
             build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
             launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.json").display(), runs.join("lx.loom-spend.json").display());
@@ -244,6 +355,70 @@ fn run_print_gives_each_run_its_unit_and_the_exact_loom_run_command() {
     assert!(out.contains("\"autonomy\":\"A5\"") && out.contains("\"adapter\":\"metaharness\"") && out.contains("\"review\":{\"adapter\":\"claude-cli\"}"), "{out}");
     assert!(!out.contains("principal"), "the principal of the decider's answers is the runner's to derive: {out}");
     assert!(!launch.exists(), "--print wrote {}", launch.display());
+}
+
+#[test]
+fn the_conformance_setting_is_passed_to_runbook_run_and_a_bad_value_is_refused() {
+    let d = scratch("conformance");
+    let builds = fake_build(&d, 11, true);
+    let with = |value: &str| {
+        let mut f: Vec<_> = fixed().into_iter().filter(|(x, _)| x != "max_llm_calls").collect();
+        f.push(("conformance".to_string(), value.to_string()));
+        write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+        experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d)
+    };
+    let (code, out) = with("observe");
+    assert_eq!(code, 0, "{out}");
+    let runs: Vec<&str> = out.lines().filter(|l| l.contains(" run sdc --run ")).collect();
+    assert_eq!(runs.len(), 2, "{out}");
+    assert!(runs.iter().all(|l| l.ends_with("--max-wall-seconds 3600 --conformance observe")), "{out}");
+    let (code, out) = with("off");
+    assert_eq!(code, 0, "{out}");
+    assert!(out.lines().filter(|l| l.contains(" run sdc --run ")).all(|l| l.ends_with("--conformance off")), "{out}");
+    let (code, out) = with("maybe");
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("conformance must be off or observe"), "{out}");
+    // without the setting the option is not passed
+    write_record(&d, &example(COMMIT));
+    let (_, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert!(!out.contains("--conformance"), "{out}");
+}
+
+#[test]
+fn flags_dry_is_accepted_and_runbook_run_gets_dry() {
+    let d = scratch("dry");
+    let builds = fake_build(&d, 11, true);
+    let args = ["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()];
+    let without_adapters = |extra: &[(&str, &str)]| -> Vec<(String, String)> {
+        let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls" && k != "adapter" && k != "decider.adapter").collect();
+        f.extend(extra.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        f
+    };
+    // Without the setting no run line has --dry.
+    write_record(&d, &record_with(&without_adapters(&[]), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    assert!(!out.contains("--dry"), "{out}");
+    // With it every run line ends in --dry, and the settings file names no adapter of its own.
+    write_record(&d, &record_with(&without_adapters(&[("flags.dry", "true")]), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "{out}");
+    let (code, out) = experiment(&args, &d);
+    assert_eq!(code, 0, "{out}");
+    let lines: Vec<&str> = out.lines().filter(|l| l.contains(" run sdc --run ")).collect();
+    assert_eq!(lines.len(), 2, "{out}");
+    assert!(lines.iter().all(|l| l.ends_with("--max-wall-seconds 3600 --dry")), "{out}");
+    // A value other than true, and an adapter beside the flag, are refused by name.
+    for (extra, want) in [
+        (vec![("flags.dry", "false")], "flags.dry must be 'true'"),
+        (vec![("flags.dry", "true"), ("adapter", "metaharness")], "adapter is not set with flags.dry"),
+        (vec![("flags.dry", "true"), ("decider.adapter", "claude-cli")], "decider.adapter is not set with flags.dry"),
+    ] {
+        write_record(&d, &record_with(&without_adapters(&extra), COMMIT, "planned", ("", "")));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{want}: {out}");
+        assert!(out.contains(want), "{want}: {out}");
+    }
 }
 
 #[test]
@@ -266,6 +441,11 @@ fn the_root_protocol_and_the_runbook_crate_are_read_from_the_commit_when_no_buil
     fs::write(repo.join("runbook/Cargo.toml"), "[package]\nname = \"runbook\"\n").unwrap();
     git(&["add", "."]);
     git(&["commit", "--quiet", "-m", "crate"]);
+    let old = git(&["rev-parse", "HEAD"]);
+    fs::create_dir_all(repo.join("runbook/src/loom_run")).unwrap();
+    fs::write(repo.join(IN_PROCESS_RUN), "// runbook run in process\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "in process"]);
     let with = git(&["rev-parse", "HEAD"]);
     fs::create_dir_all(repo.join("experiments")).unwrap();
     let builds = d.join("nobuilds");
@@ -274,6 +454,12 @@ fn the_root_protocol_and_the_runbook_crate_are_read_from_the_commit_when_no_buil
     let (code, out) = experiment(&args, &repo);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains(&format!("refused: tree_commit {without} has no runbook/ crate")), "{out}");
+    // A build whose `runbook` has no `run` in process (only `loom-run`) is refused in one line.
+    fs::write(repo.join("experiments/lx.yaml"), example(&old)).unwrap();
+    let (code, out) = experiment(&args, &repo);
+    assert_eq!(code, 1, "{out}");
+    assert_eq!(out.trim_end().lines().count(), 1, "one line: {out}");
+    assert!(out.contains(&format!("refused: tree_commit {old} has a runbook/ crate with no in-process `runbook run`")), "{out}");
     fs::write(repo.join("experiments/lx.yaml"), example(&with)).unwrap();
     let (code, out) = experiment(&args, &repo);
     assert_eq!(code, 0, "{out}");
@@ -321,7 +507,7 @@ fn a_tree_without_a_runbook_crate_is_refused_at_run_and_a_loom_run_gets_the_base
 #[test]
 fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path() {
     // sdc-reply, sdc-findings and sdc-bugfix are found through PATH by the model nodes and the
-    // decider: the build's driver/target/debug comes first. jq, yq and rsync come from the login.
+    // decider: the build's driver/target/debug comes first. jq and yq come from the login; rsync is not asked for.
     let d = scratch("path");
     let builds = fake_build(&d, 8, true);
     write_record(&d, &example(COMMIT));
@@ -329,12 +515,12 @@ fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path()
     let (code, out) = experiment_env(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", "/nonexistent")]);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains(&format!("  env PATH={}:/nonexistent\n", bin.display())), "{out}");
-    assert!(out.contains("  missing on PATH: jq, yq, rsync\n"), "{out}");
-    assert!(out.contains("  needs on PATH: jq, yq, rsync (bindings/tools/decider.sh); sdc-reply, sdc-findings and sdc-bugfix from "), "{out}");
+    assert!(out.contains("  missing on PATH: jq, yq\n"), "{out}");
+    assert!(out.contains("  needs on PATH: jq, yq (the shell programs of the bindings); sdc-reply, sdc-findings and sdc-bugfix from "), "{out}");
     // The tools are found when a directory of PATH holds them as executable files.
     let tools = d.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for t in ["jq", "yq", "rsync"] {
+    for t in ["jq", "yq"] {
         fs::write(tools.join(t), "#!/bin/sh\n").unwrap();
         fs::set_permissions(tools.join(t), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     }
@@ -345,7 +531,7 @@ fn the_unit_finds_the_builds_binaries_and_the_tools_of_the_decider_on_its_path()
     // A launch without them is refused before anything is built or started.
     let (code, out) = experiment_env(&["run", "lx", "--builds-dir", builds.to_str().unwrap()], &d, &[("PATH", "/nonexistent")]);
     assert_eq!(code, 1, "{out}");
-    assert!(out.contains("refused: jq, yq, rsync not on PATH"), "{out}");
+    assert!(out.contains("refused: jq, yq not on PATH"), "{out}");
 }
 
 #[test]
@@ -489,9 +675,91 @@ fn report_of_a_loom_record_reads_a_run_directory_that_holds_only_the_contract_me
     assert!(out.contains("events.jsonl: no such file"), "{out}");
 }
 
+/// The `fixed` settings of a record that runs Loom as a library: no binary, no digest, and
+/// `loom.in_process: 'true'`.
+fn in_process_fixed() -> Vec<(String, String)> {
+    let mut f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "loom.bin" && k != "loom.sha256" && k != "max_llm_calls").collect();
+    f.push(("loom.in_process".into(), "'true'".into()));
+    f
+}
+
+#[test]
+fn a_loom_record_may_run_loom_as_a_library_and_names_the_way_to_loom_once() {
+    let d = scratch("in-process");
+    let builds = fake_build(&d, 11, true);
+    // no loom.bin and no loom.sha256: the record is accepted
+    write_record(&d, &record_with(&in_process_fixed(), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 0, "a record that runs the library needs no binary and no digest: {out}");
+    // naming both forms is refused, by the key that is one too many
+    for k in ["loom.bin", "loom.sha256"] {
+        let mut f = in_process_fixed();
+        f.push((k.into(), fixed().into_iter().find(|(x, _)| x == k).unwrap().1));
+        write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+        let (code, out) = experiment(&["check", "lx"], &d);
+        assert_eq!(code, 1, "{k}: {out}");
+        assert!(out.contains(&format!("{k} and loom.in_process both name the way to Loom")), "{k}: {out}");
+    }
+    // the only value is 'true'; leave the setting out to run the binary
+    let f: Vec<_> = in_process_fixed().into_iter().filter(|(k, _)| k != "loom.in_process").chain([("loom.in_process".to_string(), "'false'".to_string())]).collect();
+    write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("loom.in_process must be 'true'"), "{out}");
+    // neither form: both keys are named as missing
+    let f: Vec<_> = in_process_fixed().into_iter().filter(|(k, _)| k != "loom.in_process").collect();
+    write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["check", "lx"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("do not set loom.bin") && out.contains("do not set loom.sha256"), "{out}");
+    // run --print shows the line: no --loom and --loom-sha256, so Loom is a library of the build
+    write_record(&d, &record_with(&in_process_fixed(), COMMIT, "planned", ("", "")));
+    let (code, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+    let build = builds.join(COMMIT);
+    let runs = d.join("runs");
+    let launch = builds.parent().unwrap().join("launch").join("lx");
+    for (name, calls) in [("lx.low.1", "100"), ("lx.high.1", "200")] {
+        let want = format!(
+            "  {} run sdc --run {name} --runs-dir {} --bindings {} --protocols {} \
+             --root-protocol sdc@11 --case IDEA-1 --intake {} --confinement local --settings {} --spend-ledger {} --cap-micro-usd 5000000 \
+             --max-llm-calls {calls} --max-wall-seconds 3600",
+            build.join("runbook/target/debug/runbook").display(), runs.display(), build.join("bindings").display(), build.join("protocol").display(),
+            launch.join(name).join("idea.yaml").display(), launch.join(name).join("settings.json").display(), runs.join("lx.loom-spend.json").display());
+        assert!(out.lines().any(|l| l == want), "no line\n{want}\nin\n{out}");
+    }
+    assert!(!out.contains("--loom ") && !out.contains("--loom-sha256"), "{out}");
+    // the settings file the run reads says in_process and holds no digest
+    let printed = out.lines().filter_map(|l| l.strip_prefix("  settings {").map(|r| format!("{{{r}"))).next().expect("a settings line");
+    let printed: Value = serde_json::from_str(&printed).unwrap();
+    assert_eq!(printed["loom"], json!({"in_process": true, "confinement": "local", "cap_micro_usd": 5000000}), "{printed}");
+}
+
+#[test]
+fn check_compares_a_library_run_with_the_record_that_names_the_library() {
+    let d = scratch("in-process-runs");
+    minimal_run(&d.join("runs/lx.low.1"), "operating", "5000000");
+    let record = || {
+        let f: Vec<_> = in_process_fixed();
+        write_record(&d, &record_with(&f, COMMIT, "running", ("lx.low.1", "")));
+    };
+    record();
+    // a run that was made by the binary does not match a record that says library
+    let (code, out) = experiment(&["check", "lx", "--runs-dir", "runs"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("run lx.low.1 has loom.in_process = not recorded, the record says true"), "{out}");
+    // a run that recorded the library and its commit does
+    let file = d.join("runs/lx.low.1/run-settings.jsonl");
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains(&format!("\"sha256\":\"{LOOM_SHA}\"")), "{text}");
+    fs::write(&file, text.replace(&format!("\"sha256\":\"{LOOM_SHA}\""), &format!("\"in_process\":true,\"commit\":\"{COMMIT}\""))).unwrap();
+    let (code, out) = experiment(&["check", "lx", "--runs-dir", "runs"], &d);
+    assert_eq!(code, 0, "{out}");
+}
+
 #[test]
 fn status_names_a_run_directory_it_cannot_read_instead_of_saying_not_started() {
-    // Found by the chain `run --print`, `runbook loom-run`, `status`: a run directory that holds
+    // Found by the chain `run --print`, `runbook run`, `status`: a run directory that holds
     // `outcome.json` (the runner ended) but no root event log was shown as "not started".
     let d = scratch("status-unreadable");
     let f: Vec<_> = fixed().into_iter().filter(|(k, _)| k != "max_llm_calls").collect();
@@ -519,7 +787,7 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     let state = |name: &str| row(name).split_whitespace().nth(2).unwrap_or("").to_string();
     assert!(row("lx.low.1").contains("low") && state("lx.low.1") != "-", "{out}");
     assert!(row("lx.high.1").contains("high") && state("lx.high.1") != "-" && row("lx.high.1").contains("not started"), "{out}");
-    let (code, out) = experiment(&["stop", "lx", "--reason", "the cap was wrong", "--run", "lx.low.1", "--runs-dir", "runs", "--builds-dir", "none"], &d);
+    let (code, out) = experiment(&["stop", "lx", "--reason", "the cap was wrong", "--run", "lx.low.1", "--runs-dir", "runs"], &d);
     assert_eq!(code, 0, "{out}");
     assert!(!out.contains("run-trial.sh"), "a loom run is not stopped with run-trial.sh: {out}");
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
@@ -528,7 +796,7 @@ fn status_and_stop_map_the_unit_names_and_stop_writes_the_stop_record_before_the
     assert_eq!(stop["by"], "agent:sdc-experiment");
     assert!(stop["at"].as_str().is_some_and(|t| t.ends_with('Z')), "{stop}");
     // A second stop does not overwrite the record.
-    let (code, out) = experiment(&["stop", "lx", "--reason", "again", "--run", "lx.low.1", "--runs-dir", "runs", "--builds-dir", "none"], &d);
+    let (code, out) = experiment(&["stop", "lx", "--reason", "again", "--run", "lx.low.1", "--runs-dir", "runs"], &d);
     assert_eq!(code, 0, "{out}");
     assert!(out.contains("already stopped"), "{out}");
     let stop: Value = serde_json::from_str(&fs::read_to_string(d.join("runs/lx.low.1/run-stopped.json")).unwrap()).unwrap();
@@ -549,7 +817,7 @@ fn a_launch_is_refused_when_a_program_of_the_answers_file_is_not_on_the_path() {
     .unwrap();
     let tools = d.join("tools");
     fs::create_dir_all(&tools).unwrap();
-    for t in ["jq", "yq", "rsync"] {
+    for t in ["jq", "yq"] {
         fs::write(tools.join(t), "#!/bin/sh\n").unwrap();
         fs::set_permissions(tools.join(t), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     }
@@ -567,4 +835,137 @@ fn a_launch_is_refused_when_a_program_of_the_answers_file_is_not_on_the_path() {
     fs::write(build.join("driver/src/bin/sdc-answers.rs"), "fn main() {}\n").unwrap();
     let (_, out) = experiment_env(&run, &d, &[("PATH", path)]);
     assert!(!out.contains("sdc-answers not on PATH"), "a program the build makes passes the check: {out}");
+}
+
+fn executable(path: &Path, text: &str) {
+    fs::write(path, text).unwrap();
+    fs::set_permissions(path, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+}
+
+/// `sdc-experiment run <id>` on a record of one stub run (a rule decider, no model call, no network)
+/// starts the run with `runbook run` of the build and ends with exit 0. The build is a directory
+/// that was built before (its record says so), so nothing is compiled; its `runbook` is a program
+/// that writes its command line down and makes the run directory, and `systemd-run` is a script
+/// that runs the unit's command at once.
+#[test]
+fn run_starts_a_stub_run_with_runbook_run_of_the_build_and_ends_with_exit_0() {
+    let d = scratch("start");
+    let git = |dir: &Path, args: &[&str]| {
+        let o = Command::new("git").arg("-C").arg(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false"]).args(args).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    let repo = d.join("repo");
+    fs::create_dir_all(repo.join("protocol")).unwrap();
+    fs::create_dir_all(repo.join("runbook/src/loom_run")).unwrap();
+    fs::write(repo.join("protocol/sdc.protocol.yaml"), "protocol:\n  id: sdc\n  revision: 8\n").unwrap();
+    fs::write(repo.join("runbook/Cargo.toml"), "[package]\nname = \"runbook\"\n").unwrap();
+    fs::write(repo.join(IN_PROCESS_RUN), "// runbook run in process\n").unwrap();
+    fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+    git(&repo, &["init", "--quiet"]);
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "--quiet", "-m", "tree"]);
+    let commit = git(&repo, &["rev-parse", "HEAD"]);
+    let builds = d.join("b");
+    fs::create_dir_all(&builds).unwrap();
+    git(&d, &["clone", "--quiet", repo.to_str().unwrap(), builds.join(&commit).to_str().unwrap()]);
+    fs::write(
+        builds.join(format!("{commit}.built.json")),
+        format!("{{\"format\":\"sdc.experiment-build/1\",\"commit\":\"{commit}\",\"built_at\":\"2026-11-22T00:00:00Z\",\"crates\":[\"driver\",\"goals\",\"watch\",\"runbook\"]}}\n"),
+    )
+    .unwrap();
+    let started = d.join("started.txt");
+    let bin = builds.join(&commit).join("runbook/target/debug");
+    fs::create_dir_all(&bin).unwrap();
+    executable(
+        &bin.join("runbook"),
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" > {}\nwhile [ $# -gt 0 ]; do case \"$1\" in --runs-dir) rd=$2;; --run) rn=$2;; esac; shift; done\nmkdir -p \"$rd/$rn\"\n", started.display()),
+    );
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    for t in ["jq", "yq"] {
+        executable(&tools.join(t), "#!/bin/sh\n");
+    }
+    executable(&tools.join("systemctl"), "#!/bin/sh\necho inactive\n");
+    let wrapper_log = d.join("systemd-run.log");
+    executable(
+        &tools.join("systemd-run"),
+        &format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\nwhile [ $# -gt 0 ]; do case \"$1\" in --working-directory=*) cd \"${{1#--working-directory=}}\";; /usr/bin/env) break;; esac; shift; done\nexec \"$@\"\n",
+            wrapper_log.display()
+        ),
+    );
+    let settings: String = [
+        ("loom.in_process", "'true'"), ("loom.confinement", "local"), ("loom.cap_micro_usd", "5000000"),
+        ("models.writer.model", "claude-sonnet-5-5"), ("models.implement.model", "claude-sonnet-5-5"),
+        ("models.review.model", "claude-sonnet-5-5"), ("models.other.model", "claude-sonnet-5-5"),
+        ("decider.kind", "rule"), ("decider.verdict", "approve"), ("autonomy", "A5"), ("max_llm_calls", "10"), ("max_wall_seconds", "60"),
+    ]
+    .iter()
+    .map(|(k, v)| format!("  {k}: {v}\n"))
+    .collect();
+    fs::create_dir_all(repo.join("experiments")).unwrap();
+    fs::write(
+        repo.join("experiments/lx.yaml"),
+        format!(
+            "format: sdc.experiment/1\nid: lx\nkind: prospective\nstatus: planned\ncreated: 2026-11-22\ntitle: A stub run of the cycle through Loom\n\
+             purpose: Whether the launcher starts a run with runbook run.\ninputs:\n- {{name: invoices, kind: idea, text: {IDEA}, sha256: {}}}\n\
+             tree_commit: {commit}\nfixed:\n{settings}variants:\n- {{id: stub, runner: loom, settings: {{}}, runs: []}}\nruns_per_variant: 1\n\
+             pass_rule: clean-delivery\ndecision_rule: {{rule: descriptive, text: the record describes its runs and decides nothing}}\n",
+            sha(IDEA)
+        ),
+    )
+    .unwrap();
+    let path = format!("{}:/usr/bin:/bin", tools.display());
+    let runs = d.join("runs");
+    let began = std::time::Instant::now();
+    let (code, out) = experiment_env(
+        &["run", "lx", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", runs.to_str().unwrap(), "--max-parallel", "1", "--stagger", "0"],
+        &repo,
+        &[("PATH", &path), ("HOME", d.to_str().unwrap())],
+    );
+    eprintln!("sdc-experiment run on the stub record: {:?}", began.elapsed());
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("started lx.stub.1 as sdc-exp-lx-stub-1") && !out.contains("building "), "nothing is built: {out}");
+    let line: Vec<String> = fs::read_to_string(&started).expect("the build's runbook was started").lines().map(String::from).collect();
+    assert_eq!(line[0], bin.join("runbook").display().to_string(), "{line:?}");
+    assert_eq!(&line[1..3], ["run", "sdc"], "the started command line begins with the build's runbook and run: {line:?}");
+    let at = |flag: &str| line.iter().position(|a| a == flag).map(|i| line[i + 1].clone()).unwrap_or_else(|| panic!("no {flag} in {line:?}"));
+    assert_eq!((at("--run").as_str(), at("--runs-dir")), ("lx.stub.1", runs.display().to_string()));
+    assert!(!line.iter().any(|a| a == "--loom" || a == "--in-process" || a == "--idea"), "{line:?}");
+    assert_eq!(fs::read_to_string(at("--intake")).unwrap(), format!("text: {IDEA}\n"));
+    assert!(runs.join("lx.stub.1/experiment.json").is_file(), "the run is recorded");
+    assert!(fs::read_to_string(repo.join("experiments/lx.yaml")).unwrap().contains("status: running"));
+    // The process tree of the run holds no old driver: the wrapper log (the one `systemd-run` call,
+    // with the unit's whole command) and the command line of the build's `runbook` name neither.
+    let wrapped = fs::read_to_string(&wrapper_log).expect("the launcher called systemd-run");
+    assert_eq!(wrapped.lines().count(), 1, "one unit for one run: {wrapped}");
+    assert!(wrapped.contains(&format!("{} run sdc", bin.join("runbook").display())), "the unit runs `runbook run`: {wrapped}");
+    for old in ["run-trial.sh", "sdc-drive"] {
+        assert!(!wrapped.contains(old) && !line.iter().any(|a| a.contains(old)), "{old} is no part of the run: {wrapped} {line:?}");
+    }
+}
+
+/// `stop` reaches a run through its unit: the stop record, then `systemctl --user stop <unit>`
+/// (systemd's signal to the run's process), never a name and never a script.
+#[test]
+fn stop_signals_the_unit_of_the_run_and_calls_no_script() {
+    let d = scratch("stop-unit");
+    fs::create_dir_all(d.join("runs/lx.low.1")).unwrap();
+    write_record(&d, &record_with(&fixed().into_iter().filter(|(k, _)| k != "max_llm_calls").collect::<Vec<_>>(), COMMIT, "running", ("lx.low.1", "")));
+    let calls = d.join("systemctl.log");
+    let tools = d.join("tools");
+    fs::create_dir_all(&tools).unwrap();
+    executable(
+        &tools.join("systemctl"),
+        &format!("#!/bin/sh\nprintf '%s\\n' \"$*\" >> {}\ncase \"$*\" in *ActiveState*) echo active;; esac\n", calls.display()),
+    );
+    let path = format!("{}:/usr/bin:/bin", tools.display());
+    let (code, out) = experiment_env(&["stop", "lx", "--reason", "wrong cap", "--run", "lx.low.1", "--runs-dir", "runs"], &d, &[("PATH", &path), ("HOME", "/nonexistent-home")]);
+    assert_eq!(code, 0, "{out}");
+    assert!(d.join("runs/lx.low.1/run-stopped.json").is_file(), "{out}");
+    let log = fs::read_to_string(&calls).unwrap();
+    assert!(log.lines().any(|l| l == "--user stop sdc-exp-lx-low-1"), "the unit of the run is stopped: {log}");
+    assert!(!out.contains("run-trial.sh"), "{out}");
 }

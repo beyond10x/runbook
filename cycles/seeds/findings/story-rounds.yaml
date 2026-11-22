@@ -1,0 +1,29 @@
+node: change.implement
+rounds:
+  - - key: story-person-1
+      type: ambiguity
+      cites: [r1]
+      says: r1 does not say whether an invoice number is shown to the customer before the invoice is issued
+      options:
+        - only once the invoice is issued
+        - from the draft on
+      default: only once the invoice is issued
+      scope_changing: true
+    - key: story-agent-1
+      type: missing_decision
+      cites: [r1]
+      says: r1 does not say how an invoice number is formatted
+      options:
+        - the year and a running number
+        - a running number only
+      default: the year and a running number
+      scope_changing: false
+  - - key: story-agent-2
+      type: missing_decision
+      cites: [r1]
+      says: r1 does not say whether the running number restarts each year
+      options:
+        - it restarts each year
+        - it never restarts
+      default: it restarts each year
+      scope_changing: false

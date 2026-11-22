@@ -6,6 +6,8 @@ use std::process::{Command, Output};
 
 mod ess_digest;
 mod loom_run;
+mod reply_lib;
+mod test_suite;
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 
@@ -88,17 +90,17 @@ impl Drop for World {
 
 const LAYOUT_DIRS: [&str; 9] =
     ["protocol", "scripts", "driver/examples/sdc", "bindings", "bindings/tools", "instructions", "views", "cycles", "ui"];
-const TOOLS: [&str; 4] = [
+const TOOLS: [&str; 3] = [
     "bindings/tools/sdc-tool.sh",
-    "bindings/tools/llm-node.sh",
     "bindings/tools/decider.sh",
     "bindings/tools/llm-adapter-claude-cli.sh",
 ];
 
 const PROGRAMS: [&str; 14] =
     ["canon", "bash", "jq", "yq", "git", "claude", "aep", "ess", "task", "slot", "cargo", "cargo-clippy", "rustfmt", "node"];
-const HELPERS: [&str; 9] = [
+const HELPERS: [&str; 10] = [
     "sdc-drive",
+    "sdc-node",
     "sdc-findings",
     "sdc-bugfix",
     "sdc-decision-request",
@@ -1496,7 +1498,7 @@ fn parity_a_copy_whose_record_is_not_in_the_target_case_is_an_error_that_names_t
     assert!(err.contains("case root") && err.contains("route_approval") && err.contains("copies[0]"), "{err}");
 }
 
-/// A Loom run directory as `runbook loom-run` leaves it, built from the fixtures: the status, the
+/// A Loom run directory as `runbook run` leaves it, built from the fixtures: the status, the
 /// product tree (`work`), the settings line, the decisions it answered and the protocol files it copied.
 fn loom_run_dir(s: &Synth, tag: &str) -> PathBuf {
     let dir = s.root.join(tag);
@@ -1931,6 +1933,7 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
     s.put("tree/a.txt", "a");
     s.put("tree/.sdc/loom-feedback/0123456789abcdef/log.txt", "tail");
     s.put("tree/.sdc/keep/x", "x");
+    s.put("tree/.sdc/records/conformance_run/0123456789abcdef.log", "test b ... ok\nfinished in 0.02s\n");
     let out = s.root.join("o.json");
     let o = loom_summarize(&pfx().join("loom-status.json"), &["--product-tree", path_str(&s.root.join("tree")), "--output", path_str(&out)]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
@@ -1938,6 +1941,7 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
     assert_eq!(paths, [json!(".sdc/keep/x"), json!("a.txt")]);
     let table = stdout(&parity(&["compare", "--rules"]));
     assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/loom-feedback/**] | never compared | ")), "{table}");
+    assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/records/**] | never compared | ")), "{table}");
 }
 
 // ---- runbook parity: the revision a child's `case_outcome` record carries in its parent

@@ -9,7 +9,7 @@ use std::process::{Command, Output, Stdio};
 pub const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 
 /// A bindings file with one model node: block style, one per-call budget of 1 USD.
-const BINDINGS: &str = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: node.write\n    executor:\n      kind: program\n      argv:\n        - tools/llm-node.sh\n        - node.write\n        - --max-budget-usd\n        - \"1\"\n";
+const BINDINGS: &str = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: node.write\n    executor:\n      kind: program\n      argv:\n        - sdc-node\n        - node.write\n        - --max-budget-usd\n        - \"1\"\n";
 
 /// A shell snippet for a `tree_run` hook: one model call that costs `COST` USD, or less when the
 /// budget the runner wrote into the bindings copy is lower (as the claude CLI honours its budget).
@@ -73,7 +73,7 @@ impl World {
     /// The full option list for run `name`; `cap` micro USD.
     pub fn args(&self, name: &str, cap: u64) -> Vec<String> {
         let r = |p: &str| self.root.join(p).display().to_string();
-        let mut a: Vec<String> = ["loom-run", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
+        let mut a: Vec<String> = ["run", "sdc", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
         a.extend([
             r("runs"),
             "--loom".into(),
@@ -88,7 +88,7 @@ impl World {
             "sdc@8".into(),
             "--case".into(),
             "IDEA-1".into(),
-            "--idea".into(),
+            "--intake".into(),
             r("idea.yaml"),
             "--confinement".into(),
             "local".into(),

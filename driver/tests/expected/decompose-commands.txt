@@ -1,0 +1,80 @@
+exit 1
+stdout:
+stderr:
+| would run: metaharness 'run' 'claude' '--frame' '<root>/work/.sdc/llm/001-plan.decompose/frame.json' '--decisions' 'frame' '--cwd' '<root>/work/.sdc/llm/001-plan.decompose/cwd' '--scratch-cwd' '--model' 'claude-haiku-5-5' '--max-turns' '15' '--max-budget-usd' '0.5' '--retain-dir' '<root>/work/.sdc/llm/001-plan.decompose/transcripts' '--effort' 'high' '-p' "$(cat <root>/work/.sdc/llm/001-plan.decompose/prompt.md)"
+| error: 3 planning document(s) in aep cannot be used, so nothing was written:
+|   - aep/initiative/roadmap.md: planning document (initiative/roadmap.md) has no frontmatter: it must open with a `---` line and close the block with another
+|   - aep/story/list.md: planning document (story/list.md): missing field `kind`
+|   - aep/vision/product.md: planning document (vision/product.md) has no frontmatter: it must open with a `---` line and close the block with another
+| fix them, or run `aep plan artifact validate` for the whole list
+written:
+8dc537a64a91c9fa  .sdc/llm/001-plan.decompose/argv.json
+    | [
+    |   "<root>/work/.sdc/llm/001-plan.decompose/metaharness-stand-in",
+    |   "run",
+    |   "claude",
+    |   "--frame",
+    |   "<root>/work/.sdc/llm/001-plan.decompose/frame.json",
+    |   "--decisions",
+    |   "frame",
+    |   "--cwd",
+    |   "<root>/work/.sdc/llm/001-plan.decompose/cwd",
+    |   "--scratch-cwd",
+    |   "--model",
+    |   "claude-haiku-5-5",
+    |   "--max-turns",
+    |   "15",
+    |   "--max-budget-usd",
+    |   "0.5",
+    |   "--retain-dir",
+    |   "<root>/work/.sdc/llm/001-plan.decompose/transcripts",
+    |   "--effort",
+    |   "high",
+    |   "-p",
+    |   "<prompt_file>"
+    | ]
+e3b0c44298fc1c14  .sdc/llm/001-plan.decompose/events.jsonl
+374e136766bde44d  .sdc/llm/001-plan.decompose/frame.json
+17de65343d6ecb30  .sdc/llm/001-plan.decompose/prompt.md
+864fd1a0eb4d909a  .sdc/llm/001-plan.decompose/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-plan.decompose/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-plan.decompose/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-plan.decompose",
+    |   "node": "plan.decompose",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+9d02aa0ca0480a59  .sdc/llm/001-plan.decompose/response.json
+    | {
+    |   "adapter": "dry",
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "exit": 0,
+    |   "dry": true
+    | }
+359e2264d4067fdb  .sdc/llm/001-plan.decompose/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-plan.decompose/stderr.txt
+993a66a9e7f9a189  .sdc/llm/calls.jsonl
+    | {"action":"plan.decompose","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"dry","model":"claude-haiku-5-5","effort":"high","class":"writer","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":1,"output":"aep","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":true,"record":"<root>/work/.sdc/llm/001-plan.decompose"}
+92e259658fa42607  .sdc/llm/001-plan.decompose/cwd/ (9 files)
