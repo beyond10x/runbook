@@ -49,6 +49,9 @@ pub enum Event {
     /// A cost was added to the ledger. `record` is the cost record as read (a line of
     /// `.sdc/llm/calls.jsonl`) or a note of the decider.
     CostedCall { source: CostSource, cost_micro_usd: u64, record: Value },
+    /// A step ended before it started any adapter: its call directory `call` is no model call, it
+    /// costs nothing and its reservation is released. `exit` is the exit of its `status.json`.
+    NoModelCall { call: String, exit: i64 },
     /// A cap stopped the run before the next call.
     CapReached { cap: Cap, detail: String },
     /// `tree status` and `tree verify` were stored (exit codes of both).

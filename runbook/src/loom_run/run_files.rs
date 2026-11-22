@@ -60,6 +60,7 @@ pub fn event_json(at_secs: u64, event: &Event) -> Value {
             };
             ("costed_call", json!({"source": source, "cost_micro_usd": cost_micro_usd, "record": record}))
         }
+        Event::NoModelCall { call, exit } => ("no_model_call", json!({"note": "step, no model call made", "call": call, "exit": exit})),
         Event::CapReached { cap, detail } => {
             let cap = match cap {
                 Cap::Spend => "spend",
