@@ -20,6 +20,7 @@ run, what a Loom run does not record, and which quality measures of
       loom/verify.json   the verify result without absolute paths
       run-settings.jsonl llm-calls.jsonl decisions.jsonl rounds.jsonl   append-only records
       run-stopped.json   the stop record, when the run did not close
+      dry-commands.txt   the commands a --dry run printed, one per line (only with --dry)
       status.json        the close record, when the tree ended
 ```
 

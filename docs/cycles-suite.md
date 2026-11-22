@@ -246,7 +246,7 @@ replay model calls from and no injected rejection, timeout or failed check.
 | writer-not-called | not converted | class: the store is edited between two runs (a program replaced, a finding dismissed) |
 | decider-input | not converted | class: the contents of the decider's call directories (the files of its input) |
 | principals | not converted | class: the store is edited between two runs (a decision written by hand), then a refusal of a second tool |
-| efforts | not converted | class: dry runs (`--dry`, a listing, no tree) and a stand-in model adapter written by the cycle: the environment of a bound program (`CLAUDE`, `SDC_CLAUDE_CREDENTIALS`, `CLAUDE_CODE_EFFORT_LEVEL`); a script the cycle generates is no seed |
+| efforts | not converted | held in part as the Rust test `loom_run::dry::efforts_the_decider_s_effort_is_on_the_dry_command_its_default_is_the_class_default_and_a_bad_level_is_refused` (`runbook/tests/loom_run/dry.rs`): the decider's effort and its refused level. Open: the effort per node class (`efforts.<class>.effort`, `SDC_LLM_EFFORT_<CLASS>`) needs an `--effort` argument on the model node (`bindings/tools/llm-node.sh`, `sdc-node`) written by the bindings copy (`bindings_copy.rs`); and the stand-in claude adapter run (the environment of a bound program) stays a class of its own |
 | replay-recording-clean | not converted | class: the recording file of the replay tool (`recording.json`) |
 
 ### Trial entries (83)
@@ -264,7 +264,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 - bindings the pinned Loom refuses (the bugfix cycles): 4, now in the file. `bindings/sdc-bugfix.yaml`
   has `gate.run` at 3600 s (D531), and the bugfix protocol records `dissection_written` and
   `repro_written` so that no check runs before its writer (`docs/bugfix.md`).
-- the requester decider (2), the environment of a bound program (2), a `--dry` listing (1), a ticket
+- the requester decider (2), the environment of a bound program (2), a `--dry` listing (1, held as a Rust test), a ticket
   read before the tree opens (1).
 
 | entry | state | reason |
@@ -317,7 +317,7 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | decider-release-withheld | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | requester-decider | not converted | class: the requester decider answers from goals (`--goals`, `REQUESTER_REPLIES`); no suite member says goals |
 | requester-no-ground | not converted | class: the requester decider answers from goals (`--goals`, `REQUESTER_REPLIES`); no suite member says goals |
-| models | not converted | class: a `--dry` listing of the models per class, not a run of a tree |
+| models | not converted | held as the Rust test `loom_run::dry::models_each_call_names_the_binding_s_model_or_the_one_for_all_or_the_one_of_its_class` (`runbook/tests/loom_run/dry.rs`, `runbook run --dry`): a `--dry` listing of the models per class is not a run of a tree, so the entry has no cycle in the file |
 | decider-question-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
 | rework-fresh-allowance | pending | two scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
 | scope-unattributed-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
