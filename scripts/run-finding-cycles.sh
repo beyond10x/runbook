@@ -2906,8 +2906,8 @@ else
 fi
 fi
 # bugfix-pool-wait, bugfix-over-time: story:pool-wait-is-not-a-failure on sdc.bugfix. The build pool
-# is the stand-in fixtures/pool-wait/slot. The first repro.run of the case finds no reproducing test
-# and ends not_red before any job (that record stays); the second, after test.reproduce, reaches the pool. bugfix-pool-wait: it never starts the job, the step's wait bound is 1
+# is the stand-in fixtures/pool-wait/slot. repro.run waits for test.reproduce (its precondition names repro.written), so no run finds no test; the only one reaches the pool
+# and no repro_run record is written. bugfix-pool-wait: it never starts the job, the step's wait bound is 1
 # s. Passes when the run ends `pool_wait_spent` after a repro.run step that ran its tool 3 times,
 # each exit 69, with no evidence record from it and no change.fix. bugfix-over-time: the job
 # is ended at once with exit 124 (the pool's run limit): the tool exits 70, and the run ends
@@ -2931,7 +2931,7 @@ bugfix_pool_cycle() { # <name> <never|overtime> <verdict> <runs of repro.run's t
        and ([.[] | select(.event == $v)] | length) == 1
        and ([.[] | select(.event == "action_started" and .action == "change.fix")] | length) == 0' "$ev" >/dev/null &&
      (( $(wc -l < "$s/$name-state/jobs") == runs )) &&
-     ls "$r"/store/BUG-1/evidence/*.json 2>/dev/null | xargs -r cat | jq -se '[.[] | select(.kind == "repro_run")] | length == 1 and .[0].result == "not_red"' >/dev/null; then
+     ls "$r"/store/BUG-1/evidence/*.json 2>/dev/null | xargs -r cat | jq -se '[.[] | select(.kind == "repro_run")] | length == 0' >/dev/null; then
     echo "$name: checks pass ($what)"
   else
     echo "$name: FAILED (exit $code, or repro.run did not end $verdict after $runs run(s) of its tool, or evidence or a change.fix followed)"
