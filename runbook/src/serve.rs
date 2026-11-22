@@ -78,6 +78,7 @@ pub fn state_dir(args: &ServeArgs, env: &Env) -> Result<PathBuf, String> {
 /// (the security floor), then the state directory. Nothing is bound or written before the floor holds.
 pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared, String> {
     let token = auth::load_token(args.token_file.as_deref(), env.token.clone())?;
+    auth::check_token_length(token.as_deref())?;
     let addr = args
         .listen
         .to_socket_addrs()

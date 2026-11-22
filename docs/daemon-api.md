@@ -177,7 +177,10 @@ open event streams are closed then (see "Event streams").
 
 Token. With a token, every route, an unknown one included, answers `401` unless the request has
 `Authorization: Bearer <token>`. The token comes from `--token-file` or from the environment value
-`RUNBOOK_TOKEN`, the file first. A trailing newline is dropped. The daemon compares in constant
+`RUNBOOK_TOKEN`, the file first. A trailing newline is dropped. The token is at least 32 bytes: a
+shorter one is refused at start, exit 1, with a message that names the minimum and `--token-file` and
+shows neither the token nor its length (the client side takes the token it was given and has no minimum).
+Make one with `head -c 32 /dev/urandom | base64 > token && chmod 600 token` (44 characters). The daemon compares in constant
 time, and it never logs or echoes the token. A token file that is readable by others (any bit of
 `o+rwx`) is refused at start, exit 1, with the mode in the message: `chmod 600` it. Without a token
 the daemon listens on loopback only: a listen address that is not loopback and no token exit 1
