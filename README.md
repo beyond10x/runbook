@@ -110,11 +110,16 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.4.0`; nothing is published to crates.io. The latest is 0.4.0 (2026-11-22).
+`0.4.1`; nothing is published to crates.io. The latest is 0.4.1 (2026-11-22).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.4.0 over 0.3.1 (nothing is unreleased): the daemon (`runbook serve`, its HTTP API, event
+- New in 0.4.1 over 0.4.0 (nothing is unreleased): a fix (a model step of `runbook loom-run` that
+  started no adapter costs nothing), the ESS specification and the product checks on ESS 0.97.3 with
+  the daemon's synthesized suite committed, the reference check `sdc-check-unreferenced`, the two
+  evaluation tools reading a loom-run directory, and UI test children that end with their parent; no
+  protocol or behaviour change ([docs/releases/0.4.1.md](docs/releases/0.4.1.md)).
+- New in 0.4.0 over 0.3.1: the daemon (`runbook serve`, its HTTP API, event
   streams, MCP and an embedded page, on a stub runtime that runs no real case) with `runbook run
   --detach`, `runbook runs` and `runbook decide` as its client, and `runbook loom-run`, which runs
   one case on a pinned `b10x-loom` binary
