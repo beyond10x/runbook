@@ -525,6 +525,37 @@ mod loom_mode {
         same("spec.author on dry", &d, &l);
     }
 
+    /// A person's rejection reaches the writer as the reasons text (Loom's `--result rejected
+    /// --reasons-file`): the stub records them in the rejected artifact, which makes the rework a
+    /// new revision, and the model adapter's `in/feedback.md` carries them.
+    #[test]
+    fn a_persons_rejection_reaches_the_stub_writer_as_reasons_text() {
+        let r = roots("person-rejection");
+        put(&r, "requirements.yaml", &fs::read_to_string(fx().join("requirements.yaml")).unwrap());
+        put(&r, "context.yaml", &fs::read_to_string(fx().join("context.yaml")).unwrap());
+        let reasons = "The context lacks the named risks.\nName the failure modes of a missing connection.\n";
+        let blob = "5e".repeat(32);
+        let doc = serde_json::json!({"format": "loom.retry-feedback/1", "case": "IDEA-1.direction", "action": "context.default",
+            "records": [{"evidence_id": "e1", "kind": "context_approval", "subject": "context", "subject_revision": "r2",
+                "result": "rejected", "producer": "person:owner", "observed_at": "2026-11-22T00:00:00Z", "blob_sha256": blob,
+                "action": "context.approve", "exit": null}],
+            "logs": [{"blob_sha256": blob, "tail": reasons}]});
+        let doc_path = r.1.join("feedback-doc.json");
+        fs::write(&doc_path, doc.to_string()).unwrap();
+        let stub = ["stub-file", "context.yaml", "context.yaml"];
+        let l = loom(&r.1, "llm-node.sh", &node_argv("context.default", &stub, &[]), "IDEA-1.direction", "{}", Some(&doc_path));
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let context = &l.files["context.yaml"];
+        assert!(
+            context.ends_with("# rework of the rejection of context.approve:\n# - The context lacks the named risks.\n# - Name the failure modes of a missing connection.\n"),
+            "{context}"
+        );
+        // The same document through the model adapter's dry run reaches the writer's input.
+        let dry = loom(&r.1, "llm-node.sh", &node_argv("context.default", &stub, &["--adapter", "dry", "--instructions", r#"{"task":"instructions/context.default.md"}"#]), "IDEA-1.direction", "{}", Some(&doc_path));
+        let feedback = dry.files.iter().find(|(k, _)| k.ends_with("/cwd/in/feedback.md")).map(|(_, v)| v.clone()).unwrap_or_default();
+        assert!(feedback.contains("context_approval = rejected") && feedback.contains("Name the failure modes of a missing connection."), "{dry:#?}");
+    }
+
     #[test]
     fn a_retried_writer_reads_its_feedback_from_loom_retry_feedback() {
         let r = roots("retry");

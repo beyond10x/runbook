@@ -323,7 +323,9 @@ itself.
 launcher never reads it and never copies it; `run --print` prints
 `login: loom.login_file is set (…)` and `<loom.login_file>` in place of the path, and the unit's
 description holds no setting. The settings file itself holds the path (it is not committed, it is
-under the state directory).
+under the state directory). A record that is committed names no login: `sdc-experiment run <record>
+--login-file <path>` (absolute or `~/…`) gives every `loom` variant of this launch the same
+`loom.login_file`; the path is in no record, not in the `--print` output and not in the launcher's output, only in the settings file.
 
 **`status` and `stop`.** A `loom` run's unit is `sdc-exp-<id>-<variant>-<n>` and its run `<id>.<variant>.<n>`,
 as for the other runners. `stop` writes `run-stopped.json` (`sdc.run-stopped/1`, `at`, `by`, `reason`) into the
@@ -331,7 +333,7 @@ run's directory when it exists, is not stopped and not finished (it never calls 
 then stops the unit: systemd sends SIGTERM to `runbook loom-run`, which writes its outcome on that
 signal (unit R1, `story:loom-run-core`). A run already stopped keeps its record.
 
-**Example record** (not registered; `experiments/` holds none):
+**Example record** (not registered):
 
 ```yaml
 format: sdc.experiment/1
@@ -345,7 +347,7 @@ inputs:
 - {name: invoices, kind: idea, text: Bill customers with invoices., sha256: <sha256 of the text>}
 tree_commit: null
 fixed:
-  loom.bin: ~/.cargo/bin/b10x-loom
+  loom.bin: ~/.local/state/runbook/loom/5af3f9c2/b10x-loom
   loom.sha256: <64 hex digits>
   loom.confinement: local
   loom.cap_micro_usd: 5000000

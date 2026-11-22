@@ -337,15 +337,15 @@ fn the_loop_runs_one_step_at_a_time_and_approves_what_loom_printed() {
 }
 
 #[test]
-fn a_denial_adds_deny_and_the_deciders_principal_replaces_loom_s() {
-    let w = World::new("deny");
+fn the_deciders_principal_replaces_loom_s() {
+    let w = World::new("principal");
     w.one_decision_tree();
     w.settings(&json!({"decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [
-        {"approve": false, "principal": "decider:model", "cost_micro_usd": 0, "model_calls": 0}]}}));
+        {"approve": true, "principal": "decider:model", "cost_micro_usd": 0, "model_calls": 0}]}}));
     let o = w.run(&w.args("r1", 1_000_000));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     let a = &w.fake.calls_of(&["tree", "approve"])[0].argv;
-    assert_eq!(a.last().unwrap(), "--deny");
+    assert!(!a.iter().any(|x| x == "--deny"), "{a:?}");
     let at = a.iter().position(|x| x == "--principal").unwrap();
     assert_eq!(a[at + 1], "decider:model");
 }
@@ -419,6 +419,7 @@ fn a_printed_command_that_fails_ends_the_run_with_its_exit_code_and_stderr() {
 #[test]
 fn a_denial_is_asked_once_and_the_run_ends_denied_when_the_same_decision_returns() {
     let w = World::new("denied");
+    std::fs::write(w.root.join("bindings/sdc.yaml"), "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: owner.approve\n    executor: {kind: person, principal: person:owner}\n    evidence:\n      - {kind: draft_review, subject: draft, producer: person:owner, from: effect, results: {performed: approved, rejected: rejected}}\n").unwrap();
     let d = decision_json("owner.approve", "ApproveAction", "person:owner");
     w.fake.answer("tree_run", "default", &tree_run_json("AwaitingPerson", 0, None, &format!("[{d}]")), 3);
     w.fake.answer("tree_approve", "default", "{\"decision\":\"Deny\"}\n", 0);

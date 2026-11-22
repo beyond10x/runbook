@@ -70,7 +70,7 @@ actions:
         subject: change
         producer: person:owner
         from: effect
-        results: {performed: approved}
+        results: {performed: approved, rejected: rejected}
   - action: change.merge
     executor:
       kind: program

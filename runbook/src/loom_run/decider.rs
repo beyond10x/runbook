@@ -3,8 +3,9 @@
 //!
 //! The table of what the driver decided, what Loom can ask today and what this module does with
 //! each is in `docs/loom-run-decisions.md`. Short form: an entry of `decisions[]` of kind
-//! `ApproveAction` or `Approve` is an approval; everything else (a question, a finding, `Close`,
-//! `Handoff`, an unknown kind) ends in `CannotDecide` naming why.
+//! `ApproveAction` or `Approve` is an approval and one of kind `Close` is asked as a close (the
+//! outcome Loom printed); everything else (a question, a finding, `Handoff`, an unknown kind) ends
+//! in `CannotDecide` naming why.
 
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
 use serde_json::{json, Map, Value};
@@ -39,8 +40,8 @@ const MODEL_KEYS: [&str; 14] = [
     "reply_bin",
 ];
 const RULE_KEYS: [&str; 4] = ["kind", "program", "verdict", "timeout_seconds"];
-/// The kinds of `decisions[]` entries that are approvals.
-const APPROVAL_KINDS: [&str; 2] = ["ApproveAction", "Approve"];
+/// The kinds of `decisions[]` entries that are approvals; `Close` is asked as a close.
+const APPROVAL_KINDS: [&str; 3] = ["ApproveAction", "Approve", "Close"];
 /// Driver default of `SDC_MAX_DECIDER_CALLS`.
 const DEFAULT_MAX_CALLS: u64 = 20;
 /// Driver default of `SDC_DECIDER_RETRIES`.
@@ -242,6 +243,8 @@ struct Approval {
     subject: String,
     revision: String,
     path: Option<String>,
+    /// The outcome of a `Close` entry; the decision is then a close, not an approval.
+    close_outcome: Option<String>,
 }
 
 fn text_member<'a>(decision: &'a Value, name: &str) -> Option<&'a str> {
@@ -257,14 +260,17 @@ fn read_approval(request: &DecisionRequest<'_>) -> Result<Approval, String> {
     let kind = text_member(decision, "kind").ok_or("the decision has no kind")?;
     if !APPROVAL_KINDS.contains(&kind) {
         return Err(match kind {
-            "Close" => "kind Close: the choice between two legitimate outcomes needs `tree close`, which b10x-loom does not have at the pinned commit".to_owned(),
-            "Handoff" => "kind Handoff: a writer's handoff text is for a person; tree run does not emit it at the pinned commit and has no command that answers it".to_owned(),
+            "Handoff" => "kind Handoff: a writer's handoff text names work for a person; the printed `tree run` changes nothing until that work is done, and the decider has no reply for it".to_owned(),
             other => format!("kind {other} not known"),
         });
     }
     let case = text_member(decision, "case").ok_or("the decision names no case")?.to_owned();
     if !plain_name(&case) {
         return Err("the case name is not a plain name".to_owned());
+    }
+    if kind == "Close" {
+        let outcome = text_member(decision, "outcome").ok_or("the Close decision names no outcome (member `outcome` absent)")?.to_owned();
+        return Ok(Approval { case, action: "close".to_owned(), capability: None, subject: String::new(), revision: String::new(), path: None, close_outcome: Some(outcome) });
     }
     let action = text_member(decision, "action").ok_or("the decision names no action (member `action` absent)")?.to_owned();
     if action == "scope.answer" {
@@ -284,7 +290,7 @@ fn read_approval(request: &DecisionRequest<'_>) -> Result<Approval, String> {
             Some(relative.to_string_lossy().into_owned())
         }
     };
-    Ok(Approval { case, action, capability: text_member(decision, "capability").map(str::to_owned), subject, revision, path })
+    Ok(Approval { case, action, capability: text_member(decision, "capability").map(str::to_owned), subject, revision, path, close_outcome: None })
 }
 
 fn hex(text: &str) -> String {
@@ -327,7 +333,9 @@ fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) -> Result<P
     for (name, revision) in case_artifacts(request.decision, &approval.case) {
         artifacts.insert(name, json!({ "revision": revision }));
     }
-    artifacts.insert(approval.subject.clone(), json!({ "revision": approval.revision }));
+    if !approval.subject.is_empty() {
+        artifacts.insert(approval.subject.clone(), json!({ "revision": approval.revision }));
+    }
     let case = json!({"id": approval.case, "artifacts": artifacts});
     std::fs::write(dir.join("case.json"), format!("{case}\n")).map_err(|e| format!("decider case file: {e}"))?;
     let work = dir.join("work");
@@ -471,7 +479,13 @@ impl ProgramDecider {
                     return Self::cannot("the rule decider's reply is not valid");
                 }
                 match reply.get("decision").and_then(Value::as_str) {
-                    Some(d @ ("approve" | "reject")) => Verdict::Answer { approve: d == "approve", principal: Some(self.principal.clone()), cost_micro_usd: Some(0), model_calls: 0 },
+                    Some(d @ ("approve" | "reject")) => Verdict::Answer {
+                        approve: d == "approve",
+                        principal: Some(self.principal.clone()),
+                        cost_micro_usd: Some(0),
+                        model_calls: 0,
+                        reasons: if d == "reject" { reply_reasons(&reply).map(|t| self.redact(&t)) } else { None },
+                    },
                     _ => Self::cannot("the rule decider's reply has no decision approve or reject"),
                 }
             }
@@ -584,7 +598,8 @@ impl ProgramDecider {
                 }
                 _ => return Self::cannot("the decider's reply has no decision approve, reject or escalate"),
             };
-            return Verdict::Answer { approve: decision, principal: Some(self.principal.clone()), cost_micro_usd: Some(spent), model_calls: calls };
+            let reasons = if decision { None } else { reply_reasons(&reply).map(|t| self.redact(&t)) };
+            return Verdict::Answer { approve: decision, principal: Some(self.principal.clone()), cost_micro_usd: Some(spent), model_calls: calls, reasons };
         }
     }
 }
@@ -652,8 +667,22 @@ fn decide_request(approval: &Approval, case_dir: &Path, record_dir: &Path, retry
         "position": {"claims": {}, "open_obligations": [], "legitimate_outcomes": []},
         "record_dir": record_dir.display().to_string(),
     });
+    if let Some(outcome) = &approval.close_outcome {
+        request["type"] = json!("close");
+        request["outcome"] = json!(outcome);
+        for member in ["action", "capability", "subject", "path", "revision"] {
+            request[member] = Value::Null;
+        }
+    }
     if let Some((attempt, why)) = retry {
         request["retry"] = json!({"attempt": attempt, "invalid_reason": why});
     }
     request
+}
+
+/// The decider's reasons of a reply: the `reasons` text members joined by line breaks.
+fn reply_reasons(reply: &Value) -> Option<String> {
+    let items = reply.get("reasons").and_then(Value::as_array)?;
+    let text = items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n");
+    (!text.trim().is_empty()).then_some(text)
 }

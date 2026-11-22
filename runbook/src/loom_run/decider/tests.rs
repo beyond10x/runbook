@@ -102,7 +102,7 @@ fn approve_action_entry_is_asked_and_answered() {
     let w = world("r2-approve-action", &fake(&valid("0.012345")));
     let s = settings(&w, json!({}));
     let verdict = ask(&w, &s, &approve_action(&w), 250_000);
-    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(12_345), model_calls: 1 });
+    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(12_345), model_calls: 1, reasons: None });
     let rec = first_record(&w);
     assert!(rec.file_name().unwrap().to_str().unwrap().starts_with("001-context.approve"));
     let seen: Value = serde_json::from_str(&std::fs::read_to_string(rec.join("seen.json")).unwrap()).unwrap();
@@ -130,7 +130,7 @@ fn approve_kind_entry_without_a_path_is_asked() {
     decision["capability"] = json!("release.approve");
     decision.as_object_mut().unwrap().remove("path");
     let verdict = ask(&w, &s, &decision, 1_000_000);
-    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(500_000), model_calls: 1 });
+    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(500_000), model_calls: 1, reasons: None });
     let seen: Value = serde_json::from_str(&std::fs::read_to_string(first_record(&w).join("seen.json")).unwrap()).unwrap();
     assert_eq!(seen["path"], Value::Null);
 }
@@ -139,18 +139,33 @@ fn approve_kind_entry_without_a_path_is_asked() {
 fn a_reject_is_an_answer_that_does_not_approve() {
     let w = world("r2-reject", &fake(r#"{"decision":"reject","reasons":["no"],"cites":[],"valid":true,"cost_usd":0.1}"#));
     let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 250_000);
-    assert_eq!(verdict, Verdict::Answer { approve: false, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(100_000), model_calls: 1 });
+    assert_eq!(verdict, Verdict::Answer { approve: false, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(100_000), model_calls: 1, reasons: Some("no".to_owned()) });
     let reply = std::fs::read_to_string(first_record(&w).join("reply.json")).unwrap();
     assert!(reply.contains("\"no\""), "the reasons stay in the run directory record");
 }
 
 #[test]
-fn close_handoff_unknown_and_question_entries_cannot_be_decided() {
+fn a_close_entry_is_asked_as_a_close_with_the_outcome_loom_printed() {
+    let w = world("r2-close", &fake(&valid("0.1")));
+    let s = settings(&w, json!({}));
+    let close = json!({
+        "case": "IDEA-1", "kind": "Close", "action": null, "outcome": "kept", "decides": "close case IDEA-1 through kept",
+        "command": ["b10x-loom", "tree", "close", "--store", "/nonexistent/store", "--case", "IDEA-1", "--outcome", "kept"],
+    });
+    let verdict = ask(&w, &s, &close, 250_000);
+    assert!(matches!(verdict, Verdict::Answer { approve: true, .. }), "{verdict:?}");
+    let seen: Value = serde_json::from_str(&std::fs::read_to_string(first_record(&w).join("seen.json")).unwrap()).unwrap();
+    assert_eq!((seen["type"].as_str(), seen["outcome"].as_str()), (Some("close"), Some("kept")));
+    assert_eq!(seen["action"], Value::Null);
+    let mut no_outcome = close.clone();
+    no_outcome.as_object_mut().unwrap().remove("outcome");
+    assert!(reason(ask(&w, &s, &no_outcome, 250_000)).contains("names no outcome"));
+}
+
+#[test]
+fn handoff_unknown_and_question_entries_cannot_be_decided() {
     let w = world("r2-kinds", &fake(&valid("0.1")));
     let s = settings(&w, json!({}));
-    let mut close = approve_action(&w);
-    close["kind"] = json!("Close");
-    assert!(reason(ask(&w, &s, &close, 250_000)).contains("kind Close"));
     let mut handoff = approve_action(&w);
     handoff["kind"] = json!("Handoff");
     assert!(reason(ask(&w, &s, &handoff, 250_000)).contains("kind Handoff"));
@@ -352,7 +367,7 @@ fn an_invalid_reply_then_a_valid_one_adds_both_costs() {
     let script = "#!/bin/sh\nd=$(dirname \"$2\")\nif [ -e \"$d/../first\" ]; then\n printf '%s\\n' '{\"decision\":\"approve\",\"reasons\":[\"x\"],\"valid\":true,\"cost_usd\":0.3}'\nelse\n touch \"$d/../first\"\n printf '%s\\n' '{\"decision\":\"escalate\",\"valid\":false,\"invalid_reason\":\"bad\",\"cost_usd\":0.2}'\nfi\n";
     let w = world("r2-invalid-then-valid", script);
     let verdict = ask(&w, &settings(&w, json!({})), &approve_action(&w), 900_000);
-    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(500_000), model_calls: 2 });
+    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(500_000), model_calls: 2, reasons: None });
 }
 
 #[test]
@@ -360,7 +375,7 @@ fn an_escalate_takes_best_under_final_and_waits_for_a_person_under_stop() {
     let reply = r#"{"decision":"escalate","best":"approve","reasons":["unsure"],"valid":true,"cost_usd":0.1}"#;
     let w = world("r2-escalate-final", &fake(reply));
     let verdict = ask(&w, &settings(&w, json!({"escalate": "final"})), &approve_action(&w), 250_000);
-    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(100_000), model_calls: 1 });
+    assert_eq!(verdict, Verdict::Answer { approve: true, principal: Some("decider:model".to_owned()), cost_micro_usd: Some(100_000), model_calls: 1, reasons: None });
     let w = world("r2-escalate-stop", &fake(reply));
     let why = reason(ask(&w, &settings(&w, json!({"escalate": "stop"})), &approve_action(&w), 250_000));
     assert!(why.starts_with("reserved for a person: the decider escalated"), "{why}");
@@ -470,7 +485,7 @@ fn the_real_decider_sh_in_rule_mode_answers_through_this_code() {
         let env = vec![("PATH".to_owned(), std::env::var("PATH").unwrap())];
         let started = Instant::now();
         let verdict_out = ask_with(decider.as_ref(), &w, &s, &approve_action(&w), 0, &env);
-        assert_eq!(verdict_out, Verdict::Answer { approve, principal: Some(format!("decider:{verdict}")), cost_micro_usd: Some(0), model_calls: 0 });
+        assert_eq!(verdict_out, Verdict::Answer { approve, principal: Some(format!("decider:{verdict}")), cost_micro_usd: Some(0), model_calls: 0, reasons: (!approve).then(|| "rule decider: refuse every decision".to_owned()) });
         assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
     }
     let reply: Value = serde_json::from_str(&std::fs::read_to_string(w.run.join("decider/rule/reply.json")).unwrap()).unwrap();

@@ -46,13 +46,27 @@ Every option is required and none has a default. The settings file has one forma
 A decision is a JSON object of which only `case`, `kind`, `decides` and `command` are stable. The
 runner passes the whole object to the decider whatever its `kind` (an unknown kind is the decider's
 to answer or refuse, and a refusal names the kind), never reads `decides`, and runs `command` as
-data: `command[0]` must be `b10x-loom`, the rest is the argv. It changes two things only: the value
-after `--principal` when the decider named a principal, and a final `--deny` when the answer is a
-denial. A printed command that exits non-zero ends the run as `error`, with its exit code and the
-last 1500 characters of its standard error in `outcome.json`; the runner does not repair or repeat it.
+data: `command[0]` must be `b10x-loom`, the rest is the argv. It replaces the value after
+`--principal` when the decider named a principal, and it adds to an approval of a person action
+(printed with `--action`) the result the action declares: `--result performed` for an approval and,
+for a rejection, `--result rejected --reasons-file <file>`. The file lies in `work/.sdc/reasons/`
+of the run directory and holds the decider's text (a model decider's `reasons`), with the login
+file's path, the run directory and the home directory taken out, at most 60 lines and 65536 bytes
+(Loom's bounds); a rejection without a text gets one line that says so. A result the bindings copy
+does not declare for the action (the decider rejects an action whose `results` lists no `rejected`)
+ends the run as `error` naming the action and the declared results, before Loom is called. A
+capability-only approval (`kind` `Approve`, no `--action`) has no result to name: its rejection is
+Loom's `--deny`. A `Close` is run as printed when the decider approves it (Loom prints one per
+legitimate outcome; the other outcomes of that case are not asked once one ran) and not run when it
+declines. A `Handoff`'s printed command is `tree run`: it runs as printed through the ledger and
+its output is read like any `tree run`. A printed command that exits non-zero ends the run as
+`error`, with its exit code and the last 1500 characters of its standard error in `outcome.json`;
+the runner does not repair or repeat it.
 
 A denied decision that comes back (same case, action, revision and text) ends the run as `denied`
-(exit 9) without asking the decider again. An approved decision that comes back is an `error`.
+(exit 9) without asking the decider again; a rejection that sent a writer back returns as a
+decision at a new revision and is asked again. An approved decision that comes back is an `error`
+(a handoff whose work nobody did is one).
 
 The decider is chosen from the settings key `decider` (`docs/loom-run-settings.md`; what each kind
 answers is in `docs/loom-run-decisions.md`). With no `decider` key every decision ends the run as
