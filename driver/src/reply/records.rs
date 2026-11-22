@@ -54,8 +54,8 @@ impl Facts {
         Facts { dir: case_dir.to_path_buf(), work: case_dir.join("work"), workspace: loom }
     }
 
-    /// The driver mode of a case directory, whatever `LOOM_CASE` says (tests only).
-    #[cfg(test)]
+    /// The driver mode of a case directory, whatever `LOOM_CASE` says (a caller that builds the
+    /// facts of a case directory itself, and the tests).
     pub fn driver(case_dir: &Path) -> Facts {
         Facts { dir: case_dir.to_path_buf(), work: case_dir.join("work"), workspace: false }
     }

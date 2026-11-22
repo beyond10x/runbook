@@ -44,9 +44,11 @@ fn the_file_sdc_experiment_writes_runs_whole_with_the_model_decider_it_names() {
     assert_eq!(approve.len(), 1);
     let at = approve[0].argv.iter().position(|a| a == "--principal").unwrap();
     assert_eq!(approve[0].argv[at + 1], "decider:model");
-    // decider.escalate, decider.adapter, decider.model and sdc-reply found on PATH reach decider.sh.
+    // decider.adapter names the fake adapter of the copy, decider.model reaches its request and
+    // sdc-reply found on PATH its environment.
     let env = std::fs::read_to_string(w.run_dir(&format!("{run}/bindings/tools/env.txt"))).unwrap();
-    assert!(env.contains("SDC_DECIDER_ESCALATE=final") && env.contains("SDC_DECIDER_ADAPTER=claude-cli") && env.contains("SDC_LLM_MODEL_DECIDER=claude-opus-5-5"), "{env}");
+    let asked: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir(&format!("{run}/bindings/tools/adapter-request.json"))).unwrap()).unwrap();
+    assert_eq!(asked["model"], "claude-opus-5-5");
     assert!(env.contains(&format!("SDC_REPLY={}", w.root.join("sdc-reply").display())), "{env}");
     // adapter and review.adapter: the model nodes of the copy run on metaharness, the review class on claude-cli.
     let bindings = std::fs::read_to_string(w.run_dir(&format!("{run}/bindings/sdc.yaml"))).unwrap();

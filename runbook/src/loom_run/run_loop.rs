@@ -80,7 +80,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
     let mut settings_value = given.clone();
-    settings::fill_decider(&mut settings_value, &run_dir, std::env::var_os("PATH").as_deref())?;
+    settings::fill_decider(&mut settings_value, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
         Some(d) => d?,
         None => decider::from_settings(&settings_value)?,
