@@ -1,4 +1,4 @@
-//! The inputs and the task of each node (lines 418-599 of `llm-node.sh`): the seven plain nodes.
+//! The inputs and the task of each node (lines 418-599 of `llm-node.sh`).
 
 use crate::util::{cp_contents, cp_r, die, run_to_file, R};
 use crate::{yaml, Ctx};
@@ -63,6 +63,21 @@ pub struct Built {
     pub schema: Option<PathBuf>,
     /// The task text.
     pub task: String,
+    /// The operations offered when the binding names none.
+    pub ops: &'static [&'static str],
+    /// The turn cap when the binding names none.
+    pub turns: u32,
+    /// What the review node adds.
+    pub review: Option<crate::review::ReviewInputs>,
+}
+
+const WRITER_OPS: &[&str] = &["dir.list", "file.edit", "file.read", "file.write", "search"];
+
+impl Built {
+    /// A node with the default operations and turn cap.
+    pub fn new(out: &'static str, schema: Option<PathBuf>, task: String) -> Built {
+        Built { out, schema, task, ops: WRITER_OPS, turns: 30, review: None }
+    }
 }
 
 /// The case's commands as the programs will run them (`sdc-bugfix checks`), as in/checks.yaml.
@@ -88,6 +103,27 @@ fn gate(checks: Option<&Value>) -> String {
     lines.join("\n")
 }
 
+/// `jq -r '.commands | keys[]'` of the file: the sorted names of an object, the indexes of an
+/// array, nothing where jq refuses.
+fn command_names(ir: &Path) -> String {
+    use crate::ordjson::Ov;
+    let Some(commands) = fs::read_to_string(ir).ok().and_then(|t| Ov::parse(&t).ok()).and_then(|d| match d {
+        Ov::Obj(_) => d.get("commands").cloned(),
+        _ => None,
+    }) else {
+        return String::new();
+    };
+    match commands {
+        Ov::Obj(m) => {
+            let mut keys: Vec<String> = m.into_iter().map(|(k, _)| k).collect();
+            keys.sort();
+            keys.iter().map(|k| format!("{k}\n")).collect()
+        }
+        Ov::Arr(a) => (0..a.len()).map(|i| format!("{i}\n")).collect(),
+        _ => String::new(),
+    }
+}
+
 /// Reads the inputs of `c.node` and renders its task.
 pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
     let work = &c.work;
@@ -98,7 +134,7 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
         if let Some(s) = seed {
             inp.seed(s);
         }
-        Ok(Built { out, schema: None, task: c.render_part("task", &[])? })
+        Ok(Built::new(out, None, c.render_part("task", &[])?))
     };
     match c.node.as_str() {
         "idea.dissect" => plain(inp, &["idea.yaml"], "dissection.yaml", None),
@@ -116,7 +152,7 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             let notes = c.render_part("inputs", &[])?;
             inp.notes(&notes);
             let system = c.set.args.field("domain").map_or_else(|| "system".to_string(), |d| d.raw());
-            Ok(Built { out: "spec", schema: None, task: c.render_part("task", &[("system", &system)])? })
+            Ok(Built::new("spec", None, c.render_part("task", &[("system", &system)])?))
         }
         "bug.dissect" => {
             inp.input("bug.yaml");
@@ -124,12 +160,23 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             let schema = rec.join("schema.json");
             let ok = run_to_file(Command::new(c.set.here.join("sdc-tool.sh")).args(["bugfix", "schema", "dissection"]), &schema) == 0;
             let compact = fs::read_to_string(&schema).ok().and_then(|t| crate::ordjson::Ov::parse(&t).ok()).map(|v| v.compact()).unwrap_or_default();
-            Ok(Built {
-                out: "bug-dissection.json",
-                schema: ok.then_some(schema),
-                task: c.render_part("task", &[("schema", &compact)])?,
-            })
+            Ok(Built::new("bug-dissection.json", ok.then_some(schema), c.render_part("task", &[("schema", &compact)])?))
         }
+        "questions.answer" => plain(inp, &["idea.yaml", "dissection.yaml", "questions.yaml"], "questions.yaml", Some("questions.yaml")),
+        "context.default" => plain(inp, &["idea.yaml", "requirements.yaml"], "context.yaml", None),
+        "vision.write" => plain(inp, &["idea.yaml", "requirements.yaml", "context.yaml"], "aep/vision/product.md", None),
+        "roadmap.write" => plain(inp, &["idea.yaml", "requirements.yaml", "context.yaml", "aep/vision/product.md"], "aep/initiative/roadmap.md", None),
+        "plan.decompose" => {
+            inp.input("requirements.yaml");
+            inp.input("spec");
+            // The command names of the compiled specification, one per line; a file that cannot be
+            // read leaves the list empty.
+            let _ = fs::write(cwd.join("in/commands.txt"), command_names(&work.join(".sdc/gate/ir.json")));
+            let notes = c.render_part("inputs", &[])?;
+            inp.notes(&notes);
+            Ok(Built::new("aep", None, c.render_part("task", &[("epic", &c.names().0)])?))
+        }
+        "change.review" => crate::review::inputs(c, rec, cwd, inp),
         "test.reproduce" => {
             for i in ["bug.yaml", "bug-dissection.json", "impl"] {
                 inp.input(i);
@@ -141,7 +188,7 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
                 "task",
                 &[("test_file", &ck("test_file")), ("test_name", &ck("test_name")), ("repro_command", &join("repro")), ("test_command", &join("test"))],
             )?;
-            Ok(Built { out: "repro", schema: None, task })
+            Ok(Built::new("repro", None, task))
         }
         "change.fix" => {
             for i in ["bug.yaml", "bug-dissection.json", "repro", "impl"] {
@@ -166,7 +213,7 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
                 "task",
                 &[("repro_test", &from_repro("test")), ("repro_file", &repro_file), ("stdlib", &stdlib), ("test_command", &test_command), ("gate", &gate)],
             )?;
-            Ok(Built { out: "impl", schema: None, task })
+            Ok(Built::new("impl", None, task))
         }
         other => Err(die(format!("llm-node: no agent node {other}"), 64)),
     }

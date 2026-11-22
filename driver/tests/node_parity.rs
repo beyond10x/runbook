@@ -1,8 +1,10 @@
 //! `sdc-node`, the Rust program for the seven plain nodes (idea.dissect, questions.write,
-//! requirements.normalise, spec.author, test.reproduce, bug.dissect, change.fix), against the
-//! shell code of `bindings/tools/llm-node.sh` that did the same under Loom.
+//! requirements.normalise, spec.author, test.reproduce, bug.dissect, change.fix) and for the nodes
+//! of the planning store and of the review (vision.write, roadmap.write, plan.decompose,
+//! context.default, questions.answer, change.review), against the shell code of
+//! `bindings/tools/llm-node.sh` that did the same under Loom.
 //!
-//! The script dispatches the seven names to the program; `SDC_NODE_SHELL=1` (read only here) keeps
+//! The script dispatches these names to the program; `SDC_NODE_SHELL=1` (read only here) keeps
 //! its own code, so both run on the same input in two roots and must give the same exit code,
 //! standard output, standard error and the same files in the workspace. A YAML file whose bytes
 //! differ (the one a YAML writer lays out its own way) is compared as a parsed document, and the
@@ -21,8 +23,17 @@ use std::process::{Command, Stdio};
 
 const NODES: [&str; 7] = ["idea.dissect", "questions.write", "requirements.normalise", "spec.author", "test.reproduce", "bug.dissect", "change.fix"];
 
-/// The files whose bytes may differ between the script and the program, compared as documents.
+/// The nodes of the planning store and of the review.
+const STORE_NODES: [&str; 6] = ["vision.write", "roadmap.write", "plan.decompose", "context.default", "questions.answer", "change.review"];
+
+/// The files whose bytes may differ between the script and the program, compared as documents:
+/// the stub's findings, and `context.yaml` where context.default merged the decisions of a person
+/// (yq writes the merge its own way, the program writes it as a YAML document).
 const AS_DOCUMENTS: [&str; 1] = [".sdc/stub-findings."];
+
+fn as_document(key: &str) -> bool {
+    key.ends_with(".yaml") && (AS_DOCUMENTS.iter().any(|p| key.starts_with(p)) || key.ends_with("context.yaml"))
+}
 
 fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -127,13 +138,19 @@ struct Run {
 fn norm(root: &Path, text: &str) -> String {
     let t = text.replace(&root.display().to_string(), "<root>");
     let t = Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z").unwrap().replace_all(&t, "<instant>");
+    // diff's own file times (`+++ impl/x<TAB>2026-11-22 16:40:14.797898362 +0100`).
+    let t = Regex::new(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ [+-]\d{4}").unwrap().replace_all(&t, "<time>");
     Regex::new(r#""pid":\s*\d+"#).unwrap().replace_all(&t, r#""pid":0"#).into_owned()
 }
 
 fn files(root: &Path, work: &Path, dir: &Path, out: &mut BTreeMap<String, String>) {
     for e in fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();
-        let rel = p.strip_prefix(work).unwrap().display().to_string();
+        let mut rel = p.strip_prefix(work).unwrap().display().to_string();
+        // aep's lock file is named by a digest of the root it ran in.
+        if rel.starts_with(".aep-planning-writer-") {
+            rel = ".aep-planning-writer.lock".to_string();
+        }
         if p.is_dir() {
             files(root, work, &p, out);
         } else {
@@ -156,13 +173,19 @@ struct Start<'a> {
     /// reads a document without the field it iterates; the program does not reproduce those lines,
     /// so a case that has them compares standard error without the lines `jq: error`.
     jq_noise: bool,
+    /// The case id (LOOM_CASE): the epic and the story are its second and third part.
+    case: &'a str,
 }
 
 fn start(node: &str) -> Start<'_> {
-    Start { node, extra: vec![], env: vec![], stdin: r#"{"domain":"billing"}"#.to_string(), binding: true, jq_noise: false }
+    Start { node, extra: vec![], env: vec![], stdin: r#"{"domain":"billing"}"#.to_string(), binding: true, jq_noise: false, case: "IDEA-1.x" }
 }
 
 impl<'a> Start<'a> {
+    fn case(mut self, case: &'a str) -> Self {
+        self.case = case;
+        self
+    }
     fn jq_noise(mut self) -> Self {
         self.jq_noise = true;
         self
@@ -220,8 +243,8 @@ fn pair(name: &str, s: &Start, setup: &dyn Fn(&Path)) -> (Run, Run) {
         base_work(&r.join("work"), s.node);
         setup(r);
     }
-    let mut a = exec(&sh, true, s, "IDEA-1.x");
-    let b = exec(&rs, false, s, "IDEA-1.x");
+    let mut a = exec(&sh, true, s, s.case);
+    let b = exec(&rs, false, s, s.case);
     if s.jq_noise {
         a.stderr = a.stderr.lines().filter(|l| !l.starts_with("jq: error")).map(|l| format!("{l}\n")).collect();
     }
@@ -242,7 +265,7 @@ fn same(what: &str, shell: &Run, rust: &Run) {
         if v == &rust.files[k] {
             continue;
         }
-        assert!(k.ends_with(".yaml") && AS_DOCUMENTS.iter().any(|p| k.starts_with(p)), "{what}: {k} differs\n--- shell\n{v}\n--- rust\n{}", rust.files[k]);
+        assert!(as_document(k), "{what}: {k} differs\n--- shell\n{v}\n--- rust\n{}", rust.files[k]);
         let doc = |t: &str| serde_yaml::from_str::<serde_yaml::Value>(t).unwrap();
         assert_eq!(doc(v), doc(&rust.files[k]), "{what}: {k} as a document");
         eprintln!("compared as parsed documents: {what}: {k}");
@@ -254,6 +277,9 @@ fn settings(root: &Path, node: &str) {
     put(&work, ".stub/settings.yaml", &format!("adapter: fixture\nnodes: [{node}]\n"));
     if node == "test.reproduce" {
         put(&work, ".stub/replies/fixture-stub.yaml", &format!("{node}: [stub-tree, bugfix-pager/stub-repro, repro]\n"));
+    }
+    if node == "plan.decompose" {
+        put(&work, ".stub/replies/fixture-stub.yaml", &format!("{node}: [plan-stories.json, stories.json]\n"));
     }
 }
 
@@ -453,6 +479,19 @@ fn the_stub_records_a_rejection_in_a_yaml_file_the_same() {
     assert!(r.files["requirements.yaml"].contains("# rework 2 of the rejection of requirements.check at abc123:\n# - The refusal of an empty title is missing.\n# - Say who may cancel.\n"), "{r:#?}");
 }
 
+/// A rejection without `reasons` leaves the header line alone as the note: no empty comment line
+/// follows it (before the shell path chomped the rendered note, it appended `# `).
+#[test]
+fn the_stub_records_a_rejection_without_reasons_as_its_header_alone_the_same() {
+    let without = |root: &Path| {
+        rejection_files("requirements.check", "requirements")(root);
+        put(root, "rejection.json", &REJECTION.replace(r#""reasons":["The refusal of an empty title is missing.","Say who may cancel."],"#, ""));
+    };
+    let (_, r) = pair("reject-stub-no-reasons", &start("requirements.normalise").env(&FEEDBACK_ENV).jq_noise(), &without);
+    assert!(r.files["requirements.yaml"].ends_with("# rework 2 of the rejection of requirements.check at abc123:\n"), "{r:#?}");
+    assert!(!r.files["requirements.yaml"].ends_with("# \n"), "{r:#?}");
+}
+
 /// ... and in a tree.
 #[test]
 fn the_stub_records_a_rejection_in_a_tree_the_same() {
@@ -547,12 +586,15 @@ fn questions_write_is_called_again_when_a_check_sent_it_back_the_same() {
     assert!(!r.stdout.contains("not called"), "{r:#?}");
 }
 
+/// An executable adapter program `adapters/<name>` of the root, a shell script.
+fn make_adapter(root: &Path, name: &str, body: &str) {
+    let p = root.join("adapters").join(name);
+    put(root, &format!("adapters/{name}"), &format!("#!/bin/sh\n{body}"));
+    fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
 fn adapters(root: &Path) {
-    let make = |name: &str, body: &str| {
-        let p = root.join("adapters").join(name);
-        put(root, &format!("adapters/{name}"), &format!("#!/bin/sh\n{body}"));
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-    };
+    let make = |name: &str, body: &str| make_adapter(root, name, body);
     make("api-error", "printf '{\"terminal_reason\":\"api_error\",\"api_error_status\":529}\\n'\nexit 1\n");
     make("api-error-bare", "printf '{\"terminal_reason\":\"api_error\"}\\n'\nexit 1\n");
     make("exits", "printf '{\"error\":\"the model stopped\"}\\n'\nexit 3\n");
@@ -655,7 +697,7 @@ fn a_stub_setting_that_does_not_exist_is_refused_the_same() {
 }
 
 #[test]
-fn the_script_hands_the_seven_names_to_the_program_unless_sdc_node_shell_is_set() {
+fn the_script_hands_its_thirteen_names_to_the_program_unless_sdc_node_shell_is_set() {
     let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("node-parity/dispatch");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(base.join("bin")).unwrap();
@@ -672,19 +714,458 @@ fn the_script_hands_the_seven_names_to_the_program_unless_sdc_node_shell_is_set(
         let o = c.stdin(Stdio::null()).output().unwrap();
         String::from_utf8_lossy(&o.stdout).into_owned()
     };
-    for node in NODES {
+    for node in NODES.iter().chain(STORE_NODES.iter()) {
         let out = run(false, node);
         assert!(out.starts_with(&format!("program {node} --tools-dir ")) && out.trim_end().ends_with("--model m"), "{node}: {out}");
     }
     assert!(!run(true, "idea.dissect").starts_with("program"), "SDC_NODE_SHELL keeps the script's code");
-    assert!(!run(false, "context.default").starts_with("program"), "a node outside the seven stays in the script");
+    assert!(!run(false, "change.implement").starts_with("program"), "a node outside the thirteen stays in the script");
+}
+
+// ---- the nodes of the planning store ------------------------------------------------------------
+
+/// An adapter that writes the given files into the call's out/ and answers with a response.
+fn writer(root: &Path, name: &str, files: &[(&str, &str)]) {
+    let mut body = String::from("cwd=$(jq -r .cwd \"$1\")\n");
+    for (path, text) in files {
+        body.push_str(&format!("mkdir -p \"$(dirname \"$cwd/out/{path}\")\"\nprintf '%s' '{text}' > \"$cwd/out/{path}\"\n"));
+    }
+    body.push_str("echo '{\"adapter\":\"test\",\"duration_ms\":1}'\n");
+    make_adapter(root, name, &body);
+}
+
+const VISION_JSON: &str = r#"{"title":"Invoice billing","summary":"Clerks issue invoices.\n\nThey email them."}"#;
+const VISION_MD: &str = "# Invoice billing\n\nThe body.\n";
+const ROADMAP_JSON: &str = r#"{"epics":[{"name":"billing","title":"Billing","summary":"invoices and their emails"},{"name":"email","title":"Email","summary":"the mails"}]}"#;
+const TWICE_JSON: &str = r#"{"epics":[{"name":"a","title":"A","summary":"s"},{"name":"a","title":"A","summary":"s"}]}"#;
+
+fn store_adapters(root: &Path) {
+    writer(root, "vision", &[("vision.json", VISION_JSON), ("vision.md", VISION_MD)]);
+    writer(root, "vision-no-md", &[("vision.json", VISION_JSON)]);
+    writer(root, "roadmap", &[("roadmap.json", ROADMAP_JSON), ("roadmap.md", "# Roadmap\n\nBilling first.\n")]);
+    writer(root, "roadmap-no-md", &[("roadmap.json", ROADMAP_JSON)]);
+    writer(root, "roadmap-empty", &[("roadmap.json", r#"{"epics":[]}"#)]);
+    writer(root, "roadmap-twice", &[("roadmap.json", TWICE_JSON)]);
+}
+
+fn run_aep(work: &Path, args: &[&str]) {
+    let o = Command::new("aep").args(args).args(["--root", "."]).current_dir(work).env("PATH", path()).env("AEP_ACTOR", "agent:setup").output().unwrap();
+    assert!(o.status.success(), "aep {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+}
+
+/// A planning store of aep's own making in work/, with the artifacts `docs` name as `aep new`
+/// arguments after `plan artifact new`: the files base_work() lays there are no store.
+fn fresh_store(root: &Path, docs: &[&[&str]]) {
+    let work = root.join("work");
+    fs::remove_dir_all(work.join("aep")).unwrap();
+    for d in docs {
+        let mut args = vec!["plan", "artifact", "new"];
+        args.extend_from_slice(d);
+        args.extend(["--store", "aep"]);
+        run_aep(&work, &args);
+    }
+}
+
+const VISION: &[&str] = &["vision", "product", "--title", "Old", "--summary", "old"];
+const EPIC: &[&str] = &["epic", "billing", "--title", "Billing", "--summary", "invoices"];
+
+/// A run of a store node on a test adapter that writes its output.
+fn store_run(name: &str, node: &str, adapter: &str, setup: &dyn Fn(&Path)) -> Run {
+    let arg = format!("{{root}}/adapters/{adapter}");
+    let (_, r) = pair(name, &start(node).case("sdc.billing.list").with(&["--adapter", &arg]), &|root| {
+        store_adapters(root);
+        setup(root);
+    });
+    r
+}
+
+fn not_applied(r: &Run, node: &str, code: i32) {
+    assert_eq!(r.code, Some(code), "{r:#?}");
+    assert!(r.stdout.starts_with(&format!("llm-node: {node}: the output was not applied (exit {code}):\n")), "{r:#?}");
+}
+
+#[test]
+fn vision_write_makes_the_vision_the_same() {
+    let r = store_run("vision", "vision.write", "vision", &|root| fresh_store(root, &[]));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    let v = &r.files["aep/vision/product.md"];
+    assert!(v.contains("title: Invoice billing") && v.contains("# Invoice billing\n\nThe body.\n"), "{r:#?}");
+}
+
+#[test]
+fn vision_write_replaces_the_vision_the_same() {
+    let r = store_run("vision-replace", "vision.write", "vision", &|root| fresh_store(root, &[VISION]));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(!r.files["aep/vision/product.md"].contains("title: Old"), "{r:#?}");
+}
+
+#[test]
+fn vision_write_without_its_text_applies_nothing_the_same() {
+    let r = store_run("vision-no-md", "vision.write", "vision-no-md", &|root| fresh_store(root, &[VISION]));
+    not_applied(&r, "vision.write", 1);
+    assert!(r.files["aep/vision/product.md"].contains("title: Old"), "{r:#?}");
+}
+
+#[test]
+fn roadmap_write_makes_the_initiative_and_its_epics_the_same() {
+    let r = store_run("roadmap", "roadmap.write", "roadmap", &|root| fresh_store(root, &[&["epic", "old", "--title", "Old", "--summary", "old"]]));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(!r.files.contains_key("aep/epic/old.md"), "the epics of the earlier roadmap go: {r:#?}");
+    assert!(r.files["aep/initiative/roadmap.md"].contains("summary: 'epics: billing email'") || r.files["aep/initiative/roadmap.md"].contains("epics: billing email"), "{r:#?}");
+    assert!(r.files.contains_key("aep/epic/billing.md") && r.files.contains_key("aep/epic/email.md"), "{r:#?}");
+}
+
+#[test]
+fn roadmap_write_without_its_text_still_makes_the_initiative_the_same() {
+    let r = store_run("roadmap-no-md", "roadmap.write", "roadmap-no-md", &|root| fresh_store(root, &[]));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+}
+
+#[test]
+fn roadmap_write_without_epics_applies_nothing_the_same() {
+    let r = store_run("roadmap-empty", "roadmap.write", "roadmap-empty", &|root| fresh_store(root, &[]));
+    not_applied(&r, "roadmap.write", 1);
+}
+
+#[test]
+fn roadmap_write_stops_at_an_epic_aep_refuses_the_same() {
+    let r = store_run("roadmap-twice", "roadmap.write", "roadmap-twice", &|root| fresh_store(root, &[]));
+    not_applied(&r, "roadmap.write", 1);
+    assert!(r.files.contains_key("aep/epic/a.md"), "{r:#?}");
+}
+
+/// A run of plan.decompose on the fixture adapter, with a store the case sets up.
+fn decompose(name: &str, docs: &'static [&'static [&'static str]], more: &dyn Fn(&Path)) -> Run {
+    let (_, r) = pair(name, &start("plan.decompose").case("sdc.billing.list"), &|root| {
+        settings(root, "plan.decompose");
+        fresh_store(root, docs);
+        more(root);
+    });
+    r
+}
+
+const STORY: &[&str] = &["story", "old", "--title", "Old", "--summary", "old", "--relate", "delivers:epic:billing", "--relate", "serves:vision:product"];
+
+#[test]
+fn plan_decompose_makes_the_stories_and_activates_the_epic_the_same() {
+    let r = decompose("decompose", &[VISION, EPIC], &nothing);
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files["aep/story/invoices.md"].contains("status: active"), "{r:#?}");
+    assert!(r.files["aep/epic/billing.md"].contains("status: active"), "{r:#?}");
+}
+
+#[test]
+fn plan_decompose_replaces_the_stories_of_its_epic_the_same() {
+    let r = decompose("decompose-replace", &[VISION, EPIC, STORY], &nothing);
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(!r.files.contains_key("aep/story/old.md"), "{r:#?}");
+}
+
+#[test]
+fn plan_decompose_leaves_an_active_epic_alone_the_same() {
+    let r = decompose("decompose-active", &[VISION, EPIC], &|root| {
+        run_aep(&root.join("work"), &["plan", "artifact", "move", "epic:billing", "--to", "active", "--store", "aep", "--executor", "agent:setup"]);
+    });
+    assert_eq!(r.code, Some(0), "{r:#?}");
+}
+
+#[test]
+fn plan_decompose_without_its_epic_applies_nothing_the_same() {
+    let r = decompose("decompose-no-epic", &[VISION], &nothing);
+    not_applied(&r, "plan.decompose", 1);
+}
+
+#[test]
+fn plan_decompose_lists_the_commands_of_the_compiled_specification_the_same() {
+    let (_, r) = pair("decompose-commands", &start("plan.decompose").case("sdc.billing.list").with(&["--adapter", "dry"]), &nothing);
+    assert_eq!(r.files[".sdc/llm/001-plan.decompose/cwd/in/commands.txt"], "billing.invoice.CreateInvoice\n", "{r:#?}");
+}
+
+const DECIDED: &str = "audience: {value: operators, status: changed}\nplatform: {value: [a, b], status: accepted}\nkind: {value: service, status: default}\n";
+const NEW_CONTEXT: &str = "audience: {value: billing clerks, status: default}\nplatform: {value: [x], status: default, why: new}\nkind: {value: service, status: default}\nextra: {value: 1, status: default}\n";
+
+#[test]
+fn context_default_keeps_the_decisions_of_a_person_the_same() {
+    let (_, r) = pair("context-merge", &start("context.default"), &|root| {
+        settings(root, "context.default");
+        put(&root.join("work"), "context.yaml", DECIDED);
+        put(&root.join("work"), ".stub/context.yaml", NEW_CONTEXT);
+    });
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    let doc: serde_yaml::Value = serde_yaml::from_str(&r.files["context.yaml"]).unwrap();
+    assert_eq!(doc["audience"]["value"], "operators", "{r:#?}");
+    assert_eq!(doc["platform"]["value"], serde_yaml::from_str::<serde_yaml::Value>("[a, b]").unwrap(), "lists are replaced: {r:#?}");
+    assert_eq!(doc["platform"]["why"], "new", "maps are merged: {r:#?}");
+    assert_eq!(doc["extra"]["value"], 1, "{r:#?}");
+}
+
+#[test]
+fn context_default_without_a_decision_takes_the_new_context_as_it_is_the_same() {
+    let (_, r) = pair("context-defaults", &start("context.default"), &|root| settings(root, "context.default"));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert_eq!(r.files["context.yaml"], fs::read_to_string(fx().join("context.yaml")).unwrap(), "{r:#?}");
+}
+
+#[test]
+fn context_default_without_a_context_applies_nothing_the_same() {
+    let (_, r) = pair("context-none", &start("context.default").with(&["--adapter", "true"]), &nothing);
+    not_applied(&r, "context.default", 1);
+}
+
+const SCOPE_Q: &str = "questions:\n  - id: q3\n    item: d5\n    question: Do invoices cover several currencies?\n    default: no\n    scope_changing: true\n    status: open\n";
+
+#[test]
+fn questions_answer_takes_the_answers_the_same() {
+    let (_, r) = pair("answer", &start("questions.answer"), &|root| settings(root, "questions.answer"));
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files["questions.yaml"].contains("status: accepted"), "{r:#?}");
+}
+
+#[test]
+fn questions_answer_takes_a_scope_changing_question_that_stayed_the_same() {
+    let (_, r) = pair("answer-scope-kept", &start("questions.answer"), &|root| {
+        settings(root, "questions.answer");
+        put(&root.join("work"), "questions.yaml", SCOPE_Q);
+        put(&root.join("work"), ".stub/questions-answered.yaml", &format!("{SCOPE_Q}  - id: q4\n    item: d6\n    question: q\n    default: a\n    scope_changing: false\n    status: accepted\n    answer: a\n"));
+    });
+    assert_eq!(r.code, Some(0), "{r:#?}");
+}
+
+#[test]
+fn questions_answer_refuses_a_changed_scope_changing_question_the_same() {
+    let (_, r) = pair("answer-scope-changed", &start("questions.answer"), &|root| {
+        settings(root, "questions.answer");
+        put(&root.join("work"), "questions.yaml", SCOPE_Q);
+        put(&root.join("work"), ".stub/questions-answered.yaml", &SCOPE_Q.replace("status: open", "status: accepted\n    answer: yes"));
+    });
+    not_applied(&r, "questions.answer", 1);
+    assert!(r.stdout.contains("questions.answer changed a scope-changing question: not applied"), "{r:#?}");
+    assert!(r.files["questions.yaml"] == SCOPE_Q, "the interview stays as it was: {r:#?}");
+}
+
+#[test]
+fn questions_answer_refuses_a_scope_changing_question_that_lost_a_key_the_same() {
+    let (_, r) = pair("answer-scope-order", &start("questions.answer"), &|root| {
+        settings(root, "questions.answer");
+        put(&root.join("work"), "questions.yaml", SCOPE_Q);
+        put(&root.join("work"), ".stub/questions-answered.yaml", &SCOPE_Q.replace("    status: open\n", "").replace("    default: no\n", "    default: no\n    scope_changing: true\n").replace("    scope_changing: true\n    scope_changing: true\n", "    scope_changing: true\n"));
+    });
+    assert_eq!(r.code, Some(1), "{r:#?}");
+}
+
+#[test]
+fn questions_answer_without_an_interview_in_the_copy_applies_nothing_the_same() {
+    let (_, r) = pair("answer-no-file", &start("questions.answer").with(&["--adapter", "true"]), &|root| fs::remove_file(root.join("work/questions.yaml")).unwrap());
+    // The interview is the output's seed: without it the node has nothing to apply.
+    assert_eq!(r.code, Some(1), "{r:#?}");
+}
+
+// ---- change.review -------------------------------------------------------------------------------
+
+const REVIEW_SETTINGS: &str = "adapter: fixture\nnodes: [change.review]\n";
+const REVIEW_REJECTED: &str = "rounds:\n  - decision: rejected\n    summary: \"fixture: the README does not say how to run it\"\n    findings:\n      - {kind: violation, at: \"impl/README.md:1\", violates: r1, says: \"fixture: the README names no command to run the service\"}\n";
+const REVIEW_INVALID: &str = "rounds:\n  - decision: rejected\n    summary: fixture\n    findings:\n      - {kind: violation, at: \"impl/README.md:9999\", violates: r1, says: \"fixture: a line that does not exist\"}\n";
+
+/// The story, and the conformance run recorded on the tree under review.
+fn review_story(root: &Path) {
+    let work = root.join("work");
+    put(&work, "aep/story/list.md", "---\nformat: aep.planning-md/3\nid: story:list\nkind: story\nstatus: active\ntitle: List\nsummary: covers billing.invoice.CreateInvoice\n---\n# List\n");
+    put(root, "conformance.log", "12 passed\n");
+    let o = Command::new(env!("CARGO_BIN_EXE_sdc-reply"))
+        .args(["record", "--work", ".", "--kind", "conformance_run", "--tree", "impl", "--log"])
+        .arg(root.join("conformance.log"))
+        .current_dir(&work)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "sdc-reply record: {}", String::from_utf8_lossy(&o.stderr));
+}
+
+/// Adapters of the review class: they answer `--capabilities` as one that takes a response schema.
+fn review_adapters(root: &Path) {
+    let make = |name: &str, body: &str| {
+        make_adapter(root, name, &format!("if [ \"$1\" = --capabilities ]; then echo '{{\"json_schema\": true}}'; exit 0; fi\n{body}"))
+    };
+    make("review-exit", "echo '{\"error\":\"the model stopped\"}'\nexit 3\n");
+    make("review-api", "echo '{\"terminal_reason\":\"api_error\"}'\nexit 1\n");
+    make("review-diverged", "echo '{\"terminal_reason\":\"recording_diverged\"}'\nexit 1\n");
+    make("review-silent", "echo '{\"adapter\":\"test\",\"duration_ms\":1}'\n");
+    make("review-garbage", "cwd=$(jq -r .cwd \"$1\")\necho 'not json' > \"$cwd/out/review.json\"\necho '{\"adapter\":\"test\",\"duration_ms\":1}'\n");
+}
+
+struct Review<'a> {
+    settings: &'a str,
+    replies: Option<&'a str>,
+    extra: Vec<&'a str>,
+    env: Vec<(&'a str, &'a str)>,
+    story: bool,
+}
+
+fn review<'a>(settings: &'a str) -> Review<'a> {
+    Review { settings, replies: None, extra: vec![], env: vec![], story: true }
+}
+
+impl<'a> Review<'a> {
+    fn replies(mut self, r: &'a str) -> Self {
+        self.replies = Some(r);
+        self
+    }
+    fn with(mut self, extra: &[&'a str]) -> Self {
+        self.extra = extra.to_vec();
+        self
+    }
+    fn env(mut self, env: &[(&'a str, &'a str)]) -> Self {
+        self.env = env.to_vec();
+        self
+    }
+    fn run(self, name: &str) -> Run {
+        let s = start("change.review").case("sdc.billing.list").with(&self.extra).env(&self.env);
+        let (_, r) = pair(name, &s, &|root| {
+            if self.story {
+                review_story(root);
+            }
+            review_adapters(root);
+            if !self.settings.is_empty() {
+                put(&root.join("work"), ".stub/settings.yaml", self.settings);
+            }
+            if let Some(t) = self.replies {
+                put(&root.join("work"), ".stub/replies/review.yaml", t);
+            }
+        });
+        r
+    }
+}
+
+const REC: &str = ".sdc/llm/001-change.review";
+
+#[test]
+fn change_review_approves_the_same() {
+    let r = review(REVIEW_SETTINGS).run("review-approved");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert_eq!(r.stdout, "change.review approved by llm-review:claude-haiku-5-5 (0 outside-the-story note(s))\n", "{r:#?}");
+    let req: serde_json::Value = serde_json::from_str(&r.files[&format!("{REC}/request.json")]).unwrap();
+    assert_eq!((req["review_attempt"].clone(), req["operations"].clone()), (json!(1), json!(["dir.list", "file.read", "search"])), "{req}");
+    assert!(r.files[".sdc/llm/calls.jsonl"].contains(r#""applied_exit":0"#), "{r:#?}");
+}
+
+#[test]
+fn change_review_rejects_with_the_rejection_document_the_same() {
+    let r = review(REVIEW_SETTINGS).replies(REVIEW_REJECTED).run("review-rejected");
+    assert_eq!(r.code, Some(1), "{r:#?}");
+    assert!(r.stdout.starts_with(r#"{"approval":"change.review","case":"sdc.billing.list""#) && r.stdout.contains(r#""format":"sdc.rejection/1""#), "{r:#?}");
+    assert!(r.files.contains_key(".sdc/records/rejections/change.review/001.json"), "{r:#?}");
+}
+
+#[test]
+fn change_review_asks_again_for_an_invalid_reply_and_records_nothing_the_same() {
+    let r = review(REVIEW_SETTINGS).replies(REVIEW_INVALID).run("review-invalid");
+    assert_eq!(r.code, Some(2), "{r:#?}");
+    assert!(r.stdout.contains("recorded nothing after 3 attempt(s) on adapter"), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{REC}/response.try2.json")) && r.files.contains_key(&format!("{REC}/reply.try1.json")), "{r:#?}");
+    assert!(r.files[&format!("{REC}/prompt.md")].contains("Your previous reply was refused by the program check:"), "{r:#?}");
+    let req: serde_json::Value = serde_json::from_str(&r.files[&format!("{REC}/request.json")]).unwrap();
+    assert_eq!(req["review_attempt"], 3, "{req}");
+}
+
+#[test]
+fn the_number_of_asks_of_the_review_is_sdc_review_retries_the_same() {
+    let r = review(REVIEW_SETTINGS).replies(REVIEW_INVALID).env(&[("SDC_REVIEW_RETRIES", "0")]).run("review-no-retry");
+    assert_eq!(r.code, Some(2), "{r:#?}");
+    assert!(r.stdout.contains("recorded nothing after 1 attempt(s)") && !r.files.contains_key(&format!("{REC}/response.try1.json")), "{r:#?}");
+}
+
+#[test]
+fn change_review_on_facts_makes_one_request_without_a_tool_the_same() {
+    let r = review("adapter: fixture\nnodes: [change.review]\nreview_mode: facts\n").run("review-facts");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    let req: serde_json::Value = serde_json::from_str(&r.files[&format!("{REC}/request.json")]).unwrap();
+    assert_eq!((req["operations"].clone(), req["max_turns"].clone()), (json!([]), json!(4)), "{req}");
+    assert!(r.files[".sdc/llm/calls.jsonl"].contains(r#""input_bytes":"#), "{r:#?}");
+    assert!(r.files[&format!("{REC}/prompt.md")].contains("You have no tools and no"), "{r:#?}");
+}
+
+#[test]
+fn change_review_on_facts_takes_a_file_cited_by_its_path_the_same() {
+    let reply = "rounds:\n  - decision: rejected\n    summary: s\n    findings:\n      - {kind: violation, at: impl/README.md, violates: r1, says: the README names no command}\n";
+    let r = review("adapter: fixture\nnodes: [change.review]\nreview_mode: facts\n").replies(reply).run("review-facts-rejected");
+    assert_eq!(r.code, Some(1), "{r:#?}");
+}
+
+#[test]
+fn change_review_on_dry_assembles_the_prompt_and_runs_the_stub_the_same() {
+    let r = review("").with(&["--adapter", "dry"]).run("review-dry");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{REC}/prompt.md")), "{r:#?}");
+}
+
+#[test]
+fn change_review_on_the_stub_calls_no_model_the_same() {
+    let r = review("").run("review-stub");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(!r.files.keys().any(|k| k.starts_with(".sdc/llm/")), "{r:#?}");
+}
+
+#[test]
+fn a_review_call_that_fails_records_nothing_the_same() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-exit")]).run("review-exit");
+    assert_eq!(r.code, Some(2), "{r:#?}");
+    assert!(r.stdout.contains("the review call failed (adapter exit 3)") && r.stdout.contains("after 1 attempt(s)"), "{r:#?}");
+}
+
+#[test]
+fn a_review_whose_api_ended_exits_75_the_same() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-api")]).run("review-api");
+    assert_eq!(r.code, Some(75), "{r:#?}");
+    assert_eq!(r.stdout, "llm-node: change.review could not run: the model's API ended the session; nothing recorded, resume later\n", "{r:#?}");
+}
+
+#[test]
+fn a_review_whose_recording_diverged_exits_75_the_same() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-diverged")]).run("review-diverged");
+    assert_eq!(r.code, Some(75), "{r:#?}");
+}
+
+#[test]
+fn a_review_that_wrote_no_reply_is_asked_again_and_records_nothing_the_same() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-silent")]).run("review-silent");
+    assert_eq!(r.code, Some(2), "{r:#?}");
+    assert!(r.stdout.contains("no readable reply (review.json: the adapter's structured output, else out/review.json)"), "{r:#?}");
+}
+
+#[test]
+fn a_review_reply_that_is_no_json_is_unreadable_the_same() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-garbage")]).run("review-garbage");
+    assert_eq!(r.code, Some(2), "{r:#?}");
+    assert!(r.stdout.contains("no readable reply"), "{r:#?}");
+}
+
+#[test]
+fn a_review_without_a_recorded_conformance_run_has_no_inputs_the_same() {
+    let mut rv = review(REVIEW_SETTINGS);
+    rv.story = false;
+    let r = rv.run("review-no-inputs");
+    assert_eq!(r.code, Some(2), "{r:#?}");
+    assert!(r.stdout.starts_with("llm-node: change.review has no inputs: sdc-reply review-inputs: "), "{r:#?}");
+    assert!(!r.files.keys().any(|k| k.ends_with("/request.json")), "{r:#?}");
+}
+
+#[test]
+fn a_review_adapter_that_takes_no_schema_is_refused_the_same() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "metaharness")]).run("review-refused");
+    assert_eq!(r.code, Some(126), "{r:#?}");
+    assert!(r.stderr.contains("replies under a response schema, but its adapter metaharness"), "{r:#?}");
+}
+
+#[test]
+fn a_review_mode_that_is_none_is_refused_the_same() {
+    let r = review(REVIEW_SETTINGS).env(&[("SDC_REVIEW_MODE", "bogus")]).run("review-mode");
+    assert_eq!(r.code, Some(126), "{r:#?}");
 }
 
 // ---- goldens ----------------------------------------------------------------------------------
 
 fn compare(group: &str, name: &str, text: &str) {
     let g = repo().join("instructions/golden").join(group).join(format!("{name}.md"));
-    if std::env::var("SDC_BLESS_NODE_LOG").is_ok() && group == "node-log" {
+    if std::env::var("SDC_BLESS_PROMPTS").is_ok() || (std::env::var("SDC_BLESS_NODE_LOG").is_ok() && group == "node-log") {
         fs::create_dir_all(g.parent().unwrap()).unwrap();
         fs::write(&g, text).unwrap();
         return;
@@ -834,6 +1315,111 @@ fn every_step_log_golden_is_read_by_a_test() {
         .unwrap()
         .map(|e| e.unwrap().path().file_stem().unwrap().to_string_lossy().into_owned())
         .collect();
-    let want = ["not-called.questions", "not-called.findings", "not-called.derived", "not-applied", "api-ended", "call-exit", "rework.stub", "rework.stub.person"];
+    let want = [
+        "not-called.questions", "not-called.findings", "not-called.derived", "not-applied", "api-ended", "call-exit", "rework.stub", "rework.stub.person",
+        "review.no-inputs", "review.call-failed", "review.approved", "review.api", "review.nothing-recorded", "review.invalid", "review.unreadable",
+        "answer.scope-changed",
+    ];
     assert_eq!(names, want.map(String::from).into_iter().collect(), "a golden no test reads, or a log line with no golden");
+}
+
+#[test]
+fn the_review_approved_line_is_its_golden_byte_for_byte() {
+    let r = review(REVIEW_SETTINGS).run("log-review-approved");
+    compare("node-log", "review.approved", &r.stdout);
+}
+
+#[test]
+fn the_review_no_inputs_line_is_its_golden_byte_for_byte() {
+    let mut rv = review(REVIEW_SETTINGS);
+    rv.story = false;
+    compare("node-log", "review.no-inputs", &rv.run("log-review-no-inputs").stdout);
+}
+
+#[test]
+fn the_review_api_line_is_its_golden_byte_for_byte() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-api")]).run("log-review-api");
+    compare("node-log", "review.api", &r.stdout);
+}
+
+#[test]
+fn the_review_nothing_recorded_line_and_the_failed_call_are_their_goldens_byte_for_byte() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-exit")]).run("log-review-exit");
+    compare("node-log", "review.nothing-recorded", &r.stdout);
+    compare("node-log", "review.call-failed", &r.files[&format!("{REC}/review-check.err")]);
+}
+
+#[test]
+fn the_review_invalid_reason_is_its_golden_byte_for_byte() {
+    let r = review(REVIEW_SETTINGS).replies(REVIEW_INVALID).run("log-review-invalid");
+    compare("node-log", "review.invalid", &r.files[&format!("{REC}/review-check.err")]);
+}
+
+#[test]
+fn the_review_unreadable_reason_is_its_golden_byte_for_byte() {
+    let r = review("").env(&[("SDC_REVIEW_ADAPTER", "{root}/adapters/review-silent")]).run("log-review-silent");
+    compare("node-log", "review.unreadable", &r.files[&format!("{REC}/review-check.err")]);
+}
+
+#[test]
+fn the_scope_changed_line_of_questions_answer_is_its_golden_byte_for_byte() {
+    let (_, r) = pair("log-answer-scope", &start("questions.answer"), &|root| {
+        settings(root, "questions.answer");
+        put(&root.join("work"), "questions.yaml", SCOPE_Q);
+        put(&root.join("work"), ".stub/questions-answered.yaml", &SCOPE_Q.replace("status: open", "status: accepted\n    answer: yes"));
+    });
+    compare("node-log", "answer.scope-changed", &r.files[".sdc/llm/001-questions.answer/apply.log"]);
+}
+
+#[test]
+fn the_prompt_of_vision_write_is_its_golden_byte_for_byte() {
+    golden("vision.write");
+}
+
+#[test]
+fn the_prompt_of_roadmap_write_is_its_golden_byte_for_byte() {
+    golden("roadmap.write");
+}
+
+#[test]
+fn the_prompt_of_plan_decompose_is_its_golden_byte_for_byte() {
+    golden("plan.decompose");
+}
+
+#[test]
+fn the_prompt_of_context_default_is_its_golden_byte_for_byte() {
+    golden("context.default");
+}
+
+#[test]
+fn the_prompt_of_questions_answer_is_its_golden_byte_for_byte() {
+    golden("questions.answer");
+}
+
+/// The prompt of the review, the fixture adapter as the review class's.
+fn review_prompt(name: &str, more: &dyn Fn(&Path), mode: &str) -> String {
+    let adapter = repo().join("bindings/tools/llm-adapter-fixture.sh").display().to_string();
+    prompt(name, "change.review", &|root| {
+        more(root);
+        review_story(root);
+    }, &[("SDC_REVIEW_ADAPTER", adapter.as_str()), ("SDC_REVIEW_MODE", mode)])
+}
+
+#[test]
+fn the_prompt_of_change_review_is_its_golden_byte_for_byte() {
+    compare("llm-node", "change.review", &review_prompt("review", &nothing, "session"));
+}
+
+#[test]
+fn the_prompt_of_change_review_with_a_coverage_document_is_its_golden_byte_for_byte() {
+    let coverage = |root: &Path| put(&root.join("work"), "impl/.sdc/coverage.json", "{}\n");
+    compare("llm-node", "change.review.coverage", &review_prompt("review-coverage", &coverage, "session"));
+}
+
+#[test]
+fn the_prompt_of_change_review_on_facts_carries_the_review_input_the_same() {
+    // The golden of this prompt (`change.review.facts`) holds a stand-in input; here the script and
+    // the program build the real one, and `prompt` asserts they agree.
+    let p = review_prompt("review-facts", &nothing, "facts");
+    assert!(p.contains("## Requirements this story delivers") && p.contains("### impl/tests/last_page.rs (8 lines)"), "{p}");
 }

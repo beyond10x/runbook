@@ -1240,13 +1240,25 @@ esac
     }
 
     /// `change.review` under Loom, the writers on `--adapter metaharness`: the review class takes
-    /// the claude-cli adapter (`sdc-reply adapters`) and reads the login the binding passes.
+    /// the claude-cli adapter and reads the login the binding passes. The program makes the review's
+    /// inputs and checks the reply itself, so the workspace holds a story, a tree and the recorded
+    /// conformance run on it, and the standin of `claude` replies as a review.
     #[test]
     fn the_review_step_finds_its_login_under_loom_when_the_writers_run_on_metaharness() {
-        use std::os::unix::fs::PermissionsExt;
         let r = roots("review-login");
-        let st = Standin::new("review-login", &[("claude", CLAUDE_STANDIN), ("metaharness", METAHARNESS_STANDIN), ("sdc-reply", &reply_standin())]);
-        fs::set_permissions(st.bin.join("sdc-reply"), fs::Permissions::from_mode(0o755)).unwrap();
+        let reply = CLAUDE_STANDIN.replace(r#""structured_output":{"decision":"approve","reasons":["ok"],"cites":[]}"#, r#""structured_output":{"decision":"approved","summary":"ok","findings":[]}"#);
+        let st = Standin::new("review-login", &[("claude", &reply), ("metaharness", METAHARNESS_STANDIN)]);
+        put(&r, "aep/story/list.md", "---\nformat: aep.planning-md/3\nid: story:list\nkind: story\nstatus: active\ntitle: List\nsummary: covers todo.task.AddTask\n---\n# List\n");
+        put(&r, "impl/README.md", "# todo\n");
+        let log = r.1.join("conformance.log");
+        fs::write(&log, "1 passed\n").unwrap();
+        let recorded = Command::new(env!("CARGO_BIN_EXE_sdc-reply"))
+            .args(["record", "--work", ".", "--kind", "conformance_run", "--tree", "impl", "--log"])
+            .arg(&log)
+            .current_dir(r.1.join("work"))
+            .output()
+            .unwrap();
+        assert!(recorded.status.success(), "{recorded:?}");
         let login = private_login(&r);
         let instructions = r#"{"task":"instructions/change.review.md","inputs":"instructions/change.review.inputs.md","coverage_inputs":"instructions/change.review.coverage.inputs.md","coverage_note":"instructions/change.review.coverage-note.md","facts":"instructions/change.review.facts.md","facts_inputs":"instructions/change.review.facts.inputs.md"}"#;
         let mut c = Command::new(tools().join("llm-node.sh"));

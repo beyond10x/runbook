@@ -1,7 +1,9 @@
-//! sdc-node: the model step of a case under Loom, for the seven plain nodes (`idea.dissect`,
+//! sdc-node: the model step of a case under Loom, for the plain nodes (`idea.dissect`,
 //! `questions.write`, `requirements.normalise`, `spec.author`, `test.reproduce`, `bug.dissect`,
-//! `change.fix`). It is the Loom mode of `bindings/tools/llm-node.sh` in Rust; the script hands
-//! these nodes to it.
+//! `change.fix`) and the nodes of the planning store (`vision.write`, `roadmap.write`,
+//! `plan.decompose`, `context.default`, `questions.answer`) and of the review (`change.review`).
+//! It is the Loom mode of `bindings/tools/llm-node.sh` in Rust; the script hands these nodes to
+//! it. `change.implement` is still the script's.
 //!
 //! ```text
 //! sdc-node <node> [--tools-dir <dir>] [--model m] [--max-turns n] [--max-budget-usd u]
@@ -25,10 +27,14 @@ mod findings;
 mod nodes;
 #[path = "sdc-node/ordjson.rs"]
 mod ordjson;
+#[path = "sdc-node/review.rs"]
+mod review;
 #[path = "sdc-node/rework.rs"]
 mod rework;
 #[path = "sdc-node/setup.rs"]
 mod setup;
+#[path = "sdc-node/store.rs"]
+mod store;
 #[path = "sdc-node/util.rs"]
 mod util;
 #[path = "sdc-node/yaml.rs"]
@@ -101,6 +107,28 @@ impl Ctx {
         self.render(&file, vals)
     }
 
+    /// The epic and the story of the case: cuts of the case id, or the names Loom gave the cases.
+    pub fn names(&self) -> (String, String) {
+        let cut = |n: usize| -> String {
+            let case = self.set.case.lines().next().unwrap_or("");
+            if case.contains('.') { case.split('.').nth(n - 1).unwrap_or("").to_string() } else { case.to_string() }
+        };
+        let (mut epic, mut story) = (cut(2), cut(3));
+        if let Some(parent) = env_set("LOOM_PARENT_CASE_NAME") {
+            epic = parent;
+            story = env_set("LOOM_CASE_NAME").unwrap_or(story);
+        } else if let Some(name) = env_set("LOOM_CASE_NAME") {
+            epic = name;
+            story = String::new();
+        }
+        (epic, story)
+    }
+
+    /// The review reads one document of facts (`SDC_REVIEW_MODE=facts`).
+    pub fn facts(&self) -> bool {
+        self.node == "change.review" && env_set("SDC_REVIEW_MODE").as_deref() == Some("facts")
+    }
+
     /// The bug report names a ticket.
     pub fn has_ticket(&self) -> bool {
         yaml::load(&self.work.join("bug.yaml")).is_some_and(|d| yaml::truthy(&d, "ticket"))
@@ -129,6 +157,18 @@ impl Ctx {
             return Ok(Some(0));
         }
         self.adapter = env_set("SDC_LLM_ADAPTER").unwrap_or_else(|| "stub".to_string());
+        // The review's reply is a data document under a response schema, so its class has its own
+        // adapter (the library's `adapters`).
+        if self.node == "change.review" {
+            let (found, refused) = sdc_tools::reply::adapters::adapters(&self.set.here, &|k| std::env::var(k).ok());
+            match found["review"]["adapter"].as_str().filter(|a| !a.is_empty()) {
+                Some(a) if refused.is_empty() => self.adapter = a.to_string(),
+                _ => {
+                    let why: Vec<String> = refused.iter().map(|r| format!("refused: {r}")).collect();
+                    return Err(die(format!("llm-node: {} could not run: {}", self.node, why.join("\n")), 126));
+                }
+            }
+        }
         for (var, default, allowed) in [
             ("SDC_IMPLEMENT_MODE", "session", ["session", "request"]),
             ("SDC_REVIEW_MODE", "session", ["session", "facts"]),

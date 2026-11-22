@@ -60,10 +60,11 @@ node=$1
 # A binary of the driver crate (driver/src/bin) in Loom mode: on PATH, else its debug build.
 sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
 if [[ -n ${LOOM_CASE:-} ]]; then
-  # The plain nodes are the Rust program sdc-node; SDC_NODE_SHELL (read by the parity test only)
+  # These nodes are the Rust program sdc-node; SDC_NODE_SHELL (read by the parity test only)
   # keeps this script's own code for them.
   case $node in
-    idea.dissect|questions.write|requirements.normalise|spec.author|test.reproduce|bug.dissect|change.fix)
+    idea.dissect|questions.write|requirements.normalise|spec.author|test.reproduce|bug.dissect|change.fix|\
+    vision.write|roadmap.write|plan.decompose|context.default|questions.answer|change.review)
       [[ -n ${SDC_NODE_SHELL:-} ]] || exec "$(sibling sdc-node)" "$node" --tools-dir "$here" "${@:2}" ;;
   esac
   SDC_ARGS=$(cat)
@@ -389,6 +390,7 @@ if [[ $adapter == stub ]]; then
     render lines "$shared/rework.stub.md" count="$(jq -r '.count' "$rejection")" approval="$(jq -r '.approval' "$rejection")" \
       revision="$(jq -r '.revision' "$rejection")" reasons="$(jq -r '.reasons[] | "- " + .' "$rejection")"
   fi
+  lines=$(printf '%s' "$lines")
   if [[ $code == 0 && -n $t && -n $lines && -e $work/$t ]]; then
     case $t in
       *.yaml|*.yml) [[ -d $work/$t ]] || sed 's/^/# /' <<< "$lines" >> "$work/$t" ;;
@@ -559,7 +561,7 @@ change.review)
   [[ -x $reply_bin ]] || { echo "llm-node: sdc-reply not found ($reply_bin): $node could not run" >&2; exit 127; }
   case_dir=${SDC_CASE_DIR:-$work/..}
   "$reply_bin" review-inputs --cwd "$cwd" --case-dir "$case_dir" --story "$story" > "$rec/review-inputs.json" 2> "$rec/review-check.err" ||
-    { echo "llm-node: change.review has no inputs: $(cat "$rec/review-check.err")"; exit 2; }
+    { render step_log "$shared/node.review.no-inputs.md" reason="$(cat "$rec/review-check.err")"; echo "$step_log"; exit 2; }
   "$reply_bin" schema --cwd "$cwd" --case-dir "$case_dir" --type review > "$rec/reply-schema.json"
   if [[ $review_mode == facts ]]; then
     # One request, no tools (story:review-minimal-facts): the program assembled in/review.md, the
@@ -773,7 +775,8 @@ if [[ $node == change.review ]]; then
     if [[ $acode != 0 ]]; then
       code=2
       [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == @(api_error|recording_diverged) ]] && code=75
-      echo "the review call failed (adapter exit $acode)" > "$rec/review-check.err"
+      render why "$shared/node.review.call-failed.md" code="$acode"
+      echo "$why" > "$rec/review-check.err"
       break
     fi
     reply=$rec/structured-output.json
@@ -791,10 +794,13 @@ if [[ $node == change.review ]]; then
       mv "$rec/request.json.tmp" "$rec/request.json"
   done
   case $code in
-    0) echo "change.review approved by $principal ($(jq -r '.notes | length' "$rec/review-check.out") outside-the-story note(s))" ;;
+    0) render step_log "$shared/node.review.approved.md" principal="$principal" notes="$(jq -r '.notes | length' "$rec/review-check.out")"
+       echo "$step_log" ;;
     1) jq -c . "$rec/review-check.out" ;;
-    75) echo "llm-node: change.review could not run: the model's API ended the session; nothing recorded, resume later" ;;
-    *) echo "llm-node: change.review recorded nothing after $((try + 1)) attempt(s) on adapter $adapter (call llm/$(basename "$rec")): $(cat "$rec/review-check.err")" ;;
+    75) render step_log "$shared/node.review.api.md"; echo "$step_log" ;;
+    *) render step_log "$shared/node.review.nothing-recorded.md" attempts="$((try + 1))" adapter="$adapter" \
+         call="$(basename "$rec")" reason="$(cat "$rec/review-check.err")"
+       echo "$step_log" ;;
   esac
   log_call
   exit $code
@@ -879,7 +885,7 @@ apply() {
       [[ -f $f ]] || return 1
       [[ "$(yq -o=json -I=0 '[.questions[] | select(.scope_changing == true)]' "$f")" == \
          "$(yq -o=json -I=0 '[.questions[] | select(.scope_changing == true)]' "$work/questions.yaml")" ]] ||
-        { echo "questions.answer changed a scope-changing question: not applied"; return 1; }
+        { render why "$shared/node.answer.scope-changed.md" node="$node"; echo "$why"; return 1; }
       cp "$f" "$work/questions.yaml" ;;
     bug.dissect)
       # The reply under the response schema, when the adapter had one, else the written file.

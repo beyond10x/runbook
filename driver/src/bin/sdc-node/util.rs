@@ -215,3 +215,35 @@ pub fn chomp(s: &str) -> &str {
 pub fn env_set(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
+
+/// Starts `cmd` with standard input closed, its standard error in `out` and its standard output
+/// captured; the exit code and the bytes of standard output.
+pub fn run_capture(cmd: &mut Command, out: &mut Out) -> (i32, Vec<u8>) {
+    let (_, e) = out.stdio();
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(e);
+    match cmd.output() {
+        Ok(o) => (code_of(o.status), o.stdout),
+        Err(err) => {
+            out.err_line(&format!("llm-node: {}: {err}", cmd.get_program().to_string_lossy()));
+            (if err.kind() == io::ErrorKind::NotFound { 127 } else { 126 }, Vec::new())
+        }
+    }
+}
+
+/// Starts `cmd` with standard input closed, its standard output in the file `stdout` (truncated)
+/// and its standard error appended to the file `stderr`; its exit code.
+pub fn run_split(cmd: &mut Command, stdout: &Path, stderr: &Path) -> i32 {
+    let o = File::create(stdout).map_or_else(|_| Stdio::null(), Stdio::from);
+    let log = OpenOptions::new().create(true).append(true).open(stderr).ok();
+    let e = log.as_ref().and_then(|f| f.try_clone().ok()).map_or_else(Stdio::null, Stdio::from);
+    cmd.stdin(Stdio::null()).stdout(o).stderr(e);
+    match cmd.status() {
+        Ok(s) => code_of(s),
+        Err(err) => {
+            if let Some(mut f) = log {
+                let _ = writeln!(f, "llm-node: {}: {err}", cmd.get_program().to_string_lossy());
+            }
+            if err.kind() == io::ErrorKind::NotFound { 127 } else { 126 }
+        }
+    }
+}
