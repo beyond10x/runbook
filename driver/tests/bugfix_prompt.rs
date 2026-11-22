@@ -381,6 +381,9 @@ fn run_decider_in(case: &str, kind: &str, request: serde_json::Value, env: &[(&s
     rec
 }
 
+/// A decider case: its golden name, the kind of decider, the request and the environment.
+type DeciderCase<'a> = (&'a str, &'a str, serde_json::Value, Vec<(&'a str, &'a str)>);
+
 #[test]
 fn the_prompt_of_each_decider_is_its_golden_byte_for_byte() {
     use serde_json::json;
@@ -401,7 +404,7 @@ fn the_prompt_of_each_decider_is_its_golden_byte_for_byte() {
         v
     };
     let fin = [("SDC_DECIDER_ESCALATE", "final")];
-    let cases: Vec<(&str, &str, serde_json::Value, Vec<(&str, &str)>)> = vec![
+    let cases: Vec<DeciderCase> = vec![
         ("approval", "model", approval.clone(), vec![]),
         ("approval-final", "model", approval.clone(), fin.to_vec()),
         ("approval-prior-rejection", "model", with(approval.clone(), "retry", json!({"attempt": 2, "invalid_reason": "cites what does not resolve"})), vec![("STUB_PRIOR", "1")]),
