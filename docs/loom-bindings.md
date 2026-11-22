@@ -99,10 +99,14 @@ proposed order of Loom's open stories, 2026-11-21).
 - `copy` (`roadmap.read` in `sdc`, `sdc-epic`, `sdc-spec`, `sdc-plan`): `story:record-copy-between-cases`, wave 1. `from` is the registration, as in Loom's guide (`../loom/website/docs/guides/bindings.md:138-142`).
 - `open` with its `from: effect` entries, the child's `independence`: `story:child-case-runtime`, wave 1.
 - `arguments_from` on an `open` binding (`epics.open`, `stories.open`): `story:tree-run-command`, wave 2.
-- `retry_when` and the feedback to the writer (`LOOM_RETRY_FEEDBACK`, `loom.retry-feedback/1`): the retry-records story, wave 1; a document with a `retry_when` is refused by the cut `tree-run-command` until wave 2 lifts it.
 - `handoff`: `story:tree-run-command`, wave 2.
 - A `person`'s record produced by the approving principal, not the literal `person:owner`: `story:tree-run-command`, wave 2.
 - `budget.max_runs`, counted since the case's last arrival as the driver does (D24): `story:run-caps-per-arrival`, wave 6.
+
+`retry_when` and the feedback to the writer are not in this list: the pinned Loom (`70b0e6e0`) runs
+them. On a step with retry records it sets `LOOM_RETRY_FEEDBACK` on the bound program's child to the
+path of a `loom.retry-feedback/1` document; with no retry record it sets nothing
+(`crates/loom-bindings/src/retry.rs:14-17`, `:34`, `:36` of Loom).
 
 ## Pending (`bindings/PENDING.md`)
 
