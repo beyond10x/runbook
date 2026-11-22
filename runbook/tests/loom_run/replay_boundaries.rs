@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 fn repo() -> PathBuf {
@@ -609,5 +609,164 @@ fn a_live_line_without_the_mark_is_a_finished_call_and_a_started_line_without_a_
         put(&r.run().join("replay/calls.jsonl"), &log);
         let code = r.call();
         assert_eq!((r.starts(), code), (starts, exit), "{what}");
+    }
+}
+
+struct CapRig {
+    root: PathBuf,
+    marker: PathBuf,
+    next: std::cell::Cell<u32>,
+}
+
+impl CapRig {
+    /// `nap`: how long the stand-in live program sleeps after it wrote its marker line.
+    fn new(tag: &str, cap: Value, nap: &str) -> CapRig {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cap-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let marker = root.join("live-starts");
+        let live = root.join("live.sh");
+        put(&live, &format!("#!/bin/sh\necho started >> {}\n[ -f {} ] || sleep {nap}\necho '{{\"exit\": 0, \"cost_usd\": 0}}'\n", marker.display(), root.join("fast").display()));
+        std::fs::set_permissions(&live, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let out = root.join("run");
+        let mut live_member = json!({"adapter": "stand-in", "bin": live.display().to_string()});
+        if !cap.is_null() {
+            live_member["cap"] = cap;
+        }
+        put(&out.join("replay/plan.json"), &json!({"format": "sdc.replay-plan/1", "out": out.display().to_string(), "policy": "live", "live": live_member, "injections": []}).to_string());
+        put(&out.join("replay/index.json"), &json!({"format": "sdc.replay-index/1", "calls": []}).to_string());
+        CapRig { root, marker, next: std::cell::Cell::new(0) }
+    }
+
+    fn log(&self) -> PathBuf {
+        self.root.join("run/replay/calls.jsonl")
+    }
+
+    fn starts(&self) -> usize {
+        std::fs::read_to_string(&self.marker).unwrap_or_default().lines().count()
+    }
+
+    fn spawn(&self) -> Child {
+        let n = self.next.get() + 1;
+        self.next.set(n);
+        let out = self.root.join("run");
+        let rec = out.join(format!("work/.sdc/llm/{n:03}-change.fix"));
+        std::fs::create_dir_all(rec.join("cwd/in")).unwrap();
+        let request = json!({"node": "change.fix", "case": "C-1", "model": "m", "record_dir": rec.display().to_string(),
+            "cwd": rec.join("cwd").display().to_string(), "case_dir": out.join("work").display().to_string()});
+        put(&rec.join("request.json"), &request.to_string());
+        Command::new(repo().join("driver/target/debug/sdc-replay"))
+            .arg(rec.join("request.json"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .env("SDC_REPLAY", out.join("replay/plan.json"))
+            .spawn()
+            .unwrap()
+    }
+
+    fn call(&self) -> i32 {
+        self.spawn().wait().unwrap().code().unwrap_or(-1)
+    }
+
+    fn wait_for_starts(&self, n: usize) {
+        let until = Instant::now() + Duration::from_secs(10);
+        while self.starts() < n {
+            assert!(Instant::now() < until, "the live program was not started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn fast(&self) {
+        put(&self.root.join("fast"), "");
+    }
+}
+
+#[test]
+fn a_first_call_ended_mid_call_is_counted_at_cap_1() {
+    let r = CapRig::new("killed", json!(1), "3");
+    let mut first = r.spawn();
+    r.wait_for_starts(1);
+    first.kill().unwrap();
+    first.wait().unwrap();
+    r.fast();
+    assert_eq!(r.call(), 75, "the second call must be refused");
+    assert_eq!(r.starts(), 1, "one live start in all");
+}
+
+#[test]
+fn processes_starting_together_never_start_more_live_programs_than_the_cap() {
+    for (procs, cap) in [(2, 1), (4, 1), (4, 2), (2, 2)] {
+        for round in 0..4 {
+            let r = CapRig::new(&format!("race-{procs}-{cap}-{round}"), json!(cap), "0.3");
+            let children: Vec<Child> = (0..procs).map(|_| r.spawn()).collect();
+            let codes: Vec<i32> = children.into_iter().map(|mut c| c.wait().unwrap().code().unwrap_or(-1)).collect();
+            assert!(r.starts() <= cap, "{procs} processes at cap {cap} round {round}: {} live starts, exit codes {codes:?}", r.starts());
+            assert_eq!(r.starts(), cap.min(procs), "{procs} processes at cap {cap}: the cap is used, not undershot: {codes:?}");
+        }
+    }
+}
+
+#[test]
+fn a_finished_call_is_counted_once_at_cap_2() {
+    let r = CapRig::new("once", json!(2), "0");
+    assert_eq!((r.call(), r.call()), (0, 0));
+    assert_eq!(r.call(), 75, "the third call is refused: two live calls, counted once each");
+    assert_eq!(r.starts(), 2);
+}
+
+#[test]
+fn an_old_log_without_phases_counts_its_finished_live_call() {
+    let r = CapRig::new("old-log", json!(1), "0");
+    put(&r.log(), &(json!({"mode": "live", "record": "work/.sdc/llm/000-x", "case": "C-1", "name": "change.fix"}).to_string() + "\n"));
+    assert_eq!(r.call(), 75);
+    assert_eq!(r.starts(), 0);
+}
+
+#[test]
+fn an_empty_log_starts_one_call_at_cap_1_and_refuses_the_next() {
+    let r = CapRig::new("empty", json!(1), "0");
+    put(&r.log(), "");
+    assert_eq!((r.call(), r.call()), (0, 75));
+    assert_eq!(r.starts(), 1);
+}
+
+#[test]
+fn a_cut_off_last_line_does_not_make_a_call_free() {
+    let r = CapRig::new("partial", json!(1), "0");
+    put(&r.log(), "{\"mode\": \"live\", \"phase\": \"star");
+    let codes = [r.call(), r.call(), r.call()];
+    assert_eq!(r.starts(), 1, "cap 1 after a cut-off line: exit codes {codes:?}");
+}
+
+#[test]
+fn a_log_with_a_byte_that_is_not_text_does_not_lift_the_cap() {
+    let r = CapRig::new("bytes", json!(1), "0");
+    let mut bytes = (json!({"mode": "live", "phase": "started", "record": "work/.sdc/llm/000-x"}).to_string() + "\n").into_bytes();
+    bytes.extend_from_slice(b"\xff\xfe\n");
+    std::fs::create_dir_all(r.log().parent().unwrap()).unwrap();
+    std::fs::write(r.log(), bytes).unwrap();
+    assert_eq!(r.call(), 75, "one live call is in the log: the cap of 1 is spent");
+    assert_eq!(r.starts(), 0);
+}
+
+#[test]
+fn a_log_that_is_a_directory_or_unreadable_starts_no_live_call() {
+    let r = CapRig::new("dir", json!(5), "0");
+    std::fs::create_dir_all(r.log()).unwrap();
+    assert_ne!(r.call(), 0);
+    assert_eq!(r.starts(), 0, "a directory");
+    let r = CapRig::new("unreadable", json!(5), "0");
+    put(&r.log(), "");
+    std::fs::set_permissions(r.log(), std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert_ne!(r.call(), 0);
+    assert_eq!(r.starts(), 0, "unreadable");
+}
+
+#[test]
+fn without_a_readable_cap_no_live_call_starts() {
+    for (tag, cap) in [("none", Value::Null), ("text", json!("2")), ("negative", json!(-1))] {
+        let r = CapRig::new(&format!("cap-{tag}"), cap, "0");
+        assert_eq!(r.call(), 75, "{tag}");
+        assert_eq!(r.starts(), 0, "{tag}");
     }
 }
