@@ -241,7 +241,7 @@ Loom side (proposed `loom.bindings/1`; the registration name form is *inferred* 
 
 ```yaml
 format: loom.bindings/1
-protocol: sdc-spec@1
+protocol: sdc-spec@5
 actions:
   spec.draft:
     executor:

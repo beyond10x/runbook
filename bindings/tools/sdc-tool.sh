@@ -36,6 +36,14 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   done
   set -- "${pos[@]}"
   export SDC_CASE=$LOOM_CASE
+  # Loom gives no HOME. The `ess` dispatcher takes its toolchains from ESS_TOOLCHAIN_DIR, else
+  # XDG_CACHE_HOME/ess/toolchains, else HOME/.cache/ess/toolchains, and refuses to run with none of
+  # them; when none is set the tool names the directory itself, from the user's passwd entry.
+  # `aep`, `yq` and `jq` need nothing of this kind (they ran under PATH alone).
+  if [[ -z ${ESS_TOOLCHAIN_DIR:-} && -z ${XDG_CACHE_HOME:-} && -z ${HOME:-} ]]; then
+    user_home=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6)
+    [[ -z $user_home ]] || export ESS_TOOLCHAIN_DIR=$user_home/.cache/ess/toolchains
+  fi
 fi
 mkdir -p .sdc
 # The ess release every tool here runs: 0.96.0, the release the committed recordings, records and

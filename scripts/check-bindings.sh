@@ -139,4 +139,14 @@ elif "$site_bin" check --root "$sdc" | sed "s/^/  /"; [[ ${PIPESTATUS[0]} -eq 0 
 else
   echo "FAIL site data"; fail=1
 fi
+# A program Loom starts gets PATH and LOOM_* alone, no HOME: sdc-tool.sh in Loom mode names the ESS
+# toolchain directory itself (from the passwd entry), so that the `ess` dispatcher runs. About 0.1 s.
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/loom-env.XXXXXX")
+cp -r "$sdc/driver/examples/sdc/fixtures/billing-spec" "$tmp/spec"
+if out=$(cd "$tmp" && env -i PATH="$PATH" LOOM_CASE=IDEA-1 bash "$sdc/bindings/tools/sdc-tool.sh" spec-validate --action spec.validate < /dev/null 2>&1); then
+  echo "pass loom environment"
+else
+  echo "FAIL loom environment: sdc-tool.sh spec-validate under env -i PATH LOOM_CASE failed"; echo "$out" | sed 's/^/  /'; fail=1
+fi
+rm -rf "$tmp"
 exit $fail
