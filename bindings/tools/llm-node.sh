@@ -37,6 +37,8 @@
 #   --instructions <json>  the `llm` object's instructions: {"task": "<file>", ...}
 #   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
 #   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
+#   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli adapter (without it
+#                    the adapter reads CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
 #   --stub <argv>...  the `llm` object's stub; last, it takes the rest of the argv
 # The case id is SDC_CASE, the arguments SDC_ARGS, the feedback document's records SDC_FEEDBACK
 # (each with its log's tail; Loom names no action and no exit of the run that recorded it).
@@ -62,7 +64,7 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   while (( $# )); do
     case $1 in
       --stub) shift; with_stub=yes; break ;;
-      --model|--max-turns|--max-budget-usd|--operations|--instructions|--adapter|--principal|--stub-fixtures|--stub-counter)
+      --model|--max-turns|--max-budget-usd|--operations|--instructions|--adapter|--principal|--stub-fixtures|--stub-counter|--claude-credentials)
         (( $# >= 2 )) || { echo "llm-node: $1 takes a value" >&2; exit 64; }
         opt[$1]=$2; shift 2 ;;
       *) echo "llm-node: unknown argument $1" >&2; exit 64 ;;
@@ -86,6 +88,7 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   [[ -n ${opt[--principal]:-} ]] && export SDC_PRINCIPAL=${opt[--principal]}
   [[ -n ${opt[--stub-fixtures]:-} ]] && export SDC_STUB_FIXTURES=${opt[--stub-fixtures]}
   [[ -n ${opt[--stub-counter]:-} ]] && export SDC_STUB_COUNTER=${opt[--stub-counter]}
+  [[ -n ${opt[--claude-credentials]:-} ]] && export SDC_CLAUDE_CREDENTIALS=${opt[--claude-credentials]}
   # The retry records as the driver's SDC_FEEDBACK: kind, result, subject and the log, here the
   # tail Loom keeps of the cited blob, written beside the document's copy under .sdc/loom-feedback/.
   if [[ -n ${LOOM_RETRY_FEEDBACK:-} ]]; then
@@ -230,13 +233,14 @@ post() {
     fi
   fi
   if [[ -n $raised && -f $raised ]]; then
-    local b
+    local b looked="SDC_FINDINGS, then $root/driver/target/debug/sdc-findings"
     if [[ -n ${LOOM_CASE:-} ]]; then
       b=$(sibling sdc-findings)
+      looked="PATH, then $root/driver/target/debug/sdc-findings"
     else
       b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
-      [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
     fi
+    [[ -x $b ]] || { echo "llm-node: sdc-findings not found (looked at $looked): $node could not run" >&2; exit 127; }
     "$b" --rules "$here/consistency-rules.json" promote "$node" "$raised"
   fi
   local t=${derived[$node]:-}

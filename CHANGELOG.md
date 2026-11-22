@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- The shell tools no longer fall back to a `beyond10x/sdc` path for `sdc-findings` and `sdc-finding-kpis` (a missing one stops with its name and where it looked), `llm-adapter-claude-cli.sh` runs with `HOME` unset (`--claude-credentials <file>` on `llm-node.sh`, else a message naming the variables), and the text of `in/feedback.md` and the requester request is in `instructions/` (`story:tool-texts-and-paths`).
+
 ## [0.3.0] - 2026-11-22
 
 The bindings move onto Loom's program contract and the instructions of the model's calls become

@@ -171,7 +171,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | Marker | Reads | Under Loom | Status |
 |---|---|---|---|
 | `cat > /dev/null` | standard input | read and dropped: every subcommand takes its arguments from argv | done |
-| `SDC_FINDINGS:-` | `SDC_FINDINGS`, else `$HOME/beyond10x/sdc/...` | `sdc-findings` on `PATH`, else relative to the tool; no `HOME` | done |
+| `SDC_FINDINGS:-` | `SDC_FINDINGS`, else `driver/target/debug/` of this checkout | `sdc-findings` on `PATH`, else relative to the tool; no `HOME`; not found: exit 127, the message names the binary and where it looked | done |
 | `SDC_BUGFIX:-` | `SDC_BUGFIX` | `sdc-bugfix` the same way | done |
 | `executor=agent:` | `SDC_ACTION` (the `aep` executor `agent:<action>`) | `--action <id>`, in every `sdc-tool.sh` argv of `bindings/*.yaml` | done |
 | `aep_actor=` | `SDC_PRINCIPAL` (`AEP_ACTOR`) | `--principal <principal>` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` (wave 9) or G2 |
@@ -194,10 +194,11 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `not_called()` | `SDC_NOT_CALLED` (the not-called file) | the reason on standard output, exit 0, as in the driver | pending: G1 (`exits.not_called`) |
 | `SDC_PRINCIPAL` | `SDC_PRINCIPAL` | `--principal` is taken; no binding states one | pending: `story:bound-program-declares-its-environment` or G2 |
 | `SDC_LLM_ADAPTER` | `SDC_LLM_ADAPTER` | `--adapter` is taken; the YAML names none, so the stub runs | pending: N3, N9 |
+| `SDC_CLAUDE_CREDENTIALS` | `SDC_CLAUDE_CREDENTIALS` (the login file of `llm-adapter-claude-cli.sh`; else `CLAUDE_CONFIG_DIR`, else `HOME`) | `--claude-credentials <file>`; with none of the four (`ANTHROPIC_API_KEY` too) the adapter exits 127 and names them | done; no binding states it yet, as none names `--adapter` |
 | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE` | the defaults | pending: N9 |
 | `SDC_LLM_NODES` | `SDC_LLM_NODES` | the default: every node on the adapter | pending: N9 |
 | `SDC_STUB_FINDINGS` | `SDC_STUB_FINDINGS` | the default: none | pending: N3 |
-| `SDC_FINDINGS:-` | `SDC_FINDINGS`, else `$HOME/...` | as in `sdc-tool.sh` | done |
+| `SDC_FINDINGS:-` | `SDC_FINDINGS`, else `driver/target/debug/` of this checkout | as in `sdc-tool.sh` | done |
 | `cd_=${SDC_CASE_DIR:-}`, `events.jsonl` | `SDC_CASE_DIR` (`events.jsonl`: a rejection no longer current) | does not run: `LOOM_RETRY_FEEDBACK` holds only records about the current revision | pending: `story:bound-agent-node` |
 | `A=$(jq -r '.approval` | `SDC_CASE_DIR` (`bindings.json`: the rejected subject's path) | `artifacts` of the `bindings/*.yaml` file that binds the rejecting approval | done |
 | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | `SDC_LLM_RECORD`, `SDC_LLM_LOG` | the default `work/.sdc/llm/` | pending: `story:agent-node-run-records` |
@@ -217,8 +218,19 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `sdc-findings.rs:1552` | `SDC_CONSISTENCY_RULES` | unchanged: both tools pass `--rules` | done |
 | `sdc-reply.rs:310-314` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `llm-node.sh` exports `--adapter`; the class adapters take their defaults | pending: N9 |
 
-`HOME` is also read by `cargo`, `slot` and `aep` that the tools start; under `PATH` alone they
-need `story:bound-program-declares-its-environment` (wave 9) or `--confinement local`.
+Variables beyond `PATH` read under `set -u` (checked 2026-11-22, `story:tool-texts-and-paths`):
+
+| Where | Reads | What was done |
+|---|---|---|
+| `llm-adapter-claude-cli.sh` | `HOME` (the login under `~/.claude`) | read as `${HOME:-}`; the login is `SDC_CLAUDE_CREDENTIALS`, else `CLAUDE_CONFIG_DIR`, else `HOME`, and with none of them (and no `ANTHROPIC_API_KEY`) the adapter exits 127 naming all four; llm-node's `--claude-credentials <file>` gives the first one |
+| `llm-adapter-metaharness.sh`, `llm-adapter-dry.sh`, `llm-adapter-fixture.sh` | `METAHARNESS`, `SDC_LLM_ENDPOINT`, `SDC_LLM_DRY_LOG`, `SDC_COVERAGE_REPLIES`, `SDC_REPLY` | all read with a default (`${X:-}`): nothing to change |
+| `sdc-tool.sh` `conform-run` | `SDC_ACTION` (the report file name) | read as `${SDC_ACTION:-conform-run}`; the binding states `--action` anyway |
+| `sdc-tool.sh` `ess` calls | `ESS_TOOLCHAIN`, `ESS_TOOLCHAIN_QUIET` | exported with defaults at the top of the tool: nothing to change |
+| `sdc-tool.sh` `slot task` (`conform-run`), `slot cargo test` (`impl-gate`) | none: `PWD` only | nothing to change |
+| `ess`, `slot`, `cargo`, `aep`, `claude`, `jq`, `yq` | `HOME` | started with `env -i PATH=...` they answer `--version` (`slot status` too): they take the home directory from the passwd entry; a build through `cargo` without `HOME` was not run (*inferred*) |
+
+A host whose user has no passwd entry still needs `story:bound-program-declares-its-environment`
+(wave 9) or `--confinement local`.
 
 ### Where Loom's head differs from this contract
 
