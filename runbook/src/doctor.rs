@@ -108,6 +108,7 @@ const SPECS: &[Spec] = &[
     Spec { name: "sdc-free-agent", kind: Kind::Helper, needs: RUN_OPT, by: "optional: free-agent runs", hint: BUILD_HELPERS },
     Spec { name: "sdc-check-unreferenced", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the check for files nothing refers to (task check:unreferenced)", hint: BUILD_HELPERS },
     Spec { name: "sdc-answers", kind: Kind::Helper, needs: RUN_OPT, by: "optional: runbook run with a decider at A5 (bindings/tools/answers.yaml)", hint: BUILD_HELPERS },
+    Spec { name: "sdc-node", kind: Kind::Helper, needs: RUN, by: "every runbook: bindings/tools/llm-node.sh (the seven plain model-step nodes under Loom)", hint: BUILD_HELPERS },
     Spec { name: "sdc-watch", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the file-change record of a run; SDC_WATCH=0 turns it off", hint: BUILD_HELPERS },
     Spec { name: "rsync", kind: program("rsync"), needs: RUN_OPT, by: "optional: only bindings/tools/decider.sh (the old driver's decider) copies its inputs with it; the decider of runbook run does not", hint: SHELL_TOOLS },
     Spec { name: "systemd-run", kind: program("systemd-run"), needs: ANY_OPT, by: "optional: sdc-experiment starts runs as transient units", hint: "needs systemd" },
