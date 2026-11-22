@@ -94,3 +94,19 @@ with `### Added`, `### Changed`, `### Fixed`; the date is the day of the tag. Ea
 facts with their source, and what was observed only in runs that are not in git says so.
 `docs/releases/<version>.md` is the longer note and the body of the GitHub Release; a limit that
 the release does not remove is written in it as plainly as what works.
+
+## The unreferenced-files check
+
+`task check:unreferenced` (part of `task check`, about 1 s) runs `driver/src/bin/sdc-check-unreferenced.rs`
+over `git ls-files` and prints the files of `scripts/`, `bindings/`, `instructions/`, `cycles/`,
+`cases/`, `tools/`, `watch/`, `views/`, `decision/`, `goals/`, `eval/` and `driver/tests/fixtures/` that no
+other tracked text file refers to; it exits 1 when there are any. A file refers to another by its
+path, by a path relative to its own directory or crate, by a directory plus a name below it, by
+`mod x;`, or as a Cargo target. The history files (`.engineering/`, `experiments/`, `CHANGELOG.md`,
+`docs/releases/`) do not count as referrers. A directory that a program reads as a whole is a line
+of `driver/unreferenced-whole.txt` (`<dir> <referrer> <reason>`); a file that stays unreferenced on
+purpose is a line of `driver/unreferenced-keep.txt` (`<path> <reason>`), and the check refuses a
+line whose file is gone or is referred to now. Before a deletion,
+`driver/target/debug/sdc-check-unreferenced --without <path>…` prints the files that only the
+deleted paths refer to, each with the paths that name it. `sdc-check-unreferenced --help` has the
+full rules.

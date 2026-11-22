@@ -1,0 +1,9 @@
+cases scripts/evaluate-cases.sh the script walks cases/ with find for every expected.json and reads the files beside it
+instructions/golden driver/tests/bugfix_prompt.rs the test reads one golden prompt per node and group from this directory by a built name
+driver/tests/fixtures/autopilot-closed driver/tests/run_compare.rs the comparison program under test reads the whole run directory
+driver/tests/fixtures/autopilot-stopped driver/tests/run_compare.rs the comparison program under test reads the whole run directory
+driver/tests/fixtures/bugfix-prompt driver/tests/bugfix_prompt.rs the test reads one file per node, named from the node
+driver/tests/fixtures/conformance driver/tests/conformance.rs the conformance tool reads the whole specification tree
+driver/tests/fixtures/decision-request driver/tests/decision_request.rs the tool under test reads the whole store
+driver/tests/fixtures/trial-2-train driver/tests/decision_request.rs the tool under test reads the whole store
+driver/tests/fixtures/trial-2b-fresh driver/tests/run_compare.rs the comparison program under test reads the whole run directory

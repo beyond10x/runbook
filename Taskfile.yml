@@ -16,6 +16,7 @@ tasks:
       - task: check:ci-paths
       - task: check:ess-generated
       - task: check:cycles-suite
+      - task: check:unreferenced
       - task: check:protocols
       - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
       - for c in watch goals; do (cd "$c" && cargo test --locked) || exit 1; done
@@ -140,6 +141,12 @@ tasks:
     cmds:
       - cd runbook && cargo build --locked --quiet --bin runbook
       - RUNBOOK_HOME="${RUNBOOK_HOME:-$PWD}" runbook/target/debug/runbook check
+
+  check:unreferenced:
+    desc: "List the tracked files of scripts/, bindings/, instructions/, cycles/, cases/, tools/, watch/, views/, decision/, goals/, eval/ and driver/tests/fixtures/ that no other file refers to (under 2 s); exit 1 when there are any. The rules: `sdc-check-unreferenced --help`; files kept on purpose: driver/unreferenced-keep.txt; directories read whole: driver/unreferenced-whole.txt. Before a deletion, `driver/target/debug/sdc-check-unreferenced --without <paths>` lists what the deletion leaves unreferenced."
+    cmds:
+      - cd driver && cargo build --locked --quiet --bin sdc-check-unreferenced
+      - driver/target/debug/sdc-check-unreferenced
 
   check:ess-generated:
     desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.3`); from the repository root the ess dispatcher does not switch to it."
