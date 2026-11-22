@@ -22,6 +22,7 @@ import {setView, getView, checkView, fileKindOf, phaseItems} from '../web/view.j
 import {classify, meaningOf} from '../web/meaning.js';
 import {waitsOnScope, scopeQuestions, amendStall} from '../decisions.mjs';
 import {sdcView} from './sdc-view.mjs';
+import {registerRun} from '../runfiles.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -226,6 +227,7 @@ test('a parser of the view says what a change of its record means; a kind with n
 });
 
 test('without a decision rule in the view, nothing is read from the questions of a run', () => {
+  registerRun(path.join(root, 'run'));
   setView(null);
   expect(scopeQuestions({dir: path.join(root, 'run', 'store', 'T-2'), bindings: {$artifacts: {asks: SECOND.ask.file}}})).toBeNull();
   test.skip(!hasYq, 'yq is not on the PATH');
