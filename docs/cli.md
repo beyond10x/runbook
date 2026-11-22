@@ -1,0 +1,85 @@
+# The CLI as a client of the daemon
+
+`runbook run --detach`, `runbook runs ...` and `runbook decide` call the routes of a daemon
+(`runbook serve`, [the daemon API](daemon-api.md)). Each command is one call of one route, made with
+the input types of the server's own routes (`runbook/src/commands.rs`, paths from
+`runbook/src/api/routes.rs`), and prints what the route returns: text lines by default, the route's
+JSON body with `--json`. The code is `runbook/src/client/`.
+
+## Where the daemon is
+
+| Option | Environment | Meaning |
+|---|---|---|
+| `--daemon <url>` | `RUNBOOK_DAEMON` | `http://host:port`. Plain HTTP only; no path, no user info. No default: a command that needs a daemon and has none exits 64. |
+| `--token-file <path>` | `RUNBOOK_TOKEN_FILE` | A file with the bearer token, one line. Mode 600: a file readable by group or others is refused. |
+
+The token is read from that file and from nothing else: not from an argument, not from a plain
+environment value (the daemon's own `RUNBOOK_TOKEN` is not read by the client). It is never printed,
+never in an error line and never in `--json` output; the client replaces it by `[token]` in every
+answer it prints, even from a server that echoes it. It is sent to the daemon named by `--daemon`
+and to no other host. A token to a daemon that is not on loopback travels in clear over plain HTTP:
+the client says so on standard error; use a tunnel (`ssh -L`).
+
+`https://` is refused with exit 64: the crate has no TLS client. Reaching a remote daemon over TLS is
+open (below).
+
+Sessions. `SubmitRun` takes a session only if the caller names one. `runbook run --detach` names none
+and opens none, so its run belongs to no session; `--json` shows the daemon's answer.
+
+## Commands
+
+| Command | Route | Prints (text) |
+|---|---|---|
+| `runbook run <runbook> --intake <file\|-> [--context <dir>] [--set k=v]... --detach` | `POST /daemon/commands/submit-run` | the run id |
+| `runbook runs list` | `GET /daemon/views/runs` | one line per run, newest first: id, state, runbook, submitted-at, `outcome=` or `failure=` |
+| `runbook runs show <run>` | `GET /daemon/views/run`, `.../open-decisions` | the run's fields as `key: value`, then each open decision request |
+| `runbook runs events <run> [--no-follow]` | `GET /daemon/views/events` as a stream (`--no-follow`: as a page) | the lines of the stream |
+| `runbook runs cancel <run>` | `POST /daemon/commands/cancel-run` | `cancelled <run>` |
+| `runbook runs decisions <run>` | `GET /daemon/views/open-decisions` | the open requests: `<request id>: <question>` and one line per option |
+| `runbook decide <run> <request> <answer> [--by <name>]` | `POST /daemon/commands/answer-decision` | `answered <request>` |
+
+Every command takes `--json`, `--daemon` and `--token-file`.
+
+- `run`. The intake is a file, or `-` for standard input (at most 1,048,576 bytes). A relative
+  `--context` is sent as the absolute path of the directory; the daemon needs it under one of its
+  context roots. `--set` is repeatable and each key may be given once. Without `--detach` the run
+  would be in process, which waits for `story:engine-on-loom-library-entry`: the command exits 64
+  with one line that names the story. `--detach` without a daemon exits 64 and says a daemon is
+  needed. `--json` prints the body of the submit's answer.
+- `runs events`. The text is the lines `curl -N -H 'Accept: text/event-stream'` of the run's route
+  gives: `id:` (the event's position), `event:` (its kind), `data:` (its row as one line) and a blank
+  line per event; the `: keep-alive` comment lines are left out. It follows the stream until the
+  daemon closes it with the run over. After a dropped connection (a reset, a cut mid-chunk, 45 s of
+  silence) it reconnects with `Last-Event-ID` set to the last position it printed, and an event whose
+  position it printed is not printed again. A stream the daemon closes while the run is still live
+  (a client that fell behind, a restart) is resumed the same way. Five attempts in a row without an
+  event end it with exit 69. `--no-follow` prints what the run has and returns, in the same lines.
+  `--json` prints one row of the events route per line.
+- `decide` records `--by` (default `$USER`, else `cli`) as the answer's label. The daemon authenticates
+  no principal, and the label never acts as one: the principal of the answer is the daemon's own (`runbook serve --principal`), shown beside the label.
+
+## Exit codes
+
+0 is success. Every other code is one of these; a line `runbook <command>: <status> <code>: <message>`
+goes to standard error, with the error's code and message as the daemon's body gives them
+(`sdc.daemon.NoSuchRun` for a refusal of the specification, `unauthorized` for an answer outside it).
+
+| Code | Name | Cause |
+|---|---|---|
+| 1 | failure | any other failure: a 5xx answer, an answer that cannot be read, a failed write |
+| 64 | usage | unknown subcommand, a missing or malformed argument, no daemon named where one is needed, an https or user-info URL |
+| 65 | refused | the daemon refused the request as invalid: HTTP 400, 413 or 422 (a refusal of the specification such as NoSuchRunbook) |
+| 66 | not found | HTTP 404, an unknown run, or a local file or directory the command names that does not exist |
+| 67 | conflict | HTTP 409: the state of the run or request does not take the command |
+| 69 | unreachable | no connection to the daemon: connection refused, timed out, or lost more often than a stream retries |
+| 77 | denied | HTTP 401 or 403: the token is missing or wrong |
+| 78 | config | the token file is missing, empty or readable by group or others |
+
+The views answer `200` with no row for an unknown run; `runs show` and `runs events` turn that into
+exit 66 (`no such run`).
+
+## Open
+
+- The in-process `runbook run` (without `--detach`), which `story:engine-on-loom-library-entry`
+  builds. Until then it exits 64.
+- HTTPS to a remote daemon: no TLS client in the crate.

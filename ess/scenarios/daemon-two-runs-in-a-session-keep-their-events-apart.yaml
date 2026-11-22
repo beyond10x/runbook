@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-two-runs-in-a-session-keep-their-events-apart
-summary: "Two runs of one session keep their own sequence numbers; the session page shows both in daemon position order."
+summary: "Two runs of one session keep their own sequence numbers (from 2, after the submit event); the session page shows both in position order."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -10,6 +10,7 @@ timeline:
     input:
       daemon_id: "runbookd"
       confinement_floor: linux
+      principal: "agent:conformance"
       at: 2026-11-22T10:00:00Z
     outcome: started
 
@@ -83,8 +84,8 @@ timeline:
     input:
       run_id: "run-a"
       session_id: "nightly"
-      sequence: 1
-      position: 1
+      sequence: 2
+      position: 3
       kind: "step.done"
       record: {step: "a1"}
       at: 2026-11-22T10:03:00Z
@@ -96,8 +97,8 @@ timeline:
     input:
       run_id: "run-b"
       session_id: "nightly"
-      sequence: 1
-      position: 2
+      sequence: 2
+      position: 4
       kind: "step.done"
       record: {step: "b1"}
       at: 2026-11-22T10:03:30Z
@@ -109,8 +110,8 @@ timeline:
     input:
       run_id: "run-a"
       session_id: "nightly"
-      sequence: 2
-      position: 3
+      sequence: 3
+      position: 5
       kind: "step.done"
       record: {step: "a2"}
       at: 2026-11-22T10:04:00Z
@@ -122,8 +123,8 @@ timeline:
     input:
       run_id: "run-a"
       session_id: "nightly"
-      sequence: 2
-      position: 4
+      sequence: 3
+      position: 6
       kind: "step.done"
       record: {step: "a2-again"}
       at: 2026-11-22T10:04:30Z
@@ -135,8 +136,8 @@ timeline:
     input:
       run_id: "run-b"
       session_id: "nightly"
-      sequence: 2
-      position: 3
+      sequence: 3
+      position: 5
       kind: "step.done"
       record: {step: "b2-late"}
       at: 2026-11-22T10:04:45Z
@@ -148,8 +149,8 @@ timeline:
     input:
       run_id: "run-b"
       session_id: "nightly"
-      sequence: 2
-      position: 4
+      sequence: 3
+      position: 6
       kind: "step.done"
       record: {step: "b2"}
       at: 2026-11-22T10:05:00Z
@@ -166,55 +167,41 @@ assert:
     params: {session_id: "nightly", state: Running}
     contains: {run_id: "run-a"}
   - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-a", after_position: 0}
+    params: {run_id: "run-a", after_position: 2}
     at:
       row: first
-      fields:
-        run_id: "run-a"
-        sequence: 1
-        position: 1
-        record: {step: "a1"}
-  - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-a", after_position: 0}
-    at:
-      row: last
       fields:
         run_id: "run-a"
         sequence: 2
         position: 3
-        record: {step: "a2"}
+        record: {step: "a1"}
   - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-b", after_position: 0}
-    at:
-      row: first
-      fields:
-        run_id: "run-b"
-        sequence: 1
-        position: 2
-        record: {step: "b1"}
-  - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-b", after_position: 0}
+    params: {run_id: "run-a", after_position: 2}
     at:
       row: last
+      fields:
+        run_id: "run-a"
+        sequence: 3
+        position: 5
+        record: {step: "a2"}
+  - view: sdc.daemon.EventsAfter
+    params: {run_id: "run-b", after_position: 2}
+    at:
+      row: first
       fields:
         run_id: "run-b"
         sequence: 2
         position: 4
-        record: {step: "b2"}
-  - view: sdc.daemon.EventsOfSessionAfter
-    params: {session_id: "nightly", after_position: 0}
+        record: {step: "b1"}
+  - view: sdc.daemon.EventsAfter
+    params: {run_id: "run-b", after_position: 2}
     at:
-      row: first
-      fields:
-        run_id: "run-a"
-        position: 1
-  - view: sdc.daemon.EventsOfSessionAfter
-    params: {session_id: "nightly", after_position: 1}
-    at:
-      row: first
+      row: last
       fields:
         run_id: "run-b"
-        position: 2
+        sequence: 3
+        position: 6
+        record: {step: "b2"}
   - view: sdc.daemon.EventsOfSessionAfter
     params: {session_id: "nightly", after_position: 2}
     at:
@@ -223,16 +210,30 @@ assert:
         run_id: "run-a"
         position: 3
   - view: sdc.daemon.EventsOfSessionAfter
-    params: {session_id: "nightly", after_position: 0}
-    at:
-      row: last
-      fields:
-        run_id: "run-b"
-        position: 4
-  - view: sdc.daemon.EventsOfDaemonAfter
-    params: {after_position: 3}
+    params: {session_id: "nightly", after_position: 3}
     at:
       row: first
       fields:
         run_id: "run-b"
         position: 4
+  - view: sdc.daemon.EventsOfSessionAfter
+    params: {session_id: "nightly", after_position: 4}
+    at:
+      row: first
+      fields:
+        run_id: "run-a"
+        position: 5
+  - view: sdc.daemon.EventsOfSessionAfter
+    params: {session_id: "nightly", after_position: 2}
+    at:
+      row: last
+      fields:
+        run_id: "run-b"
+        position: 6
+  - view: sdc.daemon.EventsOfDaemonAfter
+    params: {after_position: 5}
+    at:
+      row: first
+      fields:
+        run_id: "run-b"
+        position: 6

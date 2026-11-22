@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:8d2cf7b7e2a7bbde1c4d322885f38108869c4342293d1a9554daad9fd22238ca",
+    "contract_digest": "slice-sha256/2:0adcf038f1c93917ecd8e9e25078969e01a6c1a6b1d19b3b989f3070b3dfbfc1",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.EventKind": {
       "title": "EventKind",
-      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.",
+      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime's own kinds.",
       "x-ess-name": "sdc.daemon.EventKind",
       "x-ess-kind": "newtype",
       "type": "string"

@@ -28,6 +28,9 @@ never 0. A specification that forgot something the product needs, such as a sign
 workflow's fault upstream, and the figure shows it: the product refuses what the contract says
 succeeds, so it does not conform to that contract (`precondition_not_in_spec`, below).
 
+The conformance of the daemon `runbookd` to its own ESS specification is a different measure, run
+by a crate test and not by this figure: see [Conformance in the daemon API](daemon-api.md#conformance).
+
 ## What it does
 
 1. Resolves the pinned ess (below). The `ess` on PATH is never used.

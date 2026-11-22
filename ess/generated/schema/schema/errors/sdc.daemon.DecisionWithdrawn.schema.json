@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/errors/sdc.daemon.DecisionWithdrawn.schema.json",
   "title": "DecisionWithdrawn payload",
-  "description": "The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed.",
+  "description": "The decision request was withdrawn (its run was cancelled or ended as orphaned, which withdraws the run's Open requests itself, or the runtime withdrew it): it takes no answer; nothing changed.",
   "x-ess-name": "sdc.daemon.DecisionWithdrawn",
   "x-ess-kind": "error-payload",
   "type": "object",
@@ -18,7 +18,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:24298eff4195d2a875b4dbe31674a0bc0e99e67ae031948d0ca629e6f2a57fa6",
+    "contract_digest": "slice-sha256/2:00913ba6bd99a107c09ede5e748e529e13a4509b593c957856bbb2a3339a182c",
     "regenerate": "ess generate"
   },
   "$defs": {

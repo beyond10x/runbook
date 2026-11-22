@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-cancel-a-run
-summary: "A waiting run is cancelled; its Open request is withdrawn and an answer to it is refused; a second cancel and a late event are refused."
+summary: "A waiting run is cancelled; the same step withdraws its Open request, so a WithdrawDecision finds it not open and an answer to it is refused as withdrawn; a second cancel and a late event are refused."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -10,6 +10,7 @@ timeline:
     input:
       daemon_id: "runbookd"
       confinement_floor: linux
+      principal: "agent:conformance"
       at: 2026-11-22T10:00:00Z
     outcome: started
 
@@ -83,17 +84,6 @@ timeline:
     actor: sdc.daemon.Runtime
     input:
       request_id: "dr-1"
-    outcome: withdrawn
-    events:
-      - event: sdc.daemon.DecisionRequestWithdrawn
-        payload:
-          request_id: "dr-1"
-
-  - at: 2026-11-22T10:05:40Z
-    command: sdc.daemon.WithdrawDecision
-    actor: sdc.daemon.Runtime
-    input:
-      request_id: "dr-1"
     outcome: not-open
 
   - at: 2026-11-22T10:06:00Z
@@ -109,8 +99,8 @@ timeline:
     actor: sdc.daemon.Runtime
     input:
       run_id: "run-1"
-      sequence: 1
-      position: 1
+      sequence: 3
+      position: 3
       kind: "case.opened"
       record: {case: "IDEA-1"}
       at: 2026-11-22T10:07:00Z
@@ -124,6 +114,7 @@ timeline:
       request_id: "dr-1"
       answer: "A"
       answered_by: "operator"
+      principal: "agent:conformance"
       at: 2026-11-22T10:08:00Z
     outcome: withdrawn
 

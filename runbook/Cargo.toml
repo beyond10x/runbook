@@ -10,9 +10,14 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
 libc = "0.2"
 serde_json = { version = "1", features = ["preserve_order"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query"] }
 serde_yaml = "0.9"
 sha2 = "0.10"
+uuid = { version = "1", default-features = false, features = ["v7", "std"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
+futures-util = { version = "0.3", default-features = false }
 
 [workspace]

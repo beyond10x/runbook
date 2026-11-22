@@ -10,6 +10,7 @@ tasks:
     desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier, the ESS specification and its generated output and the planning store.
     deps:
       - test:driver
+      - test:runbook
       - test:ui
     cmds:
       - task: check:ci-paths
@@ -17,7 +18,7 @@ tasks:
       - task: check:cycles-suite
       - task: check:protocols
       - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
-      - for c in watch goals runbook; do (cd "$c" && cargo test --locked) || exit 1; done
+      - for c in watch goals; do (cd "$c" && cargo test --locked) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
@@ -27,6 +28,7 @@ tasks:
     desc: "The UI test step (the gate lane of ui/, `task test` there): Playwright, four workers, 60 s per test, 120 s for the run (the run fails past it), the ten slowest tests printed. Runs npm ci when ui/node_modules is missing. The slow lane stays `task slow` in ui/."
     cmds:
       - '[ -d node_modules ] || npm ci --no-audit --no-fund'
+      - cargo build --locked --bin runbook --manifest-path ../runbook/Cargo.toml
       - slot npx playwright test --workers=4
 
   test:loom-real:
@@ -46,12 +48,33 @@ tasks:
     dir: driver
     desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. Needs cargo-nextest."
     cmds:
-      - cargo nextest run --locked --no-run
+      - cargo nextest run --locked --color never --no-run
       - |
         set -u
         log=target/nextest-driver.log
         code=0
-        cargo nextest run --locked > "$log" 2>&1 || code=$?
+        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
+        cat "$log"
+        echo "ten slowest tests:"
+        awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
+        secs=$(sed -n 's/^ *Summary \[ *\([0-9.]*\)s\].*/\1/p' "$log" | tail -1)
+        budget=${SDC_TEST_BUDGET_SECONDS:-120}
+        if [ -z "$secs" ]; then echo "no nextest summary: the test run did not finish"; exit 1; fi
+        if awk -v s="$secs" -v b="$budget" 'BEGIN { exit !(s > b) }'; then echo "the test run took ${secs}s, over the ${budget}s budget"; exit 1; fi
+        echo "test run ${secs}s of ${budget}s"
+        exit $code
+
+  test:runbook:
+    silent: true
+    dir: runbook
+    desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml). Needs cargo-nextest."
+    cmds:
+      - cargo nextest run --locked --color never --no-run
+      - |
+        set -u
+        log=target/nextest-runbook.log
+        code=0
+        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
         cat "$log"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
@@ -64,7 +87,7 @@ tasks:
 
   check:ci-paths:
     silent: true
-    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty."
+    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty. Also fails when a nextest call of this file lacks --color never."
     cmds:
       - |
         set -eu
@@ -106,6 +129,9 @@ tasks:
         code|views/sdc.view.json
         code|
         CASES
+        n=$((n + 1))
+        bare=$(grep -n 'cargo nextest [r]un' Taskfile.yml | grep -v -e '--color never' || true)
+        if [ -z "$bare" ]; then echo "ok   every nextest call of Taskfile.yml has --color never"; else echo "FAIL a nextest call without --color never (the forge sets CARGO_TERM_COLOR=always and the tasks parse the log):"; echo "$bare"; fail=1; fi
         echo "$n cases"
         exit $fail
 
@@ -121,6 +147,72 @@ tasks:
       - ess specify validate --path ess
       - ess generate --path ess --kind schema --schema-id-base https://sdc.invalid/ --out ess/generated/schema --check
       - ess generate --path ess --kind openapi --out ess/generated/openapi --check
+      - task: check:ess-suite
+
+  ess-suite:digest:
+    silent: true
+    desc: "Print the digest of the sources of the committed conformance suite: the ess version and the sha256 of every file of ess/system.yaml, ess/components.yaml, ess/ess-inputs.yaml, ess/domains/ and ess/scenarios/."
+    cmds:
+      - |
+        set -eu
+        { echo "ess $(ess --version)"; find ess/system.yaml ess/components.yaml ess/ess-inputs.yaml ess/domains ess/scenarios -type f | LC_ALL=C sort | while read -r f; do echo "$f $(sha256sum < "$f" | cut -d' ' -f1)"; done; } | sha256sum | cut -d' ' -f1
+
+  check:ess-suite:
+    silent: true
+    desc: "Fast check (about 1 s): the committed suite of the authored scenarios, ess/generated/conformance/authored.json, is byte for byte what `ess verify conform author` writes from ess/. The crate test runs it against the daemon. The synthesized suite is the open step, see check:ess-suite:synthesized."
+    cmds:
+      - |
+        set -eu
+        out=$(mktemp)
+        trap 'rm -f "$out"' EXIT
+        ess verify conform author --path ess --scenarios ess --out "$out" > /dev/null 2>&1
+        if ! cmp -s "$out" ess/generated/conformance/authored.json; then
+          echo "ess/generated/conformance/authored.json is stale: run task ess-suite:authored and commit it"
+          exit 1
+        fi
+        echo "ess authored conformance suite current"
+
+  ess-suite:authored:
+    desc: "Write ess/generated/conformance/authored.json from the authored scenarios (about 1 s)."
+    cmds:
+      - mkdir -p ess/generated/conformance
+      - ess verify conform author --path ess --scenarios ess --out ess/generated/conformance/authored.json
+
+  check:ess-suite:synthesized:
+    silent: true
+    desc: "Fast check of the synthesized suite (not part of check:ess-generated until ess 0.97.2 can make it): the digest of the sources equals the one recorded in ess/generated/conformance/DIGEST and suite.json is the file recorded."
+    cmds:
+      - |
+        set -eu
+        dir=ess/generated/conformance
+        want=$(task --silent ess-suite:digest)
+        have=$(sed -n 's/^sources //p' "$dir/DIGEST")
+        suite=$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)
+        if [ "$want" != "$have" ]; then
+          echo "$dir/suite.json is stale: the specification, the scenarios or ess changed (sources $want, recorded ${have:-none}); run task ess-suite:record in the background and commit $dir"
+          exit 1
+        fi
+        if [ "$suite" != "$(sed -n 's/^suite //p' "$dir/DIGEST")" ]; then
+          echo "$dir/suite.json is not the file $dir/DIGEST records (edited by hand?); run task ess-suite:record"
+          exit 1
+        fi
+        echo "ess conformance suite current (sources $want)"
+
+  check:ess-suite:slow:
+    desc: "Slow lane: synthesize the suite from the sources for real (ess 0.97.1 took 1048 s on the sources of 627cdaf and was killed at 1800 s on those of 86c9acf8, a known defect fixed in ess 0.97.2; the pool kills a job over 10 minutes, so the command names 30m with `slot --timeout`) and compare it byte for byte with ess/generated/conformance/suite.json. Run it in the background when the specification, the scenarios or ess changed."
+    cmds:
+      - slot --timeout 30m ess verify conform synthesize --path ess --scenarios ess --target ir --out ess/generated/conformance/suite.json --check
+
+  ess-suite:record:
+    desc: "Synthesize the conformance suite from the sources (slow, run it in the background) and write ess/generated/conformance/suite.json and DIGEST; commit both."
+    cmds:
+      - mkdir -p ess/generated/conformance
+      - slot --timeout 30m ess verify conform synthesize --path ess --scenarios ess --target ir --out ess/generated/conformance/suite.json
+      - |
+        set -eu
+        dir=ess/generated/conformance
+        printf 'sources %s\nsuite %s\n' "$(task --silent ess-suite:digest)" "$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)" > "$dir/DIGEST"
+        echo "written $dir/suite.json and $dir/DIGEST"
 
   cycles:only:
     desc: "Run only the named finding cycles: task cycles:only SCRATCH=<dir> NAMES=<name>[,<name>...]. Passes them to scripts/run-finding-cycles.sh --only (docs/cycles-suite.md, \"Running named cycles\"): a cycle that reads an earlier one runs that one too, the verdict line says how many were selected, exit 2 on an unknown name."

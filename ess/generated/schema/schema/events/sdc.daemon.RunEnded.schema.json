@@ -21,7 +21,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:a9ac169909340b5b702d4e750e67eeea6237600b601e96ba6521021355b92d72",
+    "contract_digest": "slice-sha256/2:408490808f73955c3ace82eb0972f9dd11971e915b2fc2c608067e684320da93",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -34,7 +34,7 @@
     },
     "sdc.daemon.RunOutcome": {
       "title": "RunOutcome",
-      "description": "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not.",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not.",
       "x-ess-name": "sdc.daemon.RunOutcome",
       "x-ess-kind": "newtype",
       "type": "string"

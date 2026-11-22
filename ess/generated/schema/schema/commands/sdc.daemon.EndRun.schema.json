@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.EndRun.schema.json",
   "title": "Report a run ended input",
-  "description": "The runtime finished a Running run with an outcome.",
+  "description": "The runtime finished a Running run with an outcome. When the runtime fails after the run started, the daemon issues this command with the outcome `runtime-failure` and, just before, writes the run event `runbook.runtime-failed` (record: reason) as a RecordRunEvent of its own.",
   "x-ess-name": "sdc.daemon.EndRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -27,7 +27,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:52a027539db5dd6116bc1ef346219dfc959f961d4b113820034117baac7a1e42",
+    "contract_digest": "slice-sha256/2:e8ecc1197cb1ae2d9752183861bff4ca74401fa23bd0103af5a6c09531a08278",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -40,7 +40,7 @@
     },
     "sdc.daemon.RunOutcome": {
       "title": "RunOutcome",
-      "description": "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not.",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case, or one of the daemon's own causes (`orphaned`, `runtime-failure`). The run's state is the closed set; the outcome is not.",
       "x-ess-name": "sdc.daemon.RunOutcome",
       "x-ess-kind": "newtype",
       "type": "string"

@@ -10,6 +10,8 @@ import {computeKpis, renderKpis, kpiRows} from './kpis.js';
 import {feedItems, renderFeed} from './feed.js';
 import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
+import {api, openEvents, daemonView, daemon} from './source.js';
+import {renderDaemonDrawer} from './decide.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
 
 const q0 = new URLSearchParams(location.search);
@@ -33,7 +35,6 @@ function setPanel(open, tab) {
 }
 const openPanel = (tab) => setPanel(true, tab);
 const $ = (q) => document.querySelector(q);
-const api = (p) => fetch(p).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${p}: ${r.status}`))));
 
 const firstAt = (c) => (c.events.find((e) => e.at && e.at !== '-')?.at || '~');
 const lastAt = (c) => { for (let i = c.events.length - 1; i >= 0; i--) if (c.events[i].at && c.events[i].at !== '-') return c.events[i].at; return ''; };
@@ -173,7 +174,7 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
-  await loadTree(); await loadRun(); await loadLive(); pickFollow(); render();
+  await loadTree(); await loadRun(); await loadLive(); if (daemon) await loadInbox(); pickFollow(); render();
 }
 document.addEventListener('click', (ev) => {
   const t = ev.target;
@@ -225,8 +226,9 @@ function render() {
     patch($('#now'), '');
     patch($('#nowbar'), '');
     patch($('#kpis'), '');
-    patch($('#feed'), '');
-    patch($('#tree'), `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
+    const dv = daemonView(src);
+    patch($('#feed'), dv?.feed ?? '');
+    patch($('#tree'), dv?.tree ?? `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
     $('#graph').innerHTML = '';
     patch($('#gtitle'), '');
     patch($('#panel'), '');
@@ -335,7 +337,7 @@ function renderEvents(c, at) {
 
 function renderDecisions() {
   const n = S.inbox.items.length;
-  const tag = S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads';
+  const tag = S.inbox.tag || (S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads');
   // the header may cut it (a stub run's label takes its room): the title keeps it readable
   if ($('#tagline').textContent !== tag) { $('#tagline').textContent = tag; $('#tagline').title = tag; }
   const btn = $('#decbtn');
@@ -345,7 +347,7 @@ function renderDecisions() {
   patch($('#deccount'), String(n));
   document.body.classList.toggle('drawer-open', S.drawer);
   if (S.drawer) {
-    patch($('#drawer'), renderDrawer(S));
+    if (daemon) renderDaemonDrawer(S, $('#drawer')); else patch($('#drawer'), renderDrawer(S));
     // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
     if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
     const pl = $('#proclog');
@@ -620,7 +622,7 @@ window.__sdcSync = async () => {
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 };
 function connect() {
-  const es = new EventSource('/events');
+  const es = openEvents();
   es.addEventListener('hello', () => { if (S.live !== 'on') { S.live = 'on'; pending.full = true; drain(); } });
   es.addEventListener('change', (m) => {
     const d = JSON.parse(m.data);
