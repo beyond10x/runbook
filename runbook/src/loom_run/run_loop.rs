@@ -442,7 +442,7 @@ impl Runner<'_> {
             let (approve, principal, cost, calls, reasons) = match verdict {
                 Verdict::CannotDecide { reason } => {
                     self.ledger().release(&reservation)?;
-                    return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{reason} (decision kind {kind:?})") }));
+                    return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{} in {case}: {reason} (decision kind {kind:?})", decision.get("action").and_then(Value::as_str).unwrap_or(&kind)) }));
                 }
                 Verdict::Answer { cost_micro_usd: None, .. } => {
                     self.ledger().commit(&reservation, &self.args.run, "decider, cost unknown: reservation booked", reservation.micro_usd)?;

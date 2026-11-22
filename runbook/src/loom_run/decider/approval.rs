@@ -110,6 +110,15 @@ pub(super) fn make_case_dir(request: &DecisionRequest<'_>, approval: &Approval) 
     }
     let case = json!({"id": approval.case, "artifacts": artifacts});
     std::fs::write(dir.join("case.json"), format!("{case}\n")).map_err(|e| format!("decider case file: {e}"))?;
+    // The file the reply's address cites (`<artifact>@<revision>#<entry>`) resolve through: the
+    // decision's subject and its path are the one artifact the runner knows a file of.
+    let bindings = dir.join("bindings.json");
+    match (approval.subject.is_empty(), &approval.path) {
+        (false, Some(path)) => std::fs::write(bindings, format!("{}\n", json!({"$artifacts": {approval.subject.clone(): path}}))).map_err(|e| format!("decider case file: {e}"))?,
+        _ => {
+            let _ = std::fs::remove_file(bindings);
+        }
+    }
     let work = dir.join("work");
     if std::fs::symlink_metadata(&work).is_ok() {
         std::fs::remove_file(&work).map_err(|e| format!("decider case directory: {e}"))?;

@@ -78,7 +78,7 @@ impl Runner<'_> {
             }
             let answer = match asked.result {
                 Ok(answer) => answer,
-                Err(reason) => return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{reason} (decision kind {kind:?})") })),
+                Err(reason) => return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{action} in {case}: {reason} (decision kind {kind:?})") })),
             };
             self.answered.insert(count_key, times + 1);
             let who = answer.principal.clone().unwrap_or_else(|| self.host.principal(&Answer { decision, kind, approve: true, principal: None, result: None, reasons_file: None, deny: false }));
