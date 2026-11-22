@@ -9,7 +9,7 @@
 use crate::clock::{Clock, SystemClock};
 use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
 use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
 use std::io;
@@ -214,18 +214,18 @@ fn refuse(command: &'static str, outcome: &'static str, payload: Value) -> Outco
 
 // ---- inputs of the client commands ----
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpenSession {
     pub session_id: String,
     pub client: String,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CloseSession {
     pub session_id: String,
 }
 
-#[derive(Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct SubmitRun {
     pub runbook_id: String,
     #[serde(default)]
@@ -244,12 +244,12 @@ pub struct SubmitRun {
     pub idempotency_key: Option<String>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct CancelRun {
     pub run_id: String,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AnswerDecision {
     pub run_id: String,
     pub request_id: String,

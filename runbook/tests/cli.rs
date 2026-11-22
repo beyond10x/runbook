@@ -467,7 +467,7 @@ fn version_unknown_subcommand_and_help() {
     assert_eq!(o.status.code(), Some(0));
     let h = stdout(&o);
     assert!(h.contains("doctor") && h.contains("list") && h.contains("check"), "{h}");
-    for later in ["run", "resume", "stop", "ui", "handback", "simulate"] {
+    for later in ["resume", "stop", "ui", "handback", "simulate"] {
         assert!(!h.lines().any(|l| l.trim_start().starts_with(&format!("{later} "))), "{later} listed\n{h}");
         assert_eq!(Command::new(BIN).arg(later).output().unwrap().status.code(), Some(64), "{later}");
     }

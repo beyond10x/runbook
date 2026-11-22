@@ -17,6 +17,7 @@ bare-version tags (`docs/releasing.md`).
 
 - `runbook parity summarize|compare|approvals` reads a finished run of the old driver into a runtime-neutral summary (`runbook.parity-summary/1`), compares two summaries by a table of rules (`compare --rules`) and lists the person steps a second runtime must repeat; it is the driver's half of the comparison with a run under Loom (`story:parity-run-on-loom`, `docs/parity.md`).
 - `runbook parity summarize --loom-status <file> [--product-tree <dir>]` reads the JSON of Loom's `tree status` (`loom.tree-status/1`) into the same summary: a status of another format is refused by name, a member it needs and does not find is an error that names the member and the case, and what the status holds nothing for is listed under `not_recorded`, which `compare` reports as `not recorded on one side` and does not compare (`story:parity-run-on-loom`, the table in `docs/parity.md`).
+- `runbook run --detach`, `runbook runs list|show|events|cancel|decisions` and `runbook decide` call a daemon (`--daemon <url>` or `RUNBOOK_DAEMON`, plain HTTP; a token from `--token-file` or `RUNBOOK_TOKEN_FILE`, mode 600): text by default, the route's JSON with `--json`; `runs events` prints the lines of `curl -N` and resumes with `Last-Event-ID` after a dropped connection; exit codes 64 usage, 65 refused, 66 not found, 67 conflict, 69 unreachable, 77 denied, 78 config; `runbook run` without `--detach` exits 64 until `story:engine-on-loom-library-entry` (`docs/cli.md`, `story:run-in-process-and-cli-as-daemon-client`, client part).
 
 ### Changed
 

@@ -235,9 +235,9 @@ fn decide_answers_a_request_and_a_second_answer_is_a_conflict() {
     assert_eq!(code(&none), exit::NOT_FOUND as i32);
     assert!(err(&none).contains("sdc.daemon.NoSuchDecisionRequest"), "{}", err(&none));
 
-    let run2 = f.server.fx.submit("ask");
+    let run2 = f.server.fx.submit("ask-b");
     f.server.fx.wait_open_decisions(&run2, 1);
-    let j = f.cli(&["decide", &run2, "q1", "B", "--by", "tester", "--json"]);
+    let j = f.cli(&["decide", &run2, "q3", "B", "--by", "tester", "--json"]);
     assert_eq!(code(&j), 0, "{}", err(&j));
     let body: Value = serde_json::from_str(&out(&j)).unwrap();
     assert_eq!(body["outcome"], "answered");
