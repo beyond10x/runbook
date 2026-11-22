@@ -5,8 +5,10 @@
 //! each is in `docs/loom-run-decisions.md`. Short form: an entry of `decisions[]` of kind
 //! `ApproveAction` or `Approve` is an approval and one of kind `Close` is asked as a close (the
 //! outcome Loom printed); everything else (a question, a finding, `Handoff`, an unknown kind) ends
-//! in `CannotDecide` naming why.
+//! in `CannotDecide` naming why, unless the answers file of the bindings declares the action: its
+//! requests, a question or a finding each, go to [`Decider::ask`] (`decider/ask.rs`).
 
+use crate::loom_run::answers::{self, AskRequest, Asked};
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
 use serde_json::{json, Map, Value};
 use std::io::Read;
@@ -255,7 +257,7 @@ fn plain_name(name: &str) -> bool {
     !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.contains('\0')
 }
 
-fn read_approval(request: &DecisionRequest<'_>) -> Result<Approval, String> {
+fn read_approval(request: &DecisionRequest<'_>, bindings: Option<&Path>) -> Result<Approval, String> {
     let decision = request.decision;
     let kind = text_member(decision, "kind").ok_or("the decision has no kind")?;
     if !APPROVAL_KINDS.contains(&kind) {
@@ -273,8 +275,11 @@ fn read_approval(request: &DecisionRequest<'_>) -> Result<Approval, String> {
         return Ok(Approval { case, action: "close".to_owned(), capability: None, subject: String::new(), revision: String::new(), path: None, close_outcome: Some(outcome) });
     }
     let action = text_member(decision, "action").ok_or("the decision names no action (member `action` absent)")?.to_owned();
-    if action == "scope.answer" {
-        return Err("scope.answer is a question in the driver (an answer per question, written into questions.yaml); Loom's approval of it carries no answer and has no way to take one".to_owned());
+    if bindings.is_some_and(|dir| answers::is_answer_step_in(dir, &action)) {
+        return Err(format!(
+            "{action} is a step whose outcome is a person's text, not a recorded result: Loom's approval of it carries no answer, and the answers file of the bindings ({}) declares nothing for it",
+            answers::FILE
+        ));
     }
     let subject = text_member(decision, "subject").ok_or("the decision names no subject (member `subject` absent): decider.sh cannot say what is decided")?.to_owned();
     let revision = text_member(decision, "revision").ok_or("the decision names no revision (member `revision` absent): decider.sh cannot say which revision is decided")?.to_owned();
@@ -617,7 +622,7 @@ impl Decider for ProgramDecider {
             let level = self.autonomy.as_deref().map(|l| format!("autonomy {l}")).unwrap_or_else(|| "no autonomy level named".to_owned());
             return Self::cannot(format!("reserved for a person: {level}; the decider decides only at {AUTONOMY_DECIDES}"));
         }
-        let approval = match read_approval(request) {
+        let approval = match read_approval(request, self.program.parent().and_then(Path::parent)) {
             Ok(approval) => approval,
             Err(reason) => return Self::cannot(reason),
         };
@@ -626,7 +631,17 @@ impl Decider for ProgramDecider {
             Mode::Model { .. } => self.decide_model(request, &approval),
         }
     }
+
+    fn answers_requests(&self) -> bool {
+        self.autonomy.as_deref() == Some(AUTONOMY_DECIDES)
+    }
+
+    fn ask(&self, request: &AskRequest<'_>) -> Asked {
+        self.ask_request(request)
+    }
 }
+
+mod ask;
 
 // The tests of this module: `src/loom_run/decider/tests.rs`. The crate is a binary, so an
 // integration test (tests/cli.rs) reaches the code only through the command line.

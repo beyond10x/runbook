@@ -115,6 +115,38 @@ if [[ -n $regs ]]; then
 else
   echo "pass registrations"
 fi
+# The answers file of `runbook loom-run` (docs/loom-run-decisions.md, "The answers file"): what the
+# runner does for a decision of a person step or a handoff before it runs Loom's printed command.
+# Its format id is the one the runner reads, every action it names is bound in some
+# bindings/*.yaml (an `ApproveAction` one is a person's, a `Handoff` one has `handoff:` text), and
+# each program is tools/<file>, executable, or a binary of driver/ (found on PATH by the launcher).
+ans=$sdc/bindings/tools/answers.yaml
+if [[ -f $ans ]]; then
+  ans_findings=""
+  ans_json=$(yq -o=json '.' "$ans")
+  [[ $(jq -r .format <<< "$ans_json") == runbook.loom-run-answers/1 ]] || ans_findings+=$'\n'"format is not runbook.loom-run-answers/1"
+  bound=$(cd "$sdc" && yq -o=json -I=0 '.actions[] | {"action": .action, "kind": .executor.kind, "handoff": (.handoff != null)}' bindings/*.yaml | jq -s .)
+  while IFS=$'\t' read -r a on; do
+    case $on in
+      ApproveAction) q='[.[] | select(.action == $a and .kind == "person")] | length' ;;
+      Handoff) q='[.[] | select(.action == $a and .handoff == true)] | length' ;;
+      *) ans_findings+=$'\n'"$a: on is $on, not ApproveAction or Handoff"; continue ;;
+    esac
+    [[ $(jq --arg a "$a" "$q" <<< "$bound") -gt 0 ]] || ans_findings+=$'\n'"$a: no binding of a $on decision in bindings/*.yaml"
+  done < <(jq -r '.answers[] | [.action, .on] | @tsv' <<< "$ans_json")
+  while IFS= read -r p; do
+    if [[ $p == */* ]]; then
+      [[ $p =~ ^tools/[^/]+$ && -x $sdc/bindings/$p ]] || ans_findings+=$'\n'"program $p: not an executable bindings/tools/<file>"
+    else
+      [[ -x $sdc/driver/target/debug/$p ]] || ans_findings+=$'\n'"program $p: not a binary of driver/ (cargo build --bins in driver/)"
+    fi
+  done < <(jq -r '.answers[] | (.requests[0], .apply[0], (.then[0] // empty))' <<< "$ans_json")
+  if [[ -n $ans_findings ]]; then
+    echo "FAIL answers file"; echo "${ans_findings#$'\n'}" | sed 's/^/  /'; fail=1
+  else
+    echo "pass answers file"
+  fi
+fi
 # The reject and cap routes (D148, docs/reject-routes.md): sdc-check-routes finds every state of
 # the autopilot where nothing points to a next step; its findings must equal the list in the doc.
 (cd "$sdc/driver" && cargo build --quiet --bin sdc-check-routes) || fail=1

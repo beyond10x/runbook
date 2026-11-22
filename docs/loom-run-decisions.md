@@ -19,9 +19,9 @@ for it: the run ends or the step never exists.
 | approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs the printed `tree approve` with `--result performed`; reject runs it with `--result rejected --reasons-file` holding the decider's text (Loom `5af3f9c2`); a result the action does not declare ends the run `error` |
 | approval of a capability (`stories.activate`, `release.publish`, `release.rollback`, the spec and code acceptances that a person gives) | the same | the same | Yes: kind `Approve`; Loom accepts `decider:model` as the principal and records it as the actor (checked in a full stub cycle, 5 approvals) | the same |
 | escalate (decider reply) | the reply's `best` | `best` approve or reject | not a Loom entry: a reply | `escalate: final` takes `best` (reject when absent), as the driver's `escalation_suppressed`; `escalate: stop` ends in `CannotDecide {reason: "reserved for a person: …"}` |
-| question: scope-changing answer, `scope.answer` | `type question`, the question object | approve with an answer text, escalate | Reachable as an `ApproveAction` of `scope.answer`, but Loom's approval carries no answer and takes none | not answered: `CannotDecide` ("scope.answer is a question …"). The step keeps `person:owner` in the copy, so the run stops for a person there |
+| question: scope-changing answer, `scope.answer` | `type question`, the question object | approve with an answer text, escalate | Reachable as an `ApproveAction` of `scope.answer`, but Loom's approval carries no answer and takes none: the action lists no results, so the printed command has no `--result` and no `--reasons-file` | with `tools/answers.yaml` declaring the action (the committed bindings do): one request per open question, one decider call each at A5, the answer written into the workspace by the file's `apply` program, then the file's `then` program takes the step and the printed `tree approve` runs with the decider's principal. The answer text is in the work file, in `decisions.jsonl` and in the decider's record, not in Loom's approval. Without the declaration: `CannotDecide` ("scope.answer is a step whose outcome is a person's text …") and the copy keeps `person:owner` |
 | question: `questions.answer` | | | No: a model node (class `other`) in the bindings, not a decision | runs as a node |
-| finding (`amend.upstream` handoff, the decider answers an option or its own text) | `type finding`, the finding object | approve with an answer, escalate | Not reachable through `tree` today: the member that refuses a finding is not in the bindings format (`bindings/PENDING.md`) | never asked |
+| finding (`amend.upstream` handoff, the decider answers an option or its own text) | `type finding`, the finding object | approve with an answer, escalate | Reachable as the `Handoff` of `amend.upstream`: a finding that needs a person is a request of the answers file's `requests` program | one request per such finding, one decider call each; the `apply` program writes the answer as the finding's `decision` and `decided_by`, then the printed `tree run` runs. A finding the driver would re-raise (`reraised`) ends the run `error`, as it stops the driver. What Loom cannot do (refuse a finding) stays in `bindings/PENDING.md` |
 | close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | asked as `type close` with the printed outcome; approve runs the printed `tree close`, decline runs nothing; the other outcomes of that case are not asked after one ran |
 | handoff | a writer's handoff text | none | Yes: kind `Handoff`, the printed command is `tree run --store … --confinement …` | a scripted approval runs the printed `tree run` through the ledger; `decider.sh` has no reply for it, so a program decider ends `CannotDecide` ("kind Handoff …"); a handoff that comes back after its command ran is an `error` |
 | an unknown kind | | | whatever Loom adds | `CannotDecide` ("kind X not known") |
@@ -87,6 +87,51 @@ shell (`env_clear`). The working directory is the call's record directory; stand
 decider keeps (`<login file>`), and it is in no argument, no file of the run directory but the link,
 and no result.
 
+## The answers file
+
+`bindings/tools/answers.yaml` (format `runbook.loom-run-answers/1`, read by
+`runbook/src/loom_run/answers.rs`) declares, per action, what the runner does before it runs the
+command Loom printed. It sits in `tools/` so the scans of the top-level `*.yaml` bindings do not
+read it as a binding. The Rust code knows the format of the file and of a request line; the names
+of the actions and of the work files are the file's and its programs'.
+
+| Key | Meaning |
+|---|---|
+| `action`, `on` | the action id and the kind of Loom's decision (`ApproveAction` or `Handoff`) |
+| `requests` | a program that prints one JSON object per line: `type` (`question` or `finding`), `id`, a member of that name holding the object (`default`, and for a finding `options`), and optionally `subject`, `path`, `capability`, passed to `decider.sh` as the request members of the driver |
+| `apply` | a program that writes one answer into the workspace; words may hold `{id}`, `{answer}`, `{principal}`, `{case}`, `{type}` |
+| `then` | optional, run once after the last answer; words may hold `{principal}`, `{case}` |
+
+A program word with a `/` is a file of the run's bindings copy; any other word is looked up on the
+`PATH` of the runner's child environment. A program starts in the workspace with `PATH` and
+`LOOM_CASE` and nothing else, no standard input, its own process group, ended after 300 s.
+`sdc-answers` (`driver/src/bin/sdc-answers.rs`) is the Rust port of the driver's `yq` logic for
+questions and findings.
+
+What a run does for a declared action, at `autonomy: A5` with a model or rule decider:
+
+1. Runs `requests`. No request: the printed command runs as before.
+2. For each request: one decider call (a record directory `<run>/decider/NNN-<id>`), counted against
+   `decider.max_calls`, the model-call cap and the spend ledger; one line per answer in
+   `decisions.jsonl` (`type`, the id, `answer`, `principal`, `decision`). The summary counts them in
+   the classes `scope_changing_answer` (questions) and `finding`: asked, approved, escalated, calls.
+3. An invalid reply is asked again `decider.retries` times, then `escalate: final` takes the
+   request's default (`fallback: invalid_reply_default`) and `stop` ends the run. An escalation
+   under `final` takes the default of a question and the `best` of a finding (else its default),
+   with `suppressed: true`; under `stop` the run ends for a person with the decider's reasons. A
+   rejection ends the run. These are the driver's `decide` rules (`scripts/run-trial.sh`, lines
+   804 to 905; `answer_questions`, 1122 to 1148; `decide_findings`, 1150 to 1227).
+4. Runs `apply` for the answer, then `then`, then the printed command, with the decider's principal
+   (`decider:<kind>`) in `--principal`. The same request coming back after three answers ends the
+   run `error`: the `apply` program did not take the answer.
+
+Where the answer text goes. Where the action lists `performed` (an `ApproveAction` that names
+results) it is also in the reasons file of the approval. `scope.answer` lists no results, so the
+printed `tree approve` takes neither `--result` nor `--reasons-file`: Loom's approval of it cannot
+carry the answer, which is only in the workspace file, `decisions.jsonl` and the decider's record.
+An action the file does not declare behaves as before: `CannotDecide`, and in the copy a person step
+without a recorded result keeps `person:owner`.
+
 ## The run's copy of the bindings
 
 `materialise(src, dst, root, settings)` copies `bindings/` to `dst` (an unused directory) and applies
@@ -100,7 +145,7 @@ name before anything is written.
 
 | Setting | Where it lands in the copy |
 |---|---|
-| `autonomy: A5` with `decider.kind` `model` or `rule` | `executor.principal` and each evidence `producer` of the person steps `context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve` become `decider:model` (or `decider:approve`, `decider:reject`); `scope.answer` keeps `person:owner` |
+| `autonomy: A5` with `decider.kind` `model` or `rule` | `executor.principal` and each evidence `producer` of the person steps `context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve` become `decider:model` (or `decider:approve`, `decider:reject`); so does a person step that lists no `from: effect` result when `tools/answers.yaml` declares it (`scope.answer` in the committed bindings); without a declaration such a step keeps `person:owner` |
 | `models.<role>.model` | option `--model` of the `tools/llm-node.sh` nodes of the role (writer, implement, review, other, by `bindings/tools/node-classes.json`) |
 | `models.<role>.max_turns` | option `--max-turns` |
 | `models.<role>.max_budget_usd` | option `--max-budget-usd` |

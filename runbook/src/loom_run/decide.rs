@@ -1,6 +1,7 @@
 //! The decider interface (declared by R1, filled by R2 in `decider.rs`) and the two doubles R1
 //! ships: the refusing default and the scripted one.
 
+pub use crate::loom_run::answers::{AskRequest, Asked};
 use serde_json::Value;
 use std::path::Path;
 
@@ -42,6 +43,15 @@ pub trait Decider {
     fn max_call_micro_usd(&self) -> u64;
     /// Answers `request`.
     fn decide(&self, request: &DecisionRequest<'_>) -> Verdict;
+    /// Whether this decider answers the requests of the answers file (a question or a finding, see
+    /// `answers.rs`); when not, a declared decision goes to `decide` as any other.
+    fn answers_requests(&self) -> bool {
+        false
+    }
+    /// Answers one request of the answers file.
+    fn ask(&self, _request: &AskRequest<'_>) -> Asked {
+        Asked::cannot("this decider answers no question or finding")
+    }
 }
 
 /// The default: no decider is configured; the run stops at the first decision.

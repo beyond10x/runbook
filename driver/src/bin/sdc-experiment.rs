@@ -1914,13 +1914,38 @@ fn loom_env(base: &dyn Fn(&str) -> Option<String>, build: &Path) -> Vec<(String,
         .collect()
 }
 
+/// Whether a directory of `path` holds `tool` as an executable file.
+fn on_path(path: &str, tool: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    path.split(':').filter(|d| !d.is_empty())
+        .any(|d| fs::metadata(Path::new(d).join(tool)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0))
+}
+
 /// The programs of `LOOM_TOOLS` that no directory of the unit's `PATH` holds as an executable file.
 fn missing_loom_tools(path: &str) -> Vec<&'static str> {
-    use std::os::unix::fs::PermissionsExt;
-    LOOM_TOOLS.iter().copied()
-        .filter(|t| !path.split(':').filter(|d| !d.is_empty())
-            .any(|d| fs::metadata(Path::new(d).join(t)).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)))
-        .collect()
+    LOOM_TOOLS.iter().copied().filter(|t| !on_path(path, t)).collect()
+}
+
+/// The programs the answers file of the build's bindings (`bindings/tools/answers.yaml`) names by a
+/// bare word (`requests`, `apply`, `then`) that the unit would not find: not in a directory of
+/// `path` and not a binary the build will make (`driver/src/bin/<name>.rs`). A word with a `/` is
+/// a file of the bindings copy and is not looked up. No file, or one that does not read, names none
+/// (the runner refuses an unreadable file itself).
+fn missing_answer_programs(build: &Path, path: &str) -> Vec<String> {
+    let Some(doc) = fs::read_to_string(build.join("bindings/tools/answers.yaml")).ok().and_then(|t| serde_yaml::from_str::<Y>(&t).ok()) else {
+        return Vec::new();
+    };
+    let mut names: BTreeSet<String> = BTreeSet::new();
+    for entry in doc.get("answers").and_then(Y::as_sequence).into_iter().flatten() {
+        for key in ["requests", "apply", "then"] {
+            if let Some(word) = entry.get(key).and_then(Y::as_sequence).and_then(|w| w.first()).and_then(Y::as_str) {
+                if !word.contains('/') {
+                    names.insert(word.to_string());
+                }
+            }
+        }
+    }
+    names.into_iter().filter(|n| !on_path(path, n) && !build.join("driver/src/bin").join(format!("{n}.rs")).is_file()).collect()
 }
 
 /// `~/x` as the launcher's `HOME` and `/x`; any other path as it is.
@@ -2416,6 +2441,11 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         let missing = missing_loom_tools(&path);
         if !missing.is_empty() {
             return Err((1, format!("refused: {} not on PATH: `bindings/tools/decider.sh` of a loom run needs {} and exits 127 without them", missing.join(", "), LOOM_TOOLS.join(", "))));
+        }
+        let unit_path = format!("{}:{path}", build.join("driver/target/debug").display());
+        let missing = missing_answer_programs(&build, &unit_path);
+        if !missing.is_empty() {
+            return Err((1, format!("refused: {} not on PATH: `bindings/tools/answers.yaml` of a loom run needs {} and the run stops at the first question or finding without them", missing.join(", "), missing.join(", "))));
         }
     }
     let repo = PathBuf::from(git(Path::new("."), &["rev-parse", "--show-toplevel"]).map_err(|m| (1, m))?);
