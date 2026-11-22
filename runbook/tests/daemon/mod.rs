@@ -7,3 +7,4 @@ mod sse;
 mod clock;
 mod conformance;
 mod mcp;
+mod cli_client;
