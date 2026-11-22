@@ -1,7 +1,7 @@
 // Security review of slice 2 (answering a decision from the page the daemon serves): the invariants
 // `daemon-decide.spec.mjs` does not measure. Each daemon listens on 127.0.0.1:0 with a state directory of its own.
 import {test, expect as plain} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import path from 'node:path';
@@ -17,7 +17,7 @@ let dir;
 function start(name, env) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawn(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawnChild(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
     proc.stderr.on('data', (d) => { err += d; });
