@@ -70,7 +70,7 @@
       "effect": "write",
       "executor": {
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.spec",
         "results": {
           "0": null
@@ -112,7 +112,7 @@
       "effect": "write",
       "executor": {
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.plan",
         "results": {
           "0": null
@@ -174,7 +174,7 @@
       "executor": {
         "each": "stories",
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.story",
         "results": {
           "0": null
@@ -233,7 +233,7 @@
       "effect": "write",
       "executor": {
         "kind": "child-case",
-        "producer": "sdc-drive",
+        "producer": "runbook",
         "protocol": "sdc.release",
         "results": {
           "0": null

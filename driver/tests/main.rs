@@ -11,6 +11,7 @@ mod experiment_loom;
 mod finding_kpis;
 mod impl_gate;
 mod plugin;
+mod producer_ids;
 mod progress;
 mod questions_check;
 mod reply_bytes;

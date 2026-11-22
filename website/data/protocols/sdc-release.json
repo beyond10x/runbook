@@ -35,7 +35,7 @@
       "effect": "write",
       "executor": {
         "kind": "program",
-        "producer": "sdc-drive.build",
+        "producer": "runbook.build",
         "program": "sdc-tool.sh release-build",
         "results": {
           "0": null
@@ -111,7 +111,7 @@
       "effect": "external",
       "executor": {
         "kind": "program",
-        "producer": "sdc-drive.deploy",
+        "producer": "runbook.deploy",
         "program": "sdc-tool.sh publish",
         "results": {
           "0": null
@@ -156,7 +156,7 @@
       "effect": "read",
       "executor": {
         "kind": "program",
-        "producer": "sdc-drive.monitor",
+        "producer": "runbook.monitor",
         "program": "sdc-tool.sh observe",
         "results": {
           "*": "unhealthy",

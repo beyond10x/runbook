@@ -141,7 +141,7 @@
     ],
     "produces": "merge_record",
     "subject": "change",
-    "producer": "sdc-drive.merge",
+    "producer": "runbook.merge",
     "results": {
       "0": null
     }

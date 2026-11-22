@@ -281,7 +281,7 @@
       "effect": "write",
       "executor": {
         "kind": "program",
-        "producer": "sdc-drive.merge",
+        "producer": "runbook.merge",
         "program": "sdc-tool.sh merge",
         "results": {
           "0": null
