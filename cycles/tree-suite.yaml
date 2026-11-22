@@ -268,3 +268,73 @@ cycles:
     expect:
       checks:
         - {check: all, name: every-case-matches, select: [{step: replayed}, {path: "cases[*]"}], where: {state_matches_log: true, decision_matches_log: true}}
+
+  - name: implement-percause
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/implement-percause, to: .stub}]
+    expect:
+      exit: 0
+      outcome: operating
+      checks:
+        - {check: count, name: four-implement-runs, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement, exit: 0}}], is: 4}
+        - {check: none, name: no-writer-run-without-exit, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement}}], where: {exit: {not_equals: 0}}}
+
+  - name: cite-dark-spot
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/cite-dark-spot, to: .stub}, {from: seeds/findings/intake-scope.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: none, name: no-finding-waits-for-a-person, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[*]"}], where: {status: needs_person}}
+
+  - name: cite-fault-sent-back
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/cite-fault, to: .stub}, {from: seeds/findings/intake-scope.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 4
+      checks:
+        - {check: count, name: normalised-three-times, select: [{log: {case: intake, event: ActionFinished}}, {where: {action: requirements.normalise}}], is: 3}
+
+  - name: decider-rework
+    pending: true
+    decide:
+      - {take: approve, case: billing.invoices, capability: change.merge, result: rejected, reasons: ["the server binds only to 127.0.0.1, so a partner on another device cannot open it"], principal: "person:owner"}
+    expect:
+      exit: 0
+      outcome: operating
+      checks:
+        - {check: count, name: implemented-twice, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement, exit: 0}}], is: 2}
+        - {check: sequence, name: rejected-then-approved, select: [{records: {case: billing.invoices, kind: merge_approval}}, {path: result}], is: [rejected, approved]}
+
+  - name: decider-rework-spent
+    pending: true
+    decide:
+      - {take: approve, case: billing.invoices, capability: change.merge, result: rejected, reasons: ["the server binds only to 127.0.0.1, so a partner on another device cannot open it"], principal: "person:owner", times: any}
+    expect:
+      exit: 4
+      checks:
+        - {check: count, name: three-rejections, select: [{records: {case: billing.invoices, kind: merge_approval}}, {where: {result: rejected}}], is: 3}
+
+  - name: rework-fresh-allowance
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/rework-allowance, to: .stub}]
+    decide:
+      - {take: approve, case: billing.invoices, capability: change.merge, result: rejected, reasons: ["the change does not meet r1"], principal: "person:owner", times: 2}
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: four-implement-runs, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement, exit: 0}}], is: 4}
+        - {check: sequence, name: rejected-rejected-approved, select: [{records: {case: billing.invoices, kind: merge_approval}}, {path: result}], is: [rejected, rejected, approved]}
+
+  - name: run-stop
+    pending: true
+    steps:
+      - {do: open}
+      - {do: run, rounds: 1, exit: 3}
+      - {do: stop, name: stopped}
+      - {do: resume, exit: {not: 0}}
+      - {do: reopen, name: reopened}
+      - {do: run, rounds: 1, exit: 3}
+    expect:
+      checks:
+        - {check: exists, name: stop-recorded, select: [{files: {in: store, glob: "run-stopped.*.json"}}]}

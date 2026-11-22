@@ -118,6 +118,20 @@ through:
 - Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are the
   `fixtures:` member of a cycle, which the pinned Loom does not run yet.
 
+### Totals and time
+
+130 entries: 10 converted, 25 pending (7 wait for a story the pinned Loom has not shipped and are
+not run; 18 run and still fail), 95 not converted (1 full-cycle, 18 re-drive and other, 76 trial).
+
+The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run took
+279 s wall (build included) and ended `10 of 10 as expected, 25 pending`. The ten slowest cycles
+took 29.7 s (`stub-cycle`), 21.0, 20.3, 19.8, 19.6, 19.5, 19.4, 16.5, 15.1 and 13.5 s. The time is
+the bound programs, one cycle after another: a cycle that goes through to the end runs 213 bound
+programs (read from `observations.json` of two cycles), about 0.1 s each, so about 20 s. `runbook
+test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's; no cycle is near it.
+To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
+cycles would have to share an opened tree (the format has no member for it).
+
 ### Full-cycle entries (29)
 
 | entry | state | reason |
@@ -183,3 +197,105 @@ replay model calls from and no injected rejection, timeout or failed check.
 | principals | not converted | class: the store is edited between two runs (a decision written by hand), then a refusal of a second tool |
 | efforts | not converted | class: dry runs and a stand-in model adapter written by the cycle: the environment of a bound program |
 | replay-recording-clean | not converted | class: the recording file of the replay tool (`recording.json`) |
+
+### Trial entries (83)
+
+These run the whole cycle under Runbook's autopilot (`--autopilot`, a decider that answers each stop) or
+with a model adapter's replies scripted. Seven are in the file as pending cycles with `decide:` entries
+and `steps` the pinned Loom does not run yet; the other 76 are not converted. The classes:
+
+- Runbook's decider answers the stops: 32 entries.
+- scripted replies of a model adapter or a stand-in model binary: 20.
+- Runbook's autopilot loop after a stop: 9.
+- the rule approver: 5.
+- bindings the pinned Loom refuses (the bugfix cycles): 4. To load, `bindings/sdc-bugfix.yaml` needs a
+  `gate.run` timeout of at most 3600 s; changing it is a decision of the bugfix protocol and not of
+  this table.
+- the requester decider (2), the environment of a bound program (2), a `--dry` listing (1), a ticket
+  read before the tree opens (1).
+
+| entry | state | reason |
+|---|---|---|
+| decider-scope-answer | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-model-name | not converted | class: Runbook's decider answers the stops (`LLM_MODEL_DECIDER`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-scope-final | not converted | class: Runbook's decider answers the stops (`DECIDER_ESCALATE`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-finding | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-finding-final | not converted | class: Runbook's decider answers the stops (`DECIDER_ESCALATE`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-finding-refused | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| run-stop | pending | the `stop`, `resume` and `reopen` steps: waits for story:tree-stop-record-and-labels |
+| autopilot | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| trace-reraised | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-budget-reason | not converted | class: Runbook's decider answers the stops (`MAX_DECIDER_CALLS`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| autopilot-person | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| autopilot-stop | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-cite-address | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-cite-retry | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-invalid-approval | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-invalid-scope | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-escalate-nobest | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-reject | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-rework-context | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-rework-model | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-rework | pending | the scripted rejection and approval of `merge.approve` need `approve` with `result` and `reasons`: waits for story:tree-stop-record-and-labels |
+| decider-rework-spent | pending | three scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
+| rework-cap | not converted | class: Runbook's decider answers the stops (`MAX_REJECTIONS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-not-called | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| review-no-rework-prompt | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| cite-dark-spot | pending | the intake finding is decided by the decider in the old cycle; here it stops for a person's decision written into `findings.yaml` (gap, no Loom story yet) |
+| cite-fault-sent-back | pending | same: the intake finding stops for a person's decision (gap, no Loom story yet) |
+| autopilot-close | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| autopilot-close-a3 | not converted | class: Runbook's decider answers the stops (`AUTONOMY`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| conformance-default-off | not converted | class: Runbook's decider answers the stops (`CONFORMANCE`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rule-approvals | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-check-failed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-revision-changed | not converted | class: the rule approver of Runbook (a tampering `sdc-drive` on the drive path); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-off | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
+| rule-approvals-a3 | not converted | class: the rule approver of Runbook (rule approvals on or off, decided by a rule of the driver); the suite's `decide:` has no rule approver to switch |
+| keep-going-three | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| keep-going-off | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| keep-going-repeat | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-end | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-rerun | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-invalid | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-limit | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| unstick-off | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| reopen-refused-decision | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
+| decider-release-a3 | not converted | class: Runbook's decider answers the stops (`AUTONOMY`, `DECIDER_REPLIES`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| decider-release-withheld | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| requester-decider | not converted | class: the requester decider answers from goals (`--goals`, `REQUESTER_REPLIES`); no suite member says goals |
+| requester-no-ground | not converted | class: the requester decider answers from goals (`--goals`, `REQUESTER_REPLIES`); no suite member says goals |
+| models | not converted | class: a `--dry` listing of the models per class, not a run of a tree |
+| decider-question-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-fresh-allowance | pending | two scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |
+| scope-unattributed-reject | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| finding-refused-reask | not converted | class: Runbook's decider answers the stops (`--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-spent-dropped | not converted | class: Runbook's decider answers the stops (`DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| rework-spent-abandoned | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
+| review-invalid-named | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| writer-own-error | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-percause | pending | stops at the finding that `amend.upstream` raises after a test failure, exit 3: a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
+| writer-sees-test-failure | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-request-build | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-request-tests-rework | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-request-review-rework | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-request-invalid-retry | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-request-invalid-named | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| implement-request-path-escape | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| coverage-complete | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| coverage-not-built | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| coverage-line-outside | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| coverage-test-missing | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| coverage-spent | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| coverage-reply-retry | not converted | class: scripted replies of a model adapter or a stand-in model binary (`SDC_IMPLEMENT_COVERAGE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| review-real-path | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| review-real-path-facts | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_MODE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| review-invalid-stop | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| review-adapter-refused | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_ADAPTER`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| reopen-review-invalid | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_ADAPTER`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
+| bugfix-full | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
+| bugfix-not-red | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
+| bugfix-edited-test | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
+| bugfix-never-red | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
+| bugfix-from-ticket | not converted | class: a ticket read by `sdc-bugfix` before the tree opens (`--bugfix-ticket`) and a computed input; the format seeds files only |
+| bugfix-pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |
+| bugfix-over-time | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |
