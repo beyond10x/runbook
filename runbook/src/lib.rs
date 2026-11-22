@@ -4,6 +4,7 @@
 pub mod api;
 pub mod clock;
 pub mod commands;
+pub mod mcp;
 pub mod runtime;
 pub mod serve;
 pub mod state;

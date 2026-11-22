@@ -44,6 +44,8 @@ enum Cmd {
     },
     /// Run the daemon in the foreground: HTTP and JSON on a runtime that is a stub in this version.
     Serve(runbook::serve::ServeArgs),
+    /// MCP over standard input and output (newline-delimited JSON-RPC), as a client of a running daemon.
+    Mcp(runbook::mcp::stdio::McpArgs),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
     Parity {
         #[command(subcommand)]
@@ -107,6 +109,7 @@ fn main() -> ExitCode {
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
         Cmd::Parity { cmd } => parity_cmd(cmd),
+        Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
         Cmd::Serve(mut args) => {
             if args.runbook_dir.is_none() {
                 args.runbook_dir = assets::Lookup::from_process().locate().ok().map(|a| a.protocol_dir());

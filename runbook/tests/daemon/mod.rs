@@ -6,3 +6,4 @@ mod http;
 mod sse;
 mod clock;
 mod conformance;
+mod mcp;
