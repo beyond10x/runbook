@@ -14,7 +14,7 @@ scope:
   path: bindings/tools/sdc-tool.sh
 - confidence: inferred
   path: driver/src/main.rs
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T04:05:25Z", actor: "human:operator", revision: 2, correlation: "operator-standing-acceptance-2026-11-22"}
 ---
@@ -40,3 +40,10 @@ protocol or the code; the same cycle passes on a free machine.
   before running it, with the step limit set below N and the run time below the limit).
 - A command that runs past its limit after getting its slot is still killed, with the same log line
   as today.
+
+## Relation
+
+`story:pool-wait-is-not-a-failure` takes this defect further than the driver's limit: the tool
+bounds the wait for the pool itself and exits 69 when no slot came, which the driver and Loom do not
+record as red tests. The step's limit stays one number that covers the wait bound and the run bounds
+(`docs/driver.md`, "The build pool wait"); the driver's own limit still counts the whole step.
