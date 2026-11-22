@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
-const TOKEN: &str = "t0ken-for-the-ui-tests";
+const TOKEN: &str = "t0ken-for-the-ui-tests-0123456789-abcdef";
 
 fn web_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/web")
