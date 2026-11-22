@@ -175,7 +175,7 @@ impl LoomHost for LibraryHost<'_> {
         let principal = self.principal_of(a)?;
         let parsed = Parsed { deny: a.deny, result: a.result.map(str::to_owned), reasons: None, reasons_file: a.reasons_file.map(Path::to_path_buf) };
         let catalog = self.catalog()?;
-        calls::apply(&self.store, catalog, &decision, &parsed, &principal).map_err(|e| self.refused(&format!("the answer to a decision of kind {}", a.kind), e))
+        calls::apply(&self.store, catalog, &decision, &parsed, &principal, &self.settings.runner).map_err(|e| self.refused(&format!("the answer to a decision of kind {}", a.kind), e))
     }
 
     fn runs_handoff(&self) -> bool {
