@@ -218,14 +218,17 @@ the runtime-side commands and the daemon's own `EndOrphanedRun`, which are not o
 calls of the command layer that a runtime's reports map to, made by a runtime double that reports
 nothing on its own. The host facts of `submit-run` are made true or false in the host. What it cannot
 ask is `skipped` with the reason, never `passed`: a command as an actor the daemon does not know (it
-authenticates none), and a claim of an exact instant (the daemon stamps its own clock and takes no
-`at`; the scenario still runs and every other claim is read).
+authenticates none). A claim of an exact instant is read like any other: the daemon reads one clock
+(`runbook/src/clock.rs`; the system clock when it is started by `runbook serve`) and the test builds
+it with a settable clock and moves it to the `at` of each step before the step runs. That clock is
+for tests only: no option, environment variable or request sets it.
 
 The numbers are committed in the test (`GATE`: the scenarios, the executed, the passed, the skipped) and
 may not move the wrong way; the failures are named in `KNOWN_FAILURES` with their reasons, so a different
 failure cannot hide behind them. Now: 12 scenarios of the daemon (3 more are of `sdc.decision`, out of
-the daemon's domain), 10 executed, 10 passed, 0 failed, 2 skipped (an exact instant each), and
-`KNOWN_FAILURES` is empty. Before part C4 it was 4 passed and 6 failed: two differences between the
+the daemon's domain), 12 executed, 12 passed, 0 failed, 0 skipped, and `KNOWN_FAILURES` is empty
+(before the clock: 10 executed, 10 passed, 2 skipped for an exact instant each). Before part C4 it was
+4 passed and 6 failed: two differences between the
 specification and the daemon, which the specification now states (the daemon's first event of a run,
 and the withdrawal of a run's open decision requests by `CancelRun` and `EndOrphanedRun`; see
 "Client commands"). The same suite passes on the interpreted target of ESS

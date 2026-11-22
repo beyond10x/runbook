@@ -6,8 +6,9 @@
 //! The daemon mints run ids (UUID version 7) and fills `daemon_id`, the time and the facts it reads
 //! from the host (`runbook_known`, `context_inside_roots`); a client never chooses them.
 
+use crate::clock::{Clock, SystemClock};
 use crate::runtime::{AnswerFailure, Confinement, DecisionRequest as RuntimeRequest, EventSink, Finish, Recovery, Runtime, StartRequest};
-use crate::state::{self, DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
+use crate::state::{DaemonRow, DecisionRequest, DecisionState, Fact, Run, RunEvent, RunState, SessionState, State};
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -286,6 +287,13 @@ impl Daemon {
     /// Open the state directory, record the configuration row (`StartDaemon`) and deal with the runs
     /// whose runtime is gone because the daemon stopped.
     pub fn start(cfg: Config, runtime: Arc<dyn Runtime>) -> io::Result<Daemon> {
+        Daemon::start_with_clock(cfg, runtime, Arc::new(SystemClock))
+    }
+
+    /// `start` with the clock every recorded instant is read from. For tests that build the daemon in
+    /// process (`clock::SetClock`); `runbook serve` calls `start`, and no option, environment variable
+    /// or request reaches this.
+    pub fn start_with_clock(cfg: Config, runtime: Arc<dyn Runtime>, clock: Arc<dyn Clock>) -> io::Result<Daemon> {
         let mut roots = Vec::new();
         for r in &cfg.context_roots {
             let canon = std::fs::canonicalize(r).map_err(|e| io::Error::new(e.kind(), format!("context root {}: {e}", r.display())))?;
@@ -295,7 +303,7 @@ impl Daemon {
             roots.push(canon);
         }
         let cfg = Config { context_roots: roots, ..cfg };
-        let state = State::open(&cfg.state_dir)?;
+        let state = State::open_with_clock(&cfg.state_dir, clock)?;
         let d = Daemon {
             inner: Arc::new(Inner {
                 daemon_id: uuid::Uuid::now_v7().to_string(),
@@ -392,7 +400,8 @@ impl Daemon {
         if st.session(&input.session_id).is_some() {
             return Ok(refuse("open-session", "session-exists", json!({"session_id": input.session_id})));
         }
-        st.commit(Fact::SessionOpened { session_id: input.session_id.clone(), client: input.client.clone(), at: state::now() })?;
+        let now = st.now();
+        st.commit(Fact::SessionOpened { session_id: input.session_id.clone(), client: input.client.clone(), at: now })?;
         Ok(done("open-session", "opened", vec![("SessionOpened", json!({"session_id": input.session_id, "client": input.client}))]))
     }
 
@@ -403,7 +412,8 @@ impl Daemon {
             None => Ok(refuse("close-session", "no-session", json!({"session_id": id}))),
             Some(SessionState::Closed) => Ok(refuse("close-session", "wrong-state", json!({"session_id": id}))),
             Some(SessionState::Open) => {
-                st.commit(Fact::SessionClosed { session_id: id.clone(), at: state::now() })?;
+                let now = st.now();
+                st.commit(Fact::SessionClosed { session_id: id.clone(), at: now })?;
                 Ok(done("close-session", "closed", vec![("SessionClosed", json!({"session_id": id}))]))
             }
         }
@@ -415,7 +425,8 @@ impl Daemon {
         if st.daemon().is_some() {
             return Ok(refuse("start-daemon", "already-started", json!({"daemon_id": daemon_id})));
         }
-        st.commit(Fact::DaemonStarted(DaemonRow { daemon_id: daemon_id.to_string(), confinement_floor, started_at: state::now() }))?;
+        let now = st.now();
+        st.commit(Fact::DaemonStarted(DaemonRow { daemon_id: daemon_id.to_string(), confinement_floor, started_at: now }))?;
         Ok(done("start-daemon", "started", vec![("DaemonStarted", json!({"daemon_id": daemon_id, "confinement_floor": confinement_floor}))]))
     }
 
@@ -486,7 +497,7 @@ impl Daemon {
             confinement,
             session_id: input.session_id.clone(),
             idempotency_key: input.idempotency_key.clone(),
-            submitted_at: state::now(),
+            submitted_at: st.now(),
             started_at: None,
             ended_at: None,
             outcome: None,
@@ -524,7 +535,8 @@ impl Daemon {
             Some(_) => {}
         }
         record_event_locked(&mut st, &id, "runbook.cancel-requested", json!({"run_id": id}))?;
-        st.commit(Fact::RunCancelled { run_id: id.clone(), at: state::now() })?;
+        let now = st.now();
+        st.commit(Fact::RunCancelled { run_id: id.clone(), at: now })?;
         let open: Vec<String> = st.open_decisions_of(&id).iter().map(|d| d.request_id.clone()).collect();
         for request_id in open {
             withdraw_decision_locked(&mut st, &request_id)?;
@@ -558,11 +570,12 @@ impl Daemon {
             Some(s) if s != RunState::WaitingOnDecision => return Ok(refuse("answer-decision", "run-not-waiting", json!({"run_id": run_id}))),
             Some(_) => {}
         }
+        let now = st.now();
         st.commit(Fact::DecisionAnswered {
             request_id: request_id.clone(),
             answer: input.answer.clone(),
             answered_by: input.answered_by.clone(),
-            at: state::now(),
+            at: now,
         })?;
         drop(st);
         let published = json!({"request_id": request_id, "run_id": run_id, "answered_by": input.answered_by});
@@ -584,7 +597,8 @@ impl Daemon {
         match st.run(run_id).map(|r| r.state) {
             None => Ok(refuse("start-run", "no-run", json!({"run_id": run_id}))),
             Some(RunState::Submitted) => {
-                st.commit(Fact::RunStarted { run_id: run_id.to_string(), at: state::now() })?;
+                let now = st.now();
+                st.commit(Fact::RunStarted { run_id: run_id.to_string(), at: now })?;
                 Ok(done("start-run", "started", vec![("RunStarted", json!({"run_id": run_id}))]))
             }
             Some(_) => Ok(refuse("start-run", "wrong-state", json!({"run_id": run_id}))),
@@ -637,7 +651,8 @@ impl Daemon {
         match st.run(run_id).map(|r| r.state) {
             None => Ok(refuse("end-run", "no-run", json!({"run_id": run_id}))),
             Some(RunState::Running) => {
-                st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: outcome.to_string(), at: state::now() })?;
+                let now = st.now();
+                st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: outcome.to_string(), at: now })?;
                 Ok(done("end-run", "ended", vec![("RunEnded", json!({"run_id": run_id, "outcome": outcome}))]))
             }
             Some(_) => Ok(refuse("end-run", "wrong-state", json!({"run_id": run_id}))),
@@ -867,7 +882,8 @@ fn fail_run_start_locked(st: &mut State, run_id: &str, reason: &str) -> Reply {
         None => Ok(refuse("fail-run-start", "no-run", json!({"run_id": run_id}))),
         Some(RunState::Submitted) => {
             record_event_locked(st, run_id, "runbook.start-failed", json!({"reason": reason}))?;
-            st.commit(Fact::RunFailedToStart { run_id: run_id.to_string(), reason: reason.to_string(), at: state::now() })?;
+            let now = st.now();
+            st.commit(Fact::RunFailedToStart { run_id: run_id.to_string(), reason: reason.to_string(), at: now })?;
             Ok(done("fail-run-start", "failed", vec![("RunFailedToStart", json!({"run_id": run_id, "reason": reason}))]))
         }
         Some(_) => Ok(refuse("fail-run-start", "wrong-state", json!({"run_id": run_id}))),
@@ -881,7 +897,8 @@ fn end_orphaned_run_locked(st: &mut State, run_id: &str) -> Reply {
             // The run's stream says so while the run is still live (a closed run takes no event).
             let record = json!({"run_id": run_id, "state": state.as_str(), "reason": "the daemon started again and the runtime holds no live run of this id"});
             record_event_locked(st, run_id, "runbook.run-orphaned", record)?;
-            st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: state::now() })?;
+            let now = st.now();
+            st.commit(Fact::RunEnded { run_id: run_id.to_string(), outcome: ORPHANED.to_string(), at: now })?;
             Ok(done("end-orphaned-run", "orphaned", vec![("RunOrphaned", json!({"run_id": run_id}))]))
         }
         Some(_) => Ok(refuse("end-orphaned-run", "wrong-state", json!({"run_id": run_id}))),
@@ -909,6 +926,7 @@ fn request_decision_locked(st: &mut State, run_id: &str, request: RuntimeRequest
         return Err(Fault::Invalid(format!("decision request {} exists already: the runtime mints unique ids", request.request_id)));
     }
     let id = request.request_id.clone();
+    let now = st.now();
     st.commit(Fact::DecisionRequested(DecisionRequest {
         request_id: request.request_id,
         run_id: run_id.to_string(),
@@ -917,7 +935,7 @@ fn request_decision_locked(st: &mut State, run_id: &str, request: RuntimeRequest
         capability: request.capability,
         question: request.question,
         options: request.options,
-        opened_at: state::now(),
+        opened_at: now,
         state: DecisionState::Open,
         answer: None,
         answered_by: None,
@@ -961,6 +979,7 @@ fn record_numbered_locked(st: &mut State, run_id: &str, sequence: u64, position:
         return Ok(refuse("record-run-event", "position-not-ascending", json!({"run_id": run_id, "position": position})));
     }
     let event_id = format!("event-{position}");
+    let now = st.now();
     st.commit(Fact::EventRecorded(RunEvent {
         event_id: event_id.clone(),
         run_id: run_id.to_string(),
@@ -969,7 +988,7 @@ fn record_numbered_locked(st: &mut State, run_id: &str, sequence: u64, position:
         position,
         kind: kind.to_string(),
         record,
-        at: state::now(),
+        at: now,
     }))?;
     Ok(done(
         "record-run-event",

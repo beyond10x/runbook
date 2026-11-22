@@ -126,7 +126,7 @@ timeline:
 
 assert:
   - view: sdc.daemon.Runs
-    contains: {run_id: "run-1", state: Cancelled}
+    contains: {run_id: "run-1", state: Cancelled, ended_at: 2026-11-22T10:05:00Z}
   - view: sdc.daemon.DecisionsOfRun
     params: {run_id: "run-1"}
     contains: {request_id: "dr-1", state: Withdrawn}

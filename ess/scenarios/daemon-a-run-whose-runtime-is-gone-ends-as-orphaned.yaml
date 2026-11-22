@@ -184,7 +184,7 @@ timeline:
 assert:
   - view: sdc.daemon.RunDetail
     params: {run_id: "run-1"}
-    contains: {run_id: "run-1", state: Ended, outcome: "orphaned"}
+    contains: {run_id: "run-1", state: Ended, outcome: "orphaned", ended_at: 2026-11-22T11:00:10Z}
   - view: sdc.daemon.RunDetail
     params: {run_id: "run-2"}
     contains: {run_id: "run-2", state: Ended, outcome: "orphaned"}

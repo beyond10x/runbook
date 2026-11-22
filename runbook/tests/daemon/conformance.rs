@@ -21,22 +21,24 @@
 //! - facts the specification takes from the host (`runbook_known`, `context_inside_roots`) are made true
 //!   or false in the host: the runtime double knows the runbook or not, the context is a directory under
 //!   the context root or a path outside it;
+//! - time: the daemon reads one clock (`runbook::clock`); the runner builds it with a `SetClock` and moves it to
+//!   the `at` of each command step before the step runs, so the instants the daemon records are the ones the
+//!   scenario names and a claim of an exact instant is read like any other (compared as an instant, so
+//!   `...:00Z` and `...:00.000Z` are equal). The clock is set only here: `Daemon::start_with_clock` is called
+//!   by test code, never by `serve`;
 //! - ids the daemon mints (run ids, the daemon id) are bound to the literal the scenario used for them
 //!   the first time an event of the answer names them.
 //!
 //! What it cannot ask is `skipped`, with the reason; it is never `passed`:
 //! - an actor the daemon does not know (the daemon authenticates no actor, so a command is asked as the
 //!   actor the specification grants it to, and a scenario that asks as another is skipped);
-//! - an exact instant (the daemon stamps its own clock and takes no `at`: a claim of
-//!   `opened_at: 2020-01-01T00:00:00Z` cannot be made true). The scenario still runs and every other
-//!   claim is read, so a wrong answer is `failed`; only a scenario whose every other claim holds is
-//!   `skipped`, because one claim stayed unread;
 //! - a step of a kind this runner does not read.
 //!
 //! The gate: `GATE` below holds the committed numbers and `KNOWN_FAILURES` the failures by name.
 
 use super::http::send;
 use runbook::api::{self, routes};
+use runbook::clock::{parse_instant, SetClock};
 use runbook::commands::{Config, Daemon, Outcome, SubmitRun};
 use runbook::runtime::{AnswerFailure, Confinement, DecisionRequest as RtRequest, EventSink, Finish, Recovery, Runtime, RuntimeFailure, StartRequest};
 use serde_json::{json, Map, Value};
@@ -56,13 +58,10 @@ struct Gate {
     skipped: usize,
 }
 
-const GATE: Gate = Gate { total: 12, executed: 10, passed: 10, skipped: 2 };
+const GATE: Gate = Gate { total: 12, executed: 12, passed: 12, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
 const KNOWN_FAILURES: &[(&str, &str)] = &[];
-
-/// Fields that hold an instant: the daemon stamps them from its own clock.
-const INSTANTS: [&str; 7] = ["at", "opened_at", "closed_at", "answered_at", "submitted_at", "started_at", "ended_at"];
 
 #[derive(Clone, Debug, PartialEq)]
 enum Verdict {
@@ -217,6 +216,7 @@ fn granted_to(command: &str) -> &'static [&'static str] {
 fn same(want: &Value, got: &Value) -> bool {
     match (want, got) {
         (Value::Number(a), Value::Number(b)) => a.as_f64() == b.as_f64(),
+        (Value::String(a), Value::String(b)) => a == b || matches!((parse_instant(a), parse_instant(b)), (Some(x), Some(y)) if x == y),
         (Value::Array(a), Value::Array(b)) => a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same(x, y)),
         (Value::Object(a), Value::Object(b)) => {
             a.keys().chain(b.keys()).collect::<BTreeSet<_>>().iter().all(|k| same(a.get(*k).unwrap_or(&Value::Null), b.get(*k).unwrap_or(&Value::Null)))
@@ -252,6 +252,7 @@ struct Scn {
     dir: PathBuf,
     floor: Confinement,
     runtime: Arc<Manual>,
+    clock: Arc<SetClock>,
     live: Option<Live>,
     started_by_step: bool,
     binds: BTreeMap<String, String>,
@@ -261,7 +262,6 @@ struct Scn {
     rows: BTreeMap<String, Vec<Value>>,
     snaps: BTreeMap<String, (Map<String, Value>, Option<Value>)>,
     run_literal: Option<String>,
-    unread: BTreeSet<String>,
 }
 
 impl Scn {
@@ -270,6 +270,7 @@ impl Scn {
             dir,
             floor,
             runtime: Arc::new(Manual { known: Mutex::new(BTreeSet::new()) }),
+            clock: Arc::new(SetClock::at_millis(0)),
             live: None,
             started_by_step: false,
             binds: BTreeMap::new(),
@@ -279,7 +280,6 @@ impl Scn {
             rows: BTreeMap::new(),
             snaps: BTreeMap::new(),
             run_literal: None,
-            unread: BTreeSet::new(),
         }
     }
 
@@ -289,7 +289,7 @@ impl Scn {
             std::fs::create_dir_all(&root).map_err(|e| Stop::Fail(e.to_string()))?;
             let root = std::fs::canonicalize(root).map_err(|e| Stop::Fail(e.to_string()))?;
             let cfg = Config { state_dir: self.dir.join("state"), confinement_floor: self.floor, context_roots: vec![root.clone()], runbook_dir: None };
-            let daemon = Daemon::start(cfg, self.runtime.clone()).map_err(|e| Stop::Fail(format!("the daemon did not start: {e}")))?;
+            let daemon = Daemon::start_with_clock(cfg, self.runtime.clone(), self.clock.clone()).map_err(|e| Stop::Fail(format!("the daemon did not start: {e}")))?;
             let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(|e| Stop::Fail(e.to_string()))?;
             let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).map_err(|e| Stop::Fail(e.to_string()))?;
             let addr = listener.local_addr().map_err(|e| Stop::Fail(e.to_string()))?;
@@ -369,6 +369,12 @@ impl Scn {
             return skip(format!("{command} asked as {actor}: the daemon authenticates no actor, it can only be asked as {}", granted_to(command).join(" or ")));
         }
         let input = self.values(&step["input"])?;
+        // The daemon stamps the instant its clock stands at: a step that names one (`at`) is run at it.
+        if let Some(at) = input.get("at").and_then(Value::as_str) {
+            if !self.clock.set(at) {
+                return fail(format!("the step names `at` {at:?}, which is no RFC 3339 instant in UTC"));
+            }
+        }
         let answer = self.command(command, &input)?;
         self.publish(answer);
         Ok(())
@@ -555,10 +561,6 @@ impl Scn {
         let mut out = Map::new();
         for (k, v) in fields.as_object().into_iter().flatten() {
             let wrapped = v.get("kind").and_then(Value::as_str).is_some_and(|k| matches!(k, "literal" | "instance" | "observed"));
-            if INSTANTS.contains(&k.as_str()) && (!wrapped || v["kind"] == "literal") {
-                self.unread.insert(k.clone());
-                continue;
-            }
             let value = if wrapped { self.resolve(v)? } else { self.bound(v) };
             out.insert(k.clone(), value);
         }
@@ -748,11 +750,7 @@ impl Scn {
                 Err(Stop::Skip(m)) => return Verdict::Skipped(m),
             }
         }
-        if self.unread.is_empty() {
-            Verdict::Passed
-        } else {
-            Verdict::Skipped(format!("every claim that could be read held; an exact instant stayed unread (the daemon stamps its own clock): {}", self.unread.iter().cloned().collect::<Vec<_>>().join(", ")))
-        }
+        Verdict::Passed
     }
 }
 
@@ -893,5 +891,5 @@ fn the_committed_suite_holds_its_counts_against_the_daemon() {
     assert!(report.verdicts.len() >= GATE.total, "the suite has fewer scenarios than the committed {}", GATE.total);
     assert!(report.passed() + report.failed() >= GATE.executed, "executed fell below the committed {}", GATE.executed);
     assert!(report.passed() >= GATE.passed, "passed fell below the committed {}", GATE.passed);
-    assert!(report.skipped() <= GATE.skipped, "skipped rose above the committed {}", GATE.skipped);
+    assert_eq!(report.skipped(), GATE.skipped, "skipped differs from the committed {}", GATE.skipped);
 }

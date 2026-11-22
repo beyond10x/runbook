@@ -82,6 +82,38 @@ jobs:
           pin=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
           used=$(sed -n 's/^ *toolchain: *//p' .github/workflows/pages.yml | tr -d "\"'" | sort -u)
           test -n "$pin" && test "$used" = "$pin" || { echo "the workflow installs rustc '$used' and rust-toolchain.toml pins '$pin'"; exit 1; }
+      - name: Install go-task
+        if: steps.changes.outputs.class == 'code'
+        env:
+          TASK_VERSION: "3.52.0"
+          TASK_SHA256: 02c679ffae53dca791804847d78b31731615894e292948397c971c87ac9e95bd
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/task.tar.gz" \
+            "https://github.com/go-task/task/releases/download/v$TASK_VERSION/task_linux_amd64.tar.gz"
+          echo "$TASK_SHA256  $RUNNER_TEMP/task.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/task-bin"
+          tar -xzf "$RUNNER_TEMP/task.tar.gz" -C "$RUNNER_TEMP/task-bin" task
+          echo "$RUNNER_TEMP/task-bin" >> "$GITHUB_PATH"
+      - name: Install cargo-nextest
+        if: steps.changes.outputs.class == 'code'
+        env:
+          NEXTEST_VERSION: "0.9.143"
+          NEXTEST_SHA256: 66786b9abe23920d022a182d1416b1bbc8130dd4872a9553d76985a1708dcd1e
+        run: |
+          set -euo pipefail
+          asset="cargo-nextest-$NEXTEST_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --output "$asset" \
+            "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$NEXTEST_VERSION/$asset"
+          echo "$NEXTEST_SHA256  $asset" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/nextest-bin"
+          tar -xzf "$asset" -C "$RUNNER_TEMP/nextest-bin" cargo-nextest
+          echo "$RUNNER_TEMP/nextest-bin" >> "$GITHUB_PATH"
+      - name: Test the runbook crate with the local gate's task
+        if: steps.changes.outputs.class == 'code'
+        timeout-minutes: 15
+        run: task test:runbook
       - name: Check the site's protocol data is current
         if: steps.changes.outputs.class != 'planning'
         env:
