@@ -66,14 +66,14 @@ need yq jq
 sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
 # The late-finding programs: the driver crate's `sdc-findings` binary.
 findings() {
-  local b
+  local b looked="SDC_FINDINGS, then $root/driver/target/debug/sdc-findings"
   if [[ -n ${LOOM_CASE:-} ]]; then
     b=$(sibling sdc-findings)
+    looked="PATH, then $root/driver/target/debug/sdc-findings"
   else
     b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
-    [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
   fi
-  [[ -x $b ]] || { echo "sdc-tool: sdc-findings not found ($b)" >&2; exit 127; }
+  [[ -x $b ]] || { echo "sdc-tool: sdc-findings not found (looked at $looked): $1 could not run" >&2; exit 127; }
   "$b" --rules "$here/consistency-rules.json" "$@"
 }
 bugfix() {
@@ -258,7 +258,7 @@ conform-run)
   # billing example, else against ESS's interpreter of the spec (which checks the spec, not the
   # implementation: ESS 0.96.0 has no target that runs an outside program). Any other spec also
   # needs the tree's own `task check` (a Taskfile.yml in the tree) to pass, run through slot.
-  rm -f ".sdc/report-$SDC_ACTION.json"
+  rm -f ".sdc/report-${SDC_ACTION:-conform-run}.json"
   # Build output goes outside the tree (an observation writes nothing into it) and is removed.
   export PYTHONDONTWRITEBYTECODE=1 CARGO_TARGET_DIR=$PWD/.sdc/target-check
   target=interpreted
@@ -269,7 +269,7 @@ conform-run)
   out=$(ess verify conform synthesize --path spec --suite-format 5 --out .sdc/suite.json 2>&1) ||
     { tail -n 30 <<< "$out"; echo "conform-run: FAILED \`ess verify conform synthesize\`"; exit 1; }
   ess verify conform run --path spec --target $target --suite .sdc/suite.json --report-format 2 \
-    --report-out ".sdc/report-$SDC_ACTION.json" --strict 2>&1; rc=$?
+    --report-out ".sdc/report-${SDC_ACTION:-conform-run}.json" --strict 2>&1; rc=$?
   (( rc == 0 )) || { echo "conform-run: FAILED \`ess verify conform run --target $target\` (exit $rc)"; exit 1; }
   if [[ $target != billing ]]; then
     [[ -f ${2:?implementation tree}/Taskfile.yml ]] || { echo "conform-run: FAILED no $2/Taskfile.yml"; exit 1; }

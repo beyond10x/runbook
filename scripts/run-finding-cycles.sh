@@ -135,7 +135,7 @@ mkdir -p "$s/runs"
 (cd "$sdc/driver" && cargo build --quiet --bin sdc-run-metrics) || { echo "cycles: building sdc-run-metrics failed"; exit 1; }
 metrics=$sdc/driver/target/debug/sdc-run-metrics
 kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
-[[ -x $kpis ]] || kpis=$HOME/beyond10x/sdc/driver/target/debug/sdc-finding-kpis
+[[ -x $kpis ]] || { echo "cycles: sdc-finding-kpis not found (looked at SDC_FINDING_KPIS, then $sdc/driver/target/debug/sdc-finding-kpis)"; exit 1; }
 # The cycles and their expectations. A cycle with a check line is as expected when it prints
 # "<name>: checks pass" and no "<name>: FAILED"; one without (exit_only) when its exit line shows
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.

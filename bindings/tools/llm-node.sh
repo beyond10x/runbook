@@ -37,6 +37,8 @@
 #   --instructions <json>  the `llm` object's instructions: {"task": "<file>", ...}
 #   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
 #   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
+#   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli adapter (without it
+#                    the adapter reads CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
 #   --stub <argv>...  the `llm` object's stub; last, it takes the rest of the argv
 # The case id is SDC_CASE, the arguments SDC_ARGS, the feedback document's records SDC_FEEDBACK
 # (each with its log's tail; Loom names no action and no exit of the run that recorded it).
@@ -62,7 +64,7 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   while (( $# )); do
     case $1 in
       --stub) shift; with_stub=yes; break ;;
-      --model|--max-turns|--max-budget-usd|--operations|--instructions|--adapter|--principal|--stub-fixtures|--stub-counter)
+      --model|--max-turns|--max-budget-usd|--operations|--instructions|--adapter|--principal|--stub-fixtures|--stub-counter|--claude-credentials)
         (( $# >= 2 )) || { echo "llm-node: $1 takes a value" >&2; exit 64; }
         opt[$1]=$2; shift 2 ;;
       *) echo "llm-node: unknown argument $1" >&2; exit 64 ;;
@@ -86,6 +88,7 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   [[ -n ${opt[--principal]:-} ]] && export SDC_PRINCIPAL=${opt[--principal]}
   [[ -n ${opt[--stub-fixtures]:-} ]] && export SDC_STUB_FIXTURES=${opt[--stub-fixtures]}
   [[ -n ${opt[--stub-counter]:-} ]] && export SDC_STUB_COUNTER=${opt[--stub-counter]}
+  [[ -n ${opt[--claude-credentials]:-} ]] && export SDC_CLAUDE_CREDENTIALS=${opt[--claude-credentials]}
   # The retry records as the driver's SDC_FEEDBACK: kind, result, subject and the log, here the
   # tail Loom keeps of the cited blob, written beside the document's copy under .sdc/loom-feedback/.
   if [[ -n ${LOOM_RETRY_FEEDBACK:-} ]]; then
@@ -230,13 +233,14 @@ post() {
     fi
   fi
   if [[ -n $raised && -f $raised ]]; then
-    local b
+    local b looked="SDC_FINDINGS, then $root/driver/target/debug/sdc-findings"
     if [[ -n ${LOOM_CASE:-} ]]; then
       b=$(sibling sdc-findings)
+      looked="PATH, then $root/driver/target/debug/sdc-findings"
     else
       b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
-      [[ -x $b ]] || b=$HOME/beyond10x/sdc/driver/target/debug/sdc-findings
     fi
+    [[ -x $b ]] || { echo "llm-node: sdc-findings not found (looked at $looked): $node could not run" >&2; exit 127; }
     "$b" --rules "$here/consistency-rules.json" promote "$node" "$raised"
   fi
   local t=${derived[$node]:-}
@@ -554,17 +558,22 @@ fi
 
 feedback=""
 if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection" 'any(.[]; .result != "rejected" or (.log // "") != $rej)' "$SDC_FEEDBACK" > /dev/null; then
+  render fb_head "$shared/feedback.heading.md"
+  render fb_none "$shared/feedback.no-output.md"
   {
-    echo "# Checks that failed on the current revision of your output"
+    echo "$fb_head"
     # The check's own output: the last 80 lines of its log without the build pool's `slot: job`
     # lines, which only say how long the check waited (runs/trial-3-haiku-8). A check that wrote
-    # nothing is said so in words.
-    jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej) | "\(.kind) = \(.result) (from \(.action // "?"), exit \(.exit // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
-      echo; echo "## ${line%%: *}"; log=${line#*: }
+    # nothing is said so in words (instructions/shared/feedback.no-output.md). The loop reads
+    # from a process substitution so that a missing instruction file stops the tool.
+    while IFS=$'\x1f' read -r fb_kind fb_result fb_action fb_exit log; do
+      render fb_line "$shared/feedback.check.md" kind="$fb_kind" result="$fb_result" action="$fb_action" exit="$fb_exit"
+      echo; echo "$fb_line"
       own=$([[ -f $log ]] && grep -v '^slot: job ' "$log" | tail -n 80)
       if [[ -n ${own//[[:space:]]/} ]]; then echo '```'; echo "$own"; echo '```'
-      else echo "The check wrote no output of its own: only its result above says what failed."; fi
-    done
+      else echo "$fb_none"; fi
+    done < <(jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej)
+      | [.kind, .result, (.action // "?"), (.exit // "?"), (.log // "")] | map(tostring) | join("\u001f")' "$SDC_FEEDBACK")
   } > "$cwd/in/feedback.md"
   notes "$shared/feedback.inputs.md"
   feedback=yes
@@ -576,8 +585,9 @@ if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
   own=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished" and .action == $n)] | last // empty
     | select(.exit | IN("0", "75", "126", "127") | not) | "\(.exit) \(.log // "")"' "$cd_/events.jsonl" 2>/dev/null)
   if [[ -n $own && -f $cd_/blobs/${own#* } ]]; then
+    render fb_run "$shared/feedback-run.heading.md" node="$node" exit="${own%% *}"
     { [[ -s $cwd/in/feedback.md ]] && echo
-      echo "# Your previous run of $node failed (exit ${own%% *}): nothing of it was applied"
+      echo "$fb_run"
       echo; echo '```'; grep -v '^slot: job ' "$cd_/blobs/${own#* }" | tail -n 80; echo '```'; } >> "$cwd/in/feedback.md"
     [[ $feedback == yes ]] || notes "$shared/feedback-run.inputs.md"
     feedback=yes

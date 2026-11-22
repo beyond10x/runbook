@@ -564,4 +564,67 @@ mod loom_mode {
         assert!(feedback.contains("## questions_shape = invalid (from ?, exit ?)") && feedback.contains("q1: lacks excerpt"), "{feedback}");
         same("questions.write, retried", &d, &l);
     }
+
+    /// A `claude` that calls no model: it checks that the adapter put the login into its config
+    /// home, writes the dissection a writer would, and marks that it ran.
+    fn stub_claude(name: &str) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("loom-mode").join(name);
+        let _ = fs::remove_dir_all(&base);
+        let bin = base.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let mark = base.join("claude-ran");
+        let script = format!(
+            "#!/usr/bin/env bash\n[[ -f \"$CLAUDE_CONFIG_DIR/.credentials.json\" ]] || exit 9\nmkdir -p out && cp '{}' out/dissection.yaml\necho ran > '{}'\n\
+             echo '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"num_turns\":1,\"total_cost_usd\":0,\"duration_ms\":1,\"usage\":{{}}}}'\n",
+            fx().join("dissection.yaml").display(),
+            mark.display()
+        );
+        let claude = bin.join("claude");
+        fs::write(&claude, script).unwrap();
+        fs::set_permissions(&claude, fs::Permissions::from_mode(0o755)).unwrap();
+        (bin, mark)
+    }
+
+    /// Loom starts the real adapter with `PATH` and `LOOM_*` alone: no `HOME`, no
+    /// `SDC_CLAUDE_CREDENTIALS`, no `ANTHROPIC_API_KEY`. It stops before any call, with a message
+    /// that names every variable it could take the login from, not with an unbound variable.
+    #[test]
+    fn the_claude_cli_adapter_without_home_names_the_variables_it_needs() {
+        let r = roots("claude-cli-no-home");
+        let (bin, mark) = stub_claude("claude-cli-no-home-bin");
+        let work = r.1.join("work");
+        fs::write(work.join("prompt.md"), "prompt\n").unwrap();
+        fs::create_dir_all(work.join("cwd")).unwrap();
+        let request = serde_json::json!({"record_dir": work.join("rec"), "prompt_file": work.join("prompt.md"), "cwd": work.join("cwd"),
+            "model": "claude-haiku-5-5", "max_turns": 1, "max_budget_usd": 0.1, "operations": ["file.read", "file.write"]});
+        fs::write(work.join("request.json"), request.to_string()).unwrap();
+        let mut c = Command::new(tools().join("llm-adapter-claude-cli.sh"));
+        c.arg(work.join("request.json")).env_clear().env("PATH", format!("{}:{}", bin.display(), path())).env("LOOM_CASE", "IDEA-1.intake");
+        let l = run(&r.1, c, "");
+        assert_eq!(l.code, Some(127), "{l:#?}");
+        for name in ["HOME", "CLAUDE_CONFIG_DIR", "SDC_CLAUDE_CREDENTIALS", "ANTHROPIC_API_KEY"] {
+            assert!(l.stderr.contains(name), "the message does not name {name}: {}", l.stderr);
+        }
+        assert!(!l.stderr.contains("unbound variable") && !mark.exists(), "{l:#?}");
+    }
+
+    /// The binding passes the login as an argv entry (`--claude-credentials <file>`): llm-node
+    /// exports it as SDC_CLAUDE_CREDENTIALS and a node runs on the claude-cli adapter under an
+    /// environment of `PATH` and `LOOM_CASE`.
+    #[test]
+    fn a_node_on_the_claude_cli_adapter_takes_its_login_from_the_binding_under_loom() {
+        let r = roots("claude-cli-login");
+        let (bin, mark) = stub_claude("claude-cli-login-bin");
+        put(&r, "idea.yaml", &fs::read_to_string(fx().join("idea.yaml")).unwrap());
+        let login = r.1.join("login.json");
+        fs::write(&login, "{}").unwrap();
+        let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
+        let argv = node_argv("idea.dissect", &stub, &["--adapter", "claude-cli", "--claude-credentials", login.to_str().unwrap(), "--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]);
+        let mut c = Command::new(tools().join("llm-node.sh"));
+        c.args(&argv).env_clear().env("PATH", format!("{}:{}", bin.display(), path())).env("LOOM_CASE", "IDEA-1.intake");
+        let l = run(&r.1, c, "{}");
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        assert!(mark.exists() && l.files.contains_key("dissection.yaml"), "{l:#?}");
+    }
 }

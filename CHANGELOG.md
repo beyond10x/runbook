@@ -16,6 +16,9 @@ bare-version tags (`docs/releasing.md`).
 - `runbook doctor` checks the text layout by name (`bindings/`, `bindings/*.yaml`, `bindings/tools/`, `instructions/`, `views/`, `cycles/` beside the earlier directories) and the four tools at `bindings/tools/`, and cites no line numbers; `runbook --version` prints the repository version (0.3.0, not 0.1.4) and `task release:check` reads `runbook/Cargo.toml` (`story:runbook-command-knows-the-text-layout`).
 - The model instructions of `sdc-reply implement-run` (request mode), `sdc-conform` and `sdc-unstick` are files under `instructions/` (`change.implement.request.*`, `conformance.table*`, `run.unstick*`), read at run time through one renderer with the rules of `llm-node.sh`; the prompts are byte-identical, held by goldens under `instructions/golden/`. `sdc-conform prompt` prints the table node's prompt without a model call (`story:rust-prompts-as-instruction-files`).
 
+### Fixed
+
+- The shell tools no longer fall back to a `beyond10x/sdc` path for `sdc-findings` and `sdc-finding-kpis` (a missing one stops with its name and where it looked), `llm-adapter-claude-cli.sh` runs with `HOME` unset (`--claude-credentials <file>` on `llm-node.sh`, else a message naming the variables), and the text of `in/feedback.md` and the requester request is in `instructions/` (`story:tool-texts-and-paths`).
 ## [0.3.0] - 2026-11-22
 
 The bindings move onto Loom's program contract and the instructions of the model's calls become

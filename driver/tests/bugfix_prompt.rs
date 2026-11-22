@@ -236,6 +236,13 @@ fn node_work(name: &str) -> (PathBuf, PathBuf) {
 }
 
 fn run_node(case: &str, node: &str, setup: impl Fn(&Path, &Path), env: &[(&str, &str)]) -> String {
+    let work = run_node_in(case, node, setup, env);
+    let p = work.join(format!(".sdc/llm/001-{node}/prompt.md"));
+    fs::read_to_string(&p).unwrap_or_else(|_| panic!("{case}: no prompt.md at {}", p.display()))
+}
+
+/// Runs the node and returns its work/: the record of the call is under `.sdc/llm/001-<node>/`.
+fn run_node_in(case: &str, node: &str, setup: impl Fn(&Path, &Path), env: &[(&str, &str)]) -> PathBuf {
     let (dir, work) = node_work(case);
     let reply = stub_reply(&dir);
     setup(&dir, &work);
@@ -257,9 +264,8 @@ fn run_node(case: &str, node: &str, setup: impl Fn(&Path, &Path), env: &[(&str, 
         .output()
         .unwrap();
     let p = work.join(format!(".sdc/llm/001-{node}/prompt.md"));
-    fs::read_to_string(&p).unwrap_or_else(|_| {
-        panic!("{case}: no prompt.md; stdout {} stderr {}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
-    })
+    assert!(p.is_file(), "{case}: no prompt.md; stdout {} stderr {}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    work
 }
 
 const AGENT_NODES: [&str; 14] = [
@@ -336,6 +342,12 @@ fn golden_names(group: &str) -> std::collections::BTreeSet<String> {
 }
 
 fn run_decider(case: &str, kind: &str, request: serde_json::Value, env: &[(&str, &str)]) -> String {
+    let rec = run_decider_in(case, kind, request, env);
+    fs::read_to_string(rec.join("prompt.md")).unwrap()
+}
+
+/// Runs the decider and returns the record directory; the requester's `in/` is `<record>/cwd/in/`.
+fn run_decider_in(case: &str, kind: &str, request: serde_json::Value, env: &[(&str, &str)]) -> PathBuf {
     let dir = scratch(case);
     let reply = stub_reply(&dir);
     let case_dir = dir.join("case");
@@ -360,9 +372,13 @@ fn run_decider(case: &str, kind: &str, request: serde_json::Value, env: &[(&str,
     c.arg(manifest().join("../bindings/tools/decider.sh")).arg(kind).arg(dir.join("request.json")).current_dir(&dir);
     sdc_env_cleared(&mut c);
     let o = c.env("SDC_DECIDER_ADAPTER", "true").env("SDC_REPLY", &reply).envs(env.iter().copied()).output().unwrap();
-    fs::read_to_string(rec.join("prompt.md")).unwrap_or_else(|_| {
-        panic!("{case}: no prompt.md; stdout {} stderr {}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))
-    })
+    assert!(
+        rec.join("prompt.md").is_file(),
+        "{case}: no prompt.md; stdout {} stderr {}",
+        String::from_utf8_lossy(&o.stdout),
+        String::from_utf8_lossy(&o.stderr)
+    );
+    rec
 }
 
 #[test]
@@ -410,6 +426,75 @@ fn the_prompt_of_each_decider_is_its_golden_byte_for_byte() {
     }
 }
 
+/// What the two tools write for the model besides the prompt: `in/feedback.md` of a writer sent
+/// back (the headings, the fences and the line for a check with no output) and the requester's
+/// `in/request.json` for an approval and a close (its question and option texts). Held byte for
+/// byte against `instructions/golden/feedback/` and `instructions/golden/requester-request/`.
+#[test]
+fn the_feedback_file_and_the_requester_request_are_their_golden_byte_for_byte() {
+    use serde_json::json;
+    let tmp = env!("CARGO_TARGET_TMPDIR");
+    let feedback_of = |work: &Path| fs::read_to_string(work.join(".sdc/llm/001-change.fix/cwd/in/feedback.md")).unwrap();
+    let long_log: String = (1..=90).map(|i| format!("slot: job {i} queued\nrunning line {i}\n")).collect();
+    let checks = |d: &Path| {
+        let rej = d.join("rejection.json");
+        fs::write(&rej, r#"{"format":"sdc.rejection/1","approval":"change.approve","revision":"abc123","principal":"person:reviewer","count":1,"reasons":["The refusal of an empty title is missing."],"subject":"change"}"#).unwrap();
+        fs::write(d.join("tests.log"), &long_log).unwrap();
+        fs::write(d.join("quiet.log"), "slot: job 3 queued\nslot: job 3 running\n").unwrap();
+        let records = json!([
+            {"kind": "tests", "result": "fail", "action": "tests.run", "exit": 1, "log": d.join("tests.log")},
+            {"kind": "approval", "result": "rejected", "action": "change.approve", "exit": 6, "log": rej},
+            {"kind": "lint", "result": "invalid", "action": null, "exit": null, "log": d.join("quiet.log")},
+            {"kind": "gate", "result": "fail", "action": "gate.run", "exit": 2, "log": d.join("missing.log")},
+        ]);
+        fs::write(d.join("feedback.json"), records.to_string()).unwrap();
+    };
+    let own_failure = |d: &Path| {
+        let case_dir = d.join("case");
+        fs::create_dir_all(case_dir.join("blobs")).unwrap();
+        let log: String = (1..=100).map(|i| format!("slot: job {i} queued\nwriter line {i}\n")).collect();
+        fs::write(case_dir.join("blobs/run1"), log).unwrap();
+        fs::write(case_dir.join("events.jsonl"), "{\"event\":\"action_finished\",\"action\":\"change.fix\",\"exit\":3,\"log\":\"run1\"}\n").unwrap();
+    };
+    let fb = |case: &str| format!("{tmp}/instructions/{case}/feedback.json");
+    let cd = |case: &str| format!("{tmp}/instructions/{case}/case");
+    compare(
+        "feedback",
+        "checks",
+        &feedback_of(&run_node_in("fb-checks", "change.fix", |d, _| checks(d), &[("SDC_FEEDBACK", &fb("fb-checks"))])),
+    );
+    compare(
+        "feedback",
+        "own-failure",
+        &feedback_of(&run_node_in("fb-own", "change.fix", |d, _| own_failure(d), &[("SDC_CASE_DIR", &cd("fb-own"))])),
+    );
+    compare(
+        "feedback",
+        "checks-and-own-failure",
+        &feedback_of(&run_node_in(
+            "fb-both",
+            "change.fix",
+            |d, _| {
+                checks(d);
+                own_failure(d);
+            },
+            &[("SDC_FEEDBACK", &fb("fb-both")), ("SDC_CASE_DIR", &cd("fb-both"))],
+        )),
+    );
+    let position = json!({"claims": {}, "open_obligations": [], "legitimate_outcomes": []});
+    let approval = json!({"type": "approval", "action": "roadmap.approve", "capability": "approve", "subject": "roadmap", "path": "aep/initiative/roadmap.md", "revision": "r7", "class": "approval", "position": position});
+    let close = json!({"type": "close", "action": "close", "outcome": "delivered", "class": "close", "position": position});
+    let bare = json!({"type": "approval", "action": "plan.approve", "subject": "plan", "position": position});
+    for (name, req) in [("approval", approval), ("approval-no-revision", bare), ("close", close)] {
+        let rec = run_decider_in(&format!("req-{name}"), "requester", req, &[]);
+        compare("requester-request", name, &fs::read_to_string(rec.join("cwd/in/request.json")).unwrap());
+    }
+    if std::env::var("SDC_BLESS_PROMPTS").is_err() {
+        assert_eq!(golden_names("feedback"), ["checks", "checks-and-own-failure", "own-failure"].map(String::from).into_iter().collect());
+        assert_eq!(golden_names("requester-request"), ["approval", "approval-no-revision", "close"].map(String::from).into_iter().collect());
+    }
+}
+
 #[test]
 fn every_agent_binding_names_its_instruction_file_and_the_tools_hold_no_instruction_text() {
     let root = repo();
@@ -451,7 +536,15 @@ fn every_agent_binding_names_its_instruction_file_and_the_tools_hold_no_instruct
 fn every_instruction_file_is_reached_by_a_golden() {
     let root = repo().join("instructions");
     let mut goldens = String::new();
-    for group in ["llm-node", "decider", "implement", "conform", "unstick"] {
+    for group in [
+        "llm-node",
+        "decider",
+        "implement",
+        "conform",
+        "unstick",
+        "feedback",
+        "requester-request",
+    ] {
         for e in fs::read_dir(root.join("golden").join(group)).unwrap() {
             goldens.push_str(&fs::read_to_string(e.unwrap().path()).unwrap());
         }

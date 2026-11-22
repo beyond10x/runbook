@@ -21,7 +21,14 @@ mkdir -p "$rec"
 home=$(mktemp -d "$rec/config-home.XXXXXX") && chmod 700 "$home" || exit 127
 trap 'rm -rf "$home"' EXIT
 if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
-  creds=${SDC_CLAUDE_CREDENTIALS:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json}
+  # Loom gives a program PATH and LOOM_* alone, so HOME may be unset: no variable is read bare.
+  creds=${SDC_CLAUDE_CREDENTIALS:-}
+  if [[ -z $creds ]]; then
+    config=${CLAUDE_CONFIG_DIR:-}
+    [[ -n $config || -z ${HOME:-} ]] || config=$HOME/.claude
+    [[ -z $config ]] || creds=$config/.credentials.json
+  fi
+  [[ -n $creds ]] || { echo "llm-adapter-claude-cli.sh: no login: none of SDC_CLAUDE_CREDENTIALS, CLAUDE_CONFIG_DIR, HOME and ANTHROPIC_API_KEY is set (a Loom program gets PATH alone: the binding passes --claude-credentials <file> to llm-node.sh)" >&2; exit 127; }
   [[ -f $creds ]] || { echo "llm-adapter-claude-cli.sh: no login ($creds) and no ANTHROPIC_API_KEY" >&2; exit 127; }
   install -m 600 "$creds" "$home/.credentials.json" || exit 127
 fi
