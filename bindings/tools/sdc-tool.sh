@@ -75,7 +75,8 @@ case $1 in
 esac
 # The ess release every tool here runs: 0.96.0, the release the committed recordings, records and
 # experiment runs were made with. Since 2026-11-21 the `ess` on PATH can be a version dispatcher
-# (0.97.1) that runs itself in a case tree, where no `ess-inputs.yaml` pins a release; its output
+# (0.97.1 and later, 0.97.3 included) that runs itself in a case tree, where no `ess-inputs.yaml`
+# pins a release; its output
 # differs (the conformance line names the ess version, and `--strict-requires` refuses a spec that
 # requires an older one), so in/tests.txt and the gates would depend on what is installed.
 # ESS_TOOLCHAIN names the release to the dispatcher (a caller's value wins) and ESS_TOOLCHAIN_QUIET

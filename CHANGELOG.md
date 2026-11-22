@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- `driver/ess-pin.json` pins ess 0.97.3 (tag `0.97.3`, commit `cd9698fd65`; archive sha256 equal to the release's `SHA256SUMS`) instead of 0.97.0; `sdc-conform ess-install` and `ess-path` resolve it and the conformance tests of `driver/` pass with it. Neither breaking change of 0.97.3 (`--component` scopes synthesis and the report to one component; read-grant scenarios no longer copy the reads of other views) moved a committed file here: nothing outside `ess/` is written by an `ess`, the fixture specifications under `driver/tests/fixtures/conformance/` are read only, and no tool here passes `--component`. `bindings/tools/sdc-tool.sh` still runs ess 0.96.0 through the dispatcher (`ESS_TOOLCHAIN`), not the pin.
+
 ### Fixed
 
 - `runbook loom-run`: a model step that ended before it started any adapter (its call directory has no `request.json`, which `llm-node.sh` writes before every adapter start, and a `status.json` with the step's exit) costs nothing: its reservation is released instead of booked, an event `no_model_call` names the call and the exit, and the run goes on with what Loom says of the step instead of ending `error` at the cost reader; a directory with a `request.json` and no cost record, and one without a readable `status.json` exit, stay fail-closed as before (`docs/loom-run.md`).
