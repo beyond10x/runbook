@@ -5,6 +5,10 @@ edition = "2021"
 publish = false
 autotests = false
 
+[lib]
+name = "sdc_tools"
+path = "src/lib.rs"
+
 [[test]]
 name = "main"
 path = "tests/main.rs"

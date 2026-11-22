@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 mod loom_run;
+mod reply_lib;
 mod test_suite;
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");

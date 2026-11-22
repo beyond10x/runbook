@@ -827,8 +827,12 @@ fn the_three_rust_binaries_hold_no_instruction_text() {
             }
         }
     }
-    for src in ["src/bin/sdc-conform.rs", "src/bin/sdc-unstick.rs", "src/bin/sdc-reply/implement.rs"] {
-        let text = fs::read_to_string(manifest().join(src)).unwrap().replace("\\\"", "\"");
+    let implement = ["mod", "tree", "reply", "assemble", "run"].map(|f| format!("src/reply/implement/{f}.rs"));
+    let implement_text = implement.iter().map(|f| fs::read_to_string(manifest().join(f)).unwrap()).collect::<Vec<_>>().join("\n");
+    for (src, text) in [("src/bin/sdc-conform.rs", fs::read_to_string(manifest().join("src/bin/sdc-conform.rs")).unwrap()),
+        ("src/bin/sdc-unstick.rs", fs::read_to_string(manifest().join("src/bin/sdc-unstick.rs")).unwrap()),
+        ("src/reply/implement/", implement_text)] {
+        let text = text.replace("\\\"", "\"");
         for l in &lines {
             assert!(!text.contains(l.as_str()), "{src} still holds instruction text: {l}");
         }

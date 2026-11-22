@@ -468,7 +468,7 @@ of "escalate to a person" it says that no person can be asked: write `escalate`,
 what cannot be told, and give `best`. Cycle `decider-input` checks the records of the `autopilot`
 cycle.
 
-**Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`). `sdc-reply citable` lists what a
+**Decider replies** (2026-11-21, `driver/src/bin/sdc-reply.rs`, the functions in `driver/src/reply/`). `sdc-reply citable` lists what a
 decider call may cite, in the citation forms of `decisions.md`: ids (requirement, dissection,
 question and finding ids, `context.<key>`, the claims in `in/checks.json`), artifact revisions with
 an entry (`context@<rev>#platform.value`; YAML and JSON artifacts in `in/`) and lines of a file
@@ -823,7 +823,7 @@ schema.
 **Implement as one request** (2026-11-21, `story:implement-one-request`, `SDC_IMPLEMENT_MODE`).
 `SDC_IMPLEMENT_MODE=session` (the default) runs `change.implement` as before: a session with file
 tools over `in/` and `out/impl/`. `SDC_IMPLEMENT_MODE=request` makes it one request per call, with
-no tool, through `sdc-reply implement-run` (`driver/src/bin/sdc-reply/implement.rs`); any other
+no tool, through `sdc-reply implement-run` (`driver/src/reply/implement/`); any other
 value is refused at start (exit 64). `run-trial.sh` records `implement_mode` in
 `run-settings.jsonl` and, in request mode, the implement class's adapter under `adapters.implement`;
 `sdc-experiment` launches it as the setting `implement_mode`.
