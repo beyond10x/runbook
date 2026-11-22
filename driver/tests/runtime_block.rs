@@ -130,3 +130,67 @@ fn the_live_tree_prints_one_capability_line_per_member_and_exits_0() {
     assert_eq!(code, 0, "{out}{err}");
     assert_eq!(out.lines().filter(|l| l.starts_with("capability ")).count(), members, "{out}");
 }
+
+fn run_with(tag: &str, edit: impl FnOnce(&mut Value)) -> (i32, String, String) {
+    refused_after(tag, edit)
+}
+
+#[test]
+fn the_unedited_block_is_read_and_exits_0() {
+    let (code, out, err) = run_with("live2", |_| {});
+    assert_eq!(code, 0, "{out}{err}");
+}
+
+#[test]
+fn a_provided_by_value_with_the_prefix_and_nothing_after_it_is_refused() {
+    for v in ["loom: ", "runner: ", "absent: "] {
+        let (code, out, err) = run_with("emptyval", |e| e["runtime"]["provided_by"]["backstop"] = json!(v));
+        assert_eq!(code, 2, "{v:?} accepted:\n{out}{err}");
+    }
+}
+
+#[test]
+fn a_loom_value_with_no_file_and_line_is_refused() {
+    let (code, out, err) = run_with("nofileline", |e| e["runtime"]["provided_by"]["backstop"] = json!("loom: nothing in particular"));
+    assert_eq!(code, 2, "accepted:\n{out}{err}");
+}
+
+#[test]
+fn a_member_of_the_wrong_type_is_refused() {
+    for (member, value) in [
+        ("backstop", json!("8")),
+        ("capped_effects", json!("write")),
+        ("cap_per_kind", json!("false")),
+        ("capped_effects", json!(["bogus"])),
+        ("backstop", json!(-3)),
+    ] {
+        let (code, out, err) = run_with("wrongtype", |e| e["runtime"][member] = value.clone());
+        assert_eq!(code, 2, "{member}={value} accepted (exit {code}):\n{out}{err}");
+    }
+}
+
+#[test]
+fn two_refusals_at_once_are_both_named() {
+    let (code, out, err) = run_with("two", |e| {
+        e["runtime"]["provided_by"].as_object_mut().unwrap().remove("backstop");
+        e["runtime"]["provided_by"]["cap_per_kind"] = json!("nothing");
+    });
+    assert_eq!(code, 2, "{out}{err}");
+    assert!(err.contains("backstop") && err.contains("cap_per_kind"), "only one is named:\n{err}");
+}
+
+#[test]
+fn a_refusal_prints_no_route_and_names_the_file() {
+    let (code, out, err) = run_with("order", |e| {
+        e["runtime"].as_object_mut().unwrap().remove("provided_by");
+    });
+    assert_eq!(code, 2);
+    assert!(out.is_empty(), "stdout before a refusal:\n{out}");
+    assert!(err.contains("rule-ends.json"), "{err}");
+}
+
+#[test]
+fn a_member_that_says_it_is_present_while_provided_by_says_absent_is_refused() {
+    let (code, out, err) = run_with("contradict", |e| e["runtime"]["cap_per_kind"] = json!(true));
+    assert_eq!(code, 2, "cap_per_kind true next to `absent:` accepted:\n{out}{err}");
+}
