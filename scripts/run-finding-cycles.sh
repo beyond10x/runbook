@@ -121,21 +121,37 @@
 # <names>` and `pending: N (K still failing: ...)`; exits 1 when an expected cycle missed its
 # expectation (a pending one never fails the script).
 #
-#   scripts/run-finding-cycles.sh <scratch dir>
+#   scripts/run-finding-cycles.sh <scratch dir> [--only <name>[,<name>...]]
+#
+# --only runs the named cycles and nothing else (repeatable; a name is an `expected` or `pending`
+# cycle of this script, an id of cycles/suite.yaml). A selected cycle runs the same code with the
+# same checks as in a full run; an unselected one neither runs nor is counted. A name that does not
+# exist ends the script with exit 2, naming it, before anything runs. A cycle that reads the output
+# of another (`needs` below) runs that one too, in one line: `cycles: also running <name> (needed by
+# <name>)`. The verdict is `cycles: selected S of T, M as expected, K failed: <names>`, never the
+# full run's line, and covers the selected cycles only; the log is <scratch dir>/cycles-only.log
+# (cycles.log of a full run stays). Exit 1 when a selected cycle failed.
+# `task cycles:only SCRATCH=<scratch dir> NAMES=<name>[,<name>...]` passes them through.
+# Each cycle's block stands between `if sel <names>; then` and `fi`, not indented, so the diff that
+# added them is only insertions; what runs between blocks (variables, functions) runs in every mode.
 set -uo pipefail
 sdc=$(cd "$(dirname "$0")/.." && pwd)
 source "$sdc/scripts/evaluate-cases.sh"
 canon_resolve || exit 1
 s=${1:?scratch dir}
+shift
+only=()
+while (( $# > 0 )); do
+  case $1 in
+    --only)
+      [[ -n ${2:-} ]] || { echo "cycles: --only needs cycle names: <name>[,<name>...]" >&2; exit 2; }
+      IFS=, read -r -a names <<< "$2"
+      only+=("${names[@]}")
+      shift 2 ;;
+    *) echo "cycles: unknown argument: $1 (usage: run-finding-cycles.sh <scratch dir> [--only <name>[,<name>...]])" >&2; exit 2 ;;
+  esac
+done
 fx=$sdc/driver/examples/sdc/fixtures
-mkdir -p "$s/runs"
-# The requester cycles ground answers in goals entries through tools/decision-grounds.sh, which runs
-# goals/target/debug/sdc-goals; build it here so a fresh checkout does not exit 127 there.
-(cd "$sdc/goals" && cargo build --quiet) || { echo "cycles: building goals/ (sdc-goals) failed"; exit 1; }
-(cd "$sdc/driver" && cargo build --quiet --bin sdc-run-metrics) || { echo "cycles: building sdc-run-metrics failed"; exit 1; }
-metrics=$sdc/driver/target/debug/sdc-run-metrics
-kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
-[[ -x $kpis ]] || { echo "cycles: sdc-finding-kpis not found (looked at SDC_FINDING_KPIS, then $sdc/driver/target/debug/sdc-finding-kpis)"; exit 1; }
 # The cycles and their expectations. A cycle with a check line is as expected when it prints
 # "<name>: checks pass" and no "<name>: FAILED"; one without (exit_only) when its exit line shows
 # the exit given here. A cycle that prints nothing failed. Exit 1 when any cycle failed.
@@ -173,26 +189,81 @@ expected+=(implement-request-build implement-request-tests-rework implement-requ
 expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red bugfix-from-ticket)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
   replay-recording-clean rule-approvals-default review-mode-default implement-coverage-default)
+jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1 &&
+  expected+=(decider-release-withheld)
+# Selection (--only), checked before anything runs. needs: a cycle that reads the run directory, the
+# store or the log of an earlier cycle, by its name; the earlier cycle is pulled in with it.
+declare -A needs=([run-stop-decider]=decider-finding-refused [decider-later-obligation]=autopilot
+  [decider-input]="autopilot autopilot-close-a3" [conformance-default-off]=autopilot-close
+  [principals]="finding-person finding-person-stop" [run-metrics]=decider-rework [rework-cap]=decider-rework-spent
+  [rework-pending-rejection]=rework-not-called [writer-not-called]=replay-sibling)
+declare -A known=() run_set=()
+for name in "${expected[@]}" "${pending[@]}"; do known[$name]=1; done
+selected=() pulled=() notes=()
+if (( ${#only[@]} > 0 )); then
+  unknown=()
+  for name in "${only[@]}"; do [[ -n $name && -n ${known[$name]:-} ]] || unknown+=("'$name'"); done
+  if (( ${#unknown[@]} > 0 )); then
+    echo "cycles: no such cycle: ${unknown[*]} (an expected or pending cycle of this script; the ids of cycles/suite.yaml)" >&2
+    exit 2
+  fi
+  for name in "${only[@]}"; do [[ -n ${run_set[$name]:-} ]] || { run_set[$name]=1; selected+=("$name"); }; done
+  queue=("${selected[@]}")
+  for ((i = 0; i < ${#queue[@]}; i++)); do
+    for dep in ${needs[${queue[i]}]:-}; do
+      [[ -z ${run_set[$dep]:-} ]] || continue
+      [[ -n ${known[$dep]:-} ]] || { echo "cycles: ${queue[i]} needs $dep, which this tree does not list: nothing ran" >&2; exit 2; }
+      run_set[$dep]=1; queue+=("$dep"); pulled+=("$dep")
+      notes+=("cycles: also running $dep (needed by ${queue[i]}: it reads that cycle's output)")
+    done
+  done
+fi
+sel() { # <name>...: true in a full run, or when one of the names is selected (or pulled in)
+  (( ${#only[@]} == 0 )) && return 0
+  local n
+  for n in "$@"; do [[ -n ${run_set[$n]:-} ]] && return 0; done
+  return 1
+}
+mkdir -p "$s/runs"
+# The requester cycles ground answers in goals entries through tools/decision-grounds.sh, which runs
+# goals/target/debug/sdc-goals; build it here so a fresh checkout does not exit 127 there.
+(cd "$sdc/goals" && cargo build --quiet) || { echo "cycles: building goals/ (sdc-goals) failed"; exit 1; }
+(cd "$sdc/driver" && cargo build --quiet --bin sdc-run-metrics) || { echo "cycles: building sdc-run-metrics failed"; exit 1; }
+metrics=$sdc/driver/target/debug/sdc-run-metrics
+kpis=${SDC_FINDING_KPIS:-$sdc/driver/target/debug/sdc-finding-kpis}
+[[ -x $kpis ]] || { echo "cycles: sdc-finding-kpis not found (looked at SDC_FINDING_KPIS, then $sdc/driver/target/debug/sdc-finding-kpis)"; exit 1; }
 declare -A exit_only=([stub-cycle]=0 [finding-agent]=0 [finding-person-stop]=3 [finding-person]=0
   [scope-answer]=0 [finding-program]=0)
 summary() { # <log>
-  local log=$1 name ok=0 failed=()
-  for name in "${expected[@]}"; do
+  local log=$1 name ok=0 failed=() names=("${expected[@]}") pnames=("${pending[@]}")
+  if (( ${#only[@]} > 0 )); then
+    names=() pnames=()
+    for name in "${expected[@]}"; do [[ -z ${run_set[$name]:-} ]] || names+=("$name"); done
+    for name in "${pending[@]}"; do [[ -z ${run_set[$name]:-} ]] || pnames+=("$name"); done
+  fi
+  for name in "${names[@]}"; do
     if grep -q "^$name: FAILED" "$log"; then failed+=("$name")
     elif grep -q "^$name: checks pass" "$log"; then ok=$((ok + 1))
     elif [[ -n ${exit_only[$name]:-} ]] && grep -q "^$name: exit ${exit_only[$name]} " "$log"; then ok=$((ok + 1))
     else failed+=("$name")
     fi
   done
-  echo "cycles: ${#expected[@]} expected, $ok as expected, ${#failed[@]} failed: ${failed[*]:-none}"
   local still=() passing=()
-  for name in "${pending[@]}"; do
+  for name in "${pnames[@]}"; do
     if grep -q "^$name: checks pass" "$log" && ! grep -q "^$name: FAILED" "$log"; then passing+=("$name"); else still+=("$name"); fi
   done
-  echo "pending: ${#pending[@]} (${#still[@]} still failing: ${still[*]:-none}; passing, move to expected: ${passing[*]:-none})"
+  if (( ${#only[@]} == 0 )); then
+    echo "cycles: ${#expected[@]} expected, $ok as expected, ${#failed[@]} failed: ${failed[*]:-none}"
+    echo "pending: ${#pending[@]} (${#still[@]} still failing: ${still[*]:-none}; passing, move to expected: ${passing[*]:-none})"
+  else
+    echo "cycles: selected ${#selected[@]} of $((${#expected[@]} + ${#pending[@]}))${pulled:+ (+${#pulled[@]} needed: ${pulled[*]})}, $ok as expected, ${#failed[@]} failed: ${failed[*]:-none}"
+    (( ${#pnames[@]} == 0 )) || echo "pending: selected ${#pnames[@]} of ${#pending[@]} (${#still[@]} still failing: ${still[*]:-none}; passing, move to expected: ${passing[*]:-none})"
+  fi
   (( ${#failed[@]} == 0 ))
 }
+log=$s/cycles.log; (( ${#only[@]} == 0 )) || log=$s/cycles-only.log
 {
+(( ${#notes[@]} == 0 )) || printf '%s\n' "${notes[@]}"
 cycle() {
   local name=$1; shift
   env RUNS="$s/runs" "$@" "$sdc/scripts/run-full-cycle.sh" "$name" "$s/store-$name" > "$s/$name.txt" 2>&1
@@ -200,23 +271,36 @@ cycle() {
   echo "$name: exit $code ($(tail -n 1 "$s/$name.txt"))"
   return $code
 }
+if sel stub-cycle; then
 cycle stub-cycle
 "$kpis" "$s/runs/stub-cycle" | sed 's/^/  /'
+fi
+if sel finding-agent; then
 cycle finding-agent SDC_STUB_FINDINGS="$fx/finding-spec-agent.yaml"
 "$kpis" "$s/runs/finding-agent" | sed 's/^/  /'
+fi
+if sel finding-person-stop; then
 cycle finding-person-stop SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml"
+fi
+if sel finding-person; then
 cycle finding-person SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" FINDING_DECISION=option:2
 "$kpis" "$s/runs/finding-person" | sed 's/^/  /'
+fi
+if sel scope-answer; then
 cycle scope-answer SDC_STUB_FIXTURES="$fx/scope-question"
 "$kpis" "$s/runs/scope-answer" | sed 's/^/  /'
+fi
+if sel finding-program; then
 cycle finding-program SDC_STUB_FIXTURES="$fx/storage-conflict"
 "$kpis" "$s/runs/finding-program" | sed 's/^/  /'
+fi
 # scope-changed: runs/trial-2-train's stop (docs/trial-2.md, "Run notes"). questions.answer goes
 # through llm-node.sh's apply step (fixture adapter, no LLM); at the scope.answer stop the person
 # changes q2's answer in questions.yaml, then takes scope.answer once. Passes when the cycle ends
 # operating, q2 keeps the person's answer (`answered_by: person:stand-in`, the scripted person) and the requirements were written
 # after scope.answer.
 answer="the billing clerk or the customer, before it is paid"
+if sel scope-changed; then
 cycle scope-changed SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
   SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh" \
   SCOPE_ANSWERS="$(jq -cn --arg a "$answer" '{q2: $a}')"
@@ -233,6 +317,7 @@ else
   echo "scope-changed: FAILED (cycle exit $code, or q2 / the requirements order wrong)"
 fi
 "$kpis" "$s/runs/scope-changed" | sed 's/^/  /'
+fi
 # intake-decision: runs/trial-2-train's second stop (docs/trial-2.md, "Run notes"). As
 # scope-changed, plus: at the first stop the person edits q2, one questions.check runs without yq
 # on PATH at the new interview revision (the check runs once per revision, so only after the
@@ -242,6 +327,7 @@ fi
 # questions.check after it recorded (a 127 run leaves the check admissible), questions.write ran once,
 # and the interview keeps q2 and the decision (option 3), both person:stand-in.
 decision="the customer asks, the billing clerk cancels"
+if sel intake-decision; then
 cycle intake-decision SDC_STUB_FIXTURES="$fx/scope-question" SDC_LLM_NODES=questions.answer \
   SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh" \
   SCOPE_ANSWERS="$(jq -cn --arg a "$answer" '{q2: $a}')" SCOPE_RESUME_FIRST=1 NO_YQ_STEP=questions.check \
@@ -264,8 +350,10 @@ else
   echo "intake-decision: FAILED (cycle exit $code, or no single 127 check, a record without yq, no recording check after it, a rewritten interview, or a lost answer)"
 fi
 "$kpis" "$s/runs/intake-decision" | sed 's/^/  /'
+fi
 # offline-sync: the context hosts a server and says the client keeps a local copy and syncs
 # (`offline` field), a requirement drafts offline: both hold, rule offline-hosted must not fire.
+if sel offline-sync; then
 cycle offline-sync SDC_STUB_FIXTURES="$fx/offline-sync"
 code=$?
 f=$s/store-offline-sync/IDEA-1/work/findings.yaml
@@ -275,10 +363,12 @@ if (( code == 0 )) && ! grep -q 'offline-hosted' "$f" 2>/dev/null &&
 else
   echo "offline-sync: FAILED (cycle exit $code, or offline-hosted fired, or the deployment was amended)"
 fi
+fi
 # offline-decision: runs/trial-2-train's rejected context. r3 drafts offline and cites q3, an
 # agent's decision "a hosted web server"; the context names that server with no offline path. The
 # rule fires; the agent's amendment (deployment "on the user's own machine") contradicts q3, so
 # it is reverted and the finding waits for a person with both sides shown: exit 3 at direction.
+if sel offline-decision; then
 cycle offline-decision SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 f=$s/store-offline-decision/IDEA-1/work/findings.yaml
@@ -289,12 +379,14 @@ if (( code == 3 )) && yq -o=json "$f" | jq -e '.findings[] | select(.id == "p-of
 else
   echo "offline-decision: FAILED (cycle exit $code, or the amendment stood)"
 fi
+fi
 # plan-in-project: runs/trial-2-train's plan stop. The case directory lies inside a project whose
 # .engineering/project.yaml names the profile development.standard (this repository's own, as for
 # runs/ here), where a draft may only move to proposed. plan.decompose goes through llm-node.sh's
 # apply step (fixture adapter, fixtures/plan-stories.json); the stub roadmap and the apply step
 # move the epic and the story to active in the case's own aep store. Passes when the cycle ends
 # operating and plan.decompose ran once.
+if sel plan-in-project; then
 p=$s/in-project; rm -rf "$p"; mkdir -p "$p/.engineering" "$p/runs"
 cp "$sdc/.engineering/project.yaml" "$p/.engineering/"
 env RUNS="$p/runs" SDC_LLM_NODES=plan.decompose \
@@ -311,12 +403,14 @@ if (( code == 0 )) &&
 else
   echo "plan-in-project: FAILED (cycle exit $code, or plan.decompose refused or repeated)"
 fi
+fi
 # story-decision: runs/trial-2-train's story stop (R7). change.implement's stub raises a
 # scope-changing finding and an agent one on its first run, another agent one on its second
 # applied run (fixtures/finding-story-rounds.yaml, `rounds`); the person decides the first with
 # option 2. Its decision is an arrival: change.implement gets a fresh max_runs 3. Passes when the
 # cycle ends operating with change.implement run 4 times in the story case.
 story=IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl
+if sel story-decision; then
 cycle story-decision SDC_STUB_FINDINGS="$fx/finding-story-rounds.yaml" FINDING_DECISION=option:2
 code=$?
 if (( code == 0 )) && jq -se '[.[] | select(.event == "action_finished" and .action == "change.implement")] | length == 4' \
@@ -325,9 +419,11 @@ if (( code == 0 )) && jq -se '[.[] | select(.event == "action_finished" and .act
 else
   echo "story-decision: FAILED (cycle exit $code, or change.implement did not run 4 times)"
 fi
+fi
 # story-spent: change.implement raises a new agent finding on each of 4 runs: its allowance of 3
 # is spent with no person involved. Passes when the run ends `writer_spent` naming
 # change.implement (not `stuck`, not `awaiting_person` on amend.upstream).
+if sel story-spent; then
 cycle story-spent SDC_STUB_FINDINGS="$fx/finding-story-spent.yaml"
 code=$?
 if (( code == 1 )) && jq -se '(map(select(.event | test("^(stuck|awaiting_person|writer_spent)$"))) | last)
@@ -337,11 +433,13 @@ if (( code == 1 )) && jq -se '(map(select(.event | test("^(stuck|awaiting_person
 else
   echo "story-spent: FAILED (cycle exit $code, or the stop is not writer_spent on change.implement)"
 fi
+fi
 # story-late-person: runs/trial-2-train's lists story (R8). change.implement's third run raises a
 # scope-changing finding: its allowance is spent while the finding waits for a person. The run
 # stops awaiting_person with amend.upstream's handoff (handoff_when: a finding waits), not
 # writer_spent; the person's decision gives change.implement a fresh allowance. Passes when the
 # cycle ends operating with one person stop and no writer_spent.
+if sel story-late-person; then
 cycle story-late-person SDC_STUB_FINDINGS="$fx/finding-story-late-person.yaml" FINDING_DECISION=option:2
 code=$?
 if (( code == 0 )) && jq -se '([.[] | select(.event == "awaiting_person")] | length) == 1
@@ -350,11 +448,13 @@ if (( code == 0 )) && jq -se '([.[] | select(.event == "awaiting_person")] | len
 else
   echo "story-late-person: FAILED (cycle exit $code, or writer_spent instead of the person stop)"
 fi
+fi
 # superseded-answer: runs/trial-3-haiku-5's r1 (D141). spec.author's stub raises a missing decision
 # answered by the agent's default "Postgres" (q3, on r1); change.implement's stub raises a
 # contradiction citing q3 and r1, answered by the agent's default "the data file" (q4). Passes when
 # the cycle ends operating, q3 is superseded by q4, r1 cites q4 and not q3, and r1's text names no
 # Postgres and no q3.
+if sel superseded-answer; then
 cycle superseded-answer SDC_STUB_FINDINGS="$fx/finding-superseded-spec.yaml:$fx/finding-superseded-story.yaml"
 code=$?
 w=$s/store-superseded-answer/IDEA-1/work
@@ -367,10 +467,12 @@ if (( code == 0 )) &&
 else
   echo "superseded-answer: FAILED (cycle exit $code, or q3 not superseded, or r1 still cites q3 or names Postgres)"
 fi
+fi
 # spec-duplicate: runs/trial-3-haiku-2 (f10-f13 = f6-f9, f15 = f14). spec.author raises a finding,
 # then raises it again with no key (fixtures/finding-spec-duplicate.yaml). Passes when the cycle ends
 # operating with one finding of that text and spec.author run twice (the repeat added nothing).
 spec=IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl
+if sel spec-duplicate; then
 cycle spec-duplicate SDC_STUB_FINDINGS="$fx/finding-spec-duplicate.yaml"
 code=$?
 if (( code == 0 )) && [[ $(yq '[.findings[] | select(.says | test("cancelled invoice"))] | length' "$s/store-spec-duplicate/IDEA-1/work/findings.yaml") == 1 ]] &&
@@ -379,10 +481,12 @@ if (( code == 0 )) && [[ $(yq '[.findings[] | select(.says | test("cancelled inv
 else
   echo "spec-duplicate: FAILED (cycle exit $code, or the repeated finding was added again)"
 fi
+fi
 # spec-own-default: runs/trial-3-haiku-2's stop. spec.author goes through llm-node.sh's apply path
 # (fixture adapter) and raises a new agent finding on every LLM call (fixtures/finding-spec-rounds.yaml).
 # Passes when the cycle ends operating, no writer_spent, spec.author run twice with one LLM call:
 # the amendment only records the default its tree follows, so it is not re-derived by the LLM.
+if sel spec-own-default; then
 cycle spec-own-default SDC_STUB_FINDINGS="$fx/finding-spec-rounds.yaml" SDC_LLM_NODES=spec.author \
   SDC_LLM_ADAPTER="$sdc/bindings/tools/llm-adapter-fixture.sh"
 code=$?
@@ -393,6 +497,7 @@ if (( code == 0 )) && jq -se '([.[] | select(.event == "writer_spent")] | length
 else
   echo "spec-own-default: FAILED (cycle exit $code, or writer_spent, or spec.author re-derived by the LLM)"
 fi
+fi
 # The requirement trace (runs/trial-3-haiku-3: r3 traced to a domain with one actor and no command).
 # tracelog <cycle>: every spec.trace log of the cycle's spec case, in order.
 tracelog() { local d=$s/store-$1/${spec%/events.jsonl}
@@ -400,6 +505,7 @@ tracelog() { local d=$s/store-$1/${spec%/events.jsonl}
 # trace-gap: fixtures/trace-gap. The first spec traces r3 to billing.audit (an actor, no command):
 # the trace finding p-trace-r3, the writer sent back (the agent's decision names the gap), the
 # second spec traces r3 to two views. Passes when the cycle ends operating with that finding.
+if sel trace-gap; then
 cycle trace-gap SDC_STUB_FIXTURES="$fx/trace-gap"
 code=$?
 if (( code == 0 )) && yq -o=json "$s/store-trace-gap/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
@@ -410,9 +516,11 @@ if (( code == 0 )) && yq -o=json "$s/store-trace-gap/IDEA-1/work/findings.yaml" 
 else
   echo "trace-gap: FAILED (cycle exit $code, or no p-trace-r3, or the writer was not sent back)"
 fi
+fi
 # trace-gap-drop: the writer never specifies r3 (fixtures/trace-gap-drop): after it was sent back
 # once the gap is a scope decision, not a default; the scripted person drops r3. Passes when the
 # cycle ends operating with p-trace-r3 decided by the person and r3 `behaviour: dropped`.
+if sel trace-gap-drop; then
 cycle trace-gap-drop SDC_STUB_FIXTURES="$fx/trace-gap-drop" FINDING_DECISION=option:3
 code=$?
 if (( code == 0 )) && yq -o=json "$s/store-trace-gap-drop/IDEA-1/work/findings.yaml" | jq -e '.findings[] | select(.id == "p-trace-r3")
@@ -423,8 +531,10 @@ if (( code == 0 )) && yq -o=json "$s/store-trace-gap-drop/IDEA-1/work/findings.y
 else
   echo "trace-gap-drop: FAILED (cycle exit $code, or the gap was waved through, or r3 not dropped)"
 fi
+fi
 # trace-constraint: r3 is a retention constraint with its reason (fixtures/trace-constraint): it
 # passes the trace untraced and is counted. Passes when the cycle ends operating with no trace finding.
+if sel trace-constraint; then
 cycle trace-constraint SDC_STUB_FIXTURES="$fx/trace-constraint"
 code=$?
 if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work/findings.yaml" 2>/dev/null &&
@@ -433,11 +543,13 @@ if (( code == 0 )) && ! grep -q 'p-trace' "$s/store-trace-constraint/IDEA-1/work
 else
   echo "trace-constraint: FAILED (cycle exit $code, or the constraint was not counted)"
 fi
+fi
 # trace-constraint-decided: runs/trial-3-small-sonnet-1. As trace-gap-drop, but the person answers
 # in the decider's words of that run, the constraint option with more text after it. Passes when the
 # cycle ends operating, r3 is `behaviour: constraint` and counted as one, and the agent's first answer
 # to p-trace-r3 ("specify r3 in the spec") is superseded by the person's, so r3 cites only the latter.
 said="r3 is a constraint, not behaviour: mark r3 as a constraint outside the specification."
+if sel trace-constraint-decided; then
 cycle trace-constraint-decided SDC_STUB_FIXTURES="$fx/trace-gap-drop" FINDING_DECISION="$said"
 code=$?
 w=$s/store-trace-constraint-decided/IDEA-1/work
@@ -450,6 +562,7 @@ if (( code == 0 )) && yq -e '.requirements[] | select(.id == "r3") | .behaviour 
   echo "trace-constraint-decided: checks pass (the constraint answer applied, r3 counted a constraint; the send-back answer superseded)"
 else
   echo "trace-constraint-decided: FAILED (cycle exit $code, or r3 not a constraint, or the earlier answer not superseded)"
+fi
 fi
 
 # change.review as a model call (story:review-node-is-a-model): the review goes through llm-node.sh
@@ -467,6 +580,7 @@ app='{"decision": "approved", "summary": "fixture: the rework addresses the find
 # Passes when the cycle ends operating with two code_review records by llm-review, rejected then
 # approved, the rejection's log an sdc.rejection/1 citing that line and r1, and change.implement
 # run twice, the second time sent back by the review with the rejection (the stub's impl/.rework).
+if sel review-reject-once; then
 cycle review-reject-once "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{rounds: [$j, $a]}')"
 code=$?
 d=$s/store-review-reject-once/${story%/events.jsonl}
@@ -486,6 +600,7 @@ if (( code == 0 )) && jq -e '[.[] | .result] == ["rejected", "approved"] and all
 else
   echo "review-reject-once: FAILED (cycle exit $code: $(jq -c 'map({result, producer})' <<< "$rv" 2>/dev/null); second review: ${r2:-no record}, in/rejection.json $([[ -n $r2 && -e $r2/cwd/in/rejection.json ]] && echo present || echo absent), Rework. lines $(grep -c '^Rework\.' "$r2/prompt.md" 2>/dev/null || echo 0))"
 fi
+fi
 # review-minimal-input (story:review-minimal-facts, SDC_REVIEW_MODE=facts): review-reject-once again
 # with the switch on (review-facts-once, the same replies); its reviews got one
 # document, no tools and no whole tree; and on that story's tree, with a file the change does not
@@ -498,6 +613,7 @@ fi
 # listing (path and size; `server.js` with its items `serve` and `GET /health`), a service worker the
 # tree lacks is not; `check-review` takes a finding at `impl/server.js` without a line (a listed
 # file, citation `listed: true`) and refuses `impl/server.js:1` and `impl/sw.js`.
+if sel review-minimal-input; then
 cycle review-facts-once "${review_env[@]}" SDC_REVIEW_MODE=facts SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{rounds: [$j, $a]}')"
 calls_log=$s/store-review-facts-once/IDEA-1/work/.sdc/llm/calls.jsonl
 rv_calls=$(jq -sc '[.[] | select(.action == "change.review")]' "$calls_log" 2>/dev/null)
@@ -533,11 +649,13 @@ if jq -e 'length == 2 and all(.allowed_operations == [] and .max_turns <= 4 and 
 else
   echo "review-minimal-input: FAILED (calls: $(jq -c 'map({allowed_operations, max_turns, input_bytes})' <<< "$rv_calls" 2>/dev/null); inputs: $mi; listed cite $cite_listed_code, line cite $cite_line_code, ghost cite $cite_ghost_code)"
 fi
+fi
 # review-invalid: every reply rejects with a finding at a line the README does not have. Passes when
 # the reply was asked again twice with the check's reason (SDC_REVIEW_RETRIES), the one change.review
 # run exits 2 and records nothing (an observation runs once per case snapshot), the run ends stuck
 # (exit 1), and the check's reason names the line: never an approval, never a reasonless rejection.
 bad='{"decision": "rejected", "summary": "fixture", "findings": [{"kind": "violation", "at": "impl/README.md:9999", "violates": "r1", "says": "fixture: a line that does not exist"}]}'
+if sel review-invalid; then
 cycle review-invalid "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$bad" '{rounds: [$j]}')"
 code=$?
 d=$s/store-review-invalid/${story%/events.jsonl}
@@ -550,8 +668,10 @@ if (( code == 1 )) && jq -e 'length == 0' <<< "$(reviews review-invalid)" >/dev/
 else
   echo "review-invalid: FAILED (cycle exit $code, or a review was recorded)"
 fi
+fi
 # review-spent: every review rejects with the valid finding. Passes when the run ends writer_spent on
 # change.implement with 3 runs, each sent back by change.review (exit 1), three rejected records.
+if sel review-spent; then
 cycle review-spent "${review_env[@]}" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$rej" '{rounds: [$j]}')"
 code=$?
 if (( code == 1 )) && jq -se '(map(select(.event | test("^(stuck|awaiting_person|writer_spent)$"))) | last)
@@ -562,6 +682,7 @@ if (( code == 1 )) && jq -se '(map(select(.event | test("^(stuck|awaiting_person
   echo "review-spent: checks pass (three rejections: writer_spent on change.implement, sent back by change.review)"
 else
   echo "review-spent: FAILED (cycle exit $code, or the stop is not writer_spent sent back by change.review)"
+fi
 fi
 
 # --- decider cycles: scripts/run-trial.sh with SDC_DECIDER=model, every node on its stub and the
@@ -593,6 +714,7 @@ trial() { # <name> [env ...]: a fresh run-trial.sh run into <scratch>/runs/<name
 # 0, q2 and q3 carry decider:model (accepted, changed), decisions.jsonl has both as class
 # scope_changing_answer, and the decider was shown questions.settled as settled by its decision.
 free="the billing clerk who issued it, as a copy"
+if sel decider-scope-answer; then
 trial decider-scope-answer SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn --arg f "$free" '{
   "scope.answer": {decision: "escalate", answer: null, best: null, cites: ["q2", "q3", "questions.settled"],
     reasons: ["Questions q2 and q3 are scope-changing and still open.", "The claim questions.settled is false at the current revision."]},
@@ -610,6 +732,7 @@ if (( code == 0 )) &&
 else
   echo "decider-scope-answer: FAILED (run exit $code, or the answers, their records or the claim marks are wrong)"
 fi
+fi
 # decider-model-name (D149): the strong runs of trial 3 named an Opus decider decider:haiku and
 # printed "decider haiku (claude-opus-5-5)". The LLM decider is decider:model whatever its model;
 # SDC_DECIDER=haiku is its old name. decider-scope-answer under SDC_DECIDER=haiku with the decider
@@ -617,6 +740,7 @@ fi
 # (claude-opus-5-5)" and no "decider haiku", run-settings.jsonl records kind model with that model,
 # every decisions.jsonl line and both answers carry decider:model, and each decision's log line
 # names "decider:model (claude-opus-5-5)".
+if sel decider-model-name; then
 trial decider-model-name SDC_DECIDER=haiku SDC_LLM_MODEL_DECIDER=claude-opus-5-5 SDC_STUB_FIXTURES="$fx/scope-two" \
   SDC_DECIDER_REPLIES="$(jq -cn --arg f "$free" '{
   "scope.answer": {decision: "escalate", answer: null, best: null, cites: ["q2", "q3", "questions.settled"],
@@ -635,8 +759,10 @@ if (( code == 0 )) &&
 else
   echo "decider-model-name: FAILED (run exit $code, or the decider is still named haiku somewhere, or the model id is missing)"
 fi
+fi
 # decider-scope-final: as decider-scope-answer under SDC_DECIDER_ESCALATE=final, the decider
 # escalating q3: no person is asked, q3 takes its default and escalation_suppressed is recorded.
+if sel decider-scope-final; then
 trial decider-scope-final SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_ESCALATE=final SDC_DECIDER_REPLIES="$(jq -cn '{
   "scope.answer": {decision: "escalate", answer: null, best: null, cites: [], reasons: ["The claim questions.settled is false."]},
   q3: {decision: "escalate", answer: null, best: null, cites: ["d5"], reasons: ["Who else is emailed adds a kind of recipient the idea does not name."]}}')"
@@ -650,12 +776,14 @@ if (( code == 0 )) &&
 else
   echo "decider-scope-final: FAILED (run exit $code, or q3 not at its default, or no escalation_suppressed)"
 fi
+fi
 # decider-finding: trial 2's f1/f9/f16 stops ("nothing for decider:haiku at amend.upstream"). The
 # spec stage's scope-changing finding (fixtures/finding-spec-person.yaml) is put to the decider as
 # a decision request; it picks option 2. Passes when the run ends 0, the finding is resolved with
 # that option and `decided_by: decider:model`, the amendment's question is answered by
 # decider:model, and decisions.jsonl records it with class finding.
 opt2="the customer and the billing clerk"
+if sel decider-finding; then
 trial decider-finding SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_DECIDER_REPLIES="$(jq -cn --arg o "$opt2" '{
   f1: {decision: "approve", answer: $o, best: null, cites: ["r2"], reasons: ["The clerk who issues an invoice is the one asked about it, so the clerk gets the email too."]}}')"
 code=$?
@@ -669,8 +797,10 @@ if (( code == 0 )) &&
 else
   echo "decider-finding: FAILED (run exit $code, or f1 not decided by the decider, or not recorded)"
 fi
+fi
 # decider-finding-final: as decider-finding under SDC_DECIDER_ESCALATE=final, the decider
 # escalating f1 with no best: the default is taken, escalation_suppressed recorded.
+if sel decider-finding-final; then
 trial decider-finding-final SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_DECIDER_ESCALATE=final SDC_DECIDER_REPLIES="$(jq -cn '{
   f1: {decision: "escalate", answer: null, best: null, cites: ["r2"], reasons: ["Who else is emailed is the requester'"'"'s call."]}}')"
 code=$?
@@ -683,10 +813,12 @@ if (( code == 0 )) &&
 else
   echo "decider-finding-final: FAILED (run exit $code, or f1 not at its default, or no escalation_suppressed)"
 fi
+fi
 # decider-finding-refused: fixtures/offline-decision. The agent's amendment contradicted decision
 # q3 and went to a person; the decider then takes the same option (its default), which the same
 # program check refuses: reverted, the finding waits for a person (exit 3) with the refused
 # decision recorded, and the decider is not asked again.
+if sel decider-finding-refused; then
 trial decider-finding-refused SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 r=$s/runs/decider-finding-refused
@@ -701,6 +833,7 @@ if (( code == 3 )) &&
 else
   echo "decider-finding-refused: FAILED (run exit $code, or the decider's amendment stood, or no refused_decision)"
 fi
+fi
 # run-stop: a run left waiting is stopped with a record (scripts/run-trial.sh <run> --stop). A run
 # with the person as decider stops at context.approve (exit 3); 2 s later it is stopped:
 # run-stopped.json (sdc.run-stopped/1, verdict and case at the stop), a run.log line, the event
@@ -712,6 +845,7 @@ stopped_ok() { # <run dir> <by> <reason>
     and .by == $by and .reason == $why and (.verdict_at_stop | type) == "string" and (.case | type) == "string"' "$1/run-stopped.json" >/dev/null
 }
 evsum() { find "$1/store" -name events.jsonl | sort | xargs cat | sha256sum; }
+if sel run-stop; then
 trial run-stop SDC_DECIDER=person
 code=$?
 r=$s/runs/run-stop
@@ -740,6 +874,8 @@ if (( code == 3 && stop == 0 && resume == 8 )) && stopped_ok "$r" agent:finding-
 else
   echo "run-stop: FAILED (the record, the refusal, the untouched events or L7 are wrong)"
 fi
+fi
+if sel run-stop-decider; then
 r=$s/runs/decider-finding-refused
 SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_PRINCIPAL=agent:finding-cycles "$sdc/scripts/run-trial.sh" decider-finding-refused --stop "fixture: the finding waits for a person" > /dev/null 2>&1
 l7=$("$kpis" "$r" --json | jq -c .L7_waiting_on_person_seconds)
@@ -748,6 +884,7 @@ if jq -e '.value >= 1 and .failure == true and .decider == "model"' <<< "$l7" >/
   echo "run-stop-decider: checks pass (a decider's run waiting on a person: L7 $(jq .value <<< "$l7") s, reported FAILED)"
 else
   echo "run-stop-decider: FAILED (L7 $l7)"
+fi
 fi
 # autopilot: the eval's run mode (SDC_AUTONOMY=A5, `--autopilot`): the decider holds every
 # decision and is final. On a fixture with two open scope-changing questions (fixtures/scope-two)
@@ -759,6 +896,7 @@ fi
 # amendment is refused) ends the run with a stop record by rule:autopilot (exit 7).
 nonperson='^(decider:|rule:|agent$|non-interactive$|derived$)'
 targs=(--autopilot)
+if sel autopilot; then
 trial autopilot SDC_RULE_APPROVALS=off SDC_STUB_FIXTURES="$fx/scope-two" SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml"
 code=$?
 r=$s/runs/autopilot
@@ -777,6 +915,7 @@ if (( code == 0 && people == 0 )) && jq -e '.value == 0 and .failure == false' <
 else
   echo "autopilot: FAILED (run exit $code, $people person principal(s), L7 $l7, the settings do not name A5, or work/aep has a human: actor or no agent: one)"
 fi
+fi
 # trace-reraised: runs/trial-3-small-sonnet-1 (17 of 20 decider calls on p-trace-r5 and p-trace-r7).
 # The writer never specifies r3 (fixtures/trace-gap-drop); the decider answers p-trace-r3 "specify
 # r3 in the spec", so its decision is applied (the writer sent back) without effect. Passes when the
@@ -784,6 +923,7 @@ fi
 # decision, after one decider call on p-trace-r3, not decider_budget_spent.
 specify="specify r3 in the spec: name in spec/traces.json the commands or views that deliver it"
 targs=(--autopilot)
+if sel trace-reraised; then
 trial trace-reraised SDC_STUB_FIXTURES="$fx/trace-gap-drop" SDC_DECIDER_REPLIES="$(jq -cn --arg a "$specify" '{"p-trace-r3":
   {decision: "approve", answer: $a, reasons: ["fixture: the writer can name the views that deliver r3"], cites: ["r3"], best: null}}')"
 code=$?
@@ -795,9 +935,11 @@ if (( code == 7 )) && jq -e '.cause == "finding_reraised" and .by == "rule:autop
 else
   echo "trace-reraised: FAILED (exit $code: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
 # decider-budget-reason: the stop record of decider_budget_spent names the step and the cap
 # (runs/trial-3-small-sonnet-1's record said only "autopilot: "). SDC_MAX_DECIDER_CALLS=1 on two open
 # scope-changing questions: the second has no call left.
+if sel decider-budget-reason; then
 trial decider-budget-reason SDC_STUB_FIXTURES="$fx/scope-two" SDC_MAX_DECIDER_CALLS=1
 code=$?
 r=$s/runs/decider-budget-reason
@@ -807,12 +949,16 @@ if (( code != 0 )) && jq -e '.cause == "decider_budget_spent"
 else
   echo "decider-budget-reason: FAILED (exit $code: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
 targs=(--autopilot)
+if sel autopilot-person; then
 trial autopilot-person SDC_DECIDER=person
 code=$?
 (( code == 64 )) && [[ ! -d $s/runs/autopilot-person/store ]] &&
   echo "autopilot-person: checks pass (refused to start with SDC_DECIDER=person)" ||
   echo "autopilot-person: FAILED (exit $code)"
+fi
+if sel autopilot-stop; then
 trial autopilot-stop SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 r=$s/runs/autopilot-stop
@@ -825,6 +971,7 @@ if (( code == 7 )) && jq -e '.format == "sdc.run-stopped/1" and .by == "rule:aut
 else
   echo "autopilot-stop: FAILED (exit $code, or the stop record's cause or reason, a message naming a person, or L7)"
 fi
+fi
 # Decider replies under autopilot (fixture adapter, scripted replies by key; a list is taken by
 # attempt). cite-address: context.approve cites an entry and lines of context.yaml: accepted.
 # cite-retry: the first reply cites an unknown id, the second is valid: accepted after 1 retry.
@@ -834,6 +981,7 @@ fi
 bad='{"decision": "approve", "answer": null, "reasons": ["fixture: cites what is not there"], "cites": ["context.nope"], "best": null}'
 good='{"decision": "approve", "answer": null, "reasons": ["fixture: the context fits"], "cites": ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], "best": null}'
 attempts() { jq -s --arg a "$2" '[.[] | select(.action == $a)]' "$1/decisions.jsonl"; }
+if sel decider-cite-address; then
 trial decider-cite-address SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson g "$good" '{"context.approve": $g}')"
 code=$?
 a=$(attempts "$s/runs/decider-cite-address" context.approve)
@@ -843,6 +991,8 @@ if (( code == 0 )) && jq -e 'length == 1 and .[0].decision == "approve" and .[0]
 else
   echo "decider-cite-address: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
+fi
+if sel decider-cite-retry; then
 trial decider-cite-retry SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" --argjson g "$good" '{"context.approve": [$b, $g]}')"
 code=$?
 r=$s/runs/decider-cite-retry
@@ -855,6 +1005,8 @@ if (( code == 0 )) && jq -e 'length == 2 and .[0].decision == "invalid_reply" an
 else
   echo "decider-cite-retry: FAILED (exit $code: $(jq -c '[.[] | {decision, attempts, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
+fi
+if sel decider-invalid-approval; then
 trial decider-invalid-approval SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$bad" '{"context.approve": [$b, $b, $b]}')"
 code=$?
 r=$s/runs/decider-invalid-approval
@@ -865,7 +1017,9 @@ if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "invalid_rep
 else
   echo "decider-invalid-approval: FAILED (exit $code: $(jq -c '[.[] | {decision, fallback}]' <<< "$a" 2>/dev/null))"
 fi
+fi
 badq='{"decision": "approve", "answer": "fixture", "reasons": ["fixture: cites what is not there"], "cites": ["context.idea_excerpt"], "best": null}'
+if sel decider-invalid-scope; then
 trial decider-invalid-scope SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn --argjson b "$badq" '{q2: [$b, $b, $b]}')"
 code=$?
 r=$s/runs/decider-invalid-scope
@@ -877,8 +1031,10 @@ if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "invalid_rep
 else
   echo "decider-invalid-scope: FAILED (exit $code: $(jq -c '[.[] | {decision, fallback}]' <<< "$a" 2>/dev/null))"
 fi
+fi
 # escalate-nobest: under autopilot the decider is final: an escalate without best is refused and asked again.
 esc='{"decision": "escalate", "answer": null, "reasons": ["fixture: a person should say"], "cites": ["context.kind"], "best": null}'
+if sel decider-escalate-nobest; then
 trial decider-escalate-nobest SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson e "$esc" --argjson g "$good" '{"context.approve": [$e, $g]}')"
 code=$?
 a=$(attempts "$s/runs/decider-escalate-nobest" context.approve)
@@ -888,9 +1044,11 @@ if (( code == 0 )) && jq -e '[.[] | .decision] == ["invalid_reply", "approve"] a
 else
   echo "decider-escalate-nobest: FAILED (exit $code: $(jq -c '[.[] | {decision, invalid_reason}]' <<< "$a" 2>/dev/null))"
 fi
+fi
 # Only while context.approve cannot record a rejection (no writer reworks the context): with one,
 # the reject is reworked, which the decider-rework cycles check.
 if [[ $ctx_rework == no ]]; then
+if sel decider-reject; then
 trial decider-reject SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/decider-reject
@@ -902,10 +1060,12 @@ if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rejected_wit
 else
   echo "decider-reject: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
 fi
+fi
 else
 # decider-rework-context: context.approve rejected every time: context.default reworks the context
 # twice with the rejection (the stub appends it to context.yaml as a comment), context.check runs
 # on each new revision, the third rejection stops by rule:autopilot with cause rework_spent.
+if sel decider-rework-context; then
 trial decider-rework-context SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/decider-rework-context
@@ -919,10 +1079,12 @@ if (( code == 6 )) && jq -e '.by == "rule:autopilot" and .cause == "rework_spent
 else
   echo "decider-rework-context: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
 fi
+fi
 # decider-rework-model: as decider-rework-context with context.default on a model adapter
 # (llm-adapter-fixture.sh, which writes the same context every time): the writer gets the rejection
 # as in/rejection.json and writes the artifact itself, so the stub's rework marker is in no file
 # of the run's work/ and the unchanged context makes no new revision (the run stops, not closed).
+if sel decider-rework-model; then
 trial decider-rework-model SDC_RULE_APPROVALS=off SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=context.default \
   SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
@@ -934,6 +1096,7 @@ if (( code == 4 )) && [[ -d $w ]] && ! grep -rqs 'of the rejection of ' "$w" &&
   echo "decider-rework-model: checks pass (the model writer got in/rejection.json; no rework marker in work/; writer_spent names context.default)"
 else
   echo "decider-rework-model: FAILED (exit $code, or a rework marker in work/, no in/rejection.json for the model writer, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
+fi
 fi
 fi
 # Rework of a rejected approval under autopilot (docs/autonomy-levels.md, "A rejected approval in
@@ -948,6 +1111,7 @@ fi
 if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
   rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], "cites": ["r1"], "best": null}'
   app='{"decision": "approve", "answer": null, "reasons": ["fixture: the rework addresses the rejection"], "cites": ["r1"], "best": null}'
+  if sel decider-rework; then
   trial decider-rework SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{"merge.approve": {"rounds": [$j, $a]}}')"
   code=$?
   r=$s/runs/decider-rework
@@ -963,10 +1127,12 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "decider-rework: FAILED (exit $code: $(jq -c '[.[] | .decision]' <<< "$a" 2>/dev/null))"
   fi
+  fi
   # run-metrics: sdc-run-metrics on decider-rework's run (docs/workflow-metrics.md). The story
   # case's change.implement was taken twice, the second time sent back by the rejected
   # merge.approve: looping factor 2, one approval edge, merge.approve asked twice (one reject);
   # the run closed clean.
+  if sel run-metrics; then
   m=$("$metrics" "$r" --json - 2>/dev/null)
   if (( code == 0 )) && jq -e '([.cases[] | select(.case | endswith(".invoices")) | .nodes[] | select(.action == "change.implement")] | first
        | .real_takes == 2 and .looping_factor == 2 and .first_pass_yield == 0 and .retries_by_cause == {"merge.approve:rejected": 1})
@@ -977,6 +1143,8 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "run-metrics: FAILED ($(jq -c '{end: .metrics.end, clean: .metrics.clean, edges: [.edges[] | {edge, count}]}' <<< "$m" 2>/dev/null | cut -c1-300))"
   fi
+  fi
+  if sel decider-rework-spent; then
   trial decider-rework-spent SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
   code=$?
   r=$s/runs/decider-rework-spent
@@ -988,6 +1156,7 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "decider-rework-spent: FAILED (exit $code, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
   fi
+  fi
   # rework-cap (D184): one effective rework cap. rule-ends.json's rework_limit (2) is the default
   # and SDC_MAX_REJECTIONS overrides it; run-settings.jsonl records the value and its source, and
   # both the driver and the writer's rework prompt read it there. Before, the driver read
@@ -996,6 +1165,7 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   # stop rework_spent at the second rejection after one rework; the same on the fixture adapter for
   # change.implement under SDC_MAX_REJECTIONS=5, whose rework prompt must say "of at most 5"; and
   # SDC_MAX_REJECTIONS=x, which is refused before anything starts (exit 64).
+  if sel rework-cap; then
   trial rework-cap SDC_MAX_REJECTIONS=1 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')"
   code=$?
   r=$s/runs/rework-cap
@@ -1018,6 +1188,7 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "rework-cap: FAILED (exit $code, bad $bad, prompt ${pr:-none}, or the stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
+  fi
   # rework-not-called: runs/trial-3-haiku-4's list story. change.implement on llm-node.sh's apply
   # path (fixture adapter); merge.approve rejected once, then approved. The rework (with the
   # rejection) raises an agent finding (fixtures/finding-story-rework.yaml) and writes a tree that
@@ -1026,6 +1197,7 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   # tests.run then fails on the tree. Passes when that not-called run is recorded `not_called` and
   # not counted: a fourth run (third call) fixes the tree, the merge is approved, the run closes
   # (before: writer_spent, 3 runs, as in haiku-4).
+  if sel rework-not-called; then
   trial rework-not-called SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.implement \
     SDC_STUB_FIXTURES="$fx/rework-not-called" SDC_STUB_FINDINGS="$fx/finding-story-rework.yaml" \
     SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{"merge.approve": {"rounds": [$j, $a]}}')"
@@ -1042,10 +1214,12 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "rework-not-called: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
+  fi
   # rework-pending-rejection: the same story case cut back to the moment after the rejection (its
   # events up to the rejected merge.approve), with impl/ derived before the writer's own default
   # was taken: llm-node.sh change.implement without SDC_FEEDBACK. Passes when the writer is called
   # with in/rejection.json (a rejection no write answered yet), not skipped as "not called".
+  if sel rework-pending-rejection; then
   p=$s/pending; rm -rf "$p"; mkdir -p "$p"
   if [[ -n $st ]]; then
     cp -a "$st" "$p/case" && rm -f "$p/case/work" && cp -rL "$r/store/IDEA-1/work" "$p/work"
@@ -1063,10 +1237,12 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "rework-pending-rejection: FAILED (exit ${pc:-none}: $(tail -n 1 <<< "${out:-}" | cut -c1-200))"
   fi
+  fi
   # review-no-rework-prompt (ruling D138): as decider-rework (merge.approve rejected once, then
   # approved) with change.review on the fixture adapter. The review after the rejection is a review,
   # not a rework: passes when its call record has no in/rejection.json in its cwd and no "Rework."
   # line in its prompt (before D138 it got the merge.approve rejection as rework).
+  if sel review-no-rework-prompt; then
   trial review-no-rework-prompt SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.review \
     SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" --argjson a "$app" '{"merge.approve": {"rounds": [$j, $a]}}')"
   code=$?
@@ -1078,12 +1254,14 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "review-no-rework-prompt: FAILED (exit $code; second review: ${r2:-no record}, in/rejection.json $([[ -n $r2 && -e $r2/cwd/in/rejection.json ]] && echo present || echo absent), Rework. lines $(grep -c '^Rework\.' "$r2/prompt.md" 2>/dev/null || echo 0))"
   fi
+  fi
 fi
 # decider-later-obligation: runs/trial-3-mixed-3's refused release. The autopilot cycle's decider
 # records (no new run): release.publish's in/checks.json does not list health.required as open (it
 # needs release.healthy, a health_observation of release.observe, admissible only after the
 # publish) but under met_after_this_action, and the prompt says it is no condition; vision.approve's
 # moves roadmap.required (roadmap.approve comes after it).
+if sel decider-later-obligation; then
 rp=$(ls -d "$s"/runs/autopilot/decider/*-release.publish 2>/dev/null | tail -n 1)
 va=$(ls -d "$s"/runs/autopilot/decider/*-vision.approve 2>/dev/null | tail -n 1)
 if [[ -n $rp && -n $va ]] &&
@@ -1095,11 +1273,13 @@ if [[ -n $rp && -n $va ]] &&
 else
   echo "decider-later-obligation: FAILED (release.publish checks: $(jq -c '{open_obligations, met_after_this_action}' "$rp/cwd/in/checks.json" 2>/dev/null))"
 fi
+fi
 # replay-sibling: runs/trial-3-haiku-4's replay (IDEA-1.todo: 7 of 9). Two stories opened by one
 # stories.open (fixtures/plan-two-stories.json through plan.decompose's apply path); the first
 # closes, the second's change.implement raises a scope-changing finding and the run stops there
 # for a person (exit 3). Passes when `sdc-drive replay` of the stopped tree exits 0: the epic was
 # evaluated after the child_closed that rewrote its record.
+if sel replay-sibling; then
 cycle replay-sibling SDC_LLM_NODES=plan.decompose SDC_LLM_ADAPTER="$fixture" \
   SDC_FIXTURE_STUB='{"plan.decompose":["plan-two-stories.json","stories.json"]}' SDC_STUB_FINDINGS="$fx/finding-story-second.yaml"
 code=$?
@@ -1113,11 +1293,13 @@ if (( code == 3 && rc == 0 )) &&
 else
   echo "replay-sibling: FAILED (cycle exit $code, replay exit $rc: $(jq -c '[.[] | select(.state_matches_log == false or .decision_matches_log == false) | .case]' "$s/replay-sibling.json" 2>/dev/null))"
 fi
+fi
 # writer-not-called: a copy of replay-sibling's stopped tree. In the waiting story, change.implement
 # is bound to a program that only says it is not called (SDC_NOT_CALLED), amend.upstream to
 # nothing; the open finding is dismissed and impl/Cargo.toml removed (edits: an arrival), so
 # tests.run fails and sends the writer back. Passes when the run stops with the verdict
 # writer_not_called (each run not called, none counted), not three runs into writer_spent.
+if sel writer-not-called; then
 w=$s/not-called; rm -rf "$w"; cp -a "$s/store-replay-sibling" "$w"
 sc=$w/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices
 if [[ -f $sc/bindings.json ]]; then
@@ -1136,12 +1318,14 @@ if [[ -f $sc/bindings.json ]] && (( wc_ == 4 )) && jq -e '.verdict == "writer_no
 else
   echo "writer-not-called: FAILED (exit ${wc_:-none}: $(jq -r '.verdict // empty' <<< "${wo:-}" 2>/dev/null) $(tail -n 1 <<< "${wo:-}" | cut -c1-200))"
 fi
+fi
 # cite-dark-spot: runs/trial-3-mixed-4's stop. Under autopilot, requirements.normalise writes r1
 # citing q2 beside the dark spot d4 that q2 asks about (fixtures/cite-dark-spot) and raises a
 # scope-changing finding on r1 (fixtures/finding-intake-scope.yaml); the decider takes its default.
 # Passes when the citation is accepted at write time and the decision is applied (f1 resolved by
 # decider:model, no refused_decision) and the run closes (before: decision_not_takeable, exit 7).
 intake=IDEA-1/children/IDEA-1.intake
+if sel cite-dark-spot; then
 trial cite-dark-spot SDC_STUB_FIXTURES="$fx/cite-dark-spot" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml"
 code=$?
 r=$s/runs/cite-dark-spot
@@ -1156,12 +1340,14 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
 else
   echo "cite-dark-spot: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
 # cite-fault-sent-back: as cite-dark-spot, but r2 cites the unknown d3 without the question that
 # asks about it (fixtures/cite-fault), a fault the decision on r1 did not write. Passes when the
 # decision is still applied (not decision_not_takeable), requirements.check names the fault in its
 # log, and requirements.normalise is sent back with it until its 3 runs since the decision are
 # spent, then the run stops writer_spent naming requirements.normalise (the stub writes the same
 # requirements every time).
+if sel cite-fault-sent-back; then
 trial cite-fault-sent-back SDC_STUB_FIXTURES="$fx/cite-fault" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml"
 code=$?
 r=$s/runs/cite-fault-sent-back
@@ -1180,6 +1366,7 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
 else
   echo "cite-fault-sent-back: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
 # autopilot-close: runs/trial-3-haiku-5's stop (D140). Under autopilot the decider fixture
 # rejects `close` if asked. Passes when the run closes `operating` (exit 0, status.json
 # closed_by rule:autopilot), the root's terminated event names rule:autopilot, and no close
@@ -1188,6 +1375,7 @@ fi
 # asked for the close and stops the run (exit 6), nothing closed.
 crej='{"decision": "reject", "answer": null, "reasons": ["fixture: the close is refused"], "cites": ["r1"], "best": null}'
 targs=(--autopilot)
+if sel autopilot-close; then
 trial autopilot-close SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$crej" '{close: $j}')"
 code=$?
 r=$s/runs/autopilot-close
@@ -1200,7 +1388,9 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
 else
   echo "autopilot-close: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
 targs=()
+if sel autopilot-close-a3; then
 trial autopilot-close-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$crej" '{close: $j}')"
 code=$?
 r=$s/runs/autopilot-close-a3
@@ -1211,10 +1401,12 @@ if (( code == 6 )) && [[ ! -f $r/status.json ]] && [[ -n $(find "$r/decider" -mi
 else
   echo "autopilot-close-a3: FAILED (exit $code)"
 fi
+fi
 # conformance-default-off: the conformance observation after close costs model calls, so it is off
 # by default (0.1.4). autopilot-close closed without SDC_CONFORMANCE: it says so and wrote no
 # oracle.json. The same close with SDC_CONFORMANCE=observe calls SDC_CONFORM_BIN (here a stub that
 # records its arguments) as `observe <run>`.
+if sel conformance-default-off; then
 printf '#!/usr/bin/env bash\necho "$@" > "$2/conform-called"\n' > "$s/conform-stub"; chmod +x "$s/conform-stub"
 targs=(--autopilot)
 trial conformance-observe SDC_CONFORMANCE=observe SDC_CONFORM_BIN="$s/conform-stub" SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$crej" '{close: $j}')"
@@ -1227,6 +1419,7 @@ if grep -q '^conformance: not observed (off by default; SDC_CONFORMANCE=observe 
   echo "conformance-default-off: checks pass (no observation by default; SDC_CONFORMANCE=observe calls sdc-conform observe <run>)"
 else
   echo "conformance-default-off: FAILED (exit $code; default line: $(grep -c '^conformance: not observed (off by default' "$s/autopilot-close.txt"), called: $(cat "$r/conform-called" 2>/dev/null))"
+fi
 fi
 # --- approvals by rule (docs/driver.md "Approvals by program", story:decider-program-approvals).
 # Under A5 context.approve, roadmap.approve and release.publish are taken by rule:autopilot when
@@ -1253,6 +1446,7 @@ all_asked() { # <run>: the decider was asked for context, vision, roadmap and re
   done
 }
 targs=(--autopilot)
+if sel rule-approvals; then
 trial rule-approvals SDC_RULE_APPROVALS=on
 code=$?
 r=$s/runs/rule-approvals
@@ -1271,6 +1465,7 @@ if (( code == 0 )) && jq -e '.outcome == "operating"' "$r/status.json" >/dev/nul
 else
   echo "rule-approvals: FAILED (exit $code; rule lines: $(jq -c '[.[] | {action, principal}]' <<< "$(rule_lines rule-approvals context.approve)") decider dirs: $(ls "$r/decider" 2>/dev/null | tr '\n' ' '))"
 fi
+fi
 # A check that did not pass, or a revision that changed after the check, leaves the approval to the
 # decider. Canon admits context.approve only on a passing check at the current revision, so the
 # cycles make the record on disk disagree with the claim in the window between the driver's stop and
@@ -1285,6 +1480,7 @@ declined_ok() { # <run> <word the declined reason names>
     rule_ok "$run" roadmap.approve roadmap.validate && rule_ok "$run" release.publish acceptance.run &&
     jq -se 'all(.[]; .producer == "decider:model")' "$s/runs/$run"/store/IDEA-1/children/IDEA-1.direction/evidence/*-context.approve.json >/dev/null
 }
+if sel rule-approvals-check-failed; then
 trial rule-approvals-check-failed SDC_RULE_APPROVALS=on DRIVE="$tamper" TAMPER_REAL="$real_drive" TAMPER_MODE=result
 code=$?
 if (( code == 0 )) && declined_ok rule-approvals-check-failed 'recorded no passing context_defaults \(valid\)'; then
@@ -1292,6 +1488,8 @@ if (( code == 0 )) && declined_ok rule-approvals-check-failed 'recorded no passi
 else
   echo "rule-approvals-check-failed: FAILED (exit $code: $(jq -c '[.[] | {action, principal, rule_declined}]' "$s/runs/rule-approvals-check-failed/decisions.jsonl" 2>/dev/null | cut -c1-400))"
 fi
+fi
+if sel rule-approvals-revision-changed; then
 trial rule-approvals-revision-changed SDC_RULE_APPROVALS=on DRIVE="$tamper" TAMPER_REAL="$real_drive" TAMPER_MODE=revision
 code=$?
 if (( code == 0 )) && declined_ok rule-approvals-revision-changed 'about context@'; then
@@ -1299,7 +1497,9 @@ if (( code == 0 )) && declined_ok rule-approvals-revision-changed 'about context
 else
   echo "rule-approvals-revision-changed: FAILED (exit $code: $(jq -c '[.[] | {action, principal, rule_declined}]' "$s/runs/rule-approvals-revision-changed/decisions.jsonl" 2>/dev/null | cut -c1-400))"
 fi
+fi
 # SDC_RULE_APPROVALS=off: today's behaviour, every approval asked, recorded in run-settings.jsonl.
+if sel rule-approvals-off; then
 trial rule-approvals-off SDC_RULE_APPROVALS=off
 code=$?
 r=$s/runs/rule-approvals-off
@@ -1310,8 +1510,10 @@ if (( code == 0 )) && [[ $(jq -s '[.[] | select(.principal == "rule:autopilot")]
 else
   echo "rule-approvals-off: FAILED (exit $code)"
 fi
+fi
 # Below A5 nothing changes: the decider is asked for all four, no rule line, the setting recorded.
 targs=()
+if sel rule-approvals-a3; then
 trial rule-approvals-a3 SDC_RULE_APPROVALS=on SDC_AUTONOMY=A3
 code=$?
 r=$s/runs/rule-approvals-a3
@@ -1322,6 +1524,7 @@ if (( code == 0 )) && [[ $(jq -s '[.[] | select(.principal == "rule:autopilot")]
 else
   echo "rule-approvals-a3: FAILED (exit $code)"
 fi
+fi
 targs=(--autopilot)
 # decider-input: the decider records of runs/trial-3-haiku-5's close and its release.publish. The
 # close reads published/README.md and no aep/ file: read from autopilot-close-a3, where the decider
@@ -1329,6 +1532,7 @@ targs=(--autopilot)
 # On the autopilot run: a tree input keeps its Cargo.lock; a prompt with aep/ inputs says their
 # status and revision say nothing about approval; every prompt (the decider is final) says a
 # decider's answer is the product owner's own and offers no escalation to a person.
+if sel decider-input; then
 dr=$s/runs/autopilot/decider
 close_d=$(find "$s/runs/autopilot-close-a3/decider" -maxdepth 1 -type d -name '*-close' 2>/dev/null | sort | tail -n 1)
 lock_d=$(grep -l '"path": "impl"' "$dr"/*/decide-request.json 2>/dev/null | head -n 1)
@@ -1342,6 +1546,7 @@ if [[ -n $close_d && -f $close_d/cwd/in/published/README.md && ! -e $close_d/cwd
   echo "decider-input: checks pass (close reads published/README.md, no aep/; impl/Cargo.lock copied; aep status note; decider answers binding, no escalation to a person)"
 else
   echo "decider-input: FAILED (close ${close_d:-none}, Cargo.lock ${lock_d:-none}, roadmap ${aep_d:-none}: an input or a prompt line is wrong)"
+fi
 fi
 # Keep-going (D142, --autopilot --keep-going). keep-going-three: one run meets three different
 # stops: requirements.normalise writes a citation fault three times (fixtures/keep-going: the
@@ -1362,6 +1567,7 @@ kgenv=(SDC_STUB_FIXTURES="$fx/keep-going" SDC_STUB_FINDINGS="$fx/finding-spec-pe
   SDC_DECIDER_REPLIES="$kgreplies")
 if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
   targs=(--autopilot --keep-going)
+  if sel keep-going-three; then
   trial keep-going-three "${kgenv[@]}"
   code=$?
   r=$s/runs/keep-going-three
@@ -1377,7 +1583,9 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "keep-going-three: FAILED (exit $code, defects $(jq -sc 'map([.cause, .forced])' "$r/defects.jsonl" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
+  fi
   targs=(--autopilot)
+  if sel keep-going-off; then
   trial keep-going-off "${kgenv[@]}"
   code=$?
   r=$s/runs/keep-going-off
@@ -1387,8 +1595,10 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "keep-going-off: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
+  fi
 fi
 targs=(--autopilot --keep-going)
+if sel keep-going-repeat; then
 trial keep-going-repeat SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 r=$s/runs/keep-going-repeat
@@ -1399,6 +1609,7 @@ if (( code == 7 )) && jq -e '.cause == "decision_not_takeable" and .by == "rule:
   echo "keep-going-repeat: checks pass (the default forced once, refused again by the same check: stops decision_not_takeable)"
 else
   echo "keep-going-repeat: FAILED (exit $code, defects $(jq -sc 'map([.cause, .forced])' "$r/defects.jsonl" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
+fi
 fi
 # Unstick (D147, run.unstick on the fixture adapter: SDC_UNSTICK_REPLIES by stop cause).
 # unstick-end: merge.approve rejected every time (as decider-rework-spent): the third rejection is
@@ -1420,6 +1631,7 @@ udiag="fixture run.unstick: the stop is a defect of the system, named here for t
 ureply() { jq -cn --arg m "$1" --arg c "$2" --arg d "$udiag" '{move: $m, diagnosis: $d, defect_class: $c, reasons: ["fixture: \($m)"]}'; }
 if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1; then
   targs=(--autopilot)
+  if sel unstick-end; then
   trial unstick-end SDC_UNSTICK=on SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"merge.approve": $j}')" \
     SDC_UNSTICK_REPLIES="$(jq -cn --argjson r "$(ureply end:dropped decider_error)" '{rework_spent: $r}')"
   code=$?
@@ -1443,8 +1655,10 @@ if yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/de
   else
     echo "unstick-end: FAILED (exit $code, defects $(jq -sc 'map([.cause, .move, .continuation])' "$r/defects.jsonl" 2>/dev/null | cut -c1-300), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
   fi
+  fi
 fi
 targs=(--autopilot)
+if sel unstick-rerun; then
 trial unstick-rerun SDC_UNSTICK=on SDC_STUB_FIXTURES="$fx/keep-going" \
   SDC_UNSTICK_REPLIES="$(jq -cn --argjson r "$(ureply rerun:requirements.normalise writer_error)" '{writer_spent: $r}')"
 code=$?
@@ -1462,6 +1676,8 @@ if (( code == 0 )) && jq -e '.outcome == "operating" and .unstuck == 1' "$r/stat
 else
   echo "unstick-rerun: FAILED (exit $code, defects $(jq -sc 'map([.cause, .move, .continuation])' "$r/defects.jsonl" 2>/dev/null | cut -c1-300), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
+if sel unstick-invalid; then
 trial unstick-invalid SDC_UNSTICK=on SDC_STUB_FIXTURES="$fx/cite-fault" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml" \
   SDC_UNSTICK_REPLIES="$(jq -cn --argjson r "$(ureply approve:nothing other)" '{"*": $r}')"
 code=$?
@@ -1475,6 +1691,8 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
 else
   echo "unstick-invalid: FAILED (exit $code, defects $(jq -sc 'map([.cause, .continuation])' "$r/defects.jsonl" 2>/dev/null | cut -c1-300), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
+if sel unstick-limit; then
 trial unstick-limit SDC_UNSTICK=on SDC_STUB_FIXTURES="$fx/cite-fault" SDC_STUB_FINDINGS="$fx/finding-intake-scope.yaml" \
   SDC_UNSTICK_REPLIES="$(jq -cn --argjson r "$(ureply rerun:requirements.normalise writer_error)" '{"*": $r}')"
 code=$?
@@ -1489,6 +1707,8 @@ if (( code == 4 )) && jq -e '.cause == "unstick_spent" and .by == "rule:autopilo
 else
   echo "unstick-limit: FAILED (exit $code, defects $(jq -sc 'map([.cause, .move, .continuation])' "$r/defects.jsonl" 2>/dev/null | cut -c1-300), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
+if sel unstick-off; then
 trial unstick-off SDC_UNSTICK=off SDC_STUB_FIXTURES="$fx/keep-going" \
   SDC_UNSTICK_REPLIES="$(jq -cn --argjson r "$(ureply rerun:requirements.normalise writer_error)" '{writer_spent: $r}')"
 code=$?
@@ -1500,6 +1720,7 @@ if (( code == 4 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
 else
   echo "unstick-off: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-300))"
 fi
+fi
 # reopen-refused-decision: runs/trial-3-mixed-4 reopened did nothing (f1 stayed needs_person with
 # its refused_decision). Leg 1 under autopilot: the decider's option 2 on the spec finding f1 is
 # refused by the check (SDC_STUB_REFUSE_DECISION simulates the fault) -> decision_not_takeable,
@@ -1509,6 +1730,7 @@ fi
 targs=(--autopilot)
 opt2="the customer and the billing clerk"
 rdreplies=$(jq -cn --arg o "$opt2" '{f1: {decision: "approve", answer: $o, best: null, cites: ["r2"], reasons: ["fixture: the clerk gets the email too"]}}')
+if sel reopen-refused-decision; then
 trial reopen-refused-decision SDC_STUB_FINDINGS="$fx/finding-spec-person.yaml" SDC_STUB_REFUSE_DECISION="$opt2" SDC_DECIDER_REPLIES="$rdreplies"
 code=$?
 r=$s/runs/reopen-refused-decision
@@ -1527,6 +1749,7 @@ if (( code == 7 && reopen == 0 )) && [[ ! -e $r/run-stopped.json ]] && ls "$r"/r
 else
   echo "reopen-refused-decision: FAILED (exit $code, reopen exit $reopen: $(tail -n 1 "$s/reopen-refused-decision-reopen.txt" | cut -c1-200))"
 fi
+fi
 targs=(--autopilot)
 # A refused release (docs/driver.md, "A refused release"). release.publish's approval is the
 # capability release.approve, with no `rejected` result and no writer. decider-release-a3: at A3
@@ -1540,6 +1763,7 @@ targs=(--autopilot)
 # status.json says not delivered, no stop record, no person principal, L7 0, replay matches.
 rej='{"decision": "reject", "answer": null, "reasons": ["fixture: the release notes name no version"], "cites": ["r1"], "best": null}'
 targs=()
+if sel decider-release-a3; then
 trial decider-release-a3 SDC_AUTONOMY=A3 SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
 code=$?
 r=$s/runs/decider-release-a3
@@ -1559,9 +1783,10 @@ if (( code == 6 )) && [[ -n $rs && ! -f $r/run-stopped.json && ! -f $r/status.js
 else
   echo "decider-release-a3: FAILED (exit $code, decide exit $rcode: $(tail -n 1 <<< "$refusal"))"
 fi
+fi
 targs=(--autopilot)
 if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1; then
-  expected+=(decider-release-withheld)
+  if sel decider-release-withheld; then
   trial decider-release-withheld SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rej" '{"release.publish": $j}')"
   code=$?
   r=$s/runs/decider-release-withheld
@@ -1585,6 +1810,7 @@ if jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.j
   else
     echo "decider-release-withheld: FAILED (exit $code, $people person principal(s), status $(jq -c . "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null))"
   fi
+  fi
 fi
 # requester-decider (story:requester-decider, docs/requester.md § 3): the trial-2 fixture
 # (fixtures/trial-2) with the trial-2 goals, SDC_REQUESTER_DECIDER=haiku and the recorded requester
@@ -1606,6 +1832,7 @@ req_trial() { # <name> [env ...]
   return $code
 }
 targs=()
+if sel requester-decider; then
 req_trial requester-decider SDC_AUTONOMY=A3 SDC_REQUESTER_REPLIES="$t2/requester-replies.json"
 code=$?
 r=$s/runs/requester-decider
@@ -1621,7 +1848,9 @@ if (( code == 0 )) &&
 else
   echo "requester-decider: FAILED (exit $code: $(jq -sc '[.[] | {action, question, principal, side}]' "$r/decisions.jsonl" 2>/dev/null | cut -c1-300))"
 fi
+fi
 targs=(--autopilot)
+if sel requester-no-ground; then
 req_trial requester-no-ground SDC_REQUESTER_REPLIES="$(jq -c '.q3 = {option: null, answer: null, reasons: ["fixture: no entry covers sign-in"], grounds: [], strength: "weak", no_ground_in_goals: true}' "$t2/requester-replies.json")"
 code=$?
 r=$s/runs/requester-no-ground
@@ -1633,12 +1862,14 @@ if (( code == 0 )) &&
 else
   echo "requester-no-ground: FAILED (exit $code: $(jq -sc '[.[] | select(.question == "q3") | {decision, no_ground_in_goals, suppressed, answer}]' "$r/decisions.jsonl" 2>/dev/null))"
 fi
+fi
 targs=()
 # principals: the person path keeps a person's principal and nothing else writes one. The scripted
 # person of run-full-cycle.sh is a stand-in: finding-person's f1 carries `decided_by:
 # person:stand-in` and its run-settings.jsonl says stand_in. A decision edited in by hand with no
 # principal is refused by amend (finding-person-stop's work, copied): it stays needs_person, the
 # handoff stays due, and nothing writes `human`.
+if sel principals; then
 f=$s/store-finding-person/IDEA-1/work/findings.yaml
 p=$s/principals; rm -rf "$p"; cp -r "$s/store-finding-person-stop/IDEA-1/work/." "$p/" 2>/dev/null || cp -rL "$s/store-finding-person-stop/IDEA-1/work" "$p"
 fid=$(yq -r '.findings[] | select(.status == "needs_person") | .id' "$p/findings.yaml" | head -n 1)
@@ -1651,6 +1882,7 @@ if yq -e '.findings[] | select(.decided_by != null) | .decided_by == "person:sta
   echo "principals: checks pass (person:stand-in on the person path, stand_in labelled; a decision with no principal refused)"
 else
   echo "principals: FAILED (amend said: $(tail -n 1 <<< "$out"))"
+fi
 fi
 # models: the model per LLM node is a run setting (tools/node-classes.json). Three dry runs with
 # the decider on the dry adapter (no call; each record names the model it would be called with):
@@ -1670,6 +1902,7 @@ expect() { # <run> <jq program over {node, class} giving the expected model> <de
     length > 0 and all(.[]; .model == ({node: .action, class: class(.action)} | '"$2"'))' "$r/llm-calls.jsonl" >/dev/null &&
   jq -se --arg d "$3" 'length > 0 and all(.[]; .model == $d)' "$r/decisions.jsonl" >/dev/null
 }
+if sel models; then
 dry models-binding
 c1=$?
 dry models-all SDC_LLM_MODEL=model-all
@@ -1690,6 +1923,7 @@ if (( c1 == 0 && c2 == 0 && c3 == 0 )) &&
 else
   echo "models: FAILED"
 fi
+fi
 # --- reject and cap routes (docs/reject-routes.md) ------------------------------------------------
 # Each cycle drives a stub run into one reject or cap of the audit and asserts the route the row
 # should have. Cycles in `expected` have their route built; those in `pending` assert a route not
@@ -1702,6 +1936,7 @@ targs=(--autopilot)
 # question has no rejection: the check refuses it with its reason, the decider is asked again and
 # answers. Passes when the run closes (exit 0) with q2 decided by decider:model after one refused
 # reply. Before: exit 6, rejected_without_rework_path.
+if sel decider-question-reject; then
 trial decider-question-reject SDC_STUB_FIXTURES="$fx/scope-two" SDC_DECIDER_REPLIES="$(jq -cn '{q2: [
   {decision: "reject", answer: null, reasons: ["fixture: neither option fits"], cites: ["d4"], best: null},
   {decision: "approve", answer: "the billing clerk, before it is paid", reasons: ["fixture: the idea names only the clerk"], cites: ["d4"], best: null}]}')"
@@ -1715,10 +1950,12 @@ if (( code == 0 )) &&
 else
   echo "decider-question-reject: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
 fi
+fi
 # rework-fresh-allowance (R6): change.implement's first tree does not build (tests.run sends it
 # back), then merge.approve is rejected twice and approved. Each recorded rejection is an arrival,
 # so the second rework still runs. Passes when the run closes with 4 change.implement runs and no
 # writer_spent. Before: writer_spent after 3 runs at the second rejection (runs/trial-3-haiku-4).
+if sel rework-fresh-allowance; then
 trial rework-fresh-allowance SDC_STUB_FIXTURES="$fx/rework-allowance" \
   SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rr_rej" --argjson a "$rr_app" '{"merge.approve": {rounds: [$j, $j, $a]}}')"
 code=$?
@@ -1731,9 +1968,11 @@ if (( code == 0 )) && [[ -n $st ]] &&
 else
   echo "rework-fresh-allowance: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$s/runs/rework-fresh-allowance/run-stopped.json" 2>/dev/null | cut -c1-240))"
 fi
+fi
 # spec-review-rework (R8): the stub reviewer rejects the first specification (a `.review-reject`
 # file in the tree); the rejected spec_review sends spec.author back. Passes when the cycle ends
 # operating with spec.author run twice, the second sent back by spec_review. Before: stuck.
+if sel spec-review-rework; then
 cycle spec-review-rework SDC_STUB_FIXTURES="$fx/spec-review-reject"
 code=$?
 if (( code == 0 )) &&
@@ -1743,6 +1982,7 @@ if (( code == 0 )) &&
   echo "spec-review-rework: checks pass (a rejected spec review sends spec.author back; operating)"
 else
   echo "spec-review-rework: FAILED (cycle exit $code, or spec.author not sent back by spec_review)"
+fi
 fi
 # spec-interp-unsupported: runs/release-0.1.2.mixed.1 stopped writer_spent at change.implement
 # because its spec had scenarios ESS's interpreter reports unsupported ("binding command has an
@@ -1755,6 +1995,7 @@ fi
 # naming the scenario and passes the clean spec, spec.synthesize is refused then clean, spec.author
 # is sent back by spec_synthesis with the scenario id and ESS's reason in its in/feedback.md, and
 # the cycle ends operating. Before: the fixture passed the gate and spec.author ran once.
+if sel spec-interp-unsupported; then
 sg=$s/spec-interp-gate
 rm -rf "$sg" && mkdir -p "$sg/bad" "$sg/clean"
 cp -r "$fx/spec-interp-unsupported/billing-spec.0" "$sg/bad/spec" && cp -r "$fx/billing-spec" "$sg/clean/spec"
@@ -1774,11 +2015,13 @@ if (( code == 0 && bad == 1 && clean == 0 )) && grep -qF "$sid" "$sg/bad.txt" &&
 else
   echo "spec-interp-unsupported: FAILED (cycle exit $code, gate on the fixture $bad, on the clean spec $clean, feedback ${fb:-none})"
 fi
+fi
 # scope-unattributed-reject (R2): the interview's scope-changing answers q2 and q3 are
 # given but unattributed (answered_by non-interactive), none is open, so scope.answer goes to the
 # decider as an approval, which it rejects. Route: each unattributed answer is put to the decider
 # as a question (as R1). Passes when the run closes with q2 and q3 answered_by decider:model and no
 # approval decision on scope.answer. Before: exit 6, rejected_without_rework_path.
+if sel scope-unattributed-reject; then
 trial scope-unattributed-reject SDC_STUB_FIXTURES="$fx/scope-unattributed" \
   SDC_DECIDER_REPLIES='{"scope.answer": {"decision": "reject", "answer": null, "reasons": ["fixture: the answers were given by nobody who may give them"], "cites": ["d4"], "best": null}}'
 code=$?
@@ -1790,11 +2033,13 @@ if (( code == 0 )) &&
 else
   echo "scope-unattributed-reject: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
 fi
+fi
 # finding-refused-reask (R3): fixtures/offline-decision. The program check refuses the
 # decider's decision on the finding. Route: the decider is asked again with the refusal reason, at
 # most 2 times, then the stop decision_not_takeable. The fixture decider takes the refused default
 # every time, so passes when the finding was decided 3 times, the later requests carry the
 # refusal, and the run stops (exit 7) with cause decision_not_takeable. Before: 1 decision, exit 7.
+if sel finding-refused-reask; then
 trial finding-refused-reask SDC_STUB_FIXTURES="$fx/offline-decision"
 code=$?
 r=$s/runs/finding-refused-reask
@@ -1806,10 +2051,12 @@ if (( code == 7 )) && jq -e '.cause == "decision_not_takeable"' "$r/run-stopped.
 else
   echo "finding-refused-reask: FAILED (exit $code, $(jq -s '[.[] | select(.class == "finding")] | length' "$r/decisions.jsonl" 2>/dev/null) finding decision(s))"
 fi
+fi
 # rework-spent-dropped (R4, pending): merge.approve rejected three times. Route: the story ends by
 # rule:autopilot through the protocol's `dropped` (explicitly_dropped, the rejection as its
 # reasons), the epic and the root end through the outcomes their evaluation offers, the run
 # closes not_delivered. Today: exit 6, rework_spent.
+if sel rework-spent-dropped; then
 trial rework-spent-dropped SDC_DECIDER_REPLIES="$(jq -cn --argjson j "$rr_rej" '{"merge.approve": $j}')"
 code=$?
 r=$s/runs/rework-spent-dropped
@@ -1822,9 +2069,11 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json && -n $st ]] &&
 else
   echo "rework-spent-dropped: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
 fi
+fi
 # rework-spent-abandoned (R5, pending): context.approve rejected three times. Route: the root ends
 # `abandoned` (explicitly_abandoned recorded by rule:autopilot with the rejections), the run
 # closes. Today: exit 6, rework_spent.
+if sel rework-spent-abandoned; then
 trial rework-spent-abandoned SDC_RULE_APPROVALS=off SDC_DECIDER_REPLIES='{"context.approve": {"decision": "reject", "answer": null, "reasons": ["fixture: the context is not usable"], "cites": ["context.platform"], "best": null}}'
 code=$?
 r=$s/runs/rework-spent-abandoned
@@ -1835,9 +2084,11 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
 else
   echo "rework-spent-abandoned: FAILED (exit $code, stop $(jq -c '{cause}' "$r/run-stopped.json" 2>/dev/null))"
 fi
+fi
 # review-invalid-named: change.review as a model call (impl/review-node) whose every reply is
 # invalid exits 2 and records nothing. Route (fix/review-reply): the stop review_invalid, which
 # names change.review, never `stuck`. Without the model review node (change.review has no `llm` binding) it fails.
+if sel review-invalid-named; then
 if jq -e '."change.review".llm' "$sdc/driver/examples/sdc/sdc-story.bindings.json" >/dev/null 2>&1; then
   bad='{"decision": "rejected", "summary": "fixture", "findings": [{"kind": "violation", "at": "impl/README.md:9999", "violates": "r1", "says": "fixture: a line that does not exist"}]}'
   trial review-invalid-named SDC_LLM_NODES=change.review SDC_LLM_ADAPTER="$fixture" SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$bad" '{rounds: [$j]}')"
@@ -1851,10 +2102,12 @@ if jq -e '."change.review".llm' "$sdc/driver/examples/sdc/sdc-story.bindings.jso
 else
   echo "review-invalid-named: FAILED (change.review is not a model call here: needs impl/review-node)"
 fi
+fi
 # writer-own-error (R9): questions.answer (fixture adapter, apply step) changes the
 # scope-changing question q2, which the apply step refuses (exit 1, nothing applied). Route: the
 # failed run's own log reaches the next run as in/feedback.md. Passes when the second
 # questions.answer call has in/feedback.md naming the refusal.
+if sel writer-own-error; then
 trial writer-own-error SDC_STUB_FIXTURES="$fx/own-error" SDC_LLM_NODES=questions.answer SDC_LLM_ADAPTER="$fixture"
 code=$?
 r=$s/runs/writer-own-error
@@ -1864,11 +2117,13 @@ if [[ -n $second ]] && grep -q 'changed a scope-changing question' "$second/cwd/
 else
   echo "writer-own-error: FAILED (exit $code, second call ${second:-none}, no in/feedback.md naming the refusal)"
 fi
+fi
 # implement-percause (R7): change.implement's trees: one that does not build (tests.run
 # fails), one with an empty README (the stub review rejects), one that does not build again, then
 # a good one. Route: runs counted per retry kind (conformance_run 2, code_review 1, each under 3),
 # with a backstop of 8 per arrival. Passes when the run closes with 4 change.implement runs and no
 # writer_spent. Before: writer_spent after 3 runs.
+if sel implement-percause; then
 trial implement-percause SDC_STUB_FIXTURES="$fx/implement-percause"
 code=$?
 st=$(rr_story implement-percause)
@@ -1879,11 +2134,13 @@ if (( code == 0 )) && [[ -n $st ]] &&
 else
   echo "implement-percause: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$s/runs/implement-percause/run-stopped.json" 2>/dev/null | cut -c1-240))"
 fi
+fi
 # writer-sees-test-failure (R13): change.implement (fixture adapter, llm-node.sh) first writes a
 # tree whose tests build and one fails with a message, among 45 passing tests; tests.run fails.
 # Route: the failing test's own output (panic message included), not the build pool's last line,
 # reaches the next run's in/feedback.md. Passes when the second change.implement call's
 # in/feedback.md holds the assertion message, no `slot: job` line, and the run closes.
+if sel writer-sees-test-failure; then
 trial writer-sees-test-failure SDC_LLM_ADAPTER="$fixture" SDC_LLM_NODES=change.implement SDC_STUB_FIXTURES="$fx/test-failure"
 code=$?
 r=$s/runs/writer-sees-test-failure
@@ -1894,6 +2151,7 @@ if (( code == 0 )) && [[ -n $second ]] &&
   echo "writer-sees-test-failure: checks pass (the failing test's message reached the next writer run; closed)"
 else
   echo "writer-sees-test-failure: FAILED (exit $code, second call ${second:-none}, feedback without the test's message)"
+fi
 fi
 # --- change.implement as one request (SDC_IMPLEMENT_MODE=request, docs/driver.md "Implement as one
 # request"): change.implement on the fixture adapter, which answers each request with the stub tree
@@ -1906,6 +2164,7 @@ iwork() { echo "$s/runs/$1/store/IDEA-1/work"; }
 # change.implement call of one request (no retry, no continuation), offered no operation, its prompt
 # saying there is nothing to read, its record holding the reply schema and the input manifest (a
 # first story on an empty tree), and the stub tree written into work/impl through the reply.
+if sel implement-request-build; then
 trial implement-request-build "${req_env[@]}"
 code=$?
 c=$(icalls implement-request-build)
@@ -1920,9 +2179,11 @@ if (( code == 0 )) && jq -e 'length == 1 and .[0].implement_mode == "request" an
 else
   echo "implement-request-build: FAILED (exit $code, calls $(jq -c 'map({implement_mode, requests, reply_retries, applied_exit})' <<< "$c" | cut -c1-200))"
 fi
+fi
 # implement-request-tests-rework: the first reply's tree fails tests.run (fixtures/test-failure).
 # Passes when the run closes with two change.implement calls of one request each, the second
 # prompt holding the failing test's message (no `slot: job` line) and the current text of the tree.
+if sel implement-request-tests-rework; then
 trial implement-request-tests-rework "${req_env[@]}" SDC_STUB_FIXTURES="$fx/test-failure"
 code=$?
 c=$(icalls implement-request-tests-rework)
@@ -1934,6 +2195,7 @@ if (( code == 0 )) && jq -e 'length == 2 and all(.requests == 1)' <<< "$c" >/dev
 else
   echo "implement-request-tests-rework: FAILED (exit $code, calls $(jq -c 'map({requests, applied_exit})' <<< "$c"))"
 fi
+fi
 # implement-request-review-rework: change.review (fixture) rejects once with the README finding; the
 # second implement reply replaces README.md. Passes when the run closes with two change.implement
 # calls of one request each, the second prompt holding the rejection's reason and the current
@@ -1941,6 +2203,7 @@ fi
 rw='{"files": [{"path": "README.md", "content": "# billing\n\nRun the service: cargo run -- 8080 billing.json\nRun the tests: task check\n"}], "note": "1. README.md:3 names the command that runs it", "findings": [], "remaining": []}'
 irej='{"decision": "rejected", "summary": "fixture: the README does not say how to run it", "findings": [{"kind": "violation", "at": "impl/README.md:1", "violates": "r1", "says": "fixture: the README names no command to run the service"}]}'
 iapp='{"decision": "approved", "summary": "fixture: the rework addresses the finding", "findings": []}'
+if sel implement-request-review-rework; then
 trial implement-request-review-rework "${req_env[@]}" SDC_LLM_NODES="change.implement change.review" \
   SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$irej" --argjson a "$iapp" '{rounds: [$j, $a]}')" \
   SDC_IMPLEMENT_REPLIES="$(jq -cn --argjson r "$rw" '{rounds: ["stub", $r]}')"
@@ -1954,9 +2217,11 @@ if (( code == 0 )) && jq -e 'length == 2 and all(.requests == 1)' <<< "$c" >/dev
 else
   echo "implement-request-review-rework: FAILED (exit $code, calls $(jq -c 'map({requests, applied_exit})' <<< "$c"))"
 fi
+fi
 # implement-request-invalid-retry: the first reply has no file; the second is the stub tree. Passes
 # when the run closes with one change.implement call of two requests, one retry, the second request
 # holding the check's error.
+if sel implement-request-invalid-retry; then
 trial implement-request-invalid-retry "${req_env[@]}" \
   SDC_IMPLEMENT_REPLIES='{"rounds": [[{"files": [], "note": "", "findings": [], "remaining": []}, "stub"]]}'
 code=$?
@@ -1968,9 +2233,11 @@ if (( code == 0 )) && jq -e 'length == 1 and .[0].requests == 2 and .[0].reply_r
 else
   echo "implement-request-invalid-retry: FAILED (exit $code, calls $(jq -c 'map({requests, reply_retries})' <<< "$c"))"
 fi
+fi
 # implement-request-invalid-named: every reply lacks a file's content. Passes when each
 # change.implement call made three requests (two retries) and ended implement_reply_invalid,
 # nothing was written into work/impl, and the run stopped with cause implement_reply_invalid.
+if sel implement-request-invalid-named; then
 trial implement-request-invalid-named "${req_env[@]}" \
   SDC_IMPLEMENT_REPLIES='{"rounds": [[{"files": [{"path": "src/lib.rs"}], "note": "x", "findings": [], "remaining": []}]]}'
 code=$?
@@ -1982,9 +2249,11 @@ if (( code != 0 )) && jq -e 'length >= 1 and all(.requests == 3 and .reply_retri
 else
   echo "implement-request-invalid-named: FAILED (exit $code, calls $(jq -c 'map({requests, reply_retries, cause})' <<< "$c"), stop $(jq -c '{cause}' "$s/runs/implement-request-invalid-named/run-stopped.json" 2>/dev/null))"
 fi
+fi
 # implement-request-path-escape: the first reply writes ../escape.rs; the second is the stub tree.
 # Passes when nothing named escape.rs exists outside impl/ (call dir or work/), the second request
 # holds the refusal naming the path, and the run closes.
+if sel implement-request-path-escape; then
 trial implement-request-path-escape "${req_env[@]}" \
   SDC_IMPLEMENT_REPLIES='{"rounds": [[{"files": [{"path": "../escape.rs", "content": "fn main() {}\n"}], "note": "", "findings": [], "remaining": []}, "stub"]]}'
 code=$?
@@ -1996,6 +2265,7 @@ if (( code == 0 )) && [[ -n $rec ]] && jq -e '.[0].requests == 2' <<< "$c" >/dev
   echo "implement-request-path-escape: checks pass (../escape.rs refused, nothing written outside impl/; closed)"
 else
   echo "implement-request-path-escape: FAILED (exit $code, calls $(jq -c 'map({requests, reply_retries})' <<< "$c"))"
+fi
 fi
 # --- requirement coverage (story:implement-cites-requirements) ---------------------------------
 # change.implement on the fixture adapter (llm-node.sh's model path: schema, shape check, apply)
@@ -2022,6 +2292,7 @@ cov_feedback() { jq -rs '[.[] | select(.action == "change.implement") | .record]
 # coverage-complete: every requirement built and cited. Passes when the run closes, the one
 # implement run recorded its change with no refusal, its log names the passing postcondition, and
 # the review (fixture adapter, approving) got the document as in/coverage.json among its inputs.
+if sel coverage-complete; then
 trial coverage-complete SDC_IMPLEMENT_COVERAGE=on SDC_LLM_NODES="change.implement change.review" SDC_LLM_ADAPTER="$fixture" \
   SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_good")"
 code=$?
@@ -2037,10 +2308,12 @@ if (( code == 0 )) && [[ -n $st && $(impl_takes "$st") == '[{"exit":"0","refused
 else
   echo "coverage-complete: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null), review ${rv:-none})"
 fi
+fi
 # coverage-not-built: the first reply says r2 not_built. Passes when that run is refused (no
 # evidence, `refused` requirement_coverage), tests.run does not run on it, the next run is sent
 # back with retry_of requirement_coverage and an in/feedback.md naming r2, it passes, the run
 # closes, and sdc-run-metrics counts the retry as requirement_coverage:refused.
+if sel coverage-not-built; then
 trial coverage-not-built "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_notbuilt" "$cov_good")"
 code=$?
 st=$(rr_story coverage-not-built)
@@ -2056,8 +2329,10 @@ if (( code == 0 )) && [[ -n $st && $(impl_takes "$st") == '[{"exit":"0","refused
 else
   echo "coverage-not-built: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null), feedback ${fb:-none})"
 fi
+fi
 # coverage-line-outside: r2 cited at src/lib.rs:999 (the file has 79 lines). Passes when the first
 # run is refused naming that line, the next passes, and the run closes.
+if sel coverage-line-outside; then
 trial coverage-line-outside "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_outside" "$cov_good")"
 code=$?
 st=$(rr_story coverage-line-outside)
@@ -2069,8 +2344,10 @@ if (( code == 0 )) && [[ -n $st && $(impl_takes "$st" | jq -c 'map(.refused)') =
 else
   echo "coverage-line-outside: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null))"
 fi
+fi
 # coverage-test-missing: r2's test email_is_sent does not exist. Passes when the first run is
 # refused naming the test, the next passes, and the run closes.
+if sel coverage-test-missing; then
 trial coverage-test-missing "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_notest" "$cov_good")"
 code=$?
 st=$(rr_story coverage-test-missing)
@@ -2082,9 +2359,11 @@ if (( code == 0 )) && [[ -n $st && $(impl_takes "$st" | jq -c 'map(.refused)') =
 else
   echo "coverage-test-missing: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null))"
 fi
+fi
 # coverage-spent: every reply says r2 not_built. Passes when the run stops writer_spent (the
 # existing cause) on change.implement after 3 runs, the kind that ran out is requirement_coverage,
 # each run sent back by its postcondition, and tests.run never ran in the story.
+if sel coverage-spent; then
 trial coverage-spent "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(cov_rounds "$cov_notbuilt")"
 code=$?
 r=$s/runs/coverage-spent
@@ -2098,11 +2377,13 @@ if (( code != 0 )) && jq -e '.cause == "writer_spent" and (.reason | test("requi
 else
   echo "coverage-spent: FAILED (exit $code, stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-240))"
 fi
+fi
 # coverage-reply-retry: the first reply of the first call breaks the schema (r1 built with no
 # place); llm-node.sh asks again with the check's reason in the same run, the second reply is
 # valid. Passes when there is one implement run, its call record holds the refused reply and the
 # prompt the reason, two call lines are logged for it, and the run closes.
 cov_bad=$(jq -cn '{requirements: [{id: "r1", status: "built", at: [], test: "create_invoice"}, {id: "r2", status: "not_built", reason: "x"}]}')
+if sel coverage-reply-retry; then
 trial coverage-reply-retry "${cov_env[@]}" SDC_COVERAGE_REPLIES="$(jq -cn --argjson b "$cov_bad" --argjson g "$cov_good" '{rounds: [[$b, $g]]}')"
 code=$?
 st=$(rr_story coverage-reply-retry)
@@ -2113,6 +2394,7 @@ if (( code == 0 )) && [[ -n $st && $(impl_takes "$st") == '[{"exit":"0","refused
   echo "coverage-reply-retry: checks pass (a reply outside the schema asked again with the reason in the same run; two call lines; closed)"
 else
   echo "coverage-reply-retry: FAILED (exit $code, implement runs $(impl_takes "$st" 2>/dev/null), record ${cr:-none})"
+fi
 fi
 # --- end requirement coverage
 targs=()
@@ -2127,6 +2409,7 @@ real_env=(SDC_LLM_ADAPTER=metaharness SDC_LLM_NODES=change.review METAHARNESS="$
 # review-real-path: passes when the run closes, run-settings records the review adapter claude-cli
 # (the default on a metaharness run), the review call went to claude with --json-schema and only
 # read tools, its reply was schema-constrained, and the story's code_review is approved by llm-review.
+if sel review-real-path; then
 rm -f "$s/review-real-path.model.jsonl"
 trial review-real-path "${real_env[@]}" FAKE_MODEL_LOG="$s/review-real-path.model.jsonl"
 code=$?
@@ -2143,10 +2426,12 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
 else
   echo "review-real-path: FAILED (exit $code, or the review was not on claude-cli under a schema: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
 fi
+fi
 # review-real-path-facts (SDC_REVIEW_MODE=facts): passes when the run closes, run-settings records the review adapter claude-cli
 # (the default on a metaharness run), the review call went to claude with --json-schema and no tools
 # (`--tools ""`, no allow list), its prompt carrying the review input, its reply was schema-constrained,
 # and the story's code_review is approved by llm-review.
+if sel review-real-path-facts; then
 rm -f "$s/review-real-path-facts.model.jsonl"
 trial review-real-path-facts "${real_env[@]}" SDC_REVIEW_MODE=facts FAKE_MODEL_LOG="$s/review-real-path-facts.model.jsonl"
 code=$?
@@ -2164,10 +2449,12 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
 else
   echo "review-real-path-facts: FAILED (exit $code, or the review was not on claude-cli under a schema: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
 fi
+fi
 # review-invalid-stop: the fake model's reply cites a line the README does not have, on every
 # attempt. Passes when the run stops by rule:autopilot with cause review_invalid, the reason names
 # the story case, the call and the check's reason, and nothing about the review is recorded.
 bad='{"decision": "rejected", "summary": "fake", "findings": [{"kind": "violation", "at": "impl/README.md:9999", "violates": "r1", "says": "a line that does not exist"}]}'
+if sel review-invalid-stop; then
 trial review-invalid-stop "${real_env[@]}" FAKE_MODEL_REPLY="$bad"
 code=$?
 r=$s/runs/review-invalid-stop
@@ -2180,8 +2467,10 @@ if (( code != 0 )) && jq -e '.by == "rule:autopilot" and .cause == "review_inval
 else
   echo "review-invalid-stop: FAILED (exit $code, stop record: $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
 fi
+fi
 # review-adapter-refused: the review class bound to metaharness, which takes no response schema.
 # Passes when run-trial.sh exits 64 before any call, naming the class and the adapter.
+if sel review-adapter-refused; then
 rm -f "$s/review-adapter-refused.model.jsonl"
 trial review-adapter-refused "${real_env[@]}" SDC_REVIEW_ADAPTER=metaharness FAKE_MODEL_LOG="$s/review-adapter-refused.model.jsonl"
 code=$?
@@ -2190,6 +2479,7 @@ if (( code == 64 )) && grep -q 'refused: node class review (spec.review, change.
   echo "review-adapter-refused: checks pass (a schema class on an adapter without a schema: the run refused to start, exit 64)"
 else
   echo "review-adapter-refused: FAILED (exit $code: $(tail -n 1 "$s/review-adapter-refused.txt" | cut -c1-200))"
+fi
 fi
 # efforts: the reasoning effort per LLM node is a run setting like the model (SDC_LLM_EFFORT_<CLASS>,
 # SDC_LLM_EFFORT; unset = the class default of tools/node-classes.json, high, the decider xhigh,
@@ -2213,6 +2503,7 @@ eargv() { # <run> <node> <expected effort>: the dry argv of the node's first cal
   a=$(ls -d "$s/runs/$1"/llm/*-"$2" | head -n 1)/argv.json
   jq -e --arg e "$3" '.[index("--effort") + 1] == $e' "$a" >/dev/null
 }
+if sel efforts; then
 dry efforts-default
 e1=$?
 dry efforts-all SDC_LLM_EFFORT=low
@@ -2261,12 +2552,14 @@ if (( e1 == 0 && e2 == 0 && e3 == 0 && e4 == 64 && e5 == 0 )) && hermetic &&
 else
   echo "efforts: FAILED"
 fi
+fi
 # reopen-review-invalid: runs/trial-3-strong-3, -4 and mixed-7, reopened on the fixed tree, stopped
 # again in 1 s naming the old call: the review had run at that state, so it was never dispatched
 # again. Leg 1: the review on the fixture adapter (SDC_REVIEW_ADAPTER) with an invalid reply:
 # review_invalid. Leg 2: --reopen with the adapter swapped back to the default (claude-cli, the
 # fake model, a valid reply). Passes when leg 2 makes a new review call on claude-cli, records an
 # approved code_review and closes (exit 0), with the reopen marked in the story case.
+if sel reopen-review-invalid; then
 trial reopen-review-invalid "${real_env[@]}" SDC_REVIEW_ADAPTER="$fixture" \
   SDC_REVIEW_REPLIES="$(jq -cn --argjson j "$bad" '{rounds: [$j]}')"
 code1=$?
@@ -2287,6 +2580,7 @@ if (( code1 != 0 && code == 0 )) && jq -e '.cause == "review_invalid"' "$r"/run-
   echo "reopen-review-invalid: checks pass (stopped review_invalid; reopened on another adapter, the review ran again, approved, closed)"
 else
   echo "reopen-review-invalid: FAILED (leg 1 exit $code1, reopen exit $code, review calls $calls1 then $(ls -d "$r"/llm/*-change.review 2>/dev/null | wc -l))"
+fi
 fi
 # --- sdc.bugfix (docs/bugfix.md): run-trial.sh --bugfix on the pager seed in autopilot, the stubs
 # write (fixtures/bugfix-pager/cycles/<name> through SDC_STUB_FIXTURES). Each closes by
@@ -2314,19 +2608,27 @@ red_then_green='(to_entries | map(.value + {at: .key})) as $e | ([$e[] | select(
   | ([$e[] | select(.kind == "test_run" and .result == "passed")] | last) as $green | ([$e[] | select(.kind == "implementation_change")] | last) as $fix
   | $red != null and $green != null and $fix != null and $red.at < $fix.at and $fix.at < $green.at and $green.upstream_revisions.repro == $red.subject_revision
     and $fix.upstream_revisions.repro == $red.subject_revision and $fix.subject_revision == $green.subject_revision and ([$red.subject_revision, $red.upstream_revisions.change, $green.subject_revision] | all(. != null and . != "none")) and $green.subject_revision != $red.upstream_revisions.change'
+if sel bugfix-full; then
 bugfix_cycle bugfix-full - fixed "$red_then_green" \
   "fixed; red at one change revision, the same repro revision green at the next"
+fi
+if sel bugfix-not-red; then
 bugfix_cycle bugfix-not-red not-red fixed \
   "$red_then_green and ([.[] | select(.kind == \"repro_run\" and .result == \"not_red\" and .subject_revision != \"none\")] | length) == 1" \
   "a test passing on the seed recorded not_red, the next red, then fixed"
+fi
+if sel bugfix-edited-test; then
 bugfix_cycle bugfix-edited-test edited-test fixed \
   "$red_then_green and ([.[] | select(.kind == \"test_run\") | .result] == [\"failed\", \"passed\"])" \
   "the fix that changed the test refused by tests.run, the next fixed"
 grep -q 'the reproducing test was changed' "$s/runs/bugfix-edited-test/store/BUG-1/blobs/"* 2>/dev/null ||
   echo "bugfix-edited-test: FAILED (no log names the changed test)"
+fi
+if sel bugfix-never-red; then
 bugfix_cycle bugfix-never-red never-red not_reproduced \
   '([.[] | select(.kind == "repro_run" and .result == "red")] | length) == 0 and ([.[] | select(.kind == "implementation_change")] | length) == 0' \
   "every test passes on the seed: not_reproduced, no fix written; the protocol's evaluation refuses the fix" '.claims."repro.red".value == "false" and .actions."change.fix".status == "blocked" and .actions."tests.run".status == "blocked" and .outcomes.fixed.status == "blocked" and .outcomes.not_reproduced.status == "legitimate"'
+fi
 # bugfix-from-ticket: run-trial.sh --bugfix-ticket --dry --autopilot (the dry adapter writes each
 # prompt and calls nothing, the stubs write) on a git repository made from the pager crate, with an
 # ignored and an untracked file, from the invented ticket fixtures/bugfix-pager/ticket.yaml. Closes
@@ -2334,6 +2636,7 @@ bugfix_cycle bugfix-never-red never-red not_reproduced \
 # commit, bug.yaml the ticket's story; change.fix's prompt carries the ticket's constraints and no
 # "Standard library only"; the run's output quotes no ticket text. Then the same repository, dirty,
 # is refused before any step.
+if sel bugfix-from-ticket; then
 tin=$s/bugfix-from-ticket-input r=$s/runs/bugfix-from-ticket
 rm -rf "$tin" "$r" "$s/runs/bugfix-from-ticket-dirty"
 tgit() { git -C "$tin/repo" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false -c core.hooksPath=/dev/null "$@"; }
@@ -2368,6 +2671,7 @@ if (( code == 0 )) && [[ ! -f $r/run-stopped.json ]] &&
 else
   echo "bugfix-from-ticket: FAILED (exit $code, dirty exit $dirty_code, $(jq -c '{outcome, closed_by}' "$r/status.json" 2>/dev/null), stop $(jq -c '{cause, reason}' "$r/run-stopped.json" 2>/dev/null | cut -c1-200))"
 fi
+fi
 # --- recorded replay (docs/driver.md, "Recorded replay"): scripts/run-trial.sh --recorded re-drives
 # the committed recording fixtures/recorded/stub with driver/src/bin/sdc-replay as the adapter of
 # every model and decider call, no LLM. The recording is a stub run through the fixture adapters,
@@ -2395,6 +2699,7 @@ n_calls=$(jq '.calls | length' "$recording/recording.json")
 # replay-unchanged: the recording re-driven as it is: closed operating as the source, the same
 # actions per case (sdc-replay compare), every call recorded, none reused, live or diverged, no
 # paid call; each call line marked recorded on the virtual clock; the first line names both trees.
+if sel replay-unchanged; then
 redrive replay-unchanged
 code=$?
 r=$s/runs/replay-unchanged
@@ -2409,6 +2714,7 @@ if (( code == 0 )) && "$replay_bin" compare "$r" > "$s/replay-unchanged.compare.
 else
   echo "replay-unchanged: FAILED (run exit $code, or the actions, the end or the call counts differ: $(calls replay-unchanged status.json 2>/dev/null))"
 fi
+fi
 # --- run switches at their defaults (docs/improving.md, "Run switches"): a change in what a run
 # does merges behind a switch that is off until its experiment holds. The committed recording is a
 # stub run of main's tree before these changes; re-driven with every switch at its default, every
@@ -2418,8 +2724,10 @@ fi
 # version on PATH and test timings, so under --on-divergence nearest a call that differs only there
 # is reused from the same key. Each <switch>-default cycle reads this one run and adds what its own
 # change would leave behind.
+if sel rule-approvals-default review-mode-default implement-coverage-default; then
 redrive switches-default --on-divergence nearest
 sw_code=$?
+fi
 sw=$s/runs/switches-default
 sw_main() { # the default run is main's run: same calls, inputs, prompts and actions as the recording
   (( sw_code == 0 )) && "$replay_bin" compare "$sw" > "$s/switches-default.compare.json" &&
@@ -2430,6 +2738,7 @@ sw_main() { # the default run is main's run: same calls, inputs, prompts and act
 sw_calls() { jq -c '.replay.calls' "$sw/status.json" 2>/dev/null; }
 # rule-approvals-default: SDC_RULE_APPROVALS unset is off: no rule request, no rule line; the
 # decider is asked for context.approve, roadmap.approve and release.publish as on main.
+if sel rule-approvals-default; then
 if sw_main && [[ ! -d $sw/rule-approvals ]] && jq -se 'all(.rule_approvals == "off")' "$sw/run-settings.jsonl" >/dev/null &&
    jq -se '[.[] | select(.principal == "rule:autopilot" and (.action | IN("context.approve", "roadmap.approve", "release.publish")))]
      | length == 0' "$sw/decisions.jsonl" >/dev/null &&
@@ -2438,6 +2747,7 @@ if sw_main && [[ ! -d $sw/rule-approvals ]] && jq -se 'all(.rule_approvals == "o
   echo "rule-approvals-default: checks pass (SDC_RULE_APPROVALS unset: off; $n_calls calls as main's recording, no prompt changed, the decider asked for context, roadmap and release)"
 else
   echo "rule-approvals-default: FAILED (run exit $sw_code; calls $(sw_calls); rule requests: $(ls "$sw/rule-approvals" 2>/dev/null | wc -l))"
+fi
 fi
 # review-mode-default: SDC_REVIEW_MODE unset is session: every review is a session with Glob, Read
 # and Grep over the whole change tree and the logs, as on main; no review document, no input_bytes.
@@ -2449,12 +2759,14 @@ session_inputs() { # every review call's in/ is main's: the logs and commands, n
     [[ -f $d/cwd/in/tests.txt && -f $d/cwd/in/gate.txt && -f $d/cwd/in/commands.json && ! -e $d/cwd/in/review.md && ! -e $d/cwd/in/listing.json ]] || return 1
   done
 }
+if sel review-mode-default; then
 if sw_main && jq -se 'last.review_mode == "session"' "$sw/run-settings.jsonl" >/dev/null &&
    jq -se '[.[] | select(.action == "change.review")] | length >= 1 and all(.allowed_operations == ["dir.list", "file.read", "search"]
      and .max_turns == 30 and (has("input_bytes") | not))' "$sw/llm-calls.jsonl" >/dev/null && session_inputs; then
   echo "review-mode-default: checks pass (SDC_REVIEW_MODE unset: session; $(wc -w <<< "$sw_reviews") reviews read the tree with Glob, Read and Grep, as main's recording)"
 else
   echo "review-mode-default: FAILED (run exit $sw_code; calls $(sw_calls); review calls: $(jq -sc '[.[] | select(.action == "change.review") | {allowed_operations, max_turns, input_bytes}]' "$sw/llm-calls.jsonl" 2>/dev/null | cut -c1-200))"
+fi
 fi
 # implement-coverage-default: SDC_IMPLEMENT_COVERAGE unset is off: change.implement is asked for no
 # coverage document, no postcondition runs and nothing is refused by one, the tree carries no
@@ -2466,6 +2778,7 @@ no_coverage() { # no call dir of change.implement or change.review holds a cover
   for d in $sw_impl; do [[ ! -e $d/cwd/in/story-requirements.json && ! -e $d/coverage-schema.json ]] || return 1; done
   for d in $sw_reviews; do [[ ! -e $d/cwd/in/coverage.json ]] || return 1; done
 }
+if sel implement-coverage-default; then
 if sw_main && jq -se 'last.implement_coverage == "off"' "$sw/run-settings.jsonl" >/dev/null && no_coverage &&
    [[ -z $(find "$sw/store" -path '*/impl/.sdc/coverage.json' 2>/dev/null) ]] &&
    ! cat "$sw"/store/IDEA-1/children/*/children/*/events.jsonl | jq -se 'any(.[]; .refused != null)' >/dev/null &&
@@ -2474,10 +2787,12 @@ if sw_main && jq -se 'last.implement_coverage == "off"' "$sw/run-settings.jsonl"
 else
   echo "implement-coverage-default: FAILED (run exit $sw_code; calls $(sw_calls); coverage files: $(find "$sw/store" -path '*/impl/.sdc/coverage.json' 2>/dev/null | wc -l))"
 fi
+fi
 # replay-reject-stop: merge.approve's recorded approve replaced by a reject: the rejection is
 # recorded and change.implement is sent back with it, a call the source never made
 # (change.implement@1.2); under the default policy the run ends there, exit 9, cause
 # recording_diverged naming the place.
+if sel replay-reject-stop; then
 redrive replay-reject-stop --inject 'reject@merge.approve#1=the change misses a refusal'
 code=$?
 r=$s/runs/replay-reject-stop
@@ -2489,10 +2804,12 @@ if (( code == 9 )) &&
 else
   echo "replay-reject-stop: FAILED (run exit $code, or no reject, or not stopped recording_diverged at change.implement@1.2)"
 fi
+fi
 # replay-reject-nearest: as above under --on-divergence nearest: the rework reuses the
 # implementer's recorded reply, which writes the same revision, so it is sent back until its
 # max_runs: writer_spent, the reused calls counted and labelled. run.unstick stays off: the
 # recording has no run.unstick call, so run-settings records replay.unstick off and nothing diverges.
+if sel replay-reject-nearest; then
 redrive replay-reject-nearest --inject 'reject@merge.approve#1=the change misses a refusal' --on-divergence nearest
 code=$?
 r=$s/runs/replay-reject-nearest
@@ -2505,9 +2822,11 @@ if (( code == 4 )) &&
 else
   echo "replay-reject-nearest: FAILED (run exit $code, or not writer_spent, or the reused calls not labelled)"
 fi
+fi
 # replay-timeout: the implementer's first call runs into its timeout on the virtual clock: the
 # driver records exit timeout ("virtual clock"), the writer's retry reuses the recorded reply
 # (nearest) and the run closes operating as the source did.
+if sel replay-timeout; then
 redrive replay-timeout --inject "timeout@$story_case/change.implement#1" --on-divergence nearest
 code=$?
 r=$s/runs/replay-timeout
@@ -2518,9 +2837,11 @@ if (( code == 0 )) && [[ $(impl_exits replay-timeout) == '["timeout","0"]' ]] &&
 else
   echo "replay-timeout: FAILED (run exit $code, change.implement exits $(impl_exits replay-timeout 2>/dev/null))"
 fi
+fi
 # replay-live-dry: the reject again, under --on-divergence live with the dry adapter and a cap of
 # 1: the rework's call goes to the live adapter (printed as `would run: metaharness …`, nothing
 # called, nothing written), counted as live and unpaid; the next one ends the run, the cap spent.
+if sel replay-live-dry; then
 redrive replay-live-dry --inject reject@merge.approve#1 --on-divergence live --live-adapter dry --live-cap 1
 code=$?
 r=$s/runs/replay-live-dry
@@ -2532,9 +2853,11 @@ if (( code == 9 )) &&
 else
   echo "replay-live-dry: FAILED (run exit $code, or the live calls, the cap or the dry commands are wrong)"
 fi
+fi
 # replay-check-fail: tests.run's first run fails (the program runs, its run recorded as exit 1)
 # and change.implement's max_runs is 2: the writer is sent back with the failure, its reused reply
 # writes the same revision, and the run ends writer_spent at 2 runs; the condition is a run setting.
+if sel replay-check-fail; then
 redrive replay-check-fail --inject check-fail@tests.run#1 --set max_runs.implement=2 --on-divergence nearest
 code=$?
 r=$s/runs/replay-check-fail
@@ -2547,13 +2870,16 @@ if (( code == 4 )) &&
 else
   echo "replay-check-fail: FAILED (run exit $code, change.implement exits $(impl_exits replay-check-fail 2>/dev/null))"
 fi
+fi
 # replay-recording-clean: the committed recording holds no absolute path, no prompt and no
 # transcript, and names the tree it was recorded on.
+if sel replay-recording-clean; then
 if jq -e '.format == "sdc.recording/1" and (.tree.commit | type) == "string" and (.calls | length) > 0' "$recording/recording.json" >/dev/null &&
    ! grep -rqs '/home/' "$recording" && [[ -z $(find "$recording" \( -name prompt.md -o -name transcripts -o -name 'events.jsonl' -path '*/calls/*' \) -print) ]]; then
   echo "replay-recording-clean: checks pass (no absolute path, prompt or transcript; tree $(jq -r .tree.commit "$recording/recording.json"))"
 else
   echo "replay-recording-clean: FAILED"
 fi
-} | tee "$s/cycles.log"
-summary "$s/cycles.log"
+fi
+} | tee "$log"
+summary "$log"

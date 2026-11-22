@@ -48,3 +48,42 @@ comparison is skipped and one note says so. `RUNBOOK_HOME=<root>` points the che
 (the task defaults to this checkout; the old `CYCLES_SUITE` variable is gone). `runbook check` also
 checks the rest of the text layout: the parts `runbook doctor` lists, the bindings and the
 instruction files they name, the placeholders of the instruction files, and the view files.
+
+## Running named cycles
+
+A full run of `scripts/run-finding-cycles.sh <scratch dir>` takes over an hour. To repeat one cycle
+or a few, name them after the scratch directory:
+
+```
+scripts/run-finding-cycles.sh <scratch dir> --only <name>[,<name>...]
+task cycles:only SCRATCH=<scratch dir> NAMES=<name>[,<name>...]
+```
+
+A name is an id of `cycles/suite.yaml` (an `expected` or a `pending` cycle of the script); `--only` may
+be repeated. A selected cycle runs the same code with the same checks as in a full run. A cycle that is
+not selected neither runs nor is counted.
+
+- A name the script does not list ends it with exit 2, naming it, before anything runs.
+- A cycle that reads the output of an earlier cycle (its run directory, store or log) runs that cycle
+  too and says so in one line: `cycles: also running autopilot (needed by decider-input: it reads that
+  cycle's output)`. The script holds that list in `needs`: `run-stop-decider` needs
+  `decider-finding-refused`; `decider-later-obligation` needs `autopilot`; `decider-input` needs
+  `autopilot` and `autopilot-close-a3`; `conformance-default-off` needs `autopilot-close`;
+  `principals` needs `finding-person` and `finding-person-stop`; `run-metrics` needs `decider-rework`;
+  `rework-cap` needs `decider-rework-spent`; `rework-pending-rejection` needs `rework-not-called`;
+  `writer-not-called` needs `replay-sibling`. `rule-approvals-default`, `review-mode-default` and
+  `implement-coverage-default` read one shared re-drive (`switches-default`), which runs once for any
+  of them. The helper runs of a cycle (`rework-cap-prompt`, `models-all`, `efforts-bad`,
+  `review-facts-once`, ...) run with it.
+- The verdict line says how many were selected, so that it is never taken for a full run:
+  `cycles: selected 2 of 126, 2 as expected, 0 failed: none`, or with a pulled-in cycle
+  `cycles: selected 1 of 126 (+1 needed: autopilot), 2 as expected, 0 failed: none`. It compares the
+  selected and pulled-in cycles only. A selected `pending` cycle is reported on a `pending: selected K
+  of P (...)` line and, as in a full run, never fails the script. The line of a full run, `cycles: N
+  expected, ...`, is not printed.
+- The exit code is 1 when a selected cycle failed, 0 when all are as expected.
+- The log is `<scratch dir>/cycles-only.log`; the `cycles.log` of a full run in the same directory
+  stays. The run and store directories of a selected cycle are rewritten, as in a full run.
+
+A cycle added to the script stands in its own `if sel <name>; then` ... `fi` block, and one that
+reads another cycle's output gets an entry in `needs`.
