@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Fixed
+
+- The run inspector (`ui/`) applies a view file to a run of `runbook run`: the protocol of a case is read from the `opened` event of its `events.jsonl` when it has no `case.json` (`/api/view-info` answered `protocols: []` and no view for such a run with any `--view`); the page shows that protocol in the case header too. A case with both files keeps the protocol of `case.json`.
+
 ### Changed
 
 - The ESS pins move from 0.97.3 to 0.97.4 (faster synthesis, suites byte-identical to 0.97.3, no breaking change): `driver/ess-pin.json` (tag `0.97.4`, commit `b076ef00be`; archive sha256 equal to the release's `SHA256SUMS`), `requires: ess 0.97.4` in `ess/ess-inputs.yaml` and the `ESS_TOOLCHAIN` default of `bindings/tools/sdc-tool.sh`. `ess/generated/conformance/DIGEST` moved with its source `ess/ess-inputs.yaml`; `suite.json`, the schema and the OpenAPI output are byte-identical.
