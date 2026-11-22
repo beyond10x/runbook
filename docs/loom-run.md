@@ -123,6 +123,25 @@ in the real file. The run directory records only that a file was named (`setting
   directory is removed by hand (`rm -r $XDG_RUNTIME_DIR/runbook/<run name>`); `$XDG_RUNTIME_DIR` itself
   is removed by the system at the user's last logout. The run directory holds nothing of it either way.
 
+### How each adapter gets the login under Loom
+
+A bound program has `PATH` and `LOOM_*` and no `HOME`. The bindings copy writes the link as
+`--claude-credentials <link>` into the argv of every model node, `llm-node.sh` turns it into
+`SDC_CLAUDE_CREDENTIALS`, and each adapter makes its own private copy for its one call:
+
+| Path | How it finds the login | Gone after the call |
+|---|---|---|
+| `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home `<record dir>/config-home.XXXXXX` (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude` | removed on exit |
+| `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes `<record dir>/login-home.XXXXXX` (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` to it for the metaharness process alone | removed on exit, also after a failed call or SIGTERM |
+| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `llm-node.sh`, so the adapter of the first or second row | as its adapter |
+
+Without `SDC_CLAUDE_CREDENTIALS` nothing changes: the claude-cli adapter reads `CLAUDE_CONFIG_DIR`,
+then `HOME`; the metaharness adapter keeps the `HOME` it has (the driver's runs). With
+`SDC_LLM_ENDPOINT` the metaharness adapter keeps `--credentials none` and copies no login. The path
+and the content of the login are in no file of a call's record directory (a test proves it for both
+adapters, `driver/tests/questions_check.rs`, `loom_mode`; with the real `metaharness` and a stand-in
+`claude`, skipped where `metaharness` is not on `PATH`).
+
 ## The caps
 
 | Cap | Outcome | Exit | Checked |
@@ -149,8 +168,25 @@ acts, and Loom refuses the other budget members on a program binding.
 
 Where the cost of a step is read: Loom's `tree status` carries none. A model tool writes
 `<workspace>/.sdc/llm/NNN-<action>/` at the start of a call and a line with `cost_usd` and `record`
-to `.sdc/llm/calls.jsonl` at its end. A directory without a matching line, a null cost or an
-unreadable line fails the run closed and books the whole reservation.
+to `.sdc/llm/calls.jsonl` at its end (also `action`, `adapter` and the adapter's `exit`). A directory
+without a matching line, a null cost or an unreadable line fails the run closed and books the whole
+reservation.
+
+### A failed model call
+
+The old driver does not end a run for a model call that exits with a number other than 0 and has no
+cost: it records the action as finished without evidence, the step's retry rule decides (`max_runs`,
+then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of a program end the run
+(`driver/src/main.rs`, `program_error`). `runbook loom-run` does the same:
+
+- A call with an exit other than 0, 126, 127 and 75 and no usable cost is booked at its reservation
+  (the spend rule stays fail-closed), written to `llm-calls.jsonl` with `cost_unknown: true`, and the
+  run goes on; repeated failures run into the spend cap and end as `stopped: spend cap`.
+- A call with exit 126, 127 or 75, a call with exit 0 and no cost, and a call directory with no line
+  end the run as `error`, with the reservation booked.
+- The reason of such an end is `model step <action>: adapter <adapter> exited <code>: <first line of
+  the adapter's stderr>`: the first non-empty line of `adapter-stderr.txt`, else `stderr.txt`, of the
+  call directory, the home prefix replaced by `~`, cut at 300 characters, `(no stderr)` when empty.
 
 ### Fail closed
 
