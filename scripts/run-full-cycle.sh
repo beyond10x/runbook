@@ -63,6 +63,10 @@ echo "# the person's idea: $(cat "$root/work/idea.yaml")" >> "$log"
 for round in $(seq 1 30); do
   minute=$((minute + 1))
   d "$root" run --at "$(at)"
+  if ! jq -e . <<< "$last" > /dev/null 2>&1; then
+    echo "run-full-cycle: \`sdc-drive run\` printed no JSON (exit $code); its first line: $(head -n 1 <<< "$last")"
+    exit 5
+  fi
   verdict=$(jq -r '.verdict' <<< "$last")
   echo "round $round at $(at): $verdict $(jq -r '.case_dir // ""' <<< "$last")"
   case $verdict in
