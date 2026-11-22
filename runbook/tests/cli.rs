@@ -2,6 +2,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+mod loom_run;
+
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 
 fn repo() -> PathBuf {
