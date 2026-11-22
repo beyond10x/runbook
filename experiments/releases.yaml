@@ -492,3 +492,37 @@ entries:
   limits:
   - No run has used this tree and the release claims no measured change; it rests on the operator's order (approval-record:release-0-4-1), not on the standing rule of docs/releasing.md.
   - A comparison of runs across the move from ESS 0.96.0 to 0.97.3 has to say so; the engine that runs a case on Loom inside the daemon is not in this release.
+- id: 0.5.0
+  kind: release
+  version: 0.5.0
+  label: 0.5.0
+  short: runbook run, runbook test
+  date: 2026-11-22
+  tree: 44e05a37d6c44266849231212b75efabda0bee54
+  tree_note: 'tag 0.5.0 at main 44e05a3: 0.4.1 (da86a8f) with the merges of the runner on the Loom engine (runbook run in process, runbook test, the decider and every model node in Rust, the options of the old launcher but the replay), the record of 0.4.1 and the preparation'
+  experiments: []
+  changes:
+  - commit: 6a809a4
+    line: runbook run makes the run in this process with Loom as a library and the command loom-run is gone
+    effect: none
+  - commit: af4059d
+    line: runbook test runs a loom.tree-suite/1 file through Loom's suite runner in process
+    effect: none
+  - commit: 6bdb085
+    line: the model, rule and requester decider run inside the runner and start only the adapter program
+    effect: none
+  - commit: 92a12f3
+    line: all fourteen model nodes of the bindings start sdc-node; llm-node.sh serves the old driver only
+    effect: none
+  - commit: ad5286e
+    line: sdc-experiment run starts a run only with runbook run and refuses a variant of the old driver
+    effect: none
+  - commit: 3073dac
+    line: runbook run --dry, --bugfix, --bugfix-ticket, --goals, --watch and --conformance observe are built; the replay options are refused
+    effect: none
+  - commit: 0484566
+    line: Loom 5b3142c7 and Canon 0.11.0 are linked as libraries, and the daemon can run through Loom with serve --runtime loom
+    effect: none
+  limits:
+  - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.
+  - The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists.
