@@ -79,6 +79,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    let given = crate::loom_run::dry::preset(args.ports.dry, given)?;
     let mut settings_value = given.clone();
     settings::fill_decider(&mut settings_value, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
@@ -100,6 +101,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &identity);
+    let redacted = crate::loom_run::dry::mark(args.ports.dry, redacted);
     let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
     let start = clock.now_secs();
     let env = child::child_env(&run_dir);
@@ -141,6 +143,9 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
     sinks.push(Box::new(RunDirWriter::open(&run_dir, &redacted)?));
+    if args.ports.dry {
+        sinks.push(Box::new(crate::loom_run::dry::CommandSink::new(&run_dir)));
+    }
     runner.sinks = sinks;
     let outcome = runner.drive(root_name, &protocols, &redacted);
     Ok(runner.finish(outcome))

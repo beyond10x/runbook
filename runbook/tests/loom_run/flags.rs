@@ -37,8 +37,12 @@ fn refused(root: &Path, extra: &[&str], line: &str) {
 }
 
 #[test]
-fn dry_is_accepted_and_refused_until_built() {
-    refused(&scratch("dry"), &["--dry"], "--dry is not built yet");
+fn dry_is_built_and_no_longer_refused() {
+    let root = scratch("dry");
+    let o = run(&root, &["--dry"]);
+    let err = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert!(!err.contains("not built yet"), "{err}");
+    assert_ne!(o.status.code(), Some(64), "{err}");
 }
 
 #[test]
