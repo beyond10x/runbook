@@ -7,6 +7,20 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-22
+
+A patch release of 0.4.0, the same day: a fix, checks and tools, and records; no protocol or behaviour
+change of the product. A model step of `runbook loom-run` that started no adapter costs nothing, the
+checks of a run and the ESS specification run on ESS 0.97.3 with the daemon's synthesized conformance
+suite committed, `sdc-check-unreferenced` is a new check, the two evaluation tools read the run
+directory of `runbook loom-run`, and the UI test children end with their parent. The longer note is
+`docs/releases/0.4.1.md`.
+
+### Added
+
+- `sdc-check-unreferenced` and `task check:unreferenced` (part of `task check`) list the tracked files of `scripts/`, `bindings/`, `instructions/`, `cycles/`, `cases/`, `tools/`, `watch/`, `views/`, `decision/`, `goals/`, `eval/` and `driver/tests/fixtures/` that no other tracked text file refers to, and exit 1 when there are any; the history files (`.engineering/`, `experiments/`, `CHANGELOG.md`, `docs/releases/`) do not count as referrers; `--without <path>...` lists the files that only the given paths refer to. `driver/unreferenced-keep.txt` lists 26 files the first run found, as unexamined, and `driver/unreferenced-whole.txt` 10 directories a program reads whole; nothing is deleted (`docs/releasing.md`, "The unreferenced-files check").
+- The record `experiments/parity-loom-strong-3.yaml` (the strong setting through Loom on tree `e7dfa4b58`: all three runs passed `scope.answer`, none closed; run costs 1.761, 0.565 and 1.766 USD) and the result of `experiments/release-0.3.1.yaml` (nine runs, eight closed and one stopped at `writer_spent`; clean passes strong 3 of 3, mixed 3 of 3, haiku 1 of 3; 26.478 USD in all). Both records are descriptive and decide nothing; the run summaries are under `experiments/<id>/runs/`, the reports beside them. No run metric of the product is affected.
+
 ### Changed
 
 - The ESS specification of the daemon is pinned to ess 0.97.3 (`requires: ess 0.97.3` in `ess/ess-inputs.yaml`); its tasks run inside `ess/`, where the dispatcher switches to the pin. The synthesized conformance suite is committed (`ess/generated/conformance/suite.json`, `DIGEST`) and its fast digest check is part of `task check:ess-generated`; `task check:ess-suite:slow` synthesizes it again and compares bytes.
