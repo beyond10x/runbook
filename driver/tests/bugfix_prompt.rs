@@ -557,7 +557,8 @@ fn the_rust_binaries_hold_no_instruction_text() {
     // `sdc-node` and the runner (`runbook/src/loom_run/`, the decider and its sub-modules among them)
     // took over from `llm-node.sh` and `decider.sh`, the two programs this guard held before: every
     // Rust source of them is held to the same rule (see `guarded_sources`).
-    let sources = guarded_sources();
+    let (sources, refused) = guarded_sources();
+    assert!(refused.is_empty(), "files the guard cannot cut into non-test code: {refused:?}");
     assert!(lines.len() > 100 && sources.len() > 8, "found {} lines and {} sources", lines.len(), sources.len());
     for (p, text) in &sources {
         if let Some(l) = first_instruction_line_in(text, &lines) {
@@ -631,56 +632,245 @@ fn first_instruction_line_in(text: &str, lines: &[String]) -> Option<String> {
     lines.iter().find(|l| text.contains(l.as_str())).cloned()
 }
 
+
 /// Test code may hold instruction text on purpose (a fixture of what a prompt says). The rule: a
-/// file named `tests.rs`, `golden.rs` or `*_tests.rs` is test code, and so is everything from an
-/// inline `#[cfg(test)]` module on (the attribute line followed by a `mod name {` line).
+/// file named `tests.rs`, `golden.rs` or `*_tests.rs` is test code, and so is an inline
+/// `#[cfg(test)]` module (the attribute line followed by a `mod name {` line).
 fn is_test_file(p: &Path) -> bool {
     let n = p.file_name().unwrap().to_string_lossy();
     n == "tests.rs" || n == "golden.rs" || n.ends_with("_tests.rs")
 }
 
-fn without_inline_test_module(text: &str) -> String {
+/// The offset of the brace that closes the first `{` of `text`, counting braces and leaving out
+/// those in line and block comments, string literals (raw ones too) and char literals. Not handled:
+/// nested block comments, and braces that a macro body makes unbalanced. Enough for the files of
+/// the scanned directories; a file it misreads fails the guard instead of passing it.
+fn closing_brace(text: &str) -> Option<usize> {
+    let b = text.as_bytes();
+    let (mut i, mut depth) = (0, 0usize);
+    while i < b.len() {
+        match b[i] {
+            b'/' if b.get(i + 1) == Some(&b'/') => {
+                while i < b.len() && b[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            b'/' if b.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < b.len() && !(b[i] == b'*' && b[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+                continue;
+            }
+            b'r' if matches!(b.get(i + 1), Some(b'"' | b'#')) && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_')) => {
+                let (mut j, mut hashes) = (i + 1, 0);
+                while b.get(j) == Some(&b'#') {
+                    hashes += 1;
+                    j += 1;
+                }
+                if b.get(j) == Some(&b'"') {
+                    let end = format!("\"{}", "#".repeat(hashes));
+                    i = text[j + 1..].find(&end).map_or(b.len(), |k| j + 1 + k + end.len());
+                    continue;
+                }
+            }
+            b'"' => {
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    i += if b[i] == b'\\' { 2 } else { 1 };
+                }
+                i += 1;
+                continue;
+            }
+            b'\'' => {
+                if b.get(i + 1) == Some(&b'\\') {
+                    i += 3;
+                    while i < b.len() && b[i] != b'\'' {
+                        i += 1;
+                    }
+                    i += 1;
+                    continue;
+                }
+                if let Some(c) = text[i + 1..].chars().next() {
+                    if text[i + 1 + c.len_utf8()..].starts_with('\'') {
+                        i += 2 + c.len_utf8();
+                        continue;
+                    }
+                }
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// The text before an inline `#[cfg(test)]` module. A file with any item after the closing brace
+/// of that module is an error naming what follows: the cut would drop non-test code with it.
+fn non_test_text(text: &str) -> Result<String, String> {
     let lines: Vec<&str> = text.lines().collect();
     let cut = (0..lines.len().saturating_sub(1))
         .find(|&i| lines[i].trim() == "#[cfg(test)]" && lines[i + 1].trim_start().starts_with("mod ") && lines[i + 1].trim_end().ends_with('{'));
-    lines[..cut.unwrap_or(lines.len())].join("\n")
+    let Some(i) = cut else { return Ok(lines.join("\n")) };
+    let module = lines[i + 1..].join("\n");
+    let end = closing_brace(&module).ok_or("the inline test module is not closed (or its braces are misread)")?;
+    let after = module[end + 1..].trim();
+    if !after.is_empty() {
+        return Err(format!("code after the inline test module: {}", after.lines().next().unwrap_or_default()));
+    }
+    Ok(lines[..i].join("\n"))
 }
 
-/// Every `.rs` file under `dir` that is not test code, with its non-test text, found by walking.
-fn program_sources(dir: &Path, out: &mut Vec<(PathBuf, String)>) {
+/// Every `.rs` file under `dir` that is not test code, with its non-test text, found by walking;
+/// a file `non_test_text` refuses is named in `refused`.
+fn program_sources(dir: &Path, out: &mut Vec<(PathBuf, String)>, refused: &mut Vec<String>) {
     let mut entries: Vec<PathBuf> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
     entries.sort();
     for p in entries {
         if p.is_dir() {
-            program_sources(&p, out);
+            program_sources(&p, out, refused);
         } else if p.extension().is_some_and(|x| x == "rs") && !is_test_file(&p) {
-            out.push((p.clone(), without_inline_test_module(&fs::read_to_string(&p).unwrap())));
+            match non_test_text(&fs::read_to_string(&p).unwrap()) {
+                Ok(text) => out.push((p.clone(), text)),
+                Err(e) => refused.push(format!("{}: {e}", p.display())),
+            }
         }
     }
 }
 
 /// The Rust sources of the programs that replaced `llm-node.sh` and `decider.sh`: `sdc-node` (its
 /// file and its directory) and the runner's `loom_run` module tree, which holds the decider (its
-/// module root `decider.rs` and `decider/`). A new file is in the set without an edit here.
-fn guarded_sources() -> Vec<(PathBuf, String)> {
-    let mut sources = Vec::new();
+/// module root `decider.rs` and `decider/`), and the files the cut refused. A new file is in the
+/// set without an edit here.
+fn guarded_sources() -> (Vec<(PathBuf, String)>, Vec<String>) {
+    let (mut sources, mut refused) = (Vec::new(), Vec::new());
     let node = manifest().join("src/bin/sdc-node.rs");
     sources.push((node.clone(), fs::read_to_string(&node).unwrap()));
-    program_sources(&manifest().join("src/bin/sdc-node"), &mut sources);
-    program_sources(&repo().join("runbook/src/loom_run"), &mut sources);
-    sources
+    program_sources(&manifest().join("src/bin/sdc-node"), &mut sources, &mut refused);
+    program_sources(&repo().join("runbook/src/loom_run"), &mut sources, &mut refused);
+    (sources, refused)
 }
 
 /// The set the guard scans takes in the decider's module root and its sub-modules, and leaves out
 /// its test code.
 #[test]
 fn the_guard_scans_the_decider_module_root_and_leaves_out_test_code() {
-    let sources = guarded_sources();
+    let (sources, refused) = guarded_sources();
+    assert!(refused.is_empty(), "{refused:?}");
     let scanned = |rel: &str| sources.iter().any(|(p, _)| *p == repo().join(rel));
     assert!(scanned("runbook/src/loom_run/decider.rs"), "the decider's module root is not scanned");
     assert!(scanned("runbook/src/loom_run/decider/requester.rs"), "a sub-module of the decider is not scanned");
     assert!(!scanned("runbook/src/loom_run/decider/tests.rs") && !scanned("runbook/src/loom_run/decider/golden.rs"), "test code is scanned");
-    assert_eq!(without_inline_test_module("a\n#[cfg(test)]\nmod t {\nb\n}\n"), "a");
-    assert_eq!(without_inline_test_module("a\n#[cfg(test)]\nmod t;\nb\n"), "a\n#[cfg(test)]\nmod t;\nb");
+    assert_eq!(non_test_text("a\n#[cfg(test)]\nmod t {\nb\n}\n").unwrap(), "a");
+    assert_eq!(non_test_text("a\n#[cfg(test)]\nmod t;\nb\n").unwrap(), "a\n#[cfg(test)]\nmod t;\nb");
 }
 
+/// The cut counts braces from the inline test module's opening one, leaves out the braces of
+/// strings, chars and comments, and refuses a file with an item after the module.
+#[test]
+fn a_file_with_code_after_its_inline_test_module_fails_the_guard() {
+    let tricky = "x\n#[cfg(test)]\nmod tests {\n    const A: &str = \"}\";\n    const R: &str = r#\"} \" }\"#;\n    const C: char = '}';\n    const E: char = '\\'';\n    // }\n    /* } */\n    fn f<'a>(_: &'a str) {}\n}\n";
+    assert_eq!(non_test_text(tricky).unwrap(), "x");
+    assert_eq!(non_test_text(&format!("{tricky}\n")).unwrap(), "x");
+    let after = format!("{tricky}fn after_the_test_module() {{}}\n");
+    let e = non_test_text(&after).unwrap_err();
+    assert!(e.contains("code after the inline test module: fn after_the_test_module"), "{e}");
+    assert!(non_test_text("#[cfg(test)]\nmod tests {\nfn f() {\n").unwrap_err().contains("not closed"));
+    // Every real file of the scanned directories that has such a module has nothing after it.
+    for rel in ["runbook/src/loom_run/budget.rs", "runbook/src/loom_run/bugfix.rs", "runbook/src/loom_run/replay.rs"] {
+        let real = fs::read_to_string(repo().join(rel)).unwrap();
+        assert!(non_test_text(&real).is_ok(), "{rel} is refused");
+        assert!(non_test_text(&format!("{real}\nfn after() {{}}\n")).is_err(), "{rel} with an item appended passes");
+    }
+}
+
+fn pasted_instruction_line() -> (Vec<String>, String) {
+    let mut lines = Vec::new();
+    for e in fs::read_dir(repo().join("instructions/decider")).unwrap() {
+        let p = e.unwrap().path();
+        if p.is_file() {
+            lines.extend(fs::read_to_string(&p).unwrap().lines().map(str::trim).filter(|l| l.len() >= 30).map(String::from));
+        }
+    }
+    let one = lines[0].replace('"', "\\\"");
+    (lines, format!("\nconst PASTED: &str = \"{one}\";\n"))
+}
+
+/// The real text of files of the set with a line pasted at its end, through the guard's own cut:
+/// decider.rs, another `loom_run` file, a decider sub-module, two `sdc-node` files.
+#[test]
+fn a_line_pasted_into_a_scanned_file_is_found() {
+    let (lines, paste) = pasted_instruction_line();
+    let (sources, _) = guarded_sources();
+    for rel in ["runbook/src/loom_run/decider.rs", "runbook/src/loom_run/ledger.rs", "runbook/src/loom_run/decider/prompt.rs", "driver/src/bin/sdc-node/call.rs", "driver/src/bin/sdc-node.rs"] {
+        let path = repo().join(rel);
+        assert!(sources.iter().any(|(p, _)| *p == path), "{rel} is not scanned");
+        let real = fs::read_to_string(&path).unwrap();
+        let cut = if rel.ends_with("sdc-node.rs") { format!("{real}{paste}") } else { non_test_text(&format!("{real}{paste}")).unwrap() };
+        assert!(first_instruction_line_in(&cut, &lines).is_some(), "a line pasted at the end of {rel} is not found");
+    }
+}
+
+/// A new file in a walked directory, and one in a sub-directory, is scanned without an edit of the
+/// guard, and one with code after its inline test module is refused. The directory is the test's
+/// own, under the target directory: nothing is written into the source tree.
+#[test]
+fn a_new_file_in_a_walked_directory_is_scanned() {
+    let (lines, paste) = pasted_instruction_line();
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("guard-walk");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("sub")).unwrap();
+    fs::write(dir.join("new.rs"), format!("//! new{paste}")).unwrap();
+    fs::write(dir.join("sub/new_sub.rs"), format!("//! new{paste}")).unwrap();
+    fs::write(dir.join("new_tests.rs"), format!("//! test code{paste}")).unwrap();
+    fs::write(dir.join("late.rs"), "#[cfg(test)]\nmod tests {\n}\nfn late() {}\n").unwrap();
+    let (mut sources, mut refused) = (Vec::new(), Vec::new());
+    program_sources(&dir, &mut sources, &mut refused);
+    assert_eq!(sources.len(), 2, "{:?}", sources.iter().map(|s| &s.0).collect::<Vec<_>>());
+    for (p, text) in &sources {
+        assert!(first_instruction_line_in(text, &lines).is_some(), "the line pasted into the new file {} is not found", p.display());
+    }
+    assert!(refused.len() == 1 && refused[0].contains("late.rs") && refused[0].contains("code after the inline test module"), "{refused:?}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Every file the rule leaves out by its name is test code: its parent declares it behind
+/// `#[cfg(test)]`.
+#[test]
+fn every_file_excluded_by_name_is_declared_behind_cfg_test() {
+    let mut files = Vec::new();
+    fn walk(d: &Path, out: &mut Vec<PathBuf>) {
+        for e in fs::read_dir(d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|x| x == "rs") && is_test_file(&p) {
+                out.push(p);
+            }
+        }
+    }
+    walk(&repo().join("runbook/src/loom_run"), &mut files);
+    walk(&manifest().join("src/bin/sdc-node"), &mut files);
+    assert!(!files.is_empty());
+    let mut bad = Vec::new();
+    for f in files {
+        let name = f.file_stem().unwrap().to_string_lossy().to_string();
+        let dir = f.parent().unwrap();
+        let parent = [dir.with_extension("rs"), dir.join("mod.rs")].into_iter().find(|p| p.is_file()).expect("a parent module file");
+        let text = fs::read_to_string(&parent).unwrap();
+        let lines: Vec<&str> = text.lines().map(str::trim).collect();
+        if !lines.windows(2).any(|w| w[0] == "#[cfg(test)]" && w[1] == format!("mod {name};")) {
+            bad.push(f.display().to_string());
+        }
+    }
+    assert!(bad.is_empty(), "excluded by name and not declared behind cfg(test): {bad:?}");
+}
