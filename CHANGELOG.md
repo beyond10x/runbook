@@ -14,6 +14,7 @@ bare-version tags (`docs/releasing.md`).
 
 ### Fixed
 
+- The digest of the sources of the committed ESS suite (`task ess-suite:digest`) no longer hashes the text the host's `ess --version` prints, so `task check:ess-generated` no longer fails on a host whose `ess` on `PATH` prints more or less than the pin (the recorded digest had been made with a dispatcher that printed two lines); the pin is the `requires: ess` line of `ess/ess-inputs.yaml`, which the digest hashes as a source. `task ess-suite:record` and `task check:ess-suite:slow` run `task ess-suite:pin` first and refuse when the `ess` that runs in `ess/` is not that release.
 - `runbook loom-run`: a model step that ended before it started any adapter (its call directory has no `request.json`, which `llm-node.sh` writes before every adapter start, and a `status.json` with the step's exit) costs nothing: its reservation is released instead of booked, an event `no_model_call` names the call and the exit, and the run goes on with what Loom says of the step instead of ending `error` at the cost reader; a directory with a `request.json` and no cost record, and one without a readable `status.json` exit, stay fail-closed as before (`docs/loom-run.md`).
 
 ## [0.4.0] - 2026-11-22
