@@ -76,8 +76,11 @@
     "argv": [
       "{dir}/../../../bindings/tools/sdc-tool.sh",
       "story-tests",
-      "impl"
+      "impl",
+      "--pool-wait",
+      "1200"
     ],
+    "timeout_s": 3000,
     "produces": "conformance_run",
     "subject": "change",
     "upstream": [

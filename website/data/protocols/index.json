@@ -869,7 +869,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-release.bindings.json",
-      "sha256": "f0ca911c391554bf0c679a141f613f1fbad0f62f781042183a5d74d522b73a07"
+      "sha256": "fa7c5bea314caeb6c66eb3a2c356306989f4ed3836a55c395f33cbc17dc81014"
     },
     {
       "path": "driver/examples/sdc/sdc-spec.bindings.json",
@@ -877,7 +877,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "dfac4685aea5dc75791e3f29ea85f62c7183983faad2a1f19e7426c49bb3bf96"
+      "sha256": "e6ce22edca524db3a8f13dff85241739b80fae67ce37d2c58189f09d0629a9b2"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",

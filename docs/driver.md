@@ -1147,6 +1147,65 @@ replaced by an ESS conformance run against an outside target (`impl/`) when ESS 
 The stub implementer's `fixtures/impl/` is a minimal in-memory Rust library with one `#[test]`
 per command, so the stub run passes the gate.
 
+### The build pool wait (2026-11-22, `story:pool-wait-is-not-a-failure`)
+
+Release 0.3.0's registration run: `tests.run` runs two pool jobs (`slot task check`, `slot cargo
+test`). The pool had no free slot and each job queued about 15 minutes. The driver's limit (1800
+s) counts the queue wait, killed the step, and recorded `exit: timeout`; every other exit maps to
+`failed`. The tree then ran `amend.upstream` and a paid `change.implement` to repair tests that
+never ran. The same happened in the release gate. Two faults: a step that never got a slot was
+recorded like a failed run, and its limit counted the wait.
+
+What exists now, for the steps that call `slot` through the tool (`conform-run`, `story-tests`,
+`story-tests-run`, `impl-gate`, `acceptance.run` and `tests.run` with them):
+
+- The tool bounds the wait itself. The binding passes `--pool-wait <s>` after the subcommand
+  (`SDC_POOL_WAIT` in the environment wins; neither means plain `slot`). `pool_run` in
+  `sdc-tool.sh` starts the job in the background, reads its id from slot's own `slot: job N queued
+  ...` line (printed only when the job has to wait) and looks at `slot status` until the job is no
+  longer `queued`. A job still queued when the step's wait is spent is cancelled (`slot cancel`)
+  and the command is not run: the tool exits **69** ("no build slot within the wait bound,
+  nothing ran"). A job cancelled while still queued gives 69 too. The tool looks at the pool
+  after 0.2 s, then at doubling pauses up to `SDC_POOL_POLL` (default 2 s); a job the pool admits
+  without a `queued` line within 3 s counts as started.
+- One bound per step. The outermost call opens a ledger (`.sdc/pool-wait`, milliseconds waited so
+  far); both jobs of `tests.run` draw from the same bound.
+- The run is the pool's (slot 0.22: the daemon ends a job after 10 minutes of run time; queue wait
+  does not count). A command that needs longer names `slot --timeout <t>` (at most 1 hour; none of
+  these calls does; a `timeout` command in front extends nothing). A job the pool ends at its limit
+  exits 124, and the tool exits **70**, "ran over its time": neither red tests nor a pool wait. The
+  driver takes 70 as a program error too (no evidence, no run counted, no model call) but does not
+  run the step again, as the same run would end the same way: the verdict `run_over_time`, exit 5.
+  A job cancelled while it ran (exit 130, `slot cancel`) is the command's result: the step fails
+  with a log line that says the pool cancelled it, never 69.
+- A green or red run gives the old exit 0, 1 (or 5, finding).
+- The driver takes exit 69 as a program error: no evidence, no run counted (`useful` does not see
+  it), no `change.implement` or `amend.upstream` follows. Within the same step it runs the tool
+  again, up to 3 runs in all (event `pool_wait` per repeat), then records `pool_wait_spent` and
+  stops with that verdict and exit 5, like the other caps. `message` names the action. The next
+  `run` tries the step afresh. Recording a result such as `not_run` instead was rejected: a second,
+  conflicting record leaves `tests.run` unknown for Canon and the re-run inadmissible.
+- Loom: the same tool exits 69. The YAML (the loader at `8a8fad3b`) has no `exits` member, so
+  until Loom's loader has it the result map `"*": failed` still maps 69 to `failed`: this is the
+  open part, a line of `bindings/PENDING.md`. With `exits: {error: [69, 75, 126, 127]}` Loom ends
+  the run `ProgramError`, records nothing and calls no model; it does not run the step again.
+
+The limit arithmetic (the binding's `timeout_seconds` in YAML, `timeout_s` in JSON, per run of the
+tool; it covers wait and run):
+
+| Step | Wait bound | Pool jobs | Run bound of a job | Other work (compile, synthesis, interpreted suite) | Limit |
+|---|---|---|---|---|---|
+| story `tests.run` | 1200 | 2 | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
+| release `acceptance.run` | 1200 | 1 | 600 | 600 | 1200 + 600 + 600 = 2400 (was 1800) |
+
+Other steps keep their limits (1800 s default). `sdc-bugfix` (`repro.run`, `tests.run`,
+`gate.run`) runs `slot` itself and is not changed. A test of the arithmetic reads both binding
+formats (`driver/tests/impl_gate.rs`). Worst case a `tests.run` step is 3 runs of 1200 s of wait,
+about an hour, before `pool_wait_spent`; `sdc-run-metrics` reports `pool_waits` (takes with exit
+69) and `ran_over_time` (exit 70) apart from `could_not_run` and from failures, and the stop shows as `stop_cause:
+pool_wait_spent` or `run_over_time`. `scripts/run-trial.sh` ends with that cause and does not call `run.unstick` (a
+paid call) for it.
+
 Note: `aep plan artifact create` does not exist; the verb is `new`. `aep` refused to activate a
 story that serves no vision objective (`empty_declaration … serves no objective`); the decompose
 stub relates the story `serves:vision:product`.

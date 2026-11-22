@@ -29,7 +29,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 - confidence: cited
   path: scripts/run-trial.sh
-revision: 8
+revision: 10
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 3, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 4, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -64,8 +64,8 @@ the wait. This story fixes both in the tool, the bindings and the driver, with t
   (`slot cancel`) and the tool exits 69. One bound per step, shared by its pool commands through a
   ledger file. The bound is the argv option `--pool-wait <seconds>` (the environment variable
   `SDC_POOL_WAIT` wins, for tests); without either, no bound, as before.
-- The run bound stays the pool's: 10 minutes, or a named `slot timeout <s>`. The tool does not name
-  it, because `slot timeout ...` is another toolchain class than `slot cargo ...`.
+- The run bound stays the pool's (slot 0.22: 10 minutes of run time, or `slot --timeout <t>`, at most 1 hour). The tool does not name
+  one: no binding needs more. A job the pool ends at its limit exits 124; the tool exits 70, "ran over its time", and the driver stops with `run_over_time` without a repeat.
 - The driver retries a step whose exit is 69 up to 3 attempts, records nothing, counts no run, and
   then stops with the verdict `pool_wait_spent` (exit 5). Rejected: recording a result such as
   `not_run`, which conflicts with the later real record and leaves `tests.run` unknown for Canon.
@@ -95,7 +95,8 @@ the wait. This story fixes both in the tool, the bindings and the driver, with t
 - `sdc-drive run` on a case whose `tests.run` tool exits 69 takes 3 attempts, records no evidence of
   kind `conformance_run`, starts no second `change.implement`, and ends with the verdict
   `pool_wait_spent` and exit 5 (finding cycle `pool-wait`).
-- `sdc-run-metrics` reports a take with exit 69 under `pool_waits` and not under `could_not_run`;
+- With a stand-in `slot` whose job exits 124 after it started, `impl-gate` and `conform-run` exit 70 and not 1 or 69.
+- `sdc-run-metrics` reports a take with exit 69 under `pool_waits` and a take with exit 70 under `ran_over_time`, neither under `could_not_run`;
   `scripts/run-trial.sh` ends such a run with cause `pool_wait_spent` and calls no `run.unstick`.
 
 ## Out of scope, open

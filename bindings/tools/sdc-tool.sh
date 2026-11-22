@@ -45,7 +45,34 @@ if [[ -n ${LOOM_CASE:-} ]]; then
     [[ -z $user_home ]] || export ESS_TOOLCHAIN_DIR=$user_home/.cache/ess/toolchains
   fi
 fi
+# --pool-wait <seconds>, both modes: the step's bound for waiting in the build pool's queue
+# (docs/driver.md, "The build pool wait"). SDC_POOL_WAIT in the environment wins over it (the
+# tests); with neither, a pool command waits as long as the pool lets it.
+rest=()
+while (( $# )); do
+  case $1 in
+    --pool-wait)
+      (( $# >= 2 )) && [[ $2 =~ ^[0-9]+$ ]] || { echo "sdc-tool: --pool-wait takes whole seconds" >&2; exit 64; }
+      SDC_POOL_WAIT=${SDC_POOL_WAIT:-$2}
+      shift 2 ;;
+    *) rest+=("$1"); shift ;;
+  esac
+done
+set -- "${rest[@]}"
+export SDC_POOL_WAIT
 mkdir -p .sdc
+# One wait bound per step: the outermost call of a step that runs pool commands opens a ledger of
+# the milliseconds its pool commands waited, and every nested call (story-tests-run runs
+# conform-run and impl-gate as tools of their own) reads and adds to it.
+case $1 in
+  conform-run|story-tests|story-tests-run|impl-gate)
+    if [[ -z ${SDC_POOL_LEDGER:-} ]]; then
+      rm -f .sdc/pool-wait .sdc/pool-err.*
+      export SDC_POOL_LEDGER=$PWD/.sdc/pool-wait
+      echo 0 > "$SDC_POOL_LEDGER"
+      trap 'rm -f "$SDC_POOL_LEDGER"' EXIT
+    fi ;;
+esac
 # The ess release every tool here runs: 0.96.0, the release the committed recordings, records and
 # experiment runs were made with. Since 2026-11-21 the `ess` on PATH can be a version dispatcher
 # (0.97.1) that runs itself in a case tree, where no `ess-inputs.yaml` pins a release; its output
@@ -67,8 +94,87 @@ need() {
   done
 }
 # A nested call's program error is passed on as it is.
-passon() { (( $1 == 126 || $1 == 127 )) && exit "$1"; return 0; }
+# Exit 69 is the pool's: no slot came within the wait bound, nothing ran (pool_run). Exit 70: the
+# job started and the pool ended it at its run limit (pool_run).
+passon() { (( $1 == 126 || $1 == 127 || $1 == 69 || $1 == 70 )) && exit "$1"; return 0; }
 need yq jq
+
+# `slot <command>` with the wait for a slot bounded: a step's wait for the shared build pool is not
+# a result about its subject, and the runtime's limit counts it (the registration run of release
+# 0.3.0: both `cargo test` jobs of tests.run queued 15 minutes, the step was killed at its 1800 s
+# and recorded `timeout`, then the writer was called to repair tests that never ran). slot runs in
+# the background; the job's id is on slot's own `slot: job <id> queued ...` line, which it prints
+# only for a job that has to wait, and `slot status` shows the job as `queued` until it starts. A
+# job still queued when the step's bound (SDC_POOL_WAIT seconds, less what its earlier pool commands
+# waited, kept in SDC_POOL_LEDGER) is spent is cancelled and the function returns 69. Once the job
+# started, the run is the pool's: its limit is 10 minutes, or the `slot --timeout <t>` a command names (at
+# most 1 hour; none of these calls names one). A job the pool ends at that limit (slot 0.22: exit 124)
+# makes the function return 70, "ran over its time": not red tests, not a pool wait. A
+# job cancelled then (exit 130) is the command's result, not 69. Without a bound it is plain
+# `slot`. SDC_POOL_POLL (seconds, default 2) is the longest pause between two looks at the pool.
+now_ms() { local t=$EPOCHREALTIME; echo $(( ${t%.*} * 1000 + 10#${t#*.} / 1000 )); }
+pool_run() {
+  local bound=${SDC_POOL_WAIT:-} ledger=${SDC_POOL_LEDGER:-} poll=${SDC_POOL_POLL:-2} rc
+  if [[ -z $bound || -z $ledger ]]; then
+    slot "$@"; rc=$?
+    (( rc != 124 )) || { echo "sdc-tool: pool: the job ran over its time: the pool ended it at its run limit; the command did not finish" >&2; rc=70; }
+    return $rc
+  fi
+  local spent left errf pid id="" started=no t0 elapsed state pause=0.2 rc
+  spent=$(cat "$ledger" 2>/dev/null) || spent=0
+  left=$(( bound * 1000 - spent ))
+  errf=$(mktemp "${ledger%/*}/pool-err.XXXXXX")
+  t0=$(now_ms)
+  slot "$@" 2> "$errf" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    elapsed=$(( $(now_ms) - t0 ))
+    if [[ -z $id ]]; then
+      id=$(sed -n 's/^slot: job \([0-9][0-9]*\) queued.*/\1/p' "$errf" | head -n 1)
+      # No queued line in 3 s: the pool admitted the job at once.
+      [[ -n $id ]] || (( elapsed < 3000 )) || started=yes
+    fi
+    if [[ -n $id ]]; then
+      state=$(slot status 2>/dev/null | awk -v id="#$id" '$1 == id { print $2; exit }')
+      if [[ $state != queued ]]; then
+        started=yes
+      elif (( elapsed >= left )); then
+        slot cancel "$id" > /dev/null 2>&1
+        kill "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        echo $(( spent + elapsed )) > "$ledger"
+        cat "$errf" >&2; rm -f "$errf"
+        echo "sdc-tool: pool-wait: job $id was still queued and this step has waited $(( (spent + elapsed) / 1000 )) s of its wait bound of $bound s; cancelled, nothing ran" >&2
+        return 69
+      fi
+    fi
+    if [[ $started == yes ]]; then
+      echo $(( spent + elapsed )) > "$ledger"
+      break
+    fi
+    sleep "$pause"
+    pause=$(awk -v p="$pause" -v m="$poll" 'BEGIN { p *= 2; print (p > m ? m : p) }')
+  done
+  wait "$pid"
+  rc=$?
+  # A job that started and ended between two looks: it ran less than one pause, so what it took
+  # was wait.
+  [[ $started == yes ]] || echo $(( spent + $(now_ms) - t0 )) > "$ledger"
+  if (( rc == 130 )) && grep -q '^slot: job [0-9]* cancelled' "$errf"; then
+    if [[ $started == yes ]]; then
+      echo "sdc-tool: pool: job ${id:-?} was cancelled by the pool while it ran (over its run limit, 10 minutes unless the command names a longer one, or by \`slot cancel\`); the command did not finish" >&2
+    else
+      echo "sdc-tool: pool-wait: job ${id:-?} was cancelled while it was still queued; nothing ran" >&2
+      rc=69
+    fi
+  fi
+  if (( rc == 124 )); then
+    echo "sdc-tool: pool: job ${id:-?} ran over its time: the pool ended it at its run limit; the command did not finish" >&2
+    rc=70
+  fi
+  cat "$errf" >&2; rm -f "$errf"
+  return $rc
+}
 
 # A binary of the driver crate (driver/src/bin) in Loom mode: on PATH, else its debug build.
 sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
@@ -281,10 +387,10 @@ conform-run)
   (( rc == 0 )) || { echo "conform-run: FAILED \`ess verify conform run --target $target\` (exit $rc)"; exit 1; }
   if [[ $target != billing ]]; then
     [[ -f ${2:?implementation tree}/Taskfile.yml ]] || { echo "conform-run: FAILED no $2/Taskfile.yml"; exit 1; }
-    out=$(slot task --dir "$PWD/$2" check 2>&1); rc=$?
+    out=$(pool_run task --dir "$PWD/$2" check 2>&1); rc=$?
     rm -rf "$CARGO_TARGET_DIR"
     grep -v '^slot: job ' <<< "$out"
-    (( rc == 0 )) || echo "conform-run: FAILED \`task check\` in $2 (exit $rc)"
+    (( rc == 0 || rc == 69 || rc == 70 )) || echo "conform-run: FAILED \`task check\` in $2 (exit $rc)"
     exit $rc
   fi ;;
 story-tests-run)
@@ -356,13 +462,13 @@ impl-gate)
   # The counts come from cargo's stdout alone. Mixed with stderr (2>&1, under slot and load), a
   # stderr line such as `Finished` or `Doc-tests` landed inside `test result: ok. 5 passed`, no
   # count was read and the gate failed "0 tests ran" on a passing suite.
-  out=$(cd .sdc/impl-gate && CARGO_TARGET_DIR=$PWD/target slot cargo test --offline 2>../impl-gate.stderr)
+  out=$(cd .sdc/impl-gate && CARGO_TARGET_DIR=$PWD/target pool_run cargo test --offline 2>../impl-gate.stderr)
   rc=$?
   err=$(cat .sdc/impl-gate.stderr)
   rm -rf .sdc/impl-gate .sdc/impl-gate.stderr
   # A panic is shown with its message (the lines after `panicked at` up to a blank line).
   awk '/panicked at/ {print; p = 1; next} p && NF {print; next} {p = 0}
-    /^(test |test result:|error|warning: unused)|FAILED/ {print}' <<< "$err"$'\n'"$out" | tail -n 60 | sed 's/^/  | /'
+    /^(test |test result:|error|warning: unused|sdc-tool: pool)|FAILED/ {print}' <<< "$err"$'\n'"$out" | tail -n 60 | sed 's/^/  | /'
   passon $rc
   results=$(grep -cE '^test result: ' <<< "$out")
   counted=$(grep -oE '^test result: [a-zA-Z]+\. [0-9]+ passed; [0-9]+ failed; [0-9]+ ignored' <<< "$out")

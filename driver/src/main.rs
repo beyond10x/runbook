@@ -600,9 +600,23 @@ fn own_refusal(dir: &Path, evs: &[Value], case: &Value, b: &Value, a: &str) -> O
 /// Exit 126 or 127 (a program the tool runs is missing or not executable), or 75 (a temporary
 /// failure: an LLM node's model API refused or broke off the session, such as a 429): the tool
 /// could not run, which says nothing about its subject.
+/// Exit 69 (POOL_WAIT_EXIT) is the same kind: a step that waited for the build pool's queue up to
+/// its wait bound and never got a slot, so nothing ran.
 fn program_error(exit: &Value) -> bool {
-    exit == "126" || exit == "127" || exit == "75"
+    exit == "126" || exit == "127" || exit == "75" || exit == POOL_WAIT_EXIT || exit == OVER_TIME_EXIT
 }
+
+/// The exit of a tool whose build-pool job started and was ended by the pool at its run limit
+/// (slot 0.22: exit 124; `pool_run`): "ran over its time", neither red tests nor a pool wait. The
+/// step is not run again (the same run would end the same way): no evidence, no run counted, the
+/// verdict `run_over_time` (exit 5). The test is the defect (docs/driver.md, "The build pool wait").
+const OVER_TIME_EXIT: &str = "70";
+
+/// The exit of a tool whose build-pool job did not start within the tool's wait bound
+/// (`bindings/tools/sdc-tool.sh`, `--pool-wait`; sysexits EX_UNAVAILABLE), and the number of runs
+/// of such a step before the tree stops with `pool_wait_spent`.
+const POOL_WAIT_EXIT: &str = "69";
+const POOL_WAIT_ATTEMPTS: u32 = 3;
 
 /// A case's bindings with the run's changed conditions (`SDC_CONDITIONS`, an `sdc.conditions/1`
 /// file of `sdc-replay prepare`): per action `max_runs`, `timeout_s`, and `wrap`, an argv put
@@ -1461,6 +1475,7 @@ fn step(
     // `action_finished`, so a crash never leaves a moved revision without its step's record.
     let mut snapshot: Option<(Value, Map<String, Value>)> = None;
     let mut not_called: Option<String> = None;
+    let mut pool_wait_attempts = 1;
     // The refusal of the binding's `postcondition` (own_refusal), when it refused this run.
     let mut refused: Option<Value> = None;
     if b.get("copy").is_some() {
@@ -1564,8 +1579,18 @@ fn step(
         code = if argv.is_empty() {
             "0".to_string() // the driver's own action, such as opening a child case
         } else {
-            let (code, out) = run_tool(dir, &argv, &env, timeout)?;
-            log = out;
+            let (mut code, mut out) = run_tool(dir, &argv, &env, timeout)?;
+            // A step that got no slot in the build pool within its tool's wait bound ran nothing:
+            // it is run again, up to POOL_WAIT_ATTEMPTS runs in all (docs/driver.md, "The build
+            // pool wait"). An agent node never exits so.
+            while code == POOL_WAIT_EXIT && !is_llm && pool_wait_attempts < POOL_WAIT_ATTEMPTS {
+                log.extend(&out);
+                log.extend(format!("\nsdc-drive: pool wait, attempt {pool_wait_attempts} of {POOL_WAIT_ATTEMPTS}: no build slot within the step's wait bound, nothing ran; running the step again\n").into_bytes());
+                event(dir, at, "pool_wait", json!({"action": chosen, "attempt": pool_wait_attempts, "of": POOL_WAIT_ATTEMPTS}))?;
+                pool_wait_attempts += 1;
+                (code, out) = run_tool(dir, &argv, &env, timeout)?;
+            }
+            log.extend(out);
             match fs::read_to_string(&virtual_timeout) {
                 Ok(why) => {
                     let _ = fs::remove_file(&virtual_timeout);
@@ -1687,6 +1712,26 @@ fn step(
     }
     event(dir, at, "action_finished", finished)?;
     commit(dir, at, &case_after, &moved)?;
+    if code == POOL_WAIT_EXIT {
+        // Every run of the step waited out the wait bound: no evidence, no run counted, no model
+        // call. The run ends with its own verdict; the next `run` tries the step again.
+        let message = format!("`{chosen}` got no build slot in {pool_wait_attempts} runs, each held to the tool's wait bound: the pool gave no slot, nothing ran and nothing is recorded");
+        event(dir, at, "pool_wait_spent", json!({"action": chosen, "attempts": pool_wait_attempts}))?;
+        return Ok((
+            json!({"verdict": "pool_wait_spent", "case_dir": dir, "action": chosen, "attempts": pool_wait_attempts,
+            "message": message, "position": position(dir, &evaluate(canon, dir, at)?)?}),
+            5,
+        ));
+    }
+    if code == OVER_TIME_EXIT {
+        let message = format!("`{chosen}` ran over its time: the build pool ended its job at the run limit; no evidence is recorded and no model is called");
+        event(dir, at, "run_over_time", json!({"action": chosen}))?;
+        return Ok((
+            json!({"verdict": "run_over_time", "case_dir": dir, "action": chosen, "message": message,
+            "position": position(dir, &evaluate(canon, dir, at)?)?}),
+            5,
+        ));
+    }
     if program_error(&json!(code)) {
         let tail: String = String::from_utf8_lossy(&log)
             .lines()
@@ -1840,7 +1885,7 @@ fn run(cli: &Cli) -> R<(Value, u8)> {
                     }
                     m
                 }
-                Some(w @ ("writer_spent" | "writer_not_called")) => v["message"].as_str().unwrap_or(w).to_string(),
+                Some(w @ ("writer_spent" | "writer_not_called" | "pool_wait_spent" | "run_over_time")) => v["message"].as_str().unwrap_or(w).to_string(),
                 Some(v) => v.to_string(),
                 None => String::new(),
             };
@@ -2071,6 +2116,21 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A step that got no build slot (exit 69) is a program error, as 75, 126 and 127 are: nothing
+    /// is recorded, no run is counted. A failing run, a finding and a kill at the limit are not.
+    #[test]
+    fn exit_69_is_a_program_error_and_a_timeout_or_a_failure_is_not() {
+        for e in ["69", "70", "75", "126", "127"] {
+            assert!(program_error(&json!(e)), "{e}");
+        }
+        for e in ["0", "1", "5", "130", "timeout", "signal"] {
+            assert!(!program_error(&json!(e)), "{e}");
+        }
+        assert_eq!(POOL_WAIT_EXIT, "69");
+        assert_eq!(POOL_WAIT_ATTEMPTS, 3);
+        assert_eq!(OVER_TIME_EXIT, "70");
+    }
 
     /// A binding's `postcondition` that names a `switch` runs only when that variable is `on`; one
     /// without a switch always runs (SDC_IMPLEMENT_COVERAGE, docs/improving.md "Run switches").

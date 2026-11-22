@@ -2773,3 +2773,22 @@ cycles:
     unexpressed:
       - {kind: field-compare, lines: "2548", note: "recording.json .tree.commit is a string and .calls is not empty"}
     source: {lines: "2547-2553"}
+
+  - id: pool-wait
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/pool-wait]
+    switches: {PATH: "driver/examples/sdc/fixtures/pool-wait:$PATH", POOL_REAL_SLOT: "the real slot", POOL_FAKE_DIR: "{scratch}/pool-wait-state", SDC_POOL_WAIT: "1", SDC_POOL_POLL: "0.2"}
+    expect:
+      exit: 1
+      pass_line: "tests.run ran 3 times, exit 69 each, pool_wait_spent, no evidence, change.implement once"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: pool_wait_spent, count: 1}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_started, action: change.implement, count: 1}
+        - {kind: file_contains, file: "{scratch}/pool-wait.txt", regex: "^run ended pool_wait_spent"}
+    unexpressed:
+      - {kind: aggregate, lines: "2893-2898", note: "one tests.run step finished with exit 69 and no evidence, after 2 pool_wait events; pool_wait_spent names 3 attempts"}
+      - {kind: cross-record, lines: "2899", note: "the fake pool saw at least 3 jobs (a line each in pool-wait-state/jobs)"}
+    source: {lines: "2884-2904"}

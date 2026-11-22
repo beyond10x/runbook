@@ -498,7 +498,7 @@ save() {
 # decider_budget_spent, finding_reraised (a program finding raised again after its decision was
 # applied), decision_not_takeable (a stop no holder of this run can take: the program
 # check refused the decider's decision, or a handoff with nothing for the decider), and the
-# driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent),
+# driver's verdicts (stuck, writer_spent, writer_not_called, llm_budget_spent, step_budget_spent, wall_time_spent, pool_wait_spent, run_over_time),
 # and review_invalid (stuck after a change.review that recorded nothing: its reply stayed invalid),
 # implement_reply_invalid and implement_reply_incomplete (writer_spent on change.implement in request
 # mode whose last run's reply stayed invalid, or left files remaining).
@@ -541,6 +541,8 @@ verdict_end() { # <exit code>: end_cause, end_case, end_action and end_reason fr
         end_reason="change.review in $end_case: review_invalid (${line#llm-node: }): it waits on a fix of the review node or its adapter, then --reopen"
         end_reason=${end_reason:0:600}
       fi ;;
+    pool_wait_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: pool_wait_spent ($(jq -r '.attempts // "?"' <<< "$last") runs, each waited out the build pool's wait bound): the pool gave no slot, nothing ran and no model was called; it waits on a free pool, then --reopen" ;;
+    run_over_time) end_reason="${end_action:+$end_action in }${end_case:-the run}: run_over_time (the build pool ended the step's job at its run limit): the tests of the tree are over their time, no record and no model call; it waits on a faster test suite, then --reopen" ;;
     *_budget_spent|wall_time_spent) end_reason="${end_action:+$end_action in }${end_case:-the run}: $v: it waits on a higher cap, then --reopen" ;;
     *) end_reason="${end_case:-the run}: the run ended with exit $rc ($v): it waits on a fix, then --reopen" ;;
   esac
