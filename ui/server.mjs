@@ -88,6 +88,30 @@ function readEvents(dir) {
   return out;
 }
 
+// The protocol id of a case: case.json `protocol` (the driver's store), else the `opened` event of events.jsonl
+// (a run of `runbook run` writes no case.json, docs/loom-run-directory.md). Only the head of the log is read
+// (the first 64 KiB, whole lines): `opened` is its first event and the log may be long.
+const HEAD_BYTES = 65536;
+function openedProtocol(dir) {
+  let fd;
+  try {
+    fd = fs.openSync(path.join(dir, 'events.jsonl'), 'r');
+    const buf = Buffer.alloc(HEAD_BYTES);
+    const n = fs.readSync(fd, buf, 0, HEAD_BYTES, 0);
+    const lines = buf.toString('utf8', 0, n).split('\n');
+    if (n === HEAD_BYTES) lines.pop();
+    for (const line of lines) {
+      let e;
+      try { e = JSON.parse(line); } catch { continue; }
+      if (e?.event !== 'opened') continue;
+      const p = e.protocol?.id ?? e.protocol;
+      return typeof p === 'string' && p ? p : null;
+    }
+  } catch { /* no log */ } finally { if (fd != null) fs.closeSync(fd); }
+  return null;
+}
+const protocolOf = (dir) => readJson(path.join(dir, 'case.json'), {}).protocol || openedProtocol(dir) || null;
+
 // ---- sources ---------------------------------------------------------------------------------
 const nameOf = (p) => { const r = path.relative(path.join(sdc, 'runs'), p); return r.startsWith('..') ? p.split(path.sep).slice(-2).join('/') : r; };
 const sources = [];
@@ -144,7 +168,7 @@ function viewOf(src) {
   const sig = `${src.version}:${src.cases.size}`;
   const hit = viewCache.get(src.index);
   if (hit && hit.sig === sig) return hit;
-  const protocols = [...new Set([...src.cases.values()].map((e) => readJson(path.join(e.dir, 'case.json'), {}).protocol).filter(Boolean))].sort();
+  const protocols = [...new Set([...src.cases.values()].map((e) => protocolOf(e.dir)).filter(Boolean))].sort();
   const found = protocols.length ? views.find((x) => viewCovers(x.view, protocols)) : null;
   const out = {sig, protocols, view: found?.view || null, file: found ? path.relative(sdc, found.file) : null, runbook: found?.view.runbook || null, missing: protocols.length > 0 && !found};
   viewCache.set(src.index, out);
@@ -611,6 +635,8 @@ function loadCase(src, entry) {
   }
   const caseJson = readJson(path.join(d, 'case.json'), {});
   const events = readEvents(d);
+  // a Loom store has no case.json: the page's `case.protocol` comes from the opened event
+  if (!caseJson.protocol) { const p = events.find((e) => e.event === 'opened')?.protocol?.id; if (typeof p === 'string' && p) caseJson.protocol = p; }
   const bindings = readJson(path.join(d, 'bindings.json'), {});
   // observed.jsonl (sdc.observed/1): the driver's wall clock of each event line, by the line's
   // index in events.jsonl; it dates the step, where the server's own clock only dates what it saw

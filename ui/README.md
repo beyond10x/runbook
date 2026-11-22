@@ -165,6 +165,9 @@ server loads every `views/*.view.json` of the checkout; `--no-view` loads none. 
 the first view that covers it, so one server can hold runs of different runbooks. The page reads the
 view of the run on screen from `/api/view?source=N` (`null` without one) and what is missing from
 `/api/view-info?source=N` (`protocols`, `file`, `runbook`, `missing`).
+The protocol of a case is read from its `case.json` (`protocol`), else from the `opened` event that starts its
+`events.jsonl`, so a run of `runbook run`, which writes no `case.json`, gets its view too
+(`test/view-loom-store.spec.mjs`).
 
 A view is checked when the server starts: a member the inspector does not know, or one of the wrong
 type, refuses the start with a message that names it (`decisions.scope_answer.escalate: view member
