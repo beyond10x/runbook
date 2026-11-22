@@ -40,8 +40,8 @@ actions:
   - action: tests.run
     executor:
       kind: program
-      argv: [tools/sdc-tool.sh, story-tests, impl, --action, tests.run]
-    timeout_seconds: 1800
+      argv: [tools/sdc-tool.sh, story-tests, impl, --action, tests.run, --pool-wait, "1200"]
+    timeout_seconds: 3000
     evidence:
       - kind: conformance_run
         subject: change

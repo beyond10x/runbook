@@ -29,8 +29,8 @@ actions:
   - action: acceptance.run
     executor:
       kind: program
-      argv: [tools/sdc-tool.sh, conform-run, release, --action, acceptance.run]
-    timeout_seconds: 1800
+      argv: [tools/sdc-tool.sh, conform-run, release, --action, acceptance.run, --pool-wait, "1200"]
+    timeout_seconds: 2400
     evidence:
       - kind: release_conformance
         subject: release

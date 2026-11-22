@@ -173,7 +173,7 @@ if [[ $ctx_rework == no ]]; then expected+=(decider-reject); else expected+=(dec
 yq -e '.actions."merge.approve"' "$sdc/protocol/sdc-story.protocol.yaml" >/dev/null 2>&1 &&
   expected+=(decider-rework decider-rework-spent rework-cap rework-not-called rework-pending-rejection review-no-rework-prompt
     keep-going-three keep-going-off unstick-end run-metrics)
-expected+=(decider-later-obligation replay-sibling writer-not-called)
+expected+=(decider-later-obligation replay-sibling writer-not-called pool-wait)
 expected+=(cite-dark-spot cite-fault-sent-back autopilot-close autopilot-close-a3 conformance-default-off keep-going-repeat reopen-refused-decision)
 expected+=(unstick-rerun unstick-invalid unstick-limit unstick-off)
 # Reject and cap routes (docs/reject-routes.md): built routes are expected; a route not built yet
@@ -2879,6 +2879,27 @@ if jq -e '.format == "sdc.recording/1" and (.tree.commit | type) == "string" and
   echo "replay-recording-clean: checks pass (no absolute path, prompt or transcript; tree $(jq -r .tree.commit "$recording/recording.json"))"
 else
   echo "replay-recording-clean: FAILED"
+fi
+fi
+# pool-wait: story:pool-wait-is-not-a-failure. The build pool never starts the job of tests.run
+# (fixtures/pool-wait/slot keeps it queued; the step's wait bound is 1 s). Passes when the run ends
+# `pool_wait_spent` after one step of tests.run that ran its tool 3 times, each exit 69, with no evidence record from
+# tests.run and no second change.implement: the writer is not called for tests that never ran.
+if sel pool-wait; then
+mkdir -p "$s/pool-wait-state"
+cycle pool-wait PATH="$fx/pool-wait:$PATH" POOL_REAL_SLOT="$(command -v slot || true)" POOL_FAKE_DIR="$s/pool-wait-state" \
+  SDC_POOL_WAIT=1 SDC_POOL_POLL=0.2
+code=$?
+if (( code == 1 )) && grep -q '^run ended pool_wait_spent' "$s/pool-wait.txt" &&
+   jq -se '([.[] | select(.event == "action_finished" and .action == "tests.run" and .exit == "69")] | length) == 1
+     and ([.[] | select(.event == "action_finished" and .action == "tests.run" and (.evidence | length) > 0)] | length) == 0
+     and ([.[] | select(.event == "pool_wait" and .action == "tests.run")] | length) == 2 and ([.[] | select(.event == "pool_wait_spent" and .attempts == 3)] | length) == 1
+     and ([.[] | select(.event == "action_started" and .action == "change.implement")] | length) == 1' \
+     "$s/store-pool-wait/$story" >/dev/null &&
+   (( $(wc -l < "$s/pool-wait-state/jobs") >= 3 )); then
+  echo "pool-wait: checks pass (tests.run ran 3 times, exit 69 each, pool_wait_spent, no evidence, change.implement once)"
+else
+  echo "pool-wait: FAILED (cycle exit $code, or tests.run did not run 3 times ending exit 69, or evidence or a second change.implement followed)"
 fi
 fi
 } | tee "$log"

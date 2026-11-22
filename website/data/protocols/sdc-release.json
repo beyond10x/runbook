@@ -65,11 +65,12 @@
       "executor": {
         "kind": "program",
         "producer": "ess",
-        "program": "sdc-tool.sh conform-run release",
+        "program": "sdc-tool.sh conform-run release --pool-wait 1200",
         "results": {
           "*": "failed",
           "0": "passed"
-        }
+        },
+        "timeout_s": 2400
       },
       "name": "acceptance.run",
       "precondition": [
