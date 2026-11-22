@@ -212,6 +212,12 @@ fn question(doc: &serde_yaml::Value, id: &str) -> R<Question> {
     if options.len() < 2 {
         missing.push("options (at least two)".to_string());
     }
+    if options.len() > 26 {
+        missing.push(format!(
+            "options (at most 26 options: a letter names one option and the letters are A to Z, got {})",
+            options.len()
+        ));
+    }
     if !options.is_empty() && !options.contains(&default) {
         missing.push("default (one of the options)".to_string());
     }
