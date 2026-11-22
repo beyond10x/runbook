@@ -3980,7 +3980,7 @@
       "kind": "release",
       "label": "0.3.0",
       "limits": [
-        "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.",
+        "The registration runs of 0.3.0 were stopped after 8 of 9 had started (record release-0.3.0, status abandoned): the test step waited in the shared build pool and was recorded as a failed run, so the runs measured the queue. 0.3.0 has no registration numbers; they are made on 0.3.1.",
         "The four switches are registered in experiment records that have no run."
       ],
       "settings": [],
@@ -4008,9 +4008,122 @@
         "rate": null,
         "small_n": true
       },
-      "tree": null,
-      "tree_note": "not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation",
+      "tree": "ae7a697616857a2bf2744c85a33e58b0b5927dc8",
+      "tree_note": "tag 0.3.0 at main ae7a697: 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation",
       "version": "0.3.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "5a4ba7f",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "a story step that got no build slot is not a failed test run; 3 tries, then pool_wait_spent; a job the pool ends at its limit is run_over_time"
+        },
+        {
+          "commit": "8bddf50",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the bug-fix tool does the same for repro.run, tests.run and gate.run"
+        },
+        {
+          "commit": "f795462",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook check reads a checkout's text layout"
+        },
+        {
+          "commit": "f242962",
+          "effect": "none",
+          "experiment": null,
+          "line": "the cycle script runs named cycles with --only"
+        },
+        {
+          "commit": "357f218",
+          "effect": "none",
+          "experiment": null,
+          "line": "one driver test binary, 60 s per test, 120 s per step; the UI step the same, beside it in task check"
+        },
+        {
+          "commit": "fc6d565",
+          "effect": "none",
+          "experiment": null,
+          "line": "check-protocols compares digests with a committed ledger and ends in under a minute"
+        },
+        {
+          "commit": "77550ba",
+          "effect": "none",
+          "experiment": null,
+          "line": "the prompts of sdc-reply implement-run, sdc-conform and sdc-unstick are instruction files, byte-identical"
+        },
+        {
+          "commit": "2dc0f48",
+          "effect": "none",
+          "experiment": null,
+          "line": "the feedback and requester texts are instruction files"
+        },
+        {
+          "commit": "f9b38d6",
+          "effect": "none",
+          "experiment": null,
+          "line": "bindings name the registrations of their protocol files and program_root"
+        },
+        {
+          "commit": "7eb1a52",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook parity compares a driver run with a Loom run; the first comparison of stub-cycle is equal"
+        },
+        {
+          "commit": "42cb7ba",
+          "effect": "none",
+          "experiment": null,
+          "line": "the ESS domain sdc.daemon and its generated API; the daemon itself is not built"
+        },
+        {
+          "commit": "a3e48ca",
+          "effect": "none",
+          "experiment": null,
+          "line": "the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned"
+        }
+      ],
+      "date": "2026-11-22",
+      "experiments": [],
+      "id": "0.3.1",
+      "kind": "release",
+      "label": "0.3.1",
+      "limits": [
+        "The registration runs of 0.3.1 are registered under a record that is added after the tag; until then no run has used this tree.",
+        "Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": null,
+      "tree_note": "not tagged yet; 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation",
+      "version": "0.3.1"
     }
   ],
   "format": "sdc.progress/1",
@@ -4663,27 +4776,27 @@
       "variants": [
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 3,
           "id": "strong",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 3,
           "id": "mixed",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 2,
           "id": "haiku",
-          "listed": 0,
+          "listed": 2,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "descriptive",
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
@@ -4900,7 +5013,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "28d859a9ca4d260e23923c0eef8bf4618fd18d9b009549cb1a18c33a007184f4"
+      "sha256": "1b2cf146bda83f75f82a6e9ce2d65ba1c3e5109848a8eabd91342d75fb86185e"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
@@ -5228,7 +5341,39 @@
     },
     {
       "path": "experiments/release-0.3.0.yaml",
-      "sha256": "6adf685655059f7ee03880ac469894301f30ce3a5b1b20ac840458ee65df7d2c"
+      "sha256": "530454702bc6b7ec5e442cc56de105a8503a39deb5a8544b1cd015b1a5ccfd94"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.haiku.1.json",
+      "sha256": "cae63e9109f79e34fde3ad78f3d1a34011b8aabad096d7de5aacff5dfc54779b"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.haiku.2.json",
+      "sha256": "b594db645704071fc13f3bb895f096f2a3800fe6bfc5b7a66b6b4d57e1c1df9e"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.mixed.1.json",
+      "sha256": "7b38c3c5c77e7e8eeb8306c45e4ade644a90b6cbe4090388e28a17e1f3178679"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.mixed.2.json",
+      "sha256": "446897916ea4051e712abf4c3577dff96100760405a23e44bf478b4a4167b9ed"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.mixed.3.json",
+      "sha256": "14f720308e5a15a152bf1d68b982d277befa65faa56cffc28eca02b679ebeb2c"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.1.json",
+      "sha256": "f9d6617e730d7e5067becf1275ad310644dbdd1176d14317d527f83168c6ba34"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.2.json",
+      "sha256": "2c352812baadc5829758aab4263dba76d7a3d9018d2e77f6b8d1c5c40138ee3b"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.3.json",
+      "sha256": "6adca8818d0434ca59e9ea84506d2169ab3b9ed2da34d5524eb8247f6ac8c925"
     },
     {
       "path": "experiments/review-haiku-replay.yaml",

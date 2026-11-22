@@ -37,8 +37,8 @@ actions:
   - action: repro.run
     executor:
       kind: program
-      argv: [tools/sdc-tool.sh, bugfix, repro-run, --action, repro.run]
-    timeout_seconds: 1800
+      argv: [tools/sdc-tool.sh, bugfix, repro-run, --action, repro.run, --pool-wait, "1200"]
+    timeout_seconds: 3000
     evidence:
       - kind: repro_run
         subject: repro
@@ -65,8 +65,8 @@ actions:
   - action: tests.run
     executor:
       kind: program
-      argv: [tools/sdc-tool.sh, bugfix, tests-run, --action, tests.run]
-    timeout_seconds: 1800
+      argv: [tools/sdc-tool.sh, bugfix, tests-run, --action, tests.run, --pool-wait, "1200"]
+    timeout_seconds: 3000
     evidence:
       - kind: test_run
         subject: change
@@ -88,8 +88,8 @@ actions:
   - action: gate.run
     executor:
       kind: program
-      argv: [tools/sdc-tool.sh, bugfix, gate-run, --action, gate.run]
-    timeout_seconds: 1800
+      argv: [tools/sdc-tool.sh, bugfix, gate-run, --action, gate.run, --pool-wait, "1200"]
+    timeout_seconds: 4200
     evidence:
       - kind: gate_run
         subject: change

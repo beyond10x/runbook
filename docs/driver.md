@@ -1166,12 +1166,19 @@ What exists now, for the steps that call `slot` through the tool (`conform-run`,
   longer `queued`. A job still queued when the step's wait is spent is cancelled (`slot cancel`)
   and the command is not run: the tool exits **69** ("no build slot within the wait bound,
   nothing ran"). A job cancelled while still queued gives 69 too. The tool looks at the pool
-  after 0.2 s, then at doubling pauses up to `SDC_POOL_POLL` (default 2 s); a job the pool admits
-  without a `queued` line within 3 s counts as started.
+  after 0.2 s, then at doubling pauses up to `SDC_POOL_POLL` (default 2 s). How a start is
+  recognised: never from the absence of a line within a time (on a loaded machine slot's `queued`
+  line can come seconds late). The tool reads slot's error output for the `queued` line for as long
+  as the job's process lives; once it has the id, `slot status` says whether the job is still
+  `queued`, and only then is the bound applied. A job that prints no `queued` line and runs to its
+  end was admitted at once: it waited nothing and the ledger is not charged for its run. slot has no
+  other documented way to learn the id or a start (no start line, option, environment variable or
+  id file; the line is sent only for a job that has to wait, `crates/slot/src/server/mod.rs:1530-1537`
+  in slot `3a0b985`, and is documented in slot's `plugin/skills/building/SKILL.md:61-63`).
 - One bound per step. The outermost call opens a ledger (`.sdc/pool-wait`, milliseconds waited so
   far); both jobs of `tests.run` draw from the same bound.
 - The run is the pool's (slot 0.22: the daemon ends a job after 10 minutes of run time; queue wait
-  does not count). A command that needs longer names `slot --timeout <t>` (at most 1 hour; none of
+  does not count). A command that needs longer names `slot --timeout <t>` (at most 30 minutes; none of
   these calls does; a `timeout` command in front extends nothing). A job the pool ends at its limit
   exits 124, and the tool exits **70**, "ran over its time": neither red tests nor a pool wait. The
   driver takes 70 as a program error too (no evidence, no run counted, no model call) but does not
@@ -1190,6 +1197,25 @@ What exists now, for the steps that call `slot` through the tool (`conform-run`,
   open part, a line of `bindings/PENDING.md`. With `exits: {error: [69, 75, 126, 127]}` Loom ends
   the run `ProgramError`, records nothing and calls no model; it does not run the step again.
 
+The bug-fix steps (`repro.run`, `tests.run`, `gate.run`, 2026-11-22) follow the same rules with
+the same exits; the driver needs no rule of its own for them. They could not share `pool_run`
+itself: `sdc-bugfix` runs one pool job per command of `checks.yaml` (two for `repro-run` and
+`tests-run`, one per gate command for `gate-run`) with file work between the jobs (a copy of the
+tree, the rules over each job's output). One `pool_run` around the whole step would hold one slot
+through the copies, the pool's run limit would cover all commands together, and a call of the
+shell tool per command would start its whole set-up inside the copy of the code tree. So
+`sdc-bugfix.rs` has the same logic in Rust (`run` and `pool_job`), with the same names: the bound is
+`--pool-wait <s>` (the tool takes it and exports `SDC_POOL_WAIT`; `sdc-bugfix` itself takes both,
+the environment wins) and `SDC_POOL_POLL`; the job's id comes from slot's `queued` line, its state
+from `slot status` (a start is recognised as above, never from a missing line); the bound is one per step (the `sdc-bugfix` process is the step, so its counter
+is the ledger); a job still queued at the bound is cancelled and the step exits **69** before it
+runs anything else; a job the pool ends at its limit (exit 124) is exit **70**; a job cancelled while
+queued is 69, while it ran the command's result with a log line that says so. A step that ends so
+records no verdict about the code (no `repro: not red`, no `tests: FAILED`). Both implementations
+are held to the same stand-in `slot` cases (`impl_gate.rs`, `bugfix_languages.rs`), and the finding
+cycles `bugfix-pool-wait` and `bugfix-over-time` drive the bug-fix tree through 69 (3 runs, then
+`pool_wait_spent`) and 70 (`run_over_time` at once).
+
 The limit arithmetic (the binding's `timeout_seconds` in YAML, `timeout_s` in JSON, per run of the
 tool; it covers wait and run):
 
@@ -1197,10 +1223,16 @@ tool; it covers wait and run):
 |---|---|---|---|---|---|
 | story `tests.run` | 1200 | 2 | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
 | release `acceptance.run` | 1200 | 1 | 600 | 600 | 1200 + 600 + 600 = 2400 (was 1800) |
+| bugfix `repro.run` | 1200 | 2 (the reproducing test, the suite without it) | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
+| bugfix `tests.run` | 1200 | 2 (the suite, the reproducing test) | 600 | 600 | 1200 + 2 x 600 + 600 = 3000 (was 1800) |
+| bugfix `gate.run` | 1200 | 4 (the most gate commands of a detection row, Rust: build, test, clippy, fmt) | 600 | 600 | 1200 + 4 x 600 + 600 = 4200 (was 1800) |
 
-Other steps keep their limits (1800 s default). `sdc-bugfix` (`repro.run`, `tests.run`,
-`gate.run`) runs `slot` itself and is not changed. A test of the arithmetic reads both binding
-formats (`driver/tests/impl_gate.rs`). Worst case a `tests.run` step is 3 runs of 1200 s of wait,
+A case whose `checks.yaml` has more than 4 gate commands needs a `gate.run` limit of its own (wait
+bound + commands x 600 + 600).
+
+Other steps keep their limits (1800 s default). A test of the arithmetic reads both binding
+formats (`driver/tests/impl_gate.rs` for story and release, `driver/tests/bugfix_languages.rs` for
+bugfix). Worst case a `tests.run` step is 3 runs of 1200 s of wait,
 about an hour, before `pool_wait_spent`; `sdc-run-metrics` reports `pool_waits` (takes with exit
 69) and `ran_over_time` (exit 70) apart from `could_not_run` and from failures, and the stop shows as `stop_cause:
 pool_wait_spent` or `run_over_time`. `scripts/run-trial.sh` ends with that cause and does not call `run.unstick` (a

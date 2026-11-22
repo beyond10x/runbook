@@ -673,11 +673,26 @@
   ],
   "release": {
     "date": "2026-11-22",
-    "notes": "docs/releases/0.3.0.md",
-    "tag": "0.3.0",
-    "version": "0.3.0"
+    "notes": "docs/releases/0.3.1.md",
+    "tag": "0.3.1",
+    "version": "0.3.1"
   },
   "releases": [
+    {
+      "date": "2026-11-22",
+      "limits": [
+        "Under Loom the two new exits, 69 and 70, are still recorded as `failed`: the loader has no `exits` member yet, and Loom does not run the step again (`bindings/PENDING.md`).",
+        "The run inspector and `runbook parity` do not know the verdicts `pool_wait_spent` and `run_over_time`: the inspector shows such a run without a name for its end, and `parity` does not list them among the stops it compares.",
+        "The registration numbers of 0.3.1 are not in this note: the runs are made on the tag commit. No run has used the 0.3.1 tree.",
+        "The daemon is specified and planned, and not built.",
+        "The comparison of the stub cycle under both runtimes covers no run with a model.",
+        "Every limit of 0.3.0 that this note does not change stands: the driver runs the JSON bindings and Loom reads the YAML files only in the comparison; the Go, Python, Java, npm and make rows of the bug-fix runbook's marker-file table are not tested; no experiment has tested the four switches."
+      ],
+      "notes": "docs/releases/0.3.1.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.3.1/docs/releases/0.3.1.md",
+      "summary": "A patch release of 0.3.0, the same day. Its reason is one defect: a step that waited for the shared build pool was recorded as a failed test run, which stopped the registration runs of 0.3.0 (below). It is not a one-change release. It also carries the rest of what merged after the 0.3.0 tag, and the groups are listed under \"What this release holds\". A source release at tag `0.3.1`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits. Read `docs/releases/0.3.0.md` for the release this one follows.",
+      "version": "0.3.1"
+    },
     {
       "date": "2026-11-22",
       "limits": [
@@ -801,7 +816,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "fb444d133fb0db9f142710813d664b2e7f47df1c7cb6c1bc6442ffed8f6a4a99"
+      "sha256": "b9f739b1010496d35305e118e29be1b0d4ce17af00ddac0bc7f22089654f5142"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -841,7 +856,11 @@
     },
     {
       "path": "docs/releases/0.3.0.md",
-      "sha256": "ca622b88f066e1f914b889ab32d5396276cf35e4ea6efe6308e2a46c1491f128"
+      "sha256": "9059b4d82a11eaa50446c6adef7463e35a6370678f77992a570e1890a8e85b45"
+    },
+    {
+      "path": "docs/releases/0.3.1.md",
+      "sha256": "057387329e5e2d25237a51f4f6af3c230d1c7760df1bf5e21e2e81aea2507311"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
@@ -849,7 +868,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "9ab6d63063bfb87ccff54ed13da9526b56b03672b21db6d3c042f449fc847e37"
+      "sha256": "4d9022f7af2ea59cc57142aebda244fd4e6f7addd77f5d05cf11d278e1167cca"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",

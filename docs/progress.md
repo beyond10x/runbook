@@ -21,7 +21,8 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.1.4](#014) | release | 2026-11-21 | `7bbdee6` | no experiment yet | no run | - | - |
 | [0.2.0](#020) | release | 2026-11-21 | `6cde564` | no experiment yet | no run | - | - |
 | [0.2.1](#021) | release | 2026-11-21 | `99f5617` | no experiment yet | no run | - | - |
-| [0.3.0](#030) | release | 2026-11-22 | not tagged yet | no experiment yet | no run | - | - |
+| [0.3.0](#030) | release | 2026-11-22 | `ae7a697` | no experiment yet | no run | - | - |
+| [0.3.1](#031) | release | 2026-11-22 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -357,7 +358,7 @@ Limits of this measurement:
 
 ## 0.3.0
 
-Release, 2026-11-22. Tree: not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation.
+Release, 2026-11-22. Tree: `ae7a697` (tag 0.3.0 at main ae7a697: 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation).
 
 What changed:
 
@@ -378,8 +379,36 @@ Tested by: no experiment yet. No run used this tree, so there is no figure for i
 
 Limits of this measurement:
 
-- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- The registration runs of 0.3.0 were stopped after 8 of 9 had started (record release-0.3.0, status abandoned): the test step waited in the shared build pool and was recorded as a failed run, so the runs measured the queue. 0.3.0 has no registration numbers; they are made on 0.3.1.
 - The four switches are registered in experiment records that have no run.
+
+## 0.3.1
+
+Release, 2026-11-22. Tree: not tagged yet; 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation.
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `5a4ba7f` | a story step that got no build slot is not a failed test run; 3 tries, then pool_wait_spent; a job the pool ends at its limit is run_over_time | not measured: no experiment has tested this change |
+| `8bddf50` | the bug-fix tool does the same for repro.run, tests.run and gate.run | not measured: no experiment has tested this change |
+| `f795462` | runbook check reads a checkout's text layout | no run metric affected |
+| `f242962` | the cycle script runs named cycles with --only | no run metric affected |
+| `357f218` | one driver test binary, 60 s per test, 120 s per step; the UI step the same, beside it in task check | no run metric affected |
+| `fc6d565` | check-protocols compares digests with a committed ledger and ends in under a minute | no run metric affected |
+| `77550ba` | the prompts of sdc-reply implement-run, sdc-conform and sdc-unstick are instruction files, byte-identical | no run metric affected |
+| `2dc0f48` | the feedback and requester texts are instruction files | no run metric affected |
+| `f9b38d6` | bindings name the registrations of their protocol files and program_root | no run metric affected |
+| `7eb1a52` | runbook parity compares a driver run with a Loom run; the first comparison of stub-cycle is equal | no run metric affected |
+| `42cb7ba` | the ESS domain sdc.daemon and its generated API; the daemon itself is not built | no run metric affected |
+| `a3e48ca` | the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- The registration runs of 0.3.1 are registered under a record that is added after the tag; until then no run has used this tree.
+- Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
 
 ## Experiments in no entry
 
@@ -400,7 +429,7 @@ Records of other inputs, of settings across trees, and planned ones. Inconclusiv
 | [`implement-one-request-strong`](../experiments/implement-one-request-strong/report.md) | prospective | ea5f0e0 | Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the strong setting; the mixed setting is the sibling record implement-one-request on the same tree. | With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the strong setting. | session 0 ended of 0; request 0 ended of 0 | `node.story/change.implement.cost_usd`: session -; request - | planned, no run yet |
 | [`parity-loom-strong`](../experiments/parity-loom-strong/report.md) | prospective | 0c28adc | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. | - | strong 0 ended of 3 | - | descriptive |
 | [`parity-loom-strong-2`](../experiments/parity-loom-strong-2/report.md) | prospective | ee6b50b | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited. | - | strong 0 ended of 3 | - | planned, no run yet |
-| [`release-0.3.0`](../experiments/release-0.3.0/report.md) | prospective | ae7a697 | Baseline of release 0.3.0, and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 ended of 0; mixed 0 ended of 0; haiku 0 ended of 0 | - | planned, no run yet |
+| [`release-0.3.0`](../experiments/release-0.3.0/report.md) | prospective | ae7a697 | Baseline of release 0.3.0, and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 of 3; mixed 0 of 3; haiku 0 of 2 | - | descriptive |
 | [`review-haiku-replay`](../experiments/review-haiku-replay/report.md) | prospective | 72a3eef | Whether the review class can move from Sonnet to Haiku (0.75 to about 0.04 USD per strong run) without changing a review decision, tested on recorded inputs before any full run. | - | haiku-review 0 ended of 3 | - | planned, no run yet |
 | [`review-minimal-facts`](../experiments/review-minimal-facts/report.md) | prospective | 9152866 | Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input. | - | minimal-facts 0 ended of 0 | - | planned, no run yet |
 | [`small-idea-1`](../experiments/small-idea-1/report.md) | retrospective | acd6f12 | Run a deliberately small idea from idea to close with no person, to see whether the loops of the to-do runs come from the idea's size. | - | haiku 0 of 1; sonnet 0 of 1 | - | descriptive |

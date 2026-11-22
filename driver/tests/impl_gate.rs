@@ -125,8 +125,14 @@ n=$(( $(cat "$d/count" 2>/dev/null || echo 0) + 1 ))
 echo $n > "$d/count"
 : > "$d/job.$n"
 echo "$*" >> "$d/jobs"
-echo "slot: job $n queued for 1 slot(s): 0 free, 3 request(s) ahead" >&2
-[[ $POOL_FAKE == never ]] && exec sleep 30
+if [[ $POOL_FAKE == immediate ]]; then
+  POOL_FAKE=green
+  : > "$d/started.$n"
+else
+  sleep "${POOL_FAKE_QUEUED_DELAY:-0}"
+  echo "slot: job $n queued for 1 slot(s): 0 free, 3 request(s) ahead" >&2
+fi
+[[ $POOL_FAKE == never ]] && exec sleep "${POOL_FAKE_SLEEP:-30}"
 [[ $POOL_FAKE == cancel-queued ]] && { sleep 0.5; echo "slot: job $n cancelled by \`slot cancel\`" >&2; exit 130; }
 sleep "${POOL_FAKE_DELAY:-1.2}"
 : > "$d/started.$n"
@@ -265,6 +271,28 @@ fn conform_run_passes_a_run_over_its_time_on() {
     let p = pool("conform-overtime", "conform-run", "overtime", &["--pool-wait", "10"], &[]);
     assert_eq!(p.out.status.code(), Some(70), "{}", text(&p.out));
     assert!(!text(&p.out).contains("FAILED `task check`"), "{}", text(&p.out));
+}
+
+#[test]
+fn a_queued_line_that_comes_late_does_not_make_the_job_started() {
+    // The machine is loaded: slot prints its `queued` line 4 s after it was started. Being started
+    // is never inferred from a missing line, so the 1 s bound still applies once the line is
+    // there. The stand-in's job would stay queued 20 s (shortened from its 30 s so a regression
+    // ends the test, with exit 0, and not after minutes).
+    let p = pool("late-line", "impl-gate", "never", &["--pool-wait", "1"],
+        &[("POOL_FAKE_QUEUED_DELAY", "4"), ("POOL_FAKE_SLEEP", "20")]);
+    assert_eq!(p.out.status.code(), Some(69), "{}", text(&p.out));
+    assert_eq!(p.cancelled(), "1");
+    assert!(p.secs < 12.0, "took {} s", p.secs);
+}
+
+#[test]
+fn a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end() {
+    // 3.5 s of run time with a bound of 1 s: no queued line, so the job was admitted at once and the
+    // bound has nothing to cancel.
+    let p = pool("immediate", "impl-gate", "immediate", &["--pool-wait", "1"], &[("POOL_FAKE_DELAY", "3.5")]);
+    assert_eq!(p.out.status.code(), Some(0), "{}", text(&p.out));
+    assert_eq!(p.cancelled(), "");
 }
 
 #[test]

@@ -107,6 +107,9 @@
 #                   changed the test refused then fixed; not_reproduced
 #   bugfix-from-ticket  the same from the invented ticket fixtures/bugfix-pager/ticket.yaml on a git
 #                   repository (run-trial.sh --bugfix-ticket --dry): fixed; a dirty worktree refused
+#   bugfix-pool-wait, bugfix-over-time  sdc.bugfix on a stand-in build pool (fixtures/pool-wait/slot): the job of
+#                   repro.run never starts (exit 69 three times, `pool_wait_spent`) or is ended at its run limit
+#                   (exit 70, `run_over_time`); no evidence, no change.fix (story:pool-wait-is-not-a-failure)
 #   run-metrics     sdc-run-metrics on decider-rework's run: looping factor, the approval edge,
 #                   merge.approve's decisions, a clean close (docs/workflow-metrics.md)
 #   implement-request-build, -tests-rework, -review-rework, -invalid-retry, -invalid-named,
@@ -186,7 +189,7 @@ expected+=(coverage-complete coverage-not-built coverage-line-outside coverage-t
 pending=(rework-spent-dropped rework-spent-abandoned)
 expected+=(implement-request-build implement-request-tests-rework implement-request-review-rework implement-request-invalid-retry
   implement-request-invalid-named implement-request-path-escape)
-expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red bugfix-from-ticket)
+expected+=(bugfix-full bugfix-not-red bugfix-edited-test bugfix-never-red bugfix-from-ticket bugfix-pool-wait bugfix-over-time)
 expected+=(replay-unchanged replay-reject-stop replay-reject-nearest replay-timeout replay-live-dry replay-check-fail
   replay-recording-clean rule-approvals-default review-mode-default implement-coverage-default)
 jq -e '.outcomes | has("not_released")' "$sdc/protocol/compiled/sdc-epic.ir.json" >/dev/null 2>&1 &&
@@ -2901,6 +2904,46 @@ if (( code == 1 )) && grep -q '^run ended pool_wait_spent' "$s/pool-wait.txt" &&
 else
   echo "pool-wait: FAILED (cycle exit $code, or tests.run did not run 3 times ending exit 69, or evidence or a second change.implement followed)"
 fi
+fi
+# bugfix-pool-wait, bugfix-over-time: story:pool-wait-is-not-a-failure on sdc.bugfix. The build pool
+# is the stand-in fixtures/pool-wait/slot. The first repro.run of the case finds no reproducing test
+# and ends not_red before any job (that record stays); the second, after test.reproduce, reaches the pool. bugfix-pool-wait: it never starts the job, the step's wait bound is 1
+# s. Passes when the run ends `pool_wait_spent` after a repro.run step that ran its tool 3 times,
+# each exit 69, with no evidence record from it and no change.fix. bugfix-over-time: the job
+# is ended at once with exit 124 (the pool's run limit): the tool exits 70, and the run ends
+# `run_over_time` after one run of the tool, with no evidence and no change.fix.
+bugfix_pool_cycle() { # <name> <never|overtime> <verdict> <runs of repro.run's tool> <what passed>
+  local name=$1 fake=$2 verdict=$3 runs=$4 what=$5 r=$s/runs/$1 code ev
+  rm -rf "$r" "$s/$name-state"
+  mkdir -p "$s/$name-state"
+  env SDC_RUNS_DIR="$s/runs" SDC_WATCH=0 SDC_LLM_ADAPTER=stub SDC_DECIDER=approve SDC_STUB_FIXTURES="" \
+    PATH="$fx/pool-wait:$PATH" POOL_REAL_SLOT="$(command -v slot || true)" POOL_FAKE_DIR="$s/$name-state" POOL_FAKE="$fake" \
+    SDC_POOL_WAIT=1 SDC_POOL_POLL=0.2 \
+    "$sdc/scripts/run-trial.sh" "$name" --bugfix "$bfx" --autopilot > "$s/$name.txt" 2>&1
+  code=$?
+  echo "$name: exit $code"
+  ev=$r/store/BUG-1/events.jsonl
+  if (( code != 0 )) && grep -q "$verdict" "$s/$name.txt" &&
+     jq -se --arg v "$verdict" --argjson n "$runs" '
+       ([.[] | select(.event == "action_finished" and .action == "repro.run" and .exit == (if $v == "pool_wait_spent" then "69" else "70" end))] | length) == 1
+       and ([.[] | select(.event == "action_finished" and .action == "repro.run" and (.exit | IN("69", "70")) and (.evidence | length) > 0)] | length) == 0
+       and ([.[] | select(.event == "pool_wait" and .action == "repro.run")] | length) == ($n - 1)
+       and ([.[] | select(.event == $v)] | length) == 1
+       and ([.[] | select(.event == "action_started" and .action == "change.fix")] | length) == 0' "$ev" >/dev/null &&
+     (( $(wc -l < "$s/$name-state/jobs") == runs )) &&
+     ls "$r"/store/BUG-1/evidence/*.json 2>/dev/null | xargs -r cat | jq -se '[.[] | select(.kind == "repro_run")] | length == 1 and .[0].result == "not_red"' >/dev/null; then
+    echo "$name: checks pass ($what)"
+  else
+    echo "$name: FAILED (exit $code, or repro.run did not end $verdict after $runs run(s) of its tool, or evidence or a change.fix followed)"
+  fi
+}
+if sel bugfix-pool-wait; then
+bugfix_pool_cycle bugfix-pool-wait never pool_wait_spent 3 \
+  "repro.run ran 3 times, exit 69 each, pool_wait_spent, no evidence, no change.fix"
+fi
+if sel bugfix-over-time; then
+bugfix_pool_cycle bugfix-over-time overtime run_over_time 1 \
+  "repro.run ran once, exit 70, run_over_time, no evidence, no change.fix"
 fi
 } | tee "$log"
 summary "$log"
