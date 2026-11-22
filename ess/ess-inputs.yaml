@@ -17,4 +17,5 @@ scenarios:
   - scenarios/daemon-two-runs-in-a-session-keep-their-events-apart.yaml
   - scenarios/daemon-events-after-a-sequence-number.yaml
   - scenarios/daemon-closed-session-takes-no-run.yaml
-  - scenarios/daemon-floor-workspace-refuses-unconfined.yaml
+  - scenarios/daemon-idempotent-submit-returns-the-first-run.yaml
+  - scenarios/daemon-context-outside-the-roots-is-refused.yaml

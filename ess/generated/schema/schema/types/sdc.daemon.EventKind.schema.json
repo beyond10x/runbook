@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:01826d53f908d43b7ace426e7ada111a63106af163fe813be03a712ef0e2a659",
+    "contract_digest": "slice-sha256/2:8d2cf7b7e2a7bbde1c4d322885f38108869c4342293d1a9554daad9fd22238ca",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.EventKind": {
       "title": "EventKind",
-      "description": "The kind of the runtime's record, copied from it. UNMAPPED: the runtime's record kinds are Loom's and are not known here; the daemon does not interpret them.",
+      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.",
       "x-ess-name": "sdc.daemon.EventKind",
       "x-ess-kind": "newtype",
       "type": "string"

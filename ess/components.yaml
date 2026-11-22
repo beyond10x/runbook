@@ -1,6 +1,6 @@
 components:
   - component: runbookd
-    summary: "The Runbook daemon: keeps runs, sessions and decision requests and serves them over HTTP. The reports of the runtime (StartRun, FailRunStart, WaitOnDecision, RequestDecision, ResumeRun, RecordRunEvent, EndRun) and StartDaemon are issued inside the process and are not accepted from the network."
+    summary: "The Runbook daemon: keeps runs, sessions and decision requests and serves them over HTTP, with three event streams (per run, per session, per daemon) paged by position; the streams are server-sent events, outside the language. The reports of the runtime (StartRun, FailRunStart, WaitOnDecision, RequestDecision, WithdrawDecision, ResumeRun, RecordRunEvent, EndRun) and StartDaemon are issued inside the process and are not accepted from the network."
     owns:
       domains:
         - sdc.daemon

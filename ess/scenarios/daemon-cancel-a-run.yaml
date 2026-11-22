@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-cancel-a-run
-summary: "A running run is cancelled; a second cancel is refused as already ended; the cancelled run takes no event and no answer; an unknown run is refused."
+summary: "A waiting run is cancelled; its Open request is withdrawn and an answer to it is refused; a second cancel and a late event are refused."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -9,7 +9,7 @@ timeline:
     actor: sdc.daemon.Operator
     input:
       daemon_id: "runbookd"
-      confinement_floor: workspace
+      confinement_floor: linux
       at: 2026-11-22T10:00:00Z
     outcome: started
 
@@ -21,9 +21,11 @@ timeline:
       runbook_id: "sdc"
       daemon_id: "runbookd"
       runbook_version: "0.3.0"
-      intake_ref: "intake.md"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
       settings: {}
-      confinement: workspace
+      confinement: linux
       at: 2026-11-22T10:01:00Z
     outcome: submitted
 
@@ -49,6 +51,9 @@ timeline:
       request_id: "dr-1"
       run_id: "run-1"
       question: "Merge the change?"
+      case_id: "IDEA-1"
+      action: "merge"
+      capability: "change.merge"
       options:
         - letter: "A"
           does: "Grant change.merge."
@@ -73,6 +78,24 @@ timeline:
         payload:
           run_id: "run-1"
 
+  - at: 2026-11-22T10:05:30Z
+    command: sdc.daemon.WithdrawDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+    outcome: withdrawn
+    events:
+      - event: sdc.daemon.DecisionRequestWithdrawn
+        payload:
+          request_id: "dr-1"
+
+  - at: 2026-11-22T10:05:40Z
+    command: sdc.daemon.WithdrawDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+    outcome: not-open
+
   - at: 2026-11-22T10:06:00Z
     command: sdc.daemon.CancelRun
     actor: sdc.daemon.Client
@@ -87,6 +110,7 @@ timeline:
     input:
       run_id: "run-1"
       sequence: 1
+      position: 1
       kind: "case.opened"
       record: {case: "IDEA-1"}
       at: 2026-11-22T10:07:00Z
@@ -101,7 +125,7 @@ timeline:
       answer: "A"
       answered_by: "operator"
       at: 2026-11-22T10:08:00Z
-    outcome: run-not-waiting
+    outcome: withdrawn
 
   - at: 2026-11-22T10:09:00Z
     command: sdc.daemon.CancelRun
@@ -114,3 +138,6 @@ timeline:
 assert:
   - view: sdc.daemon.Runs
     contains: {run_id: "run-1", state: Cancelled, ended_at: 2026-11-22T10:05:00Z}
+  - view: sdc.daemon.DecisionsOfRun
+    params: {run_id: "run-1"}
+    contains: {request_id: "dr-1", state: Withdrawn}

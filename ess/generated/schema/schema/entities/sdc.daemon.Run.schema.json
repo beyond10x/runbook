@@ -16,12 +16,13 @@
     "runbook_version": {
       "$ref": "#/$defs/sdc.daemon.RunbookVersion"
     },
-    "intake_ref": {
-      "$ref": "#/$defs/sdc.daemon.DocumentRef"
+    "intake": {
+      "description": "The intake document itself, inline in the submit: text, at most 1 MiB.",
+      "type": "string"
     },
-    "context_ref": {
-      "$ref": "#/$defs/sdc.daemon.DocumentRef",
-      "description": "The context directory the run reads (runbook run --context); absent when none was given."
+    "context_path": {
+      "$ref": "#/$defs/sdc.daemon.ContextPath",
+      "description": "The context directory the run reads (runbook run --context), under one of the daemon context roots; absent when none was given."
     },
     "settings": {
       "$ref": "#/$defs/sdc.daemon.RunSettings"
@@ -40,6 +41,10 @@
         "cardinality": "one",
         "via": "session_id"
       }
+    },
+    "idempotency_key": {
+      "$ref": "#/$defs/sdc.daemon.IdempotencyKey",
+      "description": "The key the submit carried, when it carried one; a later submit with the same key returns this run."
     },
     "submitted_at": {
       "type": "string",
@@ -69,8 +74,7 @@
   "required": [
     "run_id",
     "runbook_id",
-    "runbook_version",
-    "intake_ref",
+    "intake",
     "settings",
     "confinement",
     "submitted_at",
@@ -80,28 +84,38 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:51e6ed54349c11f0b51307c3409658be005c9f0c8c467eae5c4bdae886592ef2",
+    "contract_digest": "slice-sha256/2:bfe822adbfe1ed5c090be52005d33beff11e441809da8ba8d01acc38f10a5999",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.ConfinementLevel": {
       "title": "ConfinementLevel",
-      "description": "How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor.",
       "x-ess-name": "sdc.daemon.ConfinementLevel",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
-        "unconfined",
-        "workspace",
-        "strict"
+        "local",
+        "linux"
       ]
     },
-    "sdc.daemon.DocumentRef": {
-      "title": "DocumentRef",
-      "description": "A reference to a document the run reads: a path inside the run's state directory, or a digest. UNMAPPED: the reference form (path, digest, URL) is not decided; the daemon keeps what the client sends.",
-      "x-ess-name": "sdc.daemon.DocumentRef",
+    "sdc.daemon.ContextPath": {
+      "title": "ContextPath",
+      "description": "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.",
+      "x-ess-name": "sdc.daemon.ContextPath",
       "x-ess-kind": "newtype",
       "type": "string"
+    },
+    "sdc.daemon.IdempotencyKey": {
+      "title": "IdempotencyKey",
+      "description": "Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none.",
+      "x-ess-name": "sdc.daemon.IdempotencyKey",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
     },
     "sdc.daemon.Run.State": {
       "title": "State",
@@ -119,36 +133,39 @@
     },
     "sdc.daemon.RunId": {
       "title": "RunId",
-      "description": "The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
       "x-ess-name": "sdc.daemon.RunId",
       "x-ess-kind": "newtype",
       "type": "string"
     },
     "sdc.daemon.RunOutcome": {
       "title": "RunOutcome",
-      "description": "How an ended run ended, as the runbook's protocol names it. UNMAPPED: whether the set is closed (the Canon case outcomes) is not known here.",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not.",
       "x-ess-name": "sdc.daemon.RunOutcome",
       "x-ess-kind": "newtype",
       "type": "string"
     },
     "sdc.daemon.RunSettings": {
       "title": "RunSettings",
-      "description": "The settings of a run: the free map of host values (runbook run --set key=value) is every member the struct does not declare, kept as written. UNMAPPED: the typed members the runtime knows are not listed in any source read here; each is added as a declared member when the runtime names it.",
+      "description": "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now.",
       "x-ess-name": "sdc.daemon.RunSettings",
-      "x-ess-kind": "struct",
+      "x-ess-kind": "newtype",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": {
+        "type": "string"
+      },
+      "x-ess-map-key": "String"
     },
     "sdc.daemon.RunbookId": {
       "title": "RunbookId",
-      "description": "The id of a runbook: an embedded preset such as sdc or sdc-bugfix, or a runbook run from a directory.",
+      "description": "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir.",
       "x-ess-name": "sdc.daemon.RunbookId",
       "x-ess-kind": "newtype",
       "type": "string"
     },
     "sdc.daemon.RunbookVersion": {
       "title": "RunbookVersion",
-      "description": "The version of a runbook, as runbook list shows it.",
+      "description": "The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.",
       "x-ess-name": "sdc.daemon.RunbookVersion",
       "x-ess-kind": "newtype",
       "type": "string"

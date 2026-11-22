@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.ContextOutsideRoots.schema.json",
+  "title": "ContextOutsideRoots payload",
+  "description": "The context directory does not lie under any of the daemon's context roots (runbook serve --context-root), or the daemon has none: the run was not submitted. The handler checks the path against the host and reports the fact in `context_inside_roots`.",
+  "x-ess-name": "sdc.daemon.ContextOutsideRoots",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:4c8ebd7aad869e8e0baaaedba7b2c816dec8e322ee2bb6d789890b6d17a07fcd",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

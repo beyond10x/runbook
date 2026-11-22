@@ -5,17 +5,20 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:f8f29f16d690a0611fb483857e3ba1667b911cadc091bd73f08f9df941e4139d",
+    "contract_digest": "slice-sha256/2:8c7230eb6f23082893d2d0ee8133f491315d84ba6a1db1dd64a7aa9454bdcc98",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.RunSettings": {
       "title": "RunSettings",
-      "description": "The settings of a run: the free map of host values (runbook run --set key=value) is every member the struct does not declare, kept as written. UNMAPPED: the typed members the runtime knows are not listed in any source read here; each is added as a declared member when the runtime names it.",
+      "description": "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now.",
       "x-ess-name": "sdc.daemon.RunSettings",
-      "x-ess-kind": "struct",
+      "x-ess-kind": "newtype",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": {
+        "type": "string"
+      },
+      "x-ess-map-key": "String"
     }
   }
 }

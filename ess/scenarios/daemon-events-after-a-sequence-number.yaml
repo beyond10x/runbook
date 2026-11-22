@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-events-after-a-sequence-number
-summary: "The events page after n holds only the events with a larger sequence number, in sequence order: what a stream client that reconnects with Last-Event-ID n is sent."
+summary: "The events page after a position holds only the events with a larger position, in position order: what a stream client that reconnects with Last-Event-ID n (a position) is sent."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -9,7 +9,7 @@ timeline:
     actor: sdc.daemon.Operator
     input:
       daemon_id: "runbookd"
-      confinement_floor: unconfined
+      confinement_floor: local
       at: 2026-11-22T10:00:00Z
     outcome: started
 
@@ -21,9 +21,11 @@ timeline:
       runbook_id: "sdc"
       daemon_id: "runbookd"
       runbook_version: "0.3.0"
-      intake_ref: "intake.md"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
       settings: {}
-      confinement: unconfined
+      confinement: local
       at: 2026-11-22T10:01:00Z
     outcome: submitted
 
@@ -41,6 +43,7 @@ timeline:
     input:
       run_id: "run-1"
       sequence: 1
+      position: 1
       kind: "step.done"
       record: {step: "s1"}
       at: 2026-11-22T10:03:00Z
@@ -52,6 +55,7 @@ timeline:
     input:
       run_id: "run-1"
       sequence: 2
+      position: 2
       kind: "step.done"
       record: {step: "s2"}
       at: 2026-11-22T10:04:00Z
@@ -63,6 +67,7 @@ timeline:
     input:
       run_id: "run-1"
       sequence: 3
+      position: 3
       kind: "step.done"
       record: {step: "s3"}
       at: 2026-11-22T10:05:00Z
@@ -70,28 +75,32 @@ timeline:
 
 assert:
   - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-1", after: 0}
+    params: {run_id: "run-1", after_position: 0}
     at:
       row: first
       fields:
         sequence: 1
+        position: 1
   - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-1", after: 1}
+    params: {run_id: "run-1", after_position: 1}
     at:
       row: first
       fields:
         sequence: 2
+        position: 2
         record: {step: "s2"}
   - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-1", after: 1}
+    params: {run_id: "run-1", after_position: 1}
     at:
       row: last
       fields:
         sequence: 3
+        position: 3
         record: {step: "s3"}
   - view: sdc.daemon.EventsAfter
-    params: {run_id: "run-1", after: 2}
+    params: {run_id: "run-1", after_position: 2}
     at:
       row: first
       fields:
         sequence: 3
+        position: 3

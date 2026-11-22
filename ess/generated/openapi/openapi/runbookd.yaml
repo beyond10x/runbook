@@ -1,10 +1,10 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:d4b531013d5d728bec5e46322fb7005e475855ac7d2e8e0e670afb01042fc9c7
+# contract digest slice-sha256/2:bc0b27fa432acab145ae6100c5f8df034e1ef327c66345eed4f67e42e12c3615
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
   title: runbookd
-  summary: 'The Runbook daemon: keeps runs, sessions and decision requests and serves them over HTTP. The reports of the runtime (StartRun, FailRunStart, WaitOnDecision, RequestDecision, ResumeRun, RecordRunEvent, EndRun) and StartDaemon are issued inside the process and are not accepted from the network.'
+  summary: 'The Runbook daemon: keeps runs, sessions and decision requests and serves them over HTTP, with three event streams (per run, per session, per daemon) paged by position; the streams are server-sent events, outside the language. The reports of the runtime (StartRun, FailRunStart, WaitOnDecision, RequestDecision, WithdrawDecision, ResumeRun, RecordRunEvent, EndRun) and StartDaemon are issued inside the process and are not accepted from the network.'
   description: |-
     The HTTP surface of `runbookd`, one of the components of `sdc` v1.
 
@@ -17,11 +17,11 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:d4b531013d5d728bec5e46322fb7005e475855ac7d2e8e0e670afb01042fc9c7
+    contract_digest: slice-sha256/2:bc0b27fa432acab145ae6100c5f8df034e1ef327c66345eed4f67e42e12c3615
   x-ess-reached-by: network
 tags:
 - name: daemon
-  description: 'The API of the Runbook daemon (runbookd, the same binary as runbook serve): runs, the sessions that group them, the decision requests a waiting run raises, and the ordered events each run records. HTTP carries the commands and the views; the event stream is the view EventsAfter served as server-sent events (see the note below the views). docs/layers.md says what the runtime is; the runtime behind the daemon sits behind a trait, so the daemon''s commands and views do not change with it.'
+  description: 'The API of the Runbook daemon (runbookd, the same binary as runbook serve): runs, the sessions that group them, the decision requests a waiting run raises, and the ordered events each run records. HTTP carries the commands and the views; each event stream is a view paged by position and served as server-sent events (EventsAfter, EventsOfSessionAfter, EventsOfDaemonAfter; see the note on EventsAfter). docs/layers.md says what the runtime is; the runtime behind the daemon sits behind a trait, so the daemon''s commands and views do not change with it.'
 paths:
   /daemon/commands/answer-decision:
     post:
@@ -74,7 +74,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-request.Response'
         '409':
-          description: 'Outcomes `not-of-run`, `no-run`, `run-not-waiting` and `already-answered`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
+          description: 'Outcomes `not-of-run`, `withdrawn`, `no-run`, `run-not-waiting` and `already-answered`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
           content:
             application/json:
               schema:
@@ -84,9 +84,11 @@ paths:
                     no-run: '#/components/schemas/sdc.daemon.AnswerDecision.no-run.Response'
                     not-of-run: '#/components/schemas/sdc.daemon.AnswerDecision.not-of-run.Response'
                     run-not-waiting: '#/components/schemas/sdc.daemon.AnswerDecision.run-not-waiting.Response'
+                    withdrawn: '#/components/schemas/sdc.daemon.AnswerDecision.withdrawn.Response'
                   propertyName: outcome
                 oneOf:
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.not-of-run.Response'
+                - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.withdrawn.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-run.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.run-not-waiting.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.already-answered.Response'
@@ -111,7 +113,7 @@ paths:
     post:
       operationId: sdc.daemon.CancelRun
       summary: Cancel a run
-      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. UNMAPPED: the Open decision requests of a cancelled run stay Open and keep showing in OpenDecisionsOfRun; the answer to one is refused as RunNotWaiting. Whether cancel withdraws them (a third request state) is not decided.'
+      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run''s Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -324,7 +326,7 @@ paths:
     post:
       operationId: sdc.daemon.SubmitRun
       summary: Submit a run
-      description: 'Submit a run of a runbook: its intake, its context, its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. UNMAPPED: the client names the daemon (`daemon_id`) because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001: it also left every run outcome and 50 downstream outcomes without a scenario); `via` plus `predicate` can. A single daemon runs per process, so the id is a constant the implementation knows. UNMAPPED: the floor guard spells the order of the three placeholder levels out, one outcome per floor level, because ESS 0.96.0 validates `confinement_floor > input.confinement` over an ordered enum and the interpreted target then accepts every level (probed); the outcomes change with the level names. UNMAPPED: a submit with a run id that is already taken is not refused: a command keeps one `via` input in its guards (the interpreted target mis-evaluates a second, probed on 0.96.0) and the session guards use it.'
+      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -338,11 +340,18 @@ paths:
               $ref: '#/components/schemas/sdc.daemon.SubmitRun.Input'
       responses:
         '202':
-          description: 'Outcome `submitted`: the branch the specification declares for this input. Events this branch emits are listed under `published`: `RunSubmitted` is not published and stays inside the component.'
+          description: 'Outcomes `already-submitted` and `submitted`: the branch the specification declares for this input. Events this branch emits are listed under `published`: `SubmitReplayed` and `RunSubmitted` are not published and stay inside the component.'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/sdc.daemon.SubmitRun.submitted.Response'
+                discriminator:
+                  mapping:
+                    already-submitted: '#/components/schemas/sdc.daemon.SubmitRun.already-submitted.Response'
+                    submitted: '#/components/schemas/sdc.daemon.SubmitRun.submitted.Response'
+                  propertyName: outcome
+                oneOf:
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.already-submitted.Response'
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.submitted.Response'
         '403':
           description: 'No declared outcome: the standard refusal for an actor no grant admits: the request was authenticated as no actor, or as one `x-ess-may-invoke` does not list. It is checked before the command runs, so nothing was read, written or published, and the same request from a granted actor is decided by the command. Its body carries `refused` and `actor`, never the `outcome` and `error` a declared branch carries.'
           content:
@@ -365,24 +374,37 @@ paths:
                 - actor
                 type: object
         '409':
-          description: 'Outcomes `no-daemon`, `below-floor-strict`, `below-floor-workspace`, `no-session` and `session-closed`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
+          description: 'Outcomes `no-daemon`, `below-floor`, `no-session` and `session-closed`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
           content:
             application/json:
               schema:
                 discriminator:
                   mapping:
-                    below-floor-strict: '#/components/schemas/sdc.daemon.SubmitRun.below-floor-strict.Response'
-                    below-floor-workspace: '#/components/schemas/sdc.daemon.SubmitRun.below-floor-workspace.Response'
+                    below-floor: '#/components/schemas/sdc.daemon.SubmitRun.below-floor.Response'
                     no-daemon: '#/components/schemas/sdc.daemon.SubmitRun.no-daemon.Response'
                     no-session: '#/components/schemas/sdc.daemon.SubmitRun.no-session.Response'
                     session-closed: '#/components/schemas/sdc.daemon.SubmitRun.session-closed.Response'
                   propertyName: outcome
                 oneOf:
                 - $ref: '#/components/schemas/sdc.daemon.SubmitRun.no-daemon.Response'
-                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.below-floor-strict.Response'
-                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.below-floor-workspace.Response'
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.below-floor.Response'
                 - $ref: '#/components/schemas/sdc.daemon.SubmitRun.no-session.Response'
                 - $ref: '#/components/schemas/sdc.daemon.SubmitRun.session-closed.Response'
+        '422':
+          description: 'Outcomes `intake-too-large`, `no-runbook` and `context-outside-roots`: the request was understood and refused on domain grounds. The body names the declared error and carries whatever that error declares.'
+          content:
+            application/json:
+              schema:
+                discriminator:
+                  mapping:
+                    context-outside-roots: '#/components/schemas/sdc.daemon.SubmitRun.context-outside-roots.Response'
+                    intake-too-large: '#/components/schemas/sdc.daemon.SubmitRun.intake-too-large.Response'
+                    no-runbook: '#/components/schemas/sdc.daemon.SubmitRun.no-runbook.Response'
+                  propertyName: outcome
+                oneOf:
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.intake-too-large.Response'
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.no-runbook.Response'
+                - $ref: '#/components/schemas/sdc.daemon.SubmitRun.context-outside-roots.Response'
         '501':
           description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
           content:
@@ -414,6 +436,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.DaemonConfiguration.Response'
+  /daemon/views/daemon-events:
+    get:
+      operationId: sdc.daemon.EventsOfDaemonAfter
+      summary: Events of the daemon after a position
+      description: 'The events of every run of the daemon with a position above `after_position`, in position order: the page the daemon-wide event stream serves (GET /daemon/views/daemon-events with `Accept: text/event-stream`, same SSE rules as EventsAfter). Outside the language: SSE itself.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      parameters:
+      - name: after_position
+        in: query
+        description: Read by the view's filter as `param.after_position`; it selects which rows the view holds.
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.EventsOfDaemonAfter`, a projection of `sdc.daemon.RunEvent`. Contains the instances where `position > param.after_position` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.EventsOfDaemonAfter.Response'
   /daemon/views/decisions:
     get:
       operationId: sdc.daemon.DecisionsOfRun
@@ -438,8 +482,8 @@ paths:
   /daemon/views/events:
     get:
       operationId: sdc.daemon.EventsAfter
-      summary: Events of a run after a sequence number
-      description: 'The events of one run with a sequence number above `after`, in sequence order: the page the event stream serves. SSE: the language has no construct for a server-sent event stream or a subscription (ESS 0.96.0 has `asyncapi` for the events components publish, which describes a broker and not an HTTP stream), so the stream is not declared. GET /runs/{run_id}/events with `Accept: text/event-stream` streams this view: every row with sequence > after, each as one SSE event whose `id` is the row''s sequence number, then each new event as it is recorded; a reconnect sends `Last-Event-ID: n` and the stream continues with after = n; after = 0 is the whole run. Without that header the same path answers the rows as a JSON page. UNMAPPED: the design sheet (decision 4) also asks for a stream per session and one for the whole daemon, each with ids; sequence numbers are per run only, so those two streams need an order across runs that no entity here carries.'
+      summary: Events of a run after a position
+      description: 'The events of one run with a position above `after_position`, in position order: the page the run''s event stream serves. SSE is outside the language: ESS 0.96.0 has no construct for a server-sent event stream or a subscription (it has `asyncapi` for the events components publish, which describes a broker and not an HTTP stream), so the stream is not declared; the views are the page a stream serves, and the HTTP binding (the three events views below, served with `text/event-stream`) is written and tested in the story daemon-skeleton-on-a-runtime-trait. GET /daemon/views/events?run_id=... with `Accept: text/event-stream` streams this view: every row with position > after_position, each as one SSE event whose `id` is the row''s position, then each new event as it is recorded; a reconnect sends `Last-Event-ID: n`, a position, and the stream continues with after_position = n; after_position = 0 is the whole run. Without that header the same path answers the rows as a JSON page.'
       tags:
       - daemon
       x-ess-consistency: read_your_writes
@@ -450,15 +494,15 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/sdc.daemon.RunId'
-      - name: after
+      - name: after_position
         in: query
-        description: Read by the view's filter as `param.after`; it selects which rows the view holds.
+        description: Read by the view's filter as `param.after_position`; it selects which rows the view holds.
         required: true
         schema:
           type: integer
       responses:
         '200':
-          description: 'Every row of `sdc.daemon.EventsAfter`, a projection of `sdc.daemon.RunEvent`. Contains the instances where `(run_id == param.run_id and sequence > param.after)` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          description: 'Every row of `sdc.daemon.EventsAfter`, a projection of `sdc.daemon.RunEvent`. Contains the instances where `(run_id == param.run_id and position > param.after_position)` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
           content:
             application/json:
               schema:
@@ -488,7 +532,7 @@ paths:
     get:
       operationId: sdc.daemon.RunDetail
       summary: One run
-      description: 'One run with every field it was submitted with. The run''s open decision requests are the view OpenDecisionsOfRun: GET /runs/{run_id} answers both together. A view has one source entity, so the language cannot join them in one row.'
+      description: 'One run with every field it was submitted with. The run''s open decision requests are the view OpenDecisionsOfRun: GET /daemon/views/run and GET /daemon/views/open-decisions, each with run_id, answer the two. A view has one source entity, so the language cannot join them in one row.'
       tags:
       - daemon
       x-ess-consistency: read_your_writes
@@ -510,7 +554,7 @@ paths:
     get:
       operationId: sdc.daemon.Runs
       summary: Runs
-      description: Every run. GET /runs with no query parameter is this view; ?session= is RunsOfSession, ?state= is RunsInState, both is RunsOfSessionInState.
+      description: Every run. GET /daemon/views/runs is this view; /daemon/views/runs-of-session (session_id), /daemon/views/runs-in-state (state) and /daemon/views/runs-of-session-in-state (both) filter it.
       tags:
       - daemon
       x-ess-consistency: read_your_writes
@@ -590,6 +634,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.RunsOfSessionInState.Response'
+  /daemon/views/session-events:
+    get:
+      operationId: sdc.daemon.EventsOfSessionAfter
+      summary: Events of a session after a position
+      description: 'The events of every run of one session with a position above `after_position`, in position order: the page the session''s event stream serves (GET /daemon/views/session-events?session_id=... with `Accept: text/event-stream`, same SSE rules as EventsAfter; the SSE id is the position, so the interleaving of the session''s runs is the daemon''s order). Outside the language: SSE itself.'
+      tags:
+      - daemon
+      x-ess-consistency: read_your_writes
+      parameters:
+      - name: session_id
+        in: query
+        description: Read by the view's filter as `param.session_id`; it selects which rows the view holds.
+        required: true
+        schema:
+          $ref: '#/components/schemas/sdc.daemon.SessionId'
+      - name: after_position
+        in: query
+        description: Read by the view's filter as `param.after_position`; it selects which rows the view holds.
+        required: true
+        schema:
+          type: integer
+      responses:
+        '200':
+          description: 'Every row of `sdc.daemon.EventsOfSessionAfter`, a projection of `sdc.daemon.RunEvent`. Contains the instances where `(session_id == param.session_id and position > param.after_position)` holds. Read-your-writes: a caller that has just issued a command sees its effect here.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sdc.daemon.EventsOfSessionAfter.Response'
   /daemon/views/sessions:
     get:
       operationId: sdc.daemon.Sessions
@@ -775,6 +847,29 @@ components:
       - error
       - payload
       type: object
+    sdc.daemon.AnswerDecision.withdrawn.Response:
+      additionalProperties: false
+      description: 'The request was withdrawn when its run was cancelled: it takes no answer. Checked before the run''s own state, so the answer names the request and not the run. Taken when the existing subject''s stored fields satisfy `state == Withdrawn`.'
+      properties:
+        error:
+          const: sdc.daemon.DecisionWithdrawn
+          description: 'The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed.'
+          type: string
+        outcome:
+          const: withdrawn
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.DecisionWithdrawn.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
     sdc.daemon.BelowConfinementFloor.Error:
       title: BelowConfinementFloor payload
       description: The requested confinement is below the daemon's floor; the run was not submitted.
@@ -792,7 +887,7 @@ components:
       additionalProperties: false
     sdc.daemon.CancelRun.Input:
       title: Cancel a run input
-      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. UNMAPPED: the Open decision requests of a cancelled run stay Open and keep showing in OpenDecisionsOfRun; the answer to one is refused as RunNotWaiting. Whether cancel withdraws them (a third request state) is not decided.'
+      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run''s Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn.'
       x-ess-name: sdc.daemon.CancelRun
       x-ess-kind: command-input
       type: object
@@ -881,12 +976,15 @@ components:
       - error
       - payload
       type: object
-    sdc.daemon.ClientId:
-      title: ClientId
-      description: 'The client a session belongs to. UNMAPPED: what identifies a client (the subject of the bearer token, a name the client gives) is not stated in the design sheet; the daemon''s security floor says only that a non-loopback listener needs a token.'
-      x-ess-name: sdc.daemon.ClientId
+    sdc.daemon.ClientLabel:
+      title: ClientLabel
+      description: 'A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token''s subject is not a member of any entity.'
+      x-ess-name: sdc.daemon.ClientLabel
       x-ess-kind: newtype
       type: string
+      maxLength: 200
+      x-ess-invariants:
+      - value.count <= 200
     sdc.daemon.CloseSession.Input:
       title: Close a session input
       description: 'Close a session: it takes no new run. Its runs go on and stay listed.'
@@ -980,14 +1078,31 @@ components:
       type: object
     sdc.daemon.ConfinementLevel:
       title: ConfinementLevel
-      description: 'How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.'
+      description: 'How strongly a run is sandboxed, weakest first: the runtime''s names. local is not confined; linux is. oci and pod are the runtime''s planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon''s default floor is linux; local must be asked for by name and is refused under a linux floor.'
       x-ess-name: sdc.daemon.ConfinementLevel
       x-ess-kind: enum
       type: string
       enum:
-      - unconfined
-      - workspace
-      - strict
+      - local
+      - linux
+    sdc.daemon.ContextOutsideRoots.Error:
+      title: ContextOutsideRoots payload
+      description: 'The context directory does not lie under any of the daemon''s context roots (runbook serve --context-root), or the daemon has none: the run was not submitted. The handler checks the path against the host and reports the fact in `context_inside_roots`.'
+      x-ess-name: sdc.daemon.ContextOutsideRoots
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+      required:
+      - run_id
+      additionalProperties: false
+    sdc.daemon.ContextPath:
+      title: ContextPath
+      description: A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.
+      x-ess-name: sdc.daemon.ContextPath
+      x-ess-kind: newtype
+      type: string
     sdc.daemon.DaemonConfiguration.Response:
       additionalProperties: false
       description: The rows of `sdc.daemon.DaemonConfiguration`.
@@ -1020,7 +1135,7 @@ components:
       additionalProperties: false
     sdc.daemon.DaemonId:
       title: DaemonId
-      description: 'The id of the one daemon the specification describes: the configuration row it holds is keyed by it.'
+      description: 'The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.'
       x-ess-name: sdc.daemon.DaemonId
       x-ess-kind: newtype
       type: string
@@ -1076,12 +1191,25 @@ components:
       enum:
       - Answered
       - Open
+      - Withdrawn
     sdc.daemon.DecisionRequestId:
       title: DecisionRequestId
-      description: The id of a decision request, chosen by the runtime when it asks.
+      description: 'The id of a decision request: the runtime''s, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.'
       x-ess-name: sdc.daemon.DecisionRequestId
       x-ess-kind: newtype
       type: string
+    sdc.daemon.DecisionWithdrawn.Error:
+      title: DecisionWithdrawn payload
+      description: 'The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed.'
+      x-ess-name: sdc.daemon.DecisionWithdrawn
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        request_id:
+          $ref: '#/components/schemas/sdc.daemon.DecisionRequestId'
+      required:
+      - request_id
+      additionalProperties: false
     sdc.daemon.DecisionsOfRun.Response:
       additionalProperties: false
       description: The rows of `sdc.daemon.DecisionsOfRun`.
@@ -1130,21 +1258,15 @@ components:
       - options
       - opened_at
       additionalProperties: false
-    sdc.daemon.DocumentRef:
-      title: DocumentRef
-      description: 'A reference to a document the run reads: a path inside the run''s state directory, or a digest. UNMAPPED: the reference form (path, digest, URL) is not decided; the daemon keeps what the client sends.'
-      x-ess-name: sdc.daemon.DocumentRef
-      x-ess-kind: newtype
-      type: string
     sdc.daemon.EventId:
       title: EventId
-      description: The id the daemon gives a recorded event; the stream's own id is the run's sequence number.
+      description: The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.
       x-ess-name: sdc.daemon.EventId
       x-ess-kind: newtype
       type: string
     sdc.daemon.EventKind:
       title: EventKind
-      description: 'The kind of the runtime''s record, copied from it. UNMAPPED: the runtime''s record kinds are Loom''s and are not known here; the daemon does not interpret them.'
+      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.'
       x-ess-name: sdc.daemon.EventKind
       x-ess-kind: newtype
       type: string
@@ -1161,8 +1283,8 @@ components:
       - rows
       type: object
     sdc.daemon.EventsAfter.Row:
-      title: Events of a run after a sequence number row
-      description: 'The events of one run with a sequence number above `after`, in sequence order: the page the event stream serves. SSE: the language has no construct for a server-sent event stream or a subscription (ESS 0.96.0 has `asyncapi` for the events components publish, which describes a broker and not an HTTP stream), so the stream is not declared. GET /runs/{run_id}/events with `Accept: text/event-stream` streams this view: every row with sequence > after, each as one SSE event whose `id` is the row''s sequence number, then each new event as it is recorded; a reconnect sends `Last-Event-ID: n` and the stream continues with after = n; after = 0 is the whole run. Without that header the same path answers the rows as a JSON page. UNMAPPED: the design sheet (decision 4) also asks for a stream per session and one for the whole daemon, each with ids; sequence numbers are per run only, so those two streams need an order across runs that no entity here carries.'
+      title: Events of a run after a position row
+      description: 'The events of one run with a position above `after_position`, in position order: the page the run''s event stream serves. SSE is outside the language: ESS 0.96.0 has no construct for a server-sent event stream or a subscription (it has `asyncapi` for the events components publish, which describes a broker and not an HTTP stream), so the stream is not declared; the views are the page a stream serves, and the HTTP binding (the three events views below, served with `text/event-stream`) is written and tested in the story daemon-skeleton-on-a-runtime-trait. GET /daemon/views/events?run_id=... with `Accept: text/event-stream` streams this view: every row with position > after_position, each as one SSE event whose `id` is the row''s position, then each new event as it is recorded; a reconnect sends `Last-Event-ID: n`, a position, and the stream continues with after_position = n; after_position = 0 is the whole run. Without that header the same path answers the rows as a JSON page.'
       x-ess-name: sdc.daemon.EventsAfter
       x-ess-kind: view-row
       type: object
@@ -1171,7 +1293,11 @@ components:
           $ref: '#/components/schemas/sdc.daemon.EventId'
         run_id:
           $ref: '#/components/schemas/sdc.daemon.RunId'
+        session_id:
+          $ref: '#/components/schemas/sdc.daemon.SessionId'
         sequence:
+          type: integer
+        position:
           type: integer
         kind:
           $ref: '#/components/schemas/sdc.daemon.EventKind'
@@ -1183,9 +1309,119 @@ components:
       - event_id
       - run_id
       - sequence
+      - position
       - kind
       - record
       - at
+      additionalProperties: false
+    sdc.daemon.EventsOfDaemonAfter.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.EventsOfDaemonAfter`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.EventsOfDaemonAfter.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.EventsOfDaemonAfter.Row:
+      title: Events of the daemon after a position row
+      description: 'The events of every run of the daemon with a position above `after_position`, in position order: the page the daemon-wide event stream serves (GET /daemon/views/daemon-events with `Accept: text/event-stream`, same SSE rules as EventsAfter). Outside the language: SSE itself.'
+      x-ess-name: sdc.daemon.EventsOfDaemonAfter
+      x-ess-kind: view-row
+      type: object
+      properties:
+        event_id:
+          $ref: '#/components/schemas/sdc.daemon.EventId'
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        session_id:
+          $ref: '#/components/schemas/sdc.daemon.SessionId'
+        sequence:
+          type: integer
+        position:
+          type: integer
+        kind:
+          $ref: '#/components/schemas/sdc.daemon.EventKind'
+        record: {}
+        at:
+          type: string
+          format: date-time
+      required:
+      - event_id
+      - run_id
+      - sequence
+      - position
+      - kind
+      - record
+      - at
+      additionalProperties: false
+    sdc.daemon.EventsOfSessionAfter.Response:
+      additionalProperties: false
+      description: The rows of `sdc.daemon.EventsOfSessionAfter`.
+      properties:
+        rows:
+          description: Every row the projection holds, in the order it holds them.
+          items:
+            $ref: '#/components/schemas/sdc.daemon.EventsOfSessionAfter.Row'
+          type: array
+      required:
+      - rows
+      type: object
+    sdc.daemon.EventsOfSessionAfter.Row:
+      title: Events of a session after a position row
+      description: 'The events of every run of one session with a position above `after_position`, in position order: the page the session''s event stream serves (GET /daemon/views/session-events?session_id=... with `Accept: text/event-stream`, same SSE rules as EventsAfter; the SSE id is the position, so the interleaving of the session''s runs is the daemon''s order). Outside the language: SSE itself.'
+      x-ess-name: sdc.daemon.EventsOfSessionAfter
+      x-ess-kind: view-row
+      type: object
+      properties:
+        event_id:
+          $ref: '#/components/schemas/sdc.daemon.EventId'
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+        session_id:
+          $ref: '#/components/schemas/sdc.daemon.SessionId'
+        sequence:
+          type: integer
+        position:
+          type: integer
+        kind:
+          $ref: '#/components/schemas/sdc.daemon.EventKind'
+        record: {}
+        at:
+          type: string
+          format: date-time
+      required:
+      - event_id
+      - run_id
+      - sequence
+      - position
+      - kind
+      - record
+      - at
+      additionalProperties: false
+    sdc.daemon.IdempotencyKey:
+      title: IdempotencyKey
+      description: 'Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none.'
+      x-ess-name: sdc.daemon.IdempotencyKey
+      x-ess-kind: newtype
+      type: string
+      maxLength: 200
+      x-ess-invariants:
+      - value.count <= 200
+    sdc.daemon.IntakeTooLarge.Error:
+      title: IntakeTooLarge payload
+      description: 'The inline intake is larger than 1 MiB: the run was not submitted.'
+      x-ess-name: sdc.daemon.IntakeTooLarge
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+      required:
+      - run_id
       additionalProperties: false
     sdc.daemon.NoSuchDaemon.Error:
       title: NoSuchDaemon payload
@@ -1215,6 +1451,18 @@ components:
       title: NoSuchRun payload
       description: No run has this id.
       x-ess-name: sdc.daemon.NoSuchRun
+      x-ess-kind: error-payload
+      type: object
+      properties:
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+      required:
+      - run_id
+      additionalProperties: false
+    sdc.daemon.NoSuchRunbook.Error:
+      title: NoSuchRunbook payload
+      description: 'No preset and no runbook of the daemon''s --runbook-dir has this name (and version): the run was not submitted. The handler looks the runbook up and reports the fact in `runbook_known`.'
+      x-ess-name: sdc.daemon.NoSuchRunbook
       x-ess-kind: error-payload
       type: object
       properties:
@@ -1283,7 +1531,7 @@ components:
         session_id:
           $ref: '#/components/schemas/sdc.daemon.SessionId'
         client:
-          $ref: '#/components/schemas/sdc.daemon.ClientId'
+          $ref: '#/components/schemas/sdc.daemon.ClientLabel'
         at:
           type: string
           format: date-time
@@ -1393,7 +1641,7 @@ components:
       type: object
     sdc.daemon.RunDetail.Row:
       title: One run row
-      description: 'One run with every field it was submitted with. The run''s open decision requests are the view OpenDecisionsOfRun: GET /runs/{run_id} answers both together. A view has one source entity, so the language cannot join them in one row.'
+      description: 'One run with every field it was submitted with. The run''s open decision requests are the view OpenDecisionsOfRun: GET /daemon/views/run and GET /daemon/views/open-decisions, each with run_id, answer the two. A view has one source entity, so the language cannot join them in one row.'
       x-ess-name: sdc.daemon.RunDetail
       x-ess-kind: view-row
       type: object
@@ -1404,10 +1652,11 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RunbookId'
         runbook_version:
           $ref: '#/components/schemas/sdc.daemon.RunbookVersion'
-        intake_ref:
-          $ref: '#/components/schemas/sdc.daemon.DocumentRef'
-        context_ref:
-          $ref: '#/components/schemas/sdc.daemon.DocumentRef'
+        intake:
+          description: 'The intake document itself, inline in the submit: text, at most 1 MiB.'
+          type: string
+        context_path:
+          $ref: '#/components/schemas/sdc.daemon.ContextPath'
         settings:
           $ref: '#/components/schemas/sdc.daemon.RunSettings'
         state:
@@ -1432,8 +1681,7 @@ components:
       required:
       - run_id
       - runbook_id
-      - runbook_version
-      - intake_ref
+      - intake
       - settings
       - state
       - confinement
@@ -1441,7 +1689,7 @@ components:
       additionalProperties: false
     sdc.daemon.RunId:
       title: RunId
-      description: 'The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).'
+      description: The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.
       x-ess-name: sdc.daemon.RunId
       x-ess-kind: newtype
       type: string
@@ -1459,17 +1707,19 @@ components:
       additionalProperties: false
     sdc.daemon.RunOutcome:
       title: RunOutcome
-      description: 'How an ended run ended, as the runbook''s protocol names it. UNMAPPED: whether the set is closed (the Canon case outcomes) is not known here.'
+      description: 'Open text: the outcome name of the runbook''s protocol for the root case. The run''s state is the closed set; the outcome is not.'
       x-ess-name: sdc.daemon.RunOutcome
       x-ess-kind: newtype
       type: string
     sdc.daemon.RunSettings:
       title: RunSettings
-      description: 'The settings of a run: the free map of host values (runbook run --set key=value) is every member the struct does not declare, kept as written. UNMAPPED: the typed members the runtime knows are not listed in any source read here; each is added as a declared member when the runtime names it.'
+      description: 'The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime''s run-settings story; none are declared now.'
       x-ess-name: sdc.daemon.RunSettings
-      x-ess-kind: struct
+      x-ess-kind: newtype
       type: object
-      additionalProperties: true
+      additionalProperties:
+        type: string
+      x-ess-map-key: String
     sdc.daemon.RunSubmitted.Event:
       title: RunSubmitted payload
       x-ess-name: sdc.daemon.RunSubmitted
@@ -1489,13 +1739,13 @@ components:
       additionalProperties: false
     sdc.daemon.RunbookId:
       title: RunbookId
-      description: 'The id of a runbook: an embedded preset such as sdc or sdc-bugfix, or a runbook run from a directory.'
+      description: 'The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon''s --runbook-dir.'
       x-ess-name: sdc.daemon.RunbookId
       x-ess-kind: newtype
       type: string
     sdc.daemon.RunbookVersion:
       title: RunbookVersion
-      description: The version of a runbook, as runbook list shows it.
+      description: 'The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.'
       x-ess-name: sdc.daemon.RunbookVersion
       x-ess-kind: newtype
       type: string
@@ -1513,7 +1763,7 @@ components:
       type: object
     sdc.daemon.Runs.Row:
       title: Runs row
-      description: Every run. GET /runs with no query parameter is this view; ?session= is RunsOfSession, ?state= is RunsInState, both is RunsOfSessionInState.
+      description: Every run. GET /daemon/views/runs is this view; /daemon/views/runs-of-session (session_id), /daemon/views/runs-in-state (state) and /daemon/views/runs-of-session-in-state (both) filter it.
       x-ess-name: sdc.daemon.Runs
       x-ess-kind: view-row
       type: object
@@ -1546,7 +1796,6 @@ components:
       required:
       - run_id
       - runbook_id
-      - runbook_version
       - state
       - confinement
       - submitted_at
@@ -1597,7 +1846,6 @@ components:
       required:
       - run_id
       - runbook_id
-      - runbook_version
       - state
       - confinement
       - submitted_at
@@ -1648,7 +1896,6 @@ components:
       required:
       - run_id
       - runbook_id
-      - runbook_version
       - state
       - confinement
       - submitted_at
@@ -1699,7 +1946,6 @@ components:
       required:
       - run_id
       - runbook_id
-      - runbook_version
       - state
       - confinement
       - submitted_at
@@ -1765,7 +2011,7 @@ components:
         session_id:
           $ref: '#/components/schemas/sdc.daemon.SessionId'
         client:
-          $ref: '#/components/schemas/sdc.daemon.ClientId'
+          $ref: '#/components/schemas/sdc.daemon.ClientLabel'
       required:
       - session_id
       - client
@@ -1803,7 +2049,7 @@ components:
         session_id:
           $ref: '#/components/schemas/sdc.daemon.SessionId'
         client:
-          $ref: '#/components/schemas/sdc.daemon.ClientId'
+          $ref: '#/components/schemas/sdc.daemon.ClientLabel'
         state:
           $ref: '#/components/schemas/sdc.daemon.Session.State'
         opened_at:
@@ -1818,9 +2064,18 @@ components:
       - state
       - opened_at
       additionalProperties: false
+    sdc.daemon.SubmitReplayed.Event:
+      title: SubmitReplayed payload
+      x-ess-name: sdc.daemon.SubmitReplayed
+      x-ess-kind: event-payload
+      type: object
+      properties:
+        idempotency_key:
+          $ref: '#/components/schemas/sdc.daemon.IdempotencyKey'
+      additionalProperties: false
     sdc.daemon.SubmitRun.Input:
       title: Submit a run input
-      description: 'Submit a run of a runbook: its intake, its context, its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. UNMAPPED: the client names the daemon (`daemon_id`) because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001: it also left every run outcome and 50 downstream outcomes without a scenario); `via` plus `predicate` can. A single daemon runs per process, so the id is a constant the implementation knows. UNMAPPED: the floor guard spells the order of the three placeholder levels out, one outcome per floor level, because ESS 0.96.0 validates `confinement_floor > input.confinement` over an ordered enum and the interpreted target then accepts every level (probed); the outcomes change with the level names. UNMAPPED: a submit with a run id that is already taken is not refused: a command keeps one `via` input in its guards (the interpreted target mis-evaluates a second, probed on 0.96.0) and the session guards use it.'
+      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
       x-ess-name: sdc.daemon.SubmitRun
       x-ess-kind: command-input
       type: object
@@ -1831,16 +2086,22 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RunbookId'
         runbook_version:
           $ref: '#/components/schemas/sdc.daemon.RunbookVersion'
-        intake_ref:
-          $ref: '#/components/schemas/sdc.daemon.DocumentRef'
-        context_ref:
-          $ref: '#/components/schemas/sdc.daemon.DocumentRef'
+        intake:
+          type: string
+        context_path:
+          $ref: '#/components/schemas/sdc.daemon.ContextPath'
         settings:
           $ref: '#/components/schemas/sdc.daemon.RunSettings'
         confinement:
           $ref: '#/components/schemas/sdc.daemon.ConfinementLevel'
         session_id:
           $ref: '#/components/schemas/sdc.daemon.SessionId'
+        idempotency_key:
+          $ref: '#/components/schemas/sdc.daemon.IdempotencyKey'
+        runbook_known:
+          type: boolean
+        context_inside_roots:
+          type: boolean
         daemon_id:
           $ref: '#/components/schemas/sdc.daemon.DaemonId'
         at:
@@ -1849,23 +2110,53 @@ components:
       required:
       - run_id
       - runbook_id
-      - runbook_version
-      - intake_ref
+      - intake
       - settings
       - confinement
+      - runbook_known
+      - context_inside_roots
       - daemon_id
       - at
       additionalProperties: false
-    sdc.daemon.SubmitRun.below-floor-strict.Response:
+    sdc.daemon.SubmitRun.already-submitted.Response:
       additionalProperties: false
-      description: 'The daemon''s floor is strict and the confinement is lower: nothing was submitted. Taken when the `sdc.daemon.Daemon` that `input.daemon_id` names exists and its stored fields satisfy `confinement_floor == strict` and `confinement in [unconfined, workspace]` holds of the input.'
+      description: 'A run was submitted with this idempotency key: nothing is created and the answer is that first run. Taken when, of the `sdc.daemon.Run` rows whose stored fields satisfy `idempotency_key == input.idempotency_key` before the outcome, at least one row is selected and `defined(idempotency_key)` holds of the input. Emits `SubmitReplayed`, listed under `published`. `SubmitReplayed` is not published and stays inside the component.'
+      properties:
+        outcome:
+          const: already-submitted
+          description: Which declared outcome the command took.
+        published:
+          description: 'Every event this branch emitted, in the order it emits them: its qualified name and its payload. `sdc.daemon.SubmitReplayed` is listed too, although this component does not publish it to consumers.'
+          items: false
+          maxItems: 1
+          minItems: 1
+          prefixItems:
+          - additionalProperties: false
+            properties:
+              event:
+                const: sdc.daemon.SubmitReplayed
+                type: string
+              payload:
+                $ref: '#/components/schemas/sdc.daemon.SubmitReplayed.Event'
+            required:
+            - event
+            - payload
+            type: object
+          type: array
+      required:
+      - outcome
+      - published
+      type: object
+    sdc.daemon.SubmitRun.below-floor.Response:
+      additionalProperties: false
+      description: 'The daemon''s floor is linux and the confinement is local: nothing was submitted. Taken when the `sdc.daemon.Daemon` that `input.daemon_id` names exists and its stored fields satisfy `confinement_floor == linux` and `confinement in [local]` holds of the input.'
       properties:
         error:
           const: sdc.daemon.BelowConfinementFloor
           description: The requested confinement is below the daemon's floor; the run was not submitted.
           type: string
         outcome:
-          const: below-floor-strict
+          const: below-floor
           description: Which declared outcome the command took.
         payload:
           $ref: '#/components/schemas/sdc.daemon.BelowConfinementFloor.Error'
@@ -1879,19 +2170,42 @@ components:
       - error
       - payload
       type: object
-    sdc.daemon.SubmitRun.below-floor-workspace.Response:
+    sdc.daemon.SubmitRun.context-outside-roots.Response:
       additionalProperties: false
-      description: 'The daemon''s floor is workspace and the confinement is lower: nothing was submitted. Taken when the `sdc.daemon.Daemon` that `input.daemon_id` names exists and its stored fields satisfy `confinement_floor == workspace` and `confinement in [unconfined]` holds of the input.'
+      description: 'The context path lies under no context root of the daemon: nothing was submitted. Taken when `context_inside_roots == false` holds of the input.'
       properties:
         error:
-          const: sdc.daemon.BelowConfinementFloor
-          description: The requested confinement is below the daemon's floor; the run was not submitted.
+          const: sdc.daemon.ContextOutsideRoots
+          description: 'The context directory does not lie under any of the daemon''s context roots (runbook serve --context-root), or the daemon has none: the run was not submitted. The handler checks the path against the host and reports the fact in `context_inside_roots`.'
           type: string
         outcome:
-          const: below-floor-workspace
+          const: context-outside-roots
           description: Which declared outcome the command took.
         payload:
-          $ref: '#/components/schemas/sdc.daemon.BelowConfinementFloor.Error'
+          $ref: '#/components/schemas/sdc.daemon.ContextOutsideRoots.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.SubmitRun.intake-too-large.Response:
+      additionalProperties: false
+      description: 'The inline intake is larger than 1 MiB: nothing was submitted. Taken when `intake.count > 1048576` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.IntakeTooLarge
+          description: 'The inline intake is larger than 1 MiB: the run was not submitted.'
+          type: string
+        outcome:
+          const: intake-too-large
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.IntakeTooLarge.Error'
         published:
           description: 'Every event this branch published, in publication order: its qualified name and its payload.'
           maxItems: 0
@@ -1915,6 +2229,29 @@ components:
           description: Which declared outcome the command took.
         payload:
           $ref: '#/components/schemas/sdc.daemon.NoSuchDaemon.Error'
+        published:
+          description: 'Every event this branch published, in publication order: its qualified name and its payload.'
+          maxItems: 0
+          type: array
+      required:
+      - outcome
+      - published
+      - error
+      - payload
+      type: object
+    sdc.daemon.SubmitRun.no-runbook.Response:
+      additionalProperties: false
+      description: 'No preset and no runbook of the daemon''s runbook directory has this name: nothing was submitted. Taken when `runbook_known == false` holds of the input.'
+      properties:
+        error:
+          const: sdc.daemon.NoSuchRunbook
+          description: 'No preset and no runbook of the daemon''s --runbook-dir has this name (and version): the run was not submitted. The handler looks the runbook up and reports the fact in `runbook_known`.'
+          type: string
+        outcome:
+          const: no-runbook
+          description: Which declared outcome the command took.
+        payload:
+          $ref: '#/components/schemas/sdc.daemon.NoSuchRunbook.Error'
         published:
           description: 'Every event this branch published, in publication order: its qualified name and its payload.'
           maxItems: 0
@@ -2092,22 +2429,30 @@ components:
       - canon_evidence
       - artifact_revision
 x-ess-entities:
-  sdc.daemon.ClientId:
-    title: ClientId
-    description: 'The client a session belongs to. UNMAPPED: what identifies a client (the subject of the bearer token, a name the client gives) is not stated in the design sheet; the daemon''s security floor says only that a non-loopback listener needs a token.'
-    x-ess-name: sdc.daemon.ClientId
+  sdc.daemon.ClientLabel:
+    title: ClientLabel
+    description: 'A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token''s subject is not a member of any entity.'
+    x-ess-name: sdc.daemon.ClientLabel
     x-ess-kind: newtype
     type: string
+    maxLength: 200
+    x-ess-invariants:
+    - value.count <= 200
   sdc.daemon.ConfinementLevel:
     title: ConfinementLevel
-    description: 'How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.'
+    description: 'How strongly a run is sandboxed, weakest first: the runtime''s names. local is not confined; linux is. oci and pod are the runtime''s planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon''s default floor is linux; local must be asked for by name and is refused under a linux floor.'
     x-ess-name: sdc.daemon.ConfinementLevel
     x-ess-kind: enum
     type: string
     enum:
-    - unconfined
-    - workspace
-    - strict
+    - local
+    - linux
+  sdc.daemon.ContextPath:
+    title: ContextPath
+    description: A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts.
+    x-ess-name: sdc.daemon.ContextPath
+    x-ess-kind: newtype
+    type: string
   sdc.daemon.Daemon:
     title: Daemon
     description: 'The configuration row of the daemon: what it was started with and what every run is held to. One row, created when the daemon starts.'
@@ -2140,13 +2485,13 @@ x-ess-entities:
     - Up
   sdc.daemon.DaemonId:
     title: DaemonId
-    description: 'The id of the one daemon the specification describes: the configuration row it holds is keyed by it.'
+    description: 'The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.'
     x-ess-name: sdc.daemon.DaemonId
     x-ess-kind: newtype
     type: string
   sdc.daemon.DecisionRequest:
     title: DecisionRequest
-    description: 'A question a waiting run raised: the options it offers and, once a client answered, the answer and who gave it. The decision contract of the runbook (sdc.decision) decides who may answer and how a request is recommended; the daemon relays the request and takes the answer. UNMAPPED: whether this entity is the sdc.decision.DecisionRequest itself or a mirror of it that the driver feeds is not decided; the options reuse sdc.decision.DecisionOption.'
+    description: 'A question a waiting run raised, as a mirror of the runtime''s decision request: the daemon copies id, case, action, capability, question and options from the runtime''s record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook''s decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request whose run was cancelled is Withdrawn: it stays on record, shows no more as open, and takes no answer.'
     x-ess-name: sdc.daemon.DecisionRequest
     x-ess-kind: entity
     type: object
@@ -2163,6 +2508,13 @@ x-ess-entities:
           cardinality: many
           via: run_id
           $ref: '#/x-ess-entities/sdc.daemon.Run'
+      case_id:
+        description: The case the runtime opened the request for.
+        type: string
+      action:
+        type: string
+      capability:
+        type: string
       question:
         type: string
       options:
@@ -2185,6 +2537,9 @@ x-ess-entities:
     required:
     - request_id
     - run_id
+    - case_id
+    - action
+    - capability
     - question
     - options
     - opened_at
@@ -2198,30 +2553,34 @@ x-ess-entities:
     enum:
     - Answered
     - Open
+    - Withdrawn
   sdc.daemon.DecisionRequestId:
     title: DecisionRequestId
-    description: The id of a decision request, chosen by the runtime when it asks.
+    description: 'The id of a decision request: the runtime''s, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.'
     x-ess-name: sdc.daemon.DecisionRequestId
-    x-ess-kind: newtype
-    type: string
-  sdc.daemon.DocumentRef:
-    title: DocumentRef
-    description: 'A reference to a document the run reads: a path inside the run''s state directory, or a digest. UNMAPPED: the reference form (path, digest, URL) is not decided; the daemon keeps what the client sends.'
-    x-ess-name: sdc.daemon.DocumentRef
     x-ess-kind: newtype
     type: string
   sdc.daemon.EventId:
     title: EventId
-    description: The id the daemon gives a recorded event; the stream's own id is the run's sequence number.
+    description: The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.
     x-ess-name: sdc.daemon.EventId
     x-ess-kind: newtype
     type: string
   sdc.daemon.EventKind:
     title: EventKind
-    description: 'The kind of the runtime''s record, copied from it. UNMAPPED: the runtime''s record kinds are Loom''s and are not known here; the daemon does not interpret them.'
+    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.'
     x-ess-name: sdc.daemon.EventKind
     x-ess-kind: newtype
     type: string
+  sdc.daemon.IdempotencyKey:
+    title: IdempotencyKey
+    description: 'Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none.'
+    x-ess-name: sdc.daemon.IdempotencyKey
+    x-ess-kind: newtype
+    type: string
+    maxLength: 200
+    x-ess-invariants:
+    - value.count <= 200
   sdc.daemon.Run:
     title: Run
     description: 'One run of a runbook on the daemon: its inputs as submitted, its confinement, where it stands and how it ended.'
@@ -2235,11 +2594,12 @@ x-ess-entities:
         $ref: '#/x-ess-entities/sdc.daemon.RunbookId'
       runbook_version:
         $ref: '#/x-ess-entities/sdc.daemon.RunbookVersion'
-      intake_ref:
-        $ref: '#/x-ess-entities/sdc.daemon.DocumentRef'
-      context_ref:
-        $ref: '#/x-ess-entities/sdc.daemon.DocumentRef'
-        description: The context directory the run reads (runbook run --context); absent when none was given.
+      intake:
+        description: 'The intake document itself, inline in the submit: text, at most 1 MiB.'
+        type: string
+      context_path:
+        $ref: '#/x-ess-entities/sdc.daemon.ContextPath'
+        description: The context directory the run reads (runbook run --context), under one of the daemon context roots; absent when none was given.
       settings:
         $ref: '#/x-ess-entities/sdc.daemon.RunSettings'
       confinement:
@@ -2255,6 +2615,9 @@ x-ess-entities:
           cardinality: one
           via: session_id
           $ref: '#/x-ess-entities/sdc.daemon.Session'
+      idempotency_key:
+        $ref: '#/x-ess-entities/sdc.daemon.IdempotencyKey'
+        description: The key the submit carried, when it carried one; a later submit with the same key returns this run.
       submitted_at:
         type: string
         format: date-time
@@ -2276,8 +2639,7 @@ x-ess-entities:
     required:
     - run_id
     - runbook_id
-    - runbook_version
-    - intake_ref
+    - intake
     - settings
     - confinement
     - submitted_at
@@ -2297,7 +2659,7 @@ x-ess-entities:
     - WaitingOnDecision
   sdc.daemon.RunEvent:
     title: RunEvent
-    description: 'One record of a run, in the order the runtime wrote it. The runtime''s own record is carried unchanged, as an opaque document; the daemon adds the run, the sequence number and the time. The sequence number only grows per run: it is the stream''s event id, and a client resumes after the last one it saw.'
+    description: 'One record of a run, in the order the runtime wrote it. The runtime''s own record is carried unchanged, as an opaque document; the daemon adds the run, the session, two numbers and the time. `sequence` counts per run, `position` counts per daemon over all runs: the stream''s event id is the position, and a client resumes after the last position it saw.'
     x-ess-name: sdc.daemon.RunEvent
     x-ess-kind: entity
     type: object
@@ -2314,8 +2676,23 @@ x-ess-entities:
           cardinality: many
           via: run_id
           $ref: '#/x-ess-entities/sdc.daemon.Run'
+      session_id:
+        $ref: '#/x-ess-entities/sdc.daemon.SessionId'
+        description: The session of the run, copied from it by the handler when it records the event; absent for a run of no session. It is what lets the events of a session be paged by position.
+        x-ess-relation:
+          name: session
+          kind: references
+          source: sdc.daemon.RunEvent
+          target: sdc.daemon.Session
+          cardinality: one
+          via: session_id
+          $ref: '#/x-ess-entities/sdc.daemon.Session'
       sequence:
-        description: '1 for a run''s first event; each later event has a larger number. The runs of one session or of the whole daemon have no common order: a sequence number is per run.'
+        description: Per run, from 1; each later event of the run has a larger number.
+        type: integer
+        minimum: 1
+      position:
+        description: Per daemon, from 1, strictly increasing over all runs; minted by the daemon when it records the event.
         type: integer
         minimum: 1
       kind:
@@ -2331,6 +2708,7 @@ x-ess-entities:
     - event_id
     - run_id
     - sequence
+    - position
     - kind
     - record
     - at
@@ -2338,6 +2716,7 @@ x-ess-entities:
     additionalProperties: false
     x-ess-invariants:
     - sequence >= 1
+    - position >= 1
   sdc.daemon.RunEvent.State:
     title: State
     x-ess-name: sdc.daemon.RunEvent.State
@@ -2347,32 +2726,34 @@ x-ess-entities:
     - Recorded
   sdc.daemon.RunId:
     title: RunId
-    description: 'The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).'
+    description: The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.
     x-ess-name: sdc.daemon.RunId
     x-ess-kind: newtype
     type: string
   sdc.daemon.RunOutcome:
     title: RunOutcome
-    description: 'How an ended run ended, as the runbook''s protocol names it. UNMAPPED: whether the set is closed (the Canon case outcomes) is not known here.'
+    description: 'Open text: the outcome name of the runbook''s protocol for the root case. The run''s state is the closed set; the outcome is not.'
     x-ess-name: sdc.daemon.RunOutcome
     x-ess-kind: newtype
     type: string
   sdc.daemon.RunSettings:
     title: RunSettings
-    description: 'The settings of a run: the free map of host values (runbook run --set key=value) is every member the struct does not declare, kept as written. UNMAPPED: the typed members the runtime knows are not listed in any source read here; each is added as a declared member when the runtime names it.'
+    description: 'The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime''s run-settings story; none are declared now.'
     x-ess-name: sdc.daemon.RunSettings
-    x-ess-kind: struct
+    x-ess-kind: newtype
     type: object
-    additionalProperties: true
+    additionalProperties:
+      type: string
+    x-ess-map-key: String
   sdc.daemon.RunbookId:
     title: RunbookId
-    description: 'The id of a runbook: an embedded preset such as sdc or sdc-bugfix, or a runbook run from a directory.'
+    description: 'The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon''s --runbook-dir.'
     x-ess-name: sdc.daemon.RunbookId
     x-ess-kind: newtype
     type: string
   sdc.daemon.RunbookVersion:
     title: RunbookVersion
-    description: The version of a runbook, as runbook list shows it.
+    description: 'The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has.'
     x-ess-name: sdc.daemon.RunbookVersion
     x-ess-kind: newtype
     type: string
@@ -2386,7 +2767,7 @@ x-ess-entities:
       session_id:
         $ref: '#/x-ess-entities/sdc.daemon.SessionId'
       client:
-        $ref: '#/x-ess-entities/sdc.daemon.ClientId'
+        $ref: '#/x-ess-entities/sdc.daemon.ClientLabel'
       opened_at:
         type: string
         format: date-time

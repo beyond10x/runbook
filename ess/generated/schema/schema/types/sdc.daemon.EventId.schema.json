@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c2f3559068b8421793fe5e1bed89cd35048e9fb323b137658b5adea313bf2fc9",
+    "contract_digest": "slice-sha256/2:bf58304e1a833613c1a33e7d47f12550093c64ee8f6399efdfd6598410e9ae58",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.EventId": {
       "title": "EventId",
-      "description": "The id the daemon gives a recorded event; the stream's own id is the run's sequence number.",
+      "description": "The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position.",
       "x-ess-name": "sdc.daemon.EventId",
       "x-ess-kind": "newtype",
       "type": "string"

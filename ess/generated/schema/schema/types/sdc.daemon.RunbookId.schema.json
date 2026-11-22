@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:5ef5909dac6310b3c002d0c19cb27f4b2549068873279c0db68107d496460656",
+    "contract_digest": "slice-sha256/2:8241f1f3f9d8fcf1a20d0699982e84303399fda0dfde3d9f31a7e485e7fcd1dc",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.RunbookId": {
       "title": "RunbookId",
-      "description": "The id of a runbook: an embedded preset such as sdc or sdc-bugfix, or a runbook run from a directory.",
+      "description": "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir.",
       "x-ess-name": "sdc.daemon.RunbookId",
       "x-ess-kind": "newtype",
       "type": "string"

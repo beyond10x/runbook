@@ -21,25 +21,24 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:18ab69890578163b0c30610954930369dcb80289d38c56646fda46388fbd7cef",
+    "contract_digest": "slice-sha256/2:63d46db13bc2144e9f824ef036e0955d679be7c40ffcd3c9a8f15d18c6c585b0",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.ConfinementLevel": {
       "title": "ConfinementLevel",
-      "description": "How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor.",
       "x-ess-name": "sdc.daemon.ConfinementLevel",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
-        "unconfined",
-        "workspace",
-        "strict"
+        "local",
+        "linux"
       ]
     },
     "sdc.daemon.DaemonId": {
       "title": "DaemonId",
-      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it.",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.",
       "x-ess-name": "sdc.daemon.DaemonId",
       "x-ess-kind": "newtype",
       "type": "string"

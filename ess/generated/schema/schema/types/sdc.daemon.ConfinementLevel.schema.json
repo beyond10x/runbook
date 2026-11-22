@@ -5,20 +5,19 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:10bad452f3dcc57e417777fff83f99b8e1436fad1e7f9701a58e778ef029ab7b",
+    "contract_digest": "slice-sha256/2:3df71da6646d1793e4cb313d568f5a950f103b7a20993af3dab6439ca0f4e59b",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.ConfinementLevel": {
       "title": "ConfinementLevel",
-      "description": "How strongly a run is sandboxed, weakest first. UNMAPPED: names to be aligned with the runtime; unconfined, workspace and strict are placeholders for the levels the runtime offers through Substrate. Only their order is decided: a higher level confines more.",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor.",
       "x-ess-name": "sdc.daemon.ConfinementLevel",
       "x-ess-kind": "enum",
       "type": "string",
       "enum": [
-        "unconfined",
-        "workspace",
-        "strict"
+        "local",
+        "linux"
       ]
     }
   }

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.ClientLabel.schema.json",
+  "$ref": "#/$defs/sdc.daemon.ClientLabel",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:16957564715f00676154c817ef26ad15f7c8339e9b5b874f7c45b5e02edd247a",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ClientLabel": {
+      "title": "ClientLabel",
+      "description": "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity.",
+      "x-ess-name": "sdc.daemon.ClientLabel",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    }
+  }
+}

@@ -5,7 +5,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c7aaac7603ec11970c67c425d39981a6177369d315bc12e15d9a888223bae2ea",
+    "contract_digest": "slice-sha256/2:b806f24d926af270ce9b064cb52a25b3fd3b87b0dc845afaf9b9e0fe8f6c766f",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -16,7 +16,8 @@
       "type": "string",
       "enum": [
         "Answered",
-        "Open"
+        "Open",
+        "Withdrawn"
       ]
     }
   }

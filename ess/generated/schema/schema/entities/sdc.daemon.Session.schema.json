@@ -11,7 +11,7 @@
       "$ref": "#/$defs/sdc.daemon.SessionId"
     },
     "client": {
-      "$ref": "#/$defs/sdc.daemon.ClientId"
+      "$ref": "#/$defs/sdc.daemon.ClientLabel"
     },
     "opened_at": {
       "type": "string",
@@ -35,16 +35,20 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:d1f242f8d56bd3fc91944971a53043842f8cfaaf8843447d3808dc85c75ee590",
+    "contract_digest": "slice-sha256/2:c0f8dc915847a917d024b6ea9214ac1b647896b2cab479d3dc61df4cb522b9b3",
     "regenerate": "ess generate"
   },
   "$defs": {
-    "sdc.daemon.ClientId": {
-      "title": "ClientId",
-      "description": "The client a session belongs to. UNMAPPED: what identifies a client (the subject of the bearer token, a name the client gives) is not stated in the design sheet; the daemon's security floor says only that a non-loopback listener needs a token.",
-      "x-ess-name": "sdc.daemon.ClientId",
+    "sdc.daemon.ClientLabel": {
+      "title": "ClientLabel",
+      "description": "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity.",
+      "x-ess-name": "sdc.daemon.ClientLabel",
       "x-ess-kind": "newtype",
-      "type": "string"
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
     },
     "sdc.daemon.Session.State": {
       "title": "State",

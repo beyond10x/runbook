@@ -18,13 +18,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:191c13f8ca349419f71c6f0b5c8ed984a8a4a8d44fddc4ea8c6682966b0ed568",
+    "contract_digest": "slice-sha256/2:48e65542d3b7e85414fbd75d41ea80bf05ae8fdf0bb7a63cf8af75b83a2e2350",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.RunId": {
       "title": "RunId",
-      "description": "The id of a run, chosen by the submitting client (a UUID it generated, or any unique text). The state directory of the run is named after it. UNMAPPED: the design sheet leaves open whether the client or the daemon mints the id; the client chooses here so that a retried submit names the same run and a scenario can name it. A daemon-minted id needs a typed response and `{generated: true}`. UNMAPPED: a submit with an id that is already taken is not refused in this model (see SubmitRun).",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
       "x-ess-name": "sdc.daemon.RunId",
       "x-ess-kind": "newtype",
       "type": "string"

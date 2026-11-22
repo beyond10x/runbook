@@ -18,13 +18,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:d0f4f79a876afcc344970fb88e12bbe3808404aa958888af88d92f517c4f25a4",
+    "contract_digest": "slice-sha256/2:89b5c051bccee6c2869ac037fa5866656d49ad99ddb006aa04eae96e3a634a9b",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.DecisionRequestId": {
       "title": "DecisionRequestId",
-      "description": "The id of a decision request, chosen by the runtime when it asks.",
+      "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
       "x-ess-name": "sdc.daemon.DecisionRequestId",
       "x-ess-kind": "newtype",
       "type": "string"

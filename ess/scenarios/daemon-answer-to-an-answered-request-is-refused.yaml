@@ -9,7 +9,7 @@ timeline:
     actor: sdc.daemon.Operator
     input:
       daemon_id: "runbookd"
-      confinement_floor: workspace
+      confinement_floor: linux
       at: 2026-11-22T10:00:00Z
     outcome: started
 
@@ -21,9 +21,11 @@ timeline:
       runbook_id: "sdc"
       daemon_id: "runbookd"
       runbook_version: "0.3.0"
-      intake_ref: "intake.md"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
       settings: {}
-      confinement: workspace
+      confinement: linux
       at: 2026-11-22T10:01:00Z
     outcome: submitted
 
@@ -35,9 +37,11 @@ timeline:
       runbook_id: "sdc"
       daemon_id: "runbookd"
       runbook_version: "0.3.0"
-      intake_ref: "intake.md"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
       settings: {}
-      confinement: workspace
+      confinement: linux
       at: 2026-11-22T10:01:30Z
     outcome: submitted
 
@@ -78,6 +82,9 @@ timeline:
       request_id: "dr-1"
       run_id: "run-1"
       question: "Which list shape?"
+      case_id: "IDEA-1"
+      action: "merge"
+      capability: "change.merge"
       options:
         - letter: "A"
           does: "One shared list."

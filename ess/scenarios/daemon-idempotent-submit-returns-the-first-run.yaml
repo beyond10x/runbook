@@ -1,0 +1,90 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-idempotent-submit-returns-the-first-run
+summary: "A second submit with a used idempotency key creates no run and answers the first; other keys and no key each create a run."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      idempotency_key: "retry-1"
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-2"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Fix the failing build."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      idempotency_key: "retry-1"
+      at: 2026-11-22T10:02:00Z
+    outcome: already-submitted
+    events:
+      - event: sdc.daemon.SubmitReplayed
+        payload:
+          idempotency_key: "retry-1"
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-3"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "Another task."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      idempotency_key: "retry-2"
+      at: 2026-11-22T10:03:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-4"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      intake: "A task with no key."
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:04:00Z
+    outcome: submitted
+
+assert:
+  - view: sdc.daemon.RunDetail
+    params: {run_id: "run-1"}
+    contains: {run_id: "run-1", state: Submitted, intake: "Fix the failing build."}
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-3", state: Submitted}
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-4", state: Submitted}
