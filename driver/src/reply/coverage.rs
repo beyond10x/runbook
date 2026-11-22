@@ -252,6 +252,15 @@ pub fn case_dir_arg(case_dir: Option<PathBuf>) -> Result<PathBuf, String> {
 
 /// `check-coverage`: exit 0 complete, 1 refused (stdout names the ids), 2 when it cannot check.
 pub fn run_check_coverage(work: Option<PathBuf>, case_dir: Option<PathBuf>, story: Option<String>, tree: &Path, reply: Option<PathBuf>, shape: bool) -> Result<u8, String> {
+    let (code, out, err) = check_coverage_text(work, case_dir, story, tree, reply, shape)?;
+    print!("{out}");
+    eprint!("{err}");
+    Ok(code)
+}
+
+/// `check-coverage` as text: the exit, what it prints on standard output and what it says on
+/// standard error. `Err` when it cannot check (no story, no readable requirements).
+pub fn check_coverage_text(work: Option<PathBuf>, case_dir: Option<PathBuf>, story: Option<String>, tree: &Path, reply: Option<PathBuf>, shape: bool) -> Result<(u8, String, String), String> {
     let story = story_arg(story)?;
     let reqs = story_requirements(&work_arg(work, case_dir)?, &story)?;
     let ids: Vec<String> = reqs.iter().filter_map(|r| r["id"].as_str().map(String::from)).collect();
@@ -260,12 +269,11 @@ pub fn run_check_coverage(work: Option<PathBuf>, case_dir: Option<PathBuf>, stor
     if shape {
         let why = coverage_shape(&doc, &ids);
         if why.is_empty() {
-            return Ok(0);
+            return Ok((0, String::new(), String::new()));
         }
         let name = file.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
         let what = if doc.is_null() { format!("no readable coverage document ({name}: the structured reply, else out/coverage.json)") } else { why.join("; ") };
-        eprintln!("invalid coverage reply: {what}");
-        return Ok(2);
+        return Ok((2, String::new(), format!("invalid coverage reply: {what}\n")));
     }
     let faults = if doc.is_null() {
         ids.iter().map(|id| (id.clone(), format!("no coverage document at impl/{COVERAGE}"))).collect()
@@ -276,13 +284,12 @@ pub fn run_check_coverage(work: Option<PathBuf>, case_dir: Option<PathBuf>, stor
     };
     if faults.is_empty() {
         let tests: BTreeSet<&str> = doc["requirements"].as_array().into_iter().flatten().filter_map(|e| e["test"].as_str()).collect();
-        println!("requirement coverage of story {story}: {} built and cited ({}), tests {}", ids.len(),
+        let line = format!("requirement coverage of story {story}: {} built and cited ({}), tests {}\n", ids.len(),
             if ids.is_empty() { "the story carries no requirement".into() } else { ids.join(" ") },
             if tests.is_empty() { "none".into() } else { tests.into_iter().collect::<Vec<_>>().join(" ") });
-        return Ok(0);
+        return Ok((0, line, String::new()));
     }
-    print!("{}", refusal_text(&story, &faults));
-    Ok(1)
+    Ok((1, refusal_text(&story, &faults), String::new()))
 }
 
 #[cfg(test)]

@@ -316,6 +316,14 @@ mod loom_mode {
         run(root, c, "")
     }
 
+    /// The model step as Loom starts it: the program `sdc-node`, the action first, then the tools
+    /// directory the run copy names with `--tools-dir`, then the binding's options.
+    fn sdc_node(argv: &[&str]) -> Command {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_sdc-node"));
+        c.arg(argv[0]).arg("--tools-dir").arg(tools()).args(&argv[1..]);
+        c
+    }
+
     /// Loom's start: `PATH`, `LOOM_CASE`, `LOOM_RETRY_FEEDBACK` when given, the arguments on stdin.
     fn loom(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>) -> Run {
         loom_named(root, tool, argv, case, arguments, feedback, &[])
@@ -323,8 +331,14 @@ mod loom_mode {
 
     /// Loom's start with the names it gave the case: `LOOM_CASE_NAME`, `LOOM_PARENT_CASE_NAME`.
     fn loom_named(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>, names: &[(&str, &str)]) -> Run {
-        let mut c = Command::new(tools().join(tool));
-        c.args(argv).env_clear().env("PATH", path()).env("LOOM_CASE", case);
+        let mut c = if tool == "llm-node.sh" {
+            sdc_node(argv)
+        } else {
+            let mut c = Command::new(tools().join(tool));
+            c.args(argv);
+            c
+        };
+        c.env_clear().env("PATH", path()).env("LOOM_CASE", case);
         for (k, v) in names {
             c.env(k, v);
         }
@@ -652,8 +666,8 @@ mod loom_mode {
         fs::write(&login, "{}").unwrap();
         let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
         let argv = node_argv("idea.dissect", &stub, &["--adapter", "claude-cli", "--claude-credentials", login.to_str().unwrap(), "--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]);
-        let mut c = Command::new(tools().join("llm-node.sh"));
-        c.args(&argv).env_clear().env("PATH", format!("{}:{}", bin.display(), path())).env("LOOM_CASE", "IDEA-1.intake");
+        let mut c = sdc_node(&argv);
+        c.env_clear().env("PATH", format!("{}:{}", bin.display(), path())).env("LOOM_CASE", "IDEA-1.intake");
         let l = run(&r.1, c, "{}");
         assert_eq!(l.code, Some(0), "{l:#?}");
         assert!(mark.exists() && l.files.contains_key("dissection.yaml"), "{l:#?}");
@@ -876,8 +890,8 @@ esac
         }
         extra.extend(["--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]);
         let argv = node_argv("idea.dissect", &stub, &extra);
-        let mut c = Command::new(tools().join("llm-node.sh"));
-        c.args(&argv).env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake");
+        let mut c = sdc_node(&argv);
+        c.env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.intake");
         run(&r.1, c, "{}")
     }
 
@@ -1261,10 +1275,10 @@ esac
         assert!(recorded.status.success(), "{recorded:?}");
         let login = private_login(&r);
         let instructions = r#"{"task":"instructions/change.review.md","inputs":"instructions/change.review.inputs.md","coverage_inputs":"instructions/change.review.coverage.inputs.md","coverage_note":"instructions/change.review.coverage-note.md","facts":"instructions/change.review.facts.md","facts_inputs":"instructions/change.review.facts.inputs.md"}"#;
-        let mut c = Command::new(tools().join("llm-node.sh"));
-        c.args(["change.review", "--model", "claude-haiku-5-5", "--max-turns", "30", "--max-budget-usd", "1", "--operations", "dir.list,file.read,search",
-            "--instructions", instructions, "--adapter", "metaharness", "--claude-credentials"]).arg(&login).args(["--stub", "review-change"])
-            .env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.todo.list");
+        let login_arg = login.display().to_string();
+        let mut c = sdc_node(&["change.review", "--model", "claude-haiku-5-5", "--max-turns", "30", "--max-budget-usd", "1", "--operations", "dir.list,file.read,search",
+            "--instructions", instructions, "--adapter", "metaharness", "--claude-credentials", &login_arg, "--stub", "review-change"]);
+        c.env_clear().env("PATH", st.path()).env("LOOM_CASE", "IDEA-1.todo.list");
         let l = run(&r.1, c, "{}");
         assert_eq!(l.code, Some(0), "{l:#?}");
         let response = &l.files[".sdc/llm/001-change.review/response.json"];

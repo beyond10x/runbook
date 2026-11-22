@@ -1,6 +1,6 @@
 //! The cost of a step: the cost records the bound programs wrote since the last step.
 //!
-//! A model step (`bindings/tools/llm-node.sh`) writes one directory `NNN-<action>/` per call under
+//! A model step (`sdc-node`) writes one directory `NNN-<action>/` per call under
 //! `<workspace>/.sdc/llm/` when it starts, and one line per finished call into
 //! `<workspace>/.sdc/llm/calls.jsonl` with `cost_usd` and `record` (the call's directory), the
 //! `action`, the `adapter` and the adapter's `exit`. A call directory without a line with a number
@@ -85,7 +85,7 @@ fn stderr_line(call_dir: &Path, home: Option<&str>) -> String {
 }
 
 /// The note of a call directory in which no adapter was started, or `None` when that is not
-/// proved. `bindings/tools/llm-node.sh` writes `request.json` of a call before every start of an
+/// proved. `sdc-node` writes `request.json` of a call before every start of an
 /// adapter (the session, facts and request modes, each retry and the dry stub all pass the one
 /// `jq ... > "$rec/request.json"`, and every start names that file), so a directory without it
 /// belongs to a step that ended before any adapter was started. Everything else is `None`

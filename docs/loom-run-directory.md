@@ -59,7 +59,7 @@ Contract: `driver/src/run_metrics.rs` `load` and `load_case` (the table of unit 
 | `store/<root>/events.jsonl` | the file | one per case; the root is `store/<root case id>/`, a child `.../children/<case id>/` below its parent (from `ChildOpened`) |
 | | `opened` `protocol.id`, `.revision` | run log `CaseOpened.protocol` (`sdc-intake@9`); the id from `protocols/*.protocol.yaml` (`protocol.id`), else `sdc-<stage>` read back as `sdc.<stage>` |
 | | `action_started` `action` | run log `ActionFinished.action`: Loom logs no start, so start and finish are written together |
-| | `action_started` `llm` | the binding's `executor.argv[0]` ends in `llm-node.sh` (`bindings/<protocol>.yaml` of the run) |
+| | `action_started` `llm` | the binding's `executor.argv[0]` is `sdc-node` (`bindings/<protocol>.yaml` of the run) |
 | | `action_started` `retry_of` | `tree-status.json` `cases[].runs[n].retry_of` of the n-th program run of the case; empty until a status exists |
 | | `action_finished` `action`, `exit` | run log `ActionFinished.action`, `.exit` (written as text) |
 | | `action_finished` `principal` | run log `AuthorityRecorded.principal` (decision `Allow`) before the `ActionFinished` of a step that is not a program |

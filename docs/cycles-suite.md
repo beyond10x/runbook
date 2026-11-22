@@ -109,7 +109,7 @@ through:
 
 - Fixture directories and the `SDC_STUB_FINDINGS` list are seeds into `.stub/` of the workspace
   (`.stub/finding.yaml`, `.stub/finding-2.yaml`, the rest of the directory is the fixture
-  directory); `bindings/tools/llm-node.sh` reads that directory when it runs under Loom.
+  directory); `sdc-node` reads that directory when it runs under Loom.
 - Seeds are copies in `cycles/seeds/`: Loom refuses a seed that is a symbolic link.
 - `cycles/bindings` is a symbolic link to `../bindings`, because the suite's `bindings:` path stays
   inside the suite's directory.
@@ -129,7 +129,7 @@ through:
 ### The layout of `.stub/`
 
 A bound program under Loom gets `PATH` and `LOOM_*` only, so what a cycle scripts reaches
-`bindings/tools/llm-node.sh` as files of the workspace. The tool reads the layout only under Loom and
+`sdc-node` as files of the workspace. The tool reads the layout only under Loom and
 only when `.stub/` exists, in one block that sets the variables of the old driver; a variable
 already set wins, a run without `.stub/` is unchanged. Text and YAML only, no shell in the data. An
 unknown key or file name is refused (exit 64).
@@ -354,11 +354,11 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | implement-request-invalid-named | converted | the cause `implement_reply_invalid` is a field of the call line; not said: the old driver's `run-stopped.json`, here the stop is exit 4 |
 | implement-request-path-escape | converted | |
 | coverage-complete | converted | |
-| coverage-not-built | converted | `sdc.story` revision 8: `llm-node.sh` runs `sdc-reply check-coverage` after the writer under Loom (`SDC_IMPLEMENT_COVERAGE` from `.stub/settings.yaml`) and exits 8 on a refusal; the binding records exit 8 as `implementation_change` `coverage_refused` and `retry_when` lists it; `tests.run` is not admissible on a revision with that record |
+| coverage-not-built | converted | `sdc.story` revision 8: `sdc-node` runs `sdc-reply check-coverage` after the writer under Loom (`SDC_IMPLEMENT_COVERAGE` from `.stub/settings.yaml`) and exits 8 on a refusal; the binding records exit 8 as `implementation_change` `coverage_refused` and `retry_when` lists it; `tests.run` is not admissible on a revision with that record |
 | coverage-line-outside | converted | same form |
 | coverage-test-missing | converted | same form |
 | coverage-spent | converted | same form; the three runs are the `change.implement` runs that ended with exit 8 (a fourth action finishes with no exit when the allowance is spent) |
-| coverage-reply-retry | converted | the node's own shape check and its second request run in `llm-node.sh`, so they hold under Loom; the refused reply and the reason in the prompt are read from the call record |
+| coverage-reply-retry | converted | the node's own shape check and its second request run in `sdc-node`, so they hold under Loom; the refused reply and the reason in the prompt are read from the call record |
 | review-real-path | not converted | class: stand-in model binary through the environment (`METAHARNESS`, `CLAUDE`, `FAKE_MODEL_*`: executable stand-ins and variables of a bound program, which the layout of `.stub/` does not carry), and the same `change.review` inputs as review-reject-once |
 | review-real-path-facts | not converted | same |
 | review-invalid-stop | not converted | same |

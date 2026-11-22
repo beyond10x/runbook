@@ -29,6 +29,50 @@ Review input:
 
 # Review input: story `list`
 
-stub review input
+This is everything you are given. Judge the change from it alone.
+
+## Requirements this story delivers (a violation names the id)
+- r1: A billing clerk creates, issues, pays and cancels invoices.
+
+## Acceptance lines (a violation names the cite)
+- aep/story/list.md:7: covers billing.invoice.CreateInvoice
+
+## Commands it must serve (a violation names the command; the compiled specification)
+- billing.invoice.CreateInvoice: {}
+
+## Requirements no story of the plan covers (kind `outside`; never a reason to reject)
+- r2: The customer is emailed when an invoice is created.
+
+## Test summary (the conformance run that passed on this revision)
+no counts found in the run's log
+failing: none
+
+## Change against the mainline tree (unified diff)
+~~~diff
+--- mainline/tests/last_page.rs
++++ impl/tests/last_page.rs
+(new file: every line is added; its full text is below)
+~~~
+
+## Changed files, full text (the line numbers are the ones `at` cites; a file the diff does not touch is only listed at the end)
+
+### impl/tests/last_page.rs (8 lines)
+~~~
+  1  use pager::{page, page_count};
+  2  
+  3  #[test]
+  4  fn last_partial_page_is_shown() {
+  5      let items: Vec<u32> = (1..=11).collect();
+  6      assert_eq!(page_count(11, 5), 3);
+  7      assert_eq!(page(&items, 3, 5), &[11]);
+  8  }
+~~~
+
+## Product files not in the diff (path, size, and for source files the top-level items it declares; a file neither listed here nor in the diff does not exist in the tree; `at` may cite a listed file by path alone)
+- Cargo.lock (149 bytes)
+- Cargo.toml (105 bytes)
+- README.md (333 bytes)
+- Taskfile.yml (185 bytes)
+- src/lib.rs (1252 bytes): page_count, page, tests
 
 Reply with the JSON object only.

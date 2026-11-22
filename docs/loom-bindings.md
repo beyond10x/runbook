@@ -54,7 +54,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
 | `handoff_when` | `handoff_when`: the argv `tools/sdc-tool.sh findings-wait --action amend.upstream`, run by Loom before the writer (exit 0 offers the handoff, another exit lets the writer run); the old driver reads the JSON file and never this one | 17 |
-| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `tools/llm-node.sh` since step 2: `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
+| `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `sdc-node` (since step 2 of `tools/llm-node.sh`): `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
 | `timeout_s` | `timeout_seconds` (see "Timeouts") | 25 |
@@ -166,7 +166,7 @@ Each tool has two modes. With `LOOM_CASE` unset it runs as before, for `sdc-driv
 input, the case id from `LOOM_CASE`, the epic and the story from `LOOM_PARENT_CASE_NAME` and `LOOM_CASE_NAME` (the names Loom gave the cases; without them the cut of the case id), retry feedback from the `loom.retry-feedback/1` document that
 `LOOM_RETRY_FEEDBACK` names, the start directory at the workspace root, and everything the driver
 gave in a variable as an argv entry of the binding (`sdc-tool.sh <sub> ... --action <id>`;
-`llm-node.sh <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] [--instructions <json>] --stub
+`sdc-node <action> --model ... --max-turns ... --max-budget-usd ... [--operations ...] [--instructions <json>] --stub
 <argv>`). The tools map these inputs onto the driver's variables and export them, so the programs
 they start (`sdc-findings`, `sdc-bugfix`, `sdc-reply`, the adapters) run unchanged. The driver
 crate's programs come from `PATH`, else from `driver/target/debug/` of this checkout, found from
@@ -193,7 +193,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `list-stories)`, `epic=$(cut` | `SDC_CASE` (`list-stories`: the epic) | `LOOM_PARENT_CASE_NAME`, else `LOOM_CASE_NAME` (an epic case), else the cut of `LOOM_CASE`; given to `arguments_from` too | done |
 | `scope-answer)` | `$2`, the `{principal}` argument (`scope-answer`) | argv from G2 | pending: G2 (wave 3) |
 
-`bindings/tools/llm-node.sh`
+`bindings/tools/llm-node.sh` (the old driver runs the script; every `bindings/*.yaml` argv runs the program `sdc-node`, which reads the same variables under Loom, from the argv entries alone)
 
 | Marker | Reads | Under Loom | Status |
 |---|---|---|---|

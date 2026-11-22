@@ -16,7 +16,7 @@ pub const LOOM_STATUS_FORMAT: &str = "loom.tree-status/1";
 const EXCLUDED_DIRS: [&str; 3] = ["target", "node_modules", ".git"];
 
 /// Workspace directories that only carry facts to a program under Loom, relative to the product
-/// tree: the retry feedback `llm-node.sh` copies (`.sdc/loom-feedback`) and the record files
+/// tree: the retry feedback `sdc-node` copies (`.sdc/loom-feedback`) and the record files
 /// `sdc-reply record` writes, since Loom gives a program no case store (`.sdc/records`; the log
 /// of a test run in them has the test order and the elapsed time of that run). Left out of the
 /// listing of both runtimes (rules `product_tree[.sdc/loom-feedback/**]` and
@@ -163,7 +163,7 @@ const RULES: &[Rule] = &[
     rule("protocols[].revision", How::Value, "the protocol's own revision", "cases[].protocol_revision", "as for the case"),
     rule("protocols[].digest", How::Pattern("d"), "each runtime digests its own form of the protocol", FROM_PROTOCOLS, "sha256 of the file the runner copied for that id and revision; the status protocols[] is empty and is not read (not recorded)"),
     rule("product_tree[].path", How::Value, "the set of files: a path missing on one side is a difference", "--product-tree, else workspace", "the directory walked as the driver's work/ is"),
-    rule("product_tree[.sdc/loom-feedback/**]", How::Never, "the retry feedback that Loom's llm-node.sh copies into the workspace; the driver hands the same feedback over in a variable and writes no file: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
+    rule("product_tree[.sdc/loom-feedback/**]", How::Never, "the retry feedback that Loom's sdc-node copies into the workspace; the driver hands the same feedback over in a variable and writes no file: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
     rule("product_tree[.sdc/records/**]", How::Never, "the record files `sdc-reply record` writes into the workspace for the inputs of change.review, since Loom gives a program no case store; the driver keeps the same facts in its case store and writes no file; the log of a test run in them carries the test order and the elapsed time of that run: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
     rule("product_tree[].sha256", How::Digest, "compared only with --product-digests (a stub run is deterministic, a model run is not); stamps like 2026-11-20T12:00:00Z in text files are read as <time> (aep writes the wall clock into planning files)", "--product-tree, else workspace", "the same digest of the same file"),
 ];

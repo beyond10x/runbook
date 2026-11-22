@@ -1,0 +1,15 @@
+exit 126
+stdout:
+stderr:
+| llm-node: idea.dissect could not run: the instruction file instructions/none.md is missing
+written:
+393871f13dac47b7  .sdc/llm/001-idea.dissect/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 126
+    | }
+8cac9f4d30aa88f4  .sdc/llm/001-idea.dissect/cwd/ (1 files)

@@ -1,0 +1,42 @@
+exit 1
+stdout:
+| llm-node: test.reproduce: the output was not applied (exit 1):
+stderr:
+written:
+e3b0c44298fc1c14  .sdc/llm/001-test.reproduce/apply.log
+eeaa0787514b2a1a  .sdc/llm/001-test.reproduce/prompt.md
+c154dbe4bbe00442  .sdc/llm/001-test.reproduce/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-test.reproduce/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-test.reproduce/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-test.reproduce",
+    |   "node": "test.reproduce",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 30,
+    |   "max_budget_usd": 1
+    | }
+ca3d163bab055381  .sdc/llm/001-test.reproduce/response.json
+    | {}
+359e2264d4067fdb  .sdc/llm/001-test.reproduce/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+36c4cc32052b7817  .sdc/llm/calls.jsonl
+    | {"action":"test.reproduce","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":null,"model":"claude-haiku-5-5","effort":"high","class":"implement","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":30,"max_budget_usd":1,"exit":0,"applied_exit":1,"output":"repro","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-test.reproduce"}
+ccfd4a08686431b4  .sdc/llm/001-test.reproduce/cwd/ (9 files)

@@ -1,0 +1,92 @@
+exit 0
+stdout:
+stderr:
+written:
+66ec75f062606acc  .sdc/llm/001-plan.decompose/apply.log
+    | created story:invoices (draft) at aep/story/invoices.md
+    | story:invoices scope set (revision 2) at aep/story/invoices.md
+    |   + impl (cited)
+    | story:invoices moved draft -> active (revision 3)
+    | epic:billing moved draft -> active (revision 2)
+17de65343d6ecb30  .sdc/llm/001-plan.decompose/prompt.md
+864fd1a0eb4d909a  .sdc/llm/001-plan.decompose/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-plan.decompose/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-plan.decompose/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-plan.decompose",
+    |   "node": "plan.decompose",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+e28f60230d0c8838  .sdc/llm/001-plan.decompose/response.json
+    | {
+    |   "adapter": "fixture",
+    |   "model": "claude-haiku-5-5",
+    |   "exit": 0,
+    |   "duration_ms": 0,
+    |   "cost_usd": 0,
+    |   "num_turns": 0,
+    |   "usage": null,
+    |   "tool_calls": [],
+    |   "offered_tools": [],
+    |   "node": "plan.decompose"
+    | }
+3c9f144425dbbf41  .sdc/llm/001-plan.decompose/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+bcf2d718c36f5958  .sdc/llm/calls.jsonl
+    | {"action":"plan.decompose","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"fixture","model":"claude-haiku-5-5","effort":"high","class":"writer","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":0,"output":"aep","duration_ms":0,"cost_usd":0,"num_turns":0,"usage":null,"offered_tools":[],"tool_calls":[],"dry":false,"record":"<root>/work/.sdc/llm/001-plan.decompose"}
+50c68fb82fbc7d8f  aep/.derived-from
+    | requirements e23630e115159d67 resolved 
+53f28d1c7837d2d7  aep/epic/billing.md
+    | ---
+    | format: aep.planning-md/3
+    | id: epic:billing
+    | kind: epic
+    | status: active
+    | title: Billing
+    | summary: invoices
+    | revision: 2
+    | transitions:
+    | - {from: "draft", to: "active", at: "<instant>", actor: "agent:plan.decompose", revision: 2}
+    | ---
+    | # Billing
+55ba03dd03ebcafe  aep/story/invoices.md
+    | ---
+    | format: aep.planning-md/3
+    | id: story:invoices
+    | kind: story
+    | status: active
+    | title: Invoices
+    | summary: covers billing.email.SendEmail billing.invoice.CancelInvoice billing.invoice.CreateInvoice billing.invoice.IssueInvoice billing.invoice.PayInvoice
+    | relations:
+    | - delivers: epic:billing
+    | - serves: vision:product
+    | scope:
+    | - confidence: cited
+    |   path: impl
+    | revision: 3
+    | transitions:
+    | - {from: "draft", to: "active", at: "<instant>", actor: "agent:plan.decompose", revision: 3}
+    | ---
+    | # Invoices
+3e9fb8f3c3649327  .sdc/llm/001-plan.decompose/cwd/ (10 files)
+removed  aep/story/old.md

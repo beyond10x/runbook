@@ -1,0 +1,5 @@
+exit 126
+stdout:
+stderr:
+| llm-node: change.review could not run: refused: node class review (spec.review, change.review) replies under a response schema, but its adapter metaharness (SDC_REVIEW_ADAPTER) takes none: set SDC_REVIEW_ADAPTER=claude-cli
+written:

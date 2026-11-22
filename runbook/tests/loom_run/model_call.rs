@@ -124,7 +124,7 @@ fn a_failed_call_with_a_cost_is_booked_at_that_cost_and_the_run_goes_on() {
 }
 
 /// A `tree_run` hook: the call directory of a step that ended before it started an adapter, with
-/// the files `llm-node.sh` writes before that point and `status` as the text of its `status.json`
+/// the files `sdc-node` writes before that point and `status` as the text of its `status.json`
 /// (no `status.json` when `None`). `request` adds the `request.json` that is written just before
 /// the adapter starts.
 fn bare_call_hook(status: Option<&str>, request: bool) -> String {

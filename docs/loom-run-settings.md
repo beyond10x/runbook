@@ -80,15 +80,15 @@ launcher puts the build's `driver/target/debug` first on the unit's `PATH` (`sdc
 `sdc-findings` and `sdc-bugfix` are there) and refuses to start when `jq` or `yq` is on no
 directory of that `PATH` (the shell programs of the bindings need them; `rsync` is no longer
 needed by a run). The reason: `b10x-loom` gives every bound program the `PATH` the runner was
-started with, and the model nodes of the bindings (`llm-node.sh`) call `sdc-reply` too, so a directory
+started with, and the model nodes of the bindings (`sdc-node`) call `sdc-reply` too, so a directory
 on `PATH` reaches the decider and the nodes, and a `decider.reply_bin` would reach the decider only.
 `decider.reply_bin` stays accepted in the file for a caller that does not control `PATH`.
 The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rsync`: `jq` is needed
-only by the bash adapters it starts; the shell programs of the bindings (`llm-node.sh`,
+only by the bash adapters it starts; the shell programs of the bindings (`sdc-node`,
 `sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 
 Efforts (`efforts.<role>.effort`), `flags.recorded` and `implement_mode` stay refused in a
-record of a `loom` variant, with the key named: `llm-node.sh` has no option for an effort under
+record of a `loom` variant, with the key named: `sdc-node` has no option for an effort under
 Loom, and the runner has no recorded mode. `flags.dry: 'true'` is accepted: `sdc-experiment run` passes `--dry` to `runbook run`, and then `adapter` and `decider.adapter` are not set (the runner puts every model node and a model decider on the adapter `dry`).
 
 The proof is a file, not a copy of the other crate's code. `driver/tests/experiment_loom.rs` writes the

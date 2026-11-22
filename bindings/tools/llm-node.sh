@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The agent-node executor: one LLM call for one SDC writer action, bound as an argv list
-# (`["{dir}/../../../bindings/tools/llm-node.sh", "<action>"]` in driver/examples/sdc/*.bindings.json,
-# `[tools/llm-node.sh, <action>, ...]` in bindings/*.yaml). Run with cwd = the case tree's work/.
+# The agent-node executor of the old driver: one LLM call for one SDC writer action, bound as an
+# argv list (`["{dir}/../../../bindings/tools/llm-node.sh", "<action>"]` in
+# driver/examples/sdc/*.bindings.json). Run with cwd = the case tree's work/.
 #
 # It builds the prompt from the node's declared inputs only, copies those inputs into a scratch
 # directory (in/), lets the LLM write there (out/), and then copies back ONLY the node's declared
@@ -29,131 +29,18 @@
 #                    recorded rework cap (`rework_limit.value`, D184); unset: rule-ends.json's rework_limit
 #   SDC_FEEDBACK     set by sdc-drive on a retry: the failing check records and their logs
 #
-# Loom mode (LOOM_CASE set; docs/loom-bindings.md, "Tool changes for Loom's program contract"):
-# Loom starts a bound program with PATH and LOOM_CASE alone, the arguments as one JSON object on
-# standard input, and on a retry LOOM_RETRY_FEEDBACK naming a loom.retry-feedback/1 document. The
-# variables above come from those and from argv entries the binding states after the action:
-#   --model <m> --max-turns <n> --max-budget-usd <usd> --operations <op,op,...>  the `llm` object
-#   --instructions <json>  the `llm` object's instructions: {"task": "<file>", ...}
-#   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
-#   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
-#   a workspace directory .stub (seeded by a suite cycle): SDC_STUB_FIXTURES, and its finding.yaml
-#   and finding-2.yaml as SDC_STUB_FINDINGS, when the options and the variables above are not set;
-#   .stub/settings.yaml (adapter, nodes, review_mode, ...) and .stub/replies/<name>.yaml (review,
-#   implement, coverage, fixture-stub): the scripted model of the old SDC_* variables
-#   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli and of the metaharness
-#                    adapter (each copies it into a private directory for its call: a config home, a
-#                    HOME; without it they read CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
-#   --stub <argv>...  the `llm` object's stub; last, it takes the rest of the argv
-# The case id is SDC_CASE, the arguments SDC_ARGS, the feedback document's records SDC_FEEDBACK
-# (each with its log's tail; Loom names no action and no exit of the run that recorded it).
-# sdc-findings, sdc-bugfix and sdc-reply come from PATH, else from the driver crate's build in
-# this repository, never from HOME. Loom gives no case directory: what reads SDC_CASE_DIR takes
-# its driver-mode default or is pending (bindings/PENDING.md). change.review's inputs are read by
-# sdc-reply from record files of the workspace (.sdc/records/, written by the tests.run and
-# spec.gate tools and by sdc-reply check-review; docs/loom-bindings.md).
+# Under Loom (LOOM_CASE set) this script does not run: the model step is the Rust program
+# `sdc-node`, which bindings/*.yaml name as argv[0] (docs/loom-bindings.md, "Tool changes for
+# Loom's program contract"). The script refuses that mode with exit 126 and serves the old driver,
+# sdc-drive, alone, until the driver is removed.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 fx=$root/driver/examples/sdc/fixtures
 node=$1
-# A binary of the driver crate (driver/src/bin) in Loom mode: on PATH, else its debug build.
-sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
 if [[ -n ${LOOM_CASE:-} ]]; then
-  # These nodes are the Rust program sdc-node; SDC_NODE_SHELL (read by the parity test only)
-  # keeps this script's own code for them.
-  case $node in
-    idea.dissect|questions.write|requirements.normalise|spec.author|test.reproduce|bug.dissect|change.fix|\
-    vision.write|roadmap.write|plan.decompose|context.default|questions.answer|change.review)
-      [[ -n ${SDC_NODE_SHELL:-} ]] || exec "$(sibling sdc-node)" "$node" --tools-dir "$here" "${@:2}" ;;
-  esac
-  SDC_ARGS=$(cat)
-  exec < /dev/null
-  [[ -n ${SDC_ARGS//[[:space:]]/} ]] || SDC_ARGS='{}'
-  jq -e 'type == "object"' <<< "$SDC_ARGS" > /dev/null 2>&1 ||
-    { echo "llm-node: $node could not run: its standard input is not one JSON object" >&2; exit 64; }
-  shift
-  declare -A opt=()
-  with_stub=""
-  while (( $# )); do
-    case $1 in
-      --stub) shift; with_stub=yes; break ;;
-      --model|--max-turns|--max-budget-usd|--operations|--instructions|--adapter|--principal|--stub-fixtures|--stub-counter|--claude-credentials)
-        (( $# >= 2 )) || { echo "llm-node: $1 takes a value" >&2; exit 64; }
-        opt[$1]=$2; shift 2 ;;
-      *) echo "llm-node: unknown argument $1" >&2; exit 64 ;;
-    esac
-  done
-  SDC_LLM_NODE=$(jq -cn --arg model "${opt[--model]:-}" --arg mt "${opt[--max-turns]:-}" --arg usd "${opt[--max-budget-usd]:-}" \
-    --arg ops "${opt[--operations]:-}" --arg ins "${opt[--instructions]:-}" --arg stub "$with_stub" '{}
-    + (if $model == "" then {} else {model: $model} end)
-    + (if $mt == "" then {} else {max_turns: ($mt | tonumber)} end)
-    + (if $usd == "" then {} else {max_budget_usd: ($usd | tonumber)} end)
-    + (if $ops == "" then {} else {operations: ($ops | split(","))} end)
-    + (if $ins == "" then {} else {instructions: ($ins | fromjson | if type == "object" then . else error("not an object") end)} end)
-    + (if $stub == "" then {} else {stub: $ARGS.positional} end)' --args "$@") ||
-    { echo "llm-node: $node could not run: $(for _o in --max-turns --max-budget-usd; do
-        [[ -z ${opt[$_o]:-} ]] || jq -en --arg v "${opt[$_o]}" '$v | tonumber' > /dev/null 2>&1 || { echo "$_o takes a number, got ${opt[$_o]}"; break; }; done)$(
-        [[ -z ${opt[--instructions]:-} ]] || jq -e 'type == "object"' <<< "${opt[--instructions]}" > /dev/null 2>&1 ||
-        echo "--instructions takes a JSON object, got ${opt[--instructions]}")" >&2; exit 64; }
-  SDC_REPLY=$(sibling sdc-reply)
-  export SDC_LLM_NODE SDC_REPLY SDC_CASE=$LOOM_CASE SDC_ACTION=$node
-  [[ -n ${opt[--adapter]:-} ]] && export SDC_LLM_ADAPTER=${opt[--adapter]}
-  [[ -n ${opt[--principal]:-} ]] && export SDC_PRINCIPAL=${opt[--principal]}
-  [[ -n ${opt[--stub-fixtures]:-} ]] && export SDC_STUB_FIXTURES=${opt[--stub-fixtures]}
-  [[ -n ${opt[--stub-counter]:-} ]] && export SDC_STUB_COUNTER=${opt[--stub-counter]}
-  # A suite cycle's seeds (cycles/tree-suite.yaml): the workspace directory .stub is the stub's
-  # fixture directory, and .stub/finding.yaml, .stub/finding-2.yaml are the findings the stub
-  # raises (the old SDC_STUB_FIXTURES, SDC_STUB_FINDINGS). Absent, the tool runs as before.
-  if [[ -d $PWD/.stub ]]; then
-    [[ -n ${SDC_STUB_FIXTURES:-} ]] || export SDC_STUB_FIXTURES=$PWD/.stub
-    [[ -n ${SDC_STUB_FINDINGS:-} ]] || export SDC_STUB_FINDINGS=$PWD/.stub/finding.yaml:$PWD/.stub/finding-2.yaml
-    # The scripted model settings and replies (docs/cycles-suite.md, "The layout of .stub/"):
-    # .stub/settings.yaml keys and .stub/replies/<name>.yaml into the variables of the old driver.
-    # `fixture` as an adapter is the fixture adapter beside this tool. A variable already set wins.
-    stub_set() { [[ -n ${!1:-} ]] || export "$1=$2"; }
-    if [[ -f $PWD/.stub/settings.yaml ]]; then
-      stub_json=$(yq -o=json -I=0 '.' "$PWD/.stub/settings.yaml") || { echo "llm-node: $node could not run: .stub/settings.yaml is not YAML" >&2; exit 64; }
-      while IFS=$'\t' read -r k v; do
-        case $k in
-          adapter) stub_set SDC_LLM_ADAPTER "$([[ $v == fixture ]] && echo "$here/llm-adapter-fixture.sh" || echo "$v")" ;;
-          review_adapter) stub_set SDC_REVIEW_ADAPTER "$([[ $v == fixture ]] && echo "$here/llm-adapter-fixture.sh" || echo "$v")" ;;
-          nodes) stub_set SDC_LLM_NODES "$v" ;;
-          review_mode) stub_set SDC_REVIEW_MODE "$v" ;;
-          implement_mode) stub_set SDC_IMPLEMENT_MODE "$v" ;;
-          implement_coverage) stub_set SDC_IMPLEMENT_COVERAGE "$v" ;;
-          *) echo "llm-node: $node could not run: .stub/settings.yaml has no setting $k" >&2; exit 64 ;;
-        esac
-      done < <(jq -r 'to_entries[] | [.key, (.value | [.] | flatten | map(tostring) | join(" "))] | @tsv' <<< "$stub_json")
-    fi
-    for stub_f in "$PWD"/.stub/replies/*.yaml; do
-      [[ -f $stub_f ]] || continue
-      stub_name=$(basename "$stub_f" .yaml)
-      stub_json=$(yq -o=json -I=0 '.' "$stub_f") || { echo "llm-node: $node could not run: .stub/replies/$stub_name.yaml is not YAML" >&2; exit 64; }
-      case $stub_name in
-        review) stub_set SDC_REVIEW_REPLIES "$stub_json" ;;
-        implement) stub_set SDC_IMPLEMENT_REPLIES "$stub_json" ;;
-        coverage) stub_set SDC_COVERAGE_REPLIES "$stub_json" ;;
-        fixture-stub) stub_set SDC_FIXTURE_STUB "$stub_json" ;;
-        *) echo "llm-node: $node could not run: .stub/replies/$stub_name.yaml is no reply list" >&2; exit 64 ;;
-      esac
-    done
-  fi
-  [[ -n ${opt[--claude-credentials]:-} ]] && export SDC_CLAUDE_CREDENTIALS=${opt[--claude-credentials]}
-  # The retry records as the driver's SDC_FEEDBACK: kind, result, subject and the log, here the
-  # tail Loom keeps of the cited blob, written beside the document's copy under .sdc/loom-feedback/.
-  if [[ -n ${LOOM_RETRY_FEEDBACK:-} ]]; then
-    jq -e '.format == "loom.retry-feedback/1"' "$LOOM_RETRY_FEEDBACK" > /dev/null 2>&1 ||
-      { echo "llm-node: $node could not run: LOOM_RETRY_FEEDBACK names no loom.retry-feedback/1 document" >&2; exit 126; }
-    fbd=$PWD/.sdc/loom-feedback/$(sha256sum < "$LOOM_RETRY_FEEDBACK" | cut -c1-16)
-    mkdir -p "$fbd"
-    jq -r '.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))' "$LOOM_RETRY_FEEDBACK" | while read -r b; do
-      jq -j --arg b "$b" '[.logs[] | select(.blob_sha256 == $b)][0].tail' "$LOOM_RETRY_FEEDBACK" > "$fbd/$b"
-    done
-    jq --arg d "$fbd" '[.logs[].blob_sha256 | select(type == "string" and test("^[0-9a-f]{64}$"))] as $logged | [.records[] | {kind, result, subject, action: (.action // null), exit: (.exit // null),
-      log: (.blob_sha256 as $b | if $b != null and ($logged | index($b)) != null then "\($d)/\($b)" else null end)}]' \
-      "$LOOM_RETRY_FEEDBACK" > "$fbd/feedback.json" && SDC_FEEDBACK=$fbd/feedback.json
-  fi
+  echo "llm-node: $node could not run: under Loom the model step is the program sdc-node (bind argv [sdc-node, <action>, ...]); this script serves the old driver, sdc-drive" >&2
+  exit 126
 fi
 # The text the model is told is in instructions/ (docs/driver.md, "Instructions"); the binding's
 # `llm.instructions` names each file of the action (task, and the parts it has), and this tool reads
@@ -316,12 +203,7 @@ post() {
   fi
   if [[ -n $raised && -f $raised ]]; then
     local b looked="SDC_FINDINGS, then $root/driver/target/debug/sdc-findings"
-    if [[ -n ${LOOM_CASE:-} ]]; then
-      b=$(sibling sdc-findings)
-      looked="PATH, then $root/driver/target/debug/sdc-findings"
-    else
-      b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
-    fi
+    b=${SDC_FINDINGS:-$root/driver/target/debug/sdc-findings}
     [[ -x $b ]] || { echo "llm-node: sdc-findings not found (looked at $looked): $node could not run" >&2; exit 127; }
     "$b" --rules "$here/consistency-rules.json" promote "$node" "$raised"
   fi
@@ -368,24 +250,7 @@ if [[ $adapter == stub ]]; then
   # subject, at its `$artifacts` path), so the rework is a new revision: a tree gets `.rework`,
   # a YAML or Markdown file the same lines as a comment.
   t="" lines="" A="" S=""
-  if [[ -n ${LOOM_CASE:-} && -z $rejection && -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]]; then
-    # Loom mode, a person's rejection: the feedback record names the person's action and the
-    # subject, and its log is the person's reasons as text.
-    A=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.action // ""' "$SDC_FEEDBACK")
-    S=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.subject // ""' "$SDC_FEEDBACK")
-    fb_log=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.log // ""' "$SDC_FEEDBACK")
-    [[ -n $A && -f $fb_log ]] && render lines "$shared/rework.stub.person.md" action="$A" reasons="$(sed 's/^/- /' "$fb_log")"
-  elif [[ -n $rejection && -n ${LOOM_CASE:-} ]]; then
-    A=$(jq -r '.approval // ""' "$rejection") S=$(jq -r '.subject // ""' "$rejection")
-    render lines "$shared/rework.stub.md" count="$(jq -r '.count' "$rejection")" approval="$(jq -r '.approval' "$rejection")" \
-      revision="$(jq -r '.revision' "$rejection")" reasons="$(jq -r '.reasons[] | "- " + .' "$rejection")"
-  fi
-  if [[ -n ${LOOM_CASE:-} && -n $A && -n $S ]]; then
-    # Loom mode: the subject's path in the bindings file beside these tools that binds the approval.
-    t=$(for y in "$here"/../*.yaml; do A=$A S=$S yq -r 'select(.actions | any_c(.action == strenv(A))) | .artifacts[strenv(S)] // ""' "$y"; done 2>/dev/null |
-      grep -v -e '^$' -e '^---$' | sort -u)
-    [[ $(grep -c . <<< "$t") == 1 ]] || t=""
-  elif [[ -n $rejection ]]; then
+  if [[ -n $rejection ]]; then
     t=$(jq -r --arg s "$(jq -r '.subject // ""' "$rejection")" '."$artifacts"[$s] // ""' "${SDC_CASE_DIR:-$work/..}/bindings.json" 2>/dev/null)
     render lines "$shared/rework.stub.md" count="$(jq -r '.count' "$rejection")" approval="$(jq -r '.approval' "$rejection")" \
       revision="$(jq -r '.revision' "$rejection")" reasons="$(jq -r '.reasons[] | "- " + .' "$rejection")"
@@ -450,11 +315,6 @@ trap 'c=$?; [[ $c == 0 ]] && call_status finished 0 || call_status failed "$c"' 
 attempt=$(( $(find "$rec_root" -mindepth 1 -maxdepth 1 -type d -name "*-$node" | wc -l) ))
 epic=$(cut -d. -f2 <<< "${SDC_CASE:-}")
 story=$(cut -d. -f3 <<< "${SDC_CASE:-}")
-# Loom mode: the names Loom gave the cases, not a cut of the case id (a repeated case is IDEA.epic.2).
-if [[ -n ${LOOM_CASE:-} ]]; then
-  if [[ -n ${LOOM_PARENT_CASE_NAME:-} ]]; then epic=$LOOM_PARENT_CASE_NAME story=${LOOM_CASE_NAME:-$story}
-  elif [[ -n ${LOOM_CASE_NAME:-} ]]; then epic=$LOOM_CASE_NAME story=""; fi
-fi
 
 # Copy one declared input from work/ into in/ (a missing one is listed as absent).
 inputs=()
@@ -939,10 +799,12 @@ if [[ $implement_mode == request ]]; then
     0)
       cat "$rec/implement-run.out"
       apply > "$rec/apply.log" 2>&1; code=$?
-      [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
+      [[ $code == 0 ]] || { render step_log "$shared/node.not-applied.md" node="$node" code="$code"; echo "$step_log"; tail -n 20 "$rec/apply.log"; }
       [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1 ;;
-    75) echo "llm-node: $node could not run: $(cat "$rec/implement-run.out"); nothing applied, resume later" ;;
-    *) echo "llm-node: $node recorded nothing (call llm/$(basename "$rec"), adapter $adapter): $(cat "$rec/implement-run.out")" ;;
+    75) render step_log "$shared/node.implement.api-ended.md" node="$node" reason="$(cat "$rec/implement-run.out")"; echo "$step_log" ;;
+    *) render step_log "$shared/node.implement.nothing-recorded.md" node="$node" call="$(basename "$rec")" adapter="$adapter" \
+         reason="$(cat "$rec/implement-run.out")"
+       echo "$step_log" ;;
   esac
   log_call
   exit $code
@@ -954,7 +816,8 @@ if [[ $adapter == dry ]]; then
   [[ $code == 0 ]] && post "" >> "$rec/apply.log" 2>&1
 elif [[ $acode == 0 && -n $coverage_invalid ]]; then
   code=2
-  echo "llm-node: $node: coverage_invalid: the coverage document stayed invalid after $((try + 1)) attempt(s) (call llm/$(basename "$rec")), nothing applied: $(cat "$rec/coverage-check.err")"
+  render step_log "$shared/node.coverage.invalid.md" node="$node" attempts="$((try + 1))" call="$(basename "$rec")" reason="$(cat "$rec/coverage-check.err")"
+  echo "$step_log"
 elif [[ $acode == 0 ]]; then
   apply > "$rec/apply.log" 2>&1; code=$?
   # Why it was not applied goes into the step's log, which the next run reads (R9 above).
@@ -980,13 +843,5 @@ else
   echo "$step_log"
 fi
 
-# Under Loom no sdc-drive runs the binding's postcondition, so the same program check runs here,
-# after the writer: sdc-reply check-coverage (the one copy of the rule). Exit 1 is this run's exit
-# 8, which the binding records as implementation_change coverage_refused (the writer is sent back,
-# no conformance run is due); the check's output is the run's output and so the next run's feedback.
-if [[ -n ${LOOM_CASE:-} && $coverage == on && $code == 0 && $adapter != dry ]]; then
-  "$reply_bin" check-coverage --work "$work" --tree "$work/impl"; pc=$?
-  case $pc in 0) ;; 1) code=8 ;; *) code=126 ;; esac
-fi
 log_call
 exit $code

@@ -1,0 +1,70 @@
+exit 1
+stdout:
+| llm-node: roadmap.write: the output was not applied (exit 1):
+| created initiative:roadmap (draft) at aep/initiative/roadmap.md
+| created epic:a (draft) at aep/epic/a.md
+| error: `epic:a` already exists at epic/a.md — creating over a document is how a plan item's body disappears, and there is no undo in a tool that has not committed anything
+stderr:
+written:
+ed352662b50c3adb  .sdc/llm/001-roadmap.write/apply.log
+    | created initiative:roadmap (draft) at aep/initiative/roadmap.md
+    | created epic:a (draft) at aep/epic/a.md
+    | error: `epic:a` already exists at epic/a.md — creating over a document is how a plan item's body disappears, and there is no undo in a tool that has not committed anything
+7359ec4489286d42  .sdc/llm/001-roadmap.write/prompt.md
+4d50fcc8f5e32097  .sdc/llm/001-roadmap.write/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-roadmap.write/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-roadmap.write/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-roadmap.write",
+    |   "node": "roadmap.write",
+    |   "attempt": 1,
+    |   "case": "sdc.billing.list",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+994cf9e9d4848c1e  .sdc/llm/001-roadmap.write/response.json
+    | {"adapter":"test","duration_ms":1}
+359e2264d4067fdb  .sdc/llm/001-roadmap.write/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "failed",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 1
+    | }
+923d8136674ac888  .sdc/llm/calls.jsonl
+    | {"action":"roadmap.write","case":"sdc.billing.list","started":"<instant>","attempt":1,"retry":false,"adapter":"test","model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":1,"output":"aep/initiative/roadmap.md","duration_ms":1,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":false,"record":"<root>/work/.sdc/llm/001-roadmap.write"}
+a6c05e7f86ec95d4  aep/epic/a.md
+    | ---
+    | format: aep.planning-md/3
+    | id: epic:a
+    | kind: epic
+    | status: draft
+    | title: A
+    | summary: s
+    | revision: 1
+    | ---
+    | # A
+9a71d442bf4682a7  aep/initiative/roadmap.md
+    | ---
+    | format: aep.planning-md/3
+    | id: initiative:roadmap
+    | kind: initiative
+    | status: draft
+    | title: Roadmap
+    | summary: 'epics: a a'
+    | revision: 1
+    | ---
+    | # Roadmap
+b08971a2bb85439a  .sdc/llm/001-roadmap.write/cwd/ (4 files)

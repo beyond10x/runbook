@@ -61,9 +61,9 @@ child's `case_outcome` record, is described under "Known differences of the two 
   equal; the summaries keep what each runtime recorded. The rule cannot tell apart two ids that differ
   only in `.`, `_` and `-` (`sdc.intake`, `sdc_intake` and `sdc-intake` are one id to it). Two ids that
   differ in a letter or a digit still differ.
-- Feedback copies (`product_tree[.sdc/loom-feedback/**]`). In Loom mode `bindings/tools/llm-node.sh`
+- Feedback copies (`product_tree[.sdc/loom-feedback/**]`). In Loom mode `sdc-node`
   copies the document that `LOOM_RETRY_FEEDBACK` names, and the log tails it cites, into
-  `.sdc/loom-feedback/<16 hex>/` in the workspace (`bindings/tools/llm-node.sh:94-104`; the directory
+  `.sdc/loom-feedback/<16 hex>/` in the workspace (`sdc-node`; the directory
   name is the first 16 hex digits of the document's sha256, so it differs between runs). Runbook's own
   script writes the files. Loom sets the variable on a writer step whenever the case holds records of
   the kinds and results the writer's `retry_when` lists, at a revision of their subject that is not
@@ -314,7 +314,7 @@ Two things the run showed that are not differences of the comparison:
   binaries (`story:driver-tools-find-binaries-without-build-dir`).
 - Three files under `.sdc/loom-feedback/<16 hex>/` although neither run shows a retry
   (`retry_followed` is 0 in both summaries). Not a defect: Loom hands retry feedback to a writer
-  whose `retry_when` records exist, not only after a retry, and `llm-node.sh` copies it there;
+  whose `retry_when` records exist, not only after a retry, and `sdc-node` copies it there;
   the driver hands the same three records over as well ("The rules", feedback copies).
 
 The comparison was made against Loom `2c0a6f48` (the table below was read at `1016c251`).

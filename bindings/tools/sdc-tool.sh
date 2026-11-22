@@ -264,10 +264,10 @@ case $1 in
   stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status) need aep ;;
 esac
 # The case's aep store keeps aep's own lifecycles, not those of a project above the case directory
-# (runs/ inside this repository is under development.standard); see llm-node.sh.
+# (runs/ inside this repository is under development.standard); see sdc-node.
 aep() { command aep "$@" --root .; }
 # aep records who moved an artifact (AEP_ACTOR, else human:$USER): the acting principal, as in
-# llm-node.sh: SDC_PRINCIPAL when it is a <kind>:<name> principal and no person, else agent:<action>.
+# sdc-node: SDC_PRINCIPAL when it is a <kind>:<name> principal and no person, else agent:<action>.
 executor=agent:${SDC_ACTION:-sdc-tool}
 aep_actor=${SDC_PRINCIPAL:-}
 [[ $aep_actor =~ ^[a-z][a-z-]*:[^[:space:]]+$ && $aep_actor != human:* && $aep_actor != person:* ]] || aep_actor=$executor
@@ -564,7 +564,7 @@ release-build)
 publish) rm -rf published && mkdir -p published && cp -r release/. published/ ;;
 observe) cmp -s published/PROVENANCE release/PROVENANCE ;;
 review-spec) test -f spec/system.yaml && [[ ! -e spec/.review-reject ]] ;; # .review-reject: a fixture tree the stub reviewer rejects (docs/reject-routes.md R8)
-review-change) test -s impl/README.md ;; # change.review's stub; the review itself: tools/llm-node.sh change.review
+review-change) test -s impl/README.md ;; # change.review's stub; the review itself: sdc-node change.review
 
 # --- the late-finding loop (docs/trial-2.md, "The late-finding loop") ------------------------
 # Each stage's check is its own check, then the finding gate: exit 1 when its own check fails,

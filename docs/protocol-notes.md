@@ -355,7 +355,7 @@ of their own:
 
 | Protocol | Writer | Record | Exit | Effect |
 |---|---|---|---|---|
-| sdc.story (8) | `change.implement` | `implementation_change` result `coverage_refused` | 8 (`sdc-reply check-coverage` refused, run by `llm-node.sh` under Loom only) | claim `change.coverage_refused`; `tests.run` is admissible only while it is false or unknown, so no conformance run is due on that revision (`tests.run` is a read action and Loom orders it before the write action `change.implement`) |
+| sdc.story (8) | `change.implement` | `implementation_change` result `coverage_refused` | 8 (`sdc-reply check-coverage` refused, run by `sdc-node` under Loom only) | claim `change.coverage_refused`; `tests.run` is admissible only while it is false or unknown, so no conformance run is due on that revision (`tests.run` is a read action and Loom orders it before the write action `change.implement`) |
 | sdc.intake (10) | `questions.answer` | `answer_applied` result `refused` | 1 (the apply step refused the answers) | none: the writer's `retry_when` sends it back |
 
 The retry gives the writer the refused run's output (the tail Loom keeps of the cited blob) as

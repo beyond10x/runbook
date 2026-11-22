@@ -11,7 +11,7 @@ actions:
   - action: bug.dissect
     executor:
       kind: program
-      argv: [tools/llm-node.sh, bug.dissect, --model, claude-haiku-5-5, --max-turns, "20", --max-budget-usd, "1", --instructions, '{"task":"instructions/bug.dissect.md"}', --stub, stub-file, bugfix-pager/stub-dissection.json, bug-dissection.json]
+      argv: [sdc-node, bug.dissect, --model, claude-haiku-5-5, --max-turns, "20", --max-budget-usd, "1", --instructions, '{"task":"instructions/bug.dissect.md"}', --stub, stub-file, bugfix-pager/stub-dissection.json, bug-dissection.json]
     budget: {max_runs: 3}
     timeout_seconds: 600
     retry_when:
@@ -35,7 +35,7 @@ actions:
   - action: test.reproduce
     executor:
       kind: program
-      argv: [tools/llm-node.sh, test.reproduce, --model, claude-haiku-5-5, --max-turns, "30", --max-budget-usd, "1", --instructions, '{"task":"instructions/test.reproduce.md"}', --stub, stub-repro, bugfix-pager/stub-repro]
+      argv: [sdc-node, test.reproduce, --model, claude-haiku-5-5, --max-turns, "30", --max-budget-usd, "1", --instructions, '{"task":"instructions/test.reproduce.md"}', --stub, stub-repro, bugfix-pager/stub-repro]
     budget: {max_runs: 3}
     timeout_seconds: 900
     retry_when:
@@ -61,7 +61,7 @@ actions:
   - action: change.fix
     executor:
       kind: program
-      argv: [tools/llm-node.sh, change.fix, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/change.fix.md","stdlib":"instructions/change.fix.stdlib.md","no_gate":"instructions/change.fix.no-gate.md"}', --stub, stub-tree, bugfix-pager/stub-fix, impl]
+      argv: [sdc-node, change.fix, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/change.fix.md","stdlib":"instructions/change.fix.stdlib.md","no_gate":"instructions/change.fix.no-gate.md"}', --stub, stub-tree, bugfix-pager/stub-fix, impl]
     budget: {max_runs: 3}
     timeout_seconds: 1500
     retry_when:

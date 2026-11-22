@@ -37,7 +37,7 @@ Coverage. Besides the files, write out/coverage.json, one JSON object with one k
 - not_built: {"id", "status": "not_built", "reason"}: one sentence why it is not built
 A program checks it before any test runs: an id that is missing, named twice or not_built, a file
 that is not in out/impl/, a line outside its file, or a test name no #[test] function has sends
-the change back to you. Schema: {"type":"object","properties":{"requirements":{"type":"array"}}}
+the change back to you. Schema: {"additionalProperties":false,"properties":{"requirements":{"items":{"anyOf":[{"additionalProperties":false,"properties":{"at":{"items":{"additionalProperties":false,"properties":{"file":{"minLength":1,"type":"string"},"line":{"minimum":1,"type":"integer"}},"required":["file","line"],"type":"object"},"minItems":1,"type":"array"},"id":{"enum":["r1","r2"],"type":"string"},"status":{"enum":["built"],"type":"string"},"test":{"minLength":1,"type":"string"}},"required":["id","status","at","test"],"type":"object"},{"additionalProperties":false,"properties":{"id":{"enum":["r1","r2"],"type":"string"},"reason":{"minLength":1,"type":"string"},"status":{"enum":["not_built"],"type":"string"}},"required":["id","status","reason"],"type":"object"}]},"type":"array"}},"required":["requirements"],"type":"object"}
 
 Findings. If your inputs leave you an ambiguity (two or more readings), a contradiction (two
 items that cannot both hold, for example the context against a requirement) or a missing decision
@@ -60,5 +60,5 @@ raised and waits for its decision: follow its `default`; never raise it again.
 When the files and out/coverage.json are written, reply with the single word: done.
 Under a response schema, reply with the coverage object instead.
 
-Your coverage document was refused by the program check: requirement r1 is not answered
+Your coverage document was refused by the program check: invalid coverage reply: no readable coverage document (coverage.json: the structured reply, else out/coverage.json)
 Your files under out/ are kept. Fix exactly that and write out/coverage.json again (under a response schema, reply with the corrected object).

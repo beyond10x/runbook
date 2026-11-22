@@ -9,7 +9,7 @@ use std::process::{Command, Output, Stdio};
 pub const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 
 /// A bindings file with one model node: block style, one per-call budget of 1 USD.
-const BINDINGS: &str = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: node.write\n    executor:\n      kind: program\n      argv:\n        - tools/llm-node.sh\n        - node.write\n        - --max-budget-usd\n        - \"1\"\n";
+const BINDINGS: &str = "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: node.write\n    executor:\n      kind: program\n      argv:\n        - sdc-node\n        - node.write\n        - --max-budget-usd\n        - \"1\"\n";
 
 /// A shell snippet for a `tree_run` hook: one model call that costs `COST` USD, or less when the
 /// budget the runner wrote into the bindings copy is lower (as the claude CLI honours its budget).

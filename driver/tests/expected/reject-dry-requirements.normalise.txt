@@ -1,0 +1,76 @@
+exit 0
+stdout:
+stderr:
+| would run: metaharness 'run' 'claude' '--frame' '<root>/work/.sdc/llm/001-requirements.normalise/frame.json' '--decisions' 'frame' '--cwd' '<root>/work/.sdc/llm/001-requirements.normalise/cwd' '--scratch-cwd' '--model' 'claude-haiku-5-5' '--max-turns' '15' '--max-budget-usd' '0.5' '--retain-dir' '<root>/work/.sdc/llm/001-requirements.normalise/transcripts' '--effort' 'high' '-p' "$(cat <root>/work/.sdc/llm/001-requirements.normalise/prompt.md)"
+written:
+e3b0c44298fc1c14  .sdc/llm/001-requirements.normalise/apply.log
+dbbed6a8e69002b5  .sdc/llm/001-requirements.normalise/argv.json
+    | [
+    |   "<root>/work/.sdc/llm/001-requirements.normalise/metaharness-stand-in",
+    |   "run",
+    |   "claude",
+    |   "--frame",
+    |   "<root>/work/.sdc/llm/001-requirements.normalise/frame.json",
+    |   "--decisions",
+    |   "frame",
+    |   "--cwd",
+    |   "<root>/work/.sdc/llm/001-requirements.normalise/cwd",
+    |   "--scratch-cwd",
+    |   "--model",
+    |   "claude-haiku-5-5",
+    |   "--max-turns",
+    |   "15",
+    |   "--max-budget-usd",
+    |   "0.5",
+    |   "--retain-dir",
+    |   "<root>/work/.sdc/llm/001-requirements.normalise/transcripts",
+    |   "--effort",
+    |   "high",
+    |   "-p",
+    |   "<prompt_file>"
+    | ]
+e3b0c44298fc1c14  .sdc/llm/001-requirements.normalise/events.jsonl
+17bd4e3df692b343  .sdc/llm/001-requirements.normalise/frame.json
+a631fd9897d36b19  .sdc/llm/001-requirements.normalise/prompt.md
+e604b8cecfc8b31a  .sdc/llm/001-requirements.normalise/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-requirements.normalise/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-requirements.normalise/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-requirements.normalise",
+    |   "node": "requirements.normalise",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 15,
+    |   "max_budget_usd": 0.5
+    | }
+9d02aa0ca0480a59  .sdc/llm/001-requirements.normalise/response.json
+    | {
+    |   "adapter": "dry",
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "exit": 0,
+    |   "dry": true
+    | }
+3c9f144425dbbf41  .sdc/llm/001-requirements.normalise/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-requirements.normalise/stderr.txt
+85a101e1d37d565b  .sdc/llm/calls.jsonl
+    | {"action":"requirements.normalise","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":"dry","model":"claude-haiku-5-5","effort":"high","class":"other","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":15,"max_budget_usd":0.5,"exit":0,"applied_exit":0,"output":"requirements.yaml","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":true,"record":"<root>/work/.sdc/llm/001-requirements.normalise"}
+4cb6d25b8151ee89  .sdc/llm/001-requirements.normalise/cwd/ (4 files)

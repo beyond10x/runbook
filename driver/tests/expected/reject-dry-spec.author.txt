@@ -1,0 +1,78 @@
+exit 0
+stdout:
+stderr:
+| would run: metaharness 'run' 'claude' '--frame' '<root>/work/.sdc/llm/001-spec.author/frame.json' '--decisions' 'frame' '--cwd' '<root>/work/.sdc/llm/001-spec.author/cwd' '--scratch-cwd' '--model' 'claude-haiku-5-5' '--max-turns' '40' '--max-budget-usd' '2' '--retain-dir' '<root>/work/.sdc/llm/001-spec.author/transcripts' '--effort' 'high' '-p' "$(cat <root>/work/.sdc/llm/001-spec.author/prompt.md)"
+written:
+e3b0c44298fc1c14  .sdc/llm/001-spec.author/apply.log
+f7389ea2b656d5bc  .sdc/llm/001-spec.author/argv.json
+    | [
+    |   "<root>/work/.sdc/llm/001-spec.author/metaharness-stand-in",
+    |   "run",
+    |   "claude",
+    |   "--frame",
+    |   "<root>/work/.sdc/llm/001-spec.author/frame.json",
+    |   "--decisions",
+    |   "frame",
+    |   "--cwd",
+    |   "<root>/work/.sdc/llm/001-spec.author/cwd",
+    |   "--scratch-cwd",
+    |   "--model",
+    |   "claude-haiku-5-5",
+    |   "--max-turns",
+    |   "40",
+    |   "--max-budget-usd",
+    |   "2",
+    |   "--retain-dir",
+    |   "<root>/work/.sdc/llm/001-spec.author/transcripts",
+    |   "--effort",
+    |   "high",
+    |   "-p",
+    |   "<prompt_file>"
+    | ]
+e3b0c44298fc1c14  .sdc/llm/001-spec.author/events.jsonl
+b850e54e9138fa7d  .sdc/llm/001-spec.author/frame.json
+81ebbe84d93697d5  .sdc/llm/001-spec.author/prompt.md
+6f16506b9066d8f4  .sdc/llm/001-spec.author/request.json
+    | {
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "prompt_file": "<root>/work/.sdc/llm/001-spec.author/prompt.md",
+    |   "cwd": "<root>/work/.sdc/llm/001-spec.author/cwd",
+    |   "record_dir": "<root>/work/.sdc/llm/001-spec.author",
+    |   "node": "spec.author",
+    |   "attempt": 1,
+    |   "case": "IDEA-1.x",
+    |   "case_dir": "",
+    |   "operations": [
+    |     "dir.list",
+    |     "file.edit",
+    |     "file.read",
+    |     "file.write",
+    |     "search"
+    |   ],
+    |   "max_turns": 40,
+    |   "max_budget_usd": 2
+    | }
+9d02aa0ca0480a59  .sdc/llm/001-spec.author/response.json
+    | {
+    |   "adapter": "dry",
+    |   "model": "claude-haiku-5-5",
+    |   "effort": "high",
+    |   "exit": 0,
+    |   "dry": true
+    | }
+3c9f144425dbbf41  .sdc/llm/001-spec.author/status.json
+    | {
+    |   "format": "sdc.call-status/1",
+    |   "state": "finished",
+    |   "pid":0,
+    |   "started_at": "<instant>",
+    |   "finished_at": "<instant>",
+    |   "exit": 0
+    | }
+e3b0c44298fc1c14  .sdc/llm/001-spec.author/stderr.txt
+4633f5f4e64a8e81  .sdc/llm/calls.jsonl
+    | {"action":"spec.author","case":"IDEA-1.x","started":"<instant>","attempt":1,"retry":false,"adapter":"dry","model":"claude-haiku-5-5","effort":"high","class":"writer","allowed_operations":["dir.list","file.edit","file.read","file.write","search"],"max_turns":40,"max_budget_usd":2,"exit":0,"applied_exit":0,"output":"spec","duration_ms":null,"cost_usd":null,"num_turns":null,"usage":null,"offered_tools":null,"tool_calls":null,"dry":true,"record":"<root>/work/.sdc/llm/001-spec.author"}
+50c68fb82fbc7d8f  spec/.derived-from
+    | requirements e23630e115159d67 resolved 
+987b4715ca5b4690  .sdc/llm/001-spec.author/cwd/ (25 files)

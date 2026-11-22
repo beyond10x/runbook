@@ -184,7 +184,7 @@ struct ProtocolFacts {
     id: Option<String>,
     /// action -> `effect` of the protocol file (`write`, `read`).
     effects: BTreeMap<String, String>,
-    /// Actions bound to `llm-node.sh`.
+    /// Actions bound to `sdc-node`.
     llm: HashSet<String>,
     /// Actions bound to a person.
     manual: HashSet<String>,
@@ -241,7 +241,7 @@ fn load_facts(run_dir: &Path) -> HashMap<String, ProtocolFacts> {
                 }
                 Some("program") => {
                     let first = a["executor"]["argv"][0].as_str().unwrap_or("");
-                    if first.ends_with("llm-node.sh") {
+                    if first.rsplit('/').next() == Some("sdc-node") {
                         f.llm.insert(action.to_string());
                     }
                 }
