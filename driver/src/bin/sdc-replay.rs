@@ -233,20 +233,20 @@ fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex {
 /// is packed again (see `explain_tests_changed`).
 const ESS_LABEL_MASK: &str = "0.97.3";
 
-/// The file whose first line is the header `ess verify conform run` prints.
+/// The file whose header line `ess verify conform run` prints (a line or two of preamble may stand above it).
 const ESS_LOG: &str = "tests.txt";
 
 fn ess_label_re() -> &'static Regex {
     static ESS_LABEL: OnceLock<Regex> = OnceLock::new();
-    re(&ESS_LABEL, r"\A(\S+ v\d+ against \S+ )\d+\.\d+\.\d+( \x{2014} )")
+    re(&ESS_LABEL, r"(?m)^(\S+ v\d+ against \S+ )\d+\.\d+\.\d+( \x{2014} )")
 }
 
 /// The version label of the pinned ESS in the header of the conformance log that `in/tests.txt`
-/// holds (`<system> v<n> against <implementation> <version> — passed`, its first line;
-/// `bindings/tools/sdc-tool.sh`, `conform-run`), rewritten to [`ESS_LABEL_MASK`]: the pin moves
-/// with a release of ESS, the test results below the header are what the model reads. Only the
-/// first line of that one file is masked, never another file, the prompt, the request or another
-/// version-like string.
+/// holds (`<system> v<n> against <implementation> <version> — passed`; `bindings/tools/sdc-tool.sh`,
+/// `conform-run`), rewritten to [`ESS_LABEL_MASK`]: the pin moves with a release of ESS, the test
+/// results below the header are what the model reads. Only the first line of that shape, in that one
+/// file, is masked (the log has a line or two of preamble above it): never another file, the prompt,
+/// the request or another version-like string.
 fn mask_ess_label(text: &str) -> String {
     ess_label_re().replace(text, format!("${{1}}{ESS_LABEL_MASK}${{2}}")).into_owned()
 }
@@ -293,7 +293,7 @@ fn hash_file(p: &Path, roots: &[String], ess_log: bool) -> String {
     }
 }
 
-/// One digest per file under `in/`, keyed `in/<path>`. The first line of `in/tests.txt` has its
+/// One digest per file under `in/`, keyed `in/<path>`. The header line of `in/tests.txt` has its
 /// ESS version label masked (`mask_ess_label`).
 fn hash_inputs(dir: &Path, roots: &[String]) -> BTreeMap<String, String> {
     files_under(dir)
@@ -1846,9 +1846,11 @@ mod tests {
         // another version-like string is an input: only the label of the line the tool writes is masked
         let pin = |v: &str| format!("  | test result: ok. dependency serde {v}, 5 passed\n");
         assert_ne!(n(&pin("1.0.1")), n(&pin("1.0.2")));
-        // only the first line: the same shape on a later line is a line of the log
-        let later = |v: &str| format!("header\n{}", interpreted(v));
-        assert_ne!(n(&later("0.96.0")), n(&later("0.97.4")));
+        // the header stands below a line or two of preamble in the real log, and only it is masked:
+        // a second line of the same shape is a line of the log
+        let below = |v: &str, w: &str| format!("Requires an empty namespace.\nRequires an empty namespace.\n{}{}", interpreted(v), interpreted(w));
+        assert_eq!(n(&below("0.96.0", "0.1.0")), n(&below("0.97.4", "0.1.0")));
+        assert_ne!(n(&below("0.97.3", "0.1.0")), n(&below("0.97.3", "0.1.1")));
         // `normalise` alone masks nothing: the prompt and the request keep their version-like text
         assert_ne!(normalise(&log("0.97.3", "a"), &[]), normalise(&log("0.97.4", "a"), &[]));
     }

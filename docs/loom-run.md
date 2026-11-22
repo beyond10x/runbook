@@ -378,8 +378,8 @@ is no directory.
   setting that differs from the recorded effort diverges at the first call, as a changed model
   does (intended). The inputs are compared by digest after what differs between two runs is masked
   (run directories, home paths, instants, revisions, seconds), and so is the version label of the
-  pinned ESS in the header line of the conformance log (the first line of `in/tests.txt`, and of
-  no other file, prompt or request; written as `<system> v<n> against <implementation> <version> —
+  pinned ESS in the header line of the conformance log (the first line of that shape in
+  `in/tests.txt`, below its preamble, and in no other file, prompt or request; written as `<system> v<n> against <implementation> <version> —
   passed`; it is rewritten to the label the committed recording was packed with, `0.97.3`, so the
   recording's digests hold): a new ESS pin does not diverge a recording, a changed test name does.
   A recording packed by an older `sdc-replay` at another label holds the digest of its own label:

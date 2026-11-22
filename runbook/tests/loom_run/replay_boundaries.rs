@@ -277,6 +277,16 @@ fn a_recording_of_label_0_97_3_replays_when_the_pin_prints_0_98_0() {
     assert_eq!(mode, "recorded", "{said}");
 }
 
+/// The real log has two lines of preamble above its header (the lane's recording does): the header
+/// is masked wherever it stands in `in/tests.txt`, so the recording still replays under a new pin.
+#[test]
+fn the_header_of_the_log_is_masked_below_the_preamble_the_real_log_has() {
+    let preamble = "Requires an empty logical namespace before each scenario setup.\nRequires an empty logical namespace before each scenario setup.\n";
+    let (recorded, now) = (format!("{preamble}{HEADER_0973}"), format!("{preamble}{HEADER_0980}"));
+    let (mode, said) = replayed("preamble", &[("tests.txt", &recorded)], &[("tests.txt", &now)]);
+    assert_eq!(mode, "recorded", "{said}");
+}
+
 /// F1: a recording packed by the code before the mask, at another label (0.97.1), holds the digest of
 /// its own text. The mask is not widened to meet it: the call diverges at `in/tests.txt` and the
 /// message names the label as the cause and the fix (pack the recording again).
