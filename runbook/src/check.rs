@@ -362,14 +362,17 @@ fn instructions(root: &Path, r: &mut Report, seen: &mut Seen) {
             Err(e) => r.add("instructions", &f, format!("cannot be read: {e}"), "make it a readable UTF-8 file"),
         }
     }
-    // What can name an instruction file: the bindings (both forms), the programs of the bindings
-    // and the other instruction files. A file is reported only when none of them holds its name;
-    // a name a program builds at run time would not be seen (none does today).
+    // What can name an instruction file: the bindings (both forms), the programs of the bindings,
+    // the Rust sources of the driver (`driver/src`, where `sdc-reply`, `sdc-conform` and
+    // `sdc-unstick` read theirs) and the other instruction files. A file is reported only when
+    // none of them holds its name as a whole token; a name a program builds at run time would not
+    // be seen (none does today).
     let mut corpus: Vec<(String, String)> = Vec::new();
     for p in files_ending(&root.join("bindings"), ".yaml")
         .into_iter()
         .chain(files_ending(&root.join("driver/examples/sdc"), ".bindings.json"))
         .chain(files_below(&root.join("bindings/tools"), "", &[]))
+        .chain(files_below(&root.join("driver/src"), ".rs", &[]))
     {
         if let Ok(t) = std::fs::read_to_string(&p) {
             corpus.push((rel(root, &p), t));

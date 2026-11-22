@@ -496,6 +496,7 @@ fn text_copy(w: &World) -> PathBuf {
         copy_dir(&r.join(d), &co.join(d), &[]);
     }
     copy_dir(&r.join("instructions"), &co.join("instructions"), &["golden"]);
+    copy_dir(&r.join("driver/src"), &co.join("driver/src"), &[]);
     std::fs::create_dir_all(co.join("ui")).unwrap();
     std::fs::create_dir_all(co.join("scripts")).unwrap();
     std::fs::copy(r.join("scripts/run-finding-cycles.sh"), co.join("scripts/run-finding-cycles.sh")).unwrap();
@@ -663,6 +664,29 @@ fn check_fails_an_instruction_file_nothing_names() {
     let o = check(&w, &co);
     assert_finding(&o, "instructions/orphan.md", &["no binding, program or other instruction file names it"]);
     assert_finding(&o, "instructions/decider/orphan-two.md", &["names it"]);
+    assert_eq!(findings(&o).len(), 2, "{}", stdout(&o));
+}
+
+#[test]
+fn check_counts_a_name_in_a_rust_source_of_the_driver() {
+    let w = World::new("check-rust-names");
+    let co = text_copy(&w);
+    std::fs::write(co.join("instructions/rust-only.md"), "Only a Rust binary reads this file.\n").unwrap();
+    std::fs::write(co.join("instructions/rust-near.md"), "Only a longer name is in the Rust source.\n").unwrap();
+    let bin = co.join("driver/src/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        bin.join("reader.rs"),
+        "fn main() {\n    let _ = render(\"instructions/rust-only.md\");\n    let _ = render(\"instructions/rust-near.md2\");\n}\n",
+    )
+    .unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "instructions/rust-near.md", &["no binding, program or other instruction file names it"]);
+    assert_eq!(findings(&o).len(), 1, "{}", stdout(&o));
+    std::fs::remove_file(bin.join("reader.rs")).unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "instructions/rust-only.md", &["names it"]);
+    assert_finding(&o, "instructions/rust-near.md", &["names it"]);
     assert_eq!(findings(&o).len(), 2, "{}", stdout(&o));
 }
 
