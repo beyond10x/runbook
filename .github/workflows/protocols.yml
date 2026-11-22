@@ -1,0 +1,53 @@
+name: Protocol checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'protocol/**'
+      - 'driver/canon-pin.json'
+      - 'scripts/check-protocols.sh'
+      - 'scripts/evaluate-cases.sh'
+      - '.github/workflows/protocols.yml'
+  pull_request:
+    paths:
+      - 'protocol/**'
+      - 'driver/canon-pin.json'
+      - 'scripts/check-protocols.sh'
+      - 'scripts/evaluate-cases.sh'
+      - '.github/workflows/protocols.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: protocols-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  slow-lane:
+    name: Protocol checks, slow lane
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.99.1
+      - name: Check the rustc pin
+        run: |
+          set -euo pipefail
+          pin=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)
+          used=$(sed -n 's/^ *toolchain: *//p' .github/workflows/protocols.yml | tr -d "\"'" | sort -u)
+          test -n "$pin" && test "$used" = "$pin" || { echo "the workflow installs rustc '$used' and rust-toolchain.toml pins '$pin'"; exit 1; }
+      - name: Check every protocol for real and compare the ledger byte for byte
+        run: |
+          set -euo pipefail
+          for tool in jq yq; do command -v "$tool" > /dev/null || { echo "$tool is not on the runner"; exit 1; }; done
+          scripts/check-protocols.sh --slow

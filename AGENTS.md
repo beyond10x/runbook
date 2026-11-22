@@ -69,6 +69,9 @@
   (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
   a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`
   and commit the ledger; `task check:protocols:slow` regenerates it in full and compares bytes.
+  The fast lane (under 1 s) is part of `task check`; each ledger entry carries a seal over its digest
+  and result fields, so a hand edit of a result fails it. CI runs the slow lane
+  (`.github/workflows/protocols.yml`) when `protocol/**`, `driver/canon-pin.json` or the script changed.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the

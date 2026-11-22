@@ -1238,3 +1238,63 @@ fn parity_approvals_lists_the_person_steps_in_order() {
         ])
     );
 }
+
+/// A scratch copy of what `scripts/check-protocols.sh` reads, and a stub canon that validates and
+/// compiles anything: the fast lane takes every result from the ledger and runs no real check.
+fn protocol_tree(tag: &str) -> (PathBuf, PathBuf) {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    copy_dir(&repo().join("scripts"), &root.join("scripts"), &[]);
+    copy_dir(&repo().join("protocol"), &root.join("protocol"), &["compiled", "probes"]);
+    std::fs::create_dir_all(root.join("driver")).unwrap();
+    std::fs::copy(repo().join("driver/canon-pin.json"), root.join("driver/canon-pin.json")).unwrap();
+    let stub = root.join("canon-stub");
+    let version = canon_pin()["version"].as_str().unwrap().to_string();
+    std::fs::write(&stub, format!("#!/bin/sh\ncase \"$1\" in --version) echo 'canon {version}';; compile) echo '{{}}';; esac\n")).unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (root, stub)
+}
+
+fn check_protocols(root: &Path, stub: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
+    let mut c = Command::new("bash");
+    c.arg(root.join("scripts/check-protocols.sh")).args(args).env("CANON", stub);
+    for (k, v) in env {
+        c.env(k, v);
+    }
+    c.output().unwrap()
+}
+
+#[test]
+fn protocol_fast_lane_passes_on_the_committed_ledger() {
+    let (root, stub) = protocol_tree("proto-green");
+    let o = check_protocols(&root, &stub, &[], &[]);
+    assert_eq!(o.status.code(), Some(0), "{}{}", stdout(&o), String::from_utf8_lossy(&o.stderr));
+    assert!(stdout(&o).contains("lane: fast"));
+}
+
+#[test]
+fn protocol_fast_lane_fails_on_a_hand_edited_ledger_result() {
+    let (root, stub) = protocol_tree("proto-edit");
+    let ledger = root.join("protocol/check-ledger.json");
+    let text = std::fs::read_to_string(&ledger).unwrap();
+    let edited = text.replacen("0 findings", "7 findings", 1);
+    assert_ne!(text, edited);
+    std::fs::write(&ledger, edited).unwrap();
+    let o = check_protocols(&root, &stub, &[], &[]);
+    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+    assert!(stdout(&o).contains("edited by hand"), "{}", stdout(&o));
+    let simulate = text.replacen("terminable 54", "terminable 55", 1);
+    assert_ne!(text, simulate);
+    std::fs::write(&ledger, simulate).unwrap();
+    assert_eq!(check_protocols(&root, &stub, &[], &[]).status.code(), Some(1));
+}
+
+#[test]
+fn protocol_record_and_repin_refuse_simulate_off() {
+    let (root, stub) = protocol_tree("proto-off");
+    for flag in ["--record", "--repin"] {
+        let o = check_protocols(&root, &stub, &[flag], &[("SDC_SIMULATE", "off")]);
+        assert_eq!(o.status.code(), Some(2), "{flag}: {}", stdout(&o));
+        assert!(stdout(&o).contains("SDC_SIMULATE=off"), "{flag}: {}", stdout(&o));
+    }
+}

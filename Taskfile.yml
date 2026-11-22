@@ -7,10 +7,11 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the CI change classifier and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the protocol checks (fast lane), the CI change classifier and the planning store.
     cmds:
       - task: check:ci-paths
       - task: check:cycles-suite
+      - task: check:protocols
       - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
       - task: test:driver
       - for c in watch goals runbook; do (cd "$c" && cargo test --locked) || exit 1; done
