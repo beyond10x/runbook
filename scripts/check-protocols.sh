@@ -217,12 +217,20 @@ done
 # each other through the build pool (one slot each).
 pids=()
 parts_of() { if [[ $probe_names == *" $1 "* ]]; then echo "check probe"; else echo check; fi; }
+# The slow, record and repin lanes name the time of a unit (the pool ends a job after 10 minutes
+# unless it names more; at most 30 minutes). The fast lane keeps the pool's default limit.
+unit_timeout=()
+(( lane_slow || record )) && unit_timeout=(--timeout 30m)
 for name in "${names[@]}"; do
   [[ -n ${stale[$name]:-} ]] || continue
   for part in $(parts_of "$name"); do
     if command -v slot > /dev/null 2>&1; then
-      slot run --tokens 1 -- bash "$sdc/scripts/check-protocols.sh" --unit "$name" "$part" "$work" "$repin" \
-        > "$work/$name.$part.slot" 2>&1 &
+      (
+        rc=0
+        slot run "${unit_timeout[@]}" --tokens 1 -- bash "$sdc/scripts/check-protocols.sh" --unit "$name" "$part" "$work" "$repin" \
+          > "$work/$name.$part.slot" 2>&1 || rc=$?
+        echo "$rc" > "$work/$name.$part.rc"
+      ) &
       pids+=($!)
     else
       bash "$sdc/scripts/check-protocols.sh" --unit "$name" "$part" "$work" "$repin" \
@@ -237,6 +245,10 @@ for name in "${names[@]}"; do
     ok=1; secs=0
     for part in $(parts_of "$name"); do
       cat "$work/$name.$part.log" 2> /dev/null || cat "$work/$name.$part.slot"
+      if [[ $(cat "$work/$name.$part.rc" 2> /dev/null || true) == 124 ]]; then
+        echo "unit $name.$part ended at the pool's run limit"
+      fi
+      if [[ -f $work/$name.$part.sec ]]; then echo "unit $name.$part: $(cat "$work/$name.$part.sec") s"; fi
       if [[ ! -f $work/$name.$part.json ]] || [[ $(jq -r .ok "$work/$name.$part.json") != true ]]; then
         echo "FAILED: $name ($part)"; ok=0; fail=1
       fi
