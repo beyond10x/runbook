@@ -3910,6 +3910,107 @@
       "tree": "99f56179428ee272acb894535f852bca93275d56",
       "tree_note": "tag 0.2.1 at main 99f5617: 0.2.0 (6cde564) with the fix e46a237, the record of 0.2.0 (60b8d3e) and the preparation",
       "version": "0.2.1"
+    },
+    {
+      "changes": [
+        {
+          "commit": "be5eafa",
+          "effect": "none",
+          "experiment": null,
+          "line": "the tools run under Loom's program contract and moved to bindings/tools/, the driver unchanged"
+        },
+        {
+          "commit": "622819b",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "the instructions of the agent nodes and the decider are files under instructions/, 40 golden prompts"
+        },
+        {
+          "commit": "eae2cca",
+          "effect": "none",
+          "experiment": null,
+          "line": "Canon 0.10.0 is pinned and every script checks it"
+        },
+        {
+          "commit": "ea5f0e0",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "change.implement as one request behind SDC_IMPLEMENT_MODE, session by default"
+        },
+        {
+          "commit": "2e51628",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "context, roadmap and release approvals taken by program checks behind SDC_RULE_APPROVALS, off by default"
+        },
+        {
+          "commit": "57ec6f9",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "change.review on the smallest fact set behind SDC_REVIEW_MODE, session by default"
+        },
+        {
+          "commit": "5c2a55f",
+          "effect": "unmeasured",
+          "experiment": null,
+          "line": "change.implement cites its requirements behind SDC_IMPLEMENT_COVERAGE, off by default"
+        },
+        {
+          "commit": "f82aa7c",
+          "effect": "none",
+          "experiment": null,
+          "line": "the tools run ess 0.96.0 whatever ess is on PATH"
+        },
+        {
+          "commit": "b6f7225",
+          "effect": "none",
+          "experiment": null,
+          "line": "the runbook command with doctor, list and --version"
+        },
+        {
+          "commit": "dd3766b",
+          "effect": "none",
+          "experiment": null,
+          "line": "the bug-fix runbook starts from a ticket and works on a repository of any language"
+        }
+      ],
+      "date": "2026-11-22",
+      "experiments": [],
+      "id": "0.3.0",
+      "kind": "release",
+      "label": "0.3.0",
+      "limits": [
+        "No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.",
+        "The four switches are registered in experiment records that have no run."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": null,
+      "tree_note": "not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation",
+      "version": "0.3.0"
     }
   ],
   "format": "sdc.progress/1",
@@ -4658,7 +4759,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "bd85e9db992a352c758e4f8812b5e5cff7df2d5df5be77d316414778a1c996dc"
+      "sha256": "28d859a9ca4d260e23923c0eef8bf4618fd18d9b009549cb1a18c33a007184f4"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
