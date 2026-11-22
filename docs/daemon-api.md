@@ -160,8 +160,11 @@ runbook serve [--listen ADDR] [--state-dir DIR] [--context-root DIR]... [--runbo
               [--min-confinement local|linux] [--token-file FILE] [--ui]
 ```
 
-In this version the runtime behind the daemon is a stub: a run is scripted, it asks one question
-and ends, and nothing is executed. The daemon says so on standard error when it starts. It prints
+In this version the runtime behind the daemon is a stub: a run is scripted, it records one note
+and ends, and nothing is executed. One preset waits: the runbook `stub-decision` raises two decision
+requests at once (the question is the run's intake, the options are A and B), waits until both are
+answered, records `stub.answered` and ends `approved`; it is how a client or the web page is tried
+against a run in `WaitingOnDecision`. The daemon says so on standard error when it starts. It prints
 `runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM;
 open event streams are closed then (see "Event streams").
 
@@ -267,14 +270,32 @@ Without `--ui`, `GET /` is `404`.
   compares a presented cookie with that value in constant time, for `GET` and `HEAD` only; the value is
   no bearer token, and a cookie never authorizes a command (`POST`). The cookie has no `Secure`
   attribute because the daemon speaks plain http only, and a login over a non-loopback address sends the
-  token in clear: the page is meant for loopback or a tunnel (ssh, a VPN). The browser's answer to a
-  decision will need its own header rule (`answer-decision` is not in this slice).
+  token in clear: the page is meant for loopback or a tunnel (ssh, a VPN).
+- A command from the page. The page answers a decision with `answer-decision`, the command `runbook
+  decide` sends: `POST /daemon/commands/answer-decision`, `Content-Type: application/json`, and
+  `Authorization: Bearer <token>` when the daemon has a token, from the page's own origin, with no
+  cookie (the page sends the command without credentials). It goes through the same guard as every
+  route: a request from another origin is `403` with a token and without one, a cookie alone is `401`,
+  a body that is not JSON is `415`. The token is typed into the page and lives in the memory of the
+  page only: in no cookie, not in `localStorage`, `sessionStorage` or `IndexedDB`, not in a URL, the
+  history state or the DOM (the field is emptied as soon as it is read). A reload forgets it: the page
+  reads again (the cookie) and asks for the token before its next command, once. A wrong token is
+  answered `401`, the page shows the daemon's message and sends nothing again by itself. A daemon with
+  no token (loopback only) takes the command without a bearer, and the page asks for none; it finds out
+  with one read of `GET /daemon/views/configuration` without credentials (`401` means a token is
+  needed). The daemon authenticates no principal, so the form asks for a name and sends it as
+  `answered_by`: a label, as with `--by`.
 - What the page shows. Served by the daemon, it reads `GET /daemon/views/runs` for the list of runs and
   `GET /daemon/views/daemon-events` as a stream (`Accept: text/event-stream`, resumed by position) for
-  the events of every run; the feed of the selected run is the events of that run. The case tree, the
-  graph, the phases and the decisions drawer need views the daemon does not have yet: the inventory is in
-  the story `ui-embedded-in-the-binary`, section "Slice 1". Served by `ui/server.mjs`, the page reads
-  that server as before.
+  the events of every run; the feed of the selected run is the events of that run. The Decisions drawer
+  lists the open decision requests of the selected run, read from `GET /daemon/views/open-decisions`:
+  the question and each option as the view has them (letter, what it does, cost, what it admits and
+  blocks), and an answer is one option or free text. The view does not carry the case, the action or
+  the capability of a request, so the page does not show which step asked. The daemon records no event
+  when a run starts to wait or goes on, so the page reads the runs and the open decisions again after
+  its own answer and every two seconds while it is visible. The case tree, the graph and the phases need
+  views the daemon does not have yet: the inventory is in the story `ui-embedded-in-the-binary`, section
+  "Slice 1". Served by `ui/server.mjs`, the page reads that server as before.
 
 ## Conformance
 
