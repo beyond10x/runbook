@@ -50,6 +50,9 @@
   no new bash tool is added, and each is retired by a Rust binary or by Loom.
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
+- The UI test step is `task test` in `ui/` (Playwright, four workers, 60 s a test, 120 s the run, the ten
+  slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
+  ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate
   confinement and process start (`docs/layers.md:47-52`). A capability missing in one of them is

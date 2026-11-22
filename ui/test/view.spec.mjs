@@ -1,7 +1,7 @@
 // The inspector over a runbook that is not SDC. A second runbook (test/second-runbook.mjs: protocol
 // triage.ticket, three actions, files, a record of its own and a decision of its own) is served by four
-// servers of this file, started once for all its tests, each on a free port (no fixed port: a probe
-// finds one, so two runs on one machine do not meet):
+// servers of this file, started once for all its tests, each on a port the kernel gives (test/serve.mjs),
+// so two runs on one machine do not meet:
 //   none      --no-view: one flat list of the protocols found in the store, no phase grouping, no SDC label,
 //             and the page says which view is missing
 //   two       --view <file> of two phases, a parser of asks.yaml and the decision of answering an ask: its
@@ -14,11 +14,11 @@
 // matches, a parser from the view, a tool owner from the view.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync, execFileSync} from 'node:child_process';
-import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {writeSecondRunbook, SECOND, SECOND_VIEW, ASKS} from './second-runbook.mjs';
+import {startServer} from './serve.mjs';
 import {setView, getView, checkView, fileKindOf, phaseItems} from '../web/view.js';
 import {classify, meaningOf} from '../web/meaning.js';
 import {missingPrograms, principalOk, waitsOnScope, scopeQuestions, amendStall} from '../decisions.mjs';
@@ -32,12 +32,6 @@ const port = {};
 let hasYq = true;
 try { execFileSync('yq', ['--version'], {stdio: 'ignore'}); } catch { hasYq = false; }
 
-const freePort = () => new Promise((resolve, reject) => {
-  const s = net.createServer();
-  s.on('error', reject);
-  s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
-});
-const up = async (p) => { for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${p}/api/sources`); return; } catch { await new Promise((x) => setTimeout(x, 100)); } } throw new Error(`no server on ${p}`); };
 const url = (k, p = '') => `http://127.0.0.1:${port[k]}${p}`;
 const asks = (dir, id = 'T-2') => path.join(dir, 'store', id, 'work', SECOND.ask.file);
 
@@ -57,9 +51,9 @@ test.beforeAll(async ({}, info) => {
     foreign: [['--view', path.join(ui, '..', 'views', 'sdc.view.json')], store],
   };
   for (const [k, [extra, st]] of Object.entries(plan)) {
-    port[k] = await freePort();
-    servers.push(spawn(process.execPath, ['server.mjs', '--port', String(port[k]), ...extra, st], {cwd: ui, stdio: 'ignore'}));
-    await up(port[k]);
+    const s = await startServer([...extra, st]);
+    port[k] = s.port;
+    servers.push(s.proc);
   }
 });
 test.afterAll(() => { for (const s of servers) s.kill(); });
