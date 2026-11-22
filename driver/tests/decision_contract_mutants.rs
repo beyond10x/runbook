@@ -87,7 +87,7 @@ fn an_inverted_decide_guard_is_killed() {
 fn a_decide_guard_that_holds_for_a_person_only_is_killed() {
     let weak = DECIDE_GUARD.replacen("when: defined(option)", "when: {all: [defined(option), principal_kind == person]}", 1);
     if let Ok(()) = survives("decide-person-only", Some((DECIDE_GUARD, &weak))) {
-        panic!("OptionNotOffered held for a person only and all 19 scenarios still passed: a decider or a rule that decides an unoffered letter is not tested");
+        panic!("OptionNotOffered held for a person only and every authored scenario still passed: a decider or a rule that decides an unoffered letter is not tested");
     }
 }
 
@@ -95,6 +95,6 @@ fn a_decide_guard_that_holds_for_a_person_only_is_killed() {
 fn a_recommend_guard_that_holds_for_a_strong_recommendation_only_is_killed() {
     let weak = RECOMMEND_GUARD.replacen("defined(recommended_option)]", "defined(recommended_option), strength == strong]", 1);
     if let Ok(()) = survives("recommend-strong-only", Some((RECOMMEND_GUARD, &weak))) {
-        panic!("OptionNotOffered held for a strong recommendation only and all 19 scenarios still passed: a weak or moderate recommendation of an unoffered letter is not tested");
+        panic!("OptionNotOffered held for a strong recommendation only and every authored scenario still passed: a weak or moderate recommendation of an unoffered letter is not tested");
     }
 }
