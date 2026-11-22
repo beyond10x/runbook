@@ -191,7 +191,7 @@ tasks:
       - driver/target/debug/sdc-check-unreferenced
 
   check:ess-generated:
-    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.3`); from the repository root the ess dispatcher does not switch to it."
+    desc: "Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output, its authored conformance suite and its synthesized conformance suite (the digest of its sources) are current. Every ess command runs inside ess/, where ess-inputs.yaml pins the release (`requires: ess 0.97.4`); from the repository root the ess dispatcher does not switch to it."
     dir: ess
     cmds:
       - ess specify validate --path .
