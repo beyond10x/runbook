@@ -259,6 +259,13 @@ fn schemas() -> PathBuf {
     if ready.join("schema").is_dir() {
         return ready.join("schema");
     }
+    // Under plain `cargo test` the tests are threads of one process: one builds, the others wait
+    // for it and find the schemas in place (the build directory is named by the process).
+    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one_at_a_time = BUILDING.lock().unwrap_or_else(|e| e.into_inner());
+    if ready.join("schema").is_dir() {
+        return ready.join("schema");
+    }
     fs::create_dir_all(&cache).unwrap();
     let build = cache.join(format!("{key}.build-{}", std::process::id()));
     let _ = fs::remove_dir_all(&build);
