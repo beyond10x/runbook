@@ -69,6 +69,9 @@
     "change.built": {
       "value": "true"
     },
+    "change.coverage_refused": {
+      "value": "false"
+    },
     "change.merged": {
       "value": "unknown"
     },
@@ -158,6 +161,15 @@
       }
     },
     "claims": {
+      "change.coverage_refused": {
+        "because": [
+          {
+            "evidence": "i1",
+            "status": "applied"
+          }
+        ],
+        "value": "false"
+      },
       "change.merged": {
         "because": [
           {
@@ -270,7 +282,7 @@
         "i1"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.10.0",
         "format": "canon-decision/1"
@@ -391,5 +403,5 @@
     ]
   },
   "protocol": "sdc.story",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }

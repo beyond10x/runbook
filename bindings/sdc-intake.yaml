@@ -1,5 +1,5 @@
 format: loom.bindings/1
-protocol: sdc-intake@9
+protocol: sdc-intake@10
 program_root: bindings
 artifacts:
   idea: idea.yaml
@@ -52,6 +52,14 @@ actions:
       argv: [tools/llm-node.sh, questions.answer, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.answer.md"}', --stub, stub-file, questions-answered.yaml, questions.yaml]
     budget: {max_runs: 3}
     timeout_seconds: 900
+    retry_when:
+      answer_applied: [refused]
+    evidence:
+      - kind: answer_applied
+        subject: questions
+        producer: llm-node
+        from: exit
+        results: {"0": null, "1": refused}
   - action: questions.check
     executor:
       kind: program

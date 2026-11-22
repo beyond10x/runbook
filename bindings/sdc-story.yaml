@@ -1,5 +1,5 @@
 format: loom.bindings/1
-protocol: sdc-story@7
+protocol: sdc-story@8
 program_root: bindings
 artifacts:
   spec: spec
@@ -27,6 +27,7 @@ actions:
     budget: {max_runs: 3}
     timeout_seconds: 1500
     retry_when:
+      implementation_change: [coverage_refused]
       conformance_run: [failed]
       code_review: [rejected]
       merge_approval: [rejected]
@@ -35,7 +36,7 @@ actions:
         subject: change
         producer: llm-node
         from: exit
-        results: {"0": null}
+        results: {"0": null, "8": coverage_refused}
         upstream: [spec]
   - action: tests.run
     executor:

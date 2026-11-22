@@ -311,7 +311,7 @@
         "s1"
       ],
       "protocol": "sdc.intake",
-      "protocol_revision": 9,
+      "protocol_revision": 10,
       "semantics": {
         "canon": "0.10.0",
         "format": "canon-decision/1"
@@ -417,5 +417,5 @@
     }
   },
   "protocol": "sdc.intake",
-  "protocol_revision": 9
+  "protocol_revision": 10
 }

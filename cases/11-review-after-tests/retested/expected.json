@@ -10,6 +10,7 @@
   },
   "claims": {
     "change.built": "true",
+    "change.coverage_refused": "false",
     "change.merged": "unknown",
     "change.review_recorded": "unknown",
     "change.reviewed": "unknown",

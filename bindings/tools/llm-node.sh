@@ -957,5 +957,13 @@ else
   echo "llm-node: $node: the model call exited $acode: $(jq -r '.terminal_reason // .error // "no reason given" | tostring' "$rec/response.json" 2>/dev/null | head -c 300)"
 fi
 
+# Under Loom no sdc-drive runs the binding's postcondition, so the same program check runs here,
+# after the writer: sdc-reply check-coverage (the one copy of the rule). Exit 1 is this run's exit
+# 8, which the binding records as implementation_change coverage_refused (the writer is sent back,
+# no conformance run is due); the check's output is the run's output and so the next run's feedback.
+if [[ -n ${LOOM_CASE:-} && $coverage == on && $code == 0 && $adapter != dry ]]; then
+  "$reply_bin" check-coverage --work "$work" --tree "$work/impl"; pc=$?
+  case $pc in 0) ;; 1) code=8 ;; *) code=126 ;; esac
+fi
 log_call
 exit $code

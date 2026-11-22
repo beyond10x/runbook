@@ -1,7 +1,7 @@
 format: protocol/1
 protocol:
   id: sdc.intake
-  revision: 9
+  revision: 10
   description: >-
     Turn an idea into a requirements list (docs/phases.md steps 1 to 3). The idea record is checked against its schema; the idea is dissected into typed items (fact, wish, belief, unknown, ambiguity, dark spot), each citing its span of the idea; every open item becomes an interview question with a default answer, accepted as is or changed, every scope-changing one through the action scope.answer, which needs the capability scope.answer (the runtime grants it per autonomy level: a person at A0 to A2, a decider at A3 and up); the answers are normalised into a requirements list. Every result is a program's exit status, never an LLM's word. A revised dissection invalidates the interview check, a revised interview the requirements check. A revised idea opens a new intake case (the root's intake.open is bound to the idea revision), so this case declares no invalidation from the idea. The case ends passed, or refused when the idea record fails its schema check (nothing here revises the idea); abandoning the idea is the root case's decision. Late findings (docs/trial-2.md, "The late-finding loop"): the requirements check also reads the open findings and is not valid while one is open; amend.upstream resolves them by amending the questions and the requirements list.
 artifacts:
@@ -35,6 +35,9 @@ evidence_kinds:
   questions_settled:
     description: >-
       the interview check: every open item (belief, unknown, ambiguity, dark spot) has exactly one question, every question is answered accepted or changed, every scope-changing one through scope.answer (its answered_by names the principal that took that action, never the agent's non-interactive); its result is settled, open or needs_scope_answer
+  answer_applied:
+    description: >-
+      the run of questions.answer: its result is empty when the answers were applied, refused when the apply step refused them (a scope-changing question changed, nothing applied); the refusal is the run's output, handed to the writer on its next run
   requirements_shape:
     description: >-
       the requirements check: schema-valid, every requirement cites a fact, a wish or an answer; no open finding; its result is valid, invalid or finding
@@ -179,6 +182,8 @@ actions:
               is: "false"
             - claim: questions.settled
               is: unknown
+    may_produce:
+      - evidence: answer_applied
   scope.answer:
     description: >-
       answer the scope-changing questions: the principal holding scope.answer (a person, or a decider at the autonomy levels that grant it) accepts each default or changes it, and its answers are recorded with that principal; moves the questions to a new revision; not once the interview is settled. Admissible on an interview whose shape is not checked yet (r6): the person's own edit of an answer moves the questions to a revision no check has seen, and scope.answer is what takes that edit; questions.check runs on the revision it writes. Not on an interview found invalid.

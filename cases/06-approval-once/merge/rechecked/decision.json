@@ -63,6 +63,15 @@
       ],
       "value": "true"
     },
+    "change.coverage_refused": {
+      "excluded_evidence": [
+        {
+          "evidence": "i1",
+          "reason": "revision_mismatch"
+        }
+      ],
+      "value": "false"
+    },
     "change.merged": {
       "value": "unknown"
     },
@@ -176,6 +185,20 @@
       }
     },
     "claims": {
+      "change.coverage_refused": {
+        "because": [
+          {
+            "evidence": "i1",
+            "reason": "revision_mismatch",
+            "status": "excluded"
+          },
+          {
+            "evidence": "i2",
+            "status": "applied"
+          }
+        ],
+        "value": "false"
+      },
       "change.merged": {
         "because": [
           {
@@ -302,7 +325,7 @@
         "t2"
       ],
       "protocol": "sdc.story",
-      "protocol_revision": 7,
+      "protocol_revision": 8,
       "semantics": {
         "canon": "0.10.0",
         "format": "canon-decision/1"
@@ -387,5 +410,5 @@
     ]
   },
   "protocol": "sdc.story",
-  "protocol_revision": 7
+  "protocol_revision": 8
 }
