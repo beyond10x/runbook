@@ -860,7 +860,7 @@
     },
     {
       "path": "docs/releases/0.3.1.md",
-      "sha256": "057387329e5e2d25237a51f4f6af3c230d1c7760df1bf5e21e2e81aea2507311"
+      "sha256": "1c861dd274f2e35f0d7cda1c2f5966192e04e59ca1ac69f2f1e6c75f1511bc20"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
