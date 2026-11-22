@@ -83,7 +83,7 @@ needed by a run). The reason: `b10x-loom` gives every bound program the `PATH` t
 started with, and the model nodes of the bindings (`sdc-node`) call `sdc-reply` too, so a directory
 on `PATH` reaches the decider and the nodes, and a `decider.reply_bin` would reach the decider only.
 `decider.reply_bin` stays accepted in the file for a caller that does not control `PATH`.
-The decider runs inside the runner and starts no `decider.sh`, `jq`, `yq` or `rsync`: `jq` is needed
+The decider runs inside the runner and starts no `jq`, `yq` or `rsync`: `jq` is needed
 only by the bash adapters it starts; the shell programs of the bindings (`sdc-node`,
 `sdc-tool.sh`, the adapters) still need `jq` and `yq`.
 

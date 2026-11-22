@@ -1,6 +1,6 @@
 # Where Canon ends: the SDC driver as a case study
 
-Question (the operator, 2026-11-20): which of the things `sdc-drive` does should move to something more
+Question (the operator, 2026-11-20): which of the things the driver does should move to something more
 general, Canon or a generic layer, and is it right to keep Canon "just the kernel, the engine"
 with everything specific on top.
 
@@ -27,7 +27,7 @@ The boundary:
    workflow engine; … an event store; … a CI runner").
 4. A generic runtime layer is needed, and it already exists by decision: Loom's L3 governed runtime
    (ADR 0090, ADR 0096). Do not create a new repository or a new crate in Canon for it.
-5. Most of `sdc-drive` is that runtime: case store, revisions, event log, evaluation calls,
+5. Most of the driver is that runtime: case store, revisions, event log, evaluation calls,
    selection, budgets, tool invocation, observation-to-evidence, authority and decision recording,
    termination. Loom has almost all of it; the driver is the fourth copy beside Loom, takt and
    `metaharness aep drive` (ADR 0096, ADR 0104).
@@ -123,7 +123,7 @@ the bound changed what the protocol means. ADR 0094 records the same for
   Usefulness and revision-bound authority are pure and generic; leaving them out pushes them into
   every runtime, where takt, Loom and this driver each solve them differently (rows 9, 22).
 - "Everything else specific on top" skips the middle layer, and that layer is the real risk. Most
-  of `sdc-drive` is neither kernel nor engineering (section 1). The architecture already names its
+  of the driver is neither kernel nor engineering (section 1). The architecture already names its
   owner, Loom L3 (ADR 0090, ADR 0096); ADR 0096's own context lists takt carrying "its own case,
   frontier and protocol runtime beside Loom's" (ADR 0096). A sixth runtime in sdc repeats that.
 - So I agree with driver.md:19-22 (target home Loom), with one change of order: the missing piece

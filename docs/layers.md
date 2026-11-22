@@ -1,5 +1,13 @@
 # Layers: Canon, Loom, SDC on Substrate
 
+**State now.** The runtime of a case is Loom's. `runbook run` (`docs/loom-run.md`) runs a case tree
+through Loom, as a library in its own process or through the `b10x-loom` binary, and the daemon's
+engine makes the same library calls (`docs/engine.md`). The runtime copy that `driver/` held (case
+store, event log, action selection, child cases) is deleted. `driver/` is the crate `sdc-tools`: the
+programs the bindings run and the tools around runs (`sdc-node`, `sdc-findings`, `sdc-reply`,
+`sdc-experiment`, and the others in `driver/Cargo.toml`). The analysis below is dated 2026-11-20,
+when the driver was still a runtime; "the driver" in it means that former runtime.
+
 Question (the operator, 2026-11-20): Canon, Loom and the SDC have blurred layers. (a) What exactly is a
 binding, and could Canon ship a default one? (b) One `substrate` layer should decide which outbound
 connections are allowed and should start and stop every process, so that everything can run
@@ -203,7 +211,7 @@ Top three changes, by value per cost:
    (`loom-sdk/src/lib.rs:99-117`).
 9. **Loom: extend `intake.bindings` into `loom.bindings/1`**, adding the result table, `revises`,
    the executor kind and a profile delta, so that `sdc/driver/examples/sdc/bindings.json` becomes a
-   Loom file and `sdc-drive` loses its spawn (`main.rs:522`). Value: it removes the fourth runtime
+   Loom file and the former driver loses its spawn (`main.rs:522`). Value: it removes the fourth runtime
    copy (`boundary.md:30-33`), and the SDC gets confinement, timeouts and a cleared environment for
    free (violation 1). Cost: moderate. The format and its ESS domain exist (`bindings.yaml`); result
    tables are new (`loom-sdk-and-agent-node.md:73`). Do it after change 8, so the format is born

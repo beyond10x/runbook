@@ -9,7 +9,7 @@ Addition (the operator, 2026-11-21): eval runs always run at the highest level, 
 decision (§ 3.4).
 
 Read on 2026-11-21: `sdc/docs/{driver,kpis,layers,trial-1,eval-design}.md`,
-`sdc/scripts/run-trial.sh`, `sdc/bindings/tools/{decider.sh,sdc-tool.sh}`, the eight
+the trial script `sdc/scripts/`, the shell decider and `sdc-tool.sh` of `sdc/bindings/tools/`, the eight
 `sdc/protocol/*.protocol.yaml` (authority lines), `research/literature/papers/{2609.00252,
 2611.06946,2611.10058,2609.24234}.md`, `research/literature/DISTILLATION.md`, and the web sources
 in § 1. Searched without hits for a levels scale: `swarm/`, `agency/`,
@@ -200,7 +200,7 @@ as auto-approval and interruption data from Claude Code sessions. It is a lead f
 
 ### 2.1 Levels
 
-The decider is the LLM decider of `tools/decider.sh` (`SDC_DECIDER=model`, principal `decider:model` whatever the model; `haiku` is its old name, D149). A rule is a program
+The decider is the LLM decider (`runbook/src/loom_run/decider/`; `SDC_DECIDER=model`, principal `decider:model` whatever the model; `haiku` is its old name, D149). A rule is a program
 that decides deterministically from evidence.
 
 | Level | Name | Adapts | Departs | One line |
@@ -277,7 +277,7 @@ Rules named in the table *(inferred: proposed, not built)*:
   `limits.hard`. The second overrun stops the run for a person.
 - **Limits are never the decider's.** A limit hit is enforced by Loom and Substrate. No LLM can
   raise one, at any level.
-- **Reject at A5.** A decider `reject` ends the run as refused (`run-trial.sh` exit 6), with the
+- **Reject at A5.** A decider `reject` ends the run as refused (exit 6 of the former trial script), with the
   decision recorded. It records no `explicitly_abandoned`: abandoning stays a person's decision.
 - **No usable result under a final holder.** Under `decider_final` and `rule_and_decider_final`,
   a decider result that is missing, failed, or withheld by the grounding check decides the
@@ -328,11 +328,11 @@ that are not comparable (such as `rule` to `decider`), is a raise. The rules:
 
 | Level | When | What |
 |---|---|---|
-| A0 | at each decision | the decision request (today's `next` message and `sdc-drive approve` command) |
+| A0 | at each decision | the decision request (then the driver's `next` message and `approve` command) |
 | A1 | at each decision | the same, plus the decider's proposal, reasons and cites; after the decision, agreement yes or no in `decisions.jsonl` |
 | A2 to A4 | at every stop for a person, and at the end | a **decision digest** since the last contact. Per decision: class, case, subject at revision, holder, decision, reasons, cites, cost. Plus escalations with their reasons, budget extensions and limit hits (Sheridan 7: act, then necessarily inform). The person can reverse a decision by revising the subject (`context.change`, a new roadmap revision); reversals are counted (R23) |
 | A4 additionally | at the release stop | the merge report per story: diff stat, scope fence result, test and review records, decider reasons |
-| A5 | at the end only | the run report: every decision, every suppressed escalation with the decider's `best` and reasons, every limit hit and budget event, the KPIs of § 5. Nothing is pushed during the run (Sheridan 8: on request, `sdc-drive status`) |
+| A5 | at the end only | the run report: every decision, every suppressed escalation with the decider's `best` and reasons, every limit hit and budget event, the KPIs of § 5. Nothing is pushed during the run (Sheridan 8: on request, the driver's `status`) |
 
 ### 2.5 Loom and Substrate limits per level
 
@@ -340,7 +340,7 @@ that are not comparable (such as `rule` to `decider`), is a raise. The rules:
 |---|---|---|---|---|---|
 | Confinement of agent nodes and the decider (`revises` paths only, no egress, Substrate profile) | always | always | always | always | always |
 | Run budget (LLM calls, USD, wall) | small: a person is there at each stop | small | medium, one extension by rule | medium, one extension by rule | hard and final; reaching it ends the run (`budget_spent`) |
-| Kill switch (`sdc-drive stop`, lock) | yes | yes | yes | yes | yes (Feng L5 off switch) |
+| Kill switch (the driver's `stop`, lock) | yes | yes | yes | yes | yes (Feng L5 off switch) |
 | Fail mode on a confinement refusal, or an injection finding in outside text (ticket, issue) | stop, ask | stop, ask | fail closed: branch stops, event | fail closed | fail closed: run ends |
 | Merge aperture (write `mainline/`, push a branch) granted to the runtime's effect | after a person's grant | same | same | after the merge rule | after the merge rule |
 | Protected paths enforced at merge | review by person | same | same | rule (Substrate sealed paths for agents, plus the merge rule) | rule |
@@ -441,7 +441,7 @@ $ sdc run --eval --idea-file eval/ideas/billing.yaml
 
 | Entry | Opens | Notes *(inferred)* |
 |---|---|---|
-| `--idea "<sentence>"` | root case with `idea.yaml` = the sentence | today: `scripts/run-trial.sh <name> "<idea>"` |
+| `--idea "<sentence>"` | root case with `idea.yaml` = the sentence | today: `runbook run <runbook> --intake <file> --run <name> …` (`docs/loom-run.md`) |
 | `--ticket <ref>` | root case with `idea.yaml` from the ticket's title and body, plus `source: <ref>` | Ticket text is outside input: it is scanned for injection before an agent reads it, and the scan fails closed from A3 up. Answers the ticket already gives are recorded as `answered_by: ticket:<author>`, which counts as a person's answer only if that author holds `scope.answer` |
 | `--continue <run>` | resumes the tree | Without `--autonomy` the stored level holds. A change is recorded as an event `autonomy_changed {from, to, by}`. Lowering applies at once. Raising applies only to decisions not yet taken. Grants already given stay, bound to their revision |
 | `--eval` | as `--idea`/`--ticket` | forces A5, refuses `person` and `advised` overrides, and reports into the eval report |
@@ -451,8 +451,8 @@ Mapping to today's switches:
 | Level | Switches |
 |---|---|
 | A0 | `SDC_DECIDER=person` |
-| A5 | `SDC_DECIDER=model SDC_DECIDER_ESCALATE=final`; built 2026-11-21 as `SDC_AUTONOMY=A5` or `scripts/run-trial.sh … --autopilot`: refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
-| A1 to A4 | `run-trial.sh` does not route by class (`SDC_AUTONOMY=A1`..`A4` is recorded and the run behaves as `SDC_DECIDER` says). `runbook run` does: the decider takes a decision of a class the table of § 2.2 gives to `decider`, read from `tools/autonomy-levels.json` (`sdc.autonomy-levels/1`: per level a holder per class, kept equal to § 2.2 by a test), and every other class stops the run for a person. The merge at A4 (`rule_and_decider`) is not the decider's alone, because the merge rule is not built. A missing or unreadable table stops every decision for a person. See `docs/loom-run-decisions.md` |
+| A5 | `SDC_DECIDER=model SDC_DECIDER_ESCALATE=final`; built 2026-11-21 in the former trial script as `SDC_AUTONOMY=A5` or its `--autopilot` (not ported as that flag; the runner's settings are in `docs/loom-run-settings.md`): refuses `SDC_DECIDER=person`, sets escalate final, the decider takes scope answers and findings, and a stop that needs a person ends the run (exit 7, stop record by `rule:autopilot`) |
+| A1 to A4 | the former trial script did not route by class (`SDC_AUTONOMY=A1`..`A4` is recorded and the run behaves as `SDC_DECIDER` says). `runbook run` does: the decider takes a decision of a class the table of § 2.2 gives to `decider`, read from `tools/autonomy-levels.json` (`sdc.autonomy-levels/1`: per level a holder per class, kept equal to § 2.2 by a test), and every other class stops the run for a person. The merge at A4 (`rule_and_decider`) is not the decider's alone, because the merge rule is not built. A missing or unreadable table stops every decision for a person. See `docs/loom-run-decisions.md` |
 
 `SDC_AUTONOMY=A3` is the environment form. The level, where it came from (`SDC_AUTONOMY`,
 `--autopilot`, or derived: person A0, a final decider A5, otherwise none) and any stand-in are
@@ -495,9 +495,9 @@ written into each `run-settings.jsonl` line.
 | Part | Owner | Content |
 |---|---|---|
 | Which capability each decision needs; which reviews need independence | **Canon** (the protocols' `requires: capability` and `independent_on`) | Canon knows principals and capabilities only, never "person" or "LLM" or a level. Requested: grants bound to `case_revision` and `principal` (`driver.md` gap 1). Proposed: split `owner.approve` into `context.approve`, `vision.approve` and `roadmap.approve`, so a level can hand out one without the others. Today one grant admits all three. Also proposed: a `scope.answer` capability on `questions.answer` in place of the hard-coded `answered_by == "human"` (D1); a `stories.activate` action under `plan.approve` (gap 11); a separate `release.rollback` capability, so the rollback rule can hold it without holding `release.approve` |
-| Who holds each capability at a level; issuing grants; escalation; budgets and limits; events | **Runtime**: `sdc-drive` plus `run-trial.sh` today, Loom later (Mandate owns approval, Substrate enforces limits, `layers.md` § 5) | Resolves `sdc.autonomy/1` into a grant table. Grants as principal `decider:<model>`, `rule:<id>` or `person:<id>`. Runs the decider confined. Enforces the merge and rollback rules. Records `autonomy_resolved`, `decided`, `escalated`, `escalation_suppressed`, `limit_hit` and `autonomy_changed`. Chooses the Substrate profile and apertures per level (§ 2.5) |
+| Who holds each capability at a level; issuing grants; escalation; budgets and limits; events | **Runtime**: Loom (`runbook run`, `docs/loom-run.md`); the driver and the trial script were its stand-in (Mandate owns approval, Substrate enforces limits, `layers.md` § 5) | Resolves `sdc.autonomy/1` into a grant table. Grants as principal `decider:<model>`, `rule:<id>` or `person:<id>`. Runs the decider confined. Enforces the merge and rollback rules. Records `autonomy_resolved`, `decided`, `escalated`, `escalation_suppressed`, `limit_hit` and `autonomy_changed`. Chooses the Substrate profile and apertures per level (§ 2.5) |
 | Decision request types and the resolver (preset ⊕ overrides ⊕ admitted ceilings into one holder per class) | **Loom** | the `sdc.decision` types (`ess/domains/decision.yaml`) move into Loom. In Loom a decision class is an identifier validated against the classes document the host passes in; `budget_overrun` and `limit_hit` are built-ins. Eligible principals are handed in by the host. The inbox is a store plus CLI and SDK calls, not a service |
-| Level presets, decision classes, decider prompts per class, `escalate_when` defaults, KPIs, admitted ceilings | **SDC** (data) | the preset table, the classes document and the admitted ceilings are documents the host passes to Loom; SDC ships its own: `protocol/autonomy-levels.yaml`, `sdc.decision-classes/1`, `eval/admitted.yaml`. Also `tools/decider.sh` prompts and `docs/kpis.md` rows |
+| Level presets, decision classes, decider prompts per class, `escalate_when` defaults, KPIs, admitted ceilings | **SDC** (data) | the preset table, the classes document and the admitted ceilings are documents the host passes to Loom; SDC ships its own: `protocol/autonomy-levels.yaml`, `sdc.decision-classes/1`, `eval/admitted.yaml`. Also the decider prompts (`instructions/decider/`) and `docs/kpis.md` rows |
 
 Independence *(inferred)*: Canon's `different_principal` is satisfied by `decider:haiku` against
 an implementing `llm-node` session running the same model. A review by the same model family is

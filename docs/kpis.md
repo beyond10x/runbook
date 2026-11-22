@@ -1,5 +1,10 @@
 # SDC KPIs and the baseline suite
 
+**Record, in part.** Section 3 (the baseline suite, its commands and the baseline's pins) was
+written and measured on 2026-11-20 with the driver binary as the runtime, and names that binary as
+it was. The binary is deleted (`story:driver-runtime-removed`) and the runtime is Loom's
+(`docs/loom-run.md`). The KPI definitions and the readers of a run directory are current.
+
 Purpose (the operator, 2026-11-20): clear KPIs, and a standard suite that runs at any time. The effect of
 any change (protocol, binding, model, adapter, technique) then shows as a KPI delta against a
 baseline. Running the eval and seeing what changed is one command. Formulas and statistics are in
@@ -80,7 +85,7 @@ rule). Below that it is printed as "no verdict".
 | R1 | verified success rate | runs closed through the success outcome with every hidden oracle check `held` / N | `terminated.outcome` in `events.jsonl`; `oracle.json` | ↑ | ratchet (margin from `rule`) |
 | R2 | false-done rate | runs closed through success with an oracle check `contradicted` / runs closed through success | same | ↓ | gate at 0 on the scripted suite; ratchet on LLM suites |
 | R3 | regression rate | oracle checks held at open and failing at close / held at open | `oracle.json` before and after | ↓ | ratchet |
-| R4 | LLM calls | agent-node calls per run, and Σ `num_turns` | `calls.jsonl` lines, `num_turns` (landed, `llm-node.sh:262-270`); `action_started.llm` | ↓ | advisory |
+| R4 | LLM calls | agent-node calls per run, and Σ `num_turns` | `calls.jsonl` lines, `num_turns` (landed in the model node); `action_started.llm` | ↓ | advisory |
 | R5 | tokens | median input+output tokens per run | `calls.jsonl` `usage`; Loom metering later (`loom/AGENTS.md:159`) | ↓ | ratchet: median ≤ saved max (takt's rule) |
 | R6 | cost per verified success | Σ `cost_usd` / successes; `cost_basis` = provider-reported when `cost_usd` is the adapter's, else unknown | `calls.jsonl` `cost_usd` | ↓ | advisory unless every run is provider-reported |
 | R7 | wall time | median seconds, open to verdict | node trace `t_ms`; runner clock outside the case | ↓ | advisory (noisy on a shared host) |
@@ -92,7 +97,7 @@ rule). Below that it is printed as "no verdict".
 | R13 | observed branching | mean `b_obs(q)` over places | same | ↓ | advisory |
 | R14 | path entropy | `Ĥ`, Miller-Madow corrected | same | ↓ | advisory |
 | R15 | discarded observations | `discarded` events per run | `events.jsonl` | ↓ | gate at 0 on stub runs |
-| R16 | replay match | cases whose state and decision digests match / cases | `sdc-drive replay` | = 1 | gate |
+| R16 | replay match | cases whose state and decision digests match / cases | the driver's `replay` | = 1 | gate |
 | R17 | adversary assertions held | variants whose assertion holds / variants | `eval/runs/summary.tsv` | = all | gate |
 
 ### 1c. Workflow-specific: declared per protocol or per trial project
@@ -114,7 +119,7 @@ source, direction, gate, target}}` *(inferred format)*. SDC's:
 ### 1d. Decisions: person, rule, decider (2026-11-21)
 
 Who took each decision that waits on a person (approvals, scope-changing questions, the root's
-close). `SDC_DECIDER` in `scripts/run-trial.sh`; principal `decider:approve` or `decider:reject`
+close). `SDC_DECIDER` in the former trial script; principal `decider:approve` or `decider:reject`
 is a rule, `decider:model` (`decider:haiku` in runs before D149) an LLM decider, any other principal a person.
 
 | id | KPI | formula | source | dir | gate |
@@ -129,7 +134,7 @@ is a rule, `decider:model` (`decider:haiku` in runs before D149) an LLM decider,
 | Scope | Who computes | Needs | Today |
 |---|---|---|---|
 | 1a structural | **Canon, purely**: a function of `protocol/1` with no clock, no evidence and no run (`canon/AGENTS.md:22-26` via eval-design). S13-S16 need Canon changes: `author`/`decided_by`, static per-action numbers, `canon simulate` counts (02 § 4) | the protocol file | S1-S8 from `canon check`/`generate` |
-| 1b run | **the runtime writes the record** (`sdc-drive` events today, Loom's metering and session observer later, `loom/AGENTS.md:152, 159`); **an eval harness reads records and oracles** and computes the KPIs. Canon never reads run data (`boundary.md:25, 70` via 02 § 4 item 5) | run logs, node traces, oracle files | R9, R10, R15-R17 from `sdc-drive` events; R1-R3 for the scripted suite; R4-R7 and R12-R14 need the node trace (eval-design D3) |
+| 1b run | **the runtime writes the record** (the driver's events then, Loom's metering and session observer later, `loom/AGENTS.md:152, 159`); **an eval harness reads records and oracles** and computes the KPIs. Canon never reads run data (`boundary.md:25, 70` via 02 § 4 item 5) | run logs, node traces, oracle files | R9, R10, R15-R17 from the driver's events; R1-R3 for the scripted suite; R4-R7 and R12-R14 need the node trace (eval-design D3) |
 | 1c workflow | **the trial project declares them**; the harness computes them from evidence records and events | per-project `sdc-kpis/1` | W1, W2, W4-W7 computable from today's case store; W3 after D1 |
 
 **Home of the harness.** Options are in eval-design D13. Recommendation *(inferred)*:
@@ -147,7 +152,7 @@ is a rule, `decider:model` (`decider:haiku` in runs before D149) an LLM decider,
 | Suite | Part | What runs | Cost | Cadence |
 |---|---|---|---|---|
 | global | structural | S1-S8 for every `protocol/*.protocol.yaml` (`canon check`, `canon generate`); S9-S16 once Canon has them | $0; spec generate takes over 120 s | every change to a protocol; pre-merge gate |
-| global | scripted | the adversary suite of `eval/run-adversaries.sh` (10 variants); `sdc-drive replay` per case tree *(not yet in `eval/run.sh`)* | $0, about 30 s (`eval/runs`) | every change to protocol, driver or bindings; pre-merge gate |
+| global | scripted | the adversary suite of `eval/run-adversaries.sh` (10 variants); the driver's `replay` per case tree *(not yet in `eval/run.sh`)* | $0, about 30 s (`eval/runs`) | every change to protocol, driver or bindings; pre-merge gate |
 | SDC | scripted trial ideas | the stub full cycle per trial idea. Today one idea, `driver/examples/sdc/fixtures/idea.yaml` (billing); add ideas whose spec has a reference target (eval-design D6) | $0 | as above |
 | SDC | LLM trial runs | per trial idea: `spec.author` at L2 (and the node's current production level) × M1 × 5 runs, through the adapter | ≤ $0.50 per run by cap: 5 ideas × 5 runs ≤ $12.50 | nightly, and on demand before merging a change to a binding, prompt, model or adapter |
 | per project | the same three parts over the project's protocols, ideas and `sdc-kpis/1` | | | the project's choice |
@@ -241,10 +246,10 @@ New section; nothing above is changed. Goal (the operator, 2026-11-21): fewer hu
 longer autonomous runs per task, measured on the late-finding loop of `docs/trial-2.md`.
 `driver/target/debug/sdc-finding-kpis <run dir> [--json]` (source `driver/src/bin/sdc-finding-kpis.rs`)
 prints L1 to L7 for one run. Every value is per task (one idea, one case tree). Sources are the run directory that
-`run-trial.sh` or `run-full-cycle.sh` writes: `store/IDEA-1/**/events.jsonl` (the driver's log,
+the former trial script or full-cycle script wrote: `store/IDEA-1/**/events.jsonl` (the driver's log,
 field names as written: `event`, `action`, `principal`, `artifacts`), `store/IDEA-1/work/`
 (`findings.yaml`, `questions.yaml`, `context.yaml`) and `rounds.jsonl` (written by
-`scripts/run-trial.sh`, one line per round).
+the former trial script, one line per round).
 
 The tool also reads the run directory of `runbook loom-run`, detected from its files, with the same
 output shape; the figures that directory has no source for are `null` with a `why`

@@ -14,7 +14,7 @@ directories `free-agent-0.1.0-sonnet-{1,2,3}`, not in git). Scores, evidence and
   stories, the implementation, a self-review) and the stack: Rust 2021, standard library only, a
   daemon that serves a web UI and a JSON API with `std::net::TcpListener`, port and data file as
   arguments, tests per command, `Taskfile.yml`, README. The SDC's implement node gets the same
-  stack wording from its binding (`driver/examples/sdc/tools/llm-node.sh:382-384` at the
+  stack wording from its binding (lines 382-384 of the model-node script of `driver/examples/sdc/tools/` at the
   baseline's tree 4468bfd).
 
 ## Procedure

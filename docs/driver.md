@@ -1,12 +1,48 @@
-# SDC driver
+# SDC driver: the former runtime, and what `driver/` is now
 
-The driver runs one SDC case on top of Canon. Canon decides every status. The driver reads the
-`canon-decision/1`, runs the tool bound to one admissible action, turns the tool's result into a
-`canon-evidence/1` record, and evaluates again. An LLM is only ever one action's executor. Its
-output becomes an artifact revision, never evidence and never the next state.
+## Now
 
-Everything below was checked on 2026-11-20 and 2026-11-21. Lines marked *inferred* were not
-observed.
+The runtime of a case is Loom's. `runbook run` (`docs/loom-run.md`, `docs/cli.md`) runs one case
+tree through Loom: Canon decides every status, Loom runs the program bound to one admissible
+action and records the evidence, and the decider answers the steps that wait for a principal
+(`docs/loom-run-decisions.md`). An LLM is only ever one action's executor: its output becomes an
+artifact revision, never evidence and never the next state. The daemon's engine makes the same
+Loom calls (`docs/engine.md`). The runtime that this page used to describe, a binary in `driver/`
+with its shell scripts, is deleted (`story:driver-runtime-removed`).
+
+`driver/` is the crate `sdc-tools`: the programs the bindings run and the tools around runs. Each
+program is a `[[bin]]` of `driver/Cargo.toml`.
+
+| Program | What it is | Where it is described |
+|---|---|---|
+| `sdc-node` | the model step of every agent node, under Loom | `docs/loom-bindings.md`, "Instructions" below |
+| `sdc-findings`, `sdc-reply`, `sdc-answers` | the findings tool, the reply checks and the answers file's programs | `docs/loom-run-decisions.md`, `docs/loom-bindings.md` |
+| `sdc-bugfix` | the seed and checks of the bug-fix runbook | `docs/bugfix.md` |
+| `sdc-conform`, `sdc-conform-adapter` | the conformance observation | `docs/conformance.md` |
+| `sdc-experiment` | launches, stops, checks and reports the runs of an experiment record; it starts `runbook run` | `docs/workflow-metrics.md` |
+| `sdc-run-metrics`, `sdc-run-compare`, `sdc-finding-kpis`, `sdc-run-timeline` | readers of a run directory | `docs/workflow-metrics.md`, `docs/run-compare.md`, `docs/kpis.md`, `docs/llm-is-not-the-runtime.md` |
+| `sdc-replay` | the model replay of `runbook run --recorded` | `docs/loom-run.md`, "A recorded run" |
+| `sdc-decision-request` | a scope-changing question as a decision request | `docs/decisions.md` |
+| `sdc-check-routes`, `sdc-check-unreferenced`, `sdc-protocol-site` | checks and the data of the documentation site | `docs/reject-routes.md`, `docs/releasing.md` |
+| `sdc-free-agent` | the free-running agent session of one experiment | `docs/llm-is-not-the-runtime.md` |
+
+Not ported, dropped with the driver: keep-going (a run that goes on past a refusal and collects
+`defects.jsonl`), `unstick`, the rule approver (`SDC_RULE_APPROVALS`), the rework cap, the end by
+rule `withhold` and the driver's `approved_on_checks`. Where a section below describes one of
+them, it describes the driver as it was.
+
+## The driver as it was
+
+Every section below, except "LLM actions: output is only an artifact" (the list of free-form
+outputs that `AGENTS.md` cites), "Instructions" and "Action-to-tool bindings", is the record of the
+driver runtime as checked on 2026-11-20 to 2026-11-22. It names the driver's binary, its scripts
+and their line numbers as they were then; those files are deleted, and the line citations are of
+the tree before the deletion. "The driver" there is the former runtime. Lines marked *inferred*
+were not observed.
+
+The driver ran one SDC case on top of Canon. Canon decided every status. It read the
+`canon-decision/1`, ran the tool bound to one admissible action, turned the tool's result into a
+`canon-evidence/1` record, and evaluated again.
 
 ## Status (2026-11-21, third pass: ready for a real LLM)
 
@@ -1066,7 +1102,7 @@ other keys name the parts the action has.
 "llm": {"model": "claude-haiku-5-5", "max_turns": 15, "max_budget_usd": 0.5, "instructions": {"task": "instructions/idea.dissect.md"}, "stub": [...]}
 ```
 
-`llm-node.sh` reads the paths from `SDC_LLM_NODE` (the binding's `llm` object); it has no table of
+`sdc-node` reads the paths from the binding's `llm` object (its argv: `--instructions <json>`); it has no table of
 paths. The shared frame and the decider's files are found by directory. The tools locate
 `instructions/` by walking up from their own directory (`repo_root`), so it holds wherever the tools
 directory sits. `bindings/*.yaml` (`loom.bindings/1`) names no instruction file; the line in
@@ -1088,7 +1124,7 @@ One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direc
 name, produced kind and placed artifact is checked against the compiled protocol by
 `scripts/check-bindings.sh`. Unbound on purpose: `context.change` (a person's edit),
 `spec.reuse`, `spec.reconstruct`, `release.rollback`. Tools are subcommands of
-`bindings/tools/sdc-tool.sh`; agent nodes run `tools/llm-node.sh` (see "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
+`bindings/tools/sdc-tool.sh`; agent nodes run `sdc-node` (its shell predecessor is described in "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
 a fixed draft from `fixtures/` (or a fixed `aep plan artifact new` call) and producing no
 evidence, except `spec.author`'s `spec_source=authored`, which records which action wrote it.
 
@@ -1098,22 +1134,22 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | sdc, epic, spec, plan | `roadmap.read` | driver: `copy` from the sdc.direction case | the `roadmap_approval` record |
 | intake | `idea.check`, `dissection.check`, `requirements.check` | yq/jq checks (schema shape, spans are substrings of the idea, citations exist) | `valid`/`invalid` |
 | intake | `questions.check` | yq checks | exit 0 `valid`+`settled`, 1 `valid`+`open`, 3 `valid`+`needs_human`, else `invalid`+`open` |
-| intake | `idea.dissect`, `questions.write`, `questions.answer`, `requirements.normalise` | `llm-node.sh` (stub: fixed file) | revises the artifact |
-| direction | `context.default`, `vision.write`, `roadmap.write` | `llm-node.sh` (context: file; vision, roadmap: proposal → `aep plan artifact new vision/initiative/epic`) | revises the artifact |
+| intake | `idea.dissect`, `questions.write`, `questions.answer`, `requirements.normalise` | `sdc-node` (stub: fixed file) | revises the artifact |
+| direction | `context.default`, `vision.write`, `roadmap.write` | `sdc-node` (context: file; vision, roadmap: proposal → `aep plan artifact new vision/initiative/epic`) | revises the artifact |
 | direction | `context.check` | yq check | `valid`/`invalid` |
 | direction | `roadmap.validate` | `aep plan artifact validate --strict --store aep` | `valid`/`invalid` |
 | direction | `context.approve`, `vision.approve`, `roadmap.approve` | `manual`: `approve --action`, producer = principal | `approved` |
 | epic, plan, story, release | `spec.gate` | `ess specify validate --strict-requires`, `ess specify compile`, no `UNMAPPED:`, `ess verify conform synthesize` with 0 refusals, then the suite against ESS's interpreter (`ess verify conform run --target interpreted --strict`) with every scenario passed | `passed`/`failed` |
 | epic | `spec.open`, `plan.open`, `stories.open`, `release.open` | driver: open child(ren); `stories` from `args_from: list-stories` (stories that deliver the epic) | `*_opened`, `case_outcome` |
-| spec | `spec.author` | `llm-node.sh`, `domain` from `args_from: spec-domain` (stub: copies `fixtures/billing-spec`, ESS `examples/billing`) | `spec_source=authored` |
+| spec | `spec.author` | `sdc-node`, `domain` from `args_from: spec-domain` (stub: copies `fixtures/billing-spec`, ESS `examples/billing`) | `spec_source=authored` |
 | spec | `spec.validate`, `spec.compile`, `spec.synthesize` | the `ess` commands above, one each (`spec.synthesize`: the synthesis and the interpreted run, as `spec.gate`; the scenarios that did not pass, with ESS's reason, end its log, which `spec.author` gets in `in/feedback.md`) | `valid`, `compiled`, `clean` (else `refused`) |
 | spec | `spec.scan`, `spec.trace` | `grep -rn UNMAPPED:`; every `system.yaml` domain cited by a requirement | `none`, `traced` |
 | spec | `spec.review` | reviewer stub (`test -f`), producer `reviewer-stub`, listed independent | `approved` |
-| story | `change.review` | `llm-node.sh change.review`, class REVIEW, producer `llm-review`, listed independent (see "The code review"); stub `test -s impl/README.md` | `approved`/`rejected` |
-| plan | `plan.decompose` | `llm-node.sh`: proposal → `aep plan artifact new story`, `scope --add`, `move --to active` (epic, story) | revises `plan` |
+| story | `change.review` | `sdc-node change.review`, class REVIEW, producer `llm-review`, listed independent (see "The code review"); stub `test -s impl/README.md` | `approved`/`rejected` |
+| plan | `plan.decompose` | `sdc-node`: proposal → `aep plan artifact new story`, `scope --add`, `move --to active` (epic, story) | revises `plan` |
 | plan | `plan.validate`, `plan.scope`, `plan.status` | `aep plan artifact validate --strict`; `waves --kind story` with 0 unassessed; `list` all active | `valid`, `scoped`, `active` |
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
-| story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`), then its `postcondition` `sdc-reply check-coverage --tree impl` (see "Requirement coverage") | `implementation_change`; nothing when the postcondition refuses |
+| story | `change.implement` | `sdc-node` (stub: fixed `impl/`), then its `postcondition` `sdc-reply check-coverage --tree impl` (see "Requirement coverage") | `implementation_change`; nothing when the postcondition refuses |
 | story, release | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (release): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
 | story | `merge.approve` | manual (`argv: ["true"]`), taken by `approve --capability change.merge --action merge.approve`, `--result rejected --reasons <file>` for a rejection | `merge_approval` approved or rejected |
 | story | `change.merge` | copy `impl/` to `mainline/` (once `merge.approved`) | `merge_record` |
@@ -1235,7 +1271,7 @@ formats (`driver/tests/impl_gate.rs` for story and release, `driver/tests/bugfix
 bugfix). Worst case a `tests.run` step is 3 runs of 1200 s of wait,
 about an hour, before `pool_wait_spent`; `sdc-run-metrics` reports `pool_waits` (takes with exit
 69) and `ran_over_time` (exit 70) apart from `could_not_run` and from failures, and the stop shows as `stop_cause:
-pool_wait_spent` or `run_over_time`. `scripts/run-trial.sh` ends with that cause and does not call `run.unstick` (a
+pool_wait_spent` or `run_over_time`. The former trial script ended with that cause and did not call `run.unstick` (a
 paid call) for it.
 
 Note: `aep plan artifact create` does not exist; the verb is `new`. `aep` refused to activate a

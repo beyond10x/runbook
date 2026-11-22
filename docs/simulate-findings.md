@@ -61,7 +61,7 @@ real run that keeps failing the check leaves it only at a cap in the driver, mar
 
 - `max_runs`: writer runs per arrival, default 8 (`driver/src/main.rs:700`).
 - The autopilot's 2-rejection limit: the third rejection ends the run `rework_spent`
-  (`scripts/run-trial.sh:521-555`, `:551`).
+  (lines 521-555 and 551 of the trial script).
 
 | Verdict | Stuck | Cycle | Total |
 |---|---|---|---|
@@ -156,7 +156,7 @@ new revision, and the failed check runs again on that revision.
 |---|---|---|---|---|---|---|
 | D1 | `sdc.direction` | Context check failed: `context.default` (or `amend.upstream`) rewrites the context. | 2 | `protocol/sdc-direction.protocol.yaml:159-178`, `:289-299` | `left by revision` | max_runs 3 (`driver/examples/sdc/sdc-direction.bindings.json:34`), 12 (`:160`) |
 | D2 | `sdc.direction` | `owner.approve` denied: only `context.change` is admissible. It has no binding (`driver/src/main.rs:648-650`), and a new context still needs the denied capability. | 2 | `:179-192`, `:204-217` | `real` | none; the driver stops `stuck` (`driver/src/main.rs:1210-1211`) |
-| D3 | `sdc.direction` | Context approval rejected: `context.default` writes a new context. | 2 | `:159-178`, `:204-217` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:34`); 2 rejections (`scripts/run-trial.sh:551`) |
+| D3 | `sdc.direction` | Context approval rejected: `context.default` writes a new context. | 2 | `:159-178`, `:204-217` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:34`); 2 rejections (line 551 of the trial script) |
 | D4 | `sdc.direction` | Vision approval rejected: `vision.write`. | 2 | `:218-246` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:80`); 2 rejections |
 | D5 | `sdc.direction` | Roadmap validation failed, or roadmap approval rejected: `roadmap.write`. | 2 | `:247-288` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:122`); 2 rejections |
 | I1 | `sdc.intake` | Dissection check failed: `idea.dissect` (also `questions.answer` while the interview is not settled). | 8 | `protocol/sdc-intake.protocol.yaml:138-157` | `left by revision` | max_runs 3 (`driver/examples/sdc/sdc-intake.bindings.json:43`) |

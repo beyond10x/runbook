@@ -57,7 +57,7 @@ One of two (`--loom` without `--loom-sha256`, or the reverse, is refused with ex
 | Way | Options | What runs |
 |---|---|---|
 | child | `--loom <bin> --loom-sha256 <hex>` | the binary, one `b10x-loom` call at a time, as below |
-| library | neither `--loom` nor `--loom-sha256` | the Loom this binary links (a git dependency pinned to one commit), called in this process; no `b10x-loom`, `loom`, `canon` or `sdc-drive` process is started, only the bound programs |
+| library | neither `--loom` nor `--loom-sha256` | the Loom this binary links (a git dependency pinned to one commit), called in this process; no `b10x-loom`, `loom` or `canon` process is started, only the bound programs |
 
 The loop, the decider, the budget, the spend ledger, the settings, the copy of the bindings, the
 private directory and the run directory files exist once (`src/loom_run/run_loop.rs`); they reach
@@ -235,7 +235,7 @@ record directory, which is inside the run directory:
 |---|---|---|---|
 | `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude`; the whole config home moves, as it is the directory `claude` is given | `<private dir>/config-home.XXXXXX` | the adapter on exit; after a SIGKILL the runner |
 | `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes a home (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` and `TMPDIR` to it for the metaharness process alone, so metaharness's scratch root (its own copy of the login in its config home) lies there too | `<private dir>/h.XXXXXX`, the scratch root `<private dir>/h.XXXXXX/.tmpXXXXXX` | metaharness removes its scratch root when it ends, the adapter the home on exit, also after a failed call or SIGTERM; after a SIGKILL the runner |
-| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `sdc-node`, so the adapter of the first or second row | as its adapter | as its adapter |
+| the model decider (in the runner) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `sdc-node`, so the adapter of the first or second row | as its adapter | as its adapter |
 
 `PrivateDir` removes its directory with everything in it when the run ends (a normal end, an error,
 SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
@@ -468,7 +468,7 @@ summarized with `runbook parity summarize --loom-run` and compared with the comm
 `runbook/tests/loom_run/inproc.rs` runs `runbook run` with Loom as a library on the small `sh` fixture runbook of the
 engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and with no `b10x-loom`:
 a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
-cap, a sample of `/proc` that finds no `b10x-loom`, `canon` or `sdc-drive` below the process, the
+cap, a sample of `/proc` that finds no `b10x-loom` or `canon` below the process, the
 environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
 (needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `70b0e6e0` from
 `~/.local/state/runbook/loom/70b0e6e0/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
@@ -477,5 +477,4 @@ summarizes both with `runbook parity summarize --loom-run` and compares them wit
 compare --product-digests`, which has to end `parity: identical`.
 
 With `--loom`, the runner starts, in that run, only `runbook`, `b10x-loom` and the programs the bindings name
-(`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts);
-no `sdc-drive`, `run-trial.sh` or `run-finding-cycles.sh`.
+(`sdc-tool.sh`, `sdc-node`, and below them `sdc-findings`, `ess`, `cargo` and what `cargo` starts), and nothing else.

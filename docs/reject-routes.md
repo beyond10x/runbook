@@ -1,5 +1,10 @@
 # Reject and cap routes (audit, 2026-11-21)
 
+**Record.** This is the audit as made on 2026-11-21. Its routes, caps and line numbers are those of
+the driver runtime, its trial script and its model-node script as they were then. Those files are
+deleted (`story:driver-runtime-removed`); the runtime is Loom's (`docs/loom-run.md`,
+`docs/loom-run-decisions.md`). The page is kept as the record of the audit.
+
 This audit covers every point in the eight protocols where an unattended run (`scripts/run-trial.sh
 <run> --autopilot`, decider final, no person) can be told no, and every writer whose cap can stop it.
 It was prompted by these stops: `rejected_without_rework_path` (`runs/trial-3-haiku-3`

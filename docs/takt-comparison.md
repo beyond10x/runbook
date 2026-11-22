@@ -53,12 +53,12 @@ Not found. No takt user unit (`systemctl --user list-units --all | grep -i takt`
 | mechanism | takt | SDC | further along |
 |---|---|---|---|
 | evaluate, admit, perform, evidence, evaluate loop | on Loom's runtime and governor | own driver, declared a temporary copy (`docs/boundary.md:30-33`) | takt: it is on Loom. Both are to end on Loom |
-| case as files, event log, replay | `.takt/cases`, `events.jsonl`, `takt replay` (`T:crates/takt/src/replay.rs`) | `case.json`, hash-chained events, `sdc-drive replay` | equal; takt has resume, SDC has no resume of a cut step (gap 15) |
+| case as files, event log, replay | `.takt/cases`, `events.jsonl`, `takt replay` (`T:crates/takt/src/replay.rs`) | `case.json`, hash-chained events, the driver's `replay` | equal; takt has resume, SDC has no resume of a cut step (gap 15) |
 | harness through metaharness | 3 harnesses | metaharness default | takt (3 adapters, pinned versions checked) |
 | decision and grant records | grant per revision | grant not bound to a revision | takt; the fix is a Canon request (`docs/boundary.md:147-153`) |
 | scorecard, KPIs, baseline | `takt-scorecard/1`, rule `{trials, margin}` | `docs/kpis.md` reuses the takt rule | takt (built and promoted against); SDC has catalogue and baseline |
 | run view | `takt view` | `ui/` | SDC for live view; takt for offline page |
-| bounded LLM decider for routine decisions | not found | `tools/decider.sh` (Haiku) | SDC |
+| bounded LLM decider for routine decisions | not found | the shell decider (Haiku) | SDC |
 | child cases | none | temporary copy | SDC (Loom has none either, `../loom` origin/main grep of `case_outcome`: empty) |
 
 **2. What takt has that SDC needs.** Gaps are rows of `docs/conductor-comparison.md` § 7. Cost is lines at stake and the move; an effort estimate: not found.

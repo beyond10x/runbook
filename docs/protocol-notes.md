@@ -20,7 +20,7 @@ lists the open obligations (what is missing) and the admissible actions (what is
 stage, as `cases/*/decision.json` show.
 
 The root case's artifacts are `idea`, `goals` and `roadmap` (`sdc.protocol.yaml:7-14`). `goals` is
-the requester's resolved goals document, `work/goals.yaml`, put there by `scripts/run-trial.sh
+the requester's resolved goals document, `work/goals.yaml`, put there by `runbook run
 --goals FILE` (`docs/requester.md`, "How a run receives it"); `sdc.intake` and `sdc.direction`
 declare it too (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`) and read the same
 file through the shared `work/`. It is an input only: no claim, invalidation or child opening names

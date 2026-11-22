@@ -86,7 +86,7 @@ Canon (kernel) topic. Research only, from source; nothing was built or run.
     from zero (`lib.rs:715-718`).
   - The file provider keeps a digest chain and rolls back an unpublished append intent
     (`eventlog/docs/design/file-provider.md:160-178`).
-- **sdc-drive**
+- **the driver**
   - Hash-chained `events.jsonl` (`main.rs:145-153`). An `evaluated` event carries a state digest and
     a decision digest (`main.rs:199-200`). The state digest is sha256 over IR, case, authority,
     decisions and the evidence tree (`main.rs:131-138`).

@@ -13,9 +13,9 @@ conformance: spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 n
 ```
 
 A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
-scenarios`. `scripts/run-trial.sh` calls it after a close when `SDC_CONFORMANCE=observe` (off by default since 0.1.4, for its cost; an experiment record turns it on with the launch setting `conformance: observe`; skipped on a recorded
-re-drive, whose recording holds no table call).
-`runbook run --conformance observe` does the same after a run that ended closed (`off` is the
+scenarios`. It is off by default (since 0.1.4, for its cost; an experiment record turns it on with
+the launch setting `conformance: observe`; skipped on a recorded re-drive, whose recording holds no
+table call). `runbook run --conformance observe` runs it after a run that ended closed (`off` is the
 default; a run that stopped, or a failure of the observation, changes no exit). The workspace is
 the run's `work/`, whatever the root case is called, and the code is the library the program is the
 command line of (`driver/src/conform.rs`, `runbook/src/loom_run/conformance.rs`). It runs ess
@@ -135,7 +135,7 @@ a success before its refusal is a session the table did not carry: the table's f
 ## The route table and the node that writes it
 
 The node `conformance.table` (class other) is a fresh model session started after the run, through
-the LLM adapter contract of `llm-node.sh` (`SDC_CONFORMANCE_ADAPTER`, else `SDC_LLM_ADAPTER`, else
+the LLM adapter contract of the model node (`sdc-node`) (`SDC_CONFORMANCE_ADAPTER`, else `SDC_LLM_ADAPTER`, else
 `claude-cli`). Its working directory holds copies of the delivered tree (`product/`), the
 specification (`spec/`) and the compiled IR (`ir.json`); its operations are `dir.list`,
 `file.read` and `search` only. It has no stake in the implementation and the implementing node gets

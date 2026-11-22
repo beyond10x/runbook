@@ -28,7 +28,7 @@ command or file they came from, and I re-checked the key ones (stop date, retro 
 | planning store | 722 artifacts: story 528 (draft 208, active 21, implemented 247, archived 52), epic 35, review-result 126 (helper 1, `awk` over frontmatter per kind directory) | `.engineering/` holds only `project.yaml`; the draft epics `S/docs/orchestration.md:423` names are not in it |
 | waves | 44 main-series pages (`wave-01` to `wave-51`, 7 numbers missing) plus 7 `v1-wave-*`, 2026-10-08 to 2026-11-11 (`ls C/docs/waves`) | none; one story per trial run |
 | reviews | 45 adversary records over 30 units (15 with 1 pass, 15 with 2), 66 plan-critic, 9 security, 490 finding entries (helper 1, file names and `grep -c '^- file:'`) | `spec.review` and `change.review` are `test -f spec/system.yaml` and `test -s impl/README.md` (`S/bindings/tools/sdc-tool.sh:237-238`) |
-| prose for agents | role profiles: controller 120, maintainer 60, supervisor 460, teacher 177 lines (`wc -l C/crates/conductor/roles/*.md`); instance `rules.md` 98,546 bytes, 151 items (`C/docs/analysis/takeover-baseline-2026-10-17.md:26`) | `S/AGENTS.md` 57 lines; prompts inside `tools/llm-node.sh` |
+| prose for agents | role profiles: controller 120, maintainer 60, supervisor 460, teacher 177 lines (`wc -l C/crates/conductor/roles/*.md`); instance `rules.md` 98,546 bytes, 151 items (`C/docs/analysis/takeover-baseline-2026-10-17.md:26`) | `S/AGENTS.md` 57 lines; prompts inside the model-node script (now `instructions/`) |
 | real runs | the beyond10x instance ran 2026-10-06 to 2026-11-08 (unpublished host records) | 1 real LLM run, `S/runs/trial-todo-1`, 2026-11-20T23:16:05Z to 2026-11-21T00:02:42Z; 4 stub or dry runs (`ls S/runs`) |
 
 ## 2. What runs each system
@@ -53,19 +53,19 @@ command or file they came from, and I re-checked the key ones (stop date, retro 
   instance "stopped on the operator's order" on 2026-11-08 16:42 CET
   (unpublished host records).
 
-**SDC**: one process, `sdc-drive run`. Each step evaluates with Canon, selects with the fixed policy
+**SDC**: one process, the driver's `run`. Each step evaluates with Canon, selects with the fixed policy
 `useful()`, runs the bound argv, records evidence and evaluates again (`S/docs/driver.md`, "The
-loop"). The trial script calls it in a loop of rounds (`S/scripts/run-trial.sh:238-240`). A person
-or the Haiku decider (`tools/decider.sh`) takes decisions (`S/docs/trial-1.md:30-50`). There are no
+loop"). The trial script calls it in a loop of rounds (lines 238-240 of the trial script). A person
+or the Haiku decider (the shell decider) takes decisions (`S/docs/trial-1.md:30-50`). There are no
 long-lived sessions.
 
 ## 3. Comparison by axis
 
 | axis | Conductor | SDC |
 |---|---|---|
-| unit of work, entry | a repository with a charter and an open dispatch serving a goal (`conductor-run.md:115-122`); entry is a goal, a charter, or a message to the mailbox (`C/AGENTS.md:274`) | one idea text → a case tree (idea, intake, direction, epic, spec, plan, story, release) (`S/AGENTS.md:5-6`); entry is `run-trial.sh <name> "<idea>"` (`trial-1.md:10`). Ticket, store id and "continue" are designed, not built (`orchestration.md:282-290`) |
+| unit of work, entry | a repository with a charter and an open dispatch serving a goal (`conductor-run.md:115-122`); entry is a goal, a charter, or a message to the mailbox (`C/AGENTS.md:274`) | one idea text → a case tree (idea, intake, direction, epic, spec, plan, story, release) (`S/AGENTS.md:5-6`); entry is the trial script with `<name> "<idea>"` (`trial-1.md:10`). Ticket, store id and "continue" are designed, not built (`orchestration.md:282-290`) |
 | who decides the next step | the program decides **which repository** gets a session; inside the repository an LLM session decides every step (`spawn.rs:20-21`; `controller.md`). Requests are classified in code; class C gets one bounded `claude -p --tools=` call (`conductor-run.md:124-133`; `decide/model.rs:6, 103-108`) | the program decides every step: Canon admissibility plus the fixed policy (`driver.md`, "Fixed policy"). "The driver itself never asks an LLM which action comes next" (`driver.md`, "Tools for a chooser"). The LLM writes one artifact per call |
-| state model, replay | an event log in SQLite or Postgres (`store.rs:1-25`, helper 2); records as git-committed JSONL and markdown (`C/AGENTS.md:66`); a state tree in unpublished host records. Replay: not found | plain files per case: `case.json`, content-addressed evidence and blobs, hash-chained events; the stage is derived, never stored (`S/docs/phases.md:3-6`). `sdc-drive replay`: 8 of 8 cases match their state and decision digests (`S/runs/trial-todo-1/replay.json`) |
+| state model, replay | an event log in SQLite or Postgres (`store.rs:1-25`, helper 2); records as git-committed JSONL and markdown (`C/AGENTS.md:66`); a state tree in unpublished host records. Replay: not found | plain files per case: `case.json`, content-addressed evidence and blobs, hash-chained events; the stage is derived, never stored (`S/docs/phases.md:3-6`). The driver's `replay`: 8 of 8 cases match their state and decision digests (`S/runs/trial-todo-1/replay.json`) |
 | verification | ESS spec with conformance in `task check`, CI gate on each PR (`C/AGENTS.md:76, 87`); per-story adversary 1 to 2 passes, plan critics, security rounds (§ 1) | Canon gates: no claim without program evidence; ESS gate for the spec (`phases.md:34-35`). Holes: conformance does not run against `impl/` (`driver.md` gap 16); reviews are stubs (gap 17); a scripted implementer that writes only `README.md` reaches `passed` (`S/docs/eval-design.md:30-35`) |
 | human decisions, autonomy | classes C/O/H; O and H go to the operator with options, a default and a deadline (`conductor-run.md:124-133`). Supervisor acts "with the operator's authority" on a listed set (`C/crates/conductor/roles/supervisor.md:236`). K1 operator touches per merged PR: 0.245 in week 1 (`C/docs/design/self-improvement.md:39`), 0.53 on 2026-10-14..17 (`takeover-baseline-2026-10-17.md:17`) | Canon authority records with principal; `manual` actions and handoffs stop with the exact command (`driver.md`); deciders `person`, `approve`, `reject`, `haiku` (`trial-1.md:30-55`). Levels A0 to A5 designed; A1 to A4 routing not built (`S/docs/autonomy-levels.md:427`). trial-todo-1: 2 person approvals (`owner.approve` 23:32:11Z, `release.approve` 00:01:16Z) and 5 decider calls (`events/*.jsonl` `authority_recorded`; `decisions.jsonl`) |
 | parallelism, WIP | up to `max_working` controllers per instance (set per instance in unpublished host records); waves of up to N implementors per story (AEP wave skill). Build queue median wait 15 min on 2026-10-14 (`C/docs/analysis/efficiency-baseline.md:17`) | none executed: children run "one at a time, depth first, under one lock and one shared `work/`" (`orchestration.md:31-35`, `driver/src/main.rs:794`). WIP limits decided, not built (`orchestration.md:175-191`) |
@@ -84,7 +84,7 @@ long-lived sessions.
 - Decisions as records with holder, reasons and evidence: Conductor `decisions/*.jsonl` and
   design § 5; SDC `decisions.jsonl` and Canon authority (`S/docs/decisions.md`).
 - One bounded LLM call for a routine decision: Conductor class C via `claude -p --tools=`
-  (`decide/model.rs:103-108`); SDC `tools/decider.sh` (Haiku, 8 turns, $0.25 cap, `trial-1.md:38-40`).
+  (`decide/model.rs:103-108`); SDC's shell decider (Haiku, 8 turns, $0.25 cap, `trial-1.md:38-40`).
 - KPI catalogues that measure operator touches per item: K1 (`self-improvement.md:39`) and L1
   (`S/docs/kpis.md:255`).
 - A live view of a run, AEP stores and waves as the plan, slot for builds, WIP caps
@@ -141,7 +141,7 @@ session (*inferred*).
 
 **SDC and this executor:** SDC is a second Canon-protocol executor beside takt. `S/docs/boundary.md:30-33`
 calls the SDC driver "the fourth copy beside Loom, takt and `metaharness aep drive`". For Conductor
-the bridge is the `run-to-exit` kind slot, not takt specifically: `sdc-drive run` already exits 0, 3,
+the bridge is the `run-to-exit` kind slot, not takt specifically: the driver's `run` already exits 0, 3,
 4 or 5 with a reason and writes events (`driver.md`, "Verdicts and exit codes"). That is the shape
 the slot asks for (`architecture-next.md:386`). takt's own design leaves orchestration across
 repositories to Conductor (`architecture-next.md:590`). If SDC moves onto Loom (Loom's
@@ -228,7 +228,7 @@ handling stays a host concern: nothing planned.
 
 **(B) Conductor adopts SDC's protocols as its executor and stays the fleet and host layer.**
 
-- Cost: one `run-to-exit` kind that runs `sdc-drive` per dispatch (`architecture-next.md:386-391`;
+- Cost: one `run-to-exit` kind that runs the driver per dispatch (`architecture-next.md:386-391`;
   the trait exists). Plus § 7 items 2-4, which B needs as well. Plus restarting Conductor's
   operation: three instances, the maintainer, supervisor and teacher sessions.
 - Risk: it brings back the burden of § 6 (2026-11-08 retro) for the fleet layer. Two state models
@@ -249,7 +249,7 @@ whether SDC delivers at all), then 4, then 5, 7 and 8 through Loom.
 
 **What would change it:**
 
-- To B: real multi-repository work is needed before SDC's item 5 exists. Then run `sdc-drive` as a
+- To B: real multi-repository work is needed before SDC's item 5 exists. Then run the driver as a
   `run-to-exit` kind under a minimal Conductor (loop and dispatch only, no supervisor or teacher),
   for a bounded period.
 - Away from SDC as the executor: the first 10 real SDC stories with items 2 and 3 in place cost

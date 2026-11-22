@@ -14,7 +14,7 @@ Each step is admissible only after the one before it (the preconditions in the p
 | # | action | executor | records |
 |---|---|---|---|
 | 1 | (input) | the report `bug.yaml` and the code tree `impl/` with its base `mainline/` | none |
-| 2 | `bug.dissect` | LLM (`llm-node.sh`), a JSON data document under a schema (`sdc-bugfix schema dissection`, passed as `json_schema`) | none |
+| 2 | `bug.dissect` | LLM (`sdc-node`), a JSON data document under a schema (`sdc-bugfix schema dissection`, passed as `json_schema`) | none |
 |   | `dissection.check` | `sdc-bugfix dissection-check`: the schema, plus `where` names a file (and line) of `impl/` | `dissection_check` valid / invalid |
 | 3 | `test.reproduce` | LLM writes `repro/repro.json` `{file, test}` and the test file; `sdc-bugfix repro-install` sets `impl/` to `mainline/` plus that file | none |
 |   | `repro.run` | `sdc-bugfix repro-run` (see below) | `repro_run` red / not_red |
@@ -22,7 +22,7 @@ Each step is admissible only after the one before it (the preconditions in the p
 | 5 | `tests.run` | `sdc-bugfix tests-run` (see below) | `test_run` passed / failed |
 | 6 | `story.update` | `sdc-bugfix story-update`: the story named by `bug.yaml` `story` moved to `implemented` through `aep`, actor and executor `agent:story.update`; created first if no parent handed it in | `story_record` |
 | 7 | `gate.run` | `sdc-bugfix gate-run`: every `gate` command of the case's `checks.yaml` in order (for Rust: `cargo build`, `cargo test`, `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check`) | `gate_run` passed / failed |
-| 8 | close | `scripts/run-trial.sh` closes the terminable root through its outcome; no outcome requires a decision, so under `--autopilot` the close is `rule:autopilot`'s (`closed BUG-1: "fixed" by rule:autopilot`, `closed_by` in `status.json`) | `terminated` with `principal` |
+| 8 | close | the former trial script closed the terminable root through its outcome; no outcome requires a decision, so under its `--autopilot` the close was `rule:autopilot`'s (`closed BUG-1: "fixed" by rule:autopilot`, `closed_by` in `status.json`); under `runbook run` the close is a `Close` decision (`docs/loom-run-decisions.md`) | `terminated` with `principal` |
 
 Outcomes: `fixed` (all of the above), `not_reproduced` (no valid dissection, or no red), `not_fixed`
 (red, but the fix fails the suite or the gate). The two failure outcomes end a case only once nothing
@@ -46,7 +46,7 @@ an artifact: `tree/` (a copy of `impl/`) or `base/` (a copy of the base, `bug.ya
 `mainline/`). It goes through `slot` when slot is on PATH (the wait for a slot is bounded, `--pool-wait`; no slot in time is exit 69 and a job the pool ends at its run limit exit 70, both program errors: `docs/driver.md`, "The build pool wait"), with `checks.yaml` `env` and
 `CARGO_TARGET_DIR=.sdc/bugfix/target`. A program that is not on PATH (or, for a program with a
 `/`, not a file of the tree) exits 127 and an unusable `checks.yaml` 126: program errors, which
-`sdc-drive` never records as a check result. Two kinds of run:
+a run never records as a check result. Two kinds of run:
 
 - the whole suite, `checks.yaml` `test` (Rust: `cargo test --offline --no-fail-fast`);
 - the reproducing test alone, `checks.yaml` `repro` (Rust: `cargo test --offline --test {stem} --
@@ -169,17 +169,18 @@ and `tests.pass`. A fix whose test was never red is therefore refused by the pro
 `story.update` and `fixed` blocked, and the cycle `bugfix-never-red` asserts the same on the run's
 `decision.json` (`repro.red` false, `change.fix` and `tests.run` blocked, `fixed` blocked,
 `not_reproduced` legitimate). The cycles `bugfix-full`, `bugfix-not-red`, `bugfix-edited-test` and
-`bugfix-from-ticket` assert the chain over the run's evidence records (`red_then_green` in
-`scripts/run-finding-cycles.sh`): the red `repro_run` precedes the `implementation_change` of the
-fix, which precedes the passed `test_run`; the fix and the green name the red's test revision R; the
-green's tree digest is set and differs from C1. That C1 and C2 differ compares two records: the protocol cannot make that comparison and the
-suite cannot yet say it (`unexpressed` in `cycles/suite.yaml`), so the script does.
+`bugfix-from-ticket` are cycles of `cycles/tree-suite.yaml` (`task test:cycles-loom`,
+`docs/cycles-suite.md`). `bugfix-full` asserts one red `repro_run`, one `implementation_change` and
+one passed `test_run` among the run's evidence records. The order of the three (the red precedes the
+fix, which precedes the green), that the fix and the green name the red's test revision R, and that
+the green's tree digest is set and differs from C1, were asserted by the former cycles script. That
+C1 and C2 differ compares two records: the protocol cannot make that comparison, and no check of
+the suite file makes it.
 
 ## Entry and fixture
 
 ```console
-$ scripts/run-trial.sh <run> --bugfix <seed dir> ["<bug report>"] [--autopilot | --dry]
-$ runbook run sdc-bugfix --bugfix <seed dir> --intake <bug report> ...      # on Loom (docs/loom-run.md)
+$ runbook run sdc-bugfix --bugfix <seed dir> --intake <bug report> ...      # docs/loom-run.md, `--dry` for the stub run
 ```
 
 This opens root `BUG-1` on `sdc.bugfix`. `sdc-bugfix seed` copies the code tree (`<seed dir>` when
@@ -187,7 +188,7 @@ it holds a `Cargo.toml`, else `<seed dir>/crate` or `<seed dir>/repo`, else `<se
 `work/mainline/` and `work/impl/` and writes `work/checks.yaml` (above; `--checks <file>` supplies
 it). It writes `work/bug.yaml` from the text
 (story `story:bug-<run>`), or copies `<seed dir>/bug.yaml`. It creates the story in `work/aep/` and
-moves it to `active` (actor `agent:bugfix.seed`). The rest of the run is `run-trial.sh`'s loop.
+moves it to `active` (actor `agent:bugfix.seed`). The rest of the run is the runner's loop (`docs/loom-run.md`).
 
 Seed: `driver/examples/sdc/fixtures/bugfix-pager/` holds the crate `pager`, standard library only,
 5 passing tests, a clean gate, and one planted bug: `page_count` is `total / per_page`, which drops
@@ -201,10 +202,10 @@ the last partial page. `bug.yaml` holds the report. `stub-dissection.json`, `stu
 | `edited-test` | the first fix weakens the test: `tests: FAILED refused: ... the reproducing test was changed`, sent back | `fixed` |
 | `never-red` | every test passes on the seed: three runs of `test.reproduce` | `not_reproduced` |
 
-`scripts/run-finding-cycles.sh` runs the four in autopilot (`bugfix-full`, `bugfix-not-red`,
-`bugfix-edited-test`, `bugfix-never-red`). It checks the outcome, `closed_by: rule:autopilot`,
+The former cycles script ran the four in autopilot (`bugfix-full`, `bugfix-not-red`,
+`bugfix-edited-test`, `bugfix-never-red`) and checked the outcome, `closed_by: rule:autopilot`,
 replay, and the records: the green `test_run` names the red `repro_run`'s repro revision at
-another change revision. A fifth, `bugfix-from-ticket`, starts from a ticket (below).
+another change revision (the state of each cycle is in `docs/cycles-suite.md`). A fifth, `bugfix-from-ticket`, starts from a ticket (below).
 
 More seeds, each with one planted bug of another kind:
 
@@ -225,9 +226,8 @@ context, and the repo context and such, and then starting the runbook with a cer
 defines the document it writes and makes the bug-fix runbook take it.
 
 ```console
-$ scripts/run-trial.sh <run> --bugfix-ticket <ticket file> [--autopilot | --dry]
 $ runbook run sdc-bugfix --bugfix-ticket <ticket file> --intake <any text> ...   # on Loom: the intake is not read for the ticket
-$ sdc-bugfix seed --ticket <ticket file> [--repo <worktree>]      # what run-trial.sh calls in work/
+$ sdc-bugfix seed --ticket <ticket file> [--repo <worktree>] # what `runbook run` calls in work/
 $ sdc-bugfix schema ticket                                         # the JSON schema of the format
 ```
 
@@ -306,7 +306,7 @@ writes `work/checks.yaml` and:
 The story is created in `work/aep/` and moved to `active`, as in the other form. From there the run
 is the same as from a seed directory.
 
-Prompts (`bindings/tools/llm-node.sh`): when `bug.yaml` carries `ticket`, `change.fix`
+Prompts (`sdc-node`, `instructions/`): when `bug.yaml` carries `ticket`, `change.fix`
 loses "Standard library only", and `test.reproduce` and `change.fix` end with the ticket's
 constraints. A run without a ticket keeps its prompts byte for byte
 (`driver/tests/bugfix_prompt.rs` against `driver/tests/fixtures/bugfix-prompt/`). The code writers
@@ -324,7 +324,7 @@ a language of its own (`story:bugfix-any-language`).
 - Bug tickets only: `kind: feature` is refused.
 - Size cap: 2000 files and 16 MiB (`SEED_MAX_FILES`, `SEED_MAX_BYTES`), raised for one run with
   `SDC_SEED_MAX_FILES` and `SDC_SEED_MAX_BYTES`. Every model call copies the code tree into its
-  scratch directory and back (`llm-node.sh`, `input impl` and `seed impl`).
+  scratch directory and back (the model node, `input impl` and `seed impl`).
 - No hand-back: nothing is committed or pushed to the repository, and `branch` is only recorded.
 
 The ticket's text reaches the prompts and the run's own records (`runs/`, never committed) only.
@@ -333,7 +333,7 @@ holds no ticket text.
 
 ## Run `runs/bugfix-1` (2026-11-21, real, autopilot)
 
-Command: `scripts/run-trial.sh bugfix-1 --bugfix driver/examples/sdc/fixtures/bugfix-pager
+Command, as given to the former trial script: `bugfix-1 --bugfix driver/examples/sdc/fixtures/bugfix-pager
 --autopilot "<the report of bug.yaml>"`, with every class on `claude-sonnet-5-5` and
 `SDC_MAX_LLM_CALLS=15`. Run through metaharness.
 
@@ -416,9 +416,9 @@ the fixed revision (the parent's `change` moves, so its records about the old re
 revision binding and its checks run again), and the story at `implemented`.
 
 Probe, run with stubs: `protocol/draft/bugfix-parent.protocol.yaml` (144 states, 0 findings) with
-`driver/examples/sdc/draft/bugfix-parent.bindings.json`. Run it with `sdc-drive init`, then
+`driver/examples/sdc/draft/bugfix-parent.bindings.json`. It was run with the driver's `init`, then
 `sdc-bugfix seed --from driver/examples/sdc/fixtures/bugfix-pager` in its `work/`, then
-`sdc-drive run`. The parent opened `PARENT-1.bug`, the driver drove the child depth first to `fixed`
+the driver's `run`. The parent opened `PARENT-1.bug`, the driver drove the child depth first to `fixed`
 and closed it, and the parent's record `case_outcome` (`result: fixed`, `child_case: PARENT-1.bug`)
 made it terminable with `passed`. `close` and `replay` returned 0 for both cases.
 

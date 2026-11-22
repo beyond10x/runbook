@@ -31,7 +31,7 @@ or run. *(inferred)* marks design not observed.
 
 | Exists | Where | Used for |
 |---|---|---|
-| Decider gets `in/` = idea, dissection, questions, requirements, context, `aep/vision/product.md`, `aep/initiative/roadmap.md`, `aep/epic`, the story, the subject, `checks.json`, `decision.json` | `decider.sh:127-133`, `:146-149` | **no goals or requester context among them**; vision and roadmap are the run's own outputs. Its prompt acts "in place of the product owner" (`:175`) with no values to act on |
+| Decider gets `in/` = idea, dissection, questions, requirements, context, `aep/vision/product.md`, `aep/initiative/roadmap.md`, `aep/epic`, the story, the subject, `checks.json`, `decision.json` | the model decider's input files (`runbook/src/loom_run/decider/`) | **no goals or requester context among them**; vision and roadmap are the run's own outputs. Its prompt acts "in place of the product owner" with no values to act on (as read on 2026-11-21, in the former shell decider) |
 | Decision contract: options, recommendation, strength, grounds, holder, eligible | `decisions.md:35-59`; `decision.yaml:157-165` | the requester's reply and the person's view |
 | Grounding check: citations resolve, digests match, prior reuse | `tools/decision-grounds.sh:17-55`, `:68-81` | goals citations (one new resolver case) |
 | Holders, classes, levels, eval at A5 | `autonomy-levels.md:242-257`, `:397-413`, `:454-472` | requester classes |
@@ -91,8 +91,8 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
   the product layer is imported from approved `vision:*`, active `initiative:*` and
   `product-requirements:*` of the repository's AEP store, each `sources: [aep:<id>@<rev>]`; imports
   count as rank 1 (a proposed default) until a person approves the layer.
-- **How a run receives it**: `scripts/run-trial.sh --goals FILE` copies the file unchanged to the
-  root case's `work/goals.yaml` when the run starts (`run-trial.sh:41-55`, `:142`); a goals
+- **How a run receives it**: `runbook run --goals FILE` copies the file unchanged to the
+  root case's `work/goals.yaml` when the run starts; a goals
   document or the output of `sdc-goals resolve` both work. It is artifact `goals` beside `idea`
   (`protocol/sdc.protocol.yaml:10`, `sdc.bindings.json:4`), and also of `sdc.intake` and
   `sdc.direction` (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`, their bindings
@@ -138,7 +138,7 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
 - **Prompt** *(inferred)*: "You answer for the requester. Its goals are in in/goals.yaml. Choose the
   answer its entries support; cite each entry you rely on; never cross a constraint; say
   `no_ground_in_goals` when nothing covers the question." The decider's clause "escalate when the
-  decision would change scope" (`decider.sh:185-187`) does not apply: scope is its job.
+  decision would change scope" does not apply: scope is its job.
 
 ## 4. Goals in intake and the other stages
 
@@ -146,7 +146,7 @@ entry ids that exist in the given layers), optional `overrides` (a higher-layer 
   after `questions.write`. For each open question an entry answers with strong or moderate grounds,
   it writes `answer`, `status: accepted|changed`, `answered_by: derived`, `derived_by:
   decider:requester`, `basis: [{entry, digest}]`. Non-scope questions: at every level (they are
-  writer answers today, `llm-node.sh:148-155`). Scope-changing: only where the class holder is D;
+  writer answers today). Scope-changing: only where the class holder is D;
   below, the derivation becomes the request's recommendation.
 - **Check**: `check-questions` refuses `derived` with no basis, and a basis whose entry is missing
   or changed (`finding`). This closes the `sdc-tool.sh:65-67` gap.

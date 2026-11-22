@@ -1,5 +1,11 @@
 # Eval design: how an agent node's freedom changes outcomes
 
+**Record, with one live section.** This design was written on 2026-11-20 and 2026-11-21, when the
+driver was Runbook's runtime. Its citations and commands name the driver's binary, its trial script
+and its model-node script as they were then; those files are deleted
+(`story:driver-runtime-removed`) and the runtime is Loom's (`docs/loom-run.md`). The rules on what an
+eval run is (the last section) are stated for `runbook run`.
+
 Question (the operator, 2026-11-20): does a node with fewer possible branches and a smaller agent surface
 give more reliable runs? Can the right surface be found empirically, by running a node with a given
 freedom many times, seeing which tools the successful runs use at each place, and granting exactly
@@ -634,6 +640,6 @@ Eval runs always run at autonomy level A5, with no person at any decision: the d
 
 The operator, 2026-11-21: "the eval should just be: run this in full autopilot and use the decider to make the decisions"; "it should never say person if there isn't a person". So:
 
-- An eval run is an autopilot run: `scripts/run-trial.sh <run> "<idea>" --autopilot` (or `SDC_AUTONOMY=A5`). The decider takes the scope-changing answers, the findings and every approval; a stop that would need a person ends the run (exit 7) with a stop record by `rule:autopilot`; KPI L7 (time waiting on a person) is 0 or the run failed.
-- A run in which a session or a script stands in for a person (the scripted person of `run-full-cycle.sh`, `--dry`'s scripted approvals, a coordinating session deciding for the operator) is an end-to-end test of the person path, not an eval run. It is labelled in its run settings (`stand_in: true`, `stand_in_by: <who>`; `SDC_STAND_IN=<who>` on `run-trial.sh`), records its principal as such (`person:stand-in`), and its numbers are not eval numbers.
+- An eval run is an autopilot run: `runbook run <runbook> --intake <idea file> …` with `autonomy: A5` in its settings (`docs/loom-run-settings.md`; the former trial script had `--autopilot` or `SDC_AUTONOMY=A5`). The decider takes the scope-changing answers, the findings and every approval; a stop that would need a person ended the run in the former trial script (exit 7, stop record by `rule:autopilot`) and ends it `stopped: decider` (exit 8) under `runbook run`; KPI L7 (time waiting on a person) is 0 or the run failed.
+- A run in which a session or a script stands in for a person (the scripted person of the former full-cycle script, `--dry`'s scripted approvals, a coordinating session deciding for the operator) is an end-to-end test of the person path, not an eval run. It is labelled in its run settings (`stand_in: true`, `stand_in_by: <who>`; `SDC_STAND_IN=<who>` on the former trial script), records its principal as such (`person:stand-in`), and its numbers are not eval numbers.
 - Principals are what took the decision: `person:<id>` only where a person acted, `decider:<kind>`, `rule:<name>`; nothing writes `human` or a person's id by default.

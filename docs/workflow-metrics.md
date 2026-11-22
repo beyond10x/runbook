@@ -11,7 +11,7 @@ anything here: programs read the records.
 - `sdc-experiment compare|check|report|index|run|status|stop`: groups of runs, and the experiment
   records that launch and account for every real run (`driver/src/bin/sdc-experiment.rs`; records
   in `experiments/<id>.yaml`, listed in `experiments/INDEX.md`).
-- Tests: `driver/tests/run_metrics.rs`. Stub cycle `run-metrics` in `scripts/run-finding-cycles.sh`.
+- Tests: `driver/tests/run_metrics.rs`. The cycle `run-metrics` is a row of `docs/cycles-suite.md`.
 
 Cite format `path:line`. *(proposed)* marks a rule this document introduces and nobody has
 approved yet.
@@ -86,7 +86,7 @@ loop.
 
 ## 4. Decision classes
 
-From `decisions.jsonl` (`scripts/run-trial.sh:379-483`). The class is the line's `class`
+From `decisions.jsonl` (written by the former trial script and, for a Loom run, by the runner's decider). The class is the line's `class`
 (`scope_changing_answer`, `finding`, `approval`, `close`), also by class and action
 (`run_metrics.rs:556`).
 
@@ -96,7 +96,7 @@ From `decisions.jsonl` (`scripts/run-trial.sh:379-483`). The class is the line's
 | `approved`, `rejected`, `escalated` | those lines by decision |
 | `escalation_suppressed` | `escalation_suppressed` lines (autopilot; the effective line follows with `suppressed: true`) |
 | `invalid_replies` | replies the program check refused: `invalid_reply` lines, plus lines from before the retry rule with `valid: false` |
-| `retries` | `invalid_reply` lines with `attempt` ≤ 2: the decider was asked again (`scripts/run-trial.sh:431-436`) |
+| `retries` | `invalid_reply` lines with `attempt` ≤ 2: the decider was asked again |
 | `refused_by_check` | effective decisions the program took after every reply was refused (`fallback`), plus `valid: false` effective lines from before the retry rule |
 | `calls`, `cost_usd` | lines that name a `model` and do not repeat a call (`suppressed`, `fallback`) |
 | `invalid_reasons` | `invalid_reason` up to its first colon, counted |
@@ -470,5 +470,5 @@ These metrics extend the eval design's metrics; they do not redefine them.
   library is pinned in `runbook/Cargo.lock` (`runbook canon`, formerly a `canon` binary pinned in `driver/canon-pin.json`).
 - **Effort.** Absent before `feat/effort-per-class`; those runs read `unrecorded`.
 - **Quality of the delivered app.** No run writes `oracle.json`.
-- **Retries inside a session.** An invalid model reply retried inside `llm-node.sh` (review
+- **Retries inside a session.** An invalid model reply retried inside the model node (review
   attempts) is one call line.
