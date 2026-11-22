@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:engine-on-loom-library-entry
 kind: story
-status: proposed
+status: active
 title: Engine on Loom's library entry
 summary: Loom and Canon linked as pinned cargo dependencies; the runtime trait implemented by Loom in process, with no runtime binary started.
 tags:
@@ -22,9 +22,10 @@ scope:
   path: runbook/src/runtime.rs
 - confidence: cited
   path: runbook/tests
-revision: 4
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
+- {from: "proposed", to: "active", at: "2026-11-22T10:08:39Z", actor: "human:operator", revision: 5, executor: "agent:onebin-d-engine", correlation: "operator-standing-acceptance-2026-11-22"}
 ---
 # Story: engine-on-loom-library-entry
 
@@ -74,3 +75,23 @@ started by Loom as today.
 `runbook/src/engine/` (new), `runbook/src/runtime.rs` (one more implementation), `runbook/Cargo.toml`,
 `runbook/Cargo.lock`, `runbook/tests/`. No change in `../loom` or `../canon`. Overlaps C on
 `runbook/Cargo.toml` and `runtime.rs`: D starts after C.
+
+## Slice 1
+
+Delivered by `agent:onebin-d-engine` on `impl/engine-on-loom-library-entry` (2026-11-22).
+
+- Built: `runbook/src/engine/` (the `Runtime` over Loom's library at `5af3f9c2`), `runbook serve
+  --runtime loom|stub` and `--runbook-home`, eight gate-lane tests (`runbook/tests/daemon/engine.rs`,
+  fixture `runbook/tests/fixtures/engine-runbook/`), the slow lane `task test:engine-real`,
+  `docs/engine.md`, "States at `5af3f9c2`" in `docs/library-entries.md`.
+- Acceptance met: Loom as git dependencies with `rev` (Canon through Loom, no direct dependency);
+  records equal record for record (`every_run_log_line_reaches_the_record_unchanged`); process
+  sample with no `canon`, `b10x-loom`, `loom` or `sdc-drive`; the cold `cargo build --locked` of `runbook/`
+  went from 90 s (77 crates compiled, 90 lockfile packages) to 226 s (208 compiled, 258 packages).
+- Not met as written: the Loom runtime is not the default of `runbook serve` (the coordinator held
+  `stub` as the default until the daemon's Host and Origin check exists); the stub cycle runs once
+  per test run in the slow lane only, not in the gate lane (the gate lane runs a two-level fixture
+  runbook).
+- Loom gaps: a running bound program is not stopped by a cancel (`run.rs:166`, row L15); a person
+  action's principal is not in `NextDecision` (`person.rs:65`).
+- Not built: resume of an orphaned run from its store; the `linux` level under test.
