@@ -61,7 +61,7 @@ real run that keeps failing the check leaves it only at a cap in the driver, mar
 
 - `max_runs`: writer runs per arrival, default 8 (`driver/src/main.rs:700`).
 - The autopilot's 2-rejection limit: the third rejection ends the run `rework_spent`
-  (`scripts/run-trial.sh:521-555`, `:551`).
+  (lines 521-555 and 551 of the trial script).
 
 | Verdict | Stuck | Cycle | Total |
 |---|---|---|---|
@@ -114,7 +114,7 @@ Why:
     So only an outside edit of the vision gets there.
 - **Gate records (3, 5, 6, 8).**
   - The gate program runs the same four commands as `sdc.spec`'s own checks
-    (`bindings/tools/sdc-tool.sh:143-149` against `:150-155`). It can therefore fail on
+    (`bindings/tools/sdc-tool.sh:142-148` against `:150-155`). It can therefore fail on
     a spec revision whose spec case passed only when the program itself fails: a crash, a timeout,
     or a newer `ess` between the stages.
   - Every non-zero exit except 126, 127 and 75 records `failed`: `"*": "failed"` in
@@ -156,7 +156,7 @@ new revision, and the failed check runs again on that revision.
 |---|---|---|---|---|---|---|
 | D1 | `sdc.direction` | Context check failed: `context.default` (or `amend.upstream`) rewrites the context. | 2 | `protocol/sdc-direction.protocol.yaml:159-178`, `:289-299` | `left by revision` | max_runs 3 (`driver/examples/sdc/sdc-direction.bindings.json:34`), 12 (`:160`) |
 | D2 | `sdc.direction` | `owner.approve` denied: only `context.change` is admissible. It has no binding (`driver/src/main.rs:648-650`), and a new context still needs the denied capability. | 2 | `:179-192`, `:204-217` | `real` | none; the driver stops `stuck` (`driver/src/main.rs:1210-1211`) |
-| D3 | `sdc.direction` | Context approval rejected: `context.default` writes a new context. | 2 | `:159-178`, `:204-217` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:34`); 2 rejections (`scripts/run-trial.sh:551`) |
+| D3 | `sdc.direction` | Context approval rejected: `context.default` writes a new context. | 2 | `:159-178`, `:204-217` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:34`); 2 rejections (line 551 of the trial script) |
 | D4 | `sdc.direction` | Vision approval rejected: `vision.write`. | 2 | `:218-246` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:80`); 2 rejections |
 | D5 | `sdc.direction` | Roadmap validation failed, or roadmap approval rejected: `roadmap.write`. | 2 | `:247-288` | `left by revision` | max_runs 3 (`sdc-direction.bindings.json:122`); 2 rejections |
 | I1 | `sdc.intake` | Dissection check failed: `idea.dissect` (also `questions.answer` while the interview is not settled). | 8 | `protocol/sdc-intake.protocol.yaml:138-157` | `left by revision` | max_runs 3 (`driver/examples/sdc/sdc-intake.bindings.json:43`) |
@@ -194,7 +194,7 @@ Notes:
   `retry_when` does not name `spec_review` (`driver/examples/sdc/sdc-spec.bindings.json:44-60`),
   so the driver would not take it, and a run would stop `stuck`.
   - Not reachable today: `review-spec` is a stub, `test -f spec/system.yaml`
-    (`bindings/tools/sdc-tool.sh:291`), and all 61 `spec_review` records in `runs/` are
+    (`bindings/tools/sdc-tool.sh:290`), and all 61 `spec_review` records in `runs/` are
     `approved`.
   - This is a binding gap for when the reviewer becomes real, not a protocol finding.
 - **Record groups.** `questions.check` records two kinds (`protocol/sdc-intake.protocol.yaml:200-212`).

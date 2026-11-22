@@ -10,7 +10,7 @@ Release carries the notes only.
 
 One version for the repository, written in these files and nowhere else:
 
-- `driver/Cargo.toml` (`sdc-drive`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
+- `driver/Cargo.toml` (`sdc-tools`), `watch/Cargo.toml` (`sdc-watch`), `goals/Cargo.toml`
   (`sdc-goals`), `runbook/Cargo.toml` (`runbook`, the command; it prints the version with
   `--version`), and the `sdc-*` or `runbook` package entry of each crate's `Cargo.lock`;
 - `ui/package.json` and the root entry of `ui/package-lock.json`;

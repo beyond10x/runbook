@@ -42,21 +42,21 @@ Each dot is one run. Every figure, its experiment and its limits are in
 - **No stored phase.** The stage is derived from facts: files in the case's repository and
   recorded check results.
   [The flow](https://beyond10x.github.io/runbook/docs/flow)
-- **One driver.** `sdc-drive` runs one case tree. It reads Canon's decision for the case, runs the
+- **One runtime.** `runbook run` runs one case tree through Loom. It reads Canon's decision for the case, runs the
   tool bound to one admissible action, records the result as Canon evidence and evaluates again.
   [The LLM is not the runtime](https://beyond10x.github.io/runbook/llm-is-not-the-runtime)
 - **The model is an executor.** An LLM only carries out one action. Its output is an artifact
   revision, never evidence and never the next state.
   [Context](https://beyond10x.github.io/runbook/docs/context)
-- **People decide what is theirs.** A decision that belongs to a person stops the run and prints
-  the command that takes it. [docs/decisions.md](docs/decisions.md)
-- **Built on layers.** Canon gives the semantics; Loom is meant to give the runtime.
+- **People decide what is theirs.** A decision that belongs to a person stops the run.
+  [docs/decisions.md](docs/decisions.md)
+- **Built on layers.** Canon gives the semantics; Loom gives the runtime.
   [What it is built on](https://beyond10x.github.io/runbook/docs/built-on)
   and [docs/layers.md](docs/layers.md)
 
 Every protocol drawn from its YAML is in the
 [protocol browser](https://beyond10x.github.io/runbook/protocols). Start in the repository with
-[docs/phases.md](docs/phases.md), [docs/driver.md](docs/driver.md) and
+[docs/phases.md](docs/phases.md), [docs/loom-run.md](docs/loom-run.md) and
 [docs/orchestration.md](docs/orchestration.md).
 
 ## Install the plugin
@@ -73,17 +73,25 @@ The skills and what each needs: [plugin/README.md](plugin/README.md).
 
 ## Try it
 
-Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`): the scripts build `runbook` once and run `runbook canon <subcommand>`; no `canon` binary is installed,
-Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`.
-
-The dry run uses a stub idea and stub executors that write the artifacts, prints every LLM command
-and runs none, with scripted approvals:
+Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`); no `canon` binary is
+installed. It needs Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`. Build `runbook` and
+the programs it runs once, in the repository root:
 
 ```console
-scripts/run-trial.sh --dry trial-dry
+(cd driver && cargo build --locked --bins)
+(cd runbook && cargo build --locked --bin runbook)
 ```
 
-The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
+The dry run uses an idea text you give it (`--intake`) and stub executors that write the
+artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`
+(the binary is `runbook/target/debug/runbook`, or `runbook` when it is on `PATH`):
+
+```console
+runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
+  --confinement local --spend-ledger <ledger file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+```
+
+The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook/docs/run-it).
 
 ## Repository layout
 
@@ -91,8 +99,8 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 |---|---|
 | `protocol/` | The eight SDC protocols and `sdc-bugfix` |
 | `cases/` | Fixture cases with expected decisions, run by `scripts/evaluate-cases.sh` |
-| `driver/` | The Rust crate `sdc-drive`, its tool bindings (`driver/examples/sdc/`) and other binaries |
-| `runbook/` | `runbook`, the command people type: `doctor`, `list` and `--version` so far |
+| `driver/` | The Rust crate `sdc-tools`: the programs the bindings run and the tools around runs, with the tool bindings in `driver/examples/sdc/` ([docs/driver.md](docs/driver.md)) |
+| `runbook/` | `runbook`, the command people type: `run`, `runs`, `decide`, `test`, `check`, `serve`, `mcp`, `doctor`, `list`, `parity`, `canon` ([docs/cli.md](docs/cli.md), [docs/loom-run.md](docs/loom-run.md)) |
 | `watch/` | `sdc-watch`: file changes of a run |
 | `goals/` | `sdc-goals`: checks of `sdc.goals/1` documents ([docs/requester.md](docs/requester.md)) |
 | `ui/` | A live web view of a run |
@@ -101,7 +109,7 @@ The scripted checks and a real run: [Run it](https://beyond10x.github.io/runbook
 | `experiments/` | Experiment records, run summaries and reports |
 | `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
 | `docs/` | Design notes, results and release notes |
-| `scripts/` | Check, evaluate and trial scripts |
+| `scripts/` | Check and evaluate scripts |
 | `plugin/`, `.claude-plugin/` | The `runbook` plugin (the skills `workflow-builder`, `harden` and `record`) and its marketplace |
 | `.engineering/planning/` | The planning store (AEP) |
 

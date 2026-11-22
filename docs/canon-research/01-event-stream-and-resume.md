@@ -50,7 +50,7 @@ Canon (kernel) topic. Research only, from source; nothing was built or run.
     (`explain/mod.rs:306-307`). It is an explanation, not a digest. Decision bytes include the Canon
     version (`explain/mod.rs:310`), so they are byte-identical only under one Canon version.
   - **Authority.** It carries no principal and no revision (`documents.md:118-121`). A grant
-    survives a revision move (`sdc/docs/driver.md:175`; this file was being edited by another session
+    survives a revision move (`sdc/docs/driver.md:211`; this file was being edited by another session
     while this research ran, so its line numbers may move).
 
 ## 2. What each runtime does on a crash
@@ -86,7 +86,7 @@ Canon (kernel) topic. Research only, from source; nothing was built or run.
     from zero (`lib.rs:715-718`).
   - The file provider keeps a digest chain and rolls back an unpublished append intent
     (`eventlog/docs/design/file-provider.md:160-178`).
-- **sdc-drive**
+- **the driver**
   - Hash-chained `events.jsonl` (`main.rs:145-153`). An `evaluated` event carries a state digest and
     a decision digest (`main.rs:199-200`). The state digest is sha256 over IR, case, authority,
     decisions and the evidence tree (`main.rs:131-138`).

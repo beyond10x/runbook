@@ -20,7 +20,7 @@ lists the open obligations (what is missing) and the admissible actions (what is
 stage, as `cases/*/decision.json` show.
 
 The root case's artifacts are `idea`, `goals` and `roadmap` (`sdc.protocol.yaml:7-14`). `goals` is
-the requester's resolved goals document, `work/goals.yaml`, put there by `scripts/run-trial.sh
+the requester's resolved goals document, `work/goals.yaml`, put there by `runbook run
 --goals FILE` (`docs/requester.md`, "How a run receives it"); `sdc.intake` and `sdc.direction`
 declare it too (`sdc-intake.protocol.yaml:10`, `sdc-direction.protocol.yaml:23`) and read the same
 file through the shared `work/`. It is an input only: no claim, invalidation or child opening names
@@ -246,8 +246,8 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
   make; the writer is admissible in each such state. A rejected approval is the same.
 - **A failed check only another case revises (a2 on `roadmap`, `spec`, 6 findings).** The child
   waits on a revision another protocol writes; no change.
-- **A lasting denial (d).** The driver refuses a capability decided twice
-  (`driver/src/main.rs:1590-1597`), so a denial stands for the case. Per denial, what a real
+- **A lasting denial (d).** The former driver refused a capability decided twice
+  (its code, deleted), so a denial stood for the case. Per denial, what a real
   case does next:
   - sdc.direction, `owner.approve` denied (2 findings): no other holder and no outcome in the
     case; the tree goes on through the root's `abandoned` decision, or a revised idea, which
@@ -262,9 +262,9 @@ The 71 findings of Canon `a1a937ec` on `dfe4a3f`, each with a verdict: `docs/sim
   protocol change; the walk is Canon's to fix. `intake.open` produces two records, its
   `intake_opened` and, through `case_open`, the child's `case_outcome`; its precondition
   `intake.opened is unknown` closes it after the first. The walk adds one record per step, so the
-  state with `intake_opened` and no `case_outcome` has no step left. The runtime writes the
-  `case_outcome` record (`open`) in the same step that opens the child (`open_children`,
-  `driver/src/main.rs:770`) and rewrites its result when the child ends, so a real case never
+  state with `intake_opened` and no `case_outcome` has no step left. The former driver wrote the
+  `case_outcome` record (`open`) in the same step that opened the child (`open_children`,
+  its code, deleted) and rewrote its result when the child ended, so a real case never
   holds `intake_opened` without it. The same holds for `direction.open`, `epics.open` and
   sdc.epic's opening actions.
 

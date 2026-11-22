@@ -39,8 +39,8 @@ that called no model counts (it must not). In the worked example one such audit 
 - [ ] At least 2 samples of the main input and 1 of the small input, started together.
 - [ ] Caps large enough not to be the first stop (calls, decider calls, wall seconds); each cap's
       stop names its cause.
-- [ ] Keep-going on, with a limit per run; defects go to a defects file.
-- [ ] The run is labelled real; the UI or list shows it as running only while a driver is attached.
+- [ ] Keep-going (a driver option) is not ported to `runbook run`; plan to collect defects one stop at a time.
+- [ ] The run is labelled real; the UI or list shows it as running only while a run process is attached.
 - [ ] Someone watches for the end and records it; a run that waits on nobody is stopped with a reason.
 
 ## 4. Classifying a run end
