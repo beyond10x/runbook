@@ -54,6 +54,17 @@ tasks:
       - cd driver && cargo build --locked
       - cd runbook && PATH="$PWD/../driver/target/debug:$PATH" cargo test --locked --test cli the_stub_cycle_through_the_engine -- --ignored --nocapture
 
+  test:loom-in-process:
+    desc: "Slow lane of runbook/: the sdc stub cycle (stub adapter, scripted approvals, confinement local, no model call) once through `runbook loom-run --loom` (the child binary, default ~/.local/state/runbook/loom/5af3f9c2/b10x-loom, RUNBOOK_LOOM_BIN names another; skipped with a message when absent) and once through `--in-process`, then `runbook parity summarize --loom-run` of both and `runbook parity compare --product-digests` between them, which must end `parity: identical`. Needs RUNBOOK_LOOM_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background and without the slot prefix."
+    requires:
+      vars: [RUNBOOK_LOOM_WORK]
+    env:
+      RUNBOOK_LOOM_WORK: "{{.RUNBOOK_LOOM_WORK}}"
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked
+      - cd runbook && cargo test --locked --test cli the_stub_cycle_through_the_child_and_in_process -- --ignored --nocapture
+
   test:driver:
     silent: true
     dir: driver

@@ -1,0 +1,385 @@
+//! `runbook loom-run --in-process`: the run loop over Loom as a library, on the small `sh` fixture
+//! runbook of the engine tests (`tests/fixtures/engine-runbook`: a root case that opens a drafting
+//! case; the drafting case has a writer program and one person step, the review). No `b10x-loom`
+//! binary, no model call: every approval is scripted and the bound programs are POSIX sh.
+
+use super::core::BIN;
+use serde_json::{json, Value};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
+
+const FORBIDDEN: [&str; 4] = ["b10x-loom", "loom", "canon", "sdc-drive"];
+
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+struct Rig {
+    root: PathBuf,
+}
+
+impl Rig {
+    fn new(tag: &str) -> Rig {
+        let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("inproc-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("runs")).unwrap();
+        copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &root.join("fx"));
+        std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
+        let rig = Rig { root };
+        rig.answers(&[json!({"approve": true, "cost_micro_usd": 0})], 0);
+        rig
+    }
+
+    /// The scripted decider: `answers` in order, each call reserving up to `max_call` micro USD.
+    fn answers(&self, answers: &[Value], max_call: u64) {
+        // the `loom` member is what `sdc-experiment run` writes for a record that runs the library
+        let settings = json!({"loom": {"in_process": true, "confinement": "local"}, "decider": {"kind": "scripted", "max_call_micro_usd": max_call, "answers": answers}});
+        self.settings(&settings);
+    }
+
+    fn settings(&self, settings: &Value) {
+        std::fs::write(self.root.join("settings.json"), serde_json::to_string_pretty(settings).unwrap()).unwrap();
+    }
+
+    /// The writer of the fixture replaced by `script`.
+    fn writer(&self, script: &str) {
+        let file = self.root.join("fx/bindings/tools/draft-write.sh");
+        std::fs::write(&file, script).unwrap();
+    }
+
+    fn run_dir(&self, name: &str) -> PathBuf {
+        self.root.join("runs").join(name)
+    }
+
+    fn work(&self, name: &str) -> PathBuf {
+        self.run_dir(name).join("work")
+    }
+
+    fn ledger(&self) -> PathBuf {
+        self.root.join("ledger.json")
+    }
+
+    /// The full option list for run `name`, the library way.
+    fn args(&self, name: &str, cap: u64) -> Vec<String> {
+        let r = |p: &str| self.root.join(p).display().to_string();
+        let mut a: Vec<String> = ["loom-run", "--run", name, "--runs-dir"].iter().map(|s| (*s).to_owned()).collect();
+        a.extend([
+            r("runs"),
+            "--in-process".into(),
+            "--bindings".into(),
+            r("fx/bindings"),
+            "--protocols".into(),
+            r("fx/protocol"),
+            "--root-protocol".into(),
+            "engine-demo@1".into(),
+            "--case".into(),
+            "ROOT-1".into(),
+            "--idea".into(),
+            r("idea.yaml"),
+            "--confinement".into(),
+            "local".into(),
+            "--settings".into(),
+            r("settings.json"),
+            "--spend-ledger".into(),
+            r("ledger.json"),
+            "--cap-micro-usd".into(),
+            cap.to_string(),
+            "--max-llm-calls".into(),
+            "100".into(),
+            "--max-wall-seconds".into(),
+            "120".into(),
+        ]);
+        a
+    }
+
+    fn command(&self, args: &[String]) -> Command {
+        let mut c = Command::new(BIN);
+        c.args(args)
+            .env_clear()
+            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("HOME", "/marker-home-dir")
+            .env("RUNBOOK_MARKER_VARIABLE", "marker-value-8842")
+            .env("ANTHROPIC_API_KEY", "sk-fake-token-5517")
+            .stdin(Stdio::null());
+        c
+    }
+
+    fn run(&self, args: &[String]) -> Output {
+        self.command(args).output().unwrap()
+    }
+
+    fn outcome(&self, name: &str) -> Value {
+        let text = std::fs::read_to_string(self.run_dir(name).join("outcome.json")).unwrap_or_else(|e| panic!("no outcome.json: {e}"));
+        serde_json::from_str(&text).unwrap()
+    }
+
+    fn events(&self, name: &str) -> Vec<Value> {
+        let text = std::fs::read_to_string(self.run_dir(name).join("events.jsonl")).unwrap();
+        text.lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    }
+}
+
+fn code(o: &Output) -> i32 {
+    o.status.code().unwrap_or(-1)
+}
+
+fn stderr(o: &Output) -> String {
+    String::from_utf8_lossy(&o.stderr).into_owned()
+}
+
+fn without(args: &[String], flag: &str, takes_value: bool) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == flag {
+            if takes_value {
+                it.next();
+            }
+            continue;
+        }
+        out.push(a.clone());
+    }
+    out
+}
+
+fn approve() -> Value {
+    json!({"approve": true, "cost_micro_usd": 0})
+}
+
+/// The command names of every process below `root`.
+fn descendants(root: u32) -> Vec<String> {
+    let mut table: Vec<(u32, u32, String)> = Vec::new();
+    for e in std::fs::read_dir("/proc").unwrap().flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
+        let Ok(stat) = std::fs::read_to_string(e.path().join("stat")) else { continue };
+        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else { continue };
+        let ppid = stat[close + 1..].split_whitespace().nth(1).and_then(|p| p.parse::<u32>().ok()).unwrap_or(0);
+        table.push((pid, ppid, stat[open + 1..close].to_string()));
+    }
+    let mut below: BTreeSet<u32> = BTreeSet::from([root]);
+    loop {
+        let more: Vec<u32> = table.iter().filter(|(p, pp, _)| below.contains(pp) && !below.contains(p)).map(|(p, _, _)| *p).collect();
+        if more.is_empty() {
+            break;
+        }
+        below.extend(more);
+    }
+    table.into_iter().filter(|(p, _, _)| *p != root && below.contains(p)).map(|(_, _, c)| c).collect()
+}
+
+/// The commit `Cargo.lock` pins for `b10x-loom-tree`, read here by line, independently of `build.rs`.
+fn locked_commit() -> String {
+    let text = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.lock")).unwrap();
+    let mut lines = text.lines();
+    while let Some(line) = lines.next() {
+        if line == "name = \"b10x-loom-tree\"" {
+            let source = lines.find(|l| l.starts_with("source = ")).expect("a source line");
+            return source.rsplit('#').next().unwrap().trim_end_matches('"').to_owned();
+        }
+    }
+    panic!("Cargo.lock holds no b10x-loom-tree");
+}
+
+// ---- the way to Loom: exactly one of two ----
+
+#[test]
+fn the_options_name_exactly_one_way_to_loom_and_a_usage_error_writes_nothing() {
+    let rig = Rig::new("usage");
+    let library = rig.args("r1", 1_000_000);
+    let hex = "0".repeat(64);
+    let neither = without(&library, "--in-process", false);
+    let mut both = library.clone();
+    both.extend(["--loom".into(), "/bin/true".into(), "--loom-sha256".into(), hex.clone()]);
+    let mut loom_alone = neither.clone();
+    loom_alone.extend(["--loom".into(), "/bin/true".into()]);
+    let mut sha_alone = neither.clone();
+    sha_alone.extend(["--loom-sha256".into(), hex.clone()]);
+    let mut library_with_sha = library.clone();
+    library_with_sha.extend(["--loom-sha256".into(), hex]);
+    let mut library_with_loom = library.clone();
+    library_with_loom.extend(["--loom".into(), "/bin/true".into()]);
+    for (what, args) in [("neither way", neither), ("both ways", both), ("--loom without its digest", loom_alone), ("a digest without --loom", sha_alone), ("--in-process with a digest", library_with_sha), ("--in-process with --loom", library_with_loom)] {
+        let o = rig.run(&args);
+        assert_eq!(code(&o), 2, "{what}: {}", stderr(&o));
+        assert!(stderr(&o).contains("usage"), "{what}: {}", stderr(&o));
+        assert!(!rig.run_dir("r1").exists(), "{what}: a run directory was made");
+        assert!(!rig.ledger().exists(), "{what}: a ledger was made");
+    }
+}
+
+#[test]
+fn the_confinement_stays_required_with_no_default() {
+    let rig = Rig::new("confinement-required");
+    let o = rig.run(&without(&rig.args("r1", 1_000_000), "--confinement", true));
+    assert_ne!(code(&o), 0, "{}", stderr(&o));
+    assert!(stderr(&o).contains("--confinement"), "{}", stderr(&o));
+    assert!(!rig.run_dir("r1").exists());
+}
+
+#[test]
+fn a_level_the_library_cannot_give_is_refused_before_anything_is_written() {
+    if runbook::engine::calls::host_levels().contains(&runbook::runtime::Confinement::Linux) {
+        eprintln!("this host delegates a cgroup: the linux level is offered, so there is no level to refuse here");
+        return;
+    }
+    let rig = Rig::new("level");
+    let mut args = rig.args("r1", 1_000_000);
+    let i = args.iter().position(|a| a == "--confinement").unwrap();
+    args[i + 1] = "substrate".into();
+    let o = rig.run(&args);
+    assert_eq!(code(&o), 2, "{}", stderr(&o));
+    assert!(stderr(&o).contains("substrate"), "{}", stderr(&o));
+    assert!(!rig.run_dir("r1").exists(), "a run directory was made");
+    assert!(!rig.ledger().exists(), "a ledger was made");
+}
+
+#[test]
+fn the_settings_file_must_agree_with_the_way_the_options_name() {
+    let rig = Rig::new("settings");
+    let decider = json!({"kind": "scripted", "max_call_micro_usd": 0, "answers": [approve()]});
+    for (what, loom, want) in [
+        ("a digest under --in-process", json!({"in_process": true, "sha256": "0".repeat(64)}), "loom.sha256"),
+        ("in_process false", json!({"in_process": false}), "loom.in_process"),
+        ("a binary path", json!({"in_process": true, "bin": "/opt/b10x-loom"}), "loom.bin"),
+    ] {
+        rig.settings(&json!({"loom": loom, "decider": decider}));
+        let o = rig.run(&rig.args("r1", 1_000_000));
+        assert_eq!(code(&o), 2, "{what}: {}", stderr(&o));
+        assert!(stderr(&o).contains(want), "{what}: {}", stderr(&o));
+        assert!(!rig.run_dir("r1").exists(), "{what}: a run directory was made");
+    }
+    // `loom.in_process` without the option is refused too
+    rig.settings(&json!({"loom": {"in_process": true}, "decider": decider}));
+    let args = without(&rig.args("r1", 1_000_000), "--in-process", false);
+    let o = rig.run(&args);
+    assert_eq!(code(&o), 2, "{}", stderr(&o));
+    assert!(!rig.run_dir("r1").exists());
+}
+
+// ---- the runs ----
+
+#[test]
+fn a_run_is_delivered_with_scripted_approvals_and_records_the_library_it_used() {
+    let rig = Rig::new("delivered");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "ended", "{outcome}");
+    assert_eq!(outcome["reason"], "delivered", "{outcome}");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("draft.txt")).unwrap(), "draft\n");
+    // the files a run directory holds under the child
+    let dir = rig.run_dir("r1");
+    for file in ["outcome.json", "events.jsonl", "settings.json", "run-settings.jsonl", "decisions.jsonl", "tree-status.json", "tree-verify.json", "status.json"] {
+        assert!(dir.join(file).is_file(), "{file} is missing");
+    }
+    for sub in ["store", "work", "bindings", "protocols"] {
+        assert!(dir.join(sub).is_dir(), "{sub}/ is missing");
+    }
+    // the members only a child has are null, never absent
+    assert!(outcome.get("loom_exit_code").is_some_and(Value::is_null), "{outcome}");
+    assert!(outcome.get("stderr_tail").is_some_and(Value::is_null), "{outcome}");
+    let ended = rig.events("r1").into_iter().find(|e| e["event"] == "ended").unwrap();
+    assert!(ended["loom_exit_code"].is_null() && ended["stderr_tail"].is_null(), "{ended}");
+    // the Loom used: the pinned commit, no digest
+    let settings: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap()).unwrap();
+    assert_eq!(settings["loom"]["in_process"], true, "{settings}");
+    assert_eq!(settings["loom"]["commit"], locked_commit(), "{settings}");
+    assert!(settings["loom"].get("sha256").is_none(), "{settings}");
+    assert_eq!(settings["loom"]["confinement"], "local");
+    let started = rig.events("r1").into_iter().find(|e| e["event"] == "run_started").unwrap();
+    assert_eq!(started["settings"]["loom"]["commit"], locked_commit());
+    // the review was answered as the principal the bindings bind the action to
+    let answered: Vec<Value> = rig.events("r1").into_iter().filter(|e| e["event"] == "decision_answered").collect();
+    assert_eq!(answered.len(), 1, "{answered:?}");
+    assert_eq!(answered[0]["principal"], "reviewer");
+    assert_eq!(answered[0]["approve"], true);
+}
+
+#[test]
+fn a_rejection_with_reasons_sends_the_writer_back() {
+    let rig = Rig::new("rejected");
+    rig.answers(&[json!({"approve": false, "reasons": "the draft needs a title line", "cost_micro_usd": 0}), approve()], 0);
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(rig.outcome("r1")["reason"], "delivered");
+    let work = rig.work("r1");
+    assert_eq!(std::fs::read_to_string(work.join("draft.txt")).unwrap(), "draft\ndraft\n", "the writer ran twice");
+    let feedback = std::fs::read_to_string(work.join("feedback.json")).unwrap();
+    assert!(feedback.contains("the draft needs a title line"), "the writer was not given the reasons: {feedback}");
+    assert!(feedback.contains("\"result\":\"rejected\""), "{feedback}");
+    let answered: Vec<Value> = rig.events("r1").into_iter().filter(|e| e["event"] == "decision_answered").collect();
+    assert_eq!(answered.iter().map(|a| a["approve"].as_bool().unwrap()).collect::<Vec<_>>(), [false, true]);
+    assert!(answered.iter().all(|a| a["principal"] == "reviewer"), "{answered:?}");
+}
+
+#[test]
+fn the_spend_cap_ends_the_run_as_it_does_under_the_child() {
+    let rig = Rig::new("cap");
+    // the one decision costs the whole cap; the writer the rejection sends back is never started
+    rig.answers(&[json!({"approve": false, "reasons": "again", "cost_micro_usd": 400_000}), approve()], 400_000);
+    let o = rig.run(&rig.args("r1", 400_000));
+    assert_eq!(code(&o), 4, "{}", stderr(&o));
+    let outcome = rig.outcome("r1");
+    assert_eq!(outcome["outcome"], "stopped: spend cap", "{outcome}");
+    assert_eq!(outcome["spent_micro_usd"], 400_000, "{outcome}");
+    let ledger: Value = serde_json::from_str(&std::fs::read_to_string(rig.ledger()).unwrap()).unwrap();
+    assert_eq!(ledger["spent_micro_usd"], 400_000, "{ledger}");
+    assert_eq!(std::fs::read_to_string(rig.work("r1").join("draft.txt")).unwrap(), "draft\n", "the writer ran again after the cap");
+    assert!(rig.events("r1").iter().any(|e| e["event"] == "cap_reached" && e["cap"] == "spend"));
+}
+
+#[test]
+fn only_the_programs_of_the_runbook_run_and_never_a_loom_canon_or_driver_process() {
+    let rig = Rig::new("tree");
+    rig.writer("#!/bin/sh\nsleep 3\necho draft >> draft.txt\n");
+    let mut child = rig.command(&rig.args("r1", 1_000_000)).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    let limit = Instant::now() + Duration::from_secs(50);
+    let status = loop {
+        seen.extend(descendants(pid));
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < limit, "the run did not end; the sample saw {seen:?}");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(status.success(), "{status:?}; the sample saw {seen:?}");
+    assert!(seen.contains("sleep"), "the sample saw {seen:?}");
+    for name in &seen {
+        assert!(!FORBIDDEN.contains(&name.as_str()), "a forbidden process ran: {seen:?}");
+        assert!(matches!(name.as_str(), "sh" | "sleep" | "cp" | "cat" | "draft-write.sh" | "draft-check.sh"), "an unexpected process ran: {name} in {seen:?}");
+    }
+}
+
+// ---- the environment of a bound program ----
+
+#[test]
+fn a_bound_program_gets_path_and_loom_variables_and_nothing_of_the_runbook_process() {
+    let rig = Rig::new("env");
+    rig.writer("#!/bin/sh\nenv > \"$PWD/env-dump.txt\"\necho draft >> draft.txt\n");
+    let o = rig.run(&rig.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let dump = std::fs::read_to_string(rig.work("r1").join("env-dump.txt")).unwrap();
+    for needle in ["marker-value-8842", "RUNBOOK_MARKER_VARIABLE", "sk-fake-token-5517", "ANTHROPIC_API_KEY", "/marker-home-dir"] {
+        assert!(!dump.contains(needle), "{needle} reached the bound program:\n{dump}");
+    }
+    let names: BTreeSet<&str> = dump.lines().filter_map(|l| l.split_once('=').map(|(k, _)| k)).collect();
+    assert!(names.contains("PATH"), "{dump}");
+    assert!(names.iter().any(|n| n.starts_with("LOOM_")), "{dump}");
+    for name in &names {
+        // PWD, SHLVL and _ are the shell's own
+        assert!(*name == "PATH" || name.starts_with("LOOM_") || matches!(*name, "PWD" | "SHLVL" | "_" | "OLDPWD"), "{name} is in the environment of the bound program:\n{dump}");
+    }
+}
