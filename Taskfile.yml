@@ -35,12 +35,12 @@ tasks:
     dir: driver
     desc: "Test driver/ with cargo-nextest (driver/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. Needs cargo-nextest."
     cmds:
-      - cargo nextest run --locked --no-run
+      - cargo nextest run --locked --color never --no-run
       - |
         set -u
         log=target/nextest-driver.log
         code=0
-        cargo nextest run --locked > "$log" 2>&1 || code=$?
+        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
         cat "$log"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
@@ -56,12 +56,12 @@ tasks:
     dir: runbook
     desc: "Test runbook/ with cargo-nextest (runbook/.config/nextest.toml): a test over 60 s is killed and fails, the ten slowest tests are printed, the step fails when the test run takes over 120 s (SDC_TEST_BUDGET_SECONDS moves the 120). The build is not counted. The forge runs this same task (.github/workflows/pages.yml). Needs cargo-nextest."
     cmds:
-      - cargo nextest run --locked --no-run
+      - cargo nextest run --locked --color never --no-run
       - |
         set -u
         log=target/nextest-runbook.log
         code=0
-        cargo nextest run --locked > "$log" 2>&1 || code=$?
+        cargo nextest run --locked --color never > "$log" 2>&1 || code=$?
         cat "$log"
         echo "ten slowest tests:"
         awk '/^ +(PASS|FAIL|TIMEOUT) +\[/ { match($0, /\[ *[0-9.]+s\]/); t = substr($0, RSTART + 1, RLENGTH - 3); gsub(/ /, "", t); n = $0; sub(/^.*\] +(\([^)]*\) +)?/, "", n); print t "s " n }' "$log" | sort -rn | uniq | head -10
@@ -74,7 +74,7 @@ tasks:
 
   check:ci-paths:
     silent: true
-    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty."
+    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty. Also fails when a nextest call of this file lacks --color never."
     cmds:
       - |
         set -eu
@@ -116,6 +116,9 @@ tasks:
         code|views/sdc.view.json
         code|
         CASES
+        n=$((n + 1))
+        bare=$(grep -n 'cargo nextest [r]un' Taskfile.yml | grep -v -e '--color never' || true)
+        if [ -z "$bare" ]; then echo "ok   every nextest call of Taskfile.yml has --color never"; else echo "FAIL a nextest call without --color never (the forge sets CARGO_TERM_COLOR=always and the tasks parse the log):"; echo "$bare"; fail=1; fi
         echo "$n cases"
         exit $fail
 
