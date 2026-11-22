@@ -20,7 +20,7 @@ scope:
   path: driver/tests/run_compare.rs
 - confidence: cited
   path: experiments
-revision: 3
+revision: 4
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:37Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -94,3 +94,12 @@ mapping it applies.
 `driver/tests/run_compare.rs`, `experiments/` (the registered record and its report),
 `docs/run-compare.md`, `cycles/suite.yaml` (read). `driver/src/bin/sdc-experiment.rs` is not
 changed here.
+
+## Approval of the evaluation spend (2026-11-22)
+
+The operator's word on the money for the three evaluation runs was given on 2026-11-22 and is
+recorded in `approval-record:operator-decision-parity-runs-spend-2026-11-22`: "A: 3 runs, cap 20
+USD". It replaces the wait described in Context. The three Loom runs of the evaluation start
+without asking again once the `stub-cycle` summaries are equal on both runtimes (the first
+acceptance statement), and they stop at 20 USD of spend. The story's report gives the three results
+and the spend. The runs still start only through `sdc-experiment run` with a registered record.

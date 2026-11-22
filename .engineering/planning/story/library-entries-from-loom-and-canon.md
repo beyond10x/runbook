@@ -14,7 +14,7 @@ scope:
   path: .engineering/planning/upstream-blocker
 - confidence: inferred
   path: docs/library-entries.md
-revision: 6
+revision: 7
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:30Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:47:31Z", actor: "human:operator", revision: 3, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -70,3 +70,29 @@ parts of the Loom side.
 
 `docs/library-entries.md` (new), `.engineering/planning/upstream-blocker/`, `AGENTS.md` (one line).
 No code in `runbook/`, no change in `../loom` or `../canon`.
+
+## Status 2026-11-22
+
+State of the acceptance statements on 2026-11-22, in the order above. The story stays `active`.
+
+- Statement 1, met in part. `docs/library-entries.md` exists and has a row per capability with crate,
+  public item, commit and `path:line`. Where the neighbour gave no signature (`run_tree`, the suite
+  runner) the row says so. The states used are `exists`, `on a branch`, `requested`, `not planned`
+  and `not checked`, not only the two the statement names; no row is `exists`, and the agent
+  executor and decider configuration row is `not checked` (the Loom answers do not cover it).
+- Statement 2, met. Every `requested` row names an upstream blocker (`loom-library-entry`, and
+  `loom-confinement` for L19). Both blockers are updated with their rows. `loom-library-entry`
+  stays `open`. `canon-library-entry` stays `open` too: its six rows are `on a branch` (`7d1a28a20`),
+  not `exists`, and were not checked at the Canon version Loom pins. `aep plan artifact list --kind
+  upstream-blocker` prints both with their status.
+- Statement 3, met. Both sessions answered on 2026-11-22; the page holds the answers and the
+  items agreed with the Loom session.
+- Statement 4, not met. The page names the dependency form, the pin rule and the toolchain facts, but
+  no commit can be pinned yet (no commit has `run_tree`), and the `cargo check` of a scratch crate
+  that depends on Loom and Canon by git was not run. Whether both build in one workspace with
+  rustc `1.99.1` is unknown.
+- Statement 5: `aep plan artifact validate` is run at the end of the planning commit.
+- Scope, not done here: the one line in `AGENTS.md`.
+
+This story moves to `implemented` when statement 4 is met (the pin and the scratch `cargo check`)
+and the blockers say what they wait on.
