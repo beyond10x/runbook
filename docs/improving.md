@@ -30,7 +30,9 @@ dont collect big conversations, figure out where we can use cheeper models".
 ## The loop
 
 1. **Baseline.** On the last release's tree, n ≥ 3 runs per model setting, started by
-   `sdc-experiment run <id>` from a prospective record (`docs/workflow-metrics.md` § 7). A
+   `sdc-experiment run <id>` from a prospective record with `runner: loom`, which starts each run
+   with `runbook run` (`docs/workflow-metrics.md` § 7; a record of the old driver is read, not
+   run). A
    baseline is reused, not rerun, while the input's sha256, the settings and the tree match.
 2. **Pick one change.** From the loop nodes and edges of the last reports, or the next story of
    the epic. One change per experiment.
