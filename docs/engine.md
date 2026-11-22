@@ -4,7 +4,7 @@
 (`runbook/src/runtime.rs`). It runs a case tree through Loom's library calls inside the daemon's
 process. It starts no `b10x-loom`, `loom`, `canon` or `sdc-drive` process; only the bound programs of
 the bindings run as processes, started by Loom's runner. Loom is linked as three git dependencies
-pinned by commit (`runbook/Cargo.toml`); Canon comes through Loom (tag `0.10.0`, in `Cargo.lock`).
+pinned by commit (`runbook/Cargo.toml`); Canon comes through Loom (tag `0.11.0`, in `Cargo.lock`).
 The pin and the rows it was read at: `docs/library-entries.md`, "States at `5af3f9c2`".
 
 The code that calls Loom (the opening of a tree, one `run_tree`, the answer to a decision, status
@@ -68,6 +68,14 @@ running bound program"; row L15), no later step starts, and the run ends `Cancel
 shows `Cancelled` at once. The gate test is
 `a_cancel_while_a_program_runs_ends_the_program_and_the_run_and_starts_no_later_step`.
 
+A `handoff_when` check of a binding holds the same cancel (Loom `5b3142c7`, `run_handoff_check` takes
+`cancel: Option<&Cancel>`; the engine has no call of it, Loom's `run_tree` makes the checks and the
+engine passes its cancel flag to `run_tree`). A cancel during a check ends the check within seconds,
+the `handoff checked` line holds the refusal `Cancelled: action <action>: the check <program> was
+cancelled` and no exit, the action's program never starts, and the run ends `Cancelled` (status 5,
+`next: [<action>]`). The gate test is
+`a_cancel_while_a_handoff_check_runs_ends_the_check_and_the_run_and_starts_no_later_step`.
+
 `recover` is always `Gone`: a run lives on one thread of one process, so a restarted daemon has no
 run, whatever the store holds. The daemon then ends it as `orphaned`. The store stays on disk;
 `Engine::store_state(run)` tells `Absent`, `Idle`, `StaleHolder` or `Held` (Loom's lock is a `flock`,
@@ -77,7 +85,8 @@ is not built.
 ## Loom gaps seen
 
 All at `5af3f9c2`, paths under `crates/` of Loom unless given. A cancel ends a running program
-since `23f1f4b3`; the other entries were not looked at again at that pin.
+since `23f1f4b3`, and a cancel ends a running `handoff_when` check since `5b3142c7`; the other entries
+were not looked at again at that pin.
 
 - `NextDecision` has no principal for a person action: `generated/rust/loom/src/tree.rs:102`,
   `loom-tree/src/person.rs:65`.

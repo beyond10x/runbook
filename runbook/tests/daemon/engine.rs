@@ -85,14 +85,27 @@ struct Rig {
 
 impl Rig {
     fn new(tag: &str, levels: &[Confinement]) -> Rig {
+        Rig::build(tag, levels, false)
+    }
+
+    /// `hold`: the writer's binding carries a `handoff` text and a `handoff_when` check
+    /// (`tools/draft-hold.sh`: sleeps the seconds of `pause.txt`, exits 1), so a check runs before
+    /// the writer's step.
+    fn build(tag: &str, levels: &[Confinement], hold: bool) -> Rig {
         let dir = scratch(tag);
         let home = dir.join("home");
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
         // A person step is answered as the principal its binding names: here, the daemon's.
         let binding = home.join("bindings/engine-draft.yaml");
-        let text = std::fs::read_to_string(&binding).unwrap();
+        let mut text = std::fs::read_to_string(&binding).unwrap();
         assert!(text.contains("principal: reviewer"));
-        std::fs::write(&binding, text.replace("principal: reviewer", &format!("principal: {}", super::PRINCIPAL))).unwrap();
+        text = text.replace("principal: reviewer", &format!("principal: {}", super::PRINCIPAL));
+        if hold {
+            let writer = "      argv: [tools/draft-write.sh]\n";
+            assert!(text.contains(writer));
+            text = text.replace(writer, &format!("{writer}    handoff: Write the draft by hand.\n    handoff_when: [tools/draft-hold.sh]\n"));
+        }
+        std::fs::write(&binding, text).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
         let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), levels));
         let mut rig = Rig { dir, home, levels: levels.to_vec(), engine, d: None };
@@ -290,6 +303,42 @@ fn a_cancel_while_a_program_runs_ends_the_program_and_the_run_and_starts_no_late
     }
     assert!(writer_seen, "the writer never ran, so the cancel ended nothing");
     assert!(later_steps.is_empty(), "a step ran after the cancel: {later_steps:?}");
+}
+
+#[test]
+fn a_cancel_while_a_handoff_check_runs_ends_the_check_and_the_run_and_starts_no_later_step() {
+    // Loom's `handoff_when` check holds the run's cancel (Loom 5b3142c7): the check ends, the run is
+    // Cancelled, and the writer whose check it was never starts. The check would sleep 30 s.
+    let rig = Rig::build("engine-cancel-check", &[Confinement::Local], true);
+    let run = rig.submit_at(Confinement::Local, Some(rig.context(30)));
+    until("the check to sleep", 40, || descendants().iter().any(|c| c == "sleep"));
+    assert_eq!(rig.state_of(&run), "Running");
+    let at = Instant::now();
+    rig.cancel(&run);
+    rig.wait_state(&run, "Cancelled");
+    until("the check to end", 10, || !descendants().iter().any(|c| c == "sleep"));
+    assert!(at.elapsed() < Duration::from_secs(5), "the cancel took {:?}", at.elapsed());
+    until("the engine to let go of the run", 10, || rig.engine.store_state(&run) == StoreState::Idle);
+    assert!(rig.d().open_decisions_of_run(&run).is_empty());
+    let (mut checked, mut stopped, mut started) = (false, false, Vec::new());
+    for e in std::fs::read_dir(rig.store(&run)).unwrap().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with("runlog-") && name.ends_with(".jsonl") {
+            for line in std::fs::read_to_string(e.path()).unwrap().lines() {
+                let l: Value = serde_json::from_str(line).unwrap();
+                match l["kind"].as_str() {
+                    Some("HandoffChecked") => checked |= l["action"] == "draft.write" && l["exit"].is_null() && l["refusal"].as_str().is_some_and(|r| r.starts_with("Cancelled: action draft.write: the check")),
+                    Some("Stopped") => stopped |= l["stop"] == "Cancelled" && l["next"] == serde_json::json!(["draft.write"]),
+                    Some("ActionStarted") if l["action"] == "draft.write" => started.push(line.to_owned()),
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(checked, "no HandoffChecked line holds the cancelled check's refusal and no exit");
+    assert!(stopped, "no Stopped line says Cancelled with next [draft.write]");
+    assert!(started.is_empty(), "the writer started after the cancel: {started:?}");
+    assert!(!rig.workspace(&run).join("draft.txt").exists(), "the writer wrote a draft");
 }
 
 #[test]

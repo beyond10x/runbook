@@ -2,7 +2,7 @@
 
 The SDC is a family of eight Canon `protocol/1` documents under `protocol/`, one case per stage,
 composed with child cases. Sources: `docs/phases.md` (phase model), `docs/intake.md` (intake
-stages and evidence names), Canon 0.10.0 at commit 2c7a1ea6.
+stages and evidence names), Canon 0.11.0 at commit e81f970d.
 
 | Protocol | File | Opens | Success outcome |
 |---|---|---|---|
@@ -279,7 +279,7 @@ slow lane (`--slow`, `task check:protocols:slow`) or a changed protocol runs the
 difference fails with a unified diff and
 `simulate: <protocol>: findings changed (was N, now M)`; one line per protocol gives reachable,
 terminable, waiting and findings. The step uses the Canon commit in `protocol/simulate/CANON_REV`:
-`2c7a1ea6`, the commit of Canon's release tag `0.10.0`, the first release with `simulate` (until
+`e81f970d`, the commit of Canon's release tag `0.11.0` (`2c7a1ea6`, tag `0.10.0`, until 2026-11-22; before it, until
 SDC 0.1.1 the unreleased commit `a1a937ec`, Canon PR 27, decision D151; the reports of all nine
 protocols are byte-equal on both). It is built once by `cargo install --locked --root` into
 `${XDG_CACHE_HOME:-$HOME/.cache}/sdc/canon-simulate/<rev>/` (outside the repository, not on

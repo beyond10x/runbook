@@ -313,7 +313,7 @@
       "protocol": "sdc.intake",
       "protocol_revision": 10,
       "semantics": {
-        "canon": "0.10.0",
+        "canon": "0.11.0",
         "format": "canon-decision/1"
       }
     },

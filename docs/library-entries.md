@@ -292,7 +292,7 @@ Rows L1, L3, L5, L11 to L13, L18 to L21 and L23 were not used and their state wa
   `5af3f9c2` a bound program already running was not cancelled; it ended at its timeout, the
   binding's `timeout_seconds` (default 60, `bindings/src/program.rs:215`), when Substrate ends the
   child and Loom sends `Signal::Kill` after a drain margin (`confinement.rs:771`, `:808-820`). Since
-  L15 (`23f1f4b3`) a cancel ends a running program within about 7 s; the step ends `Cancelled` with
+  L15 (`23f1f4b3`) a cancel ends a running program within about 7 s, and since `5b3142c7` a running `handoff_when` check too; the step ends `Cancelled` with
   no evidence record, no result-table row and no retry.
 - Child processes go through `TestRunner::run_child`, which blocks to the end (`confinement.rs:78-103`).
   The only programs Loom starts are `git`, `ess`, `cargo` and the connectors program; it starts no
