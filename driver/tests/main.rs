@@ -9,6 +9,7 @@ mod conformance;
 mod decision_request;
 mod experiment_loom;
 mod impl_gate;
+mod node_parity;
 mod plugin;
 mod progress;
 mod questions_check;
