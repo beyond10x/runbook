@@ -10,6 +10,9 @@
         "kind": "program",
         "max_runs": 12,
         "program": "sdc-tool.sh amend context",
+        "retry_when": [
+          "context_defaults"
+        ],
         "timeout_s": 300
       },
       "name": "amend.upstream",
@@ -81,7 +84,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh context.default",
+        "program": "sdc-node context.default",
         "retry_when": [
           "context_approval",
           "context_defaults"
@@ -263,7 +266,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh vision.write",
+        "program": "sdc-node vision.write",
         "retry_when": [
           "vision_approval"
         ],
@@ -375,7 +378,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh roadmap.write",
+        "program": "sdc-node roadmap.write",
         "retry_when": [
           "roadmap_approval",
           "roadmap_validation"

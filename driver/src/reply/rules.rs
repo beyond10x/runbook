@@ -12,14 +12,10 @@ use super::{read_json, sorted};
 /// The principal of an approval taken by the rule.
 pub const RULE_PRINCIPAL: &str = "rule:autopilot";
 
-/// Whether the argv of binding `b` starts a model's program: `sdc-node`, or the model-step script
-/// of the removed driver, which the bindings of `driver/examples/sdc/` still name by its file name.
+/// Whether the argv of binding `b` starts a model's program: `sdc-node`.
 pub fn model_step_argv(b: &Value) -> bool {
     b["argv"].as_array().is_some_and(|a| {
-        a.iter().any(|x| {
-            let name = x.as_str().and_then(|s| s.rsplit('/').next()).unwrap_or("");
-            name == "sdc-node" || name.starts_with("llm-node.")
-        })
+        a.iter().any(|x| x.as_str().and_then(|s| s.rsplit('/').next()) == Some("sdc-node"))
     })
 }
 
@@ -210,6 +206,16 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn only_sdc_node_starts_a_model_step() {
+        assert!(model_step_argv(&json!({"argv": ["sdc-node", "spec.author"]})));
+        assert!(model_step_argv(&json!({"argv": ["/x/bin/sdc-node", "spec.author"]})));
+        let old = ["llm-node", "sh"].join(".");
+        assert!(!model_step_argv(&json!({"argv": [format!("{{dir}}/../../../bindings/tools/{old}"), "spec.author"]})));
+        assert!(!model_step_argv(&json!({"argv": [old, "spec.author"]})));
+        assert!(!model_step_argv(&json!({"argv": ["tools/sdc-tool.sh", "spec-domain"]})));
+    }
     use serde_json::{json, Map, Value};
     use crate::reply::read_json;
 

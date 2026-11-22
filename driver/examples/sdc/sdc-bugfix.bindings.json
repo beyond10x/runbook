@@ -8,7 +8,7 @@
   },
   "bug.dissect": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "bug.dissect"
     ],
     "llm": {
@@ -51,7 +51,7 @@
   },
   "test.reproduce": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "test.reproduce"
     ],
     "llm": {
@@ -99,7 +99,7 @@
   },
   "change.fix": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "change.fix"
     ],
     "produces": "implementation_change",

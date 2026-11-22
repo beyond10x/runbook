@@ -22,7 +22,7 @@
   },
   "idea.dissect": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "idea.dissect"
     ],
     "llm": {
@@ -61,7 +61,7 @@
   },
   "questions.write": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "questions.write"
     ],
     "llm": {
@@ -84,9 +84,16 @@
   },
   "questions.answer": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "questions.answer"
     ],
+    "produces": "answer_applied",
+    "subject": "questions",
+    "producer": "llm-node",
+    "results": {
+      "0": null,
+      "1": "refused"
+    },
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
@@ -95,6 +102,11 @@
         "stub-file",
         "questions-answered.yaml",
         "questions.yaml"
+      ]
+    },
+    "retry_when": {
+      "answer_applied": [
+        "refused"
       ]
     },
     "max_runs": 3,
@@ -135,7 +147,7 @@
   },
   "requirements.normalise": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "requirements.normalise"
     ],
     "llm": {

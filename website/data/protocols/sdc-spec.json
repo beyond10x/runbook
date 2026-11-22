@@ -61,7 +61,7 @@
         "max_runs": 4,
         "node_class": "writer",
         "producer": "llm-node",
-        "program": "llm-node.sh spec.author",
+        "program": "sdc-node spec.author",
         "results": {
           "0": "authored"
         },

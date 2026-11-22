@@ -146,13 +146,37 @@ adds one, in the same commit.
 
 `rule-ends.json` holds the autopilot rules that lived only in code. The deleted `run-trial.sh` read two of
 them: the rework limit (`rework_limit`, which was the literal 2 and the default of the one effective rework cap, D184, overridden by `SDC_MAX_REJECTIONS`; `runbook run` has no rework cap) and the ends for a refusal (`approvals.*.reject`, which was
-the `refusal_end` array). The check reads all of them. The `runtime` block states what a run needs of its runtime: which effects are capped,
-whether the cap holds per kind (R7), whether a rejection is an arrival (R6), whether the writer's own failure and a rejection log that is not a document
-are fed back (R9), and the backstop. `provided_by` names for each member who holds it in a run of `runbook run`: a Loom member, or `pending:` with the page that says so; the check prints one `capability` line for each.
-A route built in code is declared there as well. The other routes stay `null`
+the `refusal_end` array). The check reads all of them. The `runtime` block states facts of a run of `runbook run`: which
+effects are capped (`capped_effects`), whether the cap holds per kind (`cap_per_kind`, R7),
+whether a rejection is an arrival (`rejection_is_arrival`, R6), and whether the writer's own
+failure (`own_failure_fed_back`) and a rejection log (`rejection_logs_fed_back`, R9) are fed back.
+Its `provided_by` object says who holds each member: `loom: <what>, <file:line>`,
+`runner: <what>` or `absent: <what>`. Loom's default of 8 runs per action with no
+`budget.max_runs` is Loom's (`crates/loom-bindings/src/lib.rs:84` at `70b0e6e0`) and no member of
+the file. A route built in code is declared there as well. The other routes stay `null`
 until they are built: R2 (`approvals."sdc.intake/scope.answer"`), R3 (`findings.refused_by_check`),
 R4 and R5 (`approvals.*.after_limit`), and the root close (`close."close:operating"`, which
 `fix/attempt5-close` sets).
+
+The check refuses a `runtime` block it cannot read as a whole: it exits 2, prints nothing on
+standard output and names every reason on standard error, one line each. It refuses:
+
+- no block `runtime` (the old key `driver` is named as renamed) or no `provided_by` in it;
+- a member it does not know, a member with no `provided_by` entry, an entry for no member;
+- a member of the wrong type: `capped_effects` is a list of `read`, `write`, `external`; every
+  other member is `true` or `false`;
+- a `provided_by` value with no known prefix, with nothing after the prefix, or a `loom:` value
+  with no `file:line` (a relative path ending in `rs`, `toml`, `md`, `yaml`, `yml`, `json` or
+  `sh`, a colon and a line or range of lines: `crates/x/src/y.rs:740`, `retry.rs:4-8`; a web
+  address or a host name with a port is none). This checks the form only: it does not open the
+  file at the pinned commit;
+- a member that contradicts its entry: `true` (a non-empty `capped_effects`) next to `absent:`, or
+  `false` (an empty list) next to `loom:` or `runner:`. No member can rightly be `false` next to
+  `loom:` or `runner:`: `false` says the run has not got it, and then the entry says `absent:` and
+  names why.
+
+`scripts/check-bindings.sh` tells the two ends apart: exit 1 for findings (it goes on and
+reports), exit 2 of the check is a refused file (it prints `REFUSED routes`, stops and exits 3).
 
 | Finding | When |
 |---|---|
@@ -161,7 +185,7 @@ R4 and R5 (`approvals.*.after_limit`), and the root close (`close."close:operati
 | `not-handed` | a `retry_when` result whose producer's log does not reach the writer |
 | `own-failure` | an LLM writer whose failed run is not fed back |
 | `shared-cap` | different retry kinds, or reworks, that share one `max_runs` |
-| `inert-cap` | a `max_runs` on a node the driver does not cap (`change.review` on `impl/review-node`) |
+| `inert-cap` | a `max_runs` on a node the runtime does not cap (`change.review` on `impl/review-node`) |
 | `unrecorded-exit` | an LLM observation with an exit its `results` do not map: no record, so the case is stuck (`change.review` exit 2 on `impl/review-node`) |
 | `rework-limit` | an approval with no end after its last rework |
 | `no-reject-route` | a decision class whose reject has no route |
@@ -172,16 +196,40 @@ After `impl/review-node` merges, the check will report `inert-cap` and `unrecord
 
 ## Check output
 
-This block is the check's output on this branch. `fix/attempt5-close` removes the first line.
+This block is the check's output on this branch: 36 findings (13 `own-failure`, 8 `shared-cap`,
+6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`
+and `unrecorded-exit`). `fix/attempt5-close` removes the line `no-reject-route sdc/close:operating
+(close)`.
 
 ```text
+shared-cap sdc.bugfix change.fix: 2 retry kinds share max_runs 3
+own-failure sdc.bugfix bug.dissect: a failed run's log does not reach its next run
+own-failure sdc.bugfix change.fix: a failed run's log does not reach its next run
+own-failure sdc.bugfix test.reproduce: a failed run's log does not reach its next run
+not-handed sdc.direction amend.upstream: retry_when context_defaults=finding, but the log of context.check does not reach it
+shared-cap sdc.direction context.default: reworks after a rejected context_approval count against max_runs 3
+shared-cap sdc.direction roadmap.write: reworks after a rejected roadmap_approval count against max_runs 3
+shared-cap sdc.direction vision.write: reworks after a rejected vision_approval count against max_runs 3
+own-failure sdc.direction context.default: a failed run's log does not reach its next run
+own-failure sdc.direction roadmap.write: a failed run's log does not reach its next run
+own-failure sdc.direction vision.write: a failed run's log does not reach its next run
 negative-result sdc.epic spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+own-failure sdc.intake idea.dissect: a failed run's log does not reach its next run
+own-failure sdc.intake questions.answer: a failed run's log does not reach its next run
+own-failure sdc.intake questions.write: a failed run's log does not reach its next run
+own-failure sdc.intake requirements.normalise: a failed run's log does not reach its next run
 negative-result sdc.plan spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+shared-cap sdc.plan plan.decompose: 4 retry kinds share max_runs 3
+own-failure sdc.plan plan.decompose: a failed run's log does not reach its next run
 negative-result sdc.release acceptance.run release_conformance=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
 negative-result sdc.release release.observe health_observation=unhealthy: no writer's retry_when names it, no rule end covers it, no outcome or write follows
 negative-result sdc.release spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+shared-cap sdc.spec spec.author: 6 retry kinds share max_runs 4
+own-failure sdc.spec spec.author: a failed run's log does not reach its next run
 negative-result sdc.story spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
-inert-cap sdc.story change.review: max_runs 3 on a node with effect read, which the driver does not cap
+shared-cap sdc.story change.implement: 3 retry kinds share max_runs 3
+shared-cap sdc.story change.implement: reworks after a rejected merge_approval count against max_runs 3
+own-failure sdc.story change.implement: a failed run's log does not reach its next run
 unrecorded-exit sdc.story change.review: an exit its results do not map records nothing, and the case ends stuck
 no-reject-route sdc/close:operating (close): the decider is asked and its reject has no route
 rework-limit sdc.direction/context.approve (context): rejection 3 ends in the stop rework_spent, no end by rule
