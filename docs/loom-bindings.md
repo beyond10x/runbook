@@ -18,14 +18,14 @@ syntax.
 
 | Protocol | YAML | Registration | Bindings | Unbound (as in the JSON) |
 |---|---|---|---|---|
-| `sdc` | `bindings/sdc.yaml` | `sdc@1` | 4 | none |
-| `sdc.intake` | `bindings/sdc-intake.yaml` | `sdc-intake@1` | 10 | none |
-| `sdc.direction` | `bindings/sdc-direction.yaml` | `sdc-direction@1` | 9 | `context.change` |
-| `sdc.epic` | `bindings/sdc-epic.yaml` | `sdc-epic@1` | 6 | none |
-| `sdc.spec` | `bindings/sdc-spec.yaml` | `sdc-spec@1` | 9 | `spec.reuse`, `spec.reconstruct` |
-| `sdc.plan` | `bindings/sdc-plan.yaml` | `sdc-plan@1` | 8 | none |
-| `sdc.story` | `bindings/sdc-story.yaml` | `sdc-story@1` | 7 | none |
-| `sdc.release` | `bindings/sdc-release.yaml` | `sdc-release@1` | 5 | `release.rollback` |
+| `sdc` | `bindings/sdc.yaml` | `sdc@8` | 4 | none |
+| `sdc.intake` | `bindings/sdc-intake.yaml` | `sdc-intake@9` | 10 | none |
+| `sdc.direction` | `bindings/sdc-direction.yaml` | `sdc-direction@7` | 9 | `context.change` |
+| `sdc.epic` | `bindings/sdc-epic.yaml` | `sdc-epic@5` | 6 | none |
+| `sdc.spec` | `bindings/sdc-spec.yaml` | `sdc-spec@5` | 9 | `spec.reuse`, `spec.reconstruct` |
+| `sdc.plan` | `bindings/sdc-plan.yaml` | `sdc-plan@7` | 8 | none |
+| `sdc.story` | `bindings/sdc-story.yaml` | `sdc-story@7` | 7 | none |
+| `sdc.release` | `bindings/sdc-release.yaml` | `sdc-release@4` | 5 | `release.rollback` |
 | `sdc.bugfix` | `bindings/sdc-bugfix.yaml` | `sdc-bugfix@1` | 8 | none |
 
 Every action bound in a JSON file is bound in its YAML file: 66 bindings.
@@ -36,7 +36,8 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 |---|---|---|
 | one object keyed by action id | `actions:`, a list; each binding names its `action` | 1 |
 | (none) | `format: loom.bindings/1` | 2 |
-| (the protocol file given to `init --protocol`) | `protocol: <name>@1`, the protocol id with `.` as `-` | 3 |
+| (the protocol file given to `init --protocol`) | `protocol: <name>@<revision>`: the protocol id with `.` and `_` as `-`, then the revision of `protocol/<name>.protocol.yaml` (`sdc@8`), as Loom's catalog registers it | 3 |
+| (none) | `program_root: bindings` on every file that binds a program: a program path with a `/` is relative to the directory of the bindings file | 13 |
 | `$artifacts` | `artifacts` | 4 |
 | `$independence` | `independence` | 5 |
 | `argv` | `executor: {kind: program, argv}` | 6 |
@@ -47,7 +48,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `manual: true` | `executor: {kind: person, principal: person:owner}` | 10 |
 | `manual: true` with `argv: ["true"]` | dropped: `true` does nothing; a `person` executor runs no program | 11 |
 | `"6": "rejected"` on a manual binding | pending (`bindings/PENDING.md`) | 12 |
-| `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. Loom's head reads a relative program path from the workspace root; the base is pending (G1) | 13 |
+| `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. The file names `program_root: bindings`, so Loom (at `af8de2c9`) reads the path beside the bindings file; `scripts/check-bindings.sh` refuses a file that binds a program without it | 13 |
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
 | `handoff_when` | pending | 17 |
@@ -55,7 +56,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
 | `timeout_s` | `timeout_seconds` (see "Timeouts") | 25 |
-| `copy: {kind, from: sdc.direction}` | `executor: {kind: copy, evidence: <kind>, from: sdc-direction@1}` | 26 |
+| `copy: {kind, from: sdc.direction}` | `executor: {kind: copy, evidence: <kind>, from: sdc-direction@7}`, the registration of `protocol/sdc-direction.protocol.yaml` | 26 |
 | `child: {name \| each, bindings}` | `executor: {kind: open, name \| each, bindings: <file>.yaml}` | 27, 29 |
 | `child.protocol` (a file path) | dropped: the child's protocol is the name the action's `case_open.protocol` declares (`protocol/sdc.protocol.yaml:96-98`), resolved in the catalog `tree open --protocols <dir>` builds from the `*.yaml` files of that directory (Loom wave 2); the loader at `8a8fad3b` asks for nothing in its place | 28 |
 | `child.revisions` | pending | 30 |
@@ -127,7 +128,11 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
   (`protocol/compiled/<name>.ir.json`) does not declare. Since step 2 also: no `executor.argv`
   or `arguments_from` entry holds a `..` segment, and every program named with a `/` is
   `tools/<file>`, an executable file under `bindings/tools/`; a program without a `/` comes from
-  `PATH`. Plain text with `jq` and `yq`.
+  `PATH`. Also: each file's `protocol:` is the registration of `protocol/<name>.protocol.yaml`
+  (the id with `.` and `_` as `-`, then `@<revision>`), the `from:` of every `copy` executor is the
+  registration of a protocol file in `protocol/`, and a file that binds a program has
+  `program_root: bindings`; a failure names the file and the value. A new revision of a protocol
+  file moves its registration here and in every `copy` `from:`. Plain text with `jq` and `yq`.
 - The tools' Loom mode: `driver/tests/questions_check.rs`, module `loom_mode`, runs a check
   (`check-questions`, `check-requirements`), `list-stories`, an agent node on the stub and on dry
   (`idea.dissect`, `spec.author`) and a retried writer (`questions.write` with
@@ -141,7 +146,7 @@ list (Loom story G1a); until the loader has the member, the lists stay in `bindi
   below used `0.9.0`). Per file it parses
   `protocol/<name>.protocol.yaml` with `b10x_canon::model::parse`, then calls
   `b10x_loom_bindings::decode` on `bindings/<name>.yaml` and
-  `b10x_loom_bindings::check(&document, "<name>@1", &protocol)`, and prints `ok` or the refusal.
+  `b10x_loom_bindings::check(&document, "<name>@<revision>", &protocol)`, and prints `ok` or the refusal.
   Build it through `slot` (`cargo build --release`; a cold build took 184 s, 44 s of it queued).
   On 2026-11-21 all nine files printed `ok`, at `8a8fad3b` and, after step 2, at Loom's
   integration head `882c1866` (which has no `resolve_programs`, so only the load is checked). Loom's `b10x-loom bindings check <file> --protocol
@@ -239,9 +244,12 @@ Read at Loom's integration head `882c1866` (`wave/2026-11-21-w7`) and the branch
 - `LOOM_CASE` (`story:bound-program-case-id`) and `LOOM_RETRY_FEEDBACK`
   (`story:bound-program-retry-records`) are on Loom's branches `impl/bound-program-case-id` and
   `impl/bound-program-retry-records`, not in the head. At the head a program gets `PATH` alone.
-- The head has no `program_root` and no `resolve_programs`: a relative program path is a workspace
-  path, so `tools/sdc-tool.sh` is looked for in the workspace. G1 (`story:bound-program-contract`,
-  draft) resolves it beside the bindings file. No Loom ref has a reserved-action-id check.
+- The head had no `program_root` and no `resolve_programs` (*inferred* for the decoder: it refuses a
+  member it does not declare): a relative program path was a workspace path, so
+  `tools/sdc-tool.sh` was looked for in the workspace. Loom at `af8de2c9` decodes
+  `program_root` (`workspace` or `bindings`, `crates/loom-bindings/src/decode.rs:122-134`), and
+  every bindings file here that binds a program names `program_root: bindings`. No Loom ref has a
+  reserved-action-id check.
 - A retry record names its evidence id, kind, subject, subject revision, result, producer, time
   and blob; not the action that produced it nor its exit. A log is the last 60 lines, at most
   64 KiB (`llm-node.sh` quotes the last 80 lines of a driver log). Only records about the subject's

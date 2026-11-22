@@ -5,7 +5,9 @@
 # produce evidence or opens a case is bound or is a person's (unbound) action; and its
 # bindings/<protocol>.yaml (loom.bindings/1) binds the same actions, less those in
 # bindings/PENDING.md, and no action the protocol does not declare, and names each program as
-# bindings/tools/<file> (no `..`) or a bare name from PATH. Run
+# bindings/tools/<file> (no `..`) or a bare name from PATH; and each names the registration of its
+# protocol file (<id with . and _ as ->@<revision>), every `copy` `from:` is the registration of a
+# protocol file, and a file that binds a program has `program_root: bindings`. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
 # (sdc-check-routes) against docs/reject-routes.md. Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
@@ -85,6 +87,34 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
     echo "pass $name (unbound: ${unbound:-none})"
   fi
 done
+# The registrations of bindings/*.yaml (docs/loom-bindings.md, "Registrations"): Loom's catalog
+# registers protocol/<name>.protocol.yaml as its id with `.` and `_` written as `-`, then
+# `@<revision>`, and refuses another major. A file's `protocol:` is that registration, the `from:`
+# of every `copy` executor is the registration of some protocol file, and a file that binds a
+# program (argv or arguments_from) names `program_root: bindings`.
+regs=$(cd "$sdc" && jq -r --slurpfile p <(yq -o=json -I=0 '{"f": filename, "id": .protocol.id, "rev": .protocol.revision}' protocol/*.protocol.yaml) '
+  def reg: (.id | gsub("[._]"; "-")) + "@" + (.rev | tostring);
+  ($p | map({key: (.f | ltrimstr("protocol/") | rtrimstr(".protocol.yaml")), value: reg}) | from_entries) as $byname
+  | ($p | map(reg)) as $all
+  | .f as $f | (.f | ltrimstr("bindings/") | rtrimstr(".yaml")) as $n
+  | (if $byname[$n] == null then "\($f): no protocol/\($n).protocol.yaml"
+     elif .protocol != $byname[$n]
+     then "\($f): protocol is \(.protocol), the registration of protocol/\($n).protocol.yaml is \($byname[$n])"
+     else empty end),
+    (.froms[] | select(. as $x | $all | index($x) | not)
+     | "\($f): copy from \(.) is the registration of no protocol file in protocol/"),
+    (if .program | not then empty
+     elif .root == null then "\($f): binds a program and has no program_root; write program_root: bindings"
+     elif .root != "bindings" then "\($f): program_root is \(.root); write program_root: bindings"
+     else empty end)' \
+  <(yq -o=json -I=0 '{"f": filename, "protocol": .protocol, "root": .program_root,
+      "froms": [.actions[].executor | select(.kind == "copy") | .from],
+      "program": ([.actions[] | select(.executor.argv != null or .arguments_from != null)] | length > 0)}' bindings/*.yaml))
+if [[ -n $regs ]]; then
+  echo "FAIL registrations"; echo "$regs" | sed 's/^/  /'; fail=1
+else
+  echo "pass registrations"
+fi
 # The reject and cap routes (D148, docs/reject-routes.md): sdc-check-routes finds every state of
 # the autopilot where nothing points to a next step; its findings must equal the list in the doc.
 (cd "$sdc/driver" && cargo build --quiet --bin sdc-check-routes) || fail=1

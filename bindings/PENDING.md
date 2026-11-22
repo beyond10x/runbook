@@ -14,7 +14,7 @@ from its YAML file must have a line here.
 
 ## Program contract (Loom G1, wave 2)
 
-- `sdc.bindings.json:55` `epics.open` `{dir}` in `args_from` — D13 — G1, wave 2 — none: the argv already names `tools/sdc-tool.sh`, a path relative to `bindings/` (step 2, `story:loom-tools-program-contract`). At Loom's head a relative program path is a workspace path; G1 (`story:bound-program-contract`, draft) resolves it beside the bindings file with `program_root: bindings` and `resolve_programs`.
+- `sdc.bindings.json:55` `epics.open` `{dir}` in `args_from` — D13 — G1, wave 2 — none: the argv already names `tools/sdc-tool.sh`, a path relative to `bindings/` (step 2, `story:loom-tools-program-contract`). Every file that binds a program names `program_root: bindings`, which makes Loom resolve the path beside the bindings file (`resolve_programs`; Loom at `af8de2c9`).
 - `sdc-intake.bindings.json:11` `*` `{dir}` in every `argv` (9 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-direction.bindings.json:12` `*` `{dir}` in every `argv` (6 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-epic.bindings.json:13` `*` `{dir}` in `argv` and `args_from` (2 bindings) — D13 — G1, wave 2 — none, as above.

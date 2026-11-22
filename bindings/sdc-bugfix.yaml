@@ -1,5 +1,6 @@
 format: loom.bindings/1
 protocol: sdc-bugfix@1
+program_root: bindings
 artifacts:
   report: bug.yaml
   dissection: bug-dissection.json
