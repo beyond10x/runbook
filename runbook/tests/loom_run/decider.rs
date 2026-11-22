@@ -177,15 +177,21 @@ fn a_decider_that_escalates_stops_the_run_for_a_person_and_books_nothing_for_it(
 }
 
 #[test]
-fn a_rejection_by_the_model_decider_runs_the_printed_command_with_deny() {
+fn a_rejection_by_the_model_decider_is_a_named_result_with_the_deciders_reasons() {
     let w = World::new("e2e-reject");
-    install_decider(&w, "{\"valid\":true,\"decision\":\"reject\",\"cost_usd\":0.02,\"adapter\":\"fake\"}\n");
+    install_decider(&w, "{\"valid\":true,\"decision\":\"reject\",\"reasons\":[\"the plan is thin\",\"name the risks\"],\"cost_usd\":0.02,\"adapter\":\"fake\"}\n");
+    std::fs::write(w.root.join("bindings/sdc.yaml"), "format: loom.bindings/1\nprotocol: sdc@8\nactions:\n  - action: scope.approve\n    executor: {kind: person, principal: person:owner}\n    evidence:\n      - {kind: scope_approval, subject: scope, producer: person:owner, from: effect, results: {performed: approved, rejected: rejected}}\n").unwrap();
     tree_with_approval(&w, "0.30");
     write_settings(&w, &model_settings(&w, 5_000_000));
     let o = w.run(&w.args("r1", 5_000_000));
     let approve = w.fake.calls_of(&["tree", "approve"]);
     assert_eq!(approve.len(), 1, "{}", stderr(&o));
-    assert_eq!(approve[0].argv.last().map(String::as_str), Some("--deny"));
+    let argv = &approve[0].argv;
+    assert!(!argv.iter().any(|a| a == "--deny"), "{argv:?}");
+    let at = argv.iter().position(|a| a == "--result").unwrap();
+    assert_eq!(argv[at + 1], "rejected");
+    let at = argv.iter().position(|a| a == "--reasons-file").unwrap();
+    assert_eq!(std::fs::read_to_string(&argv[at + 1]).unwrap().trim_end(), "the plan is thin\nname the risks");
     let decisions = lines(&w.run_dir("r1/decisions.jsonl"));
     assert_eq!(decisions[0]["decision"], "reject");
 }

@@ -46,13 +46,27 @@ Every option is required and none has a default. The settings file has one forma
 A decision is a JSON object of which only `case`, `kind`, `decides` and `command` are stable. The
 runner passes the whole object to the decider whatever its `kind` (an unknown kind is the decider's
 to answer or refuse, and a refusal names the kind), never reads `decides`, and runs `command` as
-data: `command[0]` must be `b10x-loom`, the rest is the argv. It changes two things only: the value
-after `--principal` when the decider named a principal, and a final `--deny` when the answer is a
-denial. A printed command that exits non-zero ends the run as `error`, with its exit code and the
-last 1500 characters of its standard error in `outcome.json`; the runner does not repair or repeat it.
+data: `command[0]` must be `b10x-loom`, the rest is the argv. It replaces the value after
+`--principal` when the decider named a principal, and it adds to an approval of a person action
+(printed with `--action`) the result the action declares: `--result performed` for an approval and,
+for a rejection, `--result rejected --reasons-file <file>`. The file lies in `work/.sdc/reasons/`
+of the run directory and holds the decider's text (a model decider's `reasons`), with the login
+file's path, the run directory and the home directory taken out, at most 60 lines and 65536 bytes
+(Loom's bounds); a rejection without a text gets one line that says so. A result the bindings copy
+does not declare for the action (the decider rejects an action whose `results` lists no `rejected`)
+ends the run as `error` naming the action and the declared results, before Loom is called. A
+capability-only approval (`kind` `Approve`, no `--action`) has no result to name: its rejection is
+Loom's `--deny`. A `Close` is run as printed when the decider approves it (Loom prints one per
+legitimate outcome; the other outcomes of that case are not asked once one ran) and not run when it
+declines. A `Handoff`'s printed command is `tree run`: it runs as printed through the ledger and
+its output is read like any `tree run`. A printed command that exits non-zero ends the run as
+`error`, with its exit code and the last 1500 characters of its standard error in `outcome.json`;
+the runner does not repair or repeat it.
 
 A denied decision that comes back (same case, action, revision and text) ends the run as `denied`
-(exit 9) without asking the decider again. An approved decision that comes back is an `error`.
+(exit 9) without asking the decider again; a rejection that sent a writer back returns as a
+decision at a new revision and is asked again. An approved decision that comes back is an `error`
+(a handoff whose work nobody did is one).
 
 The decider is chosen from the settings key `decider` (`docs/loom-run-settings.md`; what each kind
 answers is in `docs/loom-run-decisions.md`). With no `decider` key every decision ends the run as
@@ -109,6 +123,39 @@ in the real file. The run directory records only that a file was named (`setting
   directory is removed by hand (`rm -r $XDG_RUNTIME_DIR/runbook/<run name>`); `$XDG_RUNTIME_DIR` itself
   is removed by the system at the user's last logout. The run directory holds nothing of it either way.
 
+### How each adapter gets the login under Loom
+
+A bound program has `PATH` and `LOOM_*` and no `HOME`. The bindings copy writes the link as
+`--claude-credentials <link>` into the argv of every model node, `llm-node.sh` turns it into
+`SDC_CLAUDE_CREDENTIALS`, and each adapter makes its own private copy for its one call. The copy lies
+in the private directory of the run, the directory of the link (the adapter takes it when the
+directory of `SDC_CLAUDE_CREDENTIALS` belongs to the user and has mode 700), and never in the call's
+record directory, which is inside the run directory:
+
+| Path | How it finds the login | Where the copy lies | Who removes it |
+|---|---|---|---|
+| `llm-adapter-claude-cli.sh` (`--adapter claude-cli`; the review step) | copies it into a config home (mode 700, file 600) and sets `CLAUDE_CONFIG_DIR` for `claude`; the whole config home moves, as it is the directory `claude` is given | `<private dir>/config-home.XXXXXX` | the adapter on exit; after a SIGKILL the runner |
+| `llm-adapter-metaharness.sh` (`--adapter metaharness`) | metaharness reads `$HOME/.claude/.credentials.json` and no `CLAUDE_CONFIG_DIR`, and finds `claude` only on `$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin`; the adapter makes a home (mode 700) with `.claude/.credentials.json` (a copy, mode 600) and `.local/bin/claude` (a link to the `claude` of its `PATH`), and sets `HOME` and `TMPDIR` to it for the metaharness process alone, so metaharness's scratch root (its own copy of the login in its config home) lies there too | `<private dir>/h.XXXXXX`, the scratch root `<private dir>/h.XXXXXX/.tmpXXXXXX` | metaharness removes its scratch root when it ends, the adapter the home on exit, also after a failed call or SIGTERM; after a SIGKILL the runner |
+| `decider.sh` (the model decider) | `SDC_CLAUDE_CREDENTIALS` from the runner (the link), handed to `llm-node.sh`, so the adapter of the first or second row | as its adapter | as its adapter |
+
+`PrivateDir` removes its directory with everything in it when the run ends (a normal end, an error,
+SIGTERM or SIGINT), so a home that a SIGKILL of an adapter or of metaharness left is gone with it. It
+removes the link itself and never follows it: the login file stays. A SIGKILL of the runner leaves
+the directory, as the section above says.
+
+The metaharness adapter makes its home only when metaharness would find no login otherwise:
+`SDC_CLAUDE_CREDENTIALS` names a file in such a directory and `$HOME/.claude/.credentials.json` is
+not a file. With a usable `HOME` nothing changes, also when `SDC_CLAUDE_CREDENTIALS` is set. Where
+`SDC_CLAUDE_CREDENTIALS` is not in such a directory (the driver's runs) the metaharness adapter does
+nothing new and the claude-cli adapter makes its config home in the record directory, as it always
+did. With `ANTHROPIC_API_KEY` the claude-cli adapter copies no login. Without
+`SDC_CLAUDE_CREDENTIALS` the claude-cli adapter reads `CLAUDE_CONFIG_DIR`, then `HOME`. With
+`SDC_LLM_ENDPOINT` the metaharness adapter keeps `--credentials none` and copies no login. The path
+and the content of the login are in no file of the run directory, also after a SIGKILL of an adapter
+(tests in `driver/tests/questions_check.rs`, `loom_mode`, and `runbook/tests/loom_run/login.rs`; the
+checks with the real `metaharness` and a stand-in `claude` are skipped where `metaharness` is not on
+`PATH`).
+
 ## The caps
 
 | Cap | Outcome | Exit | Checked |
@@ -135,8 +182,25 @@ acts, and Loom refuses the other budget members on a program binding.
 
 Where the cost of a step is read: Loom's `tree status` carries none. A model tool writes
 `<workspace>/.sdc/llm/NNN-<action>/` at the start of a call and a line with `cost_usd` and `record`
-to `.sdc/llm/calls.jsonl` at its end. A directory without a matching line, a null cost or an
-unreadable line fails the run closed and books the whole reservation.
+to `.sdc/llm/calls.jsonl` at its end (also `action`, `adapter` and the adapter's `exit`). A directory
+without a matching line, a null cost or an unreadable line fails the run closed and books the whole
+reservation.
+
+### A failed model call
+
+The old driver does not end a run for a model call that exits with a number other than 0 and has no
+cost: it records the action as finished without evidence, the step's retry rule decides (`max_runs`,
+then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of a program end the run
+(`driver/src/main.rs`, `program_error`). `runbook loom-run` does the same:
+
+- A call with an exit other than 0, 126, 127 and 75 and no usable cost is booked at its reservation
+  (the spend rule stays fail-closed), written to `llm-calls.jsonl` with `cost_unknown: true`, and the
+  run goes on; repeated failures run into the spend cap and end as `stopped: spend cap`.
+- A call with exit 126, 127 or 75, a call with exit 0 and no cost, and a call directory with no line
+  end the run as `error`, with the reservation booked.
+- The reason of such an end is `model step <action>: adapter <adapter> exited <code>: <first line of
+  the adapter's stderr>`: the first non-empty line of `adapter-stderr.txt`, else `stderr.txt`, of the
+  call directory, the home prefix replaced by `~`, cut at 300 characters, `(no stderr)` when empty.
 
 ### Fail closed
 

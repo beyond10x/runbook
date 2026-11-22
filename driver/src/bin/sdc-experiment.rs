@@ -10,7 +10,7 @@
 //! sdc-experiment index [--experiments <dir>]
 //! sdc-experiment progress [--experiments <dir>]
 //! sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>]
-//!                    [--stagger <seconds>] [--print]
+//!                    [--stagger <seconds>] [--login-file <path>] [--print]
 //! sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
 //! sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]
 //! ```
@@ -68,7 +68,7 @@ const USAGE: &str = "usage: sdc-experiment compare (--group <label>=<run dir>[,.
        sdc-experiment report <record.yaml | id> [--runs-dir <dir>] [--print]
        sdc-experiment index [--experiments <dir>]
        sdc-experiment progress [--experiments <dir>]
-       sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--print]
+       sdc-experiment run <record.yaml | id> [--runs-dir <dir>] [--builds-dir <dir>] [--max-parallel <n>] [--stagger <s>] [--login-file <path>] [--print]
        sdc-experiment status <record.yaml | id> [--runs-dir <dir>]
        sdc-experiment stop <record.yaml | id> --reason <text> [--run <name>] [--runs-dir <dir>] [--builds-dir <dir>]";
 
@@ -2275,10 +2275,13 @@ struct LaunchArgs {
     max_parallel: Option<usize>,
     stagger: Option<u64>,
     print: bool,
+    /// The login the model adapter reads, named when the runs are started and in no record:
+    /// `loom.login_file` of every `loom` variant for this launch only.
+    login_file: Option<String>,
 }
 
 fn run_cmd(args: &[String]) -> Result<ExitCode, Usage> {
-    let mut a = LaunchArgs { rec: String::new(), runs_dir: PathBuf::from("runs"), builds: default_builds_dir(), max_parallel: None, stagger: None, print: false };
+    let mut a = LaunchArgs { rec: String::new(), runs_dir: PathBuf::from("runs"), builds: default_builds_dir(), max_parallel: None, stagger: None, print: false, login_file: None };
     let mut it = args.iter();
     while let Some(x) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| Usage(format!("{x} needs a value")));
@@ -2288,6 +2291,13 @@ fn run_cmd(args: &[String]) -> Result<ExitCode, Usage> {
             "--max-parallel" => a.max_parallel = Some(value()?.parse().ok().filter(|n| *n > 0).ok_or_else(|| Usage("--max-parallel needs a number of at least 1".into()))?),
             "--stagger" => a.stagger = Some(value()?.parse().map_err(|_| Usage("--stagger needs seconds".into()))?),
             "--print" => a.print = true,
+            "--login-file" => {
+                let l = value()?;
+                if !(l.starts_with('/') || l.starts_with("~/")) {
+                    return Err(Usage("--login-file needs an absolute path or one that starts with ~/".into()));
+                }
+                a.login_file = Some(l);
+            }
             y if y.starts_with("--") => return Err(Usage(format!("unknown argument {y}"))),
             y => a.rec = y.to_string(),
         }
@@ -2351,6 +2361,11 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
         let s = &p.variant.settings;
         Ok(match p.variant.runner.as_str() {
             "loom" => {
+                let mut s = s.clone();
+                if let Some(login) = &a.login_file {
+                    s.insert("loom.login_file".to_string(), login.clone());
+                }
+                let s = &s;
                 let files = loom_launch_dir(&builds, &id, &p.name);
                 let argv = loom_argv(&build, &id, &p.name, s, &runs_dir, loom_root.as_deref().unwrap_or_default(), &files, &base)?;
                 let settings = loom_settings_json(&p.name, s, redact, &base)?;
@@ -2379,7 +2394,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                     if !missing.is_empty() {
                         println!("  missing on PATH: {}", missing.join(", "));
                     }
-                    if p.variant.settings.contains_key("loom.login_file") {
+                    if p.variant.settings.contains_key("loom.login_file") || a.login_file.is_some() {
                         println!("  login: loom.login_file is set (named in the settings file; the launcher never reads it)");
                     }
                     println!("  idea file: {}", l.dir.join("idea.yaml").display());

@@ -28,8 +28,10 @@ pub struct DecisionRequest<'a> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Verdict {
     /// The answer. `principal` None: the principal Loom printed in `command`. `cost_micro_usd` None
-    /// is an answer without a cost: the run fails closed. A rule answer costs `Some(0)`.
-    Answer { approve: bool, principal: Option<String>, cost_micro_usd: Option<u64>, model_calls: u64 },
+    /// is an answer without a cost: the run fails closed. A rule answer costs `Some(0)`. `reasons`
+    /// is the decider's text of a rejection (None: it gave none); it goes to Loom as the reasons of
+    /// `tree approve --result rejected`.
+    Answer { approve: bool, principal: Option<String>, cost_micro_usd: Option<u64>, model_calls: u64, reasons: Option<String> },
     /// The decider cannot decide; the run stops with this reason (outcome `stopped: decider`).
     CannotDecide { reason: String },
 }
@@ -78,7 +80,8 @@ impl ScriptedDecider {
     }
 
     /// Reads `{"kind": "scripted", "max_call_micro_usd": n, "answers": [{"approve": true,
-    /// "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0} | {"cannot_decide": "reason"}]}`;
+    /// "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0, "reasons": "text of a
+    /// rejection"} | {"cannot_decide": "reason"}]}`;
     /// `decider.principal` is the principal of every answer that names none.
     pub fn from_value(decider: &Value) -> Result<Self, String> {
         let max_call = decider.get("max_call_micro_usd").and_then(Value::as_u64).unwrap_or(0);
@@ -96,6 +99,7 @@ impl ScriptedDecider {
                 principal: a.get("principal").and_then(Value::as_str).or(default_principal).map(str::to_owned),
                 cost_micro_usd: a.get("cost_micro_usd").and_then(Value::as_u64),
                 model_calls: a.get("model_calls").and_then(Value::as_u64).unwrap_or(0),
+                reasons: a.get("reasons").and_then(Value::as_str).map(str::to_owned),
             });
         }
         Ok(ScriptedDecider::new(answers, max_call))

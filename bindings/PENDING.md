@@ -104,22 +104,17 @@ named here; the driver's path is unchanged. Line form: the tool and the variable
 - `llm-node.sh` `SDC_LLM_NODES`, `SDC_RUN_SETTINGS`, `SDC_LLM_MODEL[_<CLASS>]`, `SDC_LLM_EFFORT[_<CLASS>]`, `SDC_REVIEW_RETRIES`, `SDC_COVERAGE_RETRIES`, `SDC_IMPLEMENT_MODE`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE`; `sdc-reply` `SDC_<CLASS>_ADAPTER` — N9 (`story:engine-configuration-document`) — run settings, not binding text; the defaults apply.
 - `llm-node.sh` `SDC_LLM_RECORD`, `SDC_LLM_LOG` — `story:agent-node-run-records` — the call record stays in `work/.sdc/llm/` of the workspace.
 - `llm-node.sh` `SDC_CASE_DIR` (`events.jsonl`: a rejection no longer current; `change.review` `review-inputs`; `change.implement` request mode; the request record's `case_dir`) — `story:bound-agent-node` (the node's inputs) — no variable names the case store (`LOOM_RETRY_FEEDBACK` holds only the records about the subject's current revision), so the fallback over `events.jsonl` does not run, and the two `sdc-reply` calls read the directory above the workspace.
-- `llm-node.sh` the retry records' `action` and `exit` — the records of `loom.retry-feedback/1` name neither — `in/feedback.md` reads `(from ?, exit ?)` under Loom; no Loom story adds them.
 - `sdc-tool.sh`, `llm-node.sh` `HOME` of `cargo`, `slot` and `aep` that they start — only for a host whose user has no passwd entry (they answered `--version` under `PATH` alone on the workstation, 2026-11-22; `docs/loom-bindings.md`, "Variables beyond `PATH` read under `set -u`") — `story:bound-program-declares-its-environment` (wave 9), or `--confinement local`.
 - `llm-node.sh` `SDC_CLAUDE_CREDENTIALS` (the `claude-cli` adapter's login; `HOME` is unset under Loom) — a binding that names `--adapter claude-cli` also passes `--claude-credentials <file>` — N3, N9 — the tool takes the argv entry; without any login the adapter stops naming the variables.
 - `LOOM_CASE` and `LOOM_RETRY_FEEDBACK` themselves — `story:bound-program-case-id` and `story:bound-program-retry-records` (both active, not merged into Loom's integration head) — the tools read both already. `LOOM_CASE_NAME` (the name the opening gave the case) and `LOOM_PARENT_CASE_NAME` (the parent's) are final names: epic case `LOOM_CASE_NAME=<epic>`; story case and the spec, plan and release children of an epic `LOOM_CASE_NAME=<own name>` and `LOOM_PARENT_CASE_NAME=<epic>`; the root case neither; a repeated case (`<id>.2`) takes the names of the first; set for an `arguments_from` program too. The tools read them in Loom mode for the epic and the story and fall back to the cut of `LOOM_CASE` when neither is set (Loom binaries before its wave 2); until Loom sets them a repeated case (`IDEA-1.billing.2.story-a`) gets the wrong story.
 
 ## Person actions (Loom G2, wave 3)
 
-A `person` executor runs no program and records only `performed` (`from: effect`).
+A `person` executor runs no program; its effect records the results its `results` table names (`from: effect`, Loom `5af3f9c2`). `context.approve`, `vision.approve`, `roadmap.approve` and `merge.approve` declare `rejected` beside `performed`.
 
 - `sdc-intake.bindings.json:192` `scope.answer` a person's action runs a program (`sdc-tool.sh scope-answer`) — D11 — G2, wave 3 — syntax not fixed; the argv: `[tools/sdc-tool.sh, scope-answer, <principal>, --action, scope.answer]`.
 - `sdc-intake.bindings.json:195` `scope.answer` `{principal}` in `argv` — D15 — G2, wave 3 — syntax not fixed.
 - `sdc-intake.bindings.json:198` `scope.answer` `subject` with no evidence — D38 — G2, wave 3 — syntax not fixed; subject `questions`.
-- `sdc-direction.bindings.json:64` `context.approve` result `rejected` (exit 6, `approve --result rejected --reasons`) — D12 — G2, wave 3 — syntax not fixed; the YAML records `performed: approved` only.
-- `sdc-direction.bindings.json:98` `vision.approve` result `rejected` — D12 — G2, wave 3 — as above.
-- `sdc-direction.bindings.json:151` `roadmap.approve` result `rejected` — D12 — G2, wave 3 — as above.
-- `sdc-story.bindings.json:120` `merge.approve` result `rejected` — D12 — G2, wave 3 — as above.
 
 ## Handoffs (Loom `N8`, wave 4; `G3`, wave 8)
 
