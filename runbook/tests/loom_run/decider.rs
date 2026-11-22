@@ -16,7 +16,7 @@ const DECIDER_SH: &str = "#!/bin/sh\nd=$(dirname \"$0\")\nprintf '%s\\n' \"$@\" 
 
 /// Puts a fake `decider.sh` that prints `reply` into the bindings of the world, the instruction
 /// directory the model decider needs above them, and a file for `sdc-reply`.
-fn install_decider(w: &World, reply: &str) {
+pub fn install_decider(w: &World, reply: &str) {
     let tools = w.root.join("bindings/tools");
     std::fs::create_dir_all(&tools).unwrap();
     let script = tools.join("decider.sh");
@@ -30,43 +30,42 @@ fn install_decider(w: &World, reply: &str) {
     std::fs::write(w.root.join("driver/examples/sdc/rule-ends.json"), "{}\n").unwrap();
 }
 
-/// What `sdc-experiment run` writes for a loom run (`loom_settings_json` of unit R4, commit
-/// 970db1f7), with the login file under `loom`, for options `--run r1 --cap-micro-usd cap
-/// --max-llm-calls 100 --max-wall-seconds 600` of `World::args`.
-pub fn r4_settings(w: &World, cap: u64) -> Value {
-    let models: Value = ["writer", "implement", "review", "other"].iter().map(|c| ((*c).to_owned(), json!({"model": "claude-sonnet-5-5"}))).collect::<serde_json::Map<_, _>>().into();
-    json!({
-        "format": "runbook.loom-run-settings/1",
-        "run": "r1",
-        "decider": {"principal": "decider:model", "model": "claude-opus-5-5"},
-        "loom": {"sha256": w.fake.sha256(), "confinement": "local", "cap_micro_usd": cap, "login_file": w.login_path().display().to_string()},
-        "models": models,
-        "max_llm_calls": 100,
-        "max_wall_seconds": 600
-    })
-}
-
-fn write_settings(w: &World, v: &Value) {
-    std::fs::write(w.root.join("settings.json"), serde_json::to_string_pretty(v).unwrap()).unwrap();
-}
-
-/// The file of R4 plus the members R4 does not write yet and a model decider needs.
-fn model_settings(w: &World, cap: u64) -> Value {
-    let mut v = r4_settings(w, cap);
-    v["autonomy"] = json!("A5");
-    v["decider"]["kind"] = json!("model");
-    v["decider"]["without_claims"] = json!(true);
-    v["decider"]["reply_bin"] = json!(w.root.join("sdc-reply").display().to_string());
+/// The file `sdc-experiment run` writes for a loom run, as committed in
+/// `tests/fixtures/loom-run-settings.json` (`driver/tests/experiment_loom.rs` keeps the writer equal
+/// to it), with the fake's sha256 and the world's login file put where the writer prints them as names.
+pub fn fixture(w: &World) -> Value {
+    let mut v: Value = serde_json::from_str(include_str!("../fixtures/loom-run-settings.json")).unwrap();
+    v["loom"]["sha256"] = json!(w.fake.sha256());
+    v["loom"]["login_file"] = json!(w.login_path().display().to_string());
     v
 }
 
+/// The fixture for run `r1` of `World::args`: the cap given and a wall time of 600 s (the options
+/// repeated in the file must agree with the options, `settings.rs`).
+pub fn fixture_settings(w: &World, cap: u64) -> Value {
+    let mut v = fixture(w);
+    v["run"] = json!("r1");
+    v["loom"]["cap_micro_usd"] = json!(cap);
+    v["max_wall_seconds"] = json!(600);
+    v
+}
+
+pub fn write_settings(w: &World, v: &Value) {
+    std::fs::write(w.root.join("settings.json"), serde_json::to_string_pretty(v).unwrap()).unwrap();
+}
+
+/// The file as it is: `sdc-reply` is found on the runner's PATH (the world puts its root there).
+fn model_settings(w: &World, cap: u64) -> Value {
+    fixture_settings(w, cap)
+}
+
 /// An approval as the model decider reads it: the fake's decision without its `path` member.
-fn approval() -> String {
+pub fn approval() -> String {
     decision_json("scope.approve", "ApproveAction", "person:owner").replace(",\"path\":\"/work/x.yaml\"", "")
 }
 
 /// A tree of two model steps of `step_cost` USD and an approval between them, then terminal.
-fn tree_with_approval(w: &World, step_cost: &str) {
+pub fn tree_with_approval(w: &World, step_cost: &str) {
     let f = &w.fake;
     f.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
     f.hook("tree_run", "1", &model_call_hook(step_cost));
@@ -77,11 +76,11 @@ fn tree_with_approval(w: &World, step_cost: &str) {
     f.answer("tree_run", "4", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
 }
 
-fn lines(path: &Path) -> Vec<Value> {
+pub fn lines(path: &Path) -> Vec<Value> {
     std::fs::read_to_string(path).unwrap_or_default().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
 }
 
-const APPROVE: &str = "{\"valid\":true,\"decision\":\"approve\",\"cost_usd\":0.02,\"adapter\":\"fake\"}\n";
+pub const APPROVE: &str = "{\"valid\":true,\"decision\":\"approve\",\"cost_usd\":0.02,\"adapter\":\"fake\"}\n";
 
 #[test]
 fn two_model_steps_and_an_approval_by_the_model_decider_end_delivered_with_the_run_directory() {
@@ -112,7 +111,7 @@ fn two_model_steps_and_an_approval_by_the_model_decider_end_delivered_with_the_r
         assert!(!env.contains(needle), "{needle} reached decider.sh: {env}");
     }
     assert!(env.contains(&format!("HOME={}", w.run_dir("r1/home").display())), "{env}");
-    assert!(env.contains("SDC_LLM_MODEL_DECIDER=claude-opus-5-5") && env.contains("SDC_DECIDER_ESCALATE=stop"), "{env}");
+    assert!(env.contains("SDC_LLM_MODEL_DECIDER=claude-opus-5-5") && env.contains("SDC_DECIDER_ESCALATE=final"), "{env}");
     // The run directory of the writer: what it can say from the events of this run.
     let dir = w.run_dir("r1");
     assert_eq!(lines(&dir.join("run-settings.jsonl")).len(), 1);
@@ -160,7 +159,9 @@ fn a_decider_that_escalates_stops_the_run_for_a_person_and_books_nothing_for_it(
     let w = World::new("e2e-cannot");
     install_decider(&w, "{\"valid\":true,\"decision\":\"escalate\",\"reasons\":[\"the position is not clear\"],\"cost_usd\":0.02,\"adapter\":\"fake\"}\n");
     tree_with_approval(&w, "0.30");
-    write_settings(&w, &model_settings(&w, 5_000_000));
+    let mut v = model_settings(&w, 5_000_000);
+    v["decider"]["escalate"] = json!("stop");
+    write_settings(&w, &v);
     let o = w.run(&w.args("r1", 5_000_000));
     assert_eq!(code(&o), 8, "{}", stderr(&o));
     let outcome = w.outcome("r1");

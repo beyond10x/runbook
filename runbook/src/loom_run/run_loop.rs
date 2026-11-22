@@ -8,6 +8,7 @@ use crate::loom_run::decide::{self, Decider, DecisionRequest, Verdict};
 use crate::loom_run::decider;
 use crate::loom_run::events::{Cap, CostSource, Event, EventSink};
 use crate::loom_run::ledger::{Ledger, Reservation};
+use crate::loom_run::private::PrivateDir;
 use crate::loom_run::run_dir::RunDirWriter;
 use crate::loom_run::run_files::{self, BasicFiles};
 use crate::loom_run::settings;
@@ -81,6 +82,8 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     if run_dir.exists() {
         return Err(format!("the run directory {} exists", run_dir.display()));
     }
+    let login = settings_value.get(settings::LOGIN_KEY).and_then(Value::as_str).map(PathBuf::from);
+    let private = PrivateDir::create(&args.run, login.as_deref())?;
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
     let redacted = settings::with_run(&settings::redacted(&given), args, &sha);
@@ -105,6 +108,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         start: clock.now_secs(),
         wall_cap_noted: false,
         decided: std::collections::HashMap::new(),
+        login_link: private.as_ref().and_then(|p| p.link()).map(Path::to_path_buf),
     };
     let basic = BasicFiles::open(&run_dir)?;
     sinks.push(Box::new(basic));
@@ -167,6 +171,7 @@ struct Runner<'a> {
     start: u64,
     wall_cap_noted: bool,
     decided: std::collections::HashMap<String, bool>,
+    login_link: Option<PathBuf>,
 }
 
 /// A way out of the loop that is not an error.
@@ -260,7 +265,7 @@ impl Runner<'_> {
             std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
         }
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
-        let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings)?;
+        let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         std::fs::copy(&self.args.idea, self.workspace.join("idea.yaml")).map_err(|e| format!("--idea: {e}"))?;
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
@@ -411,6 +416,7 @@ impl Runner<'_> {
                     workspace: &self.workspace,
                     budget_micro_usd: reservation.micro_usd,
                     child_env: &self.env,
+                    login_link: self.login_link.as_deref(),
                 };
                 self.decider.decide(&request)
             };

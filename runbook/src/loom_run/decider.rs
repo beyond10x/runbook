@@ -437,10 +437,9 @@ impl ProgramDecider {
                 env.push(("SDC_DECIDER_MAX_TURNS".to_owned(), turns.to_string()));
             }
             if let Some(login) = &self.login_file {
-                // The link the bindings copy made beside itself, when there is one: the real path
-                // then stays in the settings alone.
-                let link = request.run_dir.join("login");
-                let value = if std::fs::symlink_metadata(&link).is_ok() { link.display().to_string() } else { login.clone() };
+                // The link in the run's private directory, when there is one: the real path then
+                // stays in the settings alone.
+                let value = request.login_link.map_or_else(|| login.clone(), |link| link.display().to_string());
                 env.push(("SDC_CLAUDE_CREDENTIALS".to_owned(), value));
             }
         }

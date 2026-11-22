@@ -129,19 +129,19 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
 /// above their own directory (`dst/tools/..` is `dst`, its parent is the run directory):
 /// `<dst>/../instructions` and `<dst>/../driver/examples` (copies of `<src>/../instructions` and
 /// `<src>/../driver/examples`, when they exist: the fixtures and `rule-ends.json` the tools read)
-/// and, when the
-/// settings name a login file, the link `<dst>/../login` to it; the link's path is what the
-/// `--claude-credentials` option of the model nodes holds. An unknown key in `settings` is refused
-/// by name before anything is written. The login file's path is in no error and no return value.
-pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &Value) -> Result<PathBuf, String> {
+/// and, when the settings name a login file, nothing: `login_link` (made by the caller outside
+/// the run directory, see `private.rs`) is what the `--claude-credentials` option of the model
+/// nodes holds, and the settings must come with one. An unknown key in `settings` is refused by
+/// name before anything is written. The login file's path is in no error and no return value.
+pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &Value, login_link: Option<&Path>) -> Result<PathBuf, String> {
     let plan = read_plan(settings)?;
     if dst.exists() {
         return Err(format!("{}: exists", dst.display()));
     }
     let dst = std::path::absolute(dst).map_err(|e| format!("{}: {e}", dst.display()))?;
     let beside = dst.parent().ok_or("the bindings copy has no parent directory")?.to_path_buf();
-    if plan.login.is_some() && std::fs::symlink_metadata(beside.join("login")).is_ok() {
-        return Err(format!("{}: exists", beside.join("login").display()));
+    if plan.login.is_some() && login_link.is_none() {
+        return Err("login_file is named and no link to it was given (the runner makes it in its private directory)".to_owned());
     }
     let companions: Vec<(PathBuf, PathBuf)> = COMPANIONS
         .iter()
@@ -157,14 +157,7 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
     for (from, to) in &companions {
         copy_dir(from, to)?;
     }
-    let login_argument = match &plan.login {
-        None => None,
-        Some(real) => {
-            let link = beside.join("login");
-            std::os::unix::fs::symlink(real, &link).map_err(|e| format!("{}: could not link the login file: {}", link.display(), e.kind()))?;
-            Some(link.display().to_string())
-        }
-    };
+    let login_argument = login_link.map(|l| l.display().to_string());
     rewrite_files(&dst, &plan, login_argument.as_deref())?;
     let root = dst.join(format!("{root_protocol_name}.yaml"));
     if !root.is_file() {

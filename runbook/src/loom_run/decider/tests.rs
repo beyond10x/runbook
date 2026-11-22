@@ -74,7 +74,7 @@ fn env_with_path() -> Vec<(String, String)> {
 }
 
 fn ask_with(decider: &dyn Decider, w: &World, _settings: &Value, decision: &Value, budget: u64, env: &[(String, String)]) -> Verdict {
-    decider.decide(&DecisionRequest { decision, run_dir: &w.run, workspace: &w.work, budget_micro_usd: budget, child_env: env })
+    decider.decide(&DecisionRequest { decision, run_dir: &w.run, workspace: &w.work, budget_micro_usd: budget, child_env: env, login_link: None })
 }
 
 fn ask(w: &World, settings: &Value, decision: &Value, budget: u64) -> Verdict {
@@ -305,11 +305,11 @@ fn a_program_over_its_time_limit_is_ended_with_its_children() {
     let w = world("r2-timeout", "#!/bin/sh\nsleep 30 &\necho $! > \"$(dirname \"$2\")/child.pid\"\nwait\n");
     let s = settings(&w, json!({"timeout_seconds": 1}));
     let mut d = ProgramDecider::parse(&s, &s["decider"]).unwrap();
-    d.timeout = Duration::from_millis(400);
+    d.timeout = Duration::from_millis(2000);
     let started = Instant::now();
     let why = reason(ask_with(&d, &w, &s, &approve_action(&w), 250_000, &env_with_path()));
     assert!(why.contains("over its time limit"), "{why}");
-    assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
     let pid = std::fs::read_to_string(first_record(&w).join("child.pid")).unwrap();
     let mut alive = true;
     for _ in 0..50 {

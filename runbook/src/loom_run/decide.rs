@@ -19,6 +19,9 @@ pub struct DecisionRequest<'a> {
     /// The environment variables the runner built for `b10x-loom` children; a decider that starts
     /// a program builds its own environment and never inherits the runner's.
     pub child_env: &'a [(String, String)],
+    /// The link to the login file in the run's private directory (`private.rs`), when the settings
+    /// name a login file.
+    pub login_link: Option<&'a Path>,
 }
 
 /// What a decider answers.
@@ -75,9 +78,11 @@ impl ScriptedDecider {
     }
 
     /// Reads `{"kind": "scripted", "max_call_micro_usd": n, "answers": [{"approve": true,
-    /// "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0} | {"cannot_decide": "reason"}]}`.
+    /// "principal": "person:owner", "cost_micro_usd": 0, "model_calls": 0} | {"cannot_decide": "reason"}]}`;
+    /// `decider.principal` is the principal of every answer that names none.
     pub fn from_value(decider: &Value) -> Result<Self, String> {
         let max_call = decider.get("max_call_micro_usd").and_then(Value::as_u64).unwrap_or(0);
+        let default_principal = decider.get("principal").and_then(Value::as_str);
         let list = decider.get("answers").and_then(Value::as_array).ok_or("decider.answers is not a list")?;
         let mut answers = Vec::new();
         for a in list {
@@ -88,7 +93,7 @@ impl ScriptedDecider {
             let approve = a.get("approve").and_then(Value::as_bool).ok_or("a scripted answer has no approve")?;
             answers.push(Verdict::Answer {
                 approve,
-                principal: a.get("principal").and_then(Value::as_str).map(str::to_owned),
+                principal: a.get("principal").and_then(Value::as_str).or(default_principal).map(str::to_owned),
                 cost_micro_usd: a.get("cost_micro_usd").and_then(Value::as_u64),
                 model_calls: a.get("model_calls").and_then(Value::as_u64).unwrap_or(0),
             });

@@ -17,6 +17,7 @@ pub mod decide;
 pub mod decider;
 pub mod events;
 pub mod ledger;
+pub mod private;
 pub mod run_dir;
 pub mod run_files;
 pub mod run_loop;

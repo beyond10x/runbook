@@ -47,7 +47,7 @@ fn make(tag: &str, settings: &Value) -> (Dir, PathBuf, Result<PathBuf, String>) 
     let dir = Dir::new(tag);
     let dst = dir.path().join("run/bindings");
     std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-    let result = materialise(&committed(), &dst, "sdc", settings);
+    let result = materialise(&committed(), &dst, "sdc", settings, None);
     (dir, dst, result)
 }
 
@@ -205,7 +205,7 @@ fn an_option_that_exists_is_replaced_and_one_that_does_not_is_inserted_before_th
 }
 
 #[test]
-fn a_login_file_is_named_in_the_copy_only_as_a_link_and_never_in_a_result() {
+fn a_login_file_is_named_in_the_copy_only_by_the_link_it_is_given_and_never_in_a_result() {
     let dir = Dir::new("r2-copy-login");
     let login = dir.path().join("private-login-dir/credentials.json");
     std::fs::create_dir_all(login.parent().unwrap()).unwrap();
@@ -214,10 +214,12 @@ fn a_login_file_is_named_in_the_copy_only_as_a_link_and_never_in_a_result() {
     std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
     let secret = login.display().to_string();
     let settings = json!({"login_file": secret, "adapter": "claude-cli"});
-    let root = materialise(&committed(), &dst, "sdc", &settings).unwrap();
+    let link = dir.path().join("private/login");
+    let root = materialise(&committed(), &dst, "sdc", &settings, Some(&link)).unwrap();
     assert!(!root.display().to_string().contains(&secret));
-    let link = dir.path().join("run/login");
-    assert_eq!(std::fs::read_link(&link).unwrap(), login);
+    assert!(std::fs::symlink_metadata(dir.path().join("run/login")).is_err(), "the copy makes no link of its own");
+    let without_link = materialise(&committed(), &dir.path().join("run4/bindings"), "sdc", &settings, None).unwrap_err();
+    assert!(!without_link.contains(&secret) && without_link.contains("link"), "{without_link}");
     let mut with_option = 0;
     for (name, action) in actions(&dst) {
         if action["executor"]["kind"].as_str() == Some("program") && argv_of(&action)[0].ends_with("llm-node.sh") {
@@ -239,9 +241,9 @@ fn a_login_file_is_named_in_the_copy_only_as_a_link_and_never_in_a_result() {
         }
     }
     // a login file that is not there is refused without its path
-    let gone = materialise(&committed(), &dir.path().join("run2/bindings"), "sdc", &json!({"login_file": dir.path().join("nope/x.json").display().to_string()})).unwrap_err();
+    let gone = materialise(&committed(), &dir.path().join("run2/bindings"), "sdc", &json!({"login_file": dir.path().join("nope/x.json").display().to_string()}), None).unwrap_err();
     assert!(!gone.contains("nope"), "{gone}");
-    let relative = materialise(&committed(), &dir.path().join("run3/bindings"), "sdc", &json!({"login_file": "x.json"})).unwrap_err();
+    let relative = materialise(&committed(), &dir.path().join("run3/bindings"), "sdc", &json!({"login_file": "x.json"}), None).unwrap_err();
     assert!(!relative.contains("x.json"), "{relative}");
 }
 
@@ -301,7 +303,7 @@ fn the_committed_bindings_are_never_written_and_a_read_only_source_is_copied() {
     std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
     let mut settings = model_settings();
     settings["adapter"] = json!("claude-cli");
-    let root = materialise(&src, &dst, "sdc", &settings);
+    let root = materialise(&src, &dst, "sdc", &settings, None);
     for d in &dirs {
         std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -315,7 +317,7 @@ fn the_committed_bindings_are_never_written_and_a_read_only_source_is_copied() {
 fn an_existing_destination_is_refused_and_the_source_untouched() {
     let (dir, _dst, _r) = make("r2-copy-same", &json!({}));
     let before = digest_tree(&committed());
-    let result = materialise(&committed(), &dir.path().join("run/bindings"), "sdc", &json!({}));
+    let result = materialise(&committed(), &dir.path().join("run/bindings"), "sdc", &json!({}), None);
     assert!(result.unwrap_err().ends_with(": exists"));
     assert_eq!(digest_tree(&committed()), before);
 }
@@ -325,7 +327,7 @@ fn a_missing_root_file_is_refused_and_the_instructions_come_along() {
     let dir = Dir::new("r2-copy-root");
     let dst = dir.path().join("run/bindings");
     std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-    let error = materialise(&committed(), &dst, "nonexistent", &json!({})).unwrap_err();
+    let error = materialise(&committed(), &dst, "nonexistent", &json!({}), None).unwrap_err();
     assert!(error.contains("the root bindings file is missing"));
     assert!(dir.path().join("run/instructions/decider").is_dir());
 }
@@ -343,7 +345,7 @@ fn the_fixtures_of_the_driver_come_along_and_a_link_in_them_stays_a_link() {
     std::os::unix::fs::symlink("nowhere", checkout.join("driver/examples/sdc/fixtures/broken-link")).unwrap();
     let dst = dir.path().join("run/bindings");
     std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-    materialise(&checkout.join("bindings"), &dst, "sdc", &json!({})).unwrap();
+    materialise(&checkout.join("bindings"), &dst, "sdc", &json!({}), None).unwrap();
     let fixtures = dir.path().join("run/driver/examples/sdc/fixtures");
     assert!(dir.path().join("run/driver/examples/sdc/rule-ends.json").is_file());
     assert_eq!(std::fs::read_link(fixtures.join("dir-link")).unwrap(), Path::new("real-dir"));
@@ -392,7 +394,7 @@ fn the_rewritten_copy_loads_in_loom_tree_open() {
     });
     let dst = dir.path().join("run/bindings");
     std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
-    let root = materialise(&committed(), &dst, "sdc", &settings).unwrap();
+    let root = materialise(&committed(), &dst, "sdc", &settings, None).unwrap();
     let work = dir.dir("run/work");
     std::fs::copy(repo.join("driver/examples/sdc/fixtures/idea.yaml"), work.join("idea.yaml")).unwrap();
     let store = dir.path().join("run/store");

@@ -2,6 +2,7 @@
 
 use super::fake::{decision_json, tree_run_json, Fake};
 use serde_json::{json, Value};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
@@ -32,9 +33,10 @@ impl World {
     pub fn new(tag: &str) -> World {
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("loomrun-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        for d in ["protocols", "bindings", "runs", "loginhome/.claude"] {
+        for d in ["protocols", "bindings", "runs", "loginhome/.claude", "xdg"] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
+        std::fs::set_permissions(root.join("xdg"), std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::write(root.join("protocols/sdc.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc\n  revision: 8\n").unwrap();
         std::fs::write(root.join("protocols/sdc-intake.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc.intake\n  revision: 9\n").unwrap();
         std::fs::write(root.join("bindings/sdc.yaml"), BINDINGS).unwrap();
@@ -104,12 +106,34 @@ impl World {
         a
     }
 
+    /// The option list for the run named by `settings["run"]`, with the options that members of the
+    /// settings repeat (`--cap-micro-usd`, `--max-llm-calls`, `--max-wall-seconds`, `--confinement`)
+    /// taken from the settings themselves.
+    pub fn args_for(&self, settings: &Value) -> Vec<String> {
+        let mut a = self.args(settings["run"].as_str().unwrap(), settings["loom"]["cap_micro_usd"].as_u64().unwrap());
+        let mut set = |flag: &str, value: String| {
+            let i = a.iter().position(|x| x == flag).unwrap();
+            a[i + 1] = value;
+        };
+        set("--max-llm-calls", settings["max_llm_calls"].as_u64().unwrap().to_string());
+        set("--max-wall-seconds", settings["max_wall_seconds"].as_u64().unwrap().to_string());
+        set("--confinement", settings["loom"]["confinement"].as_str().unwrap().to_owned());
+        a
+    }
+
+    /// The PATH of the runner: the world's root first (where a test puts `sdc-reply`, as the launcher
+    /// puts the build's `driver/target/debug` first), then the test's own.
+    pub fn path(&self) -> String {
+        format!("{}:{}", self.root.display(), std::env::var("PATH").unwrap_or_default())
+    }
+
     pub fn command(&self, args: &[String]) -> Command {
         let mut c = Command::new(BIN);
         c.args(args)
             .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .env("PATH", self.path())
             .env("HOME", "/marker-home-dir")
+            .env("XDG_RUNTIME_DIR", self.root.join("xdg"))
             .env("SDC_SECRET_MARKER", "marker-secret-value")
             .env("ANTHROPIC_API_KEY", "marker")
             .stdin(Stdio::null());
@@ -155,7 +179,7 @@ pub fn stderr(o: &Output) -> String {
     String::from_utf8_lossy(&o.stderr).into_owned()
 }
 
-fn grep_tree(dir: &Path, needle: &str, hits: &mut Vec<PathBuf>) {
+pub fn grep_tree(dir: &Path, needle: &str, hits: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();
         if std::fs::symlink_metadata(&p).unwrap().file_type().is_symlink() {
@@ -214,8 +238,8 @@ fn a_full_run_writes_the_settings_and_no_login_path_or_content() {
         grep_tree(&dir, &needle, &mut hits);
         assert!(hits.is_empty(), "{needle} found in {hits:?}");
     }
-    // The one place the path is: the link the bindings copy makes for the model nodes.
-    assert_eq!(std::fs::read_link(dir.join("login")).unwrap(), w.login_path());
+    // No link either: the link the model nodes read lives in the private directory (login.rs).
+    assert!(std::fs::symlink_metadata(dir.join("login")).is_err(), "a link to the login file is in the run directory");
 }
 
 // 3. the environment of the child
@@ -240,7 +264,7 @@ fn the_child_environment_is_built_and_not_inherited() {
             assert!(!text.contains(marker), "{marker} reached the child: {text}");
         }
         let get = |k: &str| call.env.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone());
-        assert_eq!(get("PATH"), std::env::var("PATH").ok());
+        assert_eq!(get("PATH"), Some(w.path()));
         assert!(get("HOME").unwrap().starts_with(&run_dir));
         assert!(get("XDG_DATA_HOME").unwrap().starts_with(&run_dir));
     }
