@@ -8,6 +8,10 @@ summary: runbook parity summarize, compare and approvals read a driver run into 
 tags:
 - loom
 - parity
+relations:
+- decomposes: epic:runbook-one-binary-and-daemon
+- depends_on: story:engine-on-loom-library-entry
+- depends_on: story:run-in-process-and-cli-as-daemon-client
 scope:
 - confidence: cited
   path: CHANGELOG.md
@@ -19,7 +23,7 @@ scope:
   path: runbook/src/parity.rs
 - confidence: cited
   path: runbook/tests/cli.rs
-revision: 12
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 2, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 3, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -91,3 +95,38 @@ driver's summary of the same cycle and compare with `--product-digests`; every l
 is a difference to explain, and every line of "What the first real run needs" the run does not confirm
 is a change to the reader. Where Loom records a member in a form the table of rules compares badly,
 change `RULES` in `runbook/src/parity.rs` and say why in the story; do not loosen it silently.
+
+## Acceptance of the evaluation run
+
+- For the three Loom runs of the evaluation and the three driver runs of `release-0.1.2` (strong), the
+  comparison prints, per run pair, each member of the summary as `same` or `differs` with the
+  difference, and a closing line `parity: pass` only when every case outcome, every evidence kind and
+  result and every decision answer is the same, the product tree's file lists agree up to the declared
+  tolerance, and each quality measure of the Loom runs lies within the range of the three driver
+  runs; otherwise it prints `parity: fail` and exits 1.
+- The tolerance for the file list and the quality measures is written in the story's report before the
+  Loom runs start, and the report states for each member how the driver runs vary among themselves.
+- A summary of a deliberately altered run (one outcome changed) makes the comparison print
+  `parity: fail`: a test on recorded summaries, no model call, within 60 s.
+- The Loom runs start no `sdc-drive` process (sampled from the process tree) and write their records
+  under the run's state directory.
+- The comparison report is committed under `experiments/` and `experiments/INDEX.md` lists it
+  (`sdc-experiment index`).
+- `runbook run` of the cycle `stub-cycle` on Loom and the driver's run of it give summaries whose
+  comparison is empty, printed as `parity: identical` with exit 0.
+
+The evaluation run is the strong setting of `experiments/release-0.1.2.yaml`, whose three driver runs
+all ended `closed: operating` with a clean pass (`experiments/release-0.1.2/report.md`); the choice may
+be changed to another complete setting of that record by the story's report, with the reason. The
+driver's root outcome is still `operating` where Loom's bindings may say `delivered`
+(`story:root-outcome-delivered`); the summary maps names it knows are the same and lists every mapping
+it applies. The runs start only through `sdc-experiment run` with a registered record.
+
+## Approval of the evaluation spend (2026-11-22)
+
+The operator's word on the money for the three evaluation runs was given on 2026-11-22 and is
+recorded in `approval-record:operator-decision-parity-runs-spend-2026-11-22`: "A: 3 runs, cap 20
+USD". The three Loom runs of the evaluation start without asking again once the `stub-cycle`
+summaries are equal on both runtimes, and they stop at 20 USD of spend. The story's report gives the
+three results and the spend. The runs still start only through `sdc-experiment run` with a registered
+record.

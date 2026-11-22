@@ -5,6 +5,8 @@ kind: story
 status: active
 title: The Runbook daemon API is specified in ESS before any handler exists
 summary: 'Domain sdc.daemon: runs, sessions, decision requests, run events, their commands, views and scenarios; OpenAPI and JSON Schema generated from it.'
+relations:
+- decomposes: epic:runbook-one-binary-and-daemon
 scope:
 - confidence: cited
   path: ess
