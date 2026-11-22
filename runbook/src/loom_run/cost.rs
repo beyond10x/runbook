@@ -2,20 +2,37 @@
 //!
 //! A model step (`bindings/tools/llm-node.sh`) writes one directory `NNN-<action>/` per call under
 //! `<workspace>/.sdc/llm/` when it starts, and one line per finished call into
-//! `<workspace>/.sdc/llm/calls.jsonl` with `cost_usd` and `record` (the call's directory).
-//! A call directory without a line with a number `cost_usd` is a call of unknown cost.
+//! `<workspace>/.sdc/llm/calls.jsonl` with `cost_usd` and `record` (the call's directory), the
+//! `action`, the `adapter` and the adapter's `exit`. A call directory without a line with a number
+//! `cost_usd` is a call of unknown cost.
+//!
+//! A call of unknown cost is booked at its reservation (the spend rule stays fail-closed). What the
+//! run does next is the driver's rule (`driver/src/main.rs`, `program_error`): a call that ended
+//! with an exit other than 0 does not end the run, the step's retry rule decides, unless the exit
+//! is 126, 127 or 75 (the tool could not run). Every other call without a cost ends the run, with a
+//! reason that names the action, the adapter, its exit and the first line of its stderr.
 
 use serde_json::Value;
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::Path;
+
+/// Exits of a model step after which the driver ends the run: the tool could not run.
+const PROGRAM_ERROR_EXITS: [i64; 3] = [75, 126, 127];
+
+/// Longest first line of an adapter's stderr in a reason.
+const STDERR_LINE_MAX: usize = 300;
 
 /// What one reading of the records found.
 #[derive(Debug, Default, PartialEq)]
 pub struct StepCost {
-    /// Cost of the new calls, micro USD.
+    /// Cost of the new calls that have one, micro USD.
     pub micro_usd: u64,
     /// The new cost lines as read.
     pub records: Vec<Value>,
+    /// Lines of calls that ended with an exit other than 0 and have no usable cost: each is booked
+    /// at the reservation by the caller, and the run goes on.
+    pub unknown: Vec<Value>,
 }
 
 /// Remembers how far the records were read.
@@ -24,6 +41,7 @@ pub struct CostReader {
     lines_seen: usize,
     recorded_dirs: HashSet<String>,
     checked_dirs: HashSet<String>,
+    home: Option<String>,
 }
 
 /// USD as a JSON number to micro USD: finite, not negative.
@@ -39,10 +57,57 @@ pub fn usd_to_micro(v: &Value) -> Result<u64, String> {
     Ok(micro as u64)
 }
 
+/// The first non-empty line of what the call's adapter wrote on stderr (`adapter-stderr.txt`, else
+/// `stderr.txt` of the call directory), `home` replaced by `~`, cut at 300 characters.
+fn stderr_line(call_dir: &Path, home: Option<&str>) -> String {
+    for name in ["adapter-stderr.txt", "stderr.txt"] {
+        let mut bytes = Vec::new();
+        let Ok(file) = std::fs::File::open(call_dir.join(name)) else { continue };
+        if file.take(65_536).read_to_end(&mut bytes).is_err() {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        let Some(line) = text.lines().map(str::trim).find(|l| !l.is_empty()) else { continue };
+        let line = match home {
+            Some(h) if h.len() > 1 => line.replace(h, "~"),
+            _ => line.to_owned(),
+        };
+        return line.chars().take(STDERR_LINE_MAX).collect();
+    }
+    "(no stderr)".to_owned()
+}
+
 impl CostReader {
+    /// A reader that writes `home` as `~` in the stderr lines of its reasons.
+    pub fn with_home(home: Option<String>) -> CostReader {
+        CostReader { home, ..CostReader::default() }
+    }
+
+    /// The call directory of a cost line: its name below `<workspace>/.sdc/llm/`.
+    fn call_dir(dir: &Path, line: &Value) -> Option<std::path::PathBuf> {
+        let name = line.get("record").and_then(Value::as_str).and_then(|p| p.rsplit('/').next())?;
+        Some(dir.join(name))
+    }
+
+    /// The reason a call without a usable cost ends the run: action, adapter, exit and stderr.
+    fn reason(&self, dir: &Path, line: &Value, detail: &str) -> String {
+        let action = line.get("action").and_then(Value::as_str).unwrap_or("?");
+        let adapter = line.get("adapter").and_then(Value::as_str).unwrap_or("?");
+        let exit = line.get("exit").and_then(Value::as_i64);
+        match exit {
+            Some(code) if code != 0 => {
+                let said = Self::call_dir(dir, line).map_or_else(|| "(no stderr)".to_owned(), |d| stderr_line(&d, self.home.as_deref()));
+                format!("model step {action}: adapter {adapter} exited {code}: {said}")
+            }
+            Some(code) => format!("model step {action}: adapter {adapter} exited {code} and recorded no cost ({detail})"),
+            None => format!("model step {action}: adapter {adapter} recorded no cost ({detail})"),
+        }
+    }
+
     /// The new cost records of `workspace` since the last call. Errors (fail closed): a call
     /// directory with no cost line, a line that is not JSON, a `cost_usd` that is not a finite
-    /// non-negative number.
+    /// non-negative number on a call that did not end with an exit other than 0 and 126, 127, 75;
+    /// the reason names the call.
     pub fn read_new(&mut self, workspace: &Path) -> Result<StepCost, String> {
         let dir = workspace.join(".sdc").join("llm");
         let mut cost = StepCost::default();
@@ -55,13 +120,23 @@ impl CostReader {
             let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
             for line in lines.iter().skip(self.lines_seen) {
                 let v: Value = serde_json::from_str(line).map_err(|e| format!("cost record is not JSON: {e}"))?;
-                let usd = v.get("cost_usd").ok_or("a cost record has no cost_usd")?;
-                let micro = usd_to_micro(usd)?;
-                cost.micro_usd = cost.micro_usd.checked_add(micro).ok_or("cost overflow")?;
                 if let Some(name) = v.get("record").and_then(Value::as_str).and_then(|p| p.rsplit('/').next()) {
                     self.recorded_dirs.insert(name.to_owned());
                 }
-                cost.records.push(v);
+                let micro = match v.get("cost_usd") {
+                    Some(usd) => usd_to_micro(usd),
+                    None => Err("a cost record has no cost_usd".to_owned()),
+                };
+                match micro {
+                    Ok(micro) => {
+                        cost.micro_usd = cost.micro_usd.checked_add(micro).ok_or("cost overflow")?;
+                        cost.records.push(v);
+                    }
+                    Err(detail) => match v.get("exit").and_then(Value::as_i64) {
+                        Some(code) if code != 0 && !PROGRAM_ERROR_EXITS.contains(&code) => cost.unknown.push(v),
+                        _ => return Err(self.reason(&dir, &v, &detail)),
+                    },
+                }
             }
             self.lines_seen = lines.len();
         }
@@ -72,7 +147,12 @@ impl CostReader {
             let is_call = entry.path().is_dir() && name.split('-').next().is_some_and(|n| n.len() >= 3 && n.bytes().all(|b| b.is_ascii_digit()));
             if is_call && !self.checked_dirs.contains(&name) {
                 if !self.recorded_dirs.contains(&name) {
-                    return Err(format!("model call {name} has no cost record"));
+                    let action = name.split_once('-').map_or("?", |(_, a)| a);
+                    let response: Value = std::fs::read(entry.path().join("response.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
+                    let adapter = response.get("adapter").and_then(Value::as_str).unwrap_or("?");
+                    let exit = response.get("exit").and_then(Value::as_i64).map_or_else(|| "?".to_owned(), |c| c.to_string());
+                    let said = stderr_line(&entry.path(), self.home.as_deref());
+                    return Err(format!("model step {action}: model call {name} has no cost record (adapter {adapter}, exit {exit}): {said}"));
                 }
                 self.checked_dirs.insert(name);
             }
