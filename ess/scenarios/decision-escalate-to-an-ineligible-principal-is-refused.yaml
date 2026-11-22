@@ -1,0 +1,81 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: decision-escalate-to-an-ineligible-principal-is-refused
+summary: "Escalate moves a request only to a principal in its eligible list; naming anyone else is refused and the request stays where it was."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-3.billing.limits-change.merge-1"
+      case_id: "IDEA-3.billing.limits"
+      question_key: "IDEA-3.billing.limits|change.merge|"
+      unblocks: {kind: approval, action: "change.merge", capability: "change.merge"}
+      subject_artifact: "change"
+      subject_revision: "t2r1"
+      subject_path: "impl/"
+      question: "Merge the change at revision t2r1 into mainline?"
+      options:
+        - letter: "A"
+          does: "Grant change.merge at this case revision."
+          cost: "None beyond the merge."
+          consequence: {admits: ["change.merge"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny change.merge."
+          cost: "The run ends as refused."
+          consequence: {admits: [], blocks: ["change.merge"], grant: denied, produces: canon_authority}
+      autonomy_level: A3
+      decision_class: merge
+      holder: decider
+      eligible: ["operator", "decider:haiku"]
+      addressed_to: "decider:haiku"
+      opened_at: 2026-11-22T10:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-3.billing.limits-change.merge-1"
+          case_id: "IDEA-3.billing.limits"
+          subject_artifact: "change"
+          subject_revision: "t2r1"
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.decision.Escalate
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-3.billing.limits-change.merge-1"
+      escalate_to: "stranger"
+      reason: "The diff touches the limits table."
+    outcome: target-not-eligible
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.decision.Escalate
+    actor: sdc.decision.Decider
+    input:
+      request_id: "DR-IDEA-3.billing.limits-change.merge-1"
+      escalate_to: "operator"
+      reason: "The diff touches the limits table."
+    outcome: escalated
+    events:
+      - event: sdc.decision.DecisionEscalated
+        payload:
+          request_id: "DR-IDEA-3.billing.limits-change.merge-1"
+          escalate_to: "operator"
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.decision.Escalate
+    actor: sdc.decision.Person
+    input:
+      request_id: "DR-IDEA-3.billing.limits-change.merge-1"
+      escalate_to: "stranger"
+      reason: "Passing it on."
+    outcome: target-not-eligible
+
+assert:
+  - view: sdc.decision.OpenDecisionsForPrincipal
+    params: {principal: "operator"}
+    contains: {request_id: "DR-IDEA-3.billing.limits-change.merge-1"}
+  - view: sdc.decision.OpenDecisionsForPrincipal
+    params: {principal: "stranger"}
+    excludes: {request_id: "DR-IDEA-3.billing.limits-change.merge-1"}

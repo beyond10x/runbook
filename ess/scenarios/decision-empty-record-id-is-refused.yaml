@@ -1,0 +1,117 @@
+type: ess-scenario/1
+domain: sdc.decision
+scenario: decision-empty-record-id-is-refused
+summary: "RecordProduced refuses an empty record id, also on a request that stores no record; only a stored record answers already-recorded."
+
+timeline:
+  - at: 2026-11-22T13:00:00Z
+    command: sdc.decision.Request
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      case_id: "IDEA-5.billing.refunds"
+      question_key: "IDEA-5.billing.refunds|roadmap.approve|"
+      unblocks: {kind: approval, action: "roadmap.approve", capability: "owner.approve"}
+      subject_artifact: "roadmap"
+      subject_revision: "t4r1"
+      subject_path: "aep/initiative/roadmap.md"
+      question: "Approve the roadmap at revision t4r1?"
+      options:
+        - letter: "A"
+          does: "Grant owner.approve at this case revision."
+          cost: "None beyond the approval."
+          consequence: {admits: ["roadmap.approve"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny owner.approve."
+          cost: "The roadmap is revised first."
+          consequence: {admits: [], blocks: ["roadmap.approve"], grant: denied, produces: canon_authority}
+      autonomy_level: A1
+      decision_class: roadmap
+      holder: person
+      eligible: ["operator"]
+      addressed_to: "operator"
+      opened_at: 2026-11-22T13:00:00Z
+    outcome: requested
+    events:
+      - event: sdc.decision.DecisionRequested
+        payload:
+          request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+          case_id: "IDEA-5.billing.refunds"
+          subject_artifact: "roadmap"
+          subject_revision: "t4r1"
+
+  - at: 2026-11-22T13:01:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "", case_revision: "c1"}
+    outcome: empty-record-id
+
+  - at: 2026-11-22T13:02:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "owner.approve@c1", case_revision: "c1"}
+    outcome: wrong-state
+
+  - at: 2026-11-22T13:03:00Z
+    command: sdc.decision.Decide
+    actor: sdc.decision.Person
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      option: "A"
+      principal: "operator"
+      principal_kind: person
+      decided_at: 2026-11-22T13:03:00Z
+      reasons: ["Approved."]
+    outcome: decided
+    events:
+      - event: sdc.decision.DecisionTaken
+        payload:
+          request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+          option: "A"
+          principal: "operator"
+
+  - at: 2026-11-22T13:04:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "", case_revision: "c1"}
+    outcome: empty-record-id
+
+  - at: 2026-11-22T13:05:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "owner.approve@c1", case_revision: "c1"}
+    outcome: recorded
+    events:
+      - event: sdc.decision.ProducedRecordRecorded
+        payload:
+          request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+          produced: {document: canon_authority, record: "owner.approve@c1", case_revision: "c1"}
+
+  - at: 2026-11-22T13:06:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "", case_revision: "c1"}
+    outcome: empty-record-id
+
+  - at: 2026-11-22T13:07:00Z
+    command: sdc.decision.RecordProduced
+    actor: sdc.decision.Driver
+    input:
+      request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1"
+      produced: {document: canon_authority, record: "owner.approve@c1", case_revision: "c1"}
+    outcome: already-recorded
+
+assert:
+  - view: sdc.decision.ArtifactDecisionHistory
+    params: {artifact: "roadmap"}
+    contains: {request_id: "DR-IDEA-5.billing.refunds-roadmap.approve-1", state: Decided, decided_option: "A", produced_record: {document: canon_authority, record: "owner.approve@c1", case_revision: "c1"}}

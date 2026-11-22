@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.decision.Escalate.schema.json",
   "title": "Escalate input",
-  "description": "Move an Open or Escalated request to a person. A decider or a rule escalates when it will not decide under D→P, R, or R∧D→P, where an Escalate is also the decider's veto (docs/autonomy-levels.md:235-239, escalation.mode person :385). Under P and P+ an Escalate is a person passing the request on to someone else, also from Escalated. Escalate never opens a request: the escalation row of the class table (:257) is not a request class, it gives the holder of the request after Escalate (P at A2 to A4 in SDC's table).",
+  "description": "Move an Open or Escalated request to a person. A decider or a rule escalates when it will not decide under D→P, R, or R∧D→P, where an Escalate is also the decider's veto (docs/autonomy-levels.md:235-239, escalation.mode person :385). Under P and P+ an Escalate is a person passing the request on to someone else, also from Escalated. The named principal must be in the request's eligible list (NotEligible otherwise); Escalate adds nobody to it. Escalate never opens a request: the escalation row of the class table (:257) is not a request class, it gives the holder of the request after Escalate (P at A2 to A4 in SDC's table).",
   "x-ess-name": "sdc.decision.Escalate",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -26,7 +26,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:8ad88226b876c053a01b2b551e5b6b5e115b91170e89fbd1652149c47cf12928",
+    "contract_digest": "slice-sha256/2:728cc45ee50380adb72e1d400c024b31682003b2f8ef6323e6499c010ba575cf",
     "regenerate": "ess generate"
   },
   "$defs": {

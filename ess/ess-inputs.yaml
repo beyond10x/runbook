@@ -9,6 +9,10 @@ scenarios:
   - scenarios/merge-a4-rule-and-decider.yaml
   - scenarios/merge-a5-veto.yaml
   - scenarios/question-free-answer.yaml
+  - scenarios/decision-option-not-offered.yaml
+  - scenarios/decision-escalate-to-an-ineligible-principal-is-refused.yaml
+  - scenarios/decision-duplicate-option-letters-are-refused.yaml
+  - scenarios/decision-empty-record-id-is-refused.yaml
   - scenarios/daemon-submit-and-run-to-an-outcome.yaml
   - scenarios/daemon-submit-below-the-floor-is-refused.yaml
   - scenarios/daemon-decision-is-answered-and-the-run-resumes.yaml

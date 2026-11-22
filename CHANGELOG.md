@@ -13,6 +13,10 @@ bare-version tags (`docs/releasing.md`).
 
 ### Fixed
 
+- The decision contract (`ess/domains/decision.yaml`) refuses a letter the request does not offer: `Decide` and a verified `Recommend` answer `OptionNotOffered`, so a letter nobody offered is never stored and silence never takes it (`docs/decisions.md`).
+- The decision contract refuses an `Escalate` to a principal who is not in the request's `eligible` list (`NotEligible`, outcome `target-not-eligible`); escalation adds nobody to that list.
+- The decision contract refuses a `Request` whose options repeat a letter (`DuplicateOptionLetter`); `sdc-decision-request` also refuses a question of more than 26 options, for which it has no letters left.
+- The decision contract refuses `RecordProduced` with an empty record id (`EmptyRecordId`); `already-recorded` now needs a stored record, so an empty id on a request that stores none no longer answers it.
 - `runbook loom-run`: a model step that ended before it started any adapter (its call directory has no `request.json`, which `llm-node.sh` writes before every adapter start, and a `status.json` with the step's exit) costs nothing: its reservation is released instead of booked, an event `no_model_call` names the call and the exit, and the run goes on with what Loom says of the step instead of ending `error` at the cost reader; a directory with a `request.json` and no cost record, and one without a readable `status.json` exit, stay fail-closed as before (`docs/loom-run.md`).
 
 ## [0.4.0] - 2026-11-22

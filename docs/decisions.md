@@ -85,7 +85,20 @@ Escalate moves an existing request; it never opens one. It sets the holder to P,
 `escalation` row (`autonomy-levels.md:257`), so a decider can no longer decide it. From a decider
 or a rule (holders D→P, R, R∧D→P) it is an escalation, and under R∧D→P the decider's veto. Under
 P and P+ it is a person passing the request on to someone else, also from Escalated; a P+
-request becomes P, which has the same guards, and keeps its recommendation.
+request becomes P, which has the same guards, and keeps its recommendation. The person it names
+must be in the request's `eligible` list (`NotEligible`, outcome `target-not-eligible`): Escalate
+adds nobody to it, so the host hands in the person an escalation can reach when it opens the
+request.
+
+Refusals that guard the letters and the record id of a request:
+
+| command | outcome | error | refused when |
+|---|---|---|---|
+| `Request` | `duplicate-letters` | `DuplicateOptionLetter` | two options carry one letter |
+| `Decide` | `option-not-offered` | `OptionNotOffered` | `option` names a letter no option of the request has; checked after `not-listed`, before the guards that read the option's consequence |
+| `Recommend` | `option-not-offered` | `OptionNotOffered` | a verified recommendation names such a letter; a refused check records no option and is `withheld` as before. `TakeRecommendation` and silence then always take an offered letter |
+| `Escalate` | `target-not-eligible` | `NotEligible` | `escalate_to` is not in `eligible`; after `suppressed` |
+| `RecordProduced` | `empty-record-id` | `EmptyRecordId` | the produced record id is empty; `already-recorded` needs a stored record |
 
 `Expire`, and `TakeRecommendation` by `silence`, are fired by a host tick that passes the instant
 as input (`at`, `decided_at`); neither reads a clock. Both are refused (`NotDue`) before
@@ -265,8 +278,9 @@ The order after a decision, for an option whose consequence names a `produces` k
    revision moved between the decision and the write, the write is refused and the request is
    superseded.
 3. `RecordProduced` stores the record as `produced_record`. The same record id again changes
-   nothing; a different one is refused (`ProducedRecordConflict`); so is a request whose decided
-   option produces no record (`NoRecordToProduce`).
+   nothing, but only where a record is stored; a different one is refused
+   (`ProducedRecordConflict`); so is an empty record id (`EmptyRecordId`) and a request whose
+   decided option produces no record (`NoRecordToProduce`).
 4. The run resumes. Resume requires `produced_record`.
 
 A crash after step 1 leaves a Decided request without `produced_record`; the retry writes the
