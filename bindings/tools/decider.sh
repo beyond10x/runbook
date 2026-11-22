@@ -181,7 +181,7 @@ render() {
 # through tools/decision-grounds.sh. No ground: an escalate (D→P waits on the requester person;
 # under final run-trial.sh takes the request's default, marked no_ground_in_goals).
 requester_call() {
-  local level qid request subj sp f g reply_f prop chk verdict letter ans dec_ best opts no_ground model node
+  local level qid request subj sp f g reply_f prop chk verdict letter ans dec_ best opts no_ground model node q_text a_text b_text
   level=$(r '.autonomy // "A3"')
   case $type in
     question)
@@ -192,15 +192,21 @@ requester_call() {
             cites: [], kind: "requester", valid: false, invalid_reason: "no decision request"}'; return 0; } ;;
     *)
       sp=$(r '.path // ""')
-      request=$(jq -c --arg lvl "$level" --arg sp "$sp" --arg cid "$(jq -r .id "$case_dir/case.json")" '{
+      if [[ $type == close ]]; then
+        render q_text requester.close.question.md outcome="$(r .outcome)"
+        render a_text requester.close.option-a.md outcome="$(r .outcome)"
+        render b_text requester.close.option-b.md
+      else
+        render q_text requester.approval.question.md action="$(r .action)" subject="$(r .subject)" revision="$(r .revision)"
+        render a_text requester.approval.option-a.md
+        render b_text requester.approval.option-b.md
+      fi
+      request=$(jq -c --arg lvl "$level" --arg sp "$sp" --arg cid "$(jq -r .id "$case_dir/case.json")" --arg q "$q_text" --arg a "$a_text" --arg b "$b_text" '{
         request_id: "DR-\($cid)-\(.action)-\(.revision // "none")", state: "Open", case_id: $cid,
         question_key: "\($cid)|\(.action)", unblocks: {kind: .type, action: .action},
         subject_artifact: (.subject // "case"), subject_revision: .revision,
         subject_path: (if $sp == "" then null else "work/\($sp)" end),
-        question: (if .type == "close" then "Close the idea through the outcome \(.outcome)?"
-          else "Approve \(.action): the \(.subject) at revision \(.revision)?" end),
-        options: [{letter: "A", does: (if .type == "close" then "close through \(.outcome)" else "approve" end)},
-                  {letter: "B", does: (if .type == "close" then "do not close" else "reject: the writer reworks it" end)}],
+        question: $q, options: [{letter: "A", does: $a}, {letter: "B", does: $b}],
         autonomy_level: $lvl, decision_class: .class, holder: "decider", eligible: ["decider:requester"],
         addressed_to: "decider:requester", grounds: [], decision_reasons: []}' <<< "$req") ;;
   esac

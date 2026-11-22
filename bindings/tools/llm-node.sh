@@ -554,17 +554,22 @@ fi
 
 feedback=""
 if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection" 'any(.[]; .result != "rejected" or (.log // "") != $rej)' "$SDC_FEEDBACK" > /dev/null; then
+  render fb_head "$shared/feedback.heading.md"
+  render fb_none "$shared/feedback.no-output.md"
   {
-    echo "# Checks that failed on the current revision of your output"
+    echo "$fb_head"
     # The check's own output: the last 80 lines of its log without the build pool's `slot: job`
     # lines, which only say how long the check waited (runs/trial-3-haiku-8). A check that wrote
-    # nothing is said so in words.
-    jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej) | "\(.kind) = \(.result) (from \(.action // "?"), exit \(.exit // "?")): \(.log // "")"' "$SDC_FEEDBACK" | while IFS= read -r line; do
-      echo; echo "## ${line%%: *}"; log=${line#*: }
+    # nothing is said so in words (instructions/shared/feedback.no-output.md). The loop reads
+    # from a process substitution so that a missing instruction file stops the tool.
+    while IFS=$'\x1f' read -r fb_kind fb_result fb_action fb_exit log; do
+      render fb_line "$shared/feedback.check.md" kind="$fb_kind" result="$fb_result" action="$fb_action" exit="$fb_exit"
+      echo; echo "$fb_line"
       own=$([[ -f $log ]] && grep -v '^slot: job ' "$log" | tail -n 80)
       if [[ -n ${own//[[:space:]]/} ]]; then echo '```'; echo "$own"; echo '```'
-      else echo "The check wrote no output of its own: only its result above says what failed."; fi
-    done
+      else echo "$fb_none"; fi
+    done < <(jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej)
+      | [.kind, .result, (.action // "?"), (.exit // "?"), (.log // "")] | map(tostring) | join("\u001f")' "$SDC_FEEDBACK")
   } > "$cwd/in/feedback.md"
   notes "$shared/feedback.inputs.md"
   feedback=yes
@@ -576,8 +581,9 @@ if [[ -n $cd_ && -f $cd_/events.jsonl ]]; then
   own=$(jq -rs --arg n "$node" '[.[] | select(.event == "action_finished" and .action == $n)] | last // empty
     | select(.exit | IN("0", "75", "126", "127") | not) | "\(.exit) \(.log // "")"' "$cd_/events.jsonl" 2>/dev/null)
   if [[ -n $own && -f $cd_/blobs/${own#* } ]]; then
+    render fb_run "$shared/feedback-run.heading.md" node="$node" exit="${own%% *}"
     { [[ -s $cwd/in/feedback.md ]] && echo
-      echo "# Your previous run of $node failed (exit ${own%% *}): nothing of it was applied"
+      echo "$fb_run"
       echo; echo '```'; grep -v '^slot: job ' "$cd_/blobs/${own#* }" | tail -n 80; echo '```'; } >> "$cwd/in/feedback.md"
     [[ $feedback == yes ]] || notes "$shared/feedback-run.inputs.md"
     feedback=yes

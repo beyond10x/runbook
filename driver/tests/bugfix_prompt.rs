@@ -536,7 +536,7 @@ fn every_agent_binding_names_its_instruction_file_and_the_tools_hold_no_instruct
 fn every_instruction_file_is_reached_by_a_golden() {
     let root = repo().join("instructions");
     let mut goldens = String::new();
-    for group in ["llm-node", "decider"] {
+    for group in ["llm-node", "decider", "feedback", "requester-request"] {
         for e in fs::read_dir(root.join("golden").join(group)).unwrap() {
             goldens.push_str(&fs::read_to_string(e.unwrap().path()).unwrap());
         }
