@@ -2,7 +2,7 @@
 
 Written by `sdc-experiment report parity-loom-strong` from `experiments/parity-loom-strong.yaml` and the run summaries in `experiments/parity-loom-strong/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
 
-- Kind: prospective; status: planned; created 2026-11-22.
+- Kind: prospective; status: abandoned; created 2026-11-22.
 - Purpose: Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story.
 - Hypothesis: none; the record describes its runs.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
@@ -45,6 +45,9 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
+| parity-loom-strong.strong.1 | strong | no summary: not ended | - | - | - | - |  |
+| parity-loom-strong.strong.2 | strong | no summary: not ended | - | - | - | - |  |
+| parity-loom-strong.strong.3 | strong | no summary: not ended | - | - | - | - |  |
 
 ## Per variant
 
@@ -52,7 +55,7 @@ Median [min, max] (n) over the ended runs.
 
 | | strong |
 |---|---|
-| runs listed | 0 |
+| runs listed | 3 |
 | ended | 0 |
 | clean passes | 0 |
 | `run.cost_usd` | - |
