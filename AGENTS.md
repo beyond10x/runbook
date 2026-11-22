@@ -30,9 +30,12 @@
   refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
 - The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
   `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
-  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The first equal
-  comparison on `stub-cycle` was made against Loom `2c0a6f48` (`docs/parity.md`, "First equal
-  comparison"); it does not cover a run with a model.
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The pinned Loom
+  commit is `5af3f9c2`. A run of `stub-cycle` through `runbook loom-run` on it
+  (`--confinement local`, scripted approvals, no model) compares `parity: identical` with the
+  driver's (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"); it does not cover a run
+  with a model. The first equal comparison was made against `2c0a6f48` (`docs/parity.md`, "First
+  equal comparison").
 - The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
   runtime, the UI server or the release.
 
@@ -46,7 +49,7 @@
 - `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess and `driver/canon-pin.json` the Canon that Runbook calls (`canon_resolve` in `scripts/evaluate-cases.sh` checks the version; no script builds or enters a Canon checkout).
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
-- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
+- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version`, `runbook parity` (`src/parity.rs`: summarize, compare, approvals; `docs/parity.md`) and `runbook loom-run` (`src/loom_run/`: the loop, the caps and the spend ledger, the decider, the answers file `bindings/tools/answers.yaml` (`answers.rs`, `decider/ask.rs`, `run_loop/declared.rs`, the program `driver/src/bin/sdc-answers.rs`), the copy of the bindings, the private directory of the login link, the run directory writer; `docs/loom-run.md`, `docs/loom-run-settings.md`, `docs/loom-run-directory.md`, `docs/loom-run-decisions.md`; tests in `runbook/tests/loom_run/` against a fake `b10x-loom`; the slow lane against the real binary is `task test:loom-real`). `run`, `ui` and the other commands are not built (`story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
@@ -67,6 +70,8 @@
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
 - The driver tests run as `slot task test:driver` (cargo-nextest, `driver/.config/nextest.toml`): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `driver/tests/main.rs` is the one integration-test binary: a new test file needs a `mod` line there (`autotests = false`); each test is its own process, so a product made once per run is a cache on disk under `driver/target/` (see `schemas()` in `driver/tests/decision_request.rs`).
+- The `runbook` crate tests run as `slot task test:runbook` (cargo-nextest, `runbook/.config/nextest.toml`; the forge runs the same task in `.github/workflows/pages.yml` for a code change): a test over 60 s is killed and fails, the ten slowest are printed, the run fails over 120 s. `runbook/tests/cli.rs` is the one integration-test binary (the daemon's tests are modules under `runbook/tests/daemon/`). The daemon reads one clock (`runbook/src/clock.rs`): a test that needs an exact instant builds the daemon in process with `Daemon::start_with_clock` and a `SetClock`; no option, environment variable or request sets a clock. Both test tasks pass `--color never` to every nextest call whose log they parse (the forge sets `CARGO_TERM_COLOR=always` through `dtolnay/rust-toolchain`); `task check:ci-paths` fails when a nextest call of `Taskfile.yml` lacks it.
+- MCP (`runbook mcp`, `runbook serve --mcp`; `runbook/src/mcp/`, `docs/mcp.md`) is a face of the command layer: a tool calls `api::routes::command_answer` or `view_answer` and returns the route's body, and its input schema is derived from the OpenAPI document, never typed by hand; a new tool is a row in `mcp/tools.rs`.
 - The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
   slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
   ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).

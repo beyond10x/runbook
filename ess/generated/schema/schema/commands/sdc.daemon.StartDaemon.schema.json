@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.StartDaemon.schema.json",
   "title": "Start the daemon input",
-  "description": "Record what the daemon was started with: its confinement floor. Runs once, before the daemon takes a request; the daemon holds the row until it stops.",
+  "description": "Record what the daemon was started with: its confinement floor and its principal. Runs once, before the daemon takes a request; the daemon holds the row until it stops.",
   "x-ess-name": "sdc.daemon.StartDaemon",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -13,6 +13,9 @@
     "confinement_floor": {
       "$ref": "#/$defs/sdc.daemon.ConfinementLevel"
     },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal"
+    },
     "at": {
       "type": "string",
       "format": "date-time"
@@ -21,13 +24,14 @@
   "required": [
     "daemon_id",
     "confinement_floor",
+    "principal",
     "at"
   ],
   "additionalProperties": false,
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:4bdef65c3d3c19337c845675c10a129214c931fe3261019efb5a2df8ebf17bbd",
+    "contract_digest": "slice-sha256/2:5fcbe2c531d5d1dc5224d09e30ad9d14ac95c555d39456d805adcfd3f6d34a37",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -46,6 +50,13 @@
       "title": "DaemonId",
       "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.",
       "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
       "x-ess-kind": "newtype",
       "type": "string"
     }

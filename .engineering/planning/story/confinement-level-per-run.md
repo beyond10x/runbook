@@ -22,7 +22,7 @@ scope:
   path: runbook/src/main.rs
 - confidence: cited
   path: runbook/tests
-revision: 4
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:35Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -59,10 +59,10 @@ story reads and does not edit; the facts are in `docs/library-entries.md`.
   `runbook runs show`; an unknown name exits 64 and prints the list.
 - The unconfined level runs only when asked for by its name; no other flag or environment variable
   selects it.
-- `runbook serve --min-confinement <level>` refuses a submit below the floor: the HTTP answer is 403
+- `runbook serve --min-confinement <level>` refuses a submit below the floor: the HTTP answer is 409
   with the floor and the asked level, the MCP `submit_run` returns the same error, `runbook run
   --daemon <url> --confinement <below>` exits 1 with that message, and no run is created
-  (`GET /v1/runs` count unchanged).
+  (`GET /daemon/views/runs` count unchanged).
 - A bound program of a run at the confined level cannot write outside its declared paths or open a
   network connection: a fixture binding that tries both ends with the refusal recorded in the run's
   events, and the same fixture at the unconfined level succeeds.

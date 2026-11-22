@@ -14,6 +14,10 @@
       "$ref": "#/$defs/sdc.daemon.ConfinementLevel",
       "description": "The lowest level the daemon takes (runbook serve --min-confinement). A run below it is refused."
     },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal",
+      "description": "Who the daemon acts as: person:<id> or agent:<id> (runbook serve --principal, required, no default). Fixed for the life of the process: no command, header, MCP input or HTTP input changes it. The daemon passes it, and nothing a client typed, to the runtime as the principal of an answer."
+    },
     "started_at": {
       "type": "string",
       "format": "date-time"
@@ -25,6 +29,7 @@
   "required": [
     "daemon_id",
     "confinement_floor",
+    "principal",
     "started_at",
     "state"
   ],
@@ -32,7 +37,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:0b183b9549c4de1a06d9be4bb8125092aa4718e753806078e9a6085b7aadbe59",
+    "contract_digest": "slice-sha256/2:d04105977da701399ddc15e7421281375e3b7547ba71e4cf373c3a22b43f2419",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -60,6 +65,13 @@
       "title": "DaemonId",
       "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.",
       "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
       "x-ess-kind": "newtype",
       "type": "string"
     }

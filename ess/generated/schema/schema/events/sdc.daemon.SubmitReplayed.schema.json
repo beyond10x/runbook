@@ -8,13 +8,20 @@
   "properties": {
     "idempotency_key": {
       "$ref": "#/$defs/sdc.daemon.IdempotencyKey"
+    },
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId",
+      "description": "The first run: the one that carries this idempotency key. The answer names it."
     }
   },
+  "required": [
+    "run_id"
+  ],
   "additionalProperties": false,
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c70bd3fa6c60e28c16db262c723e729a8d71754012dc5e9e145f620cde817e4c",
+    "contract_digest": "slice-sha256/2:97a8bf3dac6ad25d5c29f9729693faeed8fd24c1ab310325cc6c0f1b9b0a8962",
     "regenerate": "ess generate"
   },
   "$defs": {
@@ -28,6 +35,13 @@
       "x-ess-invariants": [
         "value.count <= 200"
       ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
     }
   }
 }

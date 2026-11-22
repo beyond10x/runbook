@@ -18,7 +18,17 @@ req=$(cat "$1")
 r() { jq -r "$1" <<< "$req"; }
 rec=$(r .record_dir)
 mkdir -p "$rec"
-home=$(mktemp -d "$rec/config-home.XXXXXX") && chmod 700 "$home" || exit 127
+# The config home holds the copy of the login. When the login is a file in a directory of the user's
+# with mode 700 (the private directory of `runbook loom-run`), the whole config home is made there,
+# never in the record directory, which lies in the run directory: a SIGKILL of this script leaves the
+# home, and the runner removes its private directory with all it holds. Otherwise (the driver's runs)
+# it is made in the record directory, as it always was.
+scratch=$rec
+if [[ -z ${ANTHROPIC_API_KEY:-} && -n ${SDC_CLAUDE_CREDENTIALS:-} ]]; then
+  priv=$(dirname -- "$SDC_CLAUDE_CREDENTIALS")
+  [[ -d $priv && -O $priv && $(stat -c %a "$priv") == 700 ]] && scratch=$priv
+fi
+home=$(mktemp -d "$scratch/config-home.XXXXXX") && chmod 700 "$home" || exit 127
 trap 'rm -rf "$home"' EXIT
 if [[ -z ${ANTHROPIC_API_KEY:-} ]]; then
   # Loom gives a program PATH and LOOM_* alone, so HOME may be unset: no variable is read bare.

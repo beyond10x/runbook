@@ -5,6 +5,7 @@ mod assets;
 mod check;
 mod doctor;
 mod list;
+mod loom_run;
 mod parity;
 
 use clap::error::ErrorKind;
@@ -42,6 +43,21 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Run the daemon in the foreground: HTTP and JSON on a runtime that is a stub in this version.
+    Serve(runbook::serve::ServeArgs),
+    /// MCP over standard input and output (newline-delimited JSON-RPC), as a client of a running daemon.
+    Mcp(runbook::mcp::stdio::McpArgs),
+    /// Submit a run to a daemon (`--detach`); in process it waits for story:engine-on-loom-library-entry.
+    Run(runbook::client::RunArgs),
+    /// Inspect and steer the runs of a daemon: list, show, events, cancel, decisions.
+    Runs {
+        #[command(subcommand)]
+        cmd: runbook::client::RunsCmd,
+    },
+    /// Answer a decision request of a run on a daemon.
+    Decide(runbook::client::DecideArgs),
+    /// Make one run of a case tree through `b10x-loom` (a child process) under a spend ledger and caps; writes a run directory.
+    LoomRun(loom_run::Args),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
     Parity {
         #[command(subcommand)]
@@ -55,17 +71,21 @@ enum ParityCmd {
     /// driver (`--driver` and `--store`) or of Loom (`--loom-status`).
     Summarize {
         /// The run directory the scripts wrote (`runs/<name>`).
-        #[arg(long, value_name = "DIR", requires = "store", conflicts_with = "loom_status", required_unless_present = "loom_status")]
+        #[arg(long, value_name = "DIR", requires = "store", conflicts_with_all = ["loom_status", "loom_run"], required_unless_present_any = ["loom_status", "loom_run"])]
         driver: Option<PathBuf>,
         /// The case store of the run (the directory that holds the root case).
         #[arg(long, value_name = "DIR", requires = "driver")]
         store: Option<PathBuf>,
         /// A file holding the JSON `b10x-loom tree status` printed (format `loom.tree-status/1`).
-        #[arg(long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE", conflicts_with = "loom_run")]
         loom_status: Option<PathBuf>,
         /// The product tree of a Loom run; the status's `workspace` when not given.
         #[arg(long, value_name = "DIR", requires = "loom_status")]
         product_tree: Option<PathBuf>,
+        /// The run directory `runbook loom-run` wrote: its `tree-status.json`, `work/` and the files
+        /// that hold what the status does not (`run-settings.jsonl`, `decisions.jsonl`, `protocols/`).
+        #[arg(long, value_name = "DIR")]
+        loom_run: Option<PathBuf>,
         /// Write the summary here instead of to standard output.
         #[arg(long, value_name = "FILE")]
         output: Option<PathBuf>,
@@ -104,7 +124,18 @@ fn main() -> ExitCode {
         Cmd::Doctor { for_runbook, json } => doctor_cmd(for_runbook, json),
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
+        Cmd::Run(args) => runbook::client::run(args),
+        Cmd::Runs { cmd } => runbook::client::runs(cmd),
+        Cmd::Decide(args) => runbook::client::decide(args),
         Cmd::Parity { cmd } => parity_cmd(cmd),
+        Cmd::Mcp(args) => runbook::mcp::stdio::run(args),
+        Cmd::Serve(mut args) => {
+            if args.runbook_dir.is_none() {
+                args.runbook_dir = assets::Lookup::from_process().locate().ok().map(|a| a.protocol_dir());
+            }
+            runbook::serve::run(args, &list::ROOT_RUNBOOKS)
+        }
+        Cmd::LoomRun(args) => loom_run::command(args),
     }
 }
 
@@ -115,10 +146,11 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
         ExitCode::from(2)
     };
     match cmd {
-        ParityCmd::Summarize { driver, store, loom_status, product_tree, output } => {
-            let source = match (driver, store, loom_status) {
-                (Some(run), Some(store), None) => parity::Source::Driver { run, store },
-                (None, None, Some(status)) => parity::Source::Loom { status, product_tree },
+        ParityCmd::Summarize { driver, store, loom_status, product_tree, loom_run, output } => {
+            let source = match (driver, store, loom_status, loom_run) {
+                (Some(run), Some(store), None, None) => parity::Source::Driver { run, store },
+                (None, None, Some(status), None) => parity::Source::Loom { status, product_tree },
+                (None, None, None, Some(dir)) if product_tree.is_none() => parity::Source::LoomRun { dir },
                 _ => return ExitCode::from(USAGE_ERROR),
             };
             let v = match parity::read(&source) {
@@ -152,9 +184,11 @@ fn parity_cmd(cmd: ParityCmd) -> ExitCode {
                 let what = if notes.is_empty() { "equal" } else { "equal on what both sides record" };
                 println!("{what}: {}", parity::counts(&a));
                 notes.iter().for_each(|n| println!("{n}"));
+                println!("parity: {}", if notes.is_empty() { "identical" } else { "equal on what both sides record" });
                 ExitCode::SUCCESS
             } else {
                 diffs.iter().chain(&notes).for_each(|d| println!("{d}"));
+                println!("parity: different");
                 ExitCode::from(1)
             }
         }

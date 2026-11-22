@@ -441,3 +441,25 @@ entries:
   limits:
   - 'No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.'
   - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
+- id: 0.4.0
+  kind: release
+  version: 0.4.0
+  label: 0.4.0
+  short: daemon, loom-run
+  date: 2026-11-22
+  tree: 5955f827359378701dba0ca900ba19ba6f490073
+  tree_note: 'tag 0.4.0 at main 5955f82: 0.3.1 (ebea58d) with the merges of the daemon on its stub runtime (e7dfa4b), of the runner on Loom (b49b511) and the preparation'
+  experiments: []
+  changes:
+  - commit: e7dfa4b
+    line: the Runbook daemon (runbook serve) on its stub runtime, its API specified in ESS, MCP tools and the embedded page; the engine on Loom inside the daemon is not in it
+    effect: none
+  - commit: b49b511
+    line: runbook loom-run runs one case on a pinned b10x-loom binary, with the decider's answers from a file, and sdc-experiment knows runner loom
+    effect: none
+  - commit: dbd81a2
+    line: the record parity-loom-strong-2 ended, all three runs stopped at scope.answer before the answers file existed
+    effect: none
+  limits:
+  - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-4-0), not on the standing rule of docs/releasing.md.
+  - The full set of finding cycles was not run on this tree, and the engine that runs a case on Loom inside the daemon is not in it.

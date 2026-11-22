@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:bc0b27fa432acab145ae6100c5f8df034e1ef327c66345eed4f67e42e12c3615
+# contract digest slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:bc0b27fa432acab145ae6100c5f8df034e1ef327c66345eed4f67e42e12c3615
+    contract_digest: slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
   x-ess-reached-by: network
 tags:
 - name: daemon
@@ -27,7 +27,7 @@ paths:
     post:
       operationId: sdc.daemon.AnswerDecision
       summary: Answer a decision
-      description: 'A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands.'
+      description: 'A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands. An answer to a withdrawn request (its run was cancelled or ended as orphaned) is refused as DecisionWithdrawn. When the answer stands but the runtime cannot take it up (its run is gone), the daemon writes the run event `runbook.answer-undeliverable` (record: request_id) after the request is Answered (see CancelRun for why it is stated here).'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -74,7 +74,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-request.Response'
         '409':
-          description: 'Outcomes `not-of-run`, `withdrawn`, `no-run`, `run-not-waiting` and `already-answered`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
+          description: 'Outcomes `not-of-run`, `withdrawn`, `already-answered`, `no-run` and `run-not-waiting`: the input was acceptable and the subject is in a state this command does not act from. Resending the same request changes nothing until something else moves it.'
           content:
             application/json:
               schema:
@@ -89,9 +89,9 @@ paths:
                 oneOf:
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.not-of-run.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.withdrawn.Response'
+                - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.already-answered.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.no-run.Response'
                 - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.run-not-waiting.Response'
-                - $ref: '#/components/schemas/sdc.daemon.AnswerDecision.already-answered.Response'
         '501':
           description: 'No declared outcome: the realization is unfinished. Either a port this command runs reported an unmet obligation, and nothing was written: `committed` is `false`. Or the command''s effect was committed and delivering what this command published to a binding failed: `committed` is `true`, the effect and its events stand, and each binding whose delivery failed keeps its event and is attempted again on a later delivery, while no other binding receives it twice. Do not retry: after a failed delivery a retry performs the command a second time.'
           content:
@@ -113,7 +113,7 @@ paths:
     post:
       operationId: sdc.daemon.CancelRun
       summary: Cancel a run
-      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run''s Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn.'
+      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run''s Open decision requests move to Withdrawn (the outcome''s `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon''s own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -326,7 +326,7 @@ paths:
     post:
       operationId: sdc.daemon.SubmitRun
       summary: Submit a run
-      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
+      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run''s first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement}, and the next position of the daemon; the run''s next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon''s other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
       tags:
       - daemon
       x-ess-may-invoke:
@@ -680,7 +680,7 @@ components:
   schemas:
     sdc.daemon.AnswerDecision.Input:
       title: Answer a decision input
-      description: 'A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands.'
+      description: 'A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands. An answer to a withdrawn request (its run was cancelled or ended as orphaned) is refused as DecisionWithdrawn. When the answer stands but the runtime cannot take it up (its run is gone), the daemon writes the run event `runbook.answer-undeliverable` (record: request_id) after the request is Answered (see CancelRun for why it is stated here).'
       x-ess-name: sdc.daemon.AnswerDecision
       x-ess-kind: command-input
       type: object
@@ -692,7 +692,10 @@ components:
         answer:
           type: string
         answered_by:
+          $ref: '#/components/schemas/sdc.daemon.AnswererLabel'
+        principal:
           $ref: '#/components/schemas/sdc.decision.Principal'
+          description: The daemon's own principal (runbook serve --principal). The handler fills it from the daemon's configuration; a client never sends it, no HTTP body member or MCP argument sets it, and the HTTP/MCP schema of the client's input has no such member.
         at:
           type: string
           format: date-time
@@ -701,11 +704,12 @@ components:
       - request_id
       - answer
       - answered_by
+      - principal
       - at
       additionalProperties: false
     sdc.daemon.AnswerDecision.already-answered.Response:
       additionalProperties: false
-      description: The request is already Answered. Taken when the subject is in a state none of this command's declared moves start from. Which states those are is the lifecycle's answer, not this command's.
+      description: 'The request is already Answered. Checked before the run''s own state: a second answer to the only open request of a run that has resumed or ended is this refusal and not RunNotWaiting. Taken when the subject is in a state none of this command''s declared moves start from. Which states those are is the lifecycle''s answer, not this command''s.'
       properties:
         error:
           const: sdc.daemon.DecisionAlreadyAnswered
@@ -728,7 +732,7 @@ components:
       type: object
     sdc.daemon.AnswerDecision.answered.Response:
       additionalProperties: false
-      description: The request is Answered; the runtime takes the answer up and reports ResumeRun. Taken when no other outcome's condition matched. A `sdc.daemon.DecisionRequest` has moved to `Answered`, along `answer`. The instance is the one `request_id` names. Emits `DecisionAnswered`, listed under `published`. `DecisionAnswered` is not published and stays inside the component.
+      description: The request is Answered, with the label the client gave (answered_by) and the daemon's principal (principal); the runtime is given the principal and never the label, takes the answer up and reports ResumeRun. Taken when no other outcome's condition matched. A `sdc.daemon.DecisionRequest` has moved to `Answered`, along `answer`. The instance is the one `request_id` names. Emits `DecisionAnswered`, listed under `published`. `DecisionAnswered` is not published and stays inside the component.
       properties:
         outcome:
           const: answered
@@ -826,7 +830,7 @@ components:
       type: object
     sdc.daemon.AnswerDecision.run-not-waiting.Response:
       additionalProperties: false
-      description: The run is not WaitingOnDecision, so nothing is waiting for an answer. Taken when the `sdc.daemon.Run` that `input.run_id` names exists and its stored fields satisfy `state != WaitingOnDecision`.
+      description: 'The request is Open and its run is not WaitingOnDecision, so nothing is waiting for an answer. The daemon''s own commands never leave that state (a cancel or an orphan end withdraws the run''s Open requests in the same step, and a resume needs none Open): the guard holds for a record the daemon did not write. Taken when the `sdc.daemon.Run` that `input.run_id` names exists and its stored fields satisfy `state != WaitingOnDecision`.'
       properties:
         error:
           const: sdc.daemon.RunNotWaiting
@@ -849,11 +853,11 @@ components:
       type: object
     sdc.daemon.AnswerDecision.withdrawn.Response:
       additionalProperties: false
-      description: 'The request was withdrawn when its run was cancelled: it takes no answer. Checked before the run''s own state, so the answer names the request and not the run. Taken when the existing subject''s stored fields satisfy `state == Withdrawn`.'
+      description: 'The request was withdrawn (its run was cancelled or ended as orphaned, or the runtime withdrew it): it takes no answer. Checked before the run''s own state, so the answer names the request and not the run: an answer to a request of a cancelled run is this refusal. Taken when the existing subject''s stored fields satisfy `state == Withdrawn`.'
       properties:
         error:
           const: sdc.daemon.DecisionWithdrawn
-          description: 'The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed.'
+          description: 'The decision request was withdrawn (its run was cancelled or ended as orphaned, which withdraws the run''s Open requests itself, or the runtime withdrew it): it takes no answer; nothing changed.'
           type: string
         outcome:
           const: withdrawn
@@ -870,6 +874,15 @@ components:
       - error
       - payload
       type: object
+    sdc.daemon.AnswererLabel:
+      title: AnswererLabel
+      description: 'The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon''s own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.'
+      x-ess-name: sdc.daemon.AnswererLabel
+      x-ess-kind: newtype
+      type: string
+      maxLength: 200
+      x-ess-invariants:
+      - value.count <= 200
     sdc.daemon.BelowConfinementFloor.Error:
       title: BelowConfinementFloor payload
       description: The requested confinement is below the daemon's floor; the run was not submitted.
@@ -887,7 +900,7 @@ components:
       additionalProperties: false
     sdc.daemon.CancelRun.Input:
       title: Cancel a run input
-      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run''s Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn.'
+      description: 'Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run''s Open decision requests move to Withdrawn (the outcome''s `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon''s own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.'
       x-ess-name: sdc.daemon.CancelRun
       x-ess-kind: command-input
       type: object
@@ -926,7 +939,7 @@ components:
       type: object
     sdc.daemon.CancelRun.cancelled.Response:
       additionalProperties: false
-      description: The run is Cancelled. Taken when no other outcome's condition matched. A `sdc.daemon.Run` has moved to `Cancelled`, along `cancel`. The instance is the one `run_id` names. Emits `RunCancelled`, listed under `published`. `RunCancelled` is not published and stays inside the component.
+      description: 'The run is Cancelled and every Open decision request of it is Withdrawn. The outcome publishes RunCancelled only: a request withdrawn this way publishes no DecisionRequestWithdrawn (that event belongs to WithdrawDecision). Taken when no other outcome''s condition matched. A `sdc.daemon.Run` has moved to `Cancelled`, along `cancel`. The instance is the one `run_id` names. Emits `RunCancelled`, listed under `published`. `RunCancelled` is not published and stays inside the component.'
       properties:
         outcome:
           const: cancelled
@@ -1125,12 +1138,15 @@ components:
           $ref: '#/components/schemas/sdc.daemon.DaemonId'
         confinement_floor:
           $ref: '#/components/schemas/sdc.daemon.ConfinementLevel'
+        principal:
+          $ref: '#/components/schemas/sdc.decision.Principal'
         started_at:
           type: string
           format: date-time
       required:
       - daemon_id
       - confinement_floor
+      - principal
       - started_at
       additionalProperties: false
     sdc.daemon.DaemonId:
@@ -1163,10 +1179,13 @@ components:
           $ref: '#/components/schemas/sdc.daemon.RunId'
         answered_by:
           $ref: '#/components/schemas/sdc.decision.Principal'
+        principal:
+          $ref: '#/components/schemas/sdc.decision.Principal'
       required:
       - request_id
       - run_id
       - answered_by
+      - principal
       additionalProperties: false
     sdc.daemon.DecisionNotOfRun.Error:
       title: DecisionNotOfRun payload
@@ -1200,7 +1219,7 @@ components:
       type: string
     sdc.daemon.DecisionWithdrawn.Error:
       title: DecisionWithdrawn payload
-      description: 'The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed.'
+      description: 'The decision request was withdrawn (its run was cancelled or ended as orphaned, which withdraws the run''s Open requests itself, or the runtime withdrew it): it takes no answer; nothing changed.'
       x-ess-name: sdc.daemon.DecisionWithdrawn
       x-ess-kind: error-payload
       type: object
@@ -1247,6 +1266,8 @@ components:
           type: string
         answered_by:
           $ref: '#/components/schemas/sdc.decision.Principal'
+        principal:
+          $ref: '#/components/schemas/sdc.decision.Principal'
         answered_at:
           type: string
           format: date-time
@@ -1266,7 +1287,7 @@ components:
       type: string
     sdc.daemon.EventKind:
       title: EventKind
-      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.'
+      description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime''s own kinds.'
       x-ess-name: sdc.daemon.EventKind
       x-ess-kind: newtype
       type: string
@@ -1413,7 +1434,7 @@ components:
       - value.count <= 200
     sdc.daemon.IntakeTooLarge.Error:
       title: IntakeTooLarge payload
-      description: 'The inline intake is larger than 1 MiB: the run was not submitted.'
+      description: 'The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound.'
       x-ess-name: sdc.daemon.IntakeTooLarge
       x-ess-kind: error-payload
       type: object
@@ -1505,6 +1526,15 @@ components:
           $ref: '#/components/schemas/sdc.daemon.DecisionRequestId'
         run_id:
           $ref: '#/components/schemas/sdc.daemon.RunId'
+        case_id:
+          description: 'The case the runtime opened the request for: which step asks.'
+          type: string
+        action:
+          description: The action of the case that asks.
+          type: string
+        capability:
+          description: The capability the answer is for.
+          type: string
         question:
           type: string
         options:
@@ -1517,6 +1547,9 @@ components:
       required:
       - request_id
       - run_id
+      - case_id
+      - action
+      - capability
       - question
       - options
       - opened_at
@@ -1707,7 +1740,7 @@ components:
       additionalProperties: false
     sdc.daemon.RunOutcome:
       title: RunOutcome
-      description: 'Open text: the outcome name of the runbook''s protocol for the root case. The run''s state is the closed set; the outcome is not.'
+      description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`). The run''s state is the closed set; the outcome is not.'
       x-ess-name: sdc.daemon.RunOutcome
       x-ess-kind: newtype
       type: string
@@ -2072,10 +2105,15 @@ components:
       properties:
         idempotency_key:
           $ref: '#/components/schemas/sdc.daemon.IdempotencyKey'
+        run_id:
+          $ref: '#/components/schemas/sdc.daemon.RunId'
+          description: 'The first run: the one that carries this idempotency key. The answer names it.'
+      required:
+      - run_id
       additionalProperties: false
     sdc.daemon.SubmitRun.Input:
       title: Submit a run input
-      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
+      description: 'Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The accepted outcome (submitted) also makes the daemon write the run''s first event: kind `runbook.submitted`, sequence 1, record {run_id, runbook_id, confinement}, and the next position of the daemon; the run''s next sequence starts at 2, so the first event the runtime records for the run is sequence 2 (RecordRunEvent). A replayed submit (already-submitted) writes no event and creates no run; a refused submit (every error outcome) creates no run and writes none. The language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity), so this is stated here and in the summaries of the daemon''s other own events, and read through the event views only: the interpreted target keeps no row for it and accepts sequence 1, the daemon refuses it as not ascending. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names.'
       x-ess-name: sdc.daemon.SubmitRun
       x-ess-kind: command-input
       type: object
@@ -2120,7 +2158,7 @@ components:
       additionalProperties: false
     sdc.daemon.SubmitRun.already-submitted.Response:
       additionalProperties: false
-      description: 'A run was submitted with this idempotency key: nothing is created and the answer is that first run. Taken when, of the `sdc.daemon.Run` rows whose stored fields satisfy `idempotency_key == input.idempotency_key` before the outcome, at least one row is selected and `defined(idempotency_key)` holds of the input. Emits `SubmitReplayed`, listed under `published`. `SubmitReplayed` is not published and stays inside the component.'
+      description: 'A run was submitted with this idempotency key: nothing is created, no run event is written, and the answer is that first run: the event it publishes carries its id (run_id), in the body of the answer. Taken when, of the `sdc.daemon.Run` rows whose stored fields satisfy `idempotency_key == input.idempotency_key` before the outcome, at least one row is selected and `defined(idempotency_key)` holds of the input. Emits `SubmitReplayed`, listed under `published`. `SubmitReplayed` is not published and stays inside the component.'
       properties:
         outcome:
           const: already-submitted
@@ -2199,7 +2237,7 @@ components:
       properties:
         error:
           const: sdc.daemon.IntakeTooLarge
-          description: 'The inline intake is larger than 1 MiB: the run was not submitted.'
+          description: 'The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound.'
           type: string
         outcome:
           const: intake-too-large
@@ -2310,7 +2348,7 @@ components:
       type: object
     sdc.daemon.SubmitRun.submitted.Response:
       additionalProperties: false
-      description: The run is Submitted. Taken when no other outcome's condition matched. A `sdc.daemon.Run` now exists, in `Submitted`. Its identity is published as `run_id` on `sdc.daemon.RunSubmitted`. Emits `RunSubmitted`, listed under `published`. `RunSubmitted` is not published and stays inside the component.
+      description: 'The run is Submitted and holds its first event, `runbook.submitted`, sequence 1 (position: the next of the daemon). Taken when no other outcome''s condition matched. A `sdc.daemon.Run` now exists, in `Submitted`. Its identity is published as `run_id` on `sdc.daemon.RunSubmitted`. Emits `RunSubmitted`, listed under `published`. `RunSubmitted` is not published and stays inside the component.'
       properties:
         outcome:
           const: submitted
@@ -2465,6 +2503,9 @@ x-ess-entities:
       confinement_floor:
         $ref: '#/x-ess-entities/sdc.daemon.ConfinementLevel'
         description: The lowest level the daemon takes (runbook serve --min-confinement). A run below it is refused.
+      principal:
+        $ref: '#/x-ess-entities/sdc.decision.Principal'
+        description: 'Who the daemon acts as: person:<id> or agent:<id> (runbook serve --principal, required, no default). Fixed for the life of the process: no command, header, MCP input or HTTP input changes it. The daemon passes it, and nothing a client typed, to the runtime as the principal of an answer.'
       started_at:
         type: string
         format: date-time
@@ -2473,6 +2514,7 @@ x-ess-entities:
     required:
     - daemon_id
     - confinement_floor
+    - principal
     - started_at
     - state
     additionalProperties: false
@@ -2491,7 +2533,7 @@ x-ess-entities:
     type: string
   sdc.daemon.DecisionRequest:
     title: DecisionRequest
-    description: 'A question a waiting run raised, as a mirror of the runtime''s decision request: the daemon copies id, case, action, capability, question and options from the runtime''s record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook''s decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request whose run was cancelled is Withdrawn: it stays on record, shows no more as open, and takes no answer.'
+    description: 'A question a waiting run raised, as a mirror of the runtime''s decision request: the daemon copies id, case, action, capability, question and options from the runtime''s record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook''s decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request is Withdrawn when its run is cancelled or ended as orphaned (CancelRun and EndOrphanedRun move every Open request of the run in their own step) or when the runtime withdraws it (WithdrawDecision): it stays on record, shows no more as open, and takes no answer.'
     x-ess-name: sdc.daemon.DecisionRequest
     x-ess-kind: entity
     type: object
@@ -2529,6 +2571,10 @@ x-ess-entities:
         type: string
       answered_by:
         $ref: '#/x-ess-entities/sdc.decision.Principal'
+        description: 'The label the client gave (at most 200 characters): stored and shown, never passed to the runtime and never the principal.'
+      principal:
+        $ref: '#/x-ess-entities/sdc.decision.Principal'
+        description: The daemon's principal at the answer, the one the runtime was given; present once Answered. Absent in a record written before the daemon had one.
       answered_at:
         type: string
         format: date-time
@@ -2568,7 +2614,7 @@ x-ess-entities:
     type: string
   sdc.daemon.EventKind:
     title: EventKind
-    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.'
+    description: 'Open text: the kind of the runtime''s run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime''s own kinds.'
     x-ess-name: sdc.daemon.EventKind
     x-ess-kind: newtype
     type: string
@@ -2630,7 +2676,7 @@ x-ess-entities:
         format: date-time
       outcome:
         $ref: '#/x-ess-entities/sdc.daemon.RunOutcome'
-        description: Set when the run Ended; absent in every other state.
+        description: 'Set when the run Ended; absent in every other state. Besides the outcome names of the runbook''s protocol it holds the daemon''s own causes: `orphaned` (the daemon stopped while the run was live and the runtime could not take it up again) and `runtime-failure` (the runtime failed after the run started).'
       failure:
         description: Why the run failed to start; absent in every other state.
         type: string
@@ -2732,7 +2778,7 @@ x-ess-entities:
     type: string
   sdc.daemon.RunOutcome:
     title: RunOutcome
-    description: 'Open text: the outcome name of the runbook''s protocol for the root case. The run''s state is the closed set; the outcome is not.'
+    description: 'Open text: the outcome name of the runbook''s protocol for the root case, or one of the daemon''s own causes (`orphaned`, `runtime-failure`). The run''s state is the closed set; the outcome is not.'
     x-ess-name: sdc.daemon.RunOutcome
     x-ess-kind: newtype
     type: string

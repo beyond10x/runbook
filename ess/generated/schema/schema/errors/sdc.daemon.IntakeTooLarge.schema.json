@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/errors/sdc.daemon.IntakeTooLarge.schema.json",
   "title": "IntakeTooLarge payload",
-  "description": "The inline intake is larger than 1 MiB: the run was not submitted.",
+  "description": "The inline intake is larger than 1 MiB: the run was not submitted. The handler holds the limit as 1,048,576 bytes of UTF-8; the specification counts characters, the weaker bound.",
   "x-ess-name": "sdc.daemon.IntakeTooLarge",
   "x-ess-kind": "error-payload",
   "type": "object",
@@ -18,7 +18,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:5d02054f780906f1f7dd55d05e89fa96667aee8af0434b5105beab8f5fe2df48",
+    "contract_digest": "slice-sha256/2:aec58ad8730cf1c8bc61ef0602d4845fdcc33869a0f26fa6e1c715fcefde45fe",
     "regenerate": "ess generate"
   },
   "$defs": {

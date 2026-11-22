@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.CancelRun.schema.json",
   "title": "Cancel a run input",
-  "description": "Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run's Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn.",
+  "description": "Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. In the same step the run's Open decision requests move to Withdrawn (the outcome's `affects` entry): no WithdrawDecision follows, and an answer to such a request is refused as DecisionWithdrawn. The daemon also writes the run event `runbook.cancel-requested` (an event of the daemon's own, see SubmitRun) just before the run is Cancelled; the language cannot write a RunEvent from this command (an outcome creates or moves rows of one entity and its `affects` entries move rows, they do not create them), so the event is stated here and read through the event views only.",
   "x-ess-name": "sdc.daemon.CancelRun",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -23,7 +23,7 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:c9102cf57f513695b85b692d8a1d2865fd9ed2e47cd495baa902ee39ff8fad7d",
+    "contract_digest": "slice-sha256/2:d50ca2ab551c4724fa39be6b19ee26ae1a3133a72b516b9e1aaa9ea1249fbdf7",
     "regenerate": "ess generate"
   },
   "$defs": {

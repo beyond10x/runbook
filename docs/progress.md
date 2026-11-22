@@ -23,6 +23,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.2.1](#021) | release | 2026-11-21 | `99f5617` | no experiment yet | no run | - | - |
 | [0.3.0](#030) | release | 2026-11-22 | `ae7a697` | no experiment yet | no run | - | - |
 | [0.3.1](#031) | release | 2026-11-22 | `ebea58d` | no experiment yet | no run | - | - |
+| [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -410,6 +411,25 @@ Limits of this measurement:
 - No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.
 - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
 
+## 0.4.0
+
+Release, 2026-11-22. Tree: `5955f82` (tag 0.4.0 at main 5955f82: 0.3.1 (ebea58d) with the merges of the daemon on its stub runtime (e7dfa4b), of the runner on Loom (b49b511) and the preparation).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `e7dfa4b` | the Runbook daemon (runbook serve) on its stub runtime, its API specified in ESS, MCP tools and the embedded page; the engine on Loom inside the daemon is not in it | no run metric affected |
+| `b49b511` | runbook loom-run runs one case on a pinned b10x-loom binary, with the decider's answers from a file, and sdc-experiment knows runner loom | no run metric affected |
+| `dbd81a2` | the record parity-loom-strong-2 ended, all three runs stopped at scope.answer before the answers file existed | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-4-0), not on the standing rule of docs/releasing.md.
+- The full set of finding cycles was not run on this tree, and the engine that runs a case on Loom inside the daemon is not in it.
+
 ## Experiments in no entry
 
 Records of other inputs, of settings across trees, and planned ones. Inconclusive and contradicted verdicts are listed like held ones.
@@ -427,6 +447,9 @@ Records of other inputs, of settings across trees, and planned ones. Inconclusiv
 | [`implement-cites-requirements`](../experiments/implement-cites-requirements/report.md) | prospective | 3f3a577 | Whether the coverage check of story:implement-cites-requirements lowers the review rejections per run against release 0.1.2 in the strong and mixed settings. | - | strong 0 ended of 0; mixed 0 ended of 0 | - | planned, no run yet |
 | [`implement-one-request`](../experiments/implement-one-request/report.md) | prospective | ea5f0e0 | Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the mixed setting; the strong setting is the sibling record implement-one-request-strong on the same tree. | With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the mixed setting. | session 0 ended of 0; request 0 ended of 0 | `node.story/change.implement.cost_usd`: session -; request - | planned, no run yet |
 | [`implement-one-request-strong`](../experiments/implement-one-request-strong/report.md) | prospective | ea5f0e0 | Whether change.implement as one request with its whole input assembled by a program (SDC_IMPLEMENT_MODE=request, story:implement-one-request) costs less per run than the session with file tools, without losing delivery, clean passes or first builds, in the strong setting; the mixed setting is the sibling record implement-one-request on the same tree. | With SDC_IMPLEMENT_MODE request instead of session, the cost of story/change.implement per run falls by at least 0.25 USD in the strong setting. | session 0 ended of 0; request 0 ended of 0 | `node.story/change.implement.cost_usd`: session -; request - | planned, no run yet |
+| [`parity-loom-strong`](../experiments/parity-loom-strong/report.md) | prospective | 0c28adc | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. | - | strong 0 ended of 3 | - | descriptive |
+| [`parity-loom-strong-2`](../experiments/parity-loom-strong-2/report.md) | prospective | ee6b50b | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited. | - | strong 0 of 3 | - | descriptive |
+| [`parity-loom-strong-3`](../experiments/parity-loom-strong-3/report.md) | prospective | e7dfa4b | Registered hypothesis, written before the runs: with the decider's answers declared in bindings/tools/answers.yaml (scope.answer, amend.upstream), the runs through Loom get past scope.answer, where all three runs of parity-loom-strong-2 stopped (decider_cannot_decide in IDEA-1.intake), and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). What counts against it: a run that stops at a decision the answers file declares, or an end outside the tolerance. It is the evaluation run of that story. This record follows parity-loom-strong-2, which stays as the evidence of its three stops and is not edited. | - | strong 0 of 3 | - | descriptive |
 | [`release-0.3.0`](../experiments/release-0.3.0/report.md) | prospective | ae7a697 | Baseline of release 0.3.0, and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 of 3; mixed 0 of 3; haiku 0 of 2 | - | descriptive |
 | [`release-0.3.1`](../experiments/release-0.3.1/report.md) | prospective | ebea58d | Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 ended of 0; mixed 0 ended of 0; haiku 0 ended of 0 | - | planned, no run yet |
 | [`review-haiku-replay`](../experiments/review-haiku-replay/report.md) | prospective | 72a3eef | Whether the review class can move from Sonnet to Haiku (0.75 to about 0.04 USD per strong run) without changing a review decision, tested on recorded inputs before any full run. | - | haiku-review 0 ended of 3 | - | planned, no run yet |
