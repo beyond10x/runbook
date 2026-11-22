@@ -188,7 +188,7 @@ pub fn decision_from_json(v: &Value) -> Result<NextDecision, String> {
 }
 
 /// The library call an answer is, chosen by the decision's kind and structured members.
-pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDecision, parsed: &Parsed, principal: &str) -> Result<(), String> {
+pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDecision, parsed: &Parsed, principal: &str, runner: &Arc<dyn TestRunner>) -> Result<(), String> {
     match d.kind {
         DecisionKind::Approve | DecisionKind::ApproveAction => {
             let action = if d.kind == DecisionKind::ApproveAction { d.action.as_deref() } else { None };
@@ -208,6 +208,7 @@ pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDe
                 reasons,
                 time: TreeTime::Host,
                 catalog,
+                runner: Some(Arc::clone(runner)),
             })
             .map(|_| ())
             .map_err(|e| e.to_string())

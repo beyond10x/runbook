@@ -110,7 +110,7 @@ proposed order of Loom's open stories, 2026-11-21).
 | Loom work | Wave | What it brings |
 |---|---|---|
 | G1 bound program contract | 2 | argv relative to the bindings file's directory (D13), program-error exits 75, 126, 127 per binding (D36), not-called runs (D37) |
-| G2 person actions | 3 | a program on a person binding with the principal as argument (D11, D15), `rejected` with reasons (D12), a subject with no evidence (D38) |
+| G2 person actions | 3 | done at Loom `70b0e6e0`: a program on a person binding with the principal as argument (D11, D15; `scope.answer` in `bindings/sdc-intake.yaml`), `rejected` with reasons (D12); a subject with no evidence (D38) needs no member: the binding names none |
 | `story:bound-agent-node` | 4 | `agent` executors for the 14 agent nodes: adapter, model, `max_turns`, `max_budget_micro_usd`, `tools.allow` (D18-D20, D22) |
 | N8 | 4 | `{work}` in `handoff` (D14) |
 | N3 fixture adapter | 5 | the stub of each agent node (D21) |
@@ -191,7 +191,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `report-$SDC_ACTION` | `SDC_ACTION` (report file name) | `--action` | done |
 | `impl-gate)`, `story=$(cut` | `SDC_CASE` (`impl-gate`: the story id) | `LOOM_CASE`; the story is `LOOM_CASE_NAME` when Loom sets it (`LOOM_PARENT_CASE_NAME` set: its own name; only `LOOM_CASE_NAME`: an epic case, no story) | done |
 | `list-stories)`, `epic=$(cut` | `SDC_CASE` (`list-stories`: the epic) | `LOOM_PARENT_CASE_NAME`, else `LOOM_CASE_NAME` (an epic case), else the cut of `LOOM_CASE`; given to `arguments_from` too | done |
-| `scope-answer)` | `$2`, the `{principal}` argument (`scope-answer`) | argv from G2 | pending: G2 (wave 3) |
+| `scope-answer)` | `$2`, the `{principal}` argument (`scope-answer`) | `argv: [tools/sdc-tool.sh, scope-answer, "{principal}", --action, scope.answer]` of the person step `scope.answer` | done |
 
 `bindings/tools/llm-node.sh` (the old driver runs the script; every `bindings/*.yaml` argv runs the program `sdc-node`, which reads the same variables under Loom, from the argv entries alone)
 

@@ -159,8 +159,10 @@ hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
-130 entries: 36 converted, 18 pending (5 wait for a story the pinned Loom has not shipped and are
-not run; 13 run and still fail), 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
+130 entries: 37 converted, 17 pending, 76 not converted (1 full-cycle, 18 re-drive and other, 57 trial).
+`scope-answer` moved from pending to converted at Loom `70b0e6e0` (`scope-changed` and `intake-decision` run further and stay pending); the split of
+the remaining pending entries into those that wait for a story and those that run and still fail was not
+measured again.
 
 The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run of all
 50 cycles took 764 s of cycle time (about 12.7 min wall) and ended `20 of 20 as expected, 30
@@ -200,7 +202,6 @@ is held by the tests named):
 
 | entry | why |
 |---|---|
-| scope-answer, scope-changed, intake-decision, autopilot, scope-unattributed-reject, trace-reraised, decider-finding-refused | `scope.answer` and the findings tools as a program on a person's action: `bindings/PENDING.md` D11, D15, D38 ("a person's action runs a program", "syntax not fixed"); the runner's half (the answers file, one decider call per request, the principal) is held by `runbook/tests/loom_run/answers.rs`. No refusal text was seen: the installed `b10x-loom` is 0.4.0 without a `tree` command and the pinned engine is linked as a library |
 | decider-rework, decider-rework-spent, rework-fresh-allowance, decider-rework-context, decider-rework-model, review-no-rework-prompt | the engine sending a writer back from a recorded `rejected` result with its reasons (`story:tree-stop-record-and-labels`, `approve.result`); the runner's half (the result and the reasons file of a rejection) is held by `runbook/tests/loom_run/decisions.rs` `a_rejection_is_a_named_result_with_the_reasons_in_a_file_of_the_run_directory` and by `runbook/tests/loom_run/decider.rs` `a_rejection_by_the_model_decider_is_a_named_result_with_the_deciders_reasons`; the figures of such a run are held by `driver/tests/run_metrics.rs` |
 
 ### Full-cycle entries (29)
@@ -224,9 +225,9 @@ is held by the tests named):
 | story-late-person | pending | same (gap) |
 | trace-gap-drop | pending | same (gap) |
 | trace-constraint-decided | pending | same (gap) |
-| scope-answer | pending | stops at `scope.answer` of `root.intake`: a program on a person action's approval is in Loom's drafting, no story id yet |
-| scope-changed | pending | same: `scope.answer` as a program on a person action's approval |
-| intake-decision | pending | same: `scope.answer` as a program on a person action's approval |
+| scope-answer | converted | `scope.answer` is a person step with a program (`argv: [tools/sdc-tool.sh, scope-answer, "{principal}", --action, scope.answer]`, Loom `70b0e6e0`): the approval of `decide:` as `person:owner` runs it; 49.5 s |
+| scope-changed | pending | now runs to the end of the cycle but stays `accepted` at q2 with its default: the changed answer in the old cycle is a text of the decider or a person's edit of `questions.yaml`, which the suite cannot give (no step writes a workspace file, gap, no Loom story yet); the cycle takes 46.6 s to 60.6 s on a loaded host (once it ended at Loom's 60 s wall bound, exit 5) |
+| intake-decision | pending | `scope.answer` runs; the run then stops `Stuck` (exit 4) at `amend.upstream`: the intake finding waits for a person's decision written into `findings.yaml` between two runs (gap, no Loom story yet) |
 | review-reject-once | converted | the scripted reviews are seeds (`.stub/`); the inputs of `change.review` are read from record files of the workspace (`.sdc/records/`, `docs/loom-bindings.md`); the producer `llm-review` is read from the case file of the store (`doc` in `store`), since a `records` item carries no producer |
 | review-minimal-input | converted | with `review_mode: facts` |
 | review-invalid | converted | the refusal of the cited line 9999 is read from the call's `review-check.err` |
@@ -339,8 +340,8 @@ of the four bugfix cycles that were in the first count and are in the file now:
 | reopen-refused-decision | not converted | class: Runbook's autopilot loop after a stop (`--keep-going`, the unstick step, `--reopen` of a refused decision): it re-runs the tree after a stop, which a cycle's `steps` cannot decide from a model's reply |
 | decider-release-a3 | held by a Rust test | `runbook/tests/loom_run/decisions.rs` `at_a3_the_decider_does_not_answer_and_the_run_stops_for_a_person_without_calling_the_model` (the table gives the release to a person up to A4); `a_context_the_decider_rejects_at_a3_ends_without_a_rework_path_and_records_nothing` holds the decider's rejection at A3 on a class the table gives it (exit 10). The second run of `sdc-drive decide` in the entry is the engine's |
 | decider-release-withheld | not converted | class: Runbook's decider answers the stops (`RULE_APPROVALS`, `DECIDER_REPLIES`, `--autopilot`); the suite's `decide:` is a fixed list, with no model or rule decider whose prompt, retries, citations or limits a cycle can check |
-| requester-decider | not converted | the port is built: `--goals` and `decider.requester` (`docs/loom-run-decisions.md`); held as fake-Loom tests `requester_decider_*` in `runbook/tests/loom_run/goals.rs`. The real engine refuses a program on a person action's approval, which the questions of `scope.answer` need (see `scope-answer`) |
-| requester-no-ground | not converted | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs`; waits for a program on a person action's approval under the real engine |
+| requester-decider | not converted | the port is built: `--goals` and `decider.requester` (`docs/loom-run-decisions.md`); held as fake-Loom tests `requester_decider_*` in `runbook/tests/loom_run/goals.rs`, which test the runner's requester decider alone. The real engine now takes the program of a person action's approval (Loom `70b0e6e0`): `runbook/tests/loom_run/inproc.rs` `a_declared_step_with_a_program_gets_the_decider_as_principal_from_the_engine_and_no_then_runs` runs a declared step with a program and a decider principal through it. What stops the entry is that the suite's `decide:` is a fixed list with no requester decider, as for the other entries of that class |
+| requester-no-ground | not converted | as `requester-decider`: held as `requester_no_ground_*` in `runbook/tests/loom_run/goals.rs` (the runner alone); the engine's half is the same in-process test |
 | models | not converted | held as the Rust test `loom_run::dry::models_each_call_names_the_binding_s_model_or_the_one_for_all_or_the_one_of_its_class` (`runbook/tests/loom_run/dry.rs`, `runbook run --dry`): a `--dry` listing of the models per class is not a run of a tree, so the entry has no cycle in the file |
 | decider-question-reject | held by a Rust test | `runbook/src/loom_run/decider/tests.rs` `a_reject_of_a_question_is_refused_with_its_reason_asked_again_and_answered` |
 | rework-fresh-allowance | pending | two scripted rejections of `merge.approve`: waits for story:tree-stop-record-and-labels (`approve.result`) |

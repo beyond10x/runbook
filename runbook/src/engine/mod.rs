@@ -219,7 +219,7 @@ impl Engine {
                 TreeStop::Cancelled => return Ok(Finish::Cancelled),
                 TreeStop::Stuck => return Err(failure(format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case))),
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
-                    if !self.round(&ran.decisions, request, &store, &catalog, sink, cancel, slot, &mut tail)? {
+                    if !self.round(&ran.decisions, request, &store, &catalog, &settings.runner, sink, cancel, slot, &mut tail)? {
                         return Ok(Finish::Cancelled);
                     }
                 }
@@ -236,6 +236,7 @@ impl Engine {
         _request: &StartRequest,
         store: &Path,
         catalog: &loom_protocols::ProtocolCatalog,
+        runner: &Arc<dyn b10x_loom_tree::TestRunner>,
         sink: &dyn EventSink,
         cancel: &AtomicBool,
         slot: &Slot,
@@ -272,7 +273,7 @@ impl Engine {
             let result = if d.kind == DecisionKind::Close && closed.contains(&d.case) {
                 Ok(())
             } else {
-                parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal))
+                parse_answer(&answered.answer).and_then(|parsed| calls::apply(store, catalog, d, &parsed, &answered.principal, runner))
             };
             tail.sync_all().map_err(failure)?;
             if let Some(f) = tail.failure.take() {
