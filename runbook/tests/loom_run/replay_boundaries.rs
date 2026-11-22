@@ -409,3 +409,48 @@ fn an_adapter_with_a_relative_plan_path_reads_it_from_its_own_directory_only() {
     assert!(!said.contains("is not set"), "{said}");
     assert!(said.contains("recording_diverged") || o.status.code() == Some(75), "a relative SDC_REPLAY is read against the adapter's directory: {said}");
 }
+
+fn preamble_log(label: &str, second: &str) -> String {
+    format!("Requires an empty namespace.\nRequires an empty namespace.\nshop v2 against interpreted {label} \u{2014} passed\n  | test a ... ok\nshop v2 against upstream-api {second} \u{2014} passed\n")
+}
+
+#[test]
+fn the_committed_label_replays_under_another_pin_with_a_preamble_and_a_second_label_shaped_line() {
+    let (mode, said) = replayed("pin", &[("tests.txt", &preamble_log("0.97.3", "1.0.0"))], &[("tests.txt", &preamble_log("0.98.0", "1.0.0"))]);
+    assert_eq!(mode, "recorded", "{said}");
+}
+
+#[test]
+fn a_second_label_shaped_line_in_the_log_is_still_an_input() {
+    let (mode, said) = replayed("second", &[("tests.txt", &preamble_log("0.97.3", "1.0.0"))], &[("tests.txt", &preamble_log("0.98.0", "9.9.9"))]);
+    assert_eq!(mode, "diverged", "{said}");
+}
+
+#[test]
+fn a_tests_txt_in_a_subdirectory_is_not_the_log() {
+    let (mode, said) = replayed("subdir", &[("sub/tests.txt", &preamble_log("0.97.3", "1.0.0"))], &[("sub/tests.txt", &preamble_log("0.98.0", "1.0.0"))]);
+    assert_eq!(mode, "diverged", "{said}");
+}
+
+#[test]
+fn the_message_says_the_label_is_the_only_difference_when_the_unmasked_digest_is_the_recorded_one() {
+    let (mode, said) = replayed("proven", &[("tests.txt", &preamble_log("0.97.4", "1.0.0"))], &[("tests.txt", &preamble_log("0.97.4", "1.0.0"))]);
+    assert_eq!(mode, "diverged", "{said}");
+    assert!(said.contains("only the ESS version label") && said.contains("pack the recording again"), "{said}");
+}
+
+#[test]
+fn the_message_names_the_label_as_a_possible_cause_when_it_cannot_prove_it() {
+    let (mode, said) = replayed("possible", &[("tests.txt", &preamble_log("0.97.1", "1.0.0"))], &[("tests.txt", &preamble_log("0.97.4", "1.0.0"))]);
+    assert_eq!(mode, "diverged", "{said}");
+    assert!(said.contains("if that is the only difference") && !said.contains("only the ESS version label"), "{said}");
+}
+
+/// A changed test name at the committed label has nothing to do with the label: the message must
+/// not tell the reader to pack the recording again as if it were the cause.
+#[test]
+fn a_changed_test_at_the_committed_label_is_not_told_to_be_packed_again() {
+    let (mode, said) = replayed("test-changed", &[("tests.txt", &preamble_log("0.97.3", "1.0.0"))], &[("tests.txt", &preamble_log("0.97.3", "1.0.0").replace("test a", "test b"))]);
+    assert_eq!(mode, "diverged", "{said}");
+    assert!(!said.contains("pack the recording again"), "{said}");
+}
