@@ -4,6 +4,10 @@
   "protocols": [
     "^sdc(\\.|$)"
   ],
+  "good_outcomes": [
+    "operating",
+    "delivered"
+  ],
   "phases": {
     "stages": [
       "Intake",

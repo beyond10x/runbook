@@ -135,7 +135,7 @@ export function renderGraph(host, c, ev, opts) {
     if (n.kind === 'claim') sub = (st || 'unknown').toUpperCase();
     else if (n.kind === 'action') { const req = c.ir.actions[n.name].requires || []; sub = `${st || '—'}${req.length ? ` · ${req.map((r) => r.capability).join(',')}` : ''}`; }
     else if (n.kind === 'evidence') { count = Object.values(c.evidence || {}).filter((r) => r.kind === n.name && (opts.atSeq == null || (seqOfEvidence(r.id) ?? 0) <= opts.atSeq)).length; sub = `${count} record${count === 1 ? '' : 's'}`; }
-    else if (n.kind === 'artifact') { const r = (opts.revisions || {})[n.name]?.revision; sub = r && r !== 'none' ? r : 'not written'; }
+    else if (n.kind === 'artifact') { const r = (opts.revisions || {})[n.name]?.revision; sub = r && r !== 'none' ? r : c.parts?.loom ? (c.bindings?.$artifacts?.[n.name] || 'not available for this run') : 'not written'; }
     else if (n.kind === 'decision') sub = 'explicit decision';
     else sub = st || '';
     const frontier = n.kind === 'action' && (st === 'admissible' || st === 'approval-required');
