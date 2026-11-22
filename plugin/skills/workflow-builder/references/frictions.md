@@ -71,7 +71,7 @@ checked, not from the product:
 
 ## F6. Rules lived in the driver and scripts, where no static check saw them
 
-- The rework limit was a literal `2` in `run-trial.sh`, the refusal ends a bash array, the cap
+- The rework limit was a literal `2` in the trial script, the refusal ends a bash array, the cap
   counted per arrival and shared across retry kinds (`docs/reject-routes.md` on
   `audit/reject-routes`, "The check (D148)": `rule-ends.json` "holds the autopilot rules that lived
   only in code").
@@ -111,8 +111,8 @@ checked, not from the product:
 ## F10. One merge queue, many branches, the same files
 
 - Files changed most by the day's fix commits (63 non-merge commits from 04:00Z on `main`,
-  `fix/attempt5-close`, `fix/superseded-answers`): `scripts/run-finding-cycles.sh` 20,
-  `docs/driver.md` 14, `driver/examples/sdc/tools/llm-node.sh` 12, `scripts/run-trial.sh` 10,
+  `fix/attempt5-close`, `fix/superseded-answers`): the cycles script 20,
+  `docs/driver.md` 14, the model-node script 12, the trial script 10,
   `sdc-tool.sh` 9 (`git log --name-only`).
 - Recorded collisions: the `scope-two` fixture, `amend_one` in `sdc-findings.rs`, the
   `intake-decision` cycle, a clippy lint, and D138 (transcript summary 4, "Errors and fixes";

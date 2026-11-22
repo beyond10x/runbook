@@ -105,8 +105,8 @@ Entry: Phase 3 done. Exit: one red-then-green cycle per route and per fixed defe
    exits non-zero on any miss. [observed: cycles 16 to 53, each fix proven red then green]
 2. Stub cycles prove routes and machinery only. A fixture adapter that ignores the prompt cannot
    find prompt or input defects. Do not count cycles as evidence that a real run will pass. [inferred: F4]
-3. Once one real run exists, re-drive it through the real driver with its recorded model replies
-   (provisional: adapter `recorded`, `run-trial.sh --recorded <run>`). Change one condition (a cap,
+3. Once one real run exists, re-drive it with its recorded model replies
+   (`runbook run --recorded <run directory>`, `docs/loom-run.md`, "A recorded run"). Change one condition (a cap,
    a timeout, a retry count, an injected reject or fault at a named step) and read the same metrics.
    It answers how the machinery behaves given these replies, not what a model would answer under
    the new condition. A call with no recorded reply is a divergence: report it, never fill it
