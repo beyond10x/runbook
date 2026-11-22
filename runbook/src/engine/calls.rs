@@ -53,7 +53,7 @@ pub fn confinement_flag(level: Confinement) -> &'static str {
 
 /// How a run goes: at most `max_steps` steps, no wall bound (the callers bound the wall themselves).
 pub fn run_settings(runner: Arc<dyn TestRunner>, level: Confinement, max_steps: Option<i64>) -> RunSettings {
-    RunSettings { max_steps, max_wall_seconds: None, time: TreeTime::Host, runner, confinement: Some(confinement_flag(level).to_owned()) }
+    RunSettings { max_steps, max_wall_seconds: None, time: TreeTime::Host, runner, confinement: Some(confinement_flag(level).to_owned()), cgroup_root: None }
 }
 
 /// Which protocol of the directory is the root.
@@ -141,7 +141,7 @@ pub fn stop_status(stop: TreeStop) -> i32 {
         TreeStop::Terminal => 0,
         TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => 3,
         TreeStop::Stuck => 4,
-        TreeStop::BudgetSpent => 5,
+        TreeStop::BudgetSpent | TreeStop::Cancelled => 5,
     }
 }
 

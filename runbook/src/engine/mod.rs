@@ -216,6 +216,7 @@ impl Engine {
                         Err(failure(format!("the run spent a budget at case {}: {}", ran.case, ran.detail.unwrap_or_default())))
                     };
                 }
+                TreeStop::Cancelled => return Ok(Finish::Cancelled),
                 TreeStop::Stuck => return Err(failure(format!("the tree is stuck at case {}: no action is useful and nothing waits on a person", ran.case))),
                 TreeStop::AwaitingPerson | TreeStop::AwaitingAuthority => {
                     if !self.round(&ran.decisions, request, &store, &catalog, sink, cancel, slot, &mut tail)? {
