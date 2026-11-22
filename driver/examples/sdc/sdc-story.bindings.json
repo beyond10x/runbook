@@ -48,6 +48,9 @@
       ]
     },
     "retry_when": {
+      "implementation_change": [
+        "coverage_refused"
+      ],
       "conformance_run": [
         "failed"
       ],

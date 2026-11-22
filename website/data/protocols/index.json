@@ -940,7 +940,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
-      "sha256": "60dd767eb889d14db04388023e7af0d377251addf3f39ae1aea6f7a50c5420b3"
+      "sha256": "473e1f311bab1c25ebecb942ae26c7abf4eaeea9d6dea459afcaf3ec093071d5"
     },
     {
       "path": "driver/examples/sdc/sdc-epic.bindings.json",
@@ -948,7 +948,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-intake.bindings.json",
-      "sha256": "c16f26b88399e1ebe490c7a74326db08b74be8b7e949f05f05b411b47f063210"
+      "sha256": "e415974a6dcb60d1aa866332acb49cb5fdbbf6b2383f280897baaa3c2dfda1ff"
     },
     {
       "path": "driver/examples/sdc/sdc-plan.bindings.json",
@@ -964,7 +964,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-story.bindings.json",
-      "sha256": "8255941782ee75466b4c4fa694e405891d38a7a116cf276a9aeaff04db9b2ab9"
+      "sha256": "c3bec4f256701d6e223bf5c3ae813deda7200372b8a0e38913fb73389792d589"
     },
     {
       "path": "driver/examples/sdc/sdc.bindings.json",

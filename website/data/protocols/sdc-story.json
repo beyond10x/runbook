@@ -70,6 +70,7 @@
         "retry_when": [
           "code_review",
           "conformance_run",
+          "implementation_change",
           "merge_approval"
         ],
         "timeout_s": 1500

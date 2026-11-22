@@ -9,7 +9,8 @@
 # protocol file (<id with . and _ as ->@<revision>), every `copy` `from:` is the registration of a
 # protocol file, and a file that binds a program has `program_root: bindings`. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
-# (sdc-check-routes) against docs/reject-routes.md. Then the experiment
+# (sdc-check-routes) against docs/reject-routes.md (exit 1: findings, the script goes on; exit 2: a
+# file it reads is refused, the script prints REFUSED and stops with exit 3). Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
 # experiments/INDEX.md fails the script), and the documentation site data (`sdc-protocol-site check`).
 set -euo pipefail
@@ -74,6 +75,13 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
       .[] | .action as $a | select(.executor.argv != null and $j[0][$a].argv != null)
       | (.executor.argv[:2]) as $y | ($j[0][$a].argv[:2] | map(norm)) as $d
       | if $y != $d then "\nbindings/'"$name"'.yaml \($a): argv starts \($y | tojson), driver/examples/sdc/'"$name"'.bindings.json starts \($d | tojson)" else empty end' <<< "$acts")
+    # The retry records of an action are named twice too: `retry_when` (kind to results) in the
+    # YAML and in the JSON file are equal for every action both bind. The route check reads the
+    # JSON file, the run reads the YAML: a difference makes the check judge a run that does not happen.
+    findings+=$(jq -r --slurpfile j "$b" '
+      .[] | .action as $a | select($j[0][$a] != null)
+      | (.retry_when // null) as $y | ($j[0][$a].retry_when // null) as $d
+      | if $y != $d then "\nbindings/'"$name"'.yaml \($a): retry_when is \($y | tojson), driver/examples/sdc/'"$name"'.bindings.json has \($d | tojson)" else empty end' <<< "$acts")
     while IFS= read -r p; do
       [[ $p =~ ^instructions/.+\.md$&& ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
         findings+=$'\n'"$name: instruction file $p is not an existing instructions/<...>.md without .."
@@ -158,7 +166,14 @@ fi
 # The reject and cap routes (D148, docs/reject-routes.md): sdc-check-routes finds every state of
 # the autopilot where nothing points to a next step; its findings must equal the list in the doc.
 (cd "$sdc/driver" && cargo build --quiet --bin sdc-check-routes) || fail=1
-"$sdc/driver/target/debug/sdc-check-routes" --root "$sdc" --doc "$sdc/docs/reject-routes.md" || fail=1
+routes=0
+"$sdc/driver/target/debug/sdc-check-routes" --root "$sdc" --doc "$sdc/docs/reject-routes.md" || routes=$?
+if [[ $routes -eq 2 ]]; then
+  echo "REFUSED routes: sdc-check-routes refused a file it reads (reasons above); no route was checked"
+  exit 3
+elif [[ $routes -ne 0 ]]; then
+  fail=1
+fi
 # Experiment records (docs/workflow-metrics.md section 7): every record valid, each report, verdict
 # and experiments/INDEX.md current. Needs the driver built (cargo build --bins in driver/).
 exp_bin=${SDC_EXPERIMENT:-$sdc/driver/target/debug/sdc-experiment}

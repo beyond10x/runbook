@@ -236,6 +236,9 @@
         "max_runs": 3,
         "node_class": "other",
         "program": "sdc-node questions.answer",
+        "retry_when": [
+          "answer_applied"
+        ],
         "timeout_s": 900
       },
       "name": "questions.answer",

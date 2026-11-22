@@ -97,6 +97,11 @@
         "questions.yaml"
       ]
     },
+    "retry_when": {
+      "answer_applied": [
+        "refused"
+      ]
+    },
     "max_runs": 3,
     "timeout_s": 900
   },
