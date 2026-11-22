@@ -53,7 +53,18 @@ Notes for a caller:
 - The first answer to a decision request stands. The request's state is judged before its run's:
   a second answer is refused `DecisionAlreadyAnswered` whether its run still waits, has resumed or
   has ended; an answer to a request withdrawn by a cancel is `DecisionWithdrawn`; `RunNotWaiting`
-  is left for an Open request whose run does not wait.
+  is left for an Open request whose run does not wait (a state the daemon's own commands never
+  leave, so a client does not meet it).
+- `cancel-run` and the daemon's own end of an orphaned run withdraw every Open decision request of
+  the run in the same step: the requests are `Withdrawn` when the answer comes (view `decisions`,
+  state `Withdrawn`; the view `open-decisions` no longer lists them), and an answer to one is
+  refused `DecisionWithdrawn`. No `withdraw-decision` follows, and the cancel's answer publishes
+  `RunCancelled` only, no event per request. `withdraw-decision` stays for the runtime's own
+  withdrawal of an Open request of a run that goes on; after a cancel it answers `not-open`.
+- The first event of every run is written by the daemon at the submit: kind `runbook.submitted`,
+  `sequence` 1, `position` the next of the daemon. The next sequence of the run starts at 2, so the
+  first event the runtime records for a run has `sequence` 2. A repeated submit (`already-submitted`)
+  and a refused submit write no event.
 
 The runtime's reports (`StartRun`, `FailRunStart`, `WaitOnDecision`, `RequestDecision`,
 `WithdrawDecision`, `ResumeRun`, `RecordRunEvent`, `EndRun`), `StartDaemon` and `EndOrphanedRun` (the
@@ -94,8 +105,12 @@ Each answers the rows with a position above `after_position`, in position order,
 The `sequence` of an event is only its place within its run.
 
 An event's `kind` is open text, the `kind` of the runtime's run-log line; events the daemon writes
-itself have a kind that starts with `runbook.` (`runbook.submitted`, `runbook.cancel-requested`,
-`runbook.start-failed`, `runbook.run-orphaned`).
+itself have a kind that starts with `runbook.`: `runbook.submitted` (the run's first event, sequence
+1, at the submit), `runbook.cancel-requested` (at a cancel), `runbook.start-failed`,
+`runbook.run-orphaned`, `runbook.answer-undeliverable` (an answer the runtime could not take up) and
+`runbook.runtime-failed` (before the run ends with the outcome `runtime-failure`). Each is declared
+in the specification by the command that writes it, in its summary: the language cannot write a
+run event from a command, so no row of the interpreted target stands for them.
 
 ### Event streams
 
@@ -185,8 +200,8 @@ After a restart a run that was `Submitted` and never started becomes `FailedToSt
 `runbook.start-failed`). For each run the record holds as `Running` or `WaitingOnDecision` the daemon
 asks the runtime (`Runtime::recover`): `resumed` leaves the run as it is; `gone` ends it with the
 command `EndOrphanedRun`. The run is then `Ended` with the outcome `orphaned` (the cause, readable in
-`outcome` of the `run` view), its Open decision requests are withdrawn one by one as a cancel does,
-the event `RunOrphaned` is published and the run's event stream gets one event of kind
+`outcome` of the `run` view), its Open decision requests are withdrawn in the same step, as a cancel
+does, the event `RunOrphaned` is published and the run's event stream gets one event of kind
 `runbook.run-orphaned`. A run that has ended is not asked about again, so a second start adds
 nothing. The stub runtime always answers `gone`.
 
@@ -208,11 +223,14 @@ authenticates none), and a claim of an exact instant (the daemon stamps its own 
 
 The numbers are committed in the test (`GATE`: the scenarios, the executed, the passed, the skipped) and
 may not move the wrong way; the failures are named in `KNOWN_FAILURES` with their reasons, so a different
-failure cannot hide behind them. At the commit that made this section: 12 scenarios of the daemon (3 more
-are of `sdc.decision`, out of the daemon's domain), 10 executed, 4 passed, 6 failed, 2 skipped. The six
-failures are two differences between the specification and the daemon, both listed in the test: the
-daemon writes its own `runbook.submitted` event at sequence 1 of a run, and `CancelRun` and
-`EndOrphanedRun` withdraw the run's open decision requests themselves.
+failure cannot hide behind them. Now: 12 scenarios of the daemon (3 more are of `sdc.decision`, out of
+the daemon's domain), 10 executed, 10 passed, 0 failed, 2 skipped (an exact instant each), and
+`KNOWN_FAILURES` is empty. Before part C4 it was 4 passed and 6 failed: two differences between the
+specification and the daemon, which the specification now states (the daemon's first event of a run,
+and the withdrawal of a run's open decision requests by `CancelRun` and `EndOrphanedRun`; see
+"Client commands"). The same suite passes on the interpreted target of ESS
+(`ess verify conform run --target interpreted --path ess --suite ess/generated/conformance/authored.json
+--report-format 2`): 15 of 15 scenarios, as before.
 
 The synthesized suite (`ess verify conform synthesize`, `task ess-suite:record`) is not committed:
 ess 0.97.1 took 1048 s on the specification of the first daemon commit and did not finish in 1800 s on

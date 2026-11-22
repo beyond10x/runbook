@@ -133,3 +133,69 @@ first row turned `daemon-decision-is-answered-and-the-run-resumes`,
 `daemon-idempotent-submit-returns-the-first-run` and `daemon-submit-below-the-floor-is-refused` red;
 `answer_decision` skipping its state change turned `daemon-decision-is-answered-and-the-run-resumes` and
 `daemon-answer-to-an-answered-request-is-refused` red.
+
+## Part C4: the specification moves to what the daemon does (2026-11-22)
+
+The design owner decided that the specification follows the daemon in the two differences part C3b
+found. Branch `impl/daemon-spec-matches-daemon` from `57101503`. ESS 0.97.1; the synthesized suite
+was not run (known defect, fixed in 0.97.2).
+
+Counts, before and after the change. Against the daemon (the crate's conformance test): 12 scenarios,
+10 executed, 4 passed, 6 failed, 2 skipped; after: 10 executed, 10 passed, 0 failed, 2 skipped,
+`KNOWN_FAILURES` empty, `GATE` raised to 10 passed. On the interpreted target
+(`ess verify conform run --target interpreted`): 15 of 15 before and 15 of 15 after. The two skipped
+scenarios (`daemon-answer-to-an-answered-request-is-refused`, `daemon-closed-session-takes-no-run`)
+claim an exact instant of the daemon's own clock and stay skipped: no small truthful change reads them.
+
+Difference 1, the daemon's own first event. `SubmitRun` states that the accepted outcome makes the
+daemon write `runbook.submitted` as sequence 1 (position: the next of the daemon), so the runtime's
+first record is sequence 2; a replayed submit (`already-submitted`) and every refused submit write no
+event and create no run. Every event the daemon writes on its own is declared in the summary of the
+command that writes it, and listed in `EventKind`: `runbook.submitted` (`SubmitRun`),
+`runbook.cancel-requested` (`CancelRun`), `runbook.start-failed` (`FailRunStart`),
+`runbook.run-orphaned` (`EndOrphanedRun`), `runbook.answer-undeliverable` (`AnswerDecision`) and
+`runbook.runtime-failed` (the daemon's own `RecordRunEvent` just before `EndRun` with the outcome
+`runtime-failure`). Three scenarios record the runtime's events from sequence 2 and from the positions
+after the submits; their `at` assertions page after the submit event's position, so the interpreted
+target (which keeps no row for the daemon's own events) and the daemon read the same first row.
+
+Difference 2, withdrawal. `CancelRun/cancelled` and `EndOrphanedRun/orphaned` carry an `affects`
+entry (`entity: sdc.daemon.DecisionRequest`, `where: run_id == input.run_id`, `moves:
+sdc.daemon.DecisionRequest.withdraw`; ess/22 and later express it, only rows in `Open` move): the
+requests are Withdrawn in the same step. `DaemonProcess` no longer holds `WithdrawDecision`.
+`WithdrawDecision` stays for the runtime's own withdrawal of an Open request of a run that goes on
+(an Open request exists only while its run is WaitingOnDecision); after a cancel or an orphan end it
+answers `not-open`. An answer to such a request is `DecisionWithdrawn`. `AnswerDecision/run-not-waiting`
+is now unreachable through the daemon's commands (the crate's own test makes it by hand from a journal)
+and the summary says so; no authored scenario reaches it any more.
+
+What the language could not express, and what stands in its place:
+
+- A command writes one kind of row: `SubmitRun` cannot also create a `RunEvent`, and `CancelRun`,
+  `FailRunStart`, `EndOrphanedRun` and `AnswerDecision` cannot either (an `affects` entry moves or
+  updates rows, it does not create them). The daemon's own events are stated in the summaries and
+  read through the event views only.
+- Because of it the specification does not refuse a runtime record at sequence 1: the interpreted
+  target accepts it, the daemon refuses it as not ascending. No scenario asks that step.
+- The `affects` entry publishes no event per request: the answer of a cancel carries `RunCancelled`
+  only. See the finding below.
+
+Finding against the recorded decisions (the handler is unchanged). Decision 15 says a cancel issues
+`WithdrawDecision` per open request and "the event is `DecisionRequestWithdrawn`". The daemon does
+withdraw each request, but the answer of `cancel-run` publishes `RunCancelled` only: the events of the
+inner withdrawals are dropped (`cancel_run`, `end_orphaned_run` in `runbook/src/commands.rs`). The
+specification now says what the daemon does; if `DecisionRequestWithdrawn` is wanted per request, the
+handler has to publish them and the owner has to say where (decision 15 and this brief disagree on
+"one command per request").
+
+Runner. `runbook/tests/daemon/conformance.rs` now reads a view expectation `at` (first or last row in
+the order named) and writes a whole-number view parameter without `.0` (the suite spells `1.0`); both
+had been hidden behind the six failures. Two assertions of an exact `ended_at` (cancel, orphaned) were
+dropped from `daemon-cancel-a-run` and `daemon-a-run-whose-runtime-is-gone-ends-as-orphaned`: with them
+those two scenarios would be skipped, not passed, and `ended_at: input.at` is no longer read by an
+authored scenario for those two commands.
+
+Red proof (not committed): `cancel_run` without its withdrawal loop turned `daemon-cancel-a-run`
+(`"sdc.daemon.WithdrawDecision" answered withdrawn and not not-open`) and
+`daemon-an-answer-is-judged-by-its-request-before-its-run` (`answered run-not-waiting and not
+withdrawn`) red: 8 passed, 2 failed.

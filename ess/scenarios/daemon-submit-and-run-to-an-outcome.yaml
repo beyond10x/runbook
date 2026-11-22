@@ -1,7 +1,7 @@
 type: ess-scenario/1
 domain: sdc.daemon
 scenario: daemon-submit-and-run-to-an-outcome
-summary: "A run is submitted at the daemon's floor, started by the runtime, records two events in order and ends with an outcome; the list, the one-run read and the events page show it."
+summary: "A run is submitted, started, records two events from sequence 2 (the submit holds sequence 1) and ends with an outcome; the views show it."
 
 timeline:
   - at: 2026-11-22T10:00:00Z
@@ -57,8 +57,8 @@ timeline:
     actor: sdc.daemon.Runtime
     input:
       run_id: "run-1"
-      sequence: 1
-      position: 1
+      sequence: 2
+      position: 2
       kind: "case.opened"
       record: {case: "IDEA-1", revision: "c1"}
       at: 2026-11-22T10:03:00Z
@@ -67,16 +67,16 @@ timeline:
       - event: sdc.daemon.RunEventRecorded
         payload:
           run_id: "run-1"
-          sequence: 1
-          position: 1
+          sequence: 2
+          position: 2
 
   - at: 2026-11-22T10:04:00Z
     command: sdc.daemon.RecordRunEvent
     actor: sdc.daemon.Runtime
     input:
       run_id: "run-1"
-      sequence: 2
-      position: 2
+      sequence: 3
+      position: 3
       kind: "case.closed"
       record: {case: "IDEA-1", revision: "c2", verdict: "pass"}
       at: 2026-11-22T10:04:00Z
@@ -85,8 +85,8 @@ timeline:
       - event: sdc.daemon.RunEventRecorded
         payload:
           run_id: "run-1"
-          sequence: 2
-          position: 2
+          sequence: 3
+          position: 3
 
   - at: 2026-11-22T10:05:00Z
     command: sdc.daemon.EndRun
@@ -110,7 +110,7 @@ assert:
     contains: {run_id: "run-1", intake: "intake.md", settings: {ticket: "T-1"}, state: Ended, confinement: linux, outcome: "delivered"}
   - view: sdc.daemon.EventsAfter
     params: {run_id: "run-1", after_position: 0}
-    contains: {run_id: "run-1", sequence: 1, kind: "case.opened", record: {case: "IDEA-1", revision: "c1"}}
+    contains: {run_id: "run-1", sequence: 2, kind: "case.opened", record: {case: "IDEA-1", revision: "c1"}}
   - view: sdc.daemon.EventsAfter
     params: {run_id: "run-1", after_position: 0}
-    contains: {run_id: "run-1", sequence: 2, kind: "case.closed", record: {case: "IDEA-1", revision: "c2", verdict: "pass"}}
+    contains: {run_id: "run-1", sequence: 3, kind: "case.closed", record: {case: "IDEA-1", revision: "c2", verdict: "pass"}}

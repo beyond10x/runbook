@@ -56,35 +56,10 @@ struct Gate {
     skipped: usize,
 }
 
-const GATE: Gate = Gate { total: 12, executed: 10, passed: 4, skipped: 2 };
+const GATE: Gate = Gate { total: 12, executed: 10, passed: 10, skipped: 2 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
-const KNOWN_FAILURES: &[(&str, &str)] = &[
-    (
-        "sdc.daemon/authored/daemon-submit-and-run-to-an-outcome",
-        "the daemon writes its own run-log event `runbook.submitted` at sequence 1 when a run is submitted; the specification's SubmitRun writes no RunEvent row, so the scenario's first RecordRunEvent (sequence 1) is refused as not-ascending",
-    ),
-    (
-        "sdc.daemon/authored/daemon-two-runs-in-a-session-keep-their-events-apart",
-        "the same: the daemon's own `runbook.submitted` event holds sequence 1 of each run",
-    ),
-    (
-        "sdc.daemon/authored/daemon-events-after-a-sequence-number",
-        "the same: the daemon's own `runbook.submitted` event holds sequence 1 of the run",
-    ),
-    (
-        "sdc.daemon/authored/daemon-cancel-a-run",
-        "CancelRun withdraws the run's Open decision requests itself, in the same step; the specification leaves them Open until a WithdrawDecision, so the scenario's WithdrawDecision is answered not-open",
-    ),
-    (
-        "sdc.daemon/authored/daemon-a-run-whose-runtime-is-gone-ends-as-orphaned",
-        "the same: EndOrphanedRun withdraws the run's Open decision requests itself, so the scenario's WithdrawDecision (by the daemon process) is answered not-open",
-    ),
-    (
-        "sdc.daemon/authored/daemon-an-answer-is-judged-by-its-request-before-its-run",
-        "the same: after CancelRun the request is already Withdrawn in the daemon, so an answer is refused as withdrawn, where the specification still has it Open and refuses the answer for the run (run-not-waiting)",
-    ),
-];
+const KNOWN_FAILURES: &[(&str, &str)] = &[];
 
 /// Fields that hold an instant: the daemon stamps them from its own clock.
 const INSTANTS: [&str; 7] = ["at", "opened_at", "closed_at", "answered_at", "submitted_at", "started_at", "ended_at"];
@@ -233,7 +208,7 @@ fn granted_to(command: &str) -> &'static [&'static str] {
         "OpenSession" | "CloseSession" | "SubmitRun" | "CancelRun" | "AnswerDecision" => &["sdc.daemon.Client"],
         "StartDaemon" => &["sdc.daemon.Operator"],
         "EndOrphanedRun" => &["sdc.daemon.DaemonProcess"],
-        "WithdrawDecision" => &["sdc.daemon.Runtime", "sdc.daemon.DaemonProcess"],
+        "WithdrawDecision" => &["sdc.daemon.Runtime"],
         _ => &["sdc.daemon.Runtime"],
     }
 }
@@ -253,6 +228,15 @@ fn same(want: &Value, got: &Value) -> bool {
 /// A whole number the suite wrote as `1` or as `1.0`.
 fn uint(v: &Value) -> Option<u64> {
     v.as_u64().or_else(|| v.as_f64().filter(|f| f.fract() == 0.0 && *f >= 0.0).map(|f| f as u64))
+}
+
+/// A view parameter as the query string spells it: text as it is, a whole number without `.0`.
+fn param_text(v: &Value) -> String {
+    match (v.as_str(), uint(v)) {
+        (Some(s), _) => s.to_string(),
+        (None, Some(n)) => n.to_string(),
+        _ => v.to_string(),
+    }
 }
 
 fn text(m: &Map<String, Value>, key: &str) -> Res<String> {
@@ -554,7 +538,7 @@ impl Scn {
         let Some(wire) = view_wire(short) else { return skip(format!("the view {view} is not a view of the daemon")) };
         let query: Vec<String> = params
             .iter()
-            .map(|(k, v)| format!("{k}={}", encode(&v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))))
+            .map(|(k, v)| format!("{k}={}", encode(&param_text(v))))
             .collect();
         let mut path = routes::view_path(wire);
         if !query.is_empty() {
@@ -622,6 +606,32 @@ impl Scn {
                     if n != exact {
                         return fail(format!("{view} holds {n} rows, {exact} expected"));
                     }
+                }
+            }
+            Some("at") => {
+                // The first or the last row in the order the expectation names (`position asc`).
+                let place = ex["position"]["row"].as_str().unwrap_or_default();
+                if !matches!(place, "first" | "last") {
+                    return skip(format!("a view expectation `at` the row {place:?}"));
+                }
+                let claims = self.claims(&ex["fields"])?;
+                let mut rows = self.rows[&view].clone();
+                for key in ex["order_by"].as_array().into_iter().flatten().filter_map(Value::as_str).rev() {
+                    let mut parts = key.split_whitespace();
+                    let (field, descending) = (parts.next().unwrap_or_default().to_string(), parts.next() == Some("desc"));
+                    rows.sort_by(|a, b| {
+                        let order = match (a[&field].as_u64(), b[&field].as_u64()) {
+                            (Some(x), Some(y)) => x.cmp(&y),
+                            _ => a[&field].to_string().cmp(&b[&field].to_string()),
+                        };
+                        if descending { order.reverse() } else { order }
+                    });
+                }
+                let row = if place == "first" { rows.first() } else { rows.last() };
+                match row {
+                    Some(r) if Self::matches(r, &claims) => {}
+                    Some(r) => return fail(format!("{view}: the {place} row is {r}, expected {}", Value::Object(claims))),
+                    None => return fail(format!("{view} holds no row, the {place} one expected with {}", Value::Object(claims))),
                 }
             }
             other => return skip(format!("a view expectation `{}`", other.unwrap_or("none"))),

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sdc.invalid/commands/sdc.daemon.RecordRunEvent.schema.json",
   "title": "Record a run event input",
-  "description": "A record of a run, from the runtime or written by the daemon itself (kind starts with `runbook.`): keep it, unchanged, under its sequence number (per run, only grows) and its position (per daemon, minted by the daemon, only grows over all runs). The handler fills `position` and `session_id` (copied from the run). An event for a run that has ended, was cancelled or failed to start is refused.",
+  "description": "A record of a run, from the runtime or written by the daemon itself (kind starts with `runbook.`; the commands that write one declare it, see EventKind): keep it, unchanged, under its sequence number (per run, only grows) and its position (per daemon, minted by the daemon, only grows over all runs). Every run of the daemon holds `runbook.submitted` at sequence 1 from its submit (SubmitRun), so the first record of the runtime is sequence 2, and the daemon's own events take positions too: the runtime's first record comes after the positions the submits used. The handler fills `position` and `session_id` (copied from the run). An event for a run that has ended, was cancelled or failed to start is refused.",
   "x-ess-name": "sdc.daemon.RecordRunEvent",
   "x-ess-kind": "command-input",
   "type": "object",
@@ -40,13 +40,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:07cc3d08492932f24bfdf2a2ac3274d0fc71d504c29ef1e2b270cab6939d46ee",
+    "contract_digest": "slice-sha256/2:c6abb1272314cf607df0a95483741056a222d028251df8a22f733a7d60da079c",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.EventKind": {
       "title": "EventKind",
-      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set.",
+      "description": "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.`, and the command that writes each one declares it: runbook.submitted (SubmitRun), runbook.cancel-requested (CancelRun), runbook.start-failed (FailRunStart), runbook.run-orphaned (EndOrphanedRun), runbook.answer-undeliverable (AnswerDecision) and runbook.runtime-failed (written by the daemon just before it issues EndRun with the outcome runtime-failure). Not a closed set for the runtime's own kinds.",
       "x-ess-name": "sdc.daemon.EventKind",
       "x-ess-kind": "newtype",
       "type": "string"
