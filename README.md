@@ -110,14 +110,15 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.3.1`; nothing is published to crates.io. The latest is 0.3.1 (2026-11-22).
+`0.4.0`; nothing is published to crates.io. The latest is 0.4.0 (2026-11-22).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.3.1 over 0.3.0 (nothing is unreleased): a step that
-  waited for the build pool is no longer a failed run, `runbook check` and `runbook parity`, the
-  driver's test budget, and the ESS specification of the daemon, which is not built
-  ([docs/releases/0.3.1.md](docs/releases/0.3.1.md)).
+- New in 0.4.0 over 0.3.1 (nothing is unreleased): the daemon (`runbook serve`, its HTTP API, event
+  streams, MCP and an embedded page, on a stub runtime that runs no real case) with `runbook run
+  --detach`, `runbook runs` and `runbook decide` as its client, and `runbook loom-run`, which runs
+  one case on a pinned `b10x-loom` binary
+  ([docs/releases/0.4.0.md](docs/releases/0.4.0.md)).
 - Three trials are written up: [Trial 1](docs/trial-1.md) (a real LLM; round 1 stopped, as
   designed, on three scope-changing questions for a person), [Trial 2](docs/trial-2.md) (a
   late-found ambiguity and the loop that repairs it; verified with stub executors, the real-LLM
