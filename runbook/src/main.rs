@@ -5,6 +5,7 @@ mod assets;
 mod check;
 mod doctor;
 mod list;
+mod loom_run;
 mod parity;
 
 use clap::error::ErrorKind;
@@ -42,6 +43,8 @@ enum Cmd {
         #[arg(long)]
         json: bool,
     },
+    /// Make one run of a case tree through `b10x-loom` (a child process) under a spend ledger and caps; writes a run directory.
+    LoomRun(loom_run::Args),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
     Parity {
         #[command(subcommand)]
@@ -105,6 +108,7 @@ fn main() -> ExitCode {
         Cmd::List { json } => list_cmd(json),
         Cmd::Check { json } => check_cmd(json),
         Cmd::Parity { cmd } => parity_cmd(cmd),
+        Cmd::LoomRun(args) => loom_run::command(args),
     }
 }
 

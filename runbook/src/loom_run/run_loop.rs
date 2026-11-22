@@ -1,0 +1,644 @@
+//! The loop of `runbook loom-run`.
+
+use crate::loom_run::bindings_copy;
+use crate::loom_run::budget;
+use crate::loom_run::child::{self, EndedBy};
+use crate::loom_run::cost::CostReader;
+use crate::loom_run::decide::{self, Decider, DecisionRequest, Verdict};
+use crate::loom_run::decider;
+use crate::loom_run::events::{Cap, CostSource, Event, EventSink};
+use crate::loom_run::ledger::{Ledger, Reservation};
+use crate::loom_run::run_dir::RunDirWriter;
+use crate::loom_run::run_files::{self, BasicFiles};
+use crate::loom_run::settings;
+use crate::loom_run::{Args, Outcome};
+use serde_json::Value;
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// The clock the loop reads: seconds since the Unix epoch. Tests give their own.
+pub trait Clock {
+    /// Now, in seconds.
+    fn now_secs(&self) -> u64;
+}
+
+/// The system clock.
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_secs(&self) -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    }
+}
+
+/// Set by the SIGTERM and SIGINT handlers.
+static SIGNALLED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_signal(_: libc::c_int) {
+    SIGNALLED.store(true, Ordering::SeqCst);
+}
+
+fn install_signal_handlers() {
+    let handler = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+    // SAFETY: the handler only stores into an atomic.
+    unsafe {
+        libc::signal(libc::SIGTERM, handler);
+        libc::signal(libc::SIGINT, handler);
+    }
+}
+
+/// Runs the whole command. `Err` is a refusal before anything was written (exit 2); `Ok` is how
+/// the run ended, written into the outcome file.
+pub fn run(args: &Args) -> Result<Outcome, String> {
+    install_signal_handlers();
+    run_with(args, &SystemClock, &SIGNALLED)
+}
+
+/// [`run`] with the clock and the cancel flag given.
+pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<Outcome, String> {
+    let sha = file_sha256(&args.loom).map_err(|e| format!("--loom: {e}"))?;
+    if sha != args.loom_sha256.trim().to_ascii_lowercase() {
+        return Err(format!("--loom has sha256 {sha}, not the {} that --loom-sha256 names", args.loom_sha256));
+    }
+    check_name(&args.run)?;
+    let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
+    let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
+    let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    let mut settings_value = given.clone();
+    settings::fill_decider(&mut settings_value, &run_dir, std::env::var_os("PATH").as_deref())?;
+    let decider = match decide::scripted_from_settings(&settings_value) {
+        Some(d) => d?,
+        None => decider::from_settings(&settings_value)?,
+    };
+    let protocols = protocol_files(&args.protocols)?;
+    if !args.idea.is_file() {
+        return Err(format!("--idea {} is not a file", args.idea.display()));
+    }
+    if !args.bindings.is_dir() {
+        return Err(format!("--bindings {} is not a directory", args.bindings.display()));
+    }
+    if run_dir.exists() {
+        return Err(format!("the run directory {} exists", run_dir.display()));
+    }
+    std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
+    std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
+    let redacted = settings::with_run(&settings::redacted(&given), args, &sha);
+    let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
+    let mut runner = Runner {
+        args,
+        clock,
+        cancel,
+        settings: settings_value,
+        run_dir: run_dir.clone(),
+        workspace: run_dir.join("work"),
+        store: run_dir.join("store"),
+        bindings_dir: run_dir.join("bindings"),
+        env: child::child_env(&run_dir),
+        decider,
+        sinks: Vec::new(),
+        reader: CostReader::default(),
+        ledger: None,
+        llm_calls: 0,
+        steps: 0,
+        spent: 0,
+        start: clock.now_secs(),
+        wall_cap_noted: false,
+        decided: std::collections::HashMap::new(),
+    };
+    let basic = BasicFiles::open(&run_dir)?;
+    sinks.push(Box::new(basic));
+    sinks.push(Box::new(RunDirWriter::open(&run_dir, &redacted)?));
+    runner.sinks = sinks;
+    let outcome = runner.drive(root_name, &protocols, &redacted);
+    Ok(runner.finish(outcome))
+}
+
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect())
+}
+
+fn check_name(name: &str) -> Result<(), String> {
+    let ok = !name.is_empty() && name != "." && name != ".." && !name.contains('/') && !name.chars().any(char::is_control);
+    if ok { Ok(()) } else { Err(format!("--run {name:?} is not a plain name")) }
+}
+
+/// The registration name and file of every `*.protocol.yaml` in `dir`: `<id with dots as dashes>@<revision>`.
+fn protocol_files(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let mut found = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("--protocols {}: {e}", dir.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|e| format!("--protocols: {e}"))?.path();
+        let is_protocol = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".protocol.yaml"));
+        if !is_protocol {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let doc: serde_yaml::Value = serde_yaml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        let id = doc["protocol"]["id"].as_str().ok_or_else(|| format!("{}: protocol.id missing", path.display()))?;
+        let revision = doc["protocol"]["revision"].as_u64().ok_or_else(|| format!("{}: protocol.revision missing", path.display()))?;
+        found.push((format!("{}@{revision}", id.replace('.', "-")), path));
+    }
+    found.sort();
+    if found.is_empty() {
+        return Err(format!("--protocols {} holds no *.protocol.yaml", dir.display()));
+    }
+    Ok(found)
+}
+
+struct Runner<'a> {
+    args: &'a Args,
+    clock: &'a dyn Clock,
+    cancel: &'a AtomicBool,
+    settings: Value,
+    run_dir: PathBuf,
+    workspace: PathBuf,
+    store: PathBuf,
+    bindings_dir: PathBuf,
+    env: Vec<(String, String)>,
+    decider: Box<dyn Decider>,
+    sinks: Vec<Box<dyn EventSink>>,
+    reader: CostReader,
+    ledger: Option<Ledger>,
+    llm_calls: u64,
+    steps: u64,
+    spent: u64,
+    start: u64,
+    wall_cap_noted: bool,
+    decided: std::collections::HashMap<String, bool>,
+}
+
+/// A way out of the loop that is not an error.
+enum Halt {
+    Done(Outcome),
+    Failed(String),
+    /// A `b10x-loom` call failed: the exit code and the tail of standard error go to the outcome.
+    Loom { reason: String, exit: Option<i32>, stderr_tail: String },
+}
+
+/// The last 1500 characters of what a child printed on standard error.
+fn tail_of(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let text = text.trim_end();
+    let skip = text.chars().count().saturating_sub(1500);
+    text.chars().skip(skip).collect()
+}
+
+/// The key of a decision for "asked before": case, action, revision and the text Loom gave (an
+/// opaque string here; it is never parsed).
+fn decision_key(decision: &Value) -> String {
+    let get = |k: &str| decision.get(k).and_then(Value::as_str).unwrap_or("");
+    format!("{}\u{1f}{}\u{1f}{}\u{1f}{}", get("case"), get("action"), get("revision"), get("decides"))
+}
+
+impl From<String> for Halt {
+    fn from(reason: String) -> Halt {
+        Halt::Failed(reason)
+    }
+}
+
+impl Runner<'_> {
+    fn emit(&mut self, event: Event) -> Result<(), String> {
+        let at = self.clock.now_secs();
+        for sink in &mut self.sinks {
+            sink.event(at, &event)?;
+        }
+        Ok(())
+    }
+
+    fn deadline(&self) -> u64 {
+        self.start.saturating_add(self.args.max_wall_seconds)
+    }
+
+    fn loom(&self, words: &[&str], extra: &[String]) -> Result<child::ChildResult, Halt> {
+        let mut argv: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
+        argv.extend(extra.iter().cloned());
+        self.loom_argv(&argv)
+    }
+
+    fn loom_argv(&self, argv: &[String]) -> Result<child::ChildResult, Halt> {
+        let clock = self.clock;
+        let result = child::run(&self.args.loom, argv, &self.env, &self.run_dir, self.cancel, self.deadline(), &|| clock.now_secs())?;
+        match result.ended_by {
+            Some(EndedBy::Signal) => Err(Halt::Done(Outcome::StoppedSignal)),
+            Some(EndedBy::WallTime) => Err(Halt::Done(Outcome::StoppedWallTime)),
+            None => Ok(result),
+        }
+    }
+
+    fn drive(&mut self, root_name: &str, protocols: &[(String, PathBuf)], redacted: &Value) -> Outcome {
+        let outcome = match self.drive_inner(root_name, protocols, redacted) {
+            Ok(outcome) | Err(Halt::Done(outcome)) => outcome,
+            Err(Halt::Failed(reason)) => Outcome::Error { reason },
+            Err(Halt::Loom { reason, exit, stderr_tail }) => Outcome::LoomFailed { reason, exit, stderr_tail },
+        };
+        if outcome == Outcome::StoppedWallTime && !self.wall_cap_noted {
+            let detail = format!("{} s, a call was ended", self.args.max_wall_seconds);
+            if let Err(reason) = self.emit(Event::CapReached { cap: Cap::WallTime, detail }) {
+                return Outcome::Error { reason };
+            }
+        }
+        outcome
+    }
+
+    fn check_stop(&mut self) -> Result<(), Halt> {
+        if self.cancel.load(Ordering::SeqCst) {
+            return Err(Halt::Done(Outcome::StoppedSignal));
+        }
+        if self.clock.now_secs() >= self.deadline() {
+            self.wall_cap_noted = true;
+            self.emit(Event::CapReached { cap: Cap::WallTime, detail: format!("{} s", self.args.max_wall_seconds) })?;
+            return Err(Halt::Done(Outcome::StoppedWallTime));
+        }
+        Ok(())
+    }
+
+    fn drive_inner(&mut self, root_name: &str, protocols: &[(String, PathBuf)], redacted: &Value) -> Result<Outcome, Halt> {
+        self.emit(Event::RunStarted { run: self.args.run.clone(), settings: redacted.clone() })?;
+        for d in [self.run_dir.join("home").join("data"), self.workspace.clone()] {
+            std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+        }
+        self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
+        let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings)?;
+        std::fs::copy(&self.args.idea, self.workspace.join("idea.yaml")).map_err(|e| format!("--idea: {e}"))?;
+        let copies = self.run_dir.join("protocols");
+        std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
+        for (_, file) in protocols {
+            let name = file.file_name().ok_or_else(|| format!("{}: no file name", file.display()))?;
+            std::fs::copy(file, copies.join(name)).map_err(|e| format!("{}: {e}", file.display()))?;
+        }
+        for (name, file) in protocols {
+            let r = self.loom(&["protocols", "add", name], &["--file".to_owned(), file.display().to_string()])?;
+            expect_exit0(&r, &format!("protocols add {name}"))?;
+        }
+        let open = [
+            "--protocol".to_owned(),
+            self.args.root_protocol.clone(),
+            "--store".to_owned(),
+            self.store.display().to_string(),
+            "--bindings".to_owned(),
+            root_file.display().to_string(),
+            "--workspace".to_owned(),
+            self.workspace.display().to_string(),
+            "--case".to_owned(),
+            self.args.case.clone(),
+        ];
+        let r = self.loom(&["tree", "open"], &open)?;
+        expect_exit0(&r, "tree open")?;
+        let mut index = 0u64;
+        loop {
+            self.check_stop()?;
+            if self.llm_calls >= self.args.max_llm_calls {
+                self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
+                return Ok(Outcome::StoppedLlmCalls);
+            }
+            let want = budget::largest_call_budget(&self.bindings_dir)?.unwrap_or(self.args.cap_micro_usd);
+            let reservation = self.reserve(want)?;
+            budget::limit_call_budgets(&self.bindings_dir, reservation.micro_usd)?;
+            let run_args = [
+                "--store".to_owned(),
+                self.store.display().to_string(),
+                "--confinement".to_owned(),
+                self.args.confinement.as_arg().to_owned(),
+                "--max-steps".to_owned(),
+                "1".to_owned(),
+            ];
+            let result = self.loom(&["tree", "run"], &run_args);
+            let cost_halt = self.book_step(&reservation);
+            let result = result?;
+            cost_halt?;
+            index += 1;
+            let (code, tree) = parse_run(&result)?;
+            let stop = tree.get("stop").and_then(Value::as_str).unwrap_or("").to_owned();
+            let steps = tree.get("steps").and_then(Value::as_i64).unwrap_or(0);
+            self.steps += u64::try_from(steps).unwrap_or(0);
+            self.refresh_status()?;
+            self.emit(Event::StepMade { index, exit: code, stop, steps })?;
+            match code {
+                0 => {
+                    let tree_outcome = tree.get("detail").and_then(Value::as_str).map(str::to_owned);
+                    return Ok(Outcome::Ended { tree_outcome });
+                }
+                4 => return Ok(Outcome::Stuck),
+                5 if steps > 0 => {}
+                5 => return Err(Halt::Failed("tree run ended its budget without a step".to_owned())),
+                3 => self.answer_decisions(&tree)?,
+                other => return Err(Halt::Loom { reason: format!("b10x-loom tree run exited {other}, an exit code the runner does not know"), exit: Some(other), stderr_tail: tail_of(&result.stderr) }),
+            }
+        }
+    }
+
+    /// Runs `tree status` and writes `tree-status.json` (atomically, paths relative to the run
+    /// directory). A refusal ends the run: `tree status` reads the protocol catalog (`HOME` and
+    /// `XDG_DATA_HOME` of the run), and a store read with another catalog answers
+    /// `GovernorUnavailable`.
+    fn refresh_status(&mut self) -> Result<(), Halt> {
+        let store = ["--store".to_owned(), self.store.display().to_string()];
+        let r = self.loom(&["tree", "status"], &store)?;
+        if r.code != Some(0) {
+            return Err(Halt::Loom { reason: format!("b10x-loom tree status refused (exit {:?}); it needs the protocol catalog of the run", r.code), exit: r.code, stderr_tail: tail_of(&r.stderr) });
+        }
+        run_files::write_status(&self.run_dir, &r.stdout)?;
+        Ok(())
+    }
+
+    fn ledger(&self) -> &Ledger {
+        self.ledger.as_ref().expect("the ledger is opened before the loop")
+    }
+
+    fn reserve(&mut self, want: u64) -> Result<Reservation, Halt> {
+        let r = self.ledger().reserve(&self.args.run, self.args.cap_micro_usd, want)?;
+        if want > 0 && r.micro_usd == 0 {
+            let spent = self.ledger().spent()?;
+            self.emit(Event::CapReached { cap: Cap::Spend, detail: format!("{spent} of {} micro USD spent", self.args.cap_micro_usd) })?;
+            return Err(Halt::Done(Outcome::StoppedSpendCap));
+        }
+        Ok(r)
+    }
+
+    /// Reads what the step spent and books it. A cost that cannot be read books the whole
+    /// reservation (the most the call could spend) and fails the run closed.
+    fn book_step(&mut self, reservation: &Reservation) -> Result<(), Halt> {
+        match self.reader.read_new(&self.workspace) {
+            Ok(cost) => {
+                self.ledger().commit(reservation, &self.args.run, "step", cost.micro_usd)?;
+                self.spent += cost.micro_usd;
+                self.llm_calls += cost.records.len() as u64;
+                for record in cost.records {
+                    let micro = record.get("cost_usd").and_then(|v| crate::loom_run::cost::usd_to_micro(v).ok()).unwrap_or(0);
+                    self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: micro, record })?;
+                }
+                Ok(())
+            }
+            Err(reason) => {
+                self.ledger().commit(reservation, &self.args.run, "step, cost unknown: reservation booked", reservation.micro_usd)?;
+                self.spent += reservation.micro_usd;
+                Err(Halt::Failed(reason))
+            }
+        }
+    }
+
+    /// Answers every decision of one `tree run` that exited 3. A decision is a JSON object of which
+    /// only `case`, `kind`, `decides` and `command` are stable: it goes to the decider unchanged,
+    /// whatever its kind, and `command` is run as data (see `command_argv`).
+    fn answer_decisions(&mut self, tree: &Value) -> Result<(), Halt> {
+        let decisions = tree.get("decisions").and_then(Value::as_array).filter(|d| !d.is_empty()).ok_or_else(|| "tree run exited 3 with no decisions".to_owned())?;
+        for decision in decisions.clone() {
+            self.check_stop()?;
+            self.emit(Event::DecisionAsked { decision: decision.clone() })?;
+            let kind = decision.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
+            let key = decision_key(&decision);
+            match self.decided.get(&key) {
+                Some(false) => {
+                    let action = decision.get("action").and_then(Value::as_str).or_else(|| decision.get("decides").and_then(Value::as_str)).unwrap_or("").to_owned();
+                    return Err(Halt::Done(Outcome::Denied { action }));
+                }
+                Some(true) => return Err(Halt::Failed(format!("a decision of kind {kind} was approved and asked again"))),
+                None => {}
+            }
+            let words = command_words(&decision)?;
+            let want = self.decider.max_call_micro_usd();
+            if want > 0 && self.llm_calls >= self.args.max_llm_calls {
+                self.emit(Event::CapReached { cap: Cap::LlmCalls, detail: format!("{} calls", self.llm_calls) })?;
+                return Err(Halt::Done(Outcome::StoppedLlmCalls));
+            }
+            let reservation = self.reserve(want)?;
+            let verdict = {
+                let request = DecisionRequest {
+                    decision: &decision,
+                    run_dir: &self.run_dir,
+                    workspace: &self.workspace,
+                    budget_micro_usd: reservation.micro_usd,
+                    child_env: &self.env,
+                };
+                self.decider.decide(&request)
+            };
+            let (approve, principal, cost, calls) = match verdict {
+                Verdict::CannotDecide { reason } => {
+                    self.ledger().release(&reservation)?;
+                    return Err(Halt::Done(Outcome::StoppedDecider { reason: format!("{reason} (decision kind {kind:?})") }));
+                }
+                Verdict::Answer { cost_micro_usd: None, .. } => {
+                    self.ledger().commit(&reservation, &self.args.run, "decider, cost unknown: reservation booked", reservation.micro_usd)?;
+                    self.spent += reservation.micro_usd;
+                    return Err(Halt::Failed("the decider answered without a cost".to_owned()));
+                }
+                Verdict::Answer { approve, principal, cost_micro_usd: Some(cost), model_calls } => (approve, principal, cost, model_calls),
+            };
+            self.ledger().commit(&reservation, &self.args.run, "decider", cost)?;
+            self.spent += cost;
+            self.llm_calls += calls;
+            if cost > 0 || calls > 0 {
+                self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
+            }
+            let (argv, principal) = command_argv(&words, approve, principal.as_deref());
+            let r = self.loom_argv(&argv)?;
+            expect_exit0(&r, &format!("the printed command for a decision of kind {kind}"))?;
+            self.decided.insert(key, approve);
+            self.emit(Event::DecisionAnswered { decision, approve, principal, cost_micro_usd: cost, model_calls: calls })?;
+        }
+        Ok(())
+    }
+
+    /// Stores `tree status` and `tree verify`, then writes the end of the run. Returns the outcome
+    /// as it stands after `tree verify`.
+    fn finish(&mut self, outcome: Outcome) -> Outcome {
+        let mut outcome = outcome;
+        if self.store.join("tree.json").exists() && outcome != Outcome::StoppedSignal {
+            let never = AtomicBool::new(false);
+            let clock = self.clock;
+            let store = ["--store".to_owned(), self.store.display().to_string()];
+            let call = |words: &[&str]| {
+                let mut argv: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
+                argv.extend(store.iter().cloned());
+                let deadline = clock.now_secs().saturating_add(120);
+                child::run(&self.args.loom, &argv, &self.env, &self.run_dir, &never, deadline, &|| clock.now_secs())
+            };
+            let status = call(&["tree", "status"]);
+            let verify = call(&["tree", "verify"]);
+            let (status_exit, verify_exit) = match (status, verify) {
+                (Ok(s), Ok(v)) => {
+                    let se = s.code.unwrap_or(-1);
+                    let ve = v.code.unwrap_or(-1);
+                    if let Err(e) = run_files::write_tree_files(&self.run_dir, (se == 0).then_some(s.stdout.as_slice()), ve, &v.stdout, &v.stderr) {
+                        outcome = Outcome::Error { reason: e };
+                    }
+                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
+                        outcome = Outcome::LoomFailed {
+                            reason: format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label()),
+                            exit: Some(se),
+                            stderr_tail: tail_of(&s.stderr),
+                        };
+                    }
+                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
+                        outcome = Outcome::Error { reason: format!("tree verify exited {ve} (the run had ended: {})", outcome.label()) };
+                    }
+                    (se, ve)
+                }
+                (Err(e), _) | (_, Err(e)) => {
+                    outcome = Outcome::Error { reason: format!("tree status or verify could not run: {e}") };
+                    (-1, -1)
+                }
+            };
+            if let Err(e) = self.emit(Event::TreeStored { status_exit, verify_exit }) {
+                outcome = Outcome::Error { reason: e };
+            }
+        }
+        let ended = Event::Ended {
+            outcome: outcome.label().to_owned(),
+            reason: outcome.reason().map(str::to_owned),
+            loom_exit: match &outcome {
+                Outcome::LoomFailed { exit, .. } => *exit,
+                _ => None,
+            },
+            stderr_tail: match &outcome {
+                Outcome::LoomFailed { stderr_tail, .. } => Some(stderr_tail.clone()),
+                _ => None,
+            },
+            exit_code: outcome.exit_code(),
+            steps: self.steps,
+            spent_micro_usd: self.spent,
+            llm_calls: self.llm_calls,
+        };
+        if let Err(e) = self.emit(ended) {
+            eprintln!("runbook loom-run: the end of the run could not be written: {e}");
+            outcome = Outcome::Error { reason: e };
+        }
+        outcome
+    }
+}
+
+fn expect_exit0(r: &child::ChildResult, what: &str) -> Result<(), Halt> {
+    if r.code == Some(0) {
+        return Ok(());
+    }
+    Err(Halt::Loom { reason: format!("b10x-loom {what} exited {:?}", r.code), exit: r.code, stderr_tail: tail_of(&r.stderr) })
+}
+
+/// The exit code and the JSON object `tree run` printed; fails for an exit code the runner does
+/// not know or output that is not the expected JSON.
+fn parse_run(r: &child::ChildResult) -> Result<(i32, Value), Halt> {
+    let Some(code) = r.code else {
+        return Err(Halt::Loom { reason: "b10x-loom tree run was ended by a signal it did not get from the runner".to_owned(), exit: None, stderr_tail: tail_of(&r.stderr) });
+    };
+    if !matches!(code, 0 | 3 | 4 | 5) {
+        return Err(Halt::Loom { reason: format!("b10x-loom tree run exited {code}, an exit code the runner does not know"), exit: Some(code), stderr_tail: tail_of(&r.stderr) });
+    }
+    let v: Value = serde_json::from_slice(&r.stdout).map_err(|e| format!("tree run printed no JSON: {e}"))?;
+    if v.get("stop").and_then(Value::as_str).is_none() || v.get("steps").and_then(Value::as_i64).is_none() {
+        return Err(Halt::Failed("tree run printed JSON without stop and steps".to_owned()));
+    }
+    Ok((code, v))
+}
+
+/// The words of a decision's `command`: text, the first being the program name Loom printed.
+fn command_words(decision: &Value) -> Result<Vec<String>, String> {
+    let words: Vec<String> = decision
+        .get("command")
+        .and_then(Value::as_array)
+        .ok_or("a decision has no command")?
+        .iter()
+        .map(|w| w.as_str().map(str::to_owned).ok_or("a word of a decision's command is not text"))
+        .collect::<Result<_, _>>()?;
+    if words.first().map(String::as_str) != Some("b10x-loom") || words.len() < 2 {
+        return Err("a decision's command does not start with b10x-loom and a subcommand".to_owned());
+    }
+    Ok(words)
+}
+
+/// The argv (after the program) of a decision's command with the answer applied. The command is
+/// data: the runner touches exactly two things, the value after `--principal` (replaced by the
+/// decider's principal when it gave one) and a final `--deny` (appended when the answer is a
+/// denial). The principal returned is the one in the argv ("" when the command has none).
+fn command_argv(words: &[String], approve: bool, principal: Option<&str>) -> (Vec<String>, String) {
+    let mut argv: Vec<String> = words[1..].to_vec();
+    let mut used = String::new();
+    for i in 0..argv.len().saturating_sub(1) {
+        if argv[i] == "--principal" {
+            if let Some(p) = principal {
+                argv[i + 1] = p.to_owned();
+            }
+            used = argv[i + 1].clone();
+        }
+    }
+    if !approve {
+        argv.push("--deny".to_owned());
+    }
+    (argv, used)
+}
+
+#[cfg(test)]
+#[allow(dead_code)] // fake.rs is shared with the integration binary; this unit test uses part of it
+#[path = "../../tests/loom_run/fake.rs"]
+mod fake;
+
+#[cfg(test)]
+mod tests {
+    use super::fake;
+    use super::*;
+    use crate::loom_run::Confinement;
+
+    /// The clock of the test: 100 s per call of the fake `b10x-loom`; nothing sleeps.
+    struct CallClock {
+        calls: PathBuf,
+    }
+
+    impl Clock for CallClock {
+        fn now_secs(&self) -> u64 {
+            let n: u64 = std::fs::read_to_string(&self.calls).ok().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
+            1_000 + 100 * n
+        }
+    }
+
+    fn world(tag: &str) -> (PathBuf, fake::Fake) {
+        let exe = std::env::current_exe().unwrap();
+        let root = exe.parent().unwrap().join(format!("loomrun-unit-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for d in ["protocols", "bindings", "runs"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        std::fs::write(root.join("protocols/sdc.protocol.yaml"), "format: protocol/1\nprotocol:\n  id: sdc\n  revision: 8\n").unwrap();
+        std::fs::write(root.join("bindings/sdc.yaml"), "format: loom.bindings/1\n").unwrap();
+        std::fs::write(root.join("idea.yaml"), "text: x\n").unwrap();
+        std::fs::write(root.join("settings.json"), "{}").unwrap();
+        let f = fake::Fake::new(&root.join("fake"));
+        f.open_ok();
+        (root, f)
+    }
+
+    fn args(root: &Path, f: &fake::Fake, wall: u64) -> Args {
+        Args {
+            run: "r1".into(),
+            runs_dir: root.join("runs"),
+            loom: f.bin(),
+            loom_sha256: f.sha256(),
+            bindings: root.join("bindings"),
+            protocols: root.join("protocols"),
+            root_protocol: "sdc@8".into(),
+            case: "IDEA-1".into(),
+            idea: root.join("idea.yaml"),
+            confinement: Confinement::Local,
+            settings: root.join("settings.json"),
+            spend_ledger: root.join("ledger.json"),
+            cap_micro_usd: 1_000_000,
+            max_llm_calls: 100,
+            max_wall_seconds: wall,
+        }
+    }
+
+    #[test]
+    fn the_wall_time_cap_reads_the_injected_clock_and_stops_before_the_next_call() {
+        let (root, f) = world("wall");
+        f.answer("tree_run", "default", &fake::tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+        let clock = CallClock { calls: f.dir.join("calls/count") };
+        // start 1000, deadline 1150: the clock reads 1200 once tree open has started.
+        let outcome = run_with(&args(&root, &f, 150), &clock, &AtomicBool::new(false)).unwrap();
+        assert_eq!(outcome, Outcome::StoppedWallTime);
+        assert!(f.calls_of(&["tree", "run"]).is_empty(), "no step was started after the deadline");
+        let text = std::fs::read_to_string(root.join("runs/r1/outcome.json")).unwrap();
+        assert!(text.contains("stopped: wall time"), "{text}");
+        let log = std::fs::read_to_string(root.join("runs/r1/events.jsonl")).unwrap();
+        assert!(log.contains("\"cap\":\"wall_time\""), "{log}");
+    }
+}
