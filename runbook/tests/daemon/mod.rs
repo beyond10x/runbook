@@ -10,3 +10,4 @@ mod ui_embed;
 mod ui_embed_review;
 mod mcp;
 mod cli_client;
+mod ui_guard;

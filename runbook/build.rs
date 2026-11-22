@@ -1,5 +1,6 @@
 //! Lists the files of `ui/web/` for `src/ui_embed.rs`: the list is made from the directory at every
-//! build, so a file that is added there is embedded and the build is redone when one changes.
+//! build, so a file that is added there is embedded and the build is redone when one changes. A
+//! symbolic link in the directory, to a file or to a directory, fails the build and names the link.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,9 @@ fn walk(dir: &Path, base: &Path, out: &mut Vec<(String, PathBuf)>) {
         // an editor's swap file or a dot file is not part of the UI
         if name.starts_with('.') {
             continue;
+        }
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+            panic!("{} is a symbolic link: the UI is compiled into the binary from files and directories of ui/web/ only, so a link could pull a file from outside it", path.display());
         }
         if path.is_dir() {
             walk(&path, base, out);

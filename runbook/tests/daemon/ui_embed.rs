@@ -92,12 +92,10 @@ fn the_embedded_list_is_the_directory_and_the_committed_files() {
     let embedded: Vec<String> = ui_embed::paths().iter().map(|p| p.to_string()).collect();
     let disk: Vec<String> = files_on_disk().into_iter().map(|(p, _)| p).collect();
     assert_eq!(embedded, disk, "a file of ui/web/ is not embedded, or an embedded file is gone");
-    // nothing but what git knows (tracked, or not yet added and not ignored): on a clean checkout, the committed files
+    // the tracked files only: an untracked file in ui/web/ would be compiled into a binary that no commit holds
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let Ok(out) = Command::new("git").args(["ls-files", "--cached", "--others", "--exclude-standard", "ui/web"]).current_dir(root).output() else { return };
-    if !out.status.success() {
-        return;
-    }
+    let out = Command::new("git").args(["ls-files", "ui/web"]).current_dir(root).output().expect("git runs");
+    assert!(out.status.success(), "git ls-files ui/web failed");
     let mut tracked: Vec<String> = String::from_utf8(out.stdout).unwrap().lines().map(|l| l.strip_prefix("ui/web/").unwrap().to_string()).collect();
     tracked.sort();
     assert_eq!(embedded, tracked, "the embedded set is the committed files of ui/web/, nothing else");

@@ -114,10 +114,10 @@ export function daemonView(src) {
   if (!daemon || !src?.daemonRun) return null;
   const id = src.daemonRun.run_id;
   const list = [...(events.get(id) || [])].reverse();
-  const rows = list.map((e) => `<div class="fd-row" data-key="ev:${e.position}" data-run="${esc(e.run_id)}" data-sequence="${e.sequence}">`
+  const rows = list.map((e) => { const position = Number(e.position), sequence = Number(e.sequence); return `<div class="fd-row" data-key="ev:${position}" data-run="${esc(e.run_id)}" data-sequence="${sequence}">`
     + `<div class="fd-1"><span class="fd-s">${esc(e.kind)}</span></div>`
     + (short(e.record) ? `<div class="fd-m">${esc(short(e.record))}</div>` : '')
-    + `<div class="fd-2"><span class="fd-c">event ${e.sequence}</span><span class="fd-t" title="${esc(e.at)}">${esc(when(e.at))}</span></div></div>`).join('');
+    + `<div class="fd-2"><span class="fd-c">event ${sequence}</span><span class="fd-t" title="${esc(e.at)}">${esc(when(e.at))}</span></div></div>`; }).join('');
   return {
     feed: `<div class="fd-h" data-key="fdh"><span class="fd-title">Run events</span><span class="muted">${list.length} from the daemon, newest first</span></div>`
       + `<div class="fd-list" data-key="fdl" tabindex="0" role="region" aria-label="Run events" data-run="${esc(id)}">${rows}</div>`,
