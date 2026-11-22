@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:ui-embedded-in-the-binary
 kind: story
-status: proposed
+status: active
 title: UI embedded in the binary and served beside the API
 summary: runbook serve --ui serves the embedded ui/web files from the daemon API and SSE; the Node server is removed.
 tags:
@@ -33,9 +33,10 @@ scope:
   path: ui/vclock.mjs
 - confidence: cited
   path: ui/web
-revision: 6
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:34Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
+- {from: "proposed", to: "active", at: "2026-11-22T10:13:13Z", actor: "human:operator", revision: 7, executor: "agent:onebin-u-ui-embed", correlation: "operator-standing-acceptance-2026-11-22"}
 ---
 # Story: ui-embedded-in-the-binary
 
@@ -200,3 +201,35 @@ The full step took 114 s once at lower load (3 failures, all in `view.spec.mjs`,
 `source.js` that logged a 404 in the console; replaced by the `Server-Timing` header) and 120 to 540 s at load
 above 130: the step's 120 s budget is not met by this change or any other while the pool is loaded like that;
 a measurement of the step needs a quiet host.
+
+### What the security review changed
+
+An independent review of slice 1 wrote 12 tests (`runbook/tests/daemon/ui_embed_review.rs`, committed red:
+6 of 12 failed) and six findings. Each is fixed on `impl/daemon-ui-embed` and the 12 tests are green. Where
+the text above says otherwise, this section is the current state.
+
+- F1, one guard for every route (`runbook/src/api/auth.rs`; commands, views, event streams, `/mcp`, UI files,
+  `/ui/login`; with and without `--ui`, with and without a token). The order is Host, Origin, token,
+  content type. On a loopback listener `Host` must be `127.0.0.1:<port>`, `localhost:<port>`, `[::1]:<port>` or
+  the listen address, else 403 before any other work; a non-loopback listener (token required) has no Host
+  check. An `Origin` that is not `http://` and the request's own host and port is 403 (`null` too); no
+  `Origin` passes. `POST /daemon/commands/<name>` and `POST /mcp` take `application/json` only, else 415. The
+  bodies are constant and name no header value. The MCP endpoint's own Origin check is gone: the guard does
+  it. `api::guarded` is gone: the extra routes are merged before the one guard layer (`api::serve_all`).
+  Proof: `ui_guard.rs` (4 route sets of 6 routes each, the Host forms, a non-loopback listener, 415, the
+  cross-site `text/plain` post) and the review file.
+- 401, 403 and 415 are in the document (`docs/daemon-api.md`) only, not in the specification
+  (`ess/domains/daemon.yaml`, the generated OpenAPI): 401 never was, so 403 and 415 are not added. The
+  OpenAPI's own 403 ("not granted", with an `actor`) is another answer that this daemon never sends. No
+  regeneration was needed.
+- F2, the cookie holds `hex(SHA-256("runbook-ui-read/1" 0x00 token))`, compared in constant time for GET
+  and HEAD only; it is refused as a bearer token.
+- F3, `/ui/login` is a route behind the same guard: any method but POST without the token is 401. The POST
+  carries its token in its body, so the guard lets it through (after Host and Origin) and the login checks it.
+- F4, `docs/daemon-api.md` says that the cookie has no `Secure` (plain http only) and that a login over a
+  non-loopback address sends the token in clear: the page is for loopback or a tunnel.
+- F5, `runbook/build.rs` fails the build on a symbolic link (file or directory) and names it; the embedded
+  list test compares with `git ls-files ui/web` (tracked files only).
+- F6, `ui/web/source.js` passes `position` and `sequence` through `Number()` before they enter markup.
+- The daemon enforces no minimum token length: `load_token` in `runbook/src/api/auth.rs` refuses an empty
+  token only. Not changed.
