@@ -8,7 +8,7 @@ summary: ess verify conform synthesize reports 0 refusals for the domain sdc.dae
 scope:
 - confidence: cited
   path: ess
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T03:16:36Z", actor: "human:operator", revision: 3, correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -71,10 +71,10 @@ Synthesis:
   850 s in the queue. A second run with a named limit of 3600 s was cancelled before it started, on the
   word of the ess session: the time grows about N^3.2 to N^3.7 with the commands that move one entity,
   the outcomes per command, the row width and the actor attributes, no option bounds it and
-  `--component` does not cut it; the fix is ess 0.97.2. Alone, the domain `sdc.decision` was not
+  `--component` does not cut it; the fix is ess 0.97.3. Alone, the domain `sdc.decision` was not
   finished by a 110 s probe.
 - So no synthesized suite of the current sources is committed. The open step, with its command, when
-  ess 0.97.2 is published: `task ess-suite:record` in the background (it names `slot --timeout 30m`),
+  ess 0.97.3 is published: `task ess-suite:record` in the background (it names `slot --timeout 30m`),
   commit `ess/generated/conformance/suite.json` and `DIGEST`, wire `check:ess-suite:synthesized` into
   `check:ess-generated`, run the crate test against it (`CONFORMANCE_SUITE` for a trial), and put its
   numbers into `GATE` in `runbook/tests/daemon/conformance.rs`.
@@ -119,7 +119,7 @@ and `session-closed`; `WithdrawDecision` `no-request`. Together 18 of 40 passed 
 Left, the 22 of 40: the refusals no suite exercises (`wrong-state` of `StartRun`,
 `FailRunStart`, `WaitOnDecision`, `ResumeRun`, `EndRun`; `no-daemon`, `intake-too-large` of `SubmitRun`;
 `already-ended` of `CancelRun`, and the like) and the ones behind the two differences above. The
-synthesis of ess 0.97.2 is to say which of them it witnesses.
+synthesis of ess 0.97.3 is to say which of them it witnesses.
 
 What a green run cannot read: the grants (`CloseSession` and `SubmitRun` `grant/denied`: the daemon
 authenticates no actor, so the scenarios are skipped) and the exact instants (`submitted_at`,
@@ -138,7 +138,7 @@ first row turned `daemon-decision-is-answered-and-the-run-resumes`,
 
 The design owner decided that the specification follows the daemon in the two differences part C3b
 found. Branch `impl/daemon-spec-matches-daemon` from `57101503`. ESS 0.97.1; the synthesized suite
-was not run (known defect, fixed in 0.97.2).
+was not run (known defect, fixed in 0.97.3).
 
 Counts, before and after the change. Against the daemon (the crate's conformance test): 12 scenarios,
 10 executed, 4 passed, 6 failed, 2 skipped; after: 10 executed, 10 passed, 0 failed, 2 skipped,
@@ -199,3 +199,23 @@ Red proof (not committed): `cancel_run` without its withdrawal loop turned `daem
 (`"sdc.daemon.WithdrawDecision" answered withdrawn and not not-open`) and
 `daemon-an-answer-is-judged-by-its-request-before-its-run` (`answered run-not-waiting and not
 withdrawn`) red: 8 passed, 2 failed.
+
+## Part C5: ess 0.97.3 makes the synthesized suite (2026-11-22)
+
+`ess/ess-inputs.yaml` pins `requires: ess 0.97.3`; the tasks run inside `ess/`, where the dispatcher
+(0.97.1 on `PATH`, unchanged) switches to the pin. `ess verify conform synthesize` with 0.97.3: exit 0,
+31 s in the pool; 114 scenarios (15 authored, 33 of `sdc.daemon`, 81 of the rest) and 86 refusals:
+`ESS-SYNTH-004` 62, `ESS-SYNTH-001` 15, `ESS-SYNTH-003` 2, `ESS-SYNTH-005` 2, `ESS-SYNTH-013` 2,
+`ESS-SYNTH-014` 2, `ESS-SYNTH-025` 1. The outcome of this story, 0 refusals, is not met. The suite
+(3,055,040 bytes) and its `DIGEST` are committed, `task check:ess-suite:synthesized` is part of
+`task check:ess-generated`, and `task check:ess-suite:slow` synthesizes again and compares bytes
+(exit 0).
+
+The crate's conformance runner on the synthesized suite (`CONFORMANCE_SUITE`, daemon scenarios only):
+33 scenarios, 31 executed, 26 passed, 5 failed, 2 skipped. The five failures are one cause: the
+synthesized `StartDaemon` input carries an invented principal (`principal-27720`) that the daemon
+refuses at start (a principal is `person:<id>` or `agent:<id>`), and the specification's principal type
+states no such rule: `StartDaemon/outcome/already-started`, `SubmitRun/grant/denied`,
+`SubmitRun/outcome/no-session`, `SubmitRun/outcome/session-closed`, `SubmitRun/outcome/submitted`.
+Skipped: `CloseSession/grant/denied` (the daemon authenticates no actor) and the `satisfies` view
+expectation of `ClientLabel/invariant/at/Sessions/client`. `GATE` still holds the authored suite.

@@ -3,9 +3,11 @@
 //! The suite is `ess/generated/conformance/authored.json`: the authored scenarios, compiled by
 //! `ess verify conform author` and committed (`task check:ess-suite` compares it byte for byte,
 //! `task ess-suite:authored` writes it); this test only reads it. The synthesized suite
-//! (`suite.json`, `task ess-suite:record`) is not committed: ess 0.97.1 does not finish it on these
-//! sources, see the story `daemon-synthesized-suite-has-no-refusal`. `CONFORMANCE_SUITE=<file>` runs
-//! any suite document, a synthesized one included, and `CONFORMANCE_REPORT=<file>` writes the verdicts. `ess verify conform run --target process` could drive the same suite through an
+//! (`suite.json`, `task ess-suite:record`, ess 0.97.3) is committed beside it with a digest of its
+//! sources (`task check:ess-suite:synthesized`); the gate below does not read it, see the story
+//! `daemon-synthesized-suite-has-no-refusal`. `CONFORMANCE_SUITE=<file> CONFORMANCE_ONLY=sdc.daemon`
+//! runs any suite document, the synthesized one included, and prints its counts without the gate;
+//! `CONFORMANCE_REPORT=<file>` writes the verdicts. `ess verify conform run --target process` could drive the same suite through an
 //! adapter process, but it needs an `ess` on the path and a second program; this module is the runner
 //! instead, in the crate's one test binary, and reads the suite document step by step.
 //!

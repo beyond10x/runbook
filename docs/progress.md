@@ -22,7 +22,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.2.0](#020) | release | 2026-11-21 | `6cde564` | no experiment yet | no run | - | - |
 | [0.2.1](#021) | release | 2026-11-21 | `99f5617` | no experiment yet | no run | - | - |
 | [0.3.0](#030) | release | 2026-11-22 | `ae7a697` | no experiment yet | no run | - | - |
-| [0.3.1](#031) | release | 2026-11-22 | `ebea58d` | no experiment yet | no run | - | - |
+| [0.3.1](#031) | release | 2026-11-22 | `ebea58d` | `release-0.3.1` | 7 of 9 | not observed | haiku 1 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
@@ -404,12 +404,31 @@ What changed:
 | `42cb7ba` | the ESS domain sdc.daemon and its generated API; the daemon itself is not built | no run metric affected |
 | `a3e48ca` | the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned | no run metric affected |
 
-Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+Tested by, primary metric and verdict:
+
+- [`release-0.3.1`](../experiments/release-0.3.1/report.md): no hypothesis, so no primary metric, no before and after, and verdict **descriptive**.
+
+Clean passes of ended runs, all settings: **7 of 9** (`release-0.3.1`); rate: 78 %.
+
+Conformance of the delivered products against their own run's specification (`sdc-conform observe`, `docs/conformance.md`): not observed on any of the 9 ended runs.
+
+| setting | experiment | variant | clean passes of ended runs | rate | cost of a clean pass, USD | wall time of a clean pass, s | runs (clean passes in bold) |
+|---|---|---|---|---|---|---|---|
+| All Haiku | `release-0.3.1` | haiku | 1 of 3 | 33 % | 1.22 [1.22, 1.22] (1) | 2692 [2692, 2692] (1) | release-0.3.1.haiku.1 (closed: operating), **release-0.3.1.haiku.2**, release-0.3.1.haiku.3 (stopped: writer_spent in IDEA-1.list.spec) |
+| Sonnet work, Haiku decider | `release-0.3.1` | mixed | 3 of 3 | 100 % | 2.54 [2.29, 2.94] (3) | 1579 [1574, 1790] (3) | **release-0.3.1.mixed.1**, **release-0.3.1.mixed.2**, **release-0.3.1.mixed.3** |
+| Sonnet work, Opus decider | `release-0.3.1` | strong | 3 of 3 | 100 % | 5.48 [3.47, 6.60] (3) | 1164 [710, 1432] (3) | **release-0.3.1.strong.1**, **release-0.3.1.strong.2**, **release-0.3.1.strong.3** |
 
 Limits of this measurement:
 
-- No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.
+- The baseline on this tree is release-0.3.1 (three runs per setting, 26.48 USD in all): all nine runs ended on 2026-11-22; clean passes strong 3 of 3, mixed 3 of 3, haiku 1 of 3; haiku.1 closed without a clean pass and haiku.3 stopped with writer_spent in IDEA-1.list.spec. The record is descriptive and decides nothing; its report makes no comparison with release-0.1.2 (strong 3 of 3, mixed 2 of 3, haiku 2 of 3 clean).
 - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
+- `release-0.3.1`, known confound `unstick`: run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick, as in release-0.1.2. An unstuck run is not a clean pass.
+- `release-0.3.1`, known confound `canon`: release-0.1.2 used the canon binary of the canon checkout at run time; 0.3.1 pins Canon 0.10.0 (driver/canon-pin.json) and every script refuses another version, so the two series differ in the Canon version.
+- `release-0.3.1`, known confound `ess`: sdc-tool.sh runs ess 0.96.0 whatever ess is on PATH (docs/releases/0.3.0.md); release-0.1.2 used the installed ess.
+- `release-0.3.1`, known confound `instructions`: what a model call is told moved from code to files under instructions/ (622819b) with 40 golden prompts held byte for byte; its effect is unmeasured (experiments/releases.yaml).
+- `release-0.3.1`, known confound `launcher`: both series are started by sdc-experiment run, with experiment.json; the run directory and the build of the tree are made by the tool.
+- `release-0.3.1`, known confound `switches`: SDC_IMPLEMENT_MODE, SDC_RULE_APPROVALS, SDC_REVIEW_MODE and SDC_IMPLEMENT_COVERAGE are set in `fixed` to their defaults (session, off, session, off), so run-settings.jsonl records them and none of the four is on; no 0.3.1 run measures a switch.
+- `release-0.3.1`, known confound `pool-wait`: the wait for a slot of the shared build pool is bounded and reported apart in 0.3.1 (exit 69 repeated, then pool_wait_spent; exit 70, run_over_time), which release-0.1.2 did not have; a run of 0.3.1 that waits in the pool ends differently from a run of 0.1.2 that waited, and the queue of the host differs between the two series.
 
 ## 0.4.0
 
@@ -451,7 +470,6 @@ Records of other inputs, of settings across trees, and planned ones. Inconclusiv
 | [`parity-loom-strong-2`](../experiments/parity-loom-strong-2/report.md) | prospective | ee6b50b | Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited. | - | strong 0 of 3 | - | descriptive |
 | [`parity-loom-strong-3`](../experiments/parity-loom-strong-3/report.md) | prospective | e7dfa4b | Registered hypothesis, written before the runs: with the decider's answers declared in bindings/tools/answers.yaml (scope.answer, amend.upstream), the runs through Loom get past scope.answer, where all three runs of parity-loom-strong-2 stopped (decider_cannot_decide in IDEA-1.intake), and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). What counts against it: a run that stops at a decision the answers file declares, or an end outside the tolerance. It is the evaluation run of that story. This record follows parity-loom-strong-2, which stays as the evidence of its three stops and is not edited. | - | strong 0 of 3 | - | descriptive |
 | [`release-0.3.0`](../experiments/release-0.3.0/report.md) | prospective | ae7a697 | Baseline of release 0.3.0, and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 of 3; mixed 0 of 3; haiku 0 of 2 | - | descriptive |
-| [`release-0.3.1`](../experiments/release-0.3.1/report.md) | prospective | ebea58d | Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults. | - | strong 0 ended of 0; mixed 0 ended of 0; haiku 0 ended of 0 | - | planned, no run yet |
 | [`review-haiku-replay`](../experiments/review-haiku-replay/report.md) | prospective | 72a3eef | Whether the review class can move from Sonnet to Haiku (0.75 to about 0.04 USD per strong run) without changing a review decision, tested on recorded inputs before any full run. | - | haiku-review 0 ended of 3 | - | planned, no run yet |
 | [`review-minimal-facts`](../experiments/review-minimal-facts/report.md) | prospective | 9152866 | Whether the review keeps its decisions when the program gives it the changed files, the story's requirements and commands and the test summary instead of the whole tree and the diff text, at a third of the input. | - | minimal-facts 0 ended of 0 | - | planned, no run yet |
 | [`small-idea-1`](../experiments/small-idea-1/report.md) | retrospective | acd6f12 | Run a deliberately small idea from idea to close with no person, to see whether the loops of the to-do runs come from the idea's size. | - | haiku 0 of 1; sonnet 0 of 1 | - | descriptive |

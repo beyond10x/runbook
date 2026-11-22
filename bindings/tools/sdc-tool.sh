@@ -73,14 +73,16 @@ case $1 in
       trap 'rm -f "$SDC_POOL_LEDGER"' EXIT
     fi ;;
 esac
-# The ess release every tool here runs: 0.96.0, the release the committed recordings, records and
-# experiment runs were made with. Since 2026-11-21 the `ess` on PATH can be a version dispatcher
-# (0.97.1) that runs itself in a case tree, where no `ess-inputs.yaml` pins a release; its output
+# The ess release every tool here runs: 0.97.3, the release `driver/ess-pin.json` pins (0.96.0 until
+# 2026-11-22; the committed recordings, records and experiment runs before that were made with
+# 0.96.0). Since 2026-11-21 the `ess` on PATH can be a version dispatcher
+# (0.97.1 and later, 0.97.3 included) that runs itself in a case tree, where no `ess-inputs.yaml`
+# pins a release; its output
 # differs (the conformance line names the ess version, and `--strict-requires` refuses a spec that
 # requires an older one), so in/tests.txt and the gates would depend on what is installed.
 # ESS_TOOLCHAIN names the release to the dispatcher (a caller's value wins) and ESS_TOOLCHAIN_QUIET
 # keeps its "delegating" note out of the logs; a plain ess binary ignores both.
-export ESS_TOOLCHAIN=${ESS_TOOLCHAIN:-0.96.0} ESS_TOOLCHAIN_QUIET=${ESS_TOOLCHAIN_QUIET:-1}
+export ESS_TOOLCHAIN=${ESS_TOOLCHAIN:-0.97.3} ESS_TOOLCHAIN_QUIET=${ESS_TOOLCHAIN_QUIET:-1}
 
 # Exit 0 when every line of stdin is "true".
 all_true() { ! grep -qv '^true$'; }
@@ -233,8 +235,8 @@ recorded() {
 # no implementation can be held to (release-0.1.2.mixed.1: 8 unsupported scenarios, "binding
 # command has an unmet outcome obligation", first met at a story's tests.run, where only the
 # implementing writer is sent back). The list of those scenarios, with ESS's reason, ends the
-# output: the writer sent back (spec.author) reads the last lines of the check's log. ess 0.96.0
-# gives the per-scenario detail with `--format json` (ess-conformance-run/2). An ess that writes
+# output: the writer sent back (spec.author) reads the last lines of the check's log. ess 0.96.0 and later
+# give the per-scenario detail with `--format json` (ess-conformance-run/2). An ess that writes
 # no readable result is a failed check, as before (exit 1).  spec_conform <suite path>
 spec_conform() {
   local suite=$1 out rc json
@@ -403,7 +405,7 @@ conform-run)
   # $2: the implementation tree (impl for a story, release for a release). The specification's
   # suite runs against ESS's built-in `billing` reference implementation when the spec is ESS's
   # billing example, else against ESS's interpreter of the spec (which checks the spec, not the
-  # implementation: ESS 0.96.0 has no target that runs an outside program). Any other spec also
+  # implementation: this tool does not start the product; ESS 0.97 has `--target process`, which sdc-conform uses). Any other spec also
   # needs the tree's own `task check` (a Taskfile.yml in the tree) to pass, run through slot.
   rm -f ".sdc/report-${SDC_ACTION:-conform-run}.json"
   # Build output goes outside the tree (an observation writes nothing into it) and is removed.
