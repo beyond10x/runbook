@@ -22,7 +22,7 @@
   },
   "idea.dissect": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "idea.dissect"
     ],
     "llm": {
@@ -61,7 +61,7 @@
   },
   "questions.write": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "questions.write"
     ],
     "llm": {
@@ -84,7 +84,7 @@
   },
   "questions.answer": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "questions.answer"
     ],
     "llm": {
@@ -135,7 +135,7 @@
   },
   "requirements.normalise": {
     "argv": [
-      "{dir}/../../../bindings/tools/llm-node.sh",
+      "sdc-node",
       "requirements.normalise"
     ],
     "llm": {

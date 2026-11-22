@@ -182,7 +182,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh idea.dissect",
+        "program": "sdc-node idea.dissect",
         "retry_when": [
           "dissection_shape"
         ],
@@ -235,7 +235,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh questions.answer",
+        "program": "sdc-node questions.answer",
         "timeout_s": 900
       },
       "name": "questions.answer",
@@ -282,7 +282,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh questions.write",
+        "program": "sdc-node questions.write",
         "retry_when": [
           "questions_shape"
         ],
@@ -330,7 +330,7 @@
         "kind": "model",
         "max_runs": 3,
         "node_class": "other",
-        "program": "llm-node.sh requirements.normalise",
+        "program": "sdc-node requirements.normalise",
         "retry_when": [
           "requirements_shape"
         ],

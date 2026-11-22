@@ -66,8 +66,16 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
         elif $j[0][$a] == null then empty
         elif $y != $d then "\nbindings/'"$name"'.yaml \($a): --instructions \($y | tojson) differs from llm.instructions \($d | tojson) of '"$name"'.bindings.json"
         else empty end' <<< "$acts")
+    # The program and node a run starts are named twice as well: the two leading members of `argv`
+    # in the YAML and in the JSON file (its `{dir}/../../../bindings/` prefix written as the YAML's
+    # path below bindings/) are equal for every action both bind to a program.
+    findings+=$(jq -r --slurpfile j "$b" '
+      def norm: if type == "string" then ltrimstr("{dir}/../../../bindings/") else . end;
+      .[] | .action as $a | select(.executor.argv != null and $j[0][$a].argv != null)
+      | (.executor.argv[:2]) as $y | ($j[0][$a].argv[:2] | map(norm)) as $d
+      | if $y != $d then "\nbindings/'"$name"'.yaml \($a): argv starts \($y | tojson), driver/examples/sdc/'"$name"'.bindings.json starts \($d | tojson)" else empty end' <<< "$acts")
     while IFS= read -r p; do
-      [[ $p =~ ^instructions/.+\.md$ && ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
+      [[ $p =~ ^instructions/.+\.md$&& ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
         findings+=$'\n'"$name: instruction file $p is not an existing instructions/<...>.md without .."
     done < <(
       jq -r '(.[] | (.executor.argv // []) as $v | [range(0; ($v | length) - 1) | select($v[.] == "--instructions") | $v[. + 1]][]

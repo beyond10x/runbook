@@ -63,7 +63,7 @@
         "max_runs": 3,
         "node_class": "implement",
         "producer": "llm-node",
-        "program": "llm-node.sh change.implement",
+        "program": "sdc-node change.implement",
         "results": {
           "0": null
         },
@@ -167,7 +167,7 @@
           "search"
         ],
         "producer": "llm-review",
-        "program": "llm-node.sh change.review",
+        "program": "sdc-node change.review",
         "results": {
           "0": "approved",
           "1": "rejected"
