@@ -1178,7 +1178,7 @@ What exists now, for the steps that call `slot` through the tool (`conform-run`,
 - One bound per step. The outermost call opens a ledger (`.sdc/pool-wait`, milliseconds waited so
   far); both jobs of `tests.run` draw from the same bound.
 - The run is the pool's (slot 0.22: the daemon ends a job after 10 minutes of run time; queue wait
-  does not count). A command that needs longer names `slot --timeout <t>` (at most 1 hour; none of
+  does not count). A command that needs longer names `slot --timeout <t>` (at most 30 minutes; none of
   these calls does; a `timeout` command in front extends nothing). A job the pool ends at its limit
   exits 124, and the tool exits **70**, "ran over its time": neither red tests nor a pool wait. The
   driver takes 70 as a program error too (no evidence, no run counted, no model call) but does not
