@@ -24,6 +24,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.3.0](#030) | release | 2026-11-22 | `ae7a697` | no experiment yet | no run | - | - |
 | [0.3.1](#031) | release | 2026-11-22 | `ebea58d` | `release-0.3.1` | 7 of 9 | not observed | haiku 1 of 3; mixed 3 of 3; strong 3 of 3 |
 | [0.4.0](#040) | release | 2026-11-22 | `5955f82` | no experiment yet | no run | - | - |
+| [0.4.1](#041) | release | 2026-11-22 | `da86a8f` | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -448,6 +449,27 @@ Limits of this measurement:
 
 - No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-4-0), not on the standing rule of docs/releasing.md.
 - The full set of finding cycles was not run on this tree, and the engine that runs a case on Loom inside the daemon is not in it.
+
+## 0.4.1
+
+Release, 2026-11-22. Tree: `da86a8f` (tag 0.4.1 at main da86a8f: 0.4.0 (5955f82) with the merges of the loom-run fix, ESS 0.97.3, the reference check, the two evaluation tools reading a Loom run, the UI test children and the preparation).
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `69f07f5` | runbook loom-run, a model step that ended before it started any adapter costs nothing and the run goes on | no run metric affected |
+| `0a3b8eb` | the product checks of a run and the ESS specification run ESS 0.97.3 (was 0.96.0), the daemon's synthesized conformance suite is committed | no run metric affected |
+| `619e2dd` | sdc-check-unreferenced, a check for tracked files that nothing refers to | no run metric affected |
+| `5ba5aa1` | sdc-finding-kpis and sdc-run-timeline read the run directory of runbook loom-run | no run metric affected |
+| `224c3c0` | every UI test child ends with the process that started it | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree and the release claims no measured change; it rests on the operator's order (approval-record:release-0-4-1), not on the standing rule of docs/releasing.md.
+- A comparison of runs across the move from ESS 0.96.0 to 0.97.3 has to say so; the engine that runs a case on Loom inside the daemon is not in this release.
 
 ## Experiments in no entry
 
