@@ -309,7 +309,10 @@ fn hash_inputs(dir: &Path, roots: &[String]) -> BTreeMap<String, String> {
 /// before the label was masked: the digest it holds is that of its own label, and the mask does not
 /// move to meet it (a mask that did would hide a real change). The recording holds digests only, so
 /// the label is proven the only difference when the digest of the text as it is, unmasked, is the
-/// one recorded; otherwise the message says the cause is possible. Both name the fix.
+/// one recorded: only then the message names the label as the cause and the fix. Otherwise the
+/// message states that the file changed and, as its own sentence, that an old recording diverges
+/// here for that reason alone; a changed test at the committed label gives the same mismatch, so it
+/// gives no advice. The recording holds no pack date or version that tells the two apart.
 fn explain_tests_changed(difference: &mut [String], recorded: &Value, tests: &Path, roots: &[String]) {
     let Some(at) = difference.iter().position(|d| d == "in/tests.txt changed") else { return };
     let Ok(text) = fs::read_to_string(tests) else { return };
@@ -320,7 +323,7 @@ fn explain_tests_changed(difference: &mut [String], recorded: &Value, tests: &Pa
     difference[at] = if recorded["inputs"]["in/tests.txt"].as_str() == Some(unmasked.as_str()) {
         "in/tests.txt changed: only the ESS version label of its header line differs from the text this recording was packed with (packed before the label was masked): pack the recording again".to_string()
     } else {
-        "in/tests.txt changed: its header line carries an ESS version label, and a recording packed before the label was masked holds the digest of its own label: if that is the only difference, pack the recording again".to_string()
+        "in/tests.txt changed. A recording packed before the ESS version label of its header line was masked holds the digest of its own label and diverges here for that reason alone.".to_string()
     };
 }
 
@@ -1890,7 +1893,8 @@ mod tests {
         let proven = said(&unmasked);
         assert!(proven[0].contains("only the ESS version label") && proven[0].contains("pack the recording again"), "{proven:?}");
         let possible = said("0000");
-        assert!(possible[0].contains("if that is the only difference") && possible[0].contains("pack the recording again"), "{possible:?}");
+        assert!(possible[0].starts_with("in/tests.txt changed. ") && possible[0].contains("diverges here for that reason alone"), "{possible:?}");
+        assert!(!possible[0].contains("pack the recording again") && !possible[0].contains("only the ESS version label"), "{possible:?}");
         assert_eq!(proven[1], "in/other changed");
         fs::write(&tests, "no header here\n").unwrap();
         assert_eq!(said("0000")[0], "in/tests.txt changed", "no label, no cause named");

@@ -382,9 +382,13 @@ is no directory.
   `in/tests.txt`, below its preamble, and in no other file, prompt or request; written as `<system> v<n> against <implementation> <version> —
   passed`; it is rewritten to the label the committed recording was packed with, `0.97.3`, so the
   recording's digests hold): a new ESS pin does not diverge a recording, a changed test name does.
-  A recording packed by an older `sdc-replay` at another label holds the digest of its own label:
-  it diverges at `in/tests.txt` with a message that names the label as the cause, and it is packed
-  again (the mask is not widened to meet it).
+  A recording packed by an older `sdc-replay` at another label holds the digest of its own label
+  and diverges at `in/tests.txt` (the mask is not widened to meet it). The divergence message names
+  the label as the cause, and says to pack the recording again, only when that is proven: the
+  digest of the current text, unmasked, is the recorded one. Otherwise it says that `in/tests.txt`
+  changed and, as its own sentence, that a recording packed before the label was masked diverges
+  there for that reason alone; the recording holds digests only, so it cannot tell that case from a
+  changed test at the committed label, and the message gives no advice.
 - At the end `sdc-replay seal` writes the counts (`replay.calls`: recorded, reused, live, diverged,
   paid, prompt_changed, faults) into `status.json` or `run-stopped.json`, the virtual seconds into
   `rounds.jsonl` and each call's mode into `llm-calls.jsonl`.

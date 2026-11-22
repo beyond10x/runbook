@@ -288,14 +288,16 @@ fn the_header_of_the_log_is_masked_below_the_preamble_the_real_log_has() {
 }
 
 /// F1: a recording packed by the code before the mask, at another label (0.97.1), holds the digest of
-/// its own text. The mask is not widened to meet it: the call diverges at `in/tests.txt` and the
-/// message names the label as the cause and the fix (pack the recording again).
+/// its own text. The mask is not widened to meet it: the call diverges at `in/tests.txt`. The digests
+/// cannot prove the label is the cause, so the message states the file changed and, as its own
+/// sentence, that an old recording diverges here for that reason alone; it gives no advice.
 #[test]
-fn a_recording_packed_at_another_label_than_the_mask_diverges_and_says_to_pack_it_again() {
+fn a_recording_packed_at_another_label_than_the_mask_diverges_and_the_message_names_the_old_label_case() {
     let header_0971 = HEADER_0973.replace("0.97.3", "0.97.1");
     let (mode, said) = replayed("old-pack", &[("tests.txt", &header_0971)], &[("tests.txt", HEADER_0973)]);
     assert_eq!(mode, "diverged", "{said}");
-    assert!(said.contains("in/tests.txt changed") && said.contains("ESS version label") && said.contains("pack the recording again"), "{said}");
+    assert!(said.contains("in/tests.txt changed. A recording packed before the ESS version label"), "{said}");
+    assert!(said.contains("diverges here for that reason alone") && !said.contains("pack the recording again"), "{said}");
 }
 
 /// The same, where the recording was packed at the label the pin prints now (0.98.0): the digest of
@@ -443,7 +445,8 @@ fn the_message_says_the_label_is_the_only_difference_when_the_unmasked_digest_is
 fn the_message_names_the_label_as_a_possible_cause_when_it_cannot_prove_it() {
     let (mode, said) = replayed("possible", &[("tests.txt", &preamble_log("0.97.1", "1.0.0"))], &[("tests.txt", &preamble_log("0.97.4", "1.0.0"))]);
     assert_eq!(mode, "diverged", "{said}");
-    assert!(said.contains("if that is the only difference") && !said.contains("only the ESS version label"), "{said}");
+    assert!(said.contains("diverges here for that reason alone") && !said.contains("only the ESS version label"), "{said}");
+    assert!(!said.contains("pack the recording again"), "{said}");
 }
 
 /// A changed test name at the committed label has nothing to do with the label: the message must
