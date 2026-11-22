@@ -1,7 +1,7 @@
 //! Reads the generated OpenAPI document of the daemon, the HTTP contract, at test time.
 
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -11,6 +11,17 @@ pub fn doc() -> &'static Value {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../ess/generated/openapi/openapi/runbookd.yaml");
         serde_yaml::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
     })
+}
+
+/// Every (METHOD, path) the document has.
+pub fn routes() -> BTreeSet<(String, String)> {
+    let mut out = BTreeSet::new();
+    for (path, item) in doc()["paths"].as_object().unwrap() {
+        for method in item.as_object().unwrap().keys() {
+            out.insert((method.to_uppercase(), path.clone()));
+        }
+    }
+    out
 }
 
 fn pascal(kebab: &str) -> String {
@@ -94,3 +105,15 @@ pub fn check_response(command: &str, outcome: &str, body: &Value) {
     }
 }
 
+/// One row of a view is the document's row schema.
+pub fn check_row(view_schema: &str, row: &Value) {
+    let s = schema(&format!("sdc.daemon.{view_schema}.Row"));
+    let obj = row.as_object().unwrap();
+    for r in s["required"].as_array().into_iter().flatten() {
+        assert!(obj.contains_key(r.as_str().unwrap()), "{view_schema}: missing {r} in {row}");
+    }
+    let props = s["properties"].as_object().unwrap();
+    for k in obj.keys() {
+        assert!(props.contains_key(k), "{view_schema}: the document has no member {k}: {row}");
+    }
+}
