@@ -297,10 +297,18 @@ const EFFECTS: [&str; 3] = ["read", "write", "external"];
 /// The forms of a `provided_by` value: who holds the capability in a run of `runbook run`.
 const PROVIDED_BY_FORMS: [&str; 3] = ["loom: ", "runner: ", "absent: "];
 
-/// True when `text` holds a `file:line` reference: a token `path:N` or `path:N-M`.
+/// True when `text` holds a `file:line` reference: a token `path:N` or `path:N-M` whose path is
+/// relative (it does not start with `/` and holds no `://`) and whose last part has a file
+/// extension (`crates/x/src/y.rs:740`, `retry.rs:4-8`). A web address with a port is none.
 fn has_file_line(text: &str) -> bool {
+    let is_file = |f: &str| {
+        let name = f.rsplit('/').next().unwrap_or("");
+        !f.starts_with('/') && !f.contains("://") && name.rsplit_once('.').is_some_and(|(stem, ext)| !stem.is_empty() && !ext.is_empty())
+    };
+    let is_line = |n: &str| n.split('-').count() <= 2 && n.split('-').all(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
     text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')')
-        .any(|t| t.rsplit_once(':').is_some_and(|(f, n)| !f.is_empty() && !n.is_empty() && n.split('-').count() <= 2 && n.split('-').all(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))))
+        .map(|t| t.trim_end_matches('.'))
+        .any(|t| t.rsplit_once(':').is_some_and(|(f, n)| is_file(f) && is_line(n)))
 }
 
 /// Every reason the `runtime` block cannot be read as a whole, one string each (empty when it can
@@ -314,7 +322,8 @@ fn has_file_line(text: &str) -> bool {
 ///   `external`; every other member must be a boolean;
 /// - a `provided_by` value that is not `loom: <what>, <file:line>`, `runner: <what>` or
 ///   `absent: <what>`: an unknown prefix, nothing after the prefix, or a `loom:` value without
-///   a `file:line`;
+///   a `file:line` (a relative path with a file extension, a colon and a line or range of lines;
+///   a web address is none);
 /// - a member that contradicts its entry. A flag is `true` when the runtime holds the capability
 ///   (`loom:` or `runner:`) and `false` when it does not (`absent:`), and `capped_effects` is
 ///   non-empty on the same terms. No member can rightly be `false` next to `loom:` or `runner:`:
