@@ -108,7 +108,7 @@ need yq jq
 # job still queued when the step's bound (SDC_POOL_WAIT seconds, less what its earlier pool commands
 # waited, kept in SDC_POOL_LEDGER) is spent is cancelled and the function returns 69. Once the job
 # started, the run is the pool's: its limit is 10 minutes, or the `slot --timeout <t>` a command names (at
-# most 1 hour; none of these calls names one). A job the pool ends at that limit (slot 0.22: exit 124)
+# most 30 minutes; none of these calls names one). A job the pool ends at that limit (slot 0.22: exit 124)
 # makes the function return 70, "ran over its time": not red tests, not a pool wait. A
 # job cancelled then (exit 130) is the command's result, not 69. Without a bound it is plain
 # `slot`. SDC_POOL_POLL (seconds, default 2) is the longest pause between two looks at the pool.
