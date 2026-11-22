@@ -359,6 +359,45 @@ came from the launcher script of the measurement, not from the runner: its own s
 No `sdc-drive`, `run-trial.sh` or `run-finding-cycles.sh` was seen, and no `claude` or `metaharness`.
 The limit is that of the sampler: a process that lives under half a second can be missed.
 
+## Identical comparison on Loom `5af3f9c2` (2026-11-22)
+
+`story:parity-run-on-loom`. The runner moved from `2c0a6f48` to Loom `5af3f9c2` (`b10x-loom 0.58.0`,
+sha256 `074a9e86…`), which prints every decision command so that it runs as printed and records a
+person's result by name (`docs/loom-run.md`, "The decisions"; `docs/loom-run-decisions.md`).
+
+Run 1, the cycle `stub-cycle` through `runbook loom-run` on the new binary: `--confinement local`,
+five scripted approvals with the principal `person:owner`, the stub adapter, no model, a ledger that
+stayed at 0. `loom-run` exit 0 in 81 s. Then `runbook parity summarize --loom-run <dir> --output
+summary-loom.json` and `runbook parity compare --product-digests summary-driver.json
+summary-loom.json`, where `summary-driver.json` is the driver summary of the first equal comparison
+(`parity-run-2/final`):
+
+```
+equal: 8 cases, 69 evidence records, 54 program runs, 5 person steps, 62 product files
+parity: identical
+```
+
+Exit 0. No difference line, so none to place in Loom. The slow lane `task test:loom-real` on the new
+binary (`loom_run::slow::the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run`)
+passed: 199 s of the test, 201 s of the task, on a loaded pool.
+
+Run 2, the same cycle with the first person step rejected: the scripted answer for `context.approve`
+is `approve: false` with reasons, the other answers approve. The runner ran `tree approve --action
+context.approve --result rejected --reasons-file work/.sdc/reasons/001-context.approve.txt` as printed
+(the file holds the decider's text and no path); the decision log records `decision: reject`. Loom sent
+`context.default` back (`retry_when: {context_approval: [rejected]}`) with `LOOM_RETRY_FEEDBACK`, and
+`llm-node.sh` copied the reasons to `.sdc/loom-feedback/<hash>/`. Under the stub adapter it also
+records them as a trailing comment of `context.yaml`, so that the rework is a new revision: before
+that change the stub rewrote the same file, the revision did not move, Loom sent the writer back
+until its `max_runs` of 3 was spent and the tree ended `stuck`. Then `context.check` passed, the
+person approved the new revision and the tree ended `closed: operating`, `delivered` true (70 s). The
+summary reads 8 cases, 71 evidence records, 56 program runs, 6 person steps, 63 product files;
+`compare` against the driver summary prints `parity: different`, as it must: the driver run has no
+rejection, so the rejected person step, the extra program runs and evidence records of the rework
+and the reasons file as a product file are differences. That comparison is no parity claim.
+
+Not covered: a run with a model. The three evaluation runs of the story are the first.
+
 ## What the first real run needs
 
 Each line is something the reader assumes about `loom.tree-status/1` that Loom's code at `1016c251`
