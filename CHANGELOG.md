@@ -14,6 +14,7 @@ bare-version tags (`docs/releasing.md`).
 ### Changed
 
 - `runbook doctor` checks the text layout by name (`bindings/`, `bindings/*.yaml`, `bindings/tools/`, `instructions/`, `views/`, `cycles/` beside the earlier directories) and the four tools at `bindings/tools/`, and cites no line numbers; `runbook --version` prints the repository version (0.3.0, not 0.1.4) and `task release:check` reads `runbook/Cargo.toml` (`story:runbook-command-knows-the-text-layout`).
+- The model instructions of `sdc-reply implement-run` (request mode), `sdc-conform` and `sdc-unstick` are files under `instructions/` (`change.implement.request.*`, `conformance.table*`, `run.unstick*`), read at run time through one renderer with the rules of `llm-node.sh`; the prompts are byte-identical, held by goldens under `instructions/golden/`. `sdc-conform prompt` prints the table node's prompt without a model call (`story:rust-prompts-as-instruction-files`).
 
 ## [0.3.0] - 2026-11-22
 

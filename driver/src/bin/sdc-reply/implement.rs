@@ -24,6 +24,9 @@ use std::process::{Command, Stdio};
 
 use serde_json::{json, Map, Value};
 
+#[path = "../../instructions.rs"]
+#[allow(dead_code)]
+mod instructions;
 use super::{covers, read_data, read_json, reply_schema, review_scope, story_summary, walk};
 
 /// Bytes of file text inlined per request; the rest of the tree is listed by path and size.
@@ -413,31 +416,11 @@ fn spec_facts(ir: &Value, traces: &Value, cov: &[String], mine: &[Value]) -> (Va
     (Value::Object(out), missing)
 }
 
-/// The build rules without a build-constraints file (the session task's own wording).
-const DEFAULT_BUILD: &str = "Rust, edition 2021. Standard library only: no dependencies in Cargo.toml (there is no network). \
-impl/Cargo.toml and code under impl/src/. A service is a daemon binary that serves its web UI and a JSON API with \
-std::net::TcpListener, takes its port and data file as arguments, and can run as several instances side by side; a CLI \
-parses std::env::args.";
-
-const TASK_RULES: &str = "- Keep the domain logic in a library (src/lib.rs) so tests call it directly.
-- Tests: #[test] functions in src (#[cfg(test)] modules) and/or tests/*.rs, covering every command the story covers,
-  including its refusals; they must pass without network access or a running server. At least one test per command;
-  each command's name after its last dot (CreateTask for todo.task.CreateTask) appears in its test function's name
-  (snake_case is fine, for example create_task) or in a comment directly above it. No #[ignore] and no #[should_panic]
-  used to hide a failure.
-- Taskfile.yml: version: '3', with a task `check` that runs `cargo test --locked` (commit a Cargo.lock: with no
-  dependencies it holds only the package itself).
-- README.md: how to run it and how it maps to the specification's commands.";
-
-const FINDINGS_RULE: &str = "If the inputs above leave you an ambiguity (two or more readings), a contradiction (two items
-that cannot both hold, for example the context against a requirement) or a missing decision (something you must decide
-that no input decides), do not decide it silently: put it in `findings`, each with type (ambiguity, contradiction or
-missing_decision), cites (the ids involved: r1, q2, d3, or context.<field>; a contradiction cites both sides), says (one
-sentence), options (2 to 4 short answers), default (the option you would pick, the simplest that fits the idea) and
-scope_changing (true when an option adds or removes a user-visible capability, a kind of user or a component). Then
-still do the task, following each default. A finding listed above with status resolved is a decision already taken:
-follow its `decision`, never raise it again; one with status open waits for its decision: follow its `default`, never
-raise it again. `findings` is [] when there is nothing to report.";
+/// One part of the request-mode instructions: `instructions/change.implement.request.<part>.md`
+/// (docs/driver.md, "Instructions"), filled with `values`.
+fn text(part: &str, values: &[(&str, &str)]) -> Result<String, String> {
+    instructions::render(&format!("instructions/change.implement.request.{part}.md"), values)
+}
 
 /// The node's whole input as one prompt, and a manifest of what went in (sections and bytes,
 /// the files inlined and listed with the rank that put them there).
@@ -465,10 +448,7 @@ pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
     let (spec, missing) = spec_facts(&ir, &traces, &cov, &mine);
     let sel = select_tree(i.tree, &work.join("mainline"), &story_text, i.cap);
 
-    let mut sections: Vec<(&str, String)> = vec![("head", "You are one step (`change.implement`) of a governed software delivery cycle, asked in one request.
-Everything you need is in this message: you have no tools, nothing to read and no command to run. Reply with the JSON
-object of the response schema only. Programs write your files into the product tree and check them afterwards; your
-words decide nothing.\n".to_string())];
+    let mut sections: Vec<(&str, String)> = vec![("head", text("head", &[])? + "\n")];
     let f = fence(&story_text);
     sections.push(("story", format!("## The story `{}` (impl/ serves it)\n\n{f}markdown\n{}\n{f}\n", i.story, story_text.trim_end())));
     let mut r = String::from("## The requirements this story delivers\n\n");
@@ -507,7 +487,7 @@ words decide nothing.\n".to_string())];
             }
             t
         }
-        None => DEFAULT_BUILD.to_string(),
+        None => text("build", &[])?,
     };
     sections.push(("constraints", format!("## Build constraints{}\n\n{constraints}\n",
         if bc.is_some() { " (the run's build-constraints.yaml)" } else { "" })));
@@ -539,41 +519,18 @@ words decide nothing.\n".to_string())];
         sections.push(("feedback", format!("## Why the previous attempt was sent back: fix exactly that\n\n{}\n", fb.trim_end())));
     }
     if let Some(rj) = &i.rejection {
-        let mut x = format!("## Rework\n\nYour previous output was rejected at `{}` (revision {}; rejection {} of at most {}) by {}. Address every \
-reason; change only what a reason asks for. In `note`, write one line per reason: its number, then where you addressed it as \
-<file>:<line> (or <file>:<first>-<last>), then what you changed.\n\n",
-            rj["approval"].as_str().unwrap_or("?"), rj["revision"].as_str().unwrap_or("?"), rj["count"],
-            i.rework_limit.map_or("?".to_string(), |n| n.to_string()), rj["principal"].as_str().unwrap_or("its approver"));
+        let (count, limit) = (rj["count"].to_string(), i.rework_limit.map_or("?".to_string(), |n| n.to_string()));
+        let mut x = text("rework", &[("approval", rj["approval"].as_str().unwrap_or("?")), ("revision", rj["revision"].as_str().unwrap_or("?")),
+            ("count", &count), ("limit", &limit), ("principal", rj["principal"].as_str().unwrap_or("its approver"))])? + "\n\n";
         for (n, reason) in rj["reasons"].as_array().into_iter().flatten().enumerate() {
             x.push_str(&format!("{}. {}\n", n + 1, reason.as_str().unwrap_or("")));
         }
         sections.push(("rejection", x));
     }
-    sections.push(("task", format!("## Task
-
-Implement story `{}` of the specification above in the product tree impl/ (shown above with its current text; extend it,
-keep what earlier stories built).
-- The build constraints above.
-{TASK_RULES}
-You cannot run commands and cannot read anything else: write code that compiles and passes its own tests against exactly
-the files shown.
-
-## Reply
-
-The JSON object of the response schema, nothing else:
-- files: every file you create or change, each {{\"path\", \"content\"}}: path relative to impl/ (for example src/lib.rs),
-  content the file's complete new text. Never a path with `..`, an absolute path, a hidden entry or target/: a program
-  refuses the whole reply.
-- note: one or two sentences on what you built (on a rework: the lines asked for above).
-- findings: {FINDINGS_RULE}
-- remaining: [] as a rule. Only when the files would not fit in one reply: write the files you can, each complete, and
-  list here the paths still to write; you are then asked for exactly those (at most {MAX_CONTINUATIONS} more times), with
-  the files you wrote shown.\n", i.story)));
+    let max_continuations = MAX_CONTINUATIONS.to_string();
+    sections.push(("task", text("task", &[("story", i.story), ("max_continuations", &max_continuations)])? + "\n"));
     if let Some((written, asked)) = &i.continuation {
-        sections.push(("continuation", format!("## Continuation
-
-Your previous reply wrote: {} (shown above with their new text). Write exactly these files now, each complete: {}.
-List in `remaining` any of them that still does not fit.\n", written.join(", "), asked.join(", "))));
+        sections.push(("continuation", text("continuation", &[("written", &written.join(", ")), ("asked", &asked.join(", "))])? + "\n"));
     }
     let prompt = sections.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join("\n");
     let tf = |v: &Vec<TreeFile>| v.iter().map(|f| json!({"path": f.path, "bytes": f.bytes, "why": f.why})).collect::<Vec<_>>();
@@ -725,13 +682,19 @@ pub fn run(a: &RunArgs) -> (u8, String) {
         if exit == 126 || exit == 127 {
             break (exit as u8, format!("request {k}: the adapter could not run (exit {exit})"), None);
         }
+        let said = |part: &str, values: &[(&str, &str)]| text(part, values).map_err(|e| (2, format!("implement_inputs_missing: {e}"), Some("implement_inputs_missing")));
         let checked = if exit != 0 {
-            Err(vec![format!("the request failed (adapter exit {exit}{}): no reply was taken; if the files did not fit in one reply, \
-                write fewer, each complete, and list the rest in `remaining`", resp["subtype"].as_str().map_or(String::new(), |s| format!(", {s}")))])
+            let (code, subtype) = (exit.to_string(), resp["subtype"].as_str().map_or(String::new(), |s| format!(", {s}")));
+            match said("request-failed", &[("exit", &code), ("subtype", &subtype)]) {
+                Ok(why) => Err(vec![why]),
+                Err(stop) => break stop,
+            }
         } else {
             match fs::read(dir.join("structured-output.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
-                None => Err(vec!["no structured reply: reply with the JSON object of the response schema; if the files did not fit in \
-                    one reply, write fewer, each complete, and list the rest in `remaining`".to_string()]),
+                None => match said("no-reply", &[]) {
+                    Ok(why) => Err(vec![why]),
+                    Err(stop) => break stop,
+                },
                 Some(v) => check_reply(&v, asked.as_deref()).and_then(|r| write_files(&tree, &r.files).map(|w| (r, w)).map_err(|e| vec![e])),
             }
         };
@@ -744,7 +707,10 @@ pub fn run(a: &RunArgs) -> (u8, String) {
                 }
                 retries += 1;
                 kind = "retry";
-                prompt = format!("{slot}\n## Your previous reply was refused\n\nThe program check refused it: {why}\nReply again with the whole JSON object, fixing exactly that.\n");
+                match said("retry", &[("why", &why)]) {
+                    Ok(t) => prompt = format!("{slot}\n{t}\n"),
+                    Err(stop) => break stop,
+                }
             }
             Ok((r, w)) => {
                 log.push_str(&format!("{}\n", json!({"request": k, "kind": kind, "valid": true, "files": w, "remaining": r.remaining})));
