@@ -3,6 +3,7 @@ mod core;
 mod decider;
 mod decisions;
 mod fake;
+mod flags;
 mod inproc;
 mod login;
 mod model_call;

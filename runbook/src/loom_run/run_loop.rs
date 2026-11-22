@@ -728,6 +728,7 @@ mod tests {
             cap_micro_usd: 1_000_000,
             max_llm_calls: 100,
             max_wall_seconds: wall,
+            ports: Default::default(),
         }
     }
 

@@ -51,7 +51,7 @@ pub struct RunArgs {
     /// The context directory; the daemon copies it into the run's workspace and needs it under one of its context roots.
     #[arg(long, value_name = "DIR")]
     pub context: Option<PathBuf>,
-    /// A setting of the run; repeatable, each key once.
+    /// A setting of the run, `KEY=VALUE`; repeatable, each key once. With `--detach` it goes to the daemon; in process it is a condition of the replay (`--recorded`).
     #[arg(long = "set", value_name = "KEY=VALUE")]
     pub set: Vec<String>,
     /// Submit the run to the daemon, print its id and return at once.
