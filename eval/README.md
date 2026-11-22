@@ -1,9 +1,10 @@
 # eval/
 
-History. `run.sh`, `run-adversaries.sh`, `adversary.sh` and `reports/` are the record of the
-adversary evaluation of the old driver (`docs/eval-design.md`).
+History. `reports/` and `baseline.json` are the record of the adversary evaluation of the old
+driver (`docs/eval-design.md`).
 
-- The three scripts drive the binary `sdc-drive`. A later change deletes that binary, and they will
-  not run after it.
+- The scripts that made the record (`run.sh`, `run-adversaries.sh`, `adversary.sh`) drove the
+  driver binary and are deleted with it. They are in the git history before the removal of the
+  driver runtime.
 - They are not ported: a port to `runbook test` entries is not done.
-- `reports/` stays as the record.
+- `oracle-spec.sh`, `levels/`, `personas/` and `quality/` stay as they were.
