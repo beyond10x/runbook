@@ -17,7 +17,7 @@ scope:
   path: driver/examples/sdc/tools/sdc-tool.sh
 revision: 4
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T06:32:49Z", actor: "human:timo", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T06:32:49Z", actor: "human:operator", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: unattended-run-records-no-human-actor
 
@@ -28,7 +28,7 @@ A run's planning writes carry the acting principal (`agent:…` or `decider:…`
 ## Context
 
 Trial 3, run `runs/trial-3-haiku-3`, unattended: the draft-to-active moves in the run's own planning
-store record `actor: "human:timo"` although no person acted
+store record `actor: "human:operator"` although no person acted
 (`store/IDEA-1/work/aep/story/sync.md:16`, `store/IDEA-1/work/aep/epic/app.md:10`). They come from
 `plan.decompose` (`driver/examples/sdc/tools/llm-node.sh:428`, `:431`).
 

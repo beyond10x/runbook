@@ -31,7 +31,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 revision: 6
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T11:09:58Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T11:09:58Z", actor: "human:operator", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: workflow-metrics
 

@@ -19,7 +19,7 @@ scope:
   path: scripts/check-protocols.sh
 revision: 7
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T06:26:12Z", actor: "human:timo", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T06:26:12Z", actor: "human:operator", revision: 4, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: simulate-as-a-protocol-gate
 

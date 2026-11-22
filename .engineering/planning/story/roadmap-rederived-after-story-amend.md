@@ -17,7 +17,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 revision: 3
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T10:42:55Z", actor: "human:timo", revision: 2, executor: "agent:sdc-superseded", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T10:42:55Z", actor: "human:operator", revision: 2, executor: "agent:sdc-superseded", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: roadmap-rederived-after-story-amend
 

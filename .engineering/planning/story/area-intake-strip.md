@@ -17,7 +17,7 @@ scope:
   path: ui/web/area-intake.js
 revision: 3
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:timo", revision: 3}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:operator", revision: 3}
 ---
 # Story: area-intake-strip
 
