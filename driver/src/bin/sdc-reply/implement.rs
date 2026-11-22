@@ -416,26 +416,6 @@ fn spec_facts(ir: &Value, traces: &Value, cov: &[String], mine: &[Value]) -> (Va
     (Value::Object(out), missing)
 }
 
-/// The request-mode instruction files by part, each named whole so that a search of the sources
-/// for a file name (`runbook check`) finds them.
-const REQUEST_FILES: [(&str, &str); 8] = [
-    ("head", "instructions/change.implement.request.head.md"),
-    ("build", "instructions/change.implement.request.build.md"),
-    ("rework", "instructions/change.implement.request.rework.md"),
-    ("task", "instructions/change.implement.request.task.md"),
-    ("continuation", "instructions/change.implement.request.continuation.md"),
-    ("request-failed", "instructions/change.implement.request.request-failed.md"),
-    ("no-reply", "instructions/change.implement.request.no-reply.md"),
-    ("retry", "instructions/change.implement.request.retry.md"),
-];
-
-/// One part of the request-mode instructions: `instructions/change.implement.request.<part>.md`
-/// (docs/driver.md, "Instructions"), filled with `values`.
-fn text(part: &str, values: &[(&str, &str)]) -> Result<String, String> {
-    let file = REQUEST_FILES.iter().find(|(p, _)| *p == part).map(|(_, f)| *f).ok_or_else(|| format!("no request instruction part {part}"))?;
-    instructions::render(file, values)
-}
-
 /// The node's whole input as one prompt, and a manifest of what went in (sections and bytes,
 /// the files inlined and listed with the rank that put them there).
 pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
@@ -462,7 +442,7 @@ pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
     let (spec, missing) = spec_facts(&ir, &traces, &cov, &mine);
     let sel = select_tree(i.tree, &work.join("mainline"), &story_text, i.cap);
 
-    let mut sections: Vec<(&str, String)> = vec![("head", text("head", &[])? + "\n")];
+    let mut sections: Vec<(&str, String)> = vec![("head", instructions::render("instructions/change.implement.request.head.md", &[])? + "\n")];
     let f = fence(&story_text);
     sections.push(("story", format!("## The story `{}` (impl/ serves it)\n\n{f}markdown\n{}\n{f}\n", i.story, story_text.trim_end())));
     let mut r = String::from("## The requirements this story delivers\n\n");
@@ -501,7 +481,7 @@ pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
             }
             t
         }
-        None => text("build", &[])?,
+        None => instructions::render("instructions/change.implement.request.build.md", &[])?,
     };
     sections.push(("constraints", format!("## Build constraints{}\n\n{constraints}\n",
         if bc.is_some() { " (the run's build-constraints.yaml)" } else { "" })));
@@ -534,17 +514,19 @@ pub fn assemble(i: &Inputs) -> Result<Assembly, String> {
     }
     if let Some(rj) = &i.rejection {
         let (count, limit) = (rj["count"].to_string(), i.rework_limit.map_or("?".to_string(), |n| n.to_string()));
-        let mut x = text("rework", &[("approval", rj["approval"].as_str().unwrap_or("?")), ("revision", rj["revision"].as_str().unwrap_or("?")),
-            ("count", &count), ("limit", &limit), ("principal", rj["principal"].as_str().unwrap_or("its approver"))])? + "\n\n";
+        let mut x = instructions::render("instructions/change.implement.request.rework.md", &[("approval", rj["approval"].as_str().unwrap_or("?")),
+            ("revision", rj["revision"].as_str().unwrap_or("?")), ("count", &count), ("limit", &limit),
+            ("principal", rj["principal"].as_str().unwrap_or("its approver"))])? + "\n\n";
         for (n, reason) in rj["reasons"].as_array().into_iter().flatten().enumerate() {
             x.push_str(&format!("{}. {}\n", n + 1, reason.as_str().unwrap_or("")));
         }
         sections.push(("rejection", x));
     }
     let max_continuations = MAX_CONTINUATIONS.to_string();
-    sections.push(("task", text("task", &[("story", i.story), ("max_continuations", &max_continuations)])? + "\n"));
+    sections.push(("task", instructions::render("instructions/change.implement.request.task.md", &[("story", i.story), ("max_continuations", &max_continuations)])? + "\n"));
     if let Some((written, asked)) = &i.continuation {
-        sections.push(("continuation", text("continuation", &[("written", &written.join(", ")), ("asked", &asked.join(", "))])? + "\n"));
+        sections.push(("continuation", instructions::render("instructions/change.implement.request.continuation.md",
+            &[("written", &written.join(", ")), ("asked", &asked.join(", "))])? + "\n"));
     }
     let prompt = sections.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>().join("\n");
     let tf = |v: &Vec<TreeFile>| v.iter().map(|f| json!({"path": f.path, "bytes": f.bytes, "why": f.why})).collect::<Vec<_>>();
@@ -696,16 +678,16 @@ pub fn run(a: &RunArgs) -> (u8, String) {
         if exit == 126 || exit == 127 {
             break (exit as u8, format!("request {k}: the adapter could not run (exit {exit})"), None);
         }
-        let said = |part: &str, values: &[(&str, &str)]| text(part, values).map_err(|e| (2, format!("implement_inputs_missing: {e}"), Some("implement_inputs_missing")));
+        let said = |file: &str, values: &[(&str, &str)]| instructions::render(file, values).map_err(|e| (2, format!("implement_inputs_missing: {e}"), Some("implement_inputs_missing")));
         let checked = if exit != 0 {
             let (code, subtype) = (exit.to_string(), resp["subtype"].as_str().map_or(String::new(), |s| format!(", {s}")));
-            match said("request-failed", &[("exit", &code), ("subtype", &subtype)]) {
+            match said("instructions/change.implement.request.request-failed.md",&[("exit", &code), ("subtype", &subtype)]) {
                 Ok(why) => Err(vec![why]),
                 Err(stop) => break stop,
             }
         } else {
             match fs::read(dir.join("structured-output.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) {
-                None => match said("no-reply", &[]) {
+                None => match said("instructions/change.implement.request.no-reply.md",&[]) {
                     Ok(why) => Err(vec![why]),
                     Err(stop) => break stop,
                 },
@@ -721,7 +703,7 @@ pub fn run(a: &RunArgs) -> (u8, String) {
                 }
                 retries += 1;
                 kind = "retry";
-                match said("retry", &[("why", &why)]) {
+                match said("instructions/change.implement.request.retry.md",&[("why", &why)]) {
                     Ok(t) => prompt = format!("{slot}\n{t}\n"),
                     Err(stop) => break stop,
                 }
