@@ -4,3 +4,4 @@ mod commands;
 mod openapi;
 mod http;
 mod sse;
+mod conformance;
