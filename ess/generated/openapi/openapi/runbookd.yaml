@@ -1,5 +1,5 @@
 # generated from sdc v1
-# contract digest slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
+# contract digest slice-sha256/2:0a78046569c9420db0e547cb05d4856952830e23e03eed215135dca244ecff3c
 # do not edit: regenerate with `ess generate`
 openapi: 3.1.0
 info:
@@ -17,7 +17,7 @@ info:
   x-ess-provenance:
     system: sdc
     specification_version: v1
-    contract_digest: slice-sha256/2:8519428175d5c290eea74472826f60c6ec0539dabe736a051b8ef285f95373a3
+    contract_digest: slice-sha256/2:0a78046569c9420db0e547cb05d4856952830e23e03eed215135dca244ecff3c
   x-ess-reached-by: network
 tags:
 - name: daemon
