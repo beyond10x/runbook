@@ -277,13 +277,25 @@ fn a_recording_of_label_0_97_3_replays_when_the_pin_prints_0_98_0() {
     assert_eq!(mode, "recorded", "{said}");
 }
 
-/// F1: a recording packed by the code before the fix, at another label (0.97.1), holds the digest of
-/// its own text. It replays only if the mask maps that text to the one it was digested as.
+/// F1: a recording packed by the code before the mask, at another label (0.97.1), holds the digest of
+/// its own text. The mask is not widened to meet it: the call diverges at `in/tests.txt` and the
+/// message names the label as the cause and the fix (pack the recording again).
 #[test]
-fn a_recording_packed_at_another_label_than_the_mask_still_replays() {
+fn a_recording_packed_at_another_label_than_the_mask_diverges_and_says_to_pack_it_again() {
     let header_0971 = HEADER_0973.replace("0.97.3", "0.97.1");
     let (mode, said) = replayed("old-pack", &[("tests.txt", &header_0971)], &[("tests.txt", HEADER_0973)]);
-    assert_eq!(mode, "recorded", "a recording packed at another label diverges: {said}");
+    assert_eq!(mode, "diverged", "{said}");
+    assert!(said.contains("in/tests.txt changed") && said.contains("ESS version label") && said.contains("pack the recording again"), "{said}");
+}
+
+/// The same, where the recording was packed at the label the pin prints now (0.98.0): the digest of
+/// the text as it is, unmasked, is the recorded one, so the message says the label is the only
+/// difference.
+#[test]
+fn a_recording_packed_at_the_label_of_the_pin_before_the_mask_is_told_so() {
+    let (mode, said) = replayed("old-pack-pin", &[("tests.txt", HEADER_0980)], &[("tests.txt", HEADER_0980)]);
+    assert_eq!(mode, "diverged", "{said}");
+    assert!(said.contains("only the ESS version label of its header line differs"), "{said}");
 }
 
 /// F1 scope: another input file whose line has the same shape is not the ESS label. Two versions of

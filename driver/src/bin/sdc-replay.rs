@@ -225,23 +225,37 @@ fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex {
     cell.get_or_init(|| Regex::new(pat).unwrap())
 }
 
-/// The label every version label of the pinned ESS is rewritten to. It is the label the committed
+/// The label the version label of the pinned ESS is rewritten to. It is the label the committed
 /// recording was packed with (ESS 0.97.3): the recording holds digests of the text as it was then,
 /// so a mask that wrote any other text would make every digest of a log header differ. It is fixed:
-/// it does not move with the pin, and a recording packed later holds digests of the masked text.
+/// it does not move with the pin, and a recording packed later holds digests of the masked text. A
+/// recording packed by an older `sdc-replay` at another label holds the digest of its own label and
+/// is packed again (see `explain_tests_changed`).
 const ESS_LABEL_MASK: &str = "0.97.3";
+
+/// The file whose first line is the header `ess verify conform run` prints.
+const ESS_LOG: &str = "tests.txt";
+
+fn ess_label_re() -> &'static Regex {
+    static ESS_LABEL: OnceLock<Regex> = OnceLock::new();
+    re(&ESS_LABEL, r"\A(\S+ v\d+ against \S+ )\d+\.\d+\.\d+( \x{2014} )")
+}
+
+/// The version label of the pinned ESS in the header of the conformance log that `in/tests.txt`
+/// holds (`<system> v<n> against <implementation> <version> — passed`, its first line;
+/// `bindings/tools/sdc-tool.sh`, `conform-run`), rewritten to [`ESS_LABEL_MASK`]: the pin moves
+/// with a release of ESS, the test results below the header are what the model reads. Only the
+/// first line of that one file is masked, never another file, the prompt, the request or another
+/// version-like string.
+fn mask_ess_label(text: &str) -> String {
+    ess_label_re().replace(text, format!("${{1}}{ESS_LABEL_MASK}${{2}}")).into_owned()
+}
 
 /// What may differ between two runs of the same inputs: the run directories, home paths (the
 /// checkout and the case tree), instants, artifact revisions (they digest files that carry
-/// instants, the aep store's transitions), seconds in program output and the version label of the
-/// pinned ESS in the header `ess verify conform run` prints (`<system> v<n> against <implementation>
-/// <version> — passed`, the first line of the conformance log that `in/tests.txt` holds;
-/// `bindings/tools/sdc-tool.sh`, `conform-run`): the pin moves with a release of ESS, the test
-/// results below the header are what the model reads. Only that label is masked, never another
-/// version-like string.
+/// instants, the aep store's transitions) and seconds in program output.
 fn normalise(text: &str, roots: &[String]) -> String {
     static HOME: OnceLock<Regex> = OnceLock::new();
-    static ESS_LABEL: OnceLock<Regex> = OnceLock::new();
     static INSTANT: OnceLock<Regex> = OnceLock::new();
     static REV: OnceLock<Regex> = OnceLock::new();
     static SECS: OnceLock<Regex> = OnceLock::new();
@@ -253,7 +267,6 @@ fn normalise(text: &str, roots: &[String]) -> String {
     let t = re(&INSTANT, r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?( ?(Z|[+-]\d{2}:?\d{2}))?").replace_all(&t, "<instant>");
     let t = re(&REV, r"\bt[0-9a-f]{16}\b").replace_all(&t, "<rev>");
     let t = re(&SECS, r"\b\d+(\.\d+)?m?s\b").replace_all(&t, "<s>");
-    let t = re(&ESS_LABEL, r"(?m)^(\S+ v\d+ against \S+ )\d+\.\d+\.\d+( \x{2014} )").replace_all(&t, format!("${{1}}{ESS_LABEL_MASK}${{2}}")).into_owned();
     sort_test_lines(&t)
 }
 
@@ -271,20 +284,44 @@ fn sort_test_lines(t: &str) -> String {
     lines.join("\n")
 }
 
-fn hash_file(p: &Path, roots: &[String]) -> String {
+fn hash_file(p: &Path, roots: &[String], ess_log: bool) -> String {
     let b = fs::read(p).unwrap_or_default();
     match std::str::from_utf8(&b) {
+        Ok(t) if ess_log => sha(normalise(&mask_ess_label(t), roots).as_bytes()),
         Ok(t) => sha(normalise(t, roots).as_bytes()),
         Err(_) => sha(&b),
     }
 }
 
-/// One digest per file under `in/`, keyed `in/<path>`.
+/// One digest per file under `in/`, keyed `in/<path>`. The first line of `in/tests.txt` has its
+/// ESS version label masked (`mask_ess_label`).
 fn hash_inputs(dir: &Path, roots: &[String]) -> BTreeMap<String, String> {
     files_under(dir)
         .into_iter()
-        .map(|f| (format!("in/{}", f.strip_prefix(dir).unwrap().display()), hash_file(&f, roots)))
+        .map(|f| {
+            let rel = f.strip_prefix(dir).unwrap();
+            (format!("in/{}", rel.display()), hash_file(&f, roots, rel == Path::new(ESS_LOG)))
+        })
         .collect()
+}
+
+/// A changed `in/tests.txt` whose header line carries an ESS version label may be a recording packed
+/// before the label was masked: the digest it holds is that of its own label, and the mask does not
+/// move to meet it (a mask that did would hide a real change). The recording holds digests only, so
+/// the label is proven the only difference when the digest of the text as it is, unmasked, is the
+/// one recorded; otherwise the message says the cause is possible. Both name the fix.
+fn explain_tests_changed(difference: &mut [String], recorded: &Value, tests: &Path, roots: &[String]) {
+    let Some(at) = difference.iter().position(|d| d == "in/tests.txt changed") else { return };
+    let Ok(text) = fs::read_to_string(tests) else { return };
+    if !ess_label_re().is_match(&text) {
+        return;
+    }
+    let unmasked = sha(normalise(&text, roots).as_bytes());
+    difference[at] = if recorded["inputs"]["in/tests.txt"].as_str() == Some(unmasked.as_str()) {
+        "in/tests.txt changed: only the ESS version label of its header line differs from the text this recording was packed with (packed before the label was masked): pack the recording again".to_string()
+    } else {
+        "in/tests.txt changed: its header line carries an ESS version label, and a recording packed before the label was masked holds the digest of its own label: if that is the only difference, pack the recording again".to_string()
+    };
 }
 
 /// The request as the model saw it: without its paths (prompt_file, cwd, record_dir, case_dir,
@@ -1215,6 +1252,7 @@ fn adapter(req_path: &Path) -> R<i32> {
             // document than the old driver's, so they say nothing about the evidence the decider read, which the other files hold.
             let envelope: &[&str] = if decider && is_loom_run(&c.out) { &["in/decision.json", "in/checks.json"] } else { &[] };
             difference = differences(x, &inputs, &request, envelope);
+            explain_tests_changed(&mut difference, x, &cwd.join("in").join(ESS_LOG), &roots);
             if difference.is_empty() {
                 chosen = Some(x);
             }
@@ -1795,18 +1833,66 @@ mod tests {
         let log = |label: &str, test: &str| {
             format!("billing v3 against billing-reference {label} \u{2014} passed\n  passed billing.invoice.CreateInvoice/outcome/accepted\n  | test {test} ... ok\n")
         };
-        assert_eq!(normalise(&log("0.97.3", "create_invoice"), &[]), normalise(&log("0.97.4", "create_invoice"), &[]));
+        let n = |t: &str| normalise(&mask_ess_label(t), &[]);
+        assert_eq!(n(&log("0.97.3", "create_invoice")), n(&log("0.97.4", "create_invoice")));
         // the text a recording packed at 0.97.3 was digested as is the masked text: no re-pack is needed
-        assert_eq!(normalise(&log("0.97.4", "create_invoice"), &[]), log("0.97.3", "create_invoice"));
+        assert_eq!(n(&log("0.97.4", "create_invoice")), log("0.97.3", "create_invoice"));
         let interpreted = |label: &str| format!("shop v1 against interpreted {label} \u{2014} passed\n");
-        assert_eq!(normalise(&interpreted("0.96.0"), &[]), normalise(&interpreted("0.97.4"), &[]));
-        assert_ne!(normalise(&log("0.97.4", "create_invoice"), &[]), normalise(&log("0.97.4", "pay_invoice"), &[]));
-        assert_ne!(normalise(&log("0.97.4", "create_invoice"), &[]), normalise(&interpreted("0.97.4"), &[]));
+        assert_eq!(n(&interpreted("0.96.0")), n(&interpreted("0.97.4")));
+        assert_ne!(n(&log("0.97.4", "create_invoice")), n(&log("0.97.4", "pay_invoice")));
+        assert_ne!(n(&log("0.97.4", "create_invoice")), n(&interpreted("0.97.4")));
         let other = |impl_: &str| format!("billing v3 against {impl_} 0.97.4 \u{2014} passed\n");
-        assert_ne!(normalise(&other("billing-reference"), &[]), normalise(&other("billing-other"), &[]));
+        assert_ne!(n(&other("billing-reference")), n(&other("billing-other")));
         // another version-like string is an input: only the label of the line the tool writes is masked
         let pin = |v: &str| format!("  | test result: ok. dependency serde {v}, 5 passed\n");
-        assert_ne!(normalise(&pin("1.0.1"), &[]), normalise(&pin("1.0.2"), &[]));
+        assert_ne!(n(&pin("1.0.1")), n(&pin("1.0.2")));
+        // only the first line: the same shape on a later line is a line of the log
+        let later = |v: &str| format!("header\n{}", interpreted(v));
+        assert_ne!(n(&later("0.96.0")), n(&later("0.97.4")));
+        // `normalise` alone masks nothing: the prompt and the request keep their version-like text
+        assert_ne!(normalise(&log("0.97.3", "a"), &[]), normalise(&log("0.97.4", "a"), &[]));
+    }
+
+    #[test]
+    fn the_label_is_masked_in_the_header_of_in_tests_txt_and_in_no_other_input_file() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("unit-label-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let line = |v: &str| format!("shop v2 against upstream-api {v} \u{2014} passed\n  | test a ... ok\n");
+        let digests = |v: &str| {
+            fs::create_dir_all(dir.join("in")).unwrap();
+            fs::write(dir.join("in/tests.txt"), line(v)).unwrap();
+            fs::write(dir.join("in/notes.md"), line(v)).unwrap();
+            hash_inputs(&dir.join("in"), &[])
+        };
+        let (a, b) = (digests("0.97.3"), digests("0.97.4"));
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(a["in/tests.txt"], b["in/tests.txt"], "the header of the log is masked");
+        assert_ne!(a["in/notes.md"], b["in/notes.md"], "another file is an input");
+        assert_eq!(a["in/tests.txt"], sha(normalise(&line("0.97.3"), &[]).as_bytes()), "the digest is that of the text at the mask");
+    }
+
+    #[test]
+    fn a_changed_log_with_a_label_names_the_label_as_a_cause_and_the_fix() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("unit-cause-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let text = "shop v2 against upstream-api 0.97.4 \u{2014} passed\n  | test a ... ok\n";
+        let tests = dir.join("tests.txt");
+        fs::write(&tests, text).unwrap();
+        let said = |recorded: &str| {
+            let mut d = vec!["in/tests.txt changed".to_string(), "in/other changed".to_string()];
+            explain_tests_changed(&mut d, &json!({"inputs": {"in/tests.txt": recorded}}), &tests, &[]);
+            d
+        };
+        let unmasked = sha(normalise(text, &[]).as_bytes());
+        let proven = said(&unmasked);
+        assert!(proven[0].contains("only the ESS version label") && proven[0].contains("pack the recording again"), "{proven:?}");
+        let possible = said("0000");
+        assert!(possible[0].contains("if that is the only difference") && possible[0].contains("pack the recording again"), "{possible:?}");
+        assert_eq!(proven[1], "in/other changed");
+        fs::write(&tests, "no header here\n").unwrap();
+        assert_eq!(said("0000")[0], "in/tests.txt changed", "no label, no cause named");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
