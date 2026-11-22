@@ -531,7 +531,7 @@ fn a_record_is_checked_reported_and_indexed_from_its_run_summaries() {
 }
 
 #[test]
-fn a_launch_is_refused_without_a_pinned_commit_and_printed_from_the_record() {
+fn a_record_without_a_runner_is_refused_at_run_one_without_a_pin_is_refused_and_check_names_a_setting_no_launch_carries() {
     let d = scratch("launch");
     fs::create_dir_all(d.join("experiments")).unwrap();
     let rec = format!(r#"format: sdc.experiment/1
@@ -564,16 +564,29 @@ pass_rule: clean-delivery
 decision_rule: {{rule: descriptive, text: t}}
 "#, sha(IDEA));
     fs::write(d.join("experiments/p1.yaml"), &rec).unwrap();
+    // A record with no runner belongs to the old driver: refused at run, pinned or not. The print
+    // of a loom launch is proved by experiment_loom.rs.
+    let (code, out) = experiment(&["run", "p1"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("that is a record of the old driver, which is gone"), "{out}");
+    let pinned = rec.replace("tree_commit: null", "tree_commit: 8db4b9338f1d8d32c85b9cb2e014dac56980fac0");
+    fs::write(d.join("experiments/p1.yaml"), &pinned).unwrap();
+    let (code, out) = experiment(&["run", "p1", "--print", "--builds-dir", "b"], &d);
+    assert_eq!(code, 1, "{out}");
+    assert!(out.contains("that is a record of the old driver, which is gone"), "{out}");
+    // A loom record that pins no commit is refused for that.
+    let loom_fixed = "  loom.bin: /opt/loom/b10x-loom\n  loom.sha256: d80830ea5b1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef01234567\n  loom.confinement: local\n  loom.cap_micro_usd: 5000000\n  max_wall_seconds: 3600\n";
+    let loom_rec = rec
+        .replace("  decider.kind: haiku\n", "  decider.kind: model\n  decider.adapter: claude-cli\n  review.adapter: claude-cli\n")
+        .replace("  autonomy: A5\n", &format!("  autonomy: A5\n{loom_fixed}"))
+        .replace("{id: low, settings: {efforts.implement.effort: low}", "{id: low, runner: loom, settings: {max_llm_calls: 100}")
+        .replace("{id: high, settings: {efforts.implement.effort: high}", "{id: high, runner: loom, settings: {max_llm_calls: 200}")
+        .replace("  max_llm_calls: 150\n", "");
+    fs::write(d.join("experiments/p1.yaml"), &loom_rec).unwrap();
     let (code, out) = experiment(&["run", "p1"], &d);
     assert_eq!(code, 1, "{out}");
     assert!(out.contains("pins no tree_commit"), "{out}");
-    fs::write(d.join("experiments/p1.yaml"), rec.replace("tree_commit: null", "tree_commit: 8db4b9338f1d8d32c85b9cb2e014dac56980fac0")).unwrap();
-    let (code, out) = experiment(&["run", "p1", "--print", "--builds-dir", "b"], &d);
-    assert_eq!(code, 0, "{out}");
-    assert!(out.contains("p1.low.1 (sdc-exp-p1-low-1):") && out.contains("p1.high.1 (sdc-exp-p1-high-1):"), "{out}");
-    assert!(out.contains("  SDC_LLM_EFFORT_IMPLEMENT=high") && out.contains("  SDC_LLM_MODEL_DECIDER=claude-opus-5-5"), "{out}");
-    assert!(out.contains("8db4b9338f1d8d32c85b9cb2e014dac56980fac0/scripts/run-trial.sh --autopilot p1.high.1 Bill customers with invoices."), "{out}");
-    // A setting the launcher cannot pass is refused at check time.
+    // check still reads a record with no runner, and a setting the old launcher cannot pass is named.
     fs::write(d.join("experiments/p1.yaml"), rec.replace("  autonomy: A5\n", "  autonomy: A5\n  bindings: x\n")).unwrap();
     let (code, out) = experiment(&["check", "p1"], &d);
     assert_eq!(code, 1, "{out}");
