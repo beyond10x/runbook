@@ -22,8 +22,9 @@ pub const ROLES: [&str; 4] = ["writer", "implement", "review", "other"];
 const ROLE_KEYS: [&str; 3] = ["model", "max_turns", "max_budget_usd"];
 const ADAPTERS: [&str; 3] = ["metaharness", "claude-cli", "dry"];
 /// What a checkout holds beside `bindings/` that the tools of the copy read from their root
-/// (`$here/../..`): the instruction files, the fixtures and the rule file of the driver.
-const COMPANIONS: [&str; 2] = ["instructions", "driver/examples"];
+/// (`$here/../..`): the instruction files, the fixtures and the rule file of the driver, and the
+/// checks the requester decider runs (`tools/decision-grounds.sh`).
+const COMPANIONS: [&str; 3] = ["instructions", "driver/examples", "tools"];
 /// The program of a model node.
 const MODEL_TOOL: &str = "llm-node.sh";
 

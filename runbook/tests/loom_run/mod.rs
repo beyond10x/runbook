@@ -7,6 +7,7 @@ mod decisions;
 mod dry;
 mod fake;
 mod flags;
+mod goals;
 mod inproc;
 mod login;
 mod model_call;

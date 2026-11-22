@@ -27,7 +27,8 @@ pub const AUTONOMY_DECIDES: &str = "A5";
 
 const AUTONOMY_LEVELS: [&str; 6] = ["A0", "A1", "A2", "A3", "A4", "A5"];
 const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
-const MODEL_KEYS: [&str; 13] = [
+const MODEL_KEYS: [&str; 14] = [
+    "requester",
     "without_claims",
     "kind",
     "model",
@@ -131,6 +132,8 @@ pub struct NativeDecider {
     autonomy: Option<String>,
     login_file: Option<String>,
     principal: String,
+    /// `decider.requester`: a decision of a requester-side class goes to the requester decider.
+    requester: bool,
 }
 
 fn number_key(decider: &Value, key: &str, min: u64) -> Result<Option<u64>, String> {
@@ -221,8 +224,13 @@ impl NativeDecider {
             };
             (mode, max_calls, max_call)
         };
+        let requester = match decider.get("requester") {
+            None => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("decider.requester: true or false".to_owned()),
+        };
         let principal = person_step_principal(&json!({"autonomy": "A5", "decider": decider}))?.ok_or("decider: no principal")?;
-        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal })
+        Ok(NativeDecider { mode, max_calls, max_call_micro_usd, timeout, autonomy: level, login_file, principal, requester })
     }
 
     fn cannot(reason: impl Into<String>) -> Verdict {
@@ -323,7 +331,8 @@ impl NativeDecider {
                 let tools = request.run_dir.join("bindings").join("tools");
                 let root = instructions_root(&tools).ok_or("the instruction files are not found: the decider needs instructions/decider/ above the bindings copy")?;
                 let env = self.env(request)?;
-                call::run(&ModelCall {
+                let call_of = if self.requester && body["side"] == "requester" { requester::run } else { call::run };
+                call_of(&ModelCall {
                     req: body,
                     rec,
                     tools: &tools,
@@ -374,10 +383,16 @@ impl NativeDecider {
         let Mode::Model { final_escalate, retries, without_claims, .. } = &self.mode else {
             return Self::cannot("not a model decider");
         };
-        if !without_claims {
+        let kind = if approval.close_outcome.is_some() { "close" } else { "approval" };
+        let routed = match self.requester_class(request.run_dir, kind, &approval.action) {
+            Ok(class) => class,
+            Err(reason) => return Self::cannot(reason),
+        };
+        if !without_claims && routed.is_none() {
             // Loom's decisions[] holds no claim values (`position.claims`): the decider tells the
             // model to check claims in in/checks.json that it is not given. The setting
-            // `without_claims: true` is the run's explicit acknowledgement of that.
+            // `without_claims: true` is the run's explicit acknowledgement of that. The requester
+            // reads no claims.
             return Self::cannot(NO_CLAIMS);
         }
         let budget = request.budget_micro_usd.min(self.max_call_micro_usd);
@@ -406,7 +421,10 @@ impl NativeDecider {
                 return Self::cannot(format!("decider record directory: {}", e.kind()));
             }
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let body = decide_request(approval, &case_dir, &rec, retry);
+            let mut body = decide_request(approval, &case_dir, &rec, retry);
+            if let Some(class) = &routed {
+                requester::tag(&mut body, class, request.run_dir);
+            }
             if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")) {
                 return Self::cannot(format!("decider request file: {}", e.kind()));
             }
@@ -450,7 +468,7 @@ impl NativeDecider {
                 _ => return Self::cannot("the decider's reply has no decision approve, reject or escalate"),
             };
             let reasons = if decision { None } else { reply_reasons(&reply).map(|t| self.redact(&t)) };
-            return Verdict::Answer { approve: decision, principal: Some(self.principal.clone()), cost_micro_usd: Some(spent), model_calls: calls, reasons };
+            return Verdict::Answer { approve: decision, principal: Some(self.principal_for(routed.is_some()).to_owned()), cost_micro_usd: Some(spent), model_calls: calls, reasons };
         }
     }
 }
@@ -496,6 +514,7 @@ mod ask;
 mod call;
 mod inputs;
 mod prompt;
+mod requester;
 mod rules;
 mod validate;
 
@@ -506,6 +525,8 @@ use call::{ModelCall, Replied};
 // integration test (tests/cli.rs) reaches the code only through the command line.
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod requester_tests;
 // The slow lane `task test:decider-parity` (decider.sh against this decider), deleted with decider.sh.
 #[cfg(test)]
 mod parity;

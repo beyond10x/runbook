@@ -94,11 +94,6 @@ fn bugfix_and_bugfix_ticket_are_accepted_and_refused_for_what_they_name_that_is_
 }
 
 #[test]
-fn goals_is_accepted_and_refused_until_built() {
-    refused(&scratch("goals"), &["--goals", "goals.yaml"], "--goals is not built yet");
-}
-
-#[test]
 fn watch_is_accepted_and_refused_until_built() {
     refused(&scratch("watch"), &["--watch"], "--watch is not built yet");
 }

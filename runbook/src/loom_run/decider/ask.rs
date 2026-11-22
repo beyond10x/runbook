@@ -52,12 +52,31 @@ impl NativeDecider {
     }
 
     fn ask_model(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval) -> Asked {
-        let Mode::Model { final_escalate, retries, without_claims, .. } = &self.mode else {
+        let Mode::Model { without_claims, .. } = &self.mode else {
             return Asked::cannot("not a model decider");
         };
-        if !without_claims {
+        let routed = match self.requester_class(r.run_dir, &r.request.kind, &approval.action) {
+            Ok(class) => class,
+            Err(reason) => return Asked::cannot(reason),
+        };
+        if !without_claims && routed.is_none() {
             return Asked::cannot(NO_CLAIMS);
         }
+        let mut asked = self.ask_model_routed(r, dreq, approval, routed.as_deref());
+        if let Some(class) = &routed {
+            for line in &mut asked.lines {
+                line["class"] = json!(class);
+                line["side"] = json!("requester");
+            }
+        }
+        asked
+    }
+
+    fn ask_model_routed(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval, routed: Option<&str>) -> Asked {
+        let Mode::Model { final_escalate, retries, .. } = &self.mode else {
+            return Asked::cannot("not a model decider");
+        };
+        let principal = self.principal_for(routed.is_some());
         if instructions_root(&r.run_dir.join("bindings").join("tools")).is_none() {
             return Asked::cannot(NO_INSTRUCTIONS);
         }
@@ -86,7 +105,10 @@ impl NativeDecider {
                 return asked;
             }
             let retry = (attempt > 1).then(|| (attempt, invalid_reason.clone()));
-            let body = ask_body(r, approval, &case_dir, &rec, retry);
+            let mut body = ask_body(r, approval, &case_dir, &rec, retry);
+            if let Some(class) = routed {
+                requester::tag(&mut body, class, r.run_dir);
+            }
             if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")).and_then(|()| std::fs::write(rec.join("loom-decision.json"), format!("{}\n", r.decision))) {
                 asked.result = Err(format!("decider request file: {}", e.kind()));
                 return asked;
@@ -101,7 +123,7 @@ impl NativeDecider {
             if reply.get("adapter").and_then(Value::as_str) != Some("rule") && reply.get("dry") != Some(&Value::Bool(true)) {
                 asked.model_calls += 1;
             }
-            let line = |outcome: &str, reply: &Value, extra: Value| decision_line(r.decision, r.request, &approval.revision, outcome, reply, &self.principal, extra);
+            let line = |outcome: &str, reply: &Value, extra: Value| decision_line(r.decision, r.request, &approval.revision, outcome, reply, principal, extra);
             if reply.get("valid") == Some(&Value::Bool(false)) {
                 invalid_reason = reply.get("invalid_reason").and_then(Value::as_str).unwrap_or("invalid").to_owned();
                 if let Some(cost) = cost_micro(&reply) {
@@ -117,7 +139,7 @@ impl NativeDecider {
                         };
                         let taken = with_answer(&reply, &answer, vec![format!("invalid decider reply after {retries} retries ({}): the default taken", self.redact(&invalid_reason))]);
                         asked.lines.push(line("approve", &taken, json!({"fallback": "invalid_reply_default", "attempts": attempt})));
-                        asked.result = Ok(Given { answer, principal: Some(self.principal.clone()) });
+                        asked.result = Ok(Given { answer, principal: Some(principal.to_owned()) });
                     } else {
                         asked.lines.push(line("escalate", &reply, json!({"attempts": attempt})));
                         asked.result = Err(format!("invalid decider reply after {attempt} attempts: {}", self.redact(&invalid_reason)));
@@ -141,7 +163,7 @@ impl NativeDecider {
                         return asked;
                     };
                     asked.lines.push(line("approve", &reply, attempts));
-                    asked.result = Ok(Given { answer: answer.to_owned(), principal: Some(self.principal.clone()) });
+                    asked.result = Ok(Given { answer: answer.to_owned(), principal: Some(principal.to_owned()) });
                 }
                 Some("escalate") => {
                     let reasons = reply.get("reasons").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")).unwrap_or_default();
@@ -162,7 +184,7 @@ impl NativeDecider {
                     taken["usage"] = Value::Null;
                     taken["cost_usd"] = Value::Null;
                     asked.lines.push(line("approve", &taken, json!({"suppressed": true})));
-                    asked.result = Ok(Given { answer, principal: Some(self.principal.clone()) });
+                    asked.result = Ok(Given { answer, principal: Some(principal.to_owned()) });
                 }
                 Some("reject") => {
                     asked.lines.push(line("reject", &reply, attempts));

@@ -46,6 +46,7 @@ binary.
 | `max_turns` | whole number, 1 or more | 8 | model | `max_turns` of the adapter's request |
 | `max_budget_usd` | number above 0 | 0.25 | model | most one decider call may cost |
 | `max_calls`, `max_decider_calls` | whole number, 1 or more | 20 | model | most decider model calls; the two names are one limit, give one |
+| `requester` | true, false | false | model | with `--goals`: the decisions of the requester-side classes are answered from the goals as `decider:requester` (`docs/loom-run-decisions.md` "The requester decider"); true without `--goals` is refused |
 | `escalate` | `final`, `stop` | `stop` | model | what an `escalate` reply does |
 | `retries` | whole number | 2 | model | asks again after an invalid reply |
 | `timeout_seconds` | whole number, 1 or more | 900 | model, rule | the program's whole process group is ended at the limit |

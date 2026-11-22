@@ -9,7 +9,7 @@
 //! It needs jq, yq, rsync and the built driver (`driver/target/debug/sdc-reply`), makes no model
 //! call, and is `#[ignore]`d in the gate.
 
-use super::parity_cases::{cases, write_fixture, Case, Kind, CASE};
+use super::parity_cases::{cases, write_fixture, write_requester_fixture, Case, Kind, CASE};
 use super::*;
 use crate::assets::testdir::Dir;
 use std::collections::BTreeMap;
@@ -35,7 +35,8 @@ fn host_path() -> String {
 fn write_adapter(file: &Path, dir: &Path, c: &Case) {
     use std::os::unix::fs::PermissionsExt;
     let mut text = String::from("#!/bin/sh\nd=$(dirname \"$1\")\n");
-    for (name, content, target) in [("decision.json", &c.decision, "$d/cwd/out/decision.json"), ("structured.json", &c.structured, "$d/structured-output.json")] {
+    let out = if matches!(c.kind, Kind::Requester { .. }) { "$d/cwd/out/reply.json" } else { "$d/cwd/out/decision.json" };
+    for (name, content, target) in [("decision.json", &c.decision, out), ("structured.json", &c.structured, "$d/structured-output.json")] {
         if let Some(content) = content {
             std::fs::write(dir.join(name), content).unwrap();
             text.push_str(&format!("cp '{}' \"{target}\"\n", dir.join(name).display()));
@@ -60,6 +61,29 @@ fn text_of(bytes: &[u8]) -> String {
 /// A text with the two sides' directories masked.
 fn mask(text: &str, dir: &Path) -> String {
     text.replace(&dir.join("script").display().to_string(), "@S").replace(&dir.join("rust").display().to_string(), "@S")
+}
+
+/// `mask`, and for a requester case the instants (`YYYY-MM-DDTHH:MM:SSZ`) too: the request it builds
+/// (`opened_at`) and the grounding check (`--at`) are stamped with the present time by both sides.
+fn norm(c: &Case, text: &str, dir: &Path) -> String {
+    let text = mask(text, dir);
+    if !matches!(c.kind, Kind::Requester { .. }) {
+        return text;
+    }
+    let (bytes, mut out, mut i) = (text.as_bytes(), String::new(), 0);
+    let shape = b"dddd-dd-ddTdd:dd:ddZ";
+    while i < bytes.len() {
+        let at = bytes.get(i..i + shape.len());
+        if at.is_some_and(|w| w.iter().zip(shape).all(|(b, s)| if *s == b'd' { b.is_ascii_digit() } else { b == s })) {
+            out.push_str("@T");
+            i += shape.len();
+        } else {
+            let end = (i + 1..=bytes.len()).find(|&j| text.is_char_boundary(j)).unwrap_or(bytes.len());
+            out.push_str(&text[i..end]);
+            i = end;
+        }
+    }
+    out
 }
 
 /// `status.json` without the times and the process id, which differ by nature.
@@ -92,17 +116,30 @@ struct Outcome {
     files: BTreeMap<String, String>,
 }
 
+/// Where the case directory of `c` is made: beside the sides' directories, or, for the requester, under
+/// `<run>/store/` because `sdc-decision-request` reads the run's name from the case directory's path.
+fn case_root(c: &Case, dir: &Path) -> PathBuf {
+    if matches!(c.kind, Kind::Requester { .. }) {
+        dir.join("r1/store")
+    } else {
+        dir.to_path_buf()
+    }
+}
+
 fn request_body(c: &Case, dir: &Path, rec: &Path) -> Value {
     let mut body = c.body.clone();
-    body["case_dir"] = json!(dir.join(CASE).display().to_string());
+    body["case_dir"] = json!(case_root(c, dir).join(CASE).display().to_string());
     body["record_dir"] = json!(rec.display().to_string());
+    if c.name.contains("earlier-decisions") {
+        body["decisions_log"] = json!(case_root(c, dir).join("decisions.jsonl").display().to_string());
+    }
     body
 }
 
 fn adapter_arg(c: &Case, dir: &Path) -> Option<String> {
     match &c.kind {
-        Kind::Model { adapter: "scripted", .. } => Some(dir.join(c.adapter_file).display().to_string()),
-        Kind::Model { adapter, .. } => Some((*adapter).to_owned()),
+        Kind::Model { adapter: "scripted", .. } | Kind::Requester { adapter: "scripted", .. } => Some(dir.join(c.adapter_file).display().to_string()),
+        Kind::Model { adapter, .. } | Kind::Requester { adapter, .. } => Some((*adapter).to_owned()),
         Kind::Rule(_) => None,
     }
 }
@@ -116,6 +153,7 @@ fn run_script(c: &Case, dir: &Path) -> Result<Outcome, String> {
     let (kind, final_escalate) = match &c.kind {
         Kind::Rule(v) => (*v, false),
         Kind::Model { final_escalate, .. } => ("model", *final_escalate),
+        Kind::Requester { final_escalate, .. } => ("requester", *final_escalate),
     };
     let mut command = Command::new(repo().join("bindings/tools/decider.sh"));
     command.arg(kind).arg(&request).env_clear().current_dir(&side);
@@ -139,7 +177,7 @@ fn run_rust(c: &Case, dir: &Path) -> Result<Outcome, String> {
     let rec = side.join("rec");
     let run = side.join("run");
     std::fs::create_dir_all(&run).unwrap();
-    for name in ["bindings", "instructions"] {
+    for name in ["bindings", "instructions", "tools", "driver"] {
         let link = run.join(name);
         if !link.exists() {
             std::os::unix::fs::symlink(repo().join(name), link).unwrap();
@@ -148,6 +186,7 @@ fn run_rust(c: &Case, dir: &Path) -> Result<Outcome, String> {
     let decider = match &c.kind {
         Kind::Rule(verdict) => json!({"kind": "rule", "verdict": verdict}),
         Kind::Model { final_escalate, .. } => json!({"kind": "model", "model": MODEL, "adapter": adapter_arg(c, dir), "without_claims": true, "escalate": if *final_escalate { "final" } else { "stop" }}),
+        Kind::Requester { final_escalate, .. } => json!({"kind": "model", "model": MODEL, "adapter": adapter_arg(c, dir), "without_claims": true, "requester": true, "reply_bin": driver_bin().join("sdc-reply").display().to_string(), "escalate": if *final_escalate { "final" } else { "stop" }}),
     };
     let settings = json!({"autonomy": "A5", "decider": decider});
     let native = NativeDecider::parse(&settings, &settings["decider"])?;
@@ -187,11 +226,11 @@ fn compare(c: &Case, dir: &Path) -> (Vec<String>, &'static str) {
         (s, r) => return (vec![format!("{}: a side failed: script {:?}, rust {:?}", c.name, s.err(), r.err())], "failed"),
     };
     let mut found = Vec::new();
-    let (sr, rr) = (mask(&script.reply, dir), mask(&rust.reply, dir));
+    let (sr, rr) = (norm(c, &script.reply, dir), norm(c, &rust.reply, dir));
     if sr != rr {
         found.push(format!("{}: reply differs: {}", c.name, first_difference(&sr, &rr)));
     }
-    let (se, re) = (mask(&script.stderr, dir), mask(&rust.stderr, dir));
+    let (se, re) = (norm(c, &script.stderr, dir), norm(c, &rust.stderr, dir));
     if se != re {
         found.push(format!("{}: standard error differs: {}", c.name, first_difference(&se, &re)));
     }
@@ -199,7 +238,7 @@ fn compare(c: &Case, dir: &Path) -> (Vec<String>, &'static str) {
     for name in names {
         match (script.files.get(name), rust.files.get(name)) {
             (Some(a), Some(b)) => {
-                let (a, b) = (mask_times(&mask(a, dir)), mask_times(&mask(b, dir)));
+                let (a, b) = (mask_times(&norm(c, a, dir)), mask_times(&norm(c, b, dir)));
                 if a != b {
                     found.push(format!("{}: {name} differs: {}", c.name, first_difference(&a, &b)));
                 }
@@ -218,6 +257,10 @@ fn compare(c: &Case, dir: &Path) -> (Vec<String>, &'static str) {
         }
     }
     let class = if sv["dry"] == true { "dry" } else if sv["adapter"] == "rule" { "rule" } else if sv["valid"] == true { "valid" } else if sv["valid"] == false { "invalid" } else { "other" };
+    if std::env::var_os("DECIDER_PARITY_VERBOSE").is_some() {
+        eprintln!("CASE {}: {class}, {}", c.name, sv["invalid_reason"].as_str().or(sv["reasons"][0].as_str()).unwrap_or(""));
+        eprintln!("STDERR {}: script {:?}, rust {:?}", c.name, script.stderr, rust.stderr);
+    }
     (found, class)
 }
 
@@ -233,6 +276,10 @@ fn the_case_table_covers_every_kind_and_request_type_and_names_each_case_once() 
             let found = all.iter().any(|c| c.name.starts_with(want) && c.body["type"] == kind);
             assert!(found, "no case of {label} on a {kind} request");
         }
+    }
+    for kind in ["approval", "question", "close"] {
+        assert!(all.iter().any(|c| matches!(c.kind, Kind::Requester { adapter: "scripted", .. }) && c.body["type"] == kind && c.decision.as_deref().is_some_and(|t| t.contains("\"no_ground_in_goals\":true"))), "no requester case without a ground on a {kind} request");
+        assert!(all.iter().any(|c| matches!(c.kind, Kind::Requester { adapter: "scripted", .. }) && c.body["type"] == kind && c.decision.as_deref().is_some_and(|t| t.contains("\"no_ground_in_goals\":false"))), "no grounded requester case on a {kind} request");
     }
     let decisions = ["approve", "reject", "escalate"];
     for d in decisions {
@@ -259,8 +306,11 @@ fn the_rust_decider_writes_the_bytes_of_decider_sh_for_every_case() {
                 let n = next.fetch_add(1, Ordering::SeqCst);
                 let Some(c) = all.get(n) else { break };
                 let dir = Dir::new(&format!("parity-{n}"));
-                write_fixture(dir.path());
-                if let Kind::Model { adapter: "scripted", .. } = c.kind {
+                write_fixture(&case_root(c, dir.path()));
+                if matches!(c.kind, Kind::Requester { .. }) {
+                    write_requester_fixture(&case_root(c, dir.path()), c.name.contains("earlier-decisions"));
+                }
+                if let Kind::Model { adapter: "scripted", .. } | Kind::Requester { adapter: "scripted", .. } = c.kind {
                     write_adapter(&dir.path().join(c.adapter_file), dir.path(), c);
                 }
                 let (found, class) = compare(c, dir.path());

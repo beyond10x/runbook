@@ -11,6 +11,8 @@ pub const CASE: &str = "IDEA-1.direction.s1";
 pub enum Kind {
     Rule(&'static str),
     Model { adapter: &'static str, final_escalate: bool },
+    /// The requester agent (`decider.sh requester`); the scripted adapter writes `out/reply.json`.
+    Requester { adapter: &'static str, final_escalate: bool },
 }
 
 pub struct Case {
@@ -65,6 +67,28 @@ pub fn write_fixture(dir: &Path) {
     }
     for (name, text) in WORK {
         put(&case.join("work").join(name), text);
+    }
+}
+
+/// The goals revision the case file names, and the goals document of the work files.
+pub const GOALS_REVISION: &str = "tgoals00000000001";
+const GOALS: &str = "format: sdc.goals/1\nlayer: request\nrequester: operator\nentries:\n  - {id: request/r1, kind: goal, priority: 1, statement: \"A pocket viewer for harbour tide tables.\", sources: [\"idea.yaml:1\"], valid_from: 2026-01-01}\n  - {id: request/r2, kind: constraint, statement: \"The viewer works without a network.\", sources: [\"idea.yaml:3\"], valid_from: 2026-01-01}\n";
+const QUESTIONS: &str = "questions:\n  - id: q1\n    item: i1\n    excerpt: Small-boat sailors who check tides before leaving the mooring.\n    question: Which harbours are listed on first start?\n    options: [the three nearest, all of the coast]\n    default: the three nearest\n    default_reason: the idea names small-boat sailors\n    consequences:\n      - {does: lists the three nearest harbours, cost: none}\n      - {does: lists every harbour, cost: a long list}\n    scope_changing: true\n    status: open\n";
+const EARLIER_LOG: &str = "{\"principal\":\"decider:requester\",\"case\":\"IDEA-1.direction.s1\",\"action\":\"context.approve\",\"revision\":\"t0\",\"decision\":\"approve\",\"answer\":null,\"reasons\":[\"it fits\"],\"grounds\":[],\"valid\":true,\"cost_usd\":0.1}\n{\"principal\":\"decider:requester\",\"valid\":false,\"decision\":\"escalate\"}\n{\"principal\":\"decider:model\",\"decision\":\"approve\"}\n";
+
+/// What a requester case adds to the fixture: the goals document and its revision in the case file,
+/// and the earlier decisions of the run (`<dir>/decisions.jsonl`) for the cases that read them.
+pub fn write_requester_fixture(dir: &Path, with_log: bool) {
+    let case = dir.join(CASE);
+    let artifacts = format!("\"protocol\":\"sdc.intake\",\"artifacts\":{{\"goals\":{{\"revision\":\"{GOALS_REVISION}\"}},\"vision\":{{\"revision\":\"taee57460908c89e2\"}},\"release\":{{\"revision\":\"taee57460908c89e2\"}},\"questions\":{{\"revision\":\"te23630e115159d67\"}},");
+    let text = std::fs::read_to_string(case.join("case.json")).unwrap().replace("\"artifacts\":{", &artifacts);
+    put(&case.join("case.json"), &text);
+    put(&case.join("work/questions.yaml"), QUESTIONS);
+    let idea = std::fs::read_to_string(case.join("work/idea.yaml")).unwrap();
+    put(&case.join("work/idea.yaml"), &format!("text: A pocket viewer for harbour tide tables.\n{idea}"));
+    put(&case.join("work/goals.yaml"), GOALS);
+    if with_log {
+        put(&dir.join("decisions.jsonl"), EARLIER_LOG);
     }
 }
 
@@ -148,6 +172,70 @@ fn model(name: &str, adapter: &'static str, final_escalate: bool, body: Value, d
     }
 }
 
+fn ground(entry: &str, revision: &str, supports: Option<&str>) -> String {
+    let supports = supports.map_or(String::new(), |s| format!(",\"supports\":\"{s}\""));
+    format!("{{\"source\":\"goals\",\"citation\":{{\"form\":\"artifact_revision\",\"value\":{{\"artifact\":\"goals\",\"revision\":\"{revision}\",\"entry\":\"{entry}\"}}}}{supports},\"how\":\"the entry says so\"}}")
+}
+
+/// A requester reply: an option (or a free answer when `option` is None) on one ground.
+fn requester_reply(option: Option<&str>, answer: Option<&str>, grounds: &[String]) -> String {
+    let q = |v: Option<&str>| v.map_or("null".to_owned(), |s| format!("\"{s}\""));
+    format!("{{\"option\":{},\"answer\":{},\"reasons\":[\"the goals name it\"],\"grounds\":[{}],\"strength\":\"strong\",\"no_ground_in_goals\":false}}", q(option), q(answer), grounds.join(","))
+}
+
+const NO_GROUND: &str = r#"{"option":null,"answer":null,"reasons":["no entry covers it"],"grounds":[],"strength":"weak","no_ground_in_goals":true}"#;
+
+fn requester(name: &str, adapter: &'static str, final_escalate: bool, body: Value, reply: Option<String>) -> Case {
+    let class = match body["type"].as_str() {
+        Some("close") => "close",
+        Some("question") => "scope_changing_answer",
+        _ => "vision",
+    };
+    let body = with(body, json!({"class": class, "side": "requester", "autonomy": "A5"}));
+    Case { kind: Kind::Requester { adapter, final_escalate }, decision: reply, ..model(name, adapter, final_escalate, body, None) }
+}
+
+/// The requester's cases: each request type it answers, an option, a free answer, no ground (stop and
+/// final), refused grounds, a reply that is missing or not JSON, a retry, the earlier decisions of the
+/// run, the dry adapter, an adapter that fails and a question the request tool refuses.
+fn requester_cases() -> Vec<Case> {
+    let mut all = Vec::new();
+    let ok = |option: &str| requester_reply(Some(option), None, &[ground("request/r1", GOALS_REVISION, Some(option))]);
+    let vision = approval("vision.approve", "vision", Some("aep/vision/product.md"));
+    let close = close();
+    let question = question("open");
+    for (label, body, reply) in [("approval-ok", &vision, ok("A")), ("approval-reject", &vision, ok("B")), ("close-ok", &close, ok("A")),
+        ("question-option", &question, ok("A")), ("approval-bare-path", &approval("release.publish", "release", None), ok("A")),
+        ("question-free", &question, requester_reply(None, Some("the three nearest"), &[ground("request/r2", GOALS_REVISION, None)])),
+        ("approval-moved-revision", &vision, requester_reply(Some("A"), None, &[ground("request/r1", "tgoalsmoved00001", Some("A"))])),
+        ("approval-two-grounds", &vision, requester_reply(Some("A"), None, &[ground("request/r1", GOALS_REVISION, Some("A")), ground("request/r2", GOALS_REVISION, Some("A"))])),
+        ("approval-refused-entry", &vision, requester_reply(Some("A"), None, &[ground("request/r9", GOALS_REVISION, Some("A"))])),
+        ("approval-no-ground-listed", &vision, requester_reply(Some("A"), None, &[])),
+        ("approval-wrong-support", &vision, requester_reply(Some("A"), None, &[ground("request/r1", GOALS_REVISION, Some("B"))])),
+        ("approval-not-json", &vision, "{not json".to_owned()), ("approval-array", &vision, "[1]".to_owned()),
+        ("approval-earlier-decisions", &vision, ok("A")), ("question-earlier-decisions", &question, ok("A"))] {
+        all.push(requester(&format!("requester-{label}"), "scripted", false, body.clone(), Some(reply)));
+    }
+    for (label, body) in [("approval", &vision), ("close", &close), ("question", &question)] {
+        for final_escalate in [false, true] {
+            all.push(requester(&format!("requester-{label}-no-ground-{}", if final_escalate { "final" } else { "stop" }), "scripted", final_escalate, body.clone(), Some(NO_GROUND.to_owned())));
+        }
+        all.push(requester(&format!("requester-{label}-missing-reply"), "scripted", false, body.clone(), None));
+        all.push(requester(&format!("requester-{label}-dry"), "dry", false, body.clone(), None));
+    }
+    all.push(requester("requester-approval-retry", "scripted", false, with(vision.clone(), json!({"retry": {"attempt": 2, "invalid_reason": "the grounding check refused it: goals@t1#request/r9: no such entry"}})), Some(ok("A"))));
+    let mut failing = requester("requester-adapter-exit-3", "scripted", false, vision.clone(), Some(ok("A")));
+    failing.tail = "exit 3\n";
+    all.push(failing);
+    let mut not_object = requester("requester-response-not-an-object", "scripted", false, vision.clone(), Some(ok("A")));
+    not_object.response = "no response today".to_owned();
+    all.push(not_object);
+    let mut unknown = requester("requester-question-unknown-id", "scripted", false, with(question.clone(), json!({"question": {"id": "q9", "item": "i1", "question": "x", "default": "y", "status": "open"}})), Some(ok("A")));
+    unknown.response = RESPONSE.to_owned();
+    all.push(unknown);
+    all
+}
+
 /// Every case: each kind (rules, the three adapters) on each request type, the scripted adapter's
 /// valid, invalid and escalating replies, and the members that change the prompt.
 pub fn cases() -> Vec<Case> {
@@ -216,5 +304,6 @@ pub fn cases() -> Vec<Case> {
     let mut fixture_named = model("scripted-fixture-named-adapter", "scripted", false, ap.clone(), Some(APPROVE));
     fixture_named.adapter_file = "llm-adapter-fixture.sh";
     all.push(fixture_named);
+    all.extend(requester_cases());
     all
 }
