@@ -60,6 +60,12 @@ node=$1
 # A binary of the driver crate (driver/src/bin) in Loom mode: on PATH, else its debug build.
 sibling() { command -v "$1" 2>/dev/null || echo "$root/driver/target/debug/$1"; }
 if [[ -n ${LOOM_CASE:-} ]]; then
+  # The plain nodes are the Rust program sdc-node; SDC_NODE_SHELL (read by the parity test only)
+  # keeps this script's own code for them.
+  case $node in
+    idea.dissect|questions.write|requirements.normalise|spec.author|test.reproduce|bug.dissect|change.fix)
+      [[ -n ${SDC_NODE_SHELL:-} ]] || exec "$(sibling sdc-node)" "$node" --tools-dir "$here" "${@:2}" ;;
+  esac
   SDC_ARGS=$(cat)
   exec < /dev/null
   [[ -n ${SDC_ARGS//[[:space:]]/} ]] || SDC_ARGS='{}'
@@ -148,9 +154,39 @@ if [[ -n ${LOOM_CASE:-} ]]; then
       "$LOOM_RETRY_FEEDBACK" > "$fbd/feedback.json" && SDC_FEEDBACK=$fbd/feedback.json
   fi
 fi
+# The text the model is told is in instructions/ (docs/driver.md, "Instructions"); the binding's
+# `llm.instructions` names each file of the action (task, and the parts it has), and this tool reads
+# the files and fills their {{name}} placeholders. repo_root is the nearest directory above this tool
+# that holds instructions/, derived once here, so it holds wherever the tools directory sits. The
+# step's own log lines, which the next run reads as feedback, are files too (shared/node.*.md).
+repo_root=$here
+until [[ -d $repo_root/instructions || $repo_root == / ]]; do repo_root=$(dirname "$repo_root"); done
+shared=instructions/shared
+# render <variable> <file under the repository root> [name=value ...]: the file with every {{name}}
+# replaced by its value in one pass (a value is never searched for placeholders); trailing newlines
+# of the file are dropped. A file that is missing, or names a placeholder without a value, is a program error.
+render() {
+  local -n _o=$1
+  local _f=$repo_root/$2 _t _out="" _m _k _kv
+  local -A _v=()
+  [[ $2 == instructions/*.md && $2 != /* && ! $2 =~ (^|/)\.\.(/|$) ]] ||
+    { echo "llm-node: $node could not run: the instruction path $2 is not instructions/<...>.md without a .. segment" >&2; exit 126; }
+  shift 2
+  [[ -f $_f ]] || { echo "llm-node: $node could not run: the instruction file ${_f#"$repo_root"/} is missing" >&2; exit 126; }
+  for _kv; do _v[${_kv%%=*}]=${_kv#*=}; done
+  _t=$(<"$_f")
+  while [[ $_t =~ \{\{([a-z_]+)\}\} ]]; do
+    _m=${BASH_REMATCH[0]} _k=${BASH_REMATCH[1]}
+    [[ -v _v[$_k] ]] || { echo "llm-node: $node could not run: ${_f#"$repo_root"/} names {{$_k}} and no value was given" >&2; exit 126; }
+    _out+=${_t%%"$_m"*}${_v[$_k]}
+    _t=${_t#*"$_m"}
+  done
+  _o=$_out$_t
+}
 # A run that does nothing ends here: exit 0, and sdc-drive is told (SDC_NOT_CALLED, a file it
 # reads back) so the run is recorded `not_called` and not counted against max_runs.
-not_called() { echo "$1"; [[ -n ${SDC_NOT_CALLED:-} ]] && printf '%s\n' "$1" > "$SDC_NOT_CALLED"; exit 0; }
+# not_called <instruction file> [name=value ...]: the step log line is the file, filled.
+not_called() { local nc_text; render nc_text "$@"; echo "$nc_text"; [[ -n ${SDC_NOT_CALLED:-} ]] && printf '%s\n' "$nc_text" > "$SDC_NOT_CALLED"; exit 0; }
 # A missing program is a program error (exit 127: sdc-drive stops, records nothing), not a result.
 for p in jq yq; do
   command -v "$p" >/dev/null 2>&1 || { echo "llm-node: $p is not on PATH: $node could not run" >&2; exit 127; }
@@ -171,7 +207,7 @@ export AEP_ACTOR=$aep_actor
 # answer, an edit or an amendment) holds answers: in runs/trial-2-train the rewrite after
 # amend.upstream wiped the operator's answers and the finding decision.
 if [[ $node == questions.write && -s questions.yaml && -z ${SDC_FEEDBACK:-} ]]; then
-  not_called "llm-node: questions.write not called: questions.yaml exists and no check found it invalid"
+  not_called "$shared/node.not-called.questions.md"
 fi
 cfg=${SDC_LLM_NODE:-'{}'}
 adapter=${SDC_LLM_ADAPTER:-stub}
@@ -244,7 +280,8 @@ raises=no
 if [[ $raises == yes && -f $work/findings.yaml ]] &&
   yq -e '[.findings[] | select(.status == "needs_person" and (.decision // "") == "")] | length > 0' \
     "$work/findings.yaml" >/dev/null 2>&1; then
-  not_called "llm-node: $node not called: findings wait for a person ($(yq -r '[.findings[] | select(.status == "needs_person")] | map(.id) | join(" ")' "$work/findings.yaml"))"
+  not_called "$shared/node.not-called.findings.md" node="$node" \
+    ids="$(yq -r '[.findings[] | select(.status == "needs_person")] | map(.id) | join(" ")' "$work/findings.yaml")"
 fi
 
 # After the node's output is applied: its raised findings go through the program check into
@@ -336,10 +373,11 @@ if [[ $adapter == stub ]]; then
     A=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.action // ""' "$SDC_FEEDBACK")
     S=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.subject // ""' "$SDC_FEEDBACK")
     fb_log=$(jq -r '[.[] | select(.result == "rejected" and .action != null and .log != null)] | last.log // ""' "$SDC_FEEDBACK")
-    [[ -n $A && -f $fb_log ]] && lines=$(printf 'rework of the rejection of %s:\n%s\n' "$A" "$(sed 's/^/- /' "$fb_log")")
+    [[ -n $A && -f $fb_log ]] && render lines "$shared/rework.stub.person.md" action="$A" reasons="$(sed 's/^/- /' "$fb_log")"
   elif [[ -n $rejection && -n ${LOOM_CASE:-} ]]; then
     A=$(jq -r '.approval // ""' "$rejection") S=$(jq -r '.subject // ""' "$rejection")
-    lines=$(jq -r '"rework \(.count) of the rejection of \(.approval) at \(.revision):", (.reasons[] | "- " + .)' "$rejection")
+    render lines "$shared/rework.stub.md" count="$(jq -r '.count' "$rejection")" approval="$(jq -r '.approval' "$rejection")" \
+      revision="$(jq -r '.revision' "$rejection")" reasons="$(jq -r '.reasons[] | "- " + .' "$rejection")"
   fi
   if [[ -n ${LOOM_CASE:-} && -n $A && -n $S ]]; then
     # Loom mode: the subject's path in the bindings file beside these tools that binds the approval.
@@ -348,7 +386,8 @@ if [[ $adapter == stub ]]; then
     [[ $(grep -c . <<< "$t") == 1 ]] || t=""
   elif [[ -n $rejection ]]; then
     t=$(jq -r --arg s "$(jq -r '.subject // ""' "$rejection")" '."$artifacts"[$s] // ""' "${SDC_CASE_DIR:-$work/..}/bindings.json" 2>/dev/null)
-    lines=$(jq -r '"rework \(.count) of the rejection of \(.approval) at \(.revision):", (.reasons[] | "- " + .)' "$rejection")
+    render lines "$shared/rework.stub.md" count="$(jq -r '.count' "$rejection")" approval="$(jq -r '.approval' "$rejection")" \
+      revision="$(jq -r '.revision' "$rejection")" reasons="$(jq -r '.reasons[] | "- " + .' "$rejection")"
   fi
   if [[ $code == 0 && -n $t && -n $lines && -e $work/$t ]]; then
     case $t in
@@ -379,7 +418,7 @@ if [[ $raises == yes && -n $t && -z ${SDC_FEEDBACK:-} && -z $rejection && -f $wo
     if [[ -n ${new// /} ]] && ! for id in $new; do [[ " $own " == *" $id "* ]] || echo x; done | grep -q x; then
       echo "requirements $(sha256sum < "$work/requirements.yaml" | cut -c1-16) resolved $(yq -r '[.findings[]? | select(.status == "resolved") | .id] | join(" ")' "$work/findings.yaml")" \
         > "$work/$t/.derived-from"
-      not_called "llm-node: $node not called: the decisions since $t/ was written are the defaults it raised and follows (${new% }); $t/ marked as derived from the amended requirements"
+      not_called "$shared/node.not-called.derived.md" node="$node" tree="$t" decisions="${new% }"
     fi
   fi
 fi
@@ -438,34 +477,7 @@ checks_input() {
 ck() { yq -r "$1" "$cwd/in/checks.yaml"; }
 
 # --- the instructions: files outside this tool ----------------------------------------------------
-# The text the model is told is in instructions/ (docs/driver.md, "Instructions"); the binding's
-# `llm.instructions` names each file of the action (task, and the parts it has), and this tool reads
-# the files and fills their {{name}} placeholders. repo_root is the nearest directory above this tool
-# that holds instructions/, derived once here, so it holds wherever the tools directory sits.
-repo_root=$here
-until [[ -d $repo_root/instructions || $repo_root == / ]]; do repo_root=$(dirname "$repo_root"); done
-shared=instructions/shared
-# render <variable> <file under the repository root> [name=value ...]: the file with every {{name}}
-# replaced by its value in one pass (a value is never searched for placeholders); trailing newlines
-# of the file are dropped. A file that is missing, or names a placeholder without a value, is a program error.
-render() {
-  local -n _o=$1
-  local _f=$repo_root/$2 _t _out="" _m _k _kv
-  local -A _v=()
-  [[ $2 == instructions/*.md && $2 != /* && ! $2 =~ (^|/)\.\.(/|$) ]] ||
-    { echo "llm-node: $node could not run: the instruction path $2 is not instructions/<...>.md without a .. segment" >&2; exit 126; }
-  shift 2
-  [[ -f $_f ]] || { echo "llm-node: $node could not run: the instruction file ${_f#"$repo_root"/} is missing" >&2; exit 126; }
-  for _kv; do _v[${_kv%%=*}]=${_kv#*=}; done
-  _t=$(<"$_f")
-  while [[ $_t =~ \{\{([a-z_]+)\}\} ]]; do
-    _m=${BASH_REMATCH[0]} _k=${BASH_REMATCH[1]}
-    [[ -v _v[$_k] ]] || { echo "llm-node: $node could not run: ${_f#"$repo_root"/} names {{$_k}} and no value was given" >&2; exit 126; }
-    _out+=${_t%%"$_m"*}${_v[$_k]}
-    _t=${_t#*"$_m"}
-  done
-  _o=$_out$_t
-}
+# (`render` and `render_part`: `render` is defined above, before the first step log line.)
 # render_part <variable> <part> [name=value ...]: the file the binding's llm.instructions names for <part>.
 render_part() {
   local _p=$1 _f
@@ -624,7 +636,7 @@ if [[ -n ${SDC_FEEDBACK:-} && -f $SDC_FEEDBACK ]] && jq -e --arg rej "$rejection
       render fb_line "$shared/feedback.check.md" kind="$fb_kind" result="$fb_result" action="$fb_action" exit="$fb_exit"
       echo; echo "$fb_line"
       own=$([[ -f $log ]] && grep -v '^slot: job ' "$log" | tail -n 80)
-      if [[ -n ${own//[[:space:]]/} ]]; then echo '```'; echo "$own"; echo '```'
+      if [[ -n ${own//[[:space:]]/} ]]; then render fb_fenced "$shared/feedback.log.md" log="$own"; echo "$fb_fenced"
       else echo "$fb_none"; fi
     done < <(jq -r --arg rej "$rejection" '.[] | select(.result != "rejected" or (.log // "") != $rej)
       | [.kind, .result, (.action // "?"), (.exit // "?"), (.log // "")] | map(tostring) | join("\u001f")' "$SDC_FEEDBACK")
@@ -940,7 +952,7 @@ elif [[ $acode == 0 && -n $coverage_invalid ]]; then
 elif [[ $acode == 0 ]]; then
   apply > "$rec/apply.log" 2>&1; code=$?
   # Why it was not applied goes into the step's log, which the next run reads (R9 above).
-  [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
+  [[ $code == 0 ]] || { render step_log "$shared/node.not-applied.md" node="$node" code="$code"; echo "$step_log"; tail -n 20 "$rec/apply.log"; }
   [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1
 elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == recording_diverged ]]; then
   # A re-driven run (sdc-replay) whose recording diverged under the policy stop: exit 75, the driver
@@ -951,12 +963,15 @@ elif [[ $(jq -r '.terminal_reason // ""' "$rec/response.json") == api_error ]]; 
   # The model's API refused or broke off (a 429, an overload): the node could not run, which
   # says nothing about its subject. Exit 75: sdc-drive records nothing, counts no run and stops;
   # resume later on the same model.
-  echo "llm-node: $node could not run: the model's API ended the session (api_error$(
-    jq -r '(.api_error_status // empty) | " \(.)"' "$rec/response.json")); nothing applied, resume later"
+  api_status=$(jq -r '(.api_error_status // empty) | " \(.)"' "$rec/response.json")
+  render step_log "$shared/node.api-ended.md" node="$node" status="$api_status"
+  echo "$step_log"
   code=75
 else
   code=$acode
-  echo "llm-node: $node: the model call exited $acode: $(jq -r '.terminal_reason // .error // "no reason given" | tostring' "$rec/response.json" 2>/dev/null | head -c 300)"
+  call_why=$(jq -r '.terminal_reason // .error // "no reason given" | tostring' "$rec/response.json" 2>/dev/null | head -c 300)
+  render step_log "$shared/node.call-exit.md" node="$node" code="$acode" reason="$call_why"
+  echo "$step_log"
 fi
 
 # Under Loom no sdc-drive runs the binding's postcondition, so the same program check runs here,
