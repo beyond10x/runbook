@@ -12,3 +12,4 @@ mod mcp;
 mod cli_client;
 mod ui_guard;
 mod ui_decide;
+mod ui_decide_review;
