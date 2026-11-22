@@ -414,15 +414,21 @@ const LAUNCH: [(&str, &str); 33] = [
 ];
 /// What a launched variant with `runner: free-agent` sets (sdc-free-agent run).
 const REQUIRED_FREE: [&str; 6] = ["free.model", "free.effort", "free.adapter", "free.max_usd", "free.max_wall_s", "free.max_turns"];
-/// What a launched variant with `runner: loom` sets (`runbook loom-run`): the Loom binary and its
-/// digest, the confinement (no default), the spend cap over every run of the record, the models
-/// of the four node classes, the kind of the decider, the autonomy level and the two ceilings. A
-/// `model` decider also sets `decider.model`, a `rule` decider `decider.verdict`.
-const REQUIRED_LOOM: [&str; 12] = ["loom.bin", "loom.sha256", "loom.confinement", "loom.cap_micro_usd", "models.writer.model",
+/// What a launched variant with `runner: loom` sets (`runbook loom-run`): the confinement (no
+/// default), the spend cap over every run of the record, the models of the four node classes, the
+/// kind of the decider, the autonomy level and the two ceilings. A `model` decider also sets
+/// `decider.model`, a `rule` decider `decider.verdict`. The way to Loom is one of two (see
+/// `LOOM_CHILD`).
+const REQUIRED_LOOM: [&str; 10] = ["loom.confinement", "loom.cap_micro_usd", "models.writer.model",
     "models.implement.model", "models.review.model", "models.other.model", "decider.kind", "autonomy", "max_llm_calls", "max_wall_seconds"];
-/// `loom` settings that are optional: the path of the login file the model adapter reads, and the
-/// members of `runbook.loom-run-settings/1` that only some deciders and adapters take.
-const OPTIONAL_LOOM: [&str; 8] = ["loom.login_file", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
+/// The way to Loom is the binary as a child process (`loom.bin` with its digest `loom.sha256`),
+/// or, with `loom.in_process: 'true'`, Loom as a library of the build (`runbook loom-run
+/// --in-process`): then neither of these is set.
+const LOOM_CHILD: [&str; 2] = ["loom.bin", "loom.sha256"];
+/// `loom` settings that are optional: the path of the login file the model adapter reads, the way
+/// to Loom that is the library, and the members of `runbook.loom-run-settings/1` that only some
+/// deciders and adapters take.
+const OPTIONAL_LOOM: [&str; 9] = ["loom.login_file", "loom.in_process", "decider.model", "decider.verdict", "decider.escalate", "decider.max_decider_calls",
     "decider.adapter", "adapter", "review.adapter"];
 /// The members of a `model` decider that a `rule` decider does not have.
 const MODEL_ONLY_LOOM: [&str; 4] = ["decider.model", "decider.escalate", "decider.max_decider_calls", "decider.adapter"];
@@ -451,8 +457,23 @@ fn loom_refusal(key: &str) -> Option<&'static str> {
 fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
     for k in REQUIRED_LOOM {
         if !v.settings.contains_key(k) {
-            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the Loom binary and its digest, the confinement, the spend cap, every class's model, the decider's kind, the autonomy level and both ceilings)", v.id));
+            p.push(format!("variant {:?}: the settings do not set {k} (a loom launch needs the way to Loom, the confinement, the spend cap, every class's model, the decider's kind, the autonomy level and both ceilings)", v.id));
         }
+    }
+    match v.settings.get("loom.in_process").map(String::as_str) {
+        None => {
+            for k in LOOM_CHILD {
+                if !v.settings.contains_key(k) {
+                    p.push(format!("variant {:?}: the settings do not set {k} (the Loom binary and its digest, or loom.in_process: 'true' for Loom as a library)", v.id));
+                }
+            }
+        }
+        Some("true") => {
+            for k in LOOM_CHILD.iter().filter(|k| v.settings.contains_key(**k)) {
+                p.push(format!("variant {:?}: {k} and loom.in_process both name the way to Loom: a variant runs the binary (loom.bin with loom.sha256) or the library (loom.in_process: 'true'), not both", v.id));
+            }
+        }
+        Some(_) => p.push(format!("variant {:?}: loom.in_process must be 'true' (leave it out to run the Loom binary)", v.id)),
     }
     let one_of = |k: &str, allowed: &[&str], p: &mut Vec<String>, what: &str| {
         if v.settings.get(k).is_some_and(|x| !allowed.contains(&x.as_str())) {
@@ -486,7 +507,7 @@ fn check_loom_settings(v: &Variant, p: &mut Vec<String>) {
         _ => {}
     }
     for k in v.settings.keys() {
-        if REQUIRED_LOOM.contains(&k.as_str()) || OPTIONAL_LOOM.contains(&k.as_str()) {
+        if REQUIRED_LOOM.contains(&k.as_str()) || OPTIONAL_LOOM.contains(&k.as_str()) || LOOM_CHILD.contains(&k.as_str()) {
             continue;
         }
         match loom_refusal(k) {
@@ -1932,6 +1953,11 @@ fn expand_home(path: &str, base: &dyn Fn(&str) -> Option<String>) -> Result<Stri
     }
 }
 
+/// Whether a `loom` variant runs Loom as a library (`loom.in_process: 'true'`).
+fn loom_in_process(settings: &BTreeMap<String, String>) -> bool {
+    settings.get("loom.in_process").is_some_and(|x| x == "true")
+}
+
 /// The settings file of a `loom` run (`runbook.loom-run-settings/1`): the record's settings that
 /// `runbook loom-run` reads, nested by their dotted keys so the run can record them as
 /// `run-settings.jsonl` under the record's own names. `loom.bin` is not in it (an argument). The
@@ -1979,7 +2005,11 @@ fn loom_settings_json(name: &str, settings: &BTreeMap<String, String>, redact: b
     }
     put(&mut doc, &["max_llm_calls"], num("max_llm_calls"));
     put(&mut doc, &["max_wall_seconds"], num("max_wall_seconds"));
-    put(&mut doc, &["loom", "sha256"], json!(get("loom.sha256")));
+    if loom_in_process(settings) {
+        put(&mut doc, &["loom", "in_process"], json!(true));
+    } else {
+        put(&mut doc, &["loom", "sha256"], json!(get("loom.sha256")));
+    }
     put(&mut doc, &["loom", "confinement"], json!(get("loom.confinement")));
     put(&mut doc, &["loom", "cap_micro_usd"], num("loom.cap_micro_usd"));
     if let Some(l) = settings.get("loom.login_file") {
@@ -2013,14 +2043,21 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
              base: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, String> {
     let g = |k: &str| settings.get(k).cloned().unwrap_or_default();
     let mut v: Vec<String> = vec![loom_runbook_bin(build).display().to_string(), "loom-run".into()];
-    let mut add = |flag: &str, value: String| {
+    // the library is a flag with no value; the binary is `--loom` with its digest
+    let in_process = loom_in_process(settings);
+    if in_process {
+        v.push("--in-process".into());
+    }
+    let mut add =|flag: &str, value: String| {
         v.push(flag.into());
         v.push(value);
     };
     add("--run", name.into());
     add("--runs-dir", runs_dir.display().to_string());
-    add("--loom", expand_home(&g("loom.bin"), base)?);
-    add("--loom-sha256", g("loom.sha256"));
+    if !in_process {
+        add("--loom", expand_home(&g("loom.bin"), base)?);
+        add("--loom-sha256", g("loom.sha256"));
+    }
     add("--bindings", build.join("bindings").display().to_string());
     add("--protocols", build.join("protocol").display().to_string());
     add("--root-protocol", root.into());
@@ -2384,6 +2421,9 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
             match &rp.loom {
                 Some(l) => {
                     println!("  runner: loom");
+                    if loom_in_process(&p.variant.settings) {
+                        println!("  loom: in process (--in-process: Loom as a library of the build, no b10x-loom binary, no loom.bin, no loom.sha256)");
+                    }
                     println!("  description: {}", unit_description(&id, &p.name));
                     for (k, v) in &rp.env {
                         println!("  env {k}={v}");
