@@ -1931,6 +1931,7 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
     s.put("tree/a.txt", "a");
     s.put("tree/.sdc/loom-feedback/0123456789abcdef/log.txt", "tail");
     s.put("tree/.sdc/keep/x", "x");
+    s.put("tree/.sdc/records/conformance_run/0123456789abcdef.log", "test b ... ok\nfinished in 0.02s\n");
     let out = s.root.join("o.json");
     let o = loom_summarize(&pfx().join("loom-status.json"), &["--product-tree", path_str(&s.root.join("tree")), "--output", path_str(&out)]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
@@ -1938,6 +1939,7 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
     assert_eq!(paths, [json!(".sdc/keep/x"), json!("a.txt")]);
     let table = stdout(&parity(&["compare", "--rules"]));
     assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/loom-feedback/**] | never compared | ")), "{table}");
+    assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/records/**] | never compared | ")), "{table}");
 }
 
 // ---- runbook parity: the revision a child's `case_outcome` record carries in its parent

@@ -15,9 +15,13 @@ pub const LOOM_STATUS_FORMAT: &str = "loom.tree-status/1";
 /// Directory names left out of the product tree, at any depth.
 const EXCLUDED_DIRS: [&str; 3] = ["target", "node_modules", ".git"];
 
-/// Where Loom's `llm-node.sh` copies the retry feedback it was given, relative to the product
-/// tree. Left out of the listing of both runtimes (rule `product_tree[.sdc/loom-feedback/**]`).
-const FEEDBACK_DIR: &str = ".sdc/loom-feedback";
+/// Workspace directories that only carry facts to a program under Loom, relative to the product
+/// tree: the retry feedback `llm-node.sh` copies (`.sdc/loom-feedback`) and the record files
+/// `sdc-reply record` writes, since Loom gives a program no case store (`.sdc/records`; the log
+/// of a test run in them has the test order and the elapsed time of that run). Left out of the
+/// listing of both runtimes (rules `product_tree[.sdc/loom-feedback/**]` and
+/// `product_tree[.sdc/records/**]`).
+const TRANSPORT_DIRS: [&str; 2] = [".sdc/loom-feedback", ".sdc/records"];
 
 /// The kind of the record a child's outcome leaves in its parent (both readers name it so; the
 /// summary holds no other mark of the action that opened the child).
@@ -160,6 +164,7 @@ const RULES: &[Rule] = &[
     rule("protocols[].digest", How::Pattern("d"), "each runtime digests its own form of the protocol", FROM_PROTOCOLS, "sha256 of the file the runner copied for that id and revision; the status protocols[] is empty and is not read (not recorded)"),
     rule("product_tree[].path", How::Value, "the set of files: a path missing on one side is a difference", "--product-tree, else workspace", "the directory walked as the driver's work/ is"),
     rule("product_tree[.sdc/loom-feedback/**]", How::Never, "the retry feedback that Loom's llm-node.sh copies into the workspace; the driver hands the same feedback over in a variable and writes no file: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
+    rule("product_tree[.sdc/records/**]", How::Never, "the record files `sdc-reply record` writes into the workspace for the inputs of change.review, since Loom gives a program no case store; the driver keeps the same facts in its case store and writes no file; the log of a test run in them carries the test order and the elapsed time of that run: transport, not product", "--product-tree, else workspace", "left out of the listing of both sides when the summary is written"),
     rule("product_tree[].sha256", How::Digest, "compared only with --product-digests (a stub run is deterministic, a model run is not); stamps like 2026-11-20T12:00:00Z in text files are read as <time> (aep writes the wall clock into planning files)", "--product-tree, else workspace", "the same digest of the same file"),
 ];
 
@@ -516,7 +521,7 @@ fn walk_product(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) -> 
             continue;
         } else if ty.is_dir() {
             let rel = p.strip_prefix(root).unwrap().to_string_lossy();
-            if !EXCLUDED_DIRS.contains(&name.as_str()) && rel != FEEDBACK_DIR {
+            if !EXCLUDED_DIRS.contains(&name.as_str()) && !TRANSPORT_DIRS.contains(&&*rel) {
                 walk_product(root, &p, out)?;
             }
         } else if ty.is_file() {

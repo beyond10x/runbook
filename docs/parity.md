@@ -78,7 +78,15 @@ child's `case_outcome` record, is described under "Known differences of the two 
   `plan.decompose` run names the same three kinds in `retry_of`. The listing of the product tree
   leaves out everything under `.sdc/loom-feedback/`, on both sides, where the summary is written
   (`walk_product`); it is the transport of feedback, not product. Another directory under `.sdc/` is
-  listed as before.
+  listed as before, except `.sdc/records/`.
+- Record files (`product_tree[.sdc/records/**]`). Under Loom a bound program gets its working
+  directory and no case store, so `sdc-tool.sh` writes the records that the inputs of `change.review`
+  read (a test run's log, the gate's log) with `sdc-reply record` into `.sdc/records/` of the
+  workspace (`docs/loom-bindings.md`). The driver keeps the same facts in its case store and writes
+  no file. The log of a test run holds the order of the tests and the elapsed time of that one run,
+  so two runs of the same cycle differ in it (the child and the library run of `task
+  test:loom-in-process` differed in `.sdc/records/conformance_run/<16 hex>.log`, 2026-11-22). The
+  listing of the product tree leaves out `.sdc/records/` on both sides, like `.sdc/loom-feedback/`.
 
 A third answer besides equal and different: a member exactly one side lists under `not_recorded` (or
 lies below a member it lists) is not compared, and `compare` names it on a line
@@ -226,6 +234,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `protocols[].digest` | `opened` event | run directory: protocols/*.protocol.yaml | sha256 of the file the runner copied for that id and revision; the status protocols[] is empty and is not read (not recorded) |
 | `product_tree[].path` | the root case's `work/` | --product-tree, else workspace | the directory walked as the driver's work/ is |
 | `product_tree[.sdc/loom-feedback/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
+| `product_tree[.sdc/records/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
 | `product_tree[].sha256` | the root case's `work/` | --product-tree, else workspace | the same digest of the same file |
 
 Where the seven values come from now (each row of the table above names its source): the six
