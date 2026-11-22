@@ -12,14 +12,18 @@ use crate::loom_run::answers::{decision_line, Given};
 
 impl NativeDecider {
     pub(super) fn ask_request(&self, r: &AskRequest<'_>) -> Asked {
-        if self.autonomy.as_deref() != Some(AUTONOMY_DECIDES) {
-            return Asked::cannot(format!("reserved for a person: the decider decides only at {AUTONOMY_DECIDES}"));
-        }
+        let level = match self.level() {
+            Ok(level) => level,
+            Err(reason) => return Asked::cannot(reason),
+        };
         let dreq = DecisionRequest { decision: r.decision, run_dir: r.run_dir, workspace: r.workspace, budget_micro_usd: r.budget_micro_usd, child_env: r.child_env, login_link: r.login_link };
         let approval = match ask_approval(r) {
             Ok(approval) => approval,
             Err(reason) => return Asked::cannot(reason),
         };
+        if let Err(reason) = self.route(level, r.run_dir, &r.request.kind, &approval.action, None) {
+            return Asked::cannot(reason);
+        }
         match &self.mode {
             Mode::Rule { .. } => self.ask_rule(r, &dreq, &approval),
             Mode::Model { .. } => self.ask_model(r, &dreq, &approval),
@@ -73,9 +77,10 @@ impl NativeDecider {
     }
 
     fn ask_model_routed(&self, r: &AskRequest<'_>, dreq: &DecisionRequest<'_>, approval: &Approval, routed: Option<&str>) -> Asked {
-        let Mode::Model { final_escalate, retries, .. } = &self.mode else {
+        let Mode::Model { retries, .. } = &self.mode else {
             return Asked::cannot("not a model decider");
         };
+        let final_escalate = self.final_escalate();
         let principal = self.principal_for(routed.is_some());
         if instructions_root(&r.run_dir.join("bindings").join("tools")).is_none() {
             return Asked::cannot(NO_INSTRUCTIONS);
@@ -109,6 +114,9 @@ impl NativeDecider {
             if let Some(class) = routed {
                 requester::tag(&mut body, class, r.run_dir);
             }
+            if let Some(level) = &self.autonomy {
+                body["autonomy"] = json!(level);
+            }
             if let Err(e) = std::fs::write(rec.join("decide-request.json"), format!("{body}\n")).and_then(|()| std::fs::write(rec.join("loom-decision.json"), format!("{}\n", r.decision))) {
                 asked.result = Err(format!("decider request file: {}", e.kind()));
                 return asked;
@@ -130,7 +138,7 @@ impl NativeDecider {
                     asked.cost_micro_usd = asked.cost_micro_usd.saturating_add(cost);
                 }
                 if attempt > *retries {
-                    if *final_escalate {
+                    if final_escalate {
                         // The fallback of a question or a finding: its default (`invalid_reply_default`).
                         asked.lines.push(line("invalid_reply", &reply, json!({"attempt": attempt})));
                         let Some(answer) = default_of(r) else {
@@ -167,7 +175,7 @@ impl NativeDecider {
                 }
                 Some("escalate") => {
                     let reasons = reply.get("reasons").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" ")).unwrap_or_default();
-                    if !*final_escalate {
+                    if !final_escalate {
                         asked.lines.push(line("escalate", &reply, attempts));
                         asked.result = Err(format!("reserved for a person: the decider escalated (escalate stop): {}", self.redact(&reasons)));
                         return asked;

@@ -29,7 +29,7 @@ pub(super) fn read_approval(request: &DecisionRequest<'_>, bindings: Option<&Pat
     let kind = text_member(decision, "kind").ok_or("the decision has no kind")?;
     if !APPROVAL_KINDS.contains(&kind) {
         return Err(match kind {
-            "Handoff" => "kind Handoff: a writer's handoff text names work for a person; the printed `tree run` changes nothing until that work is done, and the decider has no reply for it".to_owned(),
+            "Handoff" => "kind Handoff: the decider has no reply for a writer's handoff; the printed `tree run` changes nothing until the work the handoff names is done".to_owned(),
             other => format!("kind {other} not known"),
         });
     }

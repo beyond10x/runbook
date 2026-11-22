@@ -476,7 +476,12 @@ impl Runner<'_> {
                 self.emit(Event::CostedCall { source: CostSource::Decider, cost_micro_usd: cost, record: serde_json::json!({"model_calls": calls}) })?;
             }
             let mut answer = Answer { decision: &decision, kind: &kind, approve, principal: principal.as_deref(), result: None, reasons_file: None, deny: false };
-            let principal = self.host.principal(&answer);
+            // A printed close names no principal; the record names who decided it (`rule:autopilot`,
+            // `decider:model`), never a person.
+            let principal = match self.host.principal(&answer) {
+                p if p.is_empty() => answer.principal.unwrap_or_default().to_owned(),
+                p => p,
+            };
             match kind.as_str() {
                 // A close the decider does not want is not run: Loom prints one per outcome.
                 "Close" if !approve => {}
@@ -568,6 +573,21 @@ impl Runner<'_> {
                 return Ok(None);
             }
             let listed = if declared.is_empty() { "none".to_owned() } else { declared.join(", ") };
+            if !approve {
+                // A rejection nothing can record: no rework path. The run is stopped, with the step,
+                // the case and what the rejection said, and nothing is sent to Loom.
+                let case = decision.get("case").and_then(Value::as_str).unwrap_or("");
+                let who = answer.principal.unwrap_or("the decider");
+                let subject = decision.get("subject").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("it");
+                let revision = decision.get("revision").and_then(Value::as_str).unwrap_or("");
+                let said = reasons.map(|r| r.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|r| !r.is_empty()).unwrap_or_else(|| "no reasons given".to_owned());
+                let said: String = said.chars().take(400).collect();
+                return Err(Halt::Done(Outcome::StoppedRejected {
+                    reason: format!(
+                        "{action} in {case}: {who} rejected {subject} {revision} ({said}); rejected_without_rework_path: the bindings declare the results {listed} for the action, so nothing records a rejection and no step reworks the rejected revision; it waits on a protocol path for a rejected revision"
+                    ),
+                }));
+            }
             return Err(Halt::Failed(format!("the decider answered {result} for action {action}, but the bindings of the run declare the results {listed} for it: Loom would refuse the result")));
         }
         answer.result = Some(result);

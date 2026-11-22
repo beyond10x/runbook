@@ -58,6 +58,8 @@ fn world(tag: &str) -> World {
     std::os::unix::fs::symlink(repo().join("instructions/decider"), run.join("instructions/decider")).unwrap();
     std::fs::create_dir_all(run.join("driver/examples/sdc")).unwrap();
     std::fs::copy(repo().join("driver/examples/sdc/decision-classes.json"), run.join("driver/examples/sdc/decision-classes.json")).unwrap();
+    std::fs::create_dir_all(run.join("tools")).unwrap();
+    std::fs::copy(repo().join(routing::LEVELS_FILE), run.join(routing::LEVELS_FILE)).unwrap();
     std::fs::create_dir_all(run.join("bindings/tools")).unwrap();
     std::fs::copy(repo().join("bindings/tools/node-classes.json"), run.join("bindings/tools/node-classes.json")).unwrap();
     let adapter = run.join("bindings/tools/adapter.sh");

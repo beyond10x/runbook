@@ -1,0 +1,11 @@
+{
+  "format": "sdc.autonomy-levels/1",
+  "levels": {
+    "A0": {"scope_changing_answer": "person", "context": "person", "vision": "person", "roadmap": "person", "spec_acceptance": "person", "story_activation": "person", "code_review": "person", "merge": "person", "release": "person", "rollback": "person", "close": "person", "budget_overrun": "person", "limit_hit": "rule", "escalation": "none"},
+    "A1": {"scope_changing_answer": "advised", "context": "advised", "vision": "advised", "roadmap": "advised", "spec_acceptance": "advised", "story_activation": "advised", "code_review": "advised", "merge": "advised", "release": "advised", "rollback": "advised", "close": "advised", "budget_overrun": "person", "limit_hit": "rule", "escalation": "none"},
+    "A2": {"scope_changing_answer": "person", "context": "decider", "vision": "person", "roadmap": "person", "spec_acceptance": "decider", "story_activation": "decider", "code_review": "decider", "merge": "person", "release": "person", "rollback": "person", "close": "person", "budget_overrun": "person", "limit_hit": "rule", "escalation": "person"},
+    "A3": {"scope_changing_answer": "decider", "context": "decider", "vision": "decider", "roadmap": "decider", "spec_acceptance": "decider", "story_activation": "decider", "code_review": "decider", "merge": "person", "release": "person", "rollback": "rule", "close": "person", "budget_overrun": "rule", "limit_hit": "rule", "escalation": "person"},
+    "A4": {"scope_changing_answer": "decider", "context": "decider", "vision": "decider", "roadmap": "decider", "spec_acceptance": "decider", "story_activation": "decider", "code_review": "decider", "merge": "rule_and_decider", "release": "person", "rollback": "rule", "close": "decider", "budget_overrun": "rule", "limit_hit": "rule", "escalation": "person"},
+    "A5": {"scope_changing_answer": "decider_final", "context": "decider_final", "vision": "decider_final", "roadmap": "decider_final", "spec_acceptance": "decider_final", "story_activation": "decider_final", "code_review": "decider_final", "merge": "rule_and_decider_final", "release": "decider_final", "rollback": "rule_final", "close": "rule", "budget_overrun": "rule_final", "limit_hit": "rule_final", "escalation": "decider_final"}
+  }
+}
