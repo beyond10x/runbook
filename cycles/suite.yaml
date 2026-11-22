@@ -2433,7 +2433,7 @@ cycles:
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run, result: passed}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "red_then_green over the evidence records: the red repro_run (subject repro at revision R, upstream change at tree digest C1), the implementation_change after it (upstream repro R, subject C2) and the passed test_run (subject C2, upstream repro R) in record order, digests set and C1 differs from C2"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green over the evidence records: the red repro_run (subject repro at revision R, upstream change at tree digest C1), the implementation_change after it (upstream repro R, subject C2) and the passed test_run (subject C2, upstream repro R) in record order, digests set and C1 differs from C2"}
     source: {lines: "2314-2315", helpers: "2290-2313"}
 
   - id: bugfix-not-red
@@ -2455,7 +2455,7 @@ cycles:
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green revision chain"}
       - {kind: field-compare, lines: "2317", note: "exactly one repro_run not_red whose subject_revision is not none"}
     source: {lines: "2316-2318", helpers: "2290-2313"}
 
@@ -2480,7 +2480,7 @@ cycles:
         - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: test_run, result: passed}, count: 1}
     unexpressed:
       - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green revision chain"}
       - {kind: event-order, lines: "2320-2321", note: "test_run results in order are [failed, passed]"}
     source: {lines: "2319-2323", helpers: "2290-2313"}
 
@@ -2543,7 +2543,7 @@ cycles:
       - {kind: setup-shell, lines: "2336-2346", note: "git init and commit of the crate copy, ignored and untracked files, ticket with base commit"}
       - {kind: computed-input, lines: "2342-2343", note: "ticket.yaml repository.base.commit set to the new HEAD commit"}
       - {kind: aggregate, lines: "2353", note: "replay.json: every case has state_matches_log and decision_matches_log"}
-      - {kind: cross-record, lines: "2354", note: "red_then_green revision chain over the evidence"}
+      - {kind: cross-record, lines: "red_then_green", note: "red_then_green revision chain over the evidence"}
       - {kind: derived-value, lines: "2355-2356", note: "mainline files equal git ls-files of the repository"}
       - {kind: cross-record, lines: "2358", note: "seed.json base commit equals the repository HEAD"}
       - {kind: field-compare, lines: "2359", note: "bug.yaml constraints has 2 entries"}
