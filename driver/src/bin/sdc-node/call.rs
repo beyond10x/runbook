@@ -24,8 +24,8 @@ struct Status<'a> {
 }
 
 #[derive(Serialize)]
-struct Request<'a> {
-    model: &'a str,
+pub struct Request<'a> {
+    pub model: &'a str,
     effort: Option<&'a str>,
     prompt_file: String,
     cwd: String,
@@ -38,10 +38,13 @@ struct Request<'a> {
     max_turns: &'a NumLit,
     max_budget_usd: &'a NumLit,
     #[serde(skip_serializing_if = "Option::is_none")]
-    json_schema: Option<String>,
+    pub json_schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_attempt: Option<usize>,
 }
 
-fn pretty<T: Serialize>(v: &T) -> String {
+/// The pretty JSON text of `v` with a trailing newline, as `jq` writes a file.
+pub fn pretty<T: Serialize>(v: &T) -> String {
     let mut t = serde_json::to_string_pretty(v).unwrap_or_default();
     t.push('\n');
     t
@@ -149,7 +152,7 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
     let work = &c.work;
     let mut inp = Inputs::new(work, cwd);
     let built = nodes::build(c, rec, cwd, &mut inp)?;
-    let mut task = built.task;
+    let mut task = built.task.clone();
 
     // A run seeded from a ticket: the ticket's constraints bind the code writers.
     if matches!(c.node.as_str(), "test.reproduce" | "change.fix") && c.has_ticket() {
@@ -225,19 +228,36 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
     }
 
     let prompt = rec.join("prompt.md");
-    let preamble = c.render("instructions/shared/preamble.md", &[("node", &c.node)])?;
-    let closing = c.render(if c.rejection.is_some() { "instructions/shared/closing-rework.md" } else { "instructions/shared/closing.md" }, &[])?;
+    let preamble = c.render(if c.facts() { "instructions/shared/preamble-facts.md" } else { "instructions/shared/preamble.md" }, &[("node", &c.node)])?;
+    let closing = if c.node == "change.review" {
+        match built.review.as_ref().and_then(|r| r.doc.as_ref()) {
+            // The review input's exact bytes, the trailing newline kept: the file ends the paragraph.
+            Some(doc) => {
+                let text = String::from_utf8_lossy(&fs::read(doc).unwrap_or_default()).into_owned();
+                c.render("instructions/shared/closing-review-facts.md", &[("review_doc", &text)])?
+            }
+            None => c.render("instructions/shared/closing-review.md", &[])?,
+        }
+    } else {
+        c.render(if c.rejection.is_some() { "instructions/shared/closing-rework.md" } else { "instructions/shared/closing.md" }, &[])?
+    };
     let input_list = if inp.list.is_empty() { "- ".to_string() } else { chomp(&inp.list.iter().map(|i| format!("- {i}\n")).collect::<String>()).to_string() };
     let frame = c.render("instructions/shared/frame.md", &[("preamble", &preamble), ("inputs", &input_list), ("task", &task), ("closing", &closing)])?;
     let _ = fs::write(&prompt, format!("{frame}\n"));
 
     // The model and the reasoning effort: the binding's, else the class default.
     let model = c.set.cfg.model.clone().unwrap_or_else(|| "claude-haiku-5-5".to_string());
-    let default_ops: Vec<String> = ["dir.list", "file.edit", "file.read", "file.write", "search"].map(String::from).to_vec();
-    let operations = c.set.cfg.operations.clone().unwrap_or(default_ops);
-    let max_turns = c.set.cfg.max_turns.clone().unwrap_or_else(|| NumLit("30".into()));
+    let default_ops: Vec<String> = built.ops.iter().map(|o| o.to_string()).collect();
+    let mut operations = c.set.cfg.operations.clone().unwrap_or(default_ops);
+    let mut max_turns = c.set.cfg.max_turns.clone().unwrap_or_else(|| NumLit(built.turns.to_string()));
+    if c.facts() {
+        // The facts review makes one request without a tool and at most 4 turns, whatever the binding gives.
+        operations.clear();
+        max_turns = NumLit("4".into());
+    }
     let max_budget = c.set.cfg.max_budget_usd.clone().unwrap_or_else(|| NumLit("1".into()));
-    let req = Request {
+    let case_dir = std::env::var("SDC_CASE_DIR").unwrap_or_default();
+    let mut req = Request {
         model: &model,
         effort: c.effort.as_deref().filter(|e| !e.is_empty()),
         prompt_file: prompt.display().to_string(),
@@ -246,14 +266,18 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         node: &c.node,
         attempt,
         case: &c.set.case,
-        case_dir: "",
+        case_dir: &case_dir,
         operations: &operations,
         max_turns: &max_turns,
         max_budget_usd: &max_budget,
         json_schema: built.schema.as_ref().map(|s| s.display().to_string()),
+        review_attempt: None,
     };
     let request = rec.join("request.json");
     let _ = fs::write(&request, pretty(&req));
+    if c.node == "change.review" {
+        return crate::review::call(c, rec_root, rec, cwd, attempt, &built, &mut req, feedback);
+    }
 
     // The adapter.
     let started = now_utc(false);
@@ -273,7 +297,7 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
             c.post("", &mut Out::append(&rec.join("apply.log")))?;
         }
     } else if acode == 0 {
-        code = apply(c, built.out, rec, cwd);
+        code = apply(c, built.out, rec, cwd)?;
         if code != 0 {
             let head = c.render("instructions/shared/node.not-applied.md", &[("node", &c.node), ("code", &code.to_string())])?;
             Out::inherit().line(head.as_bytes());
@@ -308,15 +332,23 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         let msg = c.render("instructions/shared/node.call-exit.md", &[("node", &c.node), ("code", &acode.to_string()), ("reason", chomp(&why))])?;
         Out::inherit().line(msg.as_bytes());
     }
-    log_call(c, rec_root, rec, attempt, &started, &req, built.out, acode, code, feedback);
+    log_call(c, rec_root, rec, attempt, &started, &req, built.out, acode, code, feedback, None);
     Ok(code)
 }
 
 /// Copies back only the declared output.
-fn apply(c: &Ctx, out: &str, rec: &Path, cwd: &Path) -> i32 {
+fn apply(c: &Ctx, out: &str, rec: &Path, cwd: &Path) -> R<i32> {
     let work = &c.work;
     let log = rec.join("apply.log");
     let mut sink = Out::truncate(&log);
+    if let Some(code) = crate::store::apply(c, cwd, &mut sink)? {
+        return Ok(code);
+    }
+    Ok(apply_copy(c, out, rec, cwd, work, &mut sink))
+}
+
+/// The nodes whose output is a plain copy back.
+fn apply_copy(c: &Ctx, out: &str, rec: &Path, cwd: &Path, work: &Path, sink: &mut Out) -> i32 {
     let copy_back = |from: &Path, to: &Path| -> bool {
         rm_rf(to).is_ok() && to.parent().is_none_or(|p| fs::create_dir_all(p).is_ok()) && cp_r(from, to).is_ok()
     };
@@ -339,7 +371,7 @@ fn apply(c: &Ctx, out: &str, rec: &Path, cwd: &Path) -> i32 {
             if !copy_back(&cwd.join("out/repro"), &work.join("repro")) {
                 return 1;
             }
-            run_cmd(Command::new(c.set.here.join("sdc-tool.sh")).args(["bugfix", "repro-install"]), &mut sink)
+            run_cmd(Command::new(c.set.here.join("sdc-tool.sh")).args(["bugfix", "repro-install"]), sink)
         }
         _ => {
             if !cwd.join("out").join(out).exists() {
@@ -352,7 +384,7 @@ fn apply(c: &Ctx, out: &str, rec: &Path, cwd: &Path) -> i32 {
 
 /// One line per call, for the run log and the viewer.
 #[allow(clippy::too_many_arguments)]
-fn log_call(c: &Ctx, rec_root: &Path, rec: &Path, attempt: usize, started: &str, req: &Request, out: &str, acode: i32, code: i32, retry: bool) {
+pub fn log_call(c: &Ctx, rec_root: &Path, rec: &Path, attempt: usize, started: &str, req: &Request, out: &str, acode: i32, code: i32, retry: bool, input_bytes: Option<u64>) {
     let Some(res) = fs::read_to_string(rec.join("response.json")).ok().and_then(|t| Ov::parse(&t).ok()).filter(|r| matches!(r, Ov::Obj(_))) else {
         return;
     };
@@ -384,6 +416,9 @@ fn log_call(c: &Ctx, rec_root: &Path, rec: &Path, attempt: usize, started: &str,
         ("dry".into(), if r("dry").truthy() { r("dry") } else { Ov::Bool(false) }),
         ("record".into(), s(&rec.display().to_string())),
     ];
+    if let Some(bytes) = input_bytes {
+        fields.push(("input_bytes".into(), Ov::Num(bytes.into())));
+    }
     if r("implement_mode").truthy() {
         for k in ["implement_mode", "requests", "continuations", "reply_retries", "cause"] {
             fields.push((k.into(), r(k)));
