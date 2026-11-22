@@ -11,6 +11,10 @@
 //! with an exit other than 0 does not end the run, the step's retry rule decides, unless the exit
 //! is 126, 127 or 75 (the tool could not run). Every other call without a cost ends the run, with a
 //! reason that names the action, the adapter, its exit and the first line of its stderr.
+//!
+//! One call directory is no call: the step ended before it started any adapter (no `request.json`,
+//! `status.json` with its exit). It costs nothing, books nothing and does not end the run; the
+//! run goes on with what Loom says of the step's exit.
 
 use serde_json::Value;
 use std::collections::HashSet;
@@ -33,6 +37,9 @@ pub struct StepCost {
     /// Lines of calls that ended with an exit other than 0 and have no usable cost: each is booked
     /// at the reservation by the caller, and the run goes on.
     pub unknown: Vec<Value>,
+    /// Call directories of which no adapter was started (see [`no_call_note`]): they cost nothing
+    /// and book nothing. Each is `{"call": <directory name>, "exit": <exit of status.json>}`.
+    pub no_call: Vec<Value>,
 }
 
 /// Remembers how far the records were read.
@@ -75,6 +82,22 @@ fn stderr_line(call_dir: &Path, home: Option<&str>) -> String {
         return line.chars().take(STDERR_LINE_MAX).collect();
     }
     "(no stderr)".to_owned()
+}
+
+/// The note of a call directory in which no adapter was started, or `None` when that is not
+/// proved. `bindings/tools/llm-node.sh` writes `request.json` of a call before every start of an
+/// adapter (the session, facts and request modes, each retry and the dry stub all pass the one
+/// `jq ... > "$rec/request.json"`, and every start names that file), so a directory without it
+/// belongs to a step that ended before any adapter was started. Everything else is `None`
+/// (fail closed): `request.json` present or not provably absent, and a `status.json` that is
+/// missing, unreadable, not JSON or without a numeric `exit` (a call still running).
+fn no_call_note(call_dir: &Path, name: &str) -> Option<Value> {
+    if !matches!(call_dir.join("request.json").try_exists(), Ok(false)) {
+        return None;
+    }
+    let status: Value = serde_json::from_slice(&std::fs::read(call_dir.join("status.json")).ok()?).ok()?;
+    let exit = status.get("exit").and_then(Value::as_i64)?;
+    Some(serde_json::json!({"call": name, "exit": exit}))
 }
 
 impl CostReader {
@@ -147,6 +170,11 @@ impl CostReader {
             let is_call = entry.path().is_dir() && name.split('-').next().is_some_and(|n| n.len() >= 3 && n.bytes().all(|b| b.is_ascii_digit()));
             if is_call && !self.checked_dirs.contains(&name) {
                 if !self.recorded_dirs.contains(&name) {
+                    if let Some(note) = no_call_note(&entry.path(), &name) {
+                        cost.no_call.push(note);
+                        self.checked_dirs.insert(name);
+                        continue;
+                    }
                     let action = name.split_once('-').map_or("?", |(_, a)| a);
                     let response: Value = std::fs::read(entry.path().join("response.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
                     let adapter = response.get("adapter").and_then(Value::as_str).unwrap_or("?");

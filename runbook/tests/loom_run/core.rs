@@ -583,7 +583,7 @@ fn tree_run_output_that_is_not_json_stops_the_run() {
 fn a_model_step_without_a_cost_record_stops_the_run() {
     let w = World::new("nocostrecord");
     w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
-    w.fake.hook("tree_run", "default", "mkdir -p work/.sdc/llm/001-node.write\n");
+    w.fake.hook("tree_run", "default", "mkdir -p work/.sdc/llm/001-node.write\nprintf '{}' > work/.sdc/llm/001-node.write/request.json\n");
     let o = w.run(&w.args("r1", 1_000_000));
     assert_failed_closed(&w, &o, "no cost record", 1);
     assert_eq!(spent(&w), 1_000_000, "an unknown cost books the call's whole budget");
