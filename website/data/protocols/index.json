@@ -113,49 +113,49 @@
           "executor": "program",
           "name": "dissection.check",
           "opens": null,
-          "step": 0
-        },
-        {
-          "executor": "program",
-          "name": "repro.run",
-          "opens": null,
           "step": 1
         },
         {
           "executor": "model",
           "name": "test.reproduce",
           "opens": null,
-          "step": 1
+          "step": 2
+        },
+        {
+          "executor": "program",
+          "name": "repro.run",
+          "opens": null,
+          "step": 3
         },
         {
           "executor": "model",
           "name": "change.fix",
           "opens": null,
-          "step": 2
+          "step": 4
         },
         {
           "executor": "program",
           "name": "tests.run",
           "opens": null,
-          "step": 3
+          "step": 5
         },
         {
           "executor": "program",
           "name": "story.update",
           "opens": null,
-          "step": 4
+          "step": 6
         },
         {
           "executor": "program",
           "name": "gate.run",
           "opens": null,
-          "step": 5
+          "step": 7
         }
       ],
       "actions": 8,
       "children": [],
-      "claims": 10,
-      "evidence": 6,
+      "claims": 12,
+      "evidence": 8,
       "id": "sdc.bugfix",
       "outcomes": [
         "fixed",
@@ -868,7 +868,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "4d9022f7af2ea59cc57142aebda244fd4e6f7addd77f5d05cf11d278e1167cca"
+      "sha256": "d8d8820dcf72e13efe0eb4a1c1c9f23083e9db97fe76318d0023be97828bd97e"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",
@@ -904,7 +904,7 @@
     },
     {
       "path": "protocol/sdc-bugfix.protocol.yaml",
-      "sha256": "b928586adaf7507ee576766ccb7393b010ddba2b4895872933cdce00ec4809ca"
+      "sha256": "d3cb15dea45488422ac8e3e356b07021c1a41d9c97b120dec63346b7f2e9f022"
     },
     {
       "path": "protocol/sdc-direction.protocol.yaml",
@@ -944,7 +944,7 @@
     },
     {
       "path": "protocol/simulate/sdc-bugfix.txt",
-      "sha256": "bf7a535f7207006f08ec631e5597403113a828dc1bc4d792a19a916c44e12f74"
+      "sha256": "9ccfa37e970c83be0903d985957db902974f92b40c68b2e4bdadc5981f3deacb"
     },
     {
       "path": "protocol/simulate/sdc-direction.txt",

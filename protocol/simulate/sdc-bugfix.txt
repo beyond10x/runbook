@@ -1,1 +1,1 @@
-simulated: protocol `sdc.bugfix` revision 1: 11 reachable states, 5 terminable (outcome `fixed` 1, outcome `not_fixed` 2, outcome `not_reproduced` 2), 0 findings (0 stuck or cycle states)
+simulated: protocol `sdc.bugfix` revision 1: 13 reachable states, 5 terminable (outcome `fixed` 1, outcome `not_fixed` 2, outcome `not_reproduced` 2), 0 findings (0 stuck or cycle states)

@@ -95,14 +95,12 @@ cycles:
         - {check: count, name: spec-written-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.author}}], is: 2}
 
   - name: finding-program
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/storage-conflict, to: .stub}]
     expect:
       exit: 0
       outcome: operating
 
   - name: offline-decision
-    pending: true
     seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/offline-decision, to: .stub}]
     expect:
       exit: 3
@@ -338,3 +336,53 @@ cycles:
     expect:
       checks:
         - {check: exists, name: stop-recorded, select: [{files: {in: store, glob: "run-stopped.*.json"}}]}
+
+  - name: bugfix-full
+    protocol: sdc-bugfix@1
+    bindings: bindings/sdc-bugfix.yaml
+    seed: [{from: seeds/bugfix-pager/bug.yaml, to: bug.yaml}, {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}, {from: seeds/bugfix-pager/impl, to: impl}, {from: seeds/bugfix-pager/mainline, to: mainline}, {from: seeds/bugfix-pager/aep, to: aep}]
+    expect:
+      exit: 0
+      outcome: fixed
+      checks:
+        - {check: count, name: one-red, select: [{records: {case: ".", kind: repro_run}}, {where: {result: red}}], is: 1}
+        - {check: count, name: one-fix, select: [{records: {case: ".", kind: implementation_change}}], is: 1}
+        - {check: count, name: one-green, select: [{records: {case: ".", kind: test_run}}, {where: {result: passed}}], is: 1}
+
+  - name: bugfix-not-red
+    pending: true
+    protocol: sdc-bugfix@1
+    bindings: bindings/sdc-bugfix.yaml
+    seed: [{from: seeds/bugfix-pager/bug.yaml, to: bug.yaml}, {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}, {from: seeds/bugfix-pager/impl, to: impl}, {from: seeds/bugfix-pager/mainline, to: mainline}, {from: seeds/bugfix-pager/aep, to: aep}, {from: seeds/fixtures/bugfix-not-red, to: .stub}]
+    expect:
+      exit: 0
+      outcome: fixed
+      checks:
+        - {check: count, name: one-not-red, select: [{records: {case: ".", kind: repro_run}}, {where: {result: not_red}}], is: 1}
+        - {check: count, name: one-red, select: [{records: {case: ".", kind: repro_run}}, {where: {result: red}}], is: 1}
+
+  - name: bugfix-edited-test
+    pending: true
+    protocol: sdc-bugfix@1
+    bindings: bindings/sdc-bugfix.yaml
+    seed: [{from: seeds/bugfix-pager/bug.yaml, to: bug.yaml}, {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}, {from: seeds/bugfix-pager/impl, to: impl}, {from: seeds/bugfix-pager/mainline, to: mainline}, {from: seeds/bugfix-pager/aep, to: aep}, {from: seeds/fixtures/bugfix-edited-test, to: .stub}]
+    expect:
+      exit: 0
+      outcome: fixed
+      checks:
+        - {check: count, name: one-red, select: [{records: {case: ".", kind: repro_run}}, {where: {result: red}}], is: 1}
+        - {check: sequence, name: refused-then-passed, select: [{records: {case: ".", kind: test_run}}, {path: result}], is: [failed, passed]}
+        - {check: contains, name: refusal-names-the-edit, select: [{log: {case: ".", event: ActionFinished}}, {where: {action: tests.run}}, {pick: first}, {follow: blob}], is: "the reproducing test was changed"}
+
+  - name: bugfix-never-red
+    protocol: sdc-bugfix@1
+    bindings: bindings/sdc-bugfix.yaml
+    seed: [{from: seeds/bugfix-pager/bug.yaml, to: bug.yaml}, {from: seeds/bugfix-pager/checks.yaml, to: checks.yaml}, {from: seeds/bugfix-pager/impl, to: impl}, {from: seeds/bugfix-pager/mainline, to: mainline}, {from: seeds/bugfix-pager/aep, to: aep}, {from: seeds/fixtures/bugfix-never-red, to: .stub}]
+    expect:
+      exit: 0
+      outcome: not_reproduced
+      checks:
+        - {check: count, name: no-red, select: [{records: {case: ".", kind: repro_run}}, {where: {result: red}}], is: 0}
+        - {check: count, name: no-fix-written, select: [{records: {case: ".", kind: implementation_change}}], is: 0}
+        - {check: count, name: no-suite-run, select: [{records: {case: ".", kind: test_run}}], is: 0}
+        - {check: count, name: change-fix-never-ran, select: [{runs: {case: "."}}, {where: {action: change.fix}}], is: 0}

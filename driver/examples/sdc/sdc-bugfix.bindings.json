@@ -21,6 +21,12 @@
         "bug-dissection.json"
       ]
     },
+    "produces": "dissection_written",
+    "subject": "dissection",
+    "producer": "llm-node",
+    "results": {
+      "0": null
+    },
     "retry_when": {
       "dissection_check": [
         "invalid"
@@ -56,6 +62,12 @@
         "stub-repro",
         "bugfix-pager/stub-repro"
       ]
+    },
+    "produces": "repro_written",
+    "subject": "repro",
+    "producer": "llm-node",
+    "results": {
+      "0": null
     },
     "retry_when": {
       "repro_run": [

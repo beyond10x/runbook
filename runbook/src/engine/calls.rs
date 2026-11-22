@@ -177,6 +177,7 @@ pub fn decision_from_json(v: &Value) -> Result<NextDecision, String> {
         kind,
         action: text("action"),
         capability: text("capability"),
+        principal: text("principal"),
         decides: text("decides").unwrap_or_default(),
         subject: text("subject"),
         revision: text("revision"),
@@ -228,4 +229,18 @@ pub fn apply(store: &Path, catalog: &loom_protocols::ProtocolCatalog, d: &NextDe
 /// A path as the library takes it: absolute.
 pub fn absolute(path: &Path) -> Result<PathBuf, String> {
     std::path::absolute(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_printed_principal_is_carried_and_an_absent_one_stays_absent() {
+        let with = json!({"case": ".", "kind": "ApproveAction", "action": "scope.answer", "capability": "scope.answer", "principal": "person:owner", "decides": "d"});
+        assert_eq!(decision_from_json(&with).unwrap().principal.as_deref(), Some("person:owner"));
+        let without = json!({"case": ".", "kind": "Close", "outcome": "operating", "decides": "d"});
+        assert_eq!(decision_from_json(&without).unwrap().principal, None);
+    }
 }

@@ -94,4 +94,7 @@ actions:
       argv: [tools/sdc-tool.sh, amend, context, --action, amend.upstream]
     budget: {max_runs: 12}
     timeout_seconds: 300
+    retry_when:
+      context_defaults: [finding]
     handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"
+    handoff_when: [tools/sdc-tool.sh, findings-wait, --action, amend.upstream]

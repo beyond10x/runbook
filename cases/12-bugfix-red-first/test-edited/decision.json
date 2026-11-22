@@ -78,6 +78,9 @@
     "dissection.valid": {
       "value": "true"
     },
+    "dissection.written": {
+      "value": "unknown"
+    },
     "gate.checked": {
       "value": "unknown"
     },
@@ -89,6 +92,9 @@
     },
     "repro.red": {
       "value": "true"
+    },
+    "repro.written": {
+      "value": "unknown"
     },
     "story.updated": {
       "value": "unknown"
@@ -185,6 +191,16 @@
         ],
         "value": "true"
       },
+      "dissection.written": {
+        "because": [
+          {
+            "kind": "dissection_written",
+            "status": "absent",
+            "subject": "dissection"
+          }
+        ],
+        "value": "unknown"
+      },
       "gate.checked": {
         "because": [
           {
@@ -222,6 +238,16 @@
           }
         ],
         "value": "true"
+      },
+      "repro.written": {
+        "because": [
+          {
+            "kind": "repro_written",
+            "status": "absent",
+            "subject": "repro"
+          }
+        ],
+        "value": "unknown"
       },
       "story.updated": {
         "because": [

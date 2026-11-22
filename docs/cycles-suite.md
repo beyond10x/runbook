@@ -117,11 +117,19 @@ through:
   `person:owner`.
 - Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are the
   `fixtures:` member of a cycle, which the pinned Loom does not run yet.
+- What the old driver took from `amend.upstream`'s `handoff_when` is `handoff_when: [tools/sdc-tool.sh,
+  findings-wait, --action, amend.upstream]` in the five `bindings/sdc-*.yaml` files that bind
+  `amend.upstream` (Loom `5bcc26d9`). Only Loom reads these files; the old driver reads the JSON
+  bindings, which keep their own `handoff_when`.
+- A bugfix cycle's workspace is the one `sdc-bugfix seed` writes, kept as `cycles/seeds/bugfix-pager/`
+  (`bug.yaml`, `checks.yaml`, `impl/`, `mainline/`, `aep/`); the model stubs come from
+  `driver/examples/sdc/fixtures/bugfix-pager/`, and a cycle with its own stubs seeds
+  `cycles/seeds/fixtures/bugfix-<name>/` into `.stub/`.
 
 ### Totals and time
 
-130 entries: 10 converted, 25 pending (7 wait for a story the pinned Loom has not shipped and are
-not run; 18 run and still fail), 95 not converted (1 full-cycle, 18 re-drive and other, 76 trial).
+130 entries: 14 converted, 25 pending (12 wait for a story the pinned Loom has not shipped and are
+not run; 13 run and still fail), 91 not converted (1 full-cycle, 18 re-drive and other, 72 trial).
 
 The whole file is a slow lane, `task test:cycles-loom`, not part of the gate: one measured run took
 279 s wall (build included) and ended `10 of 10 as expected, 25 pending`. The ten slowest cycles
@@ -129,7 +137,10 @@ took 29.7 s (`stub-cycle`), 21.0, 20.3, 19.8, 19.6, 19.5, 19.4, 16.5, 15.1 and 1
 the bound programs, one cycle after another: a cycle that goes through to the end runs 213 bound
 programs (read from `observations.json` of two cycles), about 0.1 s each, so about 20 s. `runbook
 test` itself adds under 0.5 s a cycle. A 60 s wall bound per cycle is Loom's; no cycle is near it.
-To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
+A later full run (with tests of the gate running beside it, so slower per cycle) ended `14 of 14 as
+expected, 25 pending`; its slowest were `stub-cycle` 40.3 s, `spec-duplicate` 40.2 s and
+`superseded-answer` 36.4 s. The four bugfix cycles took 1.3 to 3.5 s each once the cargo cache was
+warm (the first, cold run of `bugfix-full` took 20.8 s). `finding-program` took 16.8 to 23.4 s and `offline-decision` 4.4 to 6.3 s. To get under the gate's 120 s the file would have to run its cycles in parallel (it does not) or
 cycles would have to share an opened tree (the format has no member for it).
 
 ### Full-cycle entries (29)
@@ -146,8 +157,8 @@ cycles would have to share an opened tree (the format has no member for it).
 | trace-gap | converted | |
 | trace-constraint | converted | |
 | spec-review-rework | converted | |
-| finding-program | pending | stops at the `amend.upstream` handoff, exit 3: waits for story:handoff-when-a-program-decides |
-| offline-decision | pending | same stop at the handoff: waits for story:handoff-when-a-program-decides |
+| finding-program | converted | `amend.upstream` of `sdc-direction` takes `retry_when: {context_defaults: [finding]}`, so the writer runs again after the check that found the finding; `handoff_when` finds no finding that waits for a person |
+| offline-decision | converted | `handoff_when` (`findings-wait`) exits 0 for the finding that waits for a person: the run stops `AwaitingPerson` at the handoff, exit 3 |
 | finding-person | pending | the person's decision is written into `findings.yaml` between two runs; the suite has no step that writes a workspace file (gap, no Loom story yet) |
 | story-decision | pending | same: a person's decision written into `findings.yaml` between two runs (gap) |
 | story-late-person | pending | same (gap) |
@@ -201,16 +212,16 @@ replay model calls from and no injected rejection, timeout or failed check.
 ### Trial entries (83)
 
 These run the whole cycle under Runbook's autopilot (`--autopilot`, a decider that answers each stop) or
-with a model adapter's replies scripted. Seven are in the file as pending cycles with `decide:` entries
-and `steps` the pinned Loom does not run yet; the other 76 are not converted. The classes:
+with a model adapter's replies scripted. Eleven are in the file: seven pending cycles with `decide:` entries
+and `steps` the pinned Loom does not run yet, and the four bugfix cycles (two converted, two pending); the other 72 are not converted. The classes:
 
 - Runbook's decider answers the stops: 32 entries.
 - scripted replies of a model adapter or a stand-in model binary: 20.
 - Runbook's autopilot loop after a stop: 9.
 - the rule approver: 5.
-- bindings the pinned Loom refuses (the bugfix cycles): 4. To load, `bindings/sdc-bugfix.yaml` needs a
-  `gate.run` timeout of at most 3600 s; changing it is a decision of the bugfix protocol and not of
-  this table.
+- bindings the pinned Loom refuses (the bugfix cycles): 4, now in the file. `bindings/sdc-bugfix.yaml`
+  has `gate.run` at 3600 s (D531), and the bugfix protocol records `dissection_written` and
+  `repro_written` so that no check runs before its writer (`docs/bugfix.md`).
 - the requester decider (2), the environment of a bound program (2), a `--dry` listing (1), a ticket
   read before the tree opens (1).
 
@@ -292,10 +303,10 @@ and `steps` the pinned Loom does not run yet; the other 76 are not converted. Th
 | review-invalid-stop | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
 | review-adapter-refused | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_ADAPTER`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
 | reopen-review-invalid | not converted | class: scripted replies of a model adapter or a stand-in model binary (`METAHARNESS` and `CLAUDE`, `SDC_REVIEW_ADAPTER`, `SDC_LLM_NODES`): the `fixtures` member waits for story:engine-agents-section and the `calls` source for story:agent-node-run-records |
-| bugfix-full | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
-| bugfix-not-red | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
-| bugfix-edited-test | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
-| bugfix-never-red | not converted | class: bindings the pinned Loom refuses (`bindings/sdc-bugfix.yaml` `gate.run` has `timeout_seconds: 4200`, Loom's limit is 3600: `TimeoutOutOfRange`, the whole file is refused); with 3600 in a scratch copy Loom runs `dissection.check` before `bug.dissect` and the run ends `not_reproduced` |
+| bugfix-full | converted | the seeds are `cycles/seeds/bugfix-pager/` (the workspace `sdc-bugfix seed` writes); the case ends `fixed` with one red, one fix and one passed suite run |
+| bugfix-not-red | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_reproduced`: the first `repro_run` `not_red` makes `not_reproduced` legitimate and Loom ends the case before the test writer is sent back; the protocol has no claim for "the writer is spent" |
+| bugfix-edited-test | pending | still failing: `expect.outcome (outcome, OutcomeDiffers): expected fixed, found not_fixed`: the first `test_run` is `failed` and Loom ends the case `not_fixed` before `change.fix` is sent back; same missing "writer is spent" |
+| bugfix-never-red | converted | ends `not_reproduced` with no red, no fix and no suite run; Loom ends the case at the first legitimate outcome, after one `test.reproduce` run (the old cycle ran the writer to its allowance) |
 | bugfix-from-ticket | not converted | class: a ticket read by `sdc-bugfix` before the tree opens (`--bugfix-ticket`) and a computed input; the format seeds files only |
 | bugfix-pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |
 | bugfix-over-time | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`) on a bugfix run; the format has no member for it, and the bugfix bindings are refused as above |

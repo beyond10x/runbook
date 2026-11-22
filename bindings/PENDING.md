@@ -116,21 +116,16 @@ A `person` executor runs no program; its effect records the results its `results
 - `sdc-intake.bindings.json:195` `scope.answer` `{principal}` in `argv` — D15 — G2, wave 3 — syntax not fixed.
 - `sdc-intake.bindings.json:198` `scope.answer` `subject` with no evidence — D38 — G2, wave 3 — syntax not fixed; subject `questions`.
 
-## Handoffs (Loom `N8`, wave 4; `G3`, wave 8)
+## Handoffs (Loom `N8`, wave 4)
 
 The YAML `handoff` text says "in findings.yaml of the workspace" where the JSON says
 `in {work}/findings.yaml`.
 
 - `sdc-intake.bindings.json:184` `amend.upstream` `{work}` in `handoff` — D14 — N8, wave 4 — syntax not fixed; restore `in {work}/findings.yaml` once `{work}` is a placeholder.
-- `sdc-intake.bindings.json:185` `amend.upstream` `handoff_when` — D17 — G3, wave 8 — syntax not fixed; the argv: `[tools/sdc-tool.sh, findings-wait, --action, amend.upstream]`.
 - `sdc-direction.bindings.json:162` `amend.upstream` `{work}` in `handoff` — D14 — N8, wave 4 — as above.
-- `sdc-direction.bindings.json:163` `amend.upstream` `handoff_when` — D17 — G3, wave 8 — as above.
 - `sdc-spec.bindings.json:154` `amend.upstream` `{work}` in `handoff` — D14 — N8, wave 4 — as above.
-- `sdc-spec.bindings.json:155` `amend.upstream` `handoff_when` — D17 — G3, wave 8 — as above.
 - `sdc-plan.bindings.json:125` `amend.upstream` `{work}` in `handoff` — D14 — N8, wave 4 — as above.
-- `sdc-plan.bindings.json:126` `amend.upstream` `handoff_when` — D17 — G3, wave 8 — as above.
 - `sdc-story.bindings.json:143` `amend.upstream` `{work}` in `handoff` — D14 — N8, wave 4 — as above.
-- `sdc-story.bindings.json:144` `amend.upstream` `handoff_when` — D17 — G3, wave 8 — as above.
 
 ## Child cases
 

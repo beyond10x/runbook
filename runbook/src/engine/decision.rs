@@ -155,6 +155,7 @@ mod tests {
             kind,
             action: Some("a".into()),
             capability: Some("cap".into()),
+            principal: None,
             decides: "a of case c".into(),
             subject: Some("draft".into()),
             revision: Some("r1".into()),

@@ -53,7 +53,7 @@ Every action bound in a JSON file is bound in its YAML file: 66 bindings.
 | `{dir}/tools/<tool>` (since step 2 `{dir}/../../../bindings/tools/<tool>`) | `tools/<tool>`, relative to `bindings/` (`bindings/tools/`); no `..`, and a program without a `/` comes from `PATH`. The file names `program_root: bindings`, so Loom (at `af8de2c9`) reads the path beside the bindings file; `scripts/check-bindings.sh` refuses a file that binds a program without it | 13 |
 | `{work}` in `handoff` | "of the workspace"; the placeholder is pending | 14 |
 | `handoff` | `handoff` | 16 |
-| `handoff_when` | pending | 17 |
+| `handoff_when` | `handoff_when`: the argv `tools/sdc-tool.sh findings-wait --action amend.upstream`, run by Loom before the writer (exit 0 offers the handoff, another exit lets the writer run); the old driver reads the JSON file and never this one | 17 |
 | `llm: {model, max_turns, max_budget_usd, stub, operations}` | argv of `tools/llm-node.sh` since step 2: `--model`, `--max-turns`, `--max-budget-usd`, `--operations`, `--instructions <json>`, `--stub <argv>`; the `agent` executor is pending: a `program` executor takes no agent member, the agent text is in `bindings/PENDING.md` | 18-22 |
 | `retry_when` | `retry_when` | 23 |
 | `max_runs` | `budget: {max_runs}` | 24 |
@@ -85,7 +85,7 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 | 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
 | 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:246`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
-| 3000, 3000, 4200 | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
+| 3000, 3000, 4200 (3600 in `bindings/sdc-bugfix.yaml`: Loom refuses more, `TimeoutOutOfRange`) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
 | 600 | bugfix `bug.dissect` | `timeout_s` of the JSON |
@@ -114,7 +114,6 @@ proposed order of Loom's open stories, 2026-11-21).
 | `story:bound-agent-node` | 4 | `agent` executors for the 14 agent nodes: adapter, model, `max_turns`, `max_budget_micro_usd`, `tools.allow` (D18-D20, D22) |
 | N8 | 4 | `{work}` in `handoff` (D14) |
 | N3 fixture adapter | 5 | the stub of each agent node (D21) |
-| G3 | 8 | `handoff_when` (D17) |
 | G4 | 10 | initial child revisions (D30), only if step 3 shows `sdc.epic` needs them |
 
 The exit lists: every program binding states program-error exits `[75, 126, 127]` (today's

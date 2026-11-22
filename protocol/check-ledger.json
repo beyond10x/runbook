@@ -10,11 +10,11 @@
       "simulate": "reachable 78, terminable 54, waiting 10, findings 1"
     },
     "sdc-bugfix": {
-      "check": "checked: protocol `sdc.bugfix` revision 1: 1024 states, 0 properties, 0 findings",
-      "digest": "0a886890c9025a5f044968fb93f73f4b785add70931f3ab687c441e0d5adc46a",
+      "check": "checked: protocol `sdc.bugfix` revision 1: 4096 states, 0 properties, 0 findings",
+      "digest": "98c8f2a193633065ba399a81edbee32a56085ea75e6cf369a67fe70ec3094f9f",
       "probe": null,
-      "seal": "f0fc24f9771df0b287be910981378989c721bde6a4aba0d2662cc5c3f2310295",
-      "simulate": "reachable 11, terminable 5, waiting 0, findings 0"
+      "seal": "be90ec4686a4373ab5b817afae13cd280074b2f33b806eb50531446d3779000c",
+      "simulate": "reachable 13, terminable 5, waiting 0, findings 0"
     },
     "sdc-direction": {
       "check": "checked: protocol `sdc.direction` revision 7: 49152 states, 0 properties, 0 findings",

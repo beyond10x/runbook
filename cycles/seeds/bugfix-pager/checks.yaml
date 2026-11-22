@@ -1,0 +1,56 @@
+format: sdc.checks/1
+test:
+- cargo
+- test
+- --offline
+- --no-fail-fast
+repro:
+- cargo
+- test
+- --offline
+- --test
+- '{stem}'
+- --
+- --exact
+- '{test}'
+gate:
+- name: build
+  argv:
+  - cargo
+  - build
+  - --offline
+- name: test
+  argv:
+  - cargo
+  - test
+  - --offline
+- name: clippy
+  argv:
+  - cargo
+  - clippy
+  - --offline
+  - --all-targets
+  - --
+  - -D
+  - warnings
+- name: fmt
+  argv:
+  - cargo
+  - fmt
+  - --check
+test_file: ^tests/[a-z][a-z0-9_]*\.rs$
+test_name: ^[a-z_][a-z0-9_]*$
+test_def: '#\[test\]\s*(#\[[^\]]*\]\s*)*fn\s+{test}\s*\('
+test_forbid: '#\[(ignore|should_panic)'
+red:
+  exit:
+  - 101
+  output: ^test {test} \.\.\. FAILED
+green:
+  exit:
+  - 0
+  output: ^test {test} \.\.\. ok
+suite:
+  exit:
+  - 0
+  refuse: ^test .+ \.\.\. (FAILED|ignored)
