@@ -13,9 +13,11 @@ use clap::Subcommand;
 const REJECTED: u8 = 1;
 const UNREADABLE: u8 = 2;
 
-/// The `b10x-canon` release this binary links, read from the lock file the binary was built with.
+/// The `b10x-canon` release this binary links and the commit of its source, read from the lock
+/// file the binary was built with.
 pub struct Pin {
     pub version: String,
+    pub commit: String,
 }
 
 pub fn pin() -> Pin {
@@ -26,9 +28,11 @@ pub fn pin() -> Pin {
             continue;
         }
         let version = lines.next().and_then(|l| l.strip_prefix("version = \"")).and_then(|l| l.strip_suffix('"')).unwrap_or_default();
-        return Pin { version: version.into() };
+        let source = lines.next().unwrap_or_default();
+        let commit = source.rsplit('#').next().unwrap_or_default().trim_end_matches('"');
+        return Pin { version: version.into(), commit: commit.into() };
     }
-    Pin { version: String::new() }
+    Pin { version: String::new(), commit: String::new() }
 }
 
 #[derive(Subcommand)]
