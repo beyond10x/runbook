@@ -1,11 +1,14 @@
 # Runbook run inspector
 
-The run inspector of Runbook: a web view of an `sdc-drive` case store. It shows where each case
-stands in the phases of the software delivery cycle (SDC), the first runbook, and in its Canon
-protocol, why (claims down to evidence records, excluded records and the revision that excluded
-them), what is admissible next, who acted (program, LLM, person, decider), what each agent step was
-allowed to do and did, and run metrics. It updates live while a run writes the store. With
-`--write` it is also where a person takes the run's decisions.
+The run inspector of Runbook: a read-only web view of a run directory (a `runbook run` directory, or
+a case store an older runtime left). It shows where each case stands in the phases of the software
+delivery cycle (SDC), the first runbook, and in its Canon protocol, why (claims down to evidence
+records, excluded records and the revision that excluded them), what is admissible next, who acted
+(program, LLM, person, decider), what each agent step was allowed to do and did, and run metrics. It
+updates live while a run writes its directory. It acts on nothing: it starts no program, takes no
+decision and sends no command to the daemon. A decision is answered with `runbook decide <run>
+<request> <answer>` or on the page of `runbook serve --ui`; `runbook runs decisions <run>` lists the
+open ones. Every place that would offer the act says so in one line.
 
 ## Start
 
@@ -24,10 +27,16 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   case) is a run stopped on purpose: the Now band says "Stopped by … at …: reason" and what it was
   waiting on, in the past tense; every clock (elapsed, waiting, the graph node, the case tree) stands
   at the stop; the run picker and the case tree mark it; its open decisions show greyed in the
-  drawer, and the server refuses to take them (continuing the run stays possible).
-- A run with no stop record, not closed, and no driver attached (no live pid in `driver.json` or
-  `.sdc-drive.lock`) moves no more: the Now band adds "no driver attached, last activity <time>" and
-  every clock stands at the last event, including the waiting time.
+  drawer; the inspector takes none of them.
+- Whether a run is live: `runbook run` writes `settings.json` when it starts and `run-stopped.json`
+  or a `status.json` with state `closed` when it ends, and no pid or lock record, so nothing in a
+  run directory tells a live run from one that was killed. The server reads those files only and
+  never looks a process up. An ended run is stopped or closed (above). A run directory with
+  `settings.json` and no end record is "live state unknown": the Now band and the run picker say
+  so, and every clock stands at the last event, including the waiting time. A case store an older
+  runtime left (no `settings.json`) is history: reported "not live", and a step it started and
+  never finished is shown as "Not live", not running. `/api/live` carries this as `liveness`
+  (`ended`, `unknown` or `history`).
 - `run-settings.jsonl` (`sdc.run-settings/1`, last line) says who holds the decisions. With a decider
   holding them, any time a step waited on a person is a failed KPI: the Elapsed tile turns red, says
   "should be 0" and links each stop (case, action or findings, duration) to its event. Autonomy
@@ -39,9 +48,9 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   behalf"; `rule:<name>` and `decider:approve|reject` are "rule <name>"; `human` without an id is
   "recorded as human (principal not recorded)", never a person.
 - The server needs Node 22 and nothing else, and listens on 127.0.0.1 only.
-- Without `--write` it never writes anything. With `--write` the Decisions drawer can act on every
-  store, with `--write-only STORE` (repeatable) on those stores only; the principal is `operator`
-  unless `--principal NAME` says otherwise.
+- The server never writes anything and starts no program. Every request that is not a GET or HEAD
+  answers 405, and an option it does not know (`--write`, `--principal` and `--write-only` of earlier
+  versions) is refused with exit code 2. There is no route, token field or proxy to the daemon.
 - LLM calls, tokens, cost and tool calls come from `llm-calls.jsonl` next to the store; decider
   decisions from `decisions.jsonl` there. Panels without data say "not recorded yet".
 
@@ -127,34 +136,20 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   (approvals and what they are bound to, independent producers, allowed vs did per agent step),
   Metrics, Events, Run log.
 - **Decisions** (header button, count of what waits for you): every pending approval of the tree
-  (the driver's `next` entries) with the revision and artifact to review and what approving makes
-  true, every open scope-changing question, and the history of decisions taken. Acts:
-  - Approve runs the driver's own `sdc-drive approve --capability … --principal … --action …`.
-  - Answer is one act with the person's principal. While the run waits on a `scope.answer`
-    approval (`questions.shaped`, capability `scope.answer`; the tool is
-    `sdc-tool.sh scope-answer <principal>`), each pending question is a card showing that approval.
-    The answer is written with its status (`accepted` or `changed`) and without `answered_by`;
-    with the last open question the server runs `sdc-drive step --action questions.check`, then
-    `sdc-drive approve --capability scope.answer --principal <principal> --action scope.answer`,
-    and the driver's tool sets `answered_by: <principal>`. Writing the name first would settle the
-    check and Canon would drop `scope.answer`. A person who edits the file instead gets the approve
-    card, which lists the questions and does the same check and approve. Without a pending
-    `scope.answer` the answer is written with `answered_by: <principal>` as before. The principal
-    cannot be `non-interactive` (the server exits 2).
-  - Change writes a `context.yaml` field: value, status `changed`, reason `<principal>, <date>`.
-  - Continue run starts `scripts/run-trial.sh <run>` in the background and streams its output.
+  (the `next` entries of the last verdict) with the revision and artifact to review and what
+  approving makes true, every open scope-changing question with its options and default, and the
+  history of decisions taken. The drawer is read-only: it has no Approve, Answer, Change or
+  Continue control, and one line at the top says where a decision is answered (`runbook serve
+  --ui`, `runbook decide <run> <request> <answer>`, `runbook runs decisions <run>`). The Now
+  band's waiting card has a Decide button that only opens this drawer.
 
   An approval over a structured artifact (`context.yaml`: fields with value, status and reason)
-  reads as one decision: "One decision over N fields", who holds it, what taking it does and the one
-  Approve control come first, then each field with its value, reason and state (default kept,
-  accepted or changed by whom) and, when a decider decided it, what its reply says per field (else
-  "approved as a whole"). Opening the drawer puts the focus on that control.
+  reads as one decision: "One decision over N fields", who holds it and what taking it does come
+  first, then each field with its value, reason and state (default kept, accepted or changed by
+  whom) and, when a decider decided it, what its reply says per field (else "approved as a whole").
 
-  Every act goes through `POST /api/act` (whitelisted kinds, an argv, never a shell string), is
-  refused when the revision on screen is no longer the current one, and is appended to
-  `runs/<run>/ui-actions.jsonl`. An act that would start the driver or a tool is refused, and starts
-  nothing, when a program it needs is not on the server's PATH or not built (yq, jq, `sdc-drive`,
-  canon, and per tool subcommand ess, aep, slot); the drawer names what is missing.
+  A server of an earlier version wrote `runs/<run>/ui-actions.jsonl` for the acts it took. The page
+  still reads that file in an old run, as history, and no longer writes it.
 
 URL parameters for links: `source`, `case` (path below the store, for example
 `IDEA-1/children/IDEA-1.intake`), `node` (for example `claim:dissection.valid`), `at` (event seq),
@@ -188,24 +183,16 @@ Members (all optional but `format`):
   direction, decision or code, a `kind`, or `$basename`; the first rule that matches wins),
   `artifacts` (an artifact name of the protocols to its class) and `parsers` (a `kind` of a rule to
   what a change of such a file means, below).
-- `tool_owners`: the programs an act needs on the server's PATH: `always`, `driver` (an act that
-  starts the driver), `continue` (the whole run), and per `tools` entry (`argv0`, matched on the
-  binding's program) the `needs` of each `subcommands` entry (`match` on the first argument).
-- `decisions`: which decisions a person can take.
+- `decisions`: which decisions the page shows as a person's; the page answers none of them.
   - `scope_answer`: a question a person answers and the approval that goes with it. `action` (its
-    capability is named like it), `check` (the action that records the changed artifact), `artifact`
-    (a name of the case's artifacts), `list` (the key of the records in that file), `flag` (the
-    record's field that marks a question for a person), `fields` (the file's names for `id`, `item`,
-    `question`, `options`, `default`, `status`, `answer`, `answered_by`, `answered_at`, `reason`;
-    the file's own names when a field is not listed), `statuses` (the file's words for `open`,
-    `accepted`, `changed`) and `refused_answerers` (names the program refuses as an answerer).
+    capability is named like it), `artifact` (a name of the case's artifacts), `list` (the key of
+    the records in that file), `flag` (the record's field that marks a question for a person),
+    `fields` (the file's names for `id`, `item`, `question`, `options`, `default`, `status`,
+    `answer`, `answered_by`, `answered_at`, `reason`; the file's own names when a field is not
+    listed) and `statuses` (the file's words for `open`, `accepted`, `changed`).
   - `stall`: a wait on `action` with no record in `artifact`'s `list` whose `status` is
     `needs_person` is not a decision (the Now band says why nothing runs); `noun` is the word the
     sentence uses.
-  - `context`: a field of the `artifact` a person may change (`field_pattern`, the word `changed`
-    for its status, `fields` for the names of `value`, `status`, `reason`).
-  - `continue`: the `script` that continues a run (relative to the checkout), the `runs_dir` the run
-    must be in, and the `env` it gets (`{principal}` is the server's principal).
 
 A parser (`file_kinds.parsers.<kind>`) says what a change of a file of that kind means, in sentences.
 Two types read it. `keyed-list`: records with an id, in a list under `list` (or a map, `as: "map"`);
@@ -220,29 +207,26 @@ sections; `entries` (`word`, `sections`, `summary`: where its entries are named)
 sentence for a new file). A kind with no parser is read as its top-level keys.
 
 Without a view the page still works: one stage "Protocols" with one phase per protocol found in the
-store, every file labelled by its path (class code), no decision of the runbook, and only the driver
-and canon binaries checked; a note above the phases says which view is missing (the protocols found,
+store, every file labelled by its path (class code), and no decision of the runbook; a note above the phases says which view is missing (the protocols found,
 `--view FILE`). The same holds for a run no loaded view covers: it is never shown with another
 runbook's view. `test/view.spec.mjs` runs a second runbook (`test/second-runbook.mjs`, protocol
 `triage.ticket`, a record `asks.yaml` and a decision of its own) on servers of free ports with no view,
-a two-phase view, a view that does not cover it, and a write server whose answer is stored with the
-view's own field names; it also refuses a view with an unknown member.
+a two-phase view and a view that does not cover it; it also checks that no route takes an answer, and
+refuses a view with an unknown member.
 
 ## Where "now" comes from
 
-- In flight: a case's `action_started` without a later `action_finished` (driver `main.rs`).
-- The driver: `driver.json` (`sdc.driver/1`: pid, started_at, argv) beside `.sdc-drive.lock` in the
-  tree root. The Now band says "driver attached" with the pid when `/proc/<pid>` exists (a live
-  lock pid also counts as attached). A step started and not finished with no live driver is shown
-  as "driver gone", not running: `/proc/<pid>` absent, or no `driver.json` while an
-  `observed.jsonl` exists in the tree. With neither file (an old run) nothing is claimed and the
-  step shows as running, as before.
+- In flight: a case's `action_started` without a later `action_finished`.
+- Whether the run is live: see "Whether a run is live" above. The runner writes no pid and no lock,
+  so the Now band never says a run is live. A run directory of the runner with no end record says
+  "live state unknown"; a case store of an older runtime says "not live", and a step it started and
+  never finished shows as "Not live", not running.
 - Since when: `observed.jsonl` beside each `events.jsonl` (`sdc.observed/1`: index, event, action,
   observed_at, pid), matched by line index to the events (and by `event` when the line has it);
   the card says "driver observed_at". Without it, the server's clock of each event line (the mtime
-  of `events.jsonl` when the line appeared). The events' `at` is the `--at` of the whole
-  `sdc-drive run`, shared by every step of it, so it dates a run, not a step; a step whose start
-  the server did not see shows "run since".
+  of `events.jsonl` when the line appeared). The events' `at` is the instant passed to the whole
+  run, shared by every step of it, so it dates a run, not a step; a step whose start the server did
+  not see shows "run since".
 - Agent and decider calls: `llm/NNN-<action>/` and `decider/NNN-<id>/` with `request.json` and a
   `status.json` (`sdc.call-status/1`: state `running`, `finished` or `failed`, pid, started_at,
   finished_at, exit). The state decides "in progress"; a running state whose pid is gone says so.
@@ -267,8 +251,9 @@ node server.mjs --port 7495 ~/scratch/runs/agent/store
 ```console
 npm ci
 task test               # the test step: Playwright, four workers, 60 s a test, 120 s the run
-task slow               # the slow lane: specs that need runs/, the built driver or a canon binary
+task slow               # the slow lane: specs that need runs/
 ```
+
 
 The test step needs no `runs/`, no built binary and no server of your own: every server a spec
 starts is `server.mjs --port 0`, which takes a free port from the kernel and prints it
@@ -277,26 +262,17 @@ starts is `server.mjs --port 0`, which takes a free port from the kernel and pri
 no prompt, transcript or answer of an LLM, no absolute home path, a reason names the role and never
 a person; remade with `node test/slim-source.mjs`). `test/lanes.mjs` names each spec of the slow lane
 and what it needs: `runs/trial-todo-1` and `runs/full-cycle-1` (`now`, `changes`, `screens-runs`,
-`meaning-runs`), a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`;
-`decisions`: a `--write` server over copies of a store, `SDC_UI_WRITE_URL`, `SDC_UI_WRITE_DIRS`), or
-the built driver and a canon binary (`scope`, `preflight`, `paths-served`).
-
-The server reads the canon binary from `SDC_UI_CANON` and the driver from `SDC_UI_DRIVE`; without
-them it looks for `~/beyond10x/canon/target/debug/canon` and `driver/target/debug/sdc-drive`. A
-binary that is not there is a refusal that names it. The fixtures of the slow lane read
-`SDC_UI_CANON` too, so the fixture and the server use one canon.
+`meaning-runs`), or a store the caller names (`live`: `SDC_UI_LIVE_DIR`, `SDC_UI_LIVE_SOURCE`).
 
 `test/now-model.spec.mjs`, `meaning-model.spec.mjs`, `holder-model.spec.mjs` and
-`stall-model.spec.mjs` test the derivations without a browser. `test/scope.spec.mjs` makes a store
-with the real driver and the stub executors (`test/scope-fixture.mjs <dir> [one|two]`, stopped at
-`awaiting_authority` for `scope.answer`) and answers through a `--write --principal anna` server of
-its own. `test/preflight.spec.mjs` starts a server whose PATH has jq and no yq: every act that
-would start the driver or a tool is refused with the missing programs named (nothing runs, no check
-is recorded), and the Decisions drawer shows the same message up front. `test/view-race.spec.mjs`
-holds two sources with two views on one write server and checks that an act that waits in its tool
-keeps its own view. `test/paths.spec.mjs` fails when a file git would commit under `ui/` or any
-page or API answer names an absolute home path; the server shows paths relative to the repository,
-its workspace (`../`) or `~`.
+`stall-model.spec.mjs` test the derivations without a browser. `test/read-only.spec.mjs` proves the
+inspector acts on nothing: every route that took an act answers 404 or 405, a server started with
+an option of the removed acts exits 2, and a Decisions drawer shows the line on where a decision is
+answered and no control that acts. `test/view-race.spec.mjs` holds two sources with two views on one
+server and checks that concurrent requests each keep their own view. `test/paths.spec.mjs` fails
+when a file git would commit under `ui/` or any page or API answer names an absolute home path;
+`test/paths-served.spec.mjs` checks the same on a served copy of the committed fixture. The server
+shows paths relative to the repository, its workspace (`../`) or `~`.
 
 ## UI iteration loop
 

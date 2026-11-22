@@ -143,5 +143,5 @@ L2 metrics are over states that are not the card's truth.
   viewports for the same layout (T14).
 - `baseline.json` now holds this failing run's values; ratcheting on it locks in T1's numbers.
 - The `decider`, `person` and clock observations are partly driver-bot artefacts (T15, T16).
-- The UI offers "Continue run — starts scripts/run-trial.sh" in the drawer the bot drives; the bot's
-  role-name matching keeps it off today, a broader pattern would start a run.
+- The UI offered a "Continue run" control in the drawer the bot drives (removed since: the inspector
+  acts on nothing); the bot's role-name matching kept it off, a broader pattern would have started a run.

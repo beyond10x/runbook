@@ -429,7 +429,7 @@ Today one store, one case tree, one selected protocol graph, lenses, a Decisions
   a reader sees where the model proposed and where a rule decided.
 - Area of activity: header names the area, its repositories, the store and the horizon; a
   programme view lists areas with their state (active / waiting / quiescent).
-- Decisions drawer: unchanged mechanism, grouped by lane; `wave.approve` is one more kind.
+- Decisions drawer: a read-only list (the inspector answers nothing; `ui/README.md`), grouped by lane; `wave.approve` is one more kind.
 - Quiescent and expiry are first-class: what would wake the case, and when.
 - Server: the store watcher must handle many concurrent writers (one per running child) instead
   of one `sdc-drive` lock (`main.rs:108-138`); `now.js` already derives in-flight per case
