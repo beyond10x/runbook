@@ -23,7 +23,7 @@ scope:
   path: runbook/src/parity.rs
 - confidence: cited
   path: runbook/tests/cli.rs
-revision: 15
+revision: 16
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 2, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:55:52Z", actor: "human:operator", revision: 3, executor: "agent:parity-driver-side", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -170,3 +170,34 @@ and `compare` prints `equal on what both sides record:` and not `parity: identic
 6. `runbook run` of `stub-cycle` on Loom and the driver's run give summaries whose comparison is
    empty, printed as `parity: identical` with exit 0: not met, as above. The comparison is not
    empty either: six members are named as not recorded by Loom.
+
+## State after the integration (wave rb3, 2026-11-22)
+
+Goal moved: the last line of "Acceptance of the evaluation run". Met, with evidence:
+
+- Met: a `stub-cycle` run through `runbook loom-run` (the real `b10x-loom` `2c0a6f48`, `--confinement
+  local`, five scripted approvals with the principal `person:owner`, the stub adapter, no model, a
+  ledger that stayed at 0) and the driver's run give summaries whose comparison is empty, printed
+  `parity: identical`, exit 0. Evidence: `docs/parity.md`, "Identical comparison through `runbook
+  loom-run`" (`equal: 8 cases, 69 evidence records, 54 program runs, 5 person steps, 62 product
+  files`, then `parity: identical`); slow lane `task test:loom-real`, test
+  `loom_run::slow::the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run`, passed in
+  191 s. The command is `runbook loom-run`, not `runbook run`, which does not exist yet; the story's
+  words name `runbook run`, so this is met for the command that exists.
+- Met: the six members `tree status` holds nothing for and the principal now come from the run
+  directory and the settings (`docs/parity.md`, "Where the seven values come from now"); `compare`
+  names no member as not recorded for a run read with `--loom-run`.
+- Met in part: "The Loom runs start no `sdc-drive` process (sampled from the process tree)". For the
+  `stub-cycle` run, sampled twice a second over 136 samples, the tree held `runbook`, `b10x-loom`
+  and the bound programs and what they start, never `sdc-drive`, `run-trial.sh` or
+  `run-finding-cycles.sh` (table in `docs/parity.md`). Not met for the evaluation runs, which have
+  not run.
+- Met in part: "A summary of a deliberately altered run makes the comparison print `parity: fail`".
+  The closing lines are `parity: identical`, `parity: equal on what both sides record` and `parity:
+  different` (exit 1); tests in `runbook/tests/cli.rs` assert all three on recorded summaries, each
+  under 5 s. The words `parity: pass` and `parity: fail` of this story are not in the code: the line
+  of a different run is `parity: different`. The quality measures and the tolerance are not built.
+- Not met: the per-pair `same`/`differs` report of the evaluation with its tolerance and quality
+  measures; the written tolerance and the variation among the three driver runs; the report under
+  `experiments/` and its line in `experiments/INDEX.md`. The three evaluation runs have not started
+  and no spend was made.

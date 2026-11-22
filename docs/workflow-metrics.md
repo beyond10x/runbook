@@ -179,7 +179,8 @@ therefore the one way a real run is started and accounted for (AGENTS.md, Rules)
   its `sha256`; a prospective record has one;
 - `tree_commit`: the commit the runs use (40 characters in a prospective record; `null` only while
   it is planned); `several` with `trees`, one line per tree, in a retrospective one;
-- `fixed` and `variants` (`id`, `settings`, `runs`): full run settings, the dotted keys of
+- `fixed` and `variants` (`id`, `runner`: `sdc`, `free-agent` or `loom` (§ 7.1), `settings`,
+  `runs`): full run settings, the dotted keys of
   `run-settings.jsonl` plus `decider.adapter`, `review.adapter`, `flags.dry` and
   `flags.recorded` (`:361`); a variant's settings are `fixed` with its own over them. A run entry
   is its directory name, or `{run, input, tree, note}`;
@@ -244,7 +245,162 @@ Commands (`sdc-experiment.rs`):
   it: `docs/improving.md`.
 - `status <id>`: each run with its unit state, cost, wall seconds and end. `stop <id> --reason
   <text> [--run <name>]`: `run-trial.sh <run> --stop <reason>` for each open run, then the unit is
-  stopped; without `--run` the record becomes `abandoned` with `stopped` (at, by, reason).
+  stopped; without `--run` the record becomes `abandoned` with `stopped` (at, by, reason). A
+  `loom` run is stopped as § 7.1 says.
+
+### 7.1 Runner loom
+
+A variant with `runner: loom` (beside `sdc`, the default, and `free-agent`) starts a model run
+through Loom: the unit runs `runbook loom-run` of the record's tree (the `runbook` crate, built from
+`tree_commit` beside the driver's crates), which makes one run of the case tree through the
+`b10x-loom` binary and writes a run directory. Nothing of `run-trial.sh` takes part, and a `loom`
+unit is given no `SDC_` variable.
+
+**Settings.** A prospective `loom` variant sets exactly these (a missing one is refused by its
+name, `check` and `run` both); a setting of the old driver is refused for it by name with the reason,
+none is ignored silently, and a name that is no setting at all is refused too.
+
+| setting | meaning | becomes |
+|---|---|---|
+| `loom.bin` | the `b10x-loom` binary, absolute or `~/…` (the launcher's `HOME`; a record holds no home path) | `--loom`; never recorded by a run |
+| `loom.sha256` | 64 hex digits; `runbook loom-run` refuses another binary | `--loom-sha256`, `settings.json` |
+| `loom.confinement` | `local` or `substrate`; no default | `--confinement`, passed to `tree run` as given |
+| `loom.cap_micro_usd` | the spend cap over every run of the record, a whole number ≥ 1 | `--cap-micro-usd`, `settings.json`; the runs share the ledger `<runs-dir>/<record id>.loom-spend.json` |
+| `models.writer.model`, `models.implement.model`, `models.review.model`, `models.other.model` | the model of each node class (as for `sdc`) | `settings.json` `models.<class>.model` |
+| `decider.kind` | `model` (one model call per decision) or `rule` (`decider.verdict` answers every decision); a scripted decider is a test double of the runner and no setting of a record | `settings.json` `decider.kind`; the principal of the answers is `decider:model` or `decider:<verdict>`, derived by the runner and never written |
+| `decider.model` | the model of a `model` decider | `settings.json` `decider.model`; with a model decider the file also holds `decider.without_claims: true` (Loom's output holds no claims) |
+| `decider.verdict` | `approve` or `reject`, of a `rule` decider | `settings.json` `decider.verdict` |
+| `decider.escalate`, `decider.max_decider_calls`, `decider.adapter` | optional, of a `model` decider: what an `escalate` reply does (`final` or `stop`), the most decider calls, its adapter | the same keys of `settings.json` |
+| `autonomy` | `A0` to `A5`; the decider answers only at `A5` | `settings.json` `autonomy` |
+| `adapter`, `review.adapter` | optional: `metaharness` or `claude-cli` for the model nodes, `claude-cli` for the review | the same keys of `settings.json` |
+| `max_llm_calls` | cap on model calls of one run (as for `sdc`) | `--max-llm-calls` |
+| `max_wall_seconds` | wall-time cap of one run (optional for `sdc`, required here) | `--max-wall-seconds` |
+| `loom.login_file` | optional: a path (absolute or `~/…`) to the login the model adapter reads | `settings.json` `loom.login_file` only; see below |
+
+The file is `runbook.loom-run-settings/1`, one format for both sides (`docs/loom-run-settings.md`). The
+programs `sdc-reply`, `sdc-findings` and `sdc-bugfix` come from the `PATH` the unit gets (the build's
+`driver/target/debug` first), not from `decider.reply_bin`; `jq`, `yq` and `rsync` must be on the
+login's `PATH` and `run` refuses to start without them.
+
+Refused for a `loom` variant, each with its reason in the message: `implement_mode`, `review_mode`,
+`implement_coverage`, `conformance`, `rule_approvals` (switches of `run-trial.sh`),
+`flags.dry`, `flags.recorded` (flags of `run-trial.sh`), `efforts.<class>.effort` (no argument of
+`llm-node.sh` in Loom mode carries an effort, so the class defaults of `tools/node-classes.json`
+apply), `free.*`. A `loom` input is an `idea` (the case is `IDEA-1`). A record that compares the
+runners puts each runner's own settings in its variants' `settings` and the shared ones (models,
+`max_llm_calls`) in `fixed`.
+
+**`run --print`** for a `loom` run prints, besides the unit name, `description:` (the record and the
+run, never a setting), `env NAME=value` for each variable the unit gets, the idea file and the
+settings file it will write (under `<builds-dir>/../launch/<id>/<run>/`, outside the run directory,
+which `runbook loom-run` creates and refuses to find), the settings the file will hold, and the
+command, one line:
+
+```
+<build>/runbook/target/debug/runbook loom-run --run <name> --runs-dir <dir> --loom <bin> --loom-sha256 <hex>
+  --bindings <build>/bindings --protocols <build>/protocol --root-protocol <id>@<revision> --case IDEA-1
+  --idea <file> --confinement <setting> --settings <file> --spend-ledger <runs-dir>/<record id>.loom-spend.json
+  --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
+```
+
+The root protocol is read from `protocol/sdc.protocol.yaml` of the tree (`protocol.id`,
+`protocol.revision`, a `.` in the id written `-`): from the build directory when it exists, else with
+`git show <tree_commit>:…` in the working directory's repository. The same read refuses a tree
+with no `runbook/Cargo.toml`: `refused: tree_commit <c> has no runbook/ crate` (at `run`, with or
+without `--print`; `check` accepts a planned record whose commit is not pinned yet). The build step
+(`build:` line of `--print`) runs each crate as its own cargo job and adds `runbook`
+(`cargo build --locked`, debug) for a `loom` record; a build record that lacks it gets that crate
+added without rebuilding the others.
+
+**Environment.** The unit is `systemd-run --user … env -i` as for `sdc`, with exactly the login's
+base variables that exist: `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `XDG_RUNTIME_DIR`,
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME`, `DBUS_SESSION_BUS_ADDRESS`
+(the list of the `sdc` runner, `BASE_ENV`), and neither `SDC_RUNS_DIR` nor `SDC_PRINCIPAL` nor any
+setting as a variable. `runbook loom-run` builds the environment of `b10x-loom` and of its programs
+itself.
+
+**The login file.** `loom.login_file` is named by path in the settings file and nowhere else. The
+launcher never reads it and never copies it; `run --print` prints
+`login: loom.login_file is set (…)` and `<loom.login_file>` in place of the path, and the unit's
+description holds no setting. The settings file itself holds the path (it is not committed, it is
+under the state directory).
+
+**`status` and `stop`.** A `loom` run's unit is `sdc-exp-<id>-<variant>-<n>` and its run `<id>.<variant>.<n>`,
+as for the other runners. `stop` writes `run-stopped.json` (`sdc.run-stopped/1`, `at`, `by`, `reason`) into the
+run's directory when it exists, is not stopped and not finished (it never calls `run-trial.sh`),
+then stops the unit: systemd sends SIGTERM to `runbook loom-run`, which writes its outcome on that
+signal (unit R1, `story:loom-run-core`). A run already stopped keeps its record.
+
+**Example record** (not registered; `experiments/` holds none):
+
+```yaml
+format: sdc.experiment/1
+id: example-loom
+kind: prospective
+status: planned
+created: 2026-11-22
+title: A model run of the cycle through Loom
+purpose: Whether a registered record starts a model run through Loom.
+inputs:
+- {name: invoices, kind: idea, text: Bill customers with invoices., sha256: <sha256 of the text>}
+tree_commit: null
+fixed:
+  loom.bin: ~/.cargo/bin/b10x-loom
+  loom.sha256: <64 hex digits>
+  loom.confinement: local
+  loom.cap_micro_usd: 5000000
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-sonnet-5-5
+  decider.model: claude-opus-5-5
+variants:
+- {id: low, runner: loom, settings: {max_llm_calls: 100, max_wall_seconds: 3600}, runs: []}
+- {id: high, runner: loom, settings: {max_llm_calls: 200, max_wall_seconds: 3600}, runs: []}
+runs_per_variant: 1
+pass_rule: clean-delivery
+decision_rule: {rule: descriptive, text: the record describes its runs and decides nothing}
+```
+
+**Run directories of a `loom` run (the contract of the unit that writes them).** `report` and
+`check --runs-dir` read a run directory through `run_metrics::load` (`driver/src/run_metrics.rs`),
+the same code as for a driver run, and the clean-pass rule of `report` (`clean_pass`:
+`closed && delivered && clean`). A line that does not parse is skipped and counted
+(`records.malformed_lines`); a file that is absent is absent, never an error, except the root
+case's `events.jsonl`. A summary replaces every string that holds an absolute host path (a user home,
+temp, runtime or device-shared directory, or `/root/`) by `<absolute path removed>`.
+
+| file (under the run directory) | members read | used for | when absent |
+|---|---|---|---|
+| `free-agent.json` | existence | makes `load_run` read the directory as a free-agent run | must be absent |
+| `store/IDEA-1/events.jsonl` (root; else the one directory under `store/` holding an `events.jsonl`) | per line `event`: `opened` (`protocol.id`), `action_started` (`action`, `llm`, `retry_of`), `action_finished` (`action`, `exit`, `not_called`, `refused.kind`, `principal`, `evidence`), `terminated` (`outcome`), `revised` | takes, stages (`sdc` = idea, `sdc.<stage>`), rework, the root's `terminated.outcome` = how the run ended | `report` fails, exit 2: `cannot read …/events.jsonl: no such file` |
+| `<case>/observed.jsonl` | `index`, `observed_at` (RFC 3339 `Z`) | take and loop times, `wall_s`, the join of model calls to takes | no times: `driver_s` 0, `wall_s` null, calls joined in order |
+| `<case>/ir.json` | `actions.<a>.effect` | node kind (`write` = writer, else check) | every node `other` |
+| `<case>/bindings.json` | `<a>.manual`, `<a>.copy` | node kind approval, copy | none |
+| `<case>/evidence/<id>.json` | `kind`, `result` | negative results (rework causes, edges) | cause `<kind>:?` |
+| `<case>/children/<id>/…` | the same five files | child cases | not counted |
+| `<root>/work/findings.yaml` | `findings[].stage,status,resolution.amends` | `findings_raised`, finding edges | 0 |
+| `llm-calls.jsonl` | `case` (the case directory's name), `action`, `started`, `cost_usd`, `duration_ms`, `model`, `effort`, `usage.*` | `run.llm_calls` (lines), `run.llm_cost_usd` (sum), node cost and tokens | both null; `cost_usd` counts 0 |
+| `decisions.jsonl` | `case`, `action`, `class`/`type`, `decision`, `model`, `cost_usd`, `duration_ms`, `principal`, `time`, `suppressed`, `fallback`, `valid` | `run.decider_*`, `decision.<class>.*` | `decider_*` null; counts 0 |
+| `status.json` | `state`, `outcome`, `delivered`, `forced`, `unstuck`, `reopens` | a close when the root has no `terminated`; `delivered`; clean counters | counters 0; `delivered` from the outcome |
+| `run-stopped.json` | `at`, `by`, `cause` or `verdict_at_stop`, `case`, `reason` | `end: stopped: …`, `stop_cause`, waiting time | run is `open` unless closed |
+| `run-stopped.<x>.json` | name only | one reopen each | 0 |
+| `defects.jsonl` | `forced` | forced steps | 0 |
+| `rounds.jsonl` | `seconds` | `run.driver_s`, waiting time | null |
+| `run-settings.jsonl` | the last line, nested objects flattened by dots (`at`, `format`, `nodes`, `llm_calls_before` dropped) | `settings`; `check --runs-dir` compares it with the record: `loom.sha256`, `loom.confinement`, `loom.cap_micro_usd`, the models, `decider.model`, `max_llm_calls`, `max_wall_seconds`, whichever the record sets (not `loom.bin`, `loom.login_file`) | every setting reads `not recorded` and `check` refuses the run |
+| `oracle.json` | `conformance.*` | the `conformance*` metrics | `not observed` |
+
+The run's end: `closed_outcome` is the root's `terminated.outcome`, else `status.json` `outcome`
+when its `state` is `closed`; `end_kind` is `closed` with one, `stopped` with a `run-stopped.json`,
+else `open`; `finished` is `end_kind != open` and only a finished run gets a summary and counts as
+ended. `delivered` needs a close: `status.json` `delivered` when it is a boolean, else the outcome
+is `operating`. `clean` is `closed` with no reopen (`run-stopped.<x>.json`, `status.json`
+`reopens`), no forced step (`defects.jsonl`, `status.json` `forced`) and no unstick (`status.json`
+`unstuck`). The smallest directory that reads as a clean delivered run with a cost: the root
+`events.jsonl` (an `opened` event and `terminated` with outcome `operating`, or any outcome with a
+`status.json` that says `delivered`), `llm-calls.jsonl` with `cost_usd` per call and, for `check`,
+`run-settings.jsonl`; a test feeds `report` exactly that
+(`driver/tests/experiment_loom.rs`).
 
 **Procedure** (at most 30 lines):
 

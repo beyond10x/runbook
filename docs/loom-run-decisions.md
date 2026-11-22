@@ -1,0 +1,146 @@
+# Decisions of a `runbook loom-run`: what the decider answers, and the run's copy of the bindings
+
+`runbook loom-run` runs the SDC cycle under Loom (`b10x-loom tree`). Loom stops at a step that waits
+for a principal and prints it in `decisions[]` of the `tree run` result (exit 3). The decider
+(`runbook/src/loom_run/decider.rs`) answers those entries; the copy of the bindings
+(`runbook/src/loom_run/bindings_copy.rs`) is what makes Loom accept the decider as the principal
+and carries the model, turn and budget settings of the run. Loom commit `2c0a6f48` (`b10x-loom`
+0.58.0) is the one this page was checked against.
+
+## The decisions table
+
+The driver (`scripts/run-trial.sh`, `bindings/tools/decider.sh`) hands a decider these kinds of
+decision. The last two columns say whether Loom can ask the kind as a `decisions[]` entry at the
+pinned commit, and what a run does with it. A kind Loom cannot ask is not answered by a path made up
+for it: the run ends or the step never exists.
+
+| Driver kind | Inputs to the decider | Allowed answers | Loom `decisions[]` entry | What `loom-run` does |
+|---|---|---|---|---|
+| approval of a person step (`context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve`) | `type approval`, `case_dir` (`case.json`, `work/`), `action`, `capability`, `subject`, `path`, `revision`, `position`, `record_dir` | approve, reject, escalate | Yes: kind `ApproveAction` (case, action, capability, subject, path, revision, command) | `decider.sh model` (or the rule kinds); approve runs `tree approve --principal decider:model`, reject runs it with `--deny` (R1's loop) |
+| approval of a capability (`stories.activate`, `release.publish`, `release.rollback`, the spec and code acceptances that a person gives) | the same | the same | Yes: kind `Approve`; Loom accepts `decider:model` as the principal and records it as the actor (checked in a full stub cycle, 5 approvals) | the same |
+| escalate (decider reply) | the reply's `best` | `best` approve or reject | not a Loom entry: a reply | `escalate: final` takes `best` (reject when absent), as the driver's `escalation_suppressed`; `escalate: stop` ends in `CannotDecide {reason: "reserved for a person: …"}` |
+| question: scope-changing answer, `scope.answer` | `type question`, the question object | approve with an answer text, escalate | Reachable as an `ApproveAction` of `scope.answer`, but Loom's approval carries no answer and takes none | not answered: `CannotDecide` ("scope.answer is a question …"). The step keeps `person:owner` in the copy, so the run stops for a person there |
+| question: `questions.answer` | | | No: a model node (class `other`) in the bindings, not a decision | runs as a node |
+| finding (`amend.upstream` handoff, the decider answers an option or its own text) | `type finding`, the finding object | approve with an answer, escalate | Not reachable through `tree` today: the member that refuses a finding is not in the bindings format (`bindings/PENDING.md`) | never asked |
+| close (`sdc/close:operating`, choice between legitimate outcomes) | `type close`, `outcome` | approve, reject | Reachable: kind `Close` | `CannotDecide` ("kind Close …"): `b10x-loom` has no `tree close` at the pinned commit |
+| handoff | a writer's handoff text | none | Kind `Handoff` exists; `tree run` does not emit it at the pinned commit and nothing answers it | `CannotDecide` ("kind Handoff …") if it ever appears |
+| an unknown kind | | | whatever Loom adds | `CannotDecide` ("kind X not known") |
+| rework after a rejected review, withhold, run.unstick, keep-going | the driver's own routes after a decision | | Not reachable through `tree` today: Loom has no such steps; a rejection is the step's evidence and the protocol's edge | a run has none of them; the first stop is the stop |
+| `SDC_RULE_APPROVALS` (rule approvals with claims) | claims of the position | | Not reachable through `tree` today: Loom's `decisions[]` holds no claim values | not mapped |
+| budget overrun, limit hit | | | not Loom entries: the runner's own stops (R1's ledger and caps) | outcome `stopped`, not a decision |
+
+Notes.
+
+- `decider.sh` has the driver's mode only. There is no Loom mode: the decider builds the request it
+  reads (`case_dir` with `case.json` and a link `work` to the run's workspace) from the entry and
+  Loom's case file. `case.json` holds the case and the artifacts Loom's store knows with their
+  revisions.
+- The decider's `claims` are not in Loom's output. `decider.sh model` tells the model to read the
+  claims of the position from `in/checks.json`; it gets an empty position. A model decider therefore
+  runs only with `decider.without_claims: true` in the settings, the run's explicit acknowledgement;
+  without it the answer is `CannotDecide` naming this. Every record of the run says so.
+- The principal is `decider:model` (kind `model`), `decider:approve` or `decider:reject` (kind
+  `rule`, the driver's `SDC_DECIDER=approve|reject`).
+- Autonomy. The decider answers only at `autonomy: A5` (the driver hands every decision to the decider
+  there and to a person at A0). A0 to A4 and no level named end in `CannotDecide {reason: "reserved
+  for a person: autonomy A<n> …"}`: A1 to A4 have no per-class routing in the driver ("not built",
+  `docs/autonomy-levels.md`), and in the copy the person steps then keep `person:owner`.
+- Call limit. `decider.max_calls` (the driver's `SDC_MAX_DECIDER_CALLS`; `max_decider_calls` is
+  accepted as the experiment record's name for it, one of the two) counts the decider's model calls:
+  a record directory under `<run>/decider/` per call, retries included. At the limit the next decision
+  is `CannotDecide` ("decider budget spent: n decider calls"). A rule decider makes no call and has
+  no limit. Default 20.
+- `escalate: final` applies to the decisions Loom can ask (the two approval kinds), so it is
+  implemented, not only described. Default `stop`.
+- An invalid reply (`valid: false`) is asked again with its reason, `decider.retries` times (default 2,
+  the driver's `SDC_DECIDER_RETRIES`), then `CannotDecide`.
+- Anything missing, unparsable or with an exit code other than 0 is `CannotDecide`: no JSON object, no
+  `decision`, no `cost_usd`, a non-zero exit (the last stderr lines are in the reason), a timeout
+  (`timeout_seconds`, default 900; the program's whole process group is ended), a program that cannot
+  start.
+- The decider's `cost_usd` is the cost of the call; the retries add up. The per-call budget the
+  runner reserved is handed to the script as `SDC_DECIDER_MAX_BUDGET_USD`, never more than
+  `decider.max_budget_usd` (default 0.25).
+
+## The decider's environment
+
+`decider.sh` starts with the environment built here and nothing inherited from the runner or the
+shell (`env_clear`). The working directory is the call's record directory; standard input is empty.
+
+| Variable | Value | When |
+|---|---|---|
+| `PATH` | the `PATH` of the runner's `child_env` (R1), nothing else of it | always; a `child_env` without `PATH` is `CannotDecide` |
+| `HOME` | `<run>/home` | always |
+| `SDC_REPLY` | `decider.reply_bin`, the `sdc-reply` binary | kind `model` |
+| `SDC_LLM_MODEL_DECIDER` | `decider.model` | kind `model` |
+| `SDC_DECIDER_ESCALATE` | `final` or `stop` | kind `model` |
+| `SDC_DECIDER_MAX_BUDGET_USD` | the per-call budget, `0.250000` form | kind `model` |
+| `SDC_DECIDER_ADAPTER` | `decider.adapter` | when set |
+| `SDC_LLM_EFFORT_DECIDER` | `decider.effort` | when set (else `node-classes.json`: xhigh) |
+| `SDC_DECIDER_MAX_TURNS` | `decider.max_turns` | when set (else 8) |
+| `SDC_CLAUDE_CREDENTIALS` | `<run>/login`, the link the copy made (the settings' path when there is no link) | only when the settings name a login file |
+
+`jq`, `yq` and `rsync` must be on `PATH`; `decider.sh` exits 127 without them, which is
+`CannotDecide`. It finds `instructions/decider/` by walking up from its own directory: the copy puts
+`instructions/` beside the bindings copy. The login's path is removed from every stderr line the
+decider keeps (`<login file>`), and it is in no argument, no file of the run directory but the link,
+and no result.
+
+## The run's copy of the bindings
+
+`materialise(src, dst, root, settings)` copies `bindings/` to `dst` (an unused directory) and applies
+the settings with `serde_yaml`, structurally, to the copy. The committed `bindings/*.yaml` are never
+written (a test copies a read-only source and compares bytes). A file no setting touches is copied
+byte for byte; a file one touches is re-serialised (comments are not kept). All 66 bindings are
+in the copy; a test counts them before and after and compares every member except the rewritten
+ones. Beside `dst` it puts `instructions/` and `driver/examples/` (the tools read their root, two directories above their own: the instruction files, the fixtures and `rule-ends.json`) and,
+when a login file is named, the link `login`. An unknown settings key, at any level, is refused by
+name before anything is written.
+
+| Setting | Where it lands in the copy |
+|---|---|
+| `autonomy: A5` with `decider.kind` `model` or `rule` | `executor.principal` and each evidence `producer` of the person steps `context.approve`, `vision.approve`, `roadmap.approve`, `merge.approve` become `decider:model` (or `decider:approve`, `decider:reject`); `scope.answer` keeps `person:owner` |
+| `models.<role>.model` | option `--model` of the `tools/llm-node.sh` nodes of the role (writer, implement, review, other, by `bindings/tools/node-classes.json`) |
+| `models.<role>.max_turns` | option `--max-turns` |
+| `models.<role>.max_budget_usd` | option `--max-budget-usd` |
+| `adapter` (`metaharness`, `claude-cli`) | option `--adapter` of every model node |
+| `login_file` | option `--claude-credentials <run>/login` of every model node; `<run>/login` is a link to the file |
+
+`budget.max_runs`, the only budget member a tree acts on, stays as committed: `max_turns` and
+`max_budget_micro_usd` are refused on program bindings by Loom.
+
+## The strong variant of `experiments/release-0.1.2.yaml`
+
+Fixed settings plus the strong variant's own, each with the `SDC_*` variable `sdc-experiment` sets
+and what it becomes here.
+
+| `SDC_*` setting (value) | In the copy or the settings |
+|---|---|
+| `SDC_LLM_MODEL_WRITER`, `_IMPLEMENT`, `_REVIEW`, `_OTHER` (claude-sonnet-5-5) | expressed in the copy as `--model` (`models.<role>.model`, the committed bindings) |
+| `SDC_LLM_MODEL_DECIDER` (claude-opus-5-5) | the decider's environment, `decider.model` (not the copy) |
+| `SDC_DECIDER` (model) | `decider.kind: model` (settings) |
+| `SDC_DECIDER_ESCALATE` (final) | `decider.escalate` (decider environment) |
+| `SDC_MAX_DECIDER_CALLS` (40) | `decider.max_calls`, counted by the decider (not an environment variable) |
+| `SDC_DECIDER_ADAPTER` (claude-cli) | `decider.adapter` (decider environment) |
+| `SDC_LLM_ADAPTER` (metaharness) | expressed in the copy as `--adapter metaharness` |
+| `SDC_REVIEW_ADAPTER` (claude-cli) | the default of `llm-node.sh` when the writers run on metaharness; no option exists to set another, so only `review.adapter: claude-cli` is accepted. Not expressible under Loom today for any other value |
+| `SDC_AUTONOMY` (A5) | `autonomy` (settings): the decider's gate and the person steps' principal in the copy |
+| `SDC_MAX_LLM_CALLS` (150), `SDC_MAX_WALL_SECONDS` (5400) | the runner's caps (R1); not in the copy |
+| `SDC_LLM_EFFORT_WRITER`, `_IMPLEMENT`, `_REVIEW`, `_OTHER` (not set; node-classes default high) | not expressible under Loom today: `llm-node.sh` has no argv option for effort; every node runs at the default of `node-classes.json`. The decider's effort is an environment variable and is set |
+| `SDC_UNSTICK` / `SDC_LLM_MODEL_UNSTICK` (not launch settings) | not expressible: run.unstick does not exist under Loom; a stop stays the end of the run |
+| `SDC_DECIDER_RETRIES` (default 2) | `decider.retries`, the decider |
+| `SDC_RULE_APPROVALS`, `SDC_CONFORMANCE` (not set) | not expressible: see the table above (no claims in `decisions[]`) |
+
+Per-call budgets (`--max-budget-usd`) and turns (`--max-turns`) are not part of the strong variant's
+record: the committed bindings carry the node's own values, which the copy keeps unless a run's
+settings change them.
+
+## Checks
+
+- Fast: `cargo test --locked --bin runbook loom_run::decider` and `loom_run::bindings_copy` (the
+  fake `decider.sh` is a script the test writes; the real one is run in rule mode, no model).
+- That Loom reads the copy (slow lane, needs the pinned `b10x-loom`): `RUNBOOK_LOOM_BIN=<b10x-loom>
+  cargo test --locked --bin runbook -- --ignored loads_in_loom`. The test registers the protocols,
+  makes a copy with the model, turn, budget, adapter and principal rewrites, runs `tree open` on it
+  and `tree verify` on the store, with an environment of `PATH` and `HOME` alone. Result on Loom
+  `2c0a6f48`: passes (the whole `loom_run` set, this test included, 38 tests in 5.4 s).

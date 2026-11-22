@@ -1,0 +1,1499 @@
+{
+  "format": "runbook.parity-summary/1",
+  "source": {
+    "runtime": "driver",
+    "run_settings": {
+      "decider": "person",
+      "adapter": "stub",
+      "stand_in": true,
+      "stand_in_principal": "person:owner"
+    }
+  },
+  "not_recorded": [
+    "decision_requests[].question",
+    "decision_requests[].options"
+  ],
+  "cases": [
+    {
+      "id": "IDEA-1",
+      "link": null,
+      "parent": null,
+      "protocol": "sdc",
+      "protocol_revision": 8,
+      "outcome": "operating",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "idea",
+          "subject_revision": "tdd34e27c4406f5fe",
+          "upstream_revisions": {},
+          "action": "intake.open"
+        },
+        {
+          "index": 1,
+          "kind": "intake_opened",
+          "result": null,
+          "subject": "idea",
+          "subject_revision": "tdd34e27c4406f5fe",
+          "upstream_revisions": {},
+          "action": "intake.open"
+        },
+        {
+          "index": 2,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "idea",
+          "subject_revision": "tdd34e27c4406f5fe",
+          "upstream_revisions": {},
+          "action": "direction.open"
+        },
+        {
+          "index": 3,
+          "kind": "direction_opened",
+          "result": null,
+          "subject": "idea",
+          "subject_revision": "tdd34e27c4406f5fe",
+          "upstream_revisions": {},
+          "action": "direction.open"
+        },
+        {
+          "index": 4,
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "roadmap.read"
+        },
+        {
+          "index": 5,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "epics.open"
+        },
+        {
+          "index": 6,
+          "kind": "epics_opened",
+          "result": null,
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "epics.open"
+        }
+      ],
+      "program_runs": [],
+      "person_steps": []
+    },
+    {
+      "id": "IDEA-1.intake",
+      "link": "intake",
+      "parent": "IDEA-1",
+      "protocol": "sdc.intake",
+      "protocol_revision": 9,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "dissection_shape",
+          "result": "invalid",
+          "subject": "dissection",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "idea": "tdd34e27c4406f5fe"
+          },
+          "action": "dissection.check"
+        },
+        {
+          "index": 1,
+          "kind": "idea_shape",
+          "result": "valid",
+          "subject": "idea",
+          "subject_revision": "tdd34e27c4406f5fe",
+          "upstream_revisions": {},
+          "action": "idea.check"
+        },
+        {
+          "index": 2,
+          "kind": "questions_shape",
+          "result": "invalid",
+          "subject": "questions",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "dissection": "none"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 3,
+          "kind": "questions_settled",
+          "result": "open",
+          "subject": "questions",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "dissection": "none"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 4,
+          "kind": "requirements_shape",
+          "result": "invalid",
+          "subject": "requirements",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "questions": "none"
+          },
+          "action": "requirements.check"
+        },
+        {
+          "index": 5,
+          "kind": "dissection_shape",
+          "result": "valid",
+          "subject": "dissection",
+          "subject_revision": "t91f5e450c9a644d7",
+          "upstream_revisions": {
+            "idea": "tdd34e27c4406f5fe"
+          },
+          "action": "dissection.check"
+        },
+        {
+          "index": 6,
+          "kind": "questions_shape",
+          "result": "invalid",
+          "subject": "questions",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "dissection": "t91f5e450c9a644d7"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 7,
+          "kind": "questions_settled",
+          "result": "open",
+          "subject": "questions",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "dissection": "t91f5e450c9a644d7"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 8,
+          "kind": "questions_shape",
+          "result": "valid",
+          "subject": "questions",
+          "subject_revision": "tf246657ff1e97ebc",
+          "upstream_revisions": {
+            "dissection": "t91f5e450c9a644d7"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 9,
+          "kind": "questions_settled",
+          "result": "open",
+          "subject": "questions",
+          "subject_revision": "tf246657ff1e97ebc",
+          "upstream_revisions": {
+            "dissection": "t91f5e450c9a644d7"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 10,
+          "kind": "requirements_shape",
+          "result": "invalid",
+          "subject": "requirements",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "questions": "tf246657ff1e97ebc"
+          },
+          "action": "requirements.check"
+        },
+        {
+          "index": 11,
+          "kind": "questions_shape",
+          "result": "valid",
+          "subject": "questions",
+          "subject_revision": "td238b798e35ca7d0",
+          "upstream_revisions": {
+            "dissection": "t91f5e450c9a644d7"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 12,
+          "kind": "questions_settled",
+          "result": "settled",
+          "subject": "questions",
+          "subject_revision": "td238b798e35ca7d0",
+          "upstream_revisions": {
+            "dissection": "t91f5e450c9a644d7"
+          },
+          "action": "questions.check"
+        },
+        {
+          "index": 13,
+          "kind": "requirements_shape",
+          "result": "invalid",
+          "subject": "requirements",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "questions": "td238b798e35ca7d0"
+          },
+          "action": "requirements.check"
+        },
+        {
+          "index": 14,
+          "kind": "requirements_shape",
+          "result": "valid",
+          "subject": "requirements",
+          "subject_revision": "te23630e115159d67",
+          "upstream_revisions": {
+            "questions": "td238b798e35ca7d0"
+          },
+          "action": "requirements.check"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "dissection.check",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "idea.check",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "questions.check",
+          "attempt": 1,
+          "exit": 2,
+          "retry_followed": false
+        },
+        {
+          "action": "requirements.check",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "idea.dissect",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "dissection.check",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "questions.check",
+          "attempt": 2,
+          "exit": 2,
+          "retry_followed": false
+        },
+        {
+          "action": "questions.write",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "questions.check",
+          "attempt": 3,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "requirements.check",
+          "attempt": 2,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "questions.answer",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "questions.check",
+          "attempt": 4,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "requirements.check",
+          "attempt": 3,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "amend.upstream",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "requirements.normalise",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "requirements.check",
+          "attempt": 4,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": []
+    },
+    {
+      "id": "IDEA-1.direction",
+      "link": "direction",
+      "parent": "IDEA-1",
+      "protocol": "sdc.direction",
+      "protocol_revision": 7,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "context_defaults",
+          "result": "invalid",
+          "subject": "context",
+          "subject_revision": "none",
+          "upstream_revisions": {
+            "requirements": "te23630e115159d67"
+          },
+          "action": "context.check"
+        },
+        {
+          "index": 1,
+          "kind": "roadmap_validation",
+          "result": "invalid",
+          "subject": "roadmap",
+          "subject_revision": "none",
+          "upstream_revisions": {},
+          "action": "roadmap.validate"
+        },
+        {
+          "index": 2,
+          "kind": "context_defaults",
+          "result": "valid",
+          "subject": "context",
+          "subject_revision": "taee57460908c89e2",
+          "upstream_revisions": {
+            "requirements": "te23630e115159d67"
+          },
+          "action": "context.check"
+        },
+        {
+          "index": 3,
+          "kind": "context_approval",
+          "result": "approved",
+          "subject": "context",
+          "subject_revision": "taee57460908c89e2",
+          "upstream_revisions": {},
+          "action": "context.approve"
+        },
+        {
+          "index": 4,
+          "kind": "vision_approval",
+          "result": "approved",
+          "subject": "vision",
+          "subject_revision": "tbc0bad094dab2652",
+          "upstream_revisions": {},
+          "action": "vision.approve"
+        },
+        {
+          "index": 5,
+          "kind": "roadmap_validation",
+          "result": "valid",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "roadmap.validate"
+        },
+        {
+          "index": 6,
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {
+            "vision": "tbc0bad094dab2652"
+          },
+          "action": "roadmap.approve"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "context.check",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "roadmap.validate",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "amend.upstream",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "context.default",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "context.check",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "vision.write",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "roadmap.write",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "roadmap.validate",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": [
+        {
+          "order": 0,
+          "action": "context.approve",
+          "answer": "approved",
+          "actor": "person:owner",
+          "capability": "owner.approve"
+        },
+        {
+          "order": 1,
+          "action": "vision.approve",
+          "answer": "approved",
+          "actor": "person:owner",
+          "capability": "owner.approve"
+        },
+        {
+          "order": 2,
+          "action": "roadmap.approve",
+          "answer": "approved",
+          "actor": "person:owner",
+          "capability": "owner.approve"
+        }
+      ]
+    },
+    {
+      "id": "IDEA-1.billing",
+      "link": "billing",
+      "parent": "IDEA-1",
+      "protocol": "sdc.epic",
+      "protocol_revision": 5,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "roadmap.read"
+        },
+        {
+          "index": 1,
+          "kind": "ess_gate",
+          "result": "failed",
+          "subject": "spec",
+          "subject_revision": "none",
+          "upstream_revisions": {},
+          "action": "spec.gate"
+        },
+        {
+          "index": 2,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "spec",
+          "subject_revision": "none",
+          "upstream_revisions": {},
+          "action": "spec.open"
+        },
+        {
+          "index": 3,
+          "kind": "spec_opened",
+          "result": null,
+          "subject": "epic",
+          "subject_revision": "billing",
+          "upstream_revisions": {},
+          "action": "spec.open"
+        },
+        {
+          "index": 4,
+          "kind": "ess_gate",
+          "result": "passed",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.gate"
+        },
+        {
+          "index": 5,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "epic",
+          "subject_revision": "billing",
+          "upstream_revisions": {},
+          "action": "plan.open"
+        },
+        {
+          "index": 6,
+          "kind": "plan_opened",
+          "result": null,
+          "subject": "epic",
+          "subject_revision": "billing",
+          "upstream_revisions": {},
+          "action": "plan.open"
+        },
+        {
+          "index": 7,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "stories.open"
+        },
+        {
+          "index": 8,
+          "kind": "stories_opened",
+          "result": null,
+          "subject": "epic",
+          "subject_revision": "billing",
+          "upstream_revisions": {},
+          "action": "stories.open"
+        },
+        {
+          "index": 9,
+          "kind": "case_outcome",
+          "result": "passed",
+          "subject": "epic",
+          "subject_revision": "billing",
+          "upstream_revisions": {},
+          "action": "release.open"
+        },
+        {
+          "index": 10,
+          "kind": "release_opened",
+          "result": null,
+          "subject": "epic",
+          "subject_revision": "billing",
+          "upstream_revisions": {},
+          "action": "release.open"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "spec.gate",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.gate",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": []
+    },
+    {
+      "id": "IDEA-1.billing.spec",
+      "link": "spec",
+      "parent": "IDEA-1.billing",
+      "protocol": "sdc.spec",
+      "protocol_revision": 5,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "roadmap.read"
+        },
+        {
+          "index": 1,
+          "kind": "spec_source",
+          "result": "authored",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.author"
+        },
+        {
+          "index": 2,
+          "kind": "open_markers",
+          "result": "none",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.scan"
+        },
+        {
+          "index": 3,
+          "kind": "spec_validation",
+          "result": "valid",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.validate"
+        },
+        {
+          "index": 4,
+          "kind": "spec_compile",
+          "result": "compiled",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.compile"
+        },
+        {
+          "index": 5,
+          "kind": "spec_synthesis",
+          "result": "clean",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.synthesize"
+        },
+        {
+          "index": 6,
+          "kind": "spec_review",
+          "result": "approved",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.review"
+        },
+        {
+          "index": 7,
+          "kind": "scope_trace",
+          "result": "traced",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.trace"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "spec.author",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.scan",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.validate",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.compile",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.synthesize",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.review",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "spec.trace",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": []
+    },
+    {
+      "id": "IDEA-1.billing.plan",
+      "link": "plan",
+      "parent": "IDEA-1.billing",
+      "protocol": "sdc.plan",
+      "protocol_revision": 7,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "roadmap_approval",
+          "result": "approved",
+          "subject": "roadmap",
+          "subject_revision": "ta20bf9965fee8991",
+          "upstream_revisions": {},
+          "action": "roadmap.read"
+        },
+        {
+          "index": 1,
+          "kind": "ess_gate",
+          "result": "passed",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.gate"
+        },
+        {
+          "index": 2,
+          "kind": "decomposition_coverage",
+          "result": "uncovered",
+          "subject": "plan",
+          "subject_revision": "tb2a9c57a32067e2d",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "plan.cover"
+        },
+        {
+          "index": 3,
+          "kind": "stories_scoped",
+          "result": "unassessed",
+          "subject": "plan",
+          "subject_revision": "tb2a9c57a32067e2d",
+          "upstream_revisions": {},
+          "action": "plan.scope"
+        },
+        {
+          "index": 4,
+          "kind": "story_states",
+          "result": "draft",
+          "subject": "plan",
+          "subject_revision": "tb2a9c57a32067e2d",
+          "upstream_revisions": {},
+          "action": "plan.status"
+        },
+        {
+          "index": 5,
+          "kind": "plan_validation",
+          "result": "valid",
+          "subject": "plan",
+          "subject_revision": "tb2a9c57a32067e2d",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "plan.validate"
+        },
+        {
+          "index": 6,
+          "kind": "decomposition_coverage",
+          "result": "covered",
+          "subject": "plan",
+          "subject_revision": "tfabefc8c8148cdea",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "plan.cover"
+        },
+        {
+          "index": 7,
+          "kind": "stories_scoped",
+          "result": "scoped",
+          "subject": "plan",
+          "subject_revision": "tfabefc8c8148cdea",
+          "upstream_revisions": {},
+          "action": "plan.scope"
+        },
+        {
+          "index": 8,
+          "kind": "story_states",
+          "result": "active",
+          "subject": "plan",
+          "subject_revision": "tfabefc8c8148cdea",
+          "upstream_revisions": {},
+          "action": "plan.status"
+        },
+        {
+          "index": 9,
+          "kind": "plan_validation",
+          "result": "valid",
+          "subject": "plan",
+          "subject_revision": "tfabefc8c8148cdea",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "plan.validate"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "spec.gate",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.cover",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.scope",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.status",
+          "attempt": 1,
+          "exit": 1,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.validate",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "amend.upstream",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.decompose",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.cover",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.scope",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.status",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "plan.validate",
+          "attempt": 2,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": []
+    },
+    {
+      "id": "IDEA-1.billing.invoices",
+      "link": "invoices",
+      "parent": "IDEA-1.billing",
+      "protocol": "sdc.story",
+      "protocol_revision": 7,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "ess_gate",
+          "result": "passed",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.gate"
+        },
+        {
+          "index": 1,
+          "kind": "implementation_change",
+          "result": null,
+          "subject": "change",
+          "subject_revision": "ta572071754982210",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "change.implement"
+        },
+        {
+          "index": 2,
+          "kind": "conformance_run",
+          "result": "passed",
+          "subject": "change",
+          "subject_revision": "ta572071754982210",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "tests.run"
+        },
+        {
+          "index": 3,
+          "kind": "code_review",
+          "result": "approved",
+          "subject": "change",
+          "subject_revision": "ta572071754982210",
+          "upstream_revisions": {},
+          "action": "change.review"
+        },
+        {
+          "index": 4,
+          "kind": "merge_approval",
+          "result": "approved",
+          "subject": "change",
+          "subject_revision": "ta572071754982210",
+          "upstream_revisions": {},
+          "action": "merge.approve"
+        },
+        {
+          "index": 5,
+          "kind": "merge_record",
+          "result": null,
+          "subject": "change",
+          "subject_revision": "ta572071754982210",
+          "upstream_revisions": {},
+          "action": "change.merge"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "spec.gate",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "change.implement",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "tests.run",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "change.review",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "change.merge",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": [
+        {
+          "order": 3,
+          "action": "merge.approve",
+          "answer": "approved",
+          "actor": "person:owner",
+          "capability": "change.merge"
+        }
+      ]
+    },
+    {
+      "id": "IDEA-1.billing.release",
+      "link": "release",
+      "parent": "IDEA-1.billing",
+      "protocol": "sdc.release",
+      "protocol_revision": 4,
+      "outcome": "passed",
+      "stop": null,
+      "open_obligations": [],
+      "evidence": [
+        {
+          "index": 0,
+          "kind": "ess_gate",
+          "result": "passed",
+          "subject": "spec",
+          "subject_revision": "t30634e9240bb675f",
+          "upstream_revisions": {},
+          "action": "spec.gate"
+        },
+        {
+          "index": 1,
+          "kind": "build_provenance",
+          "result": null,
+          "subject": "release",
+          "subject_revision": "t9f2fb3c002745832",
+          "upstream_revisions": {},
+          "action": "release.build"
+        },
+        {
+          "index": 2,
+          "kind": "release_conformance",
+          "result": "passed",
+          "subject": "release",
+          "subject_revision": "t9f2fb3c002745832",
+          "upstream_revisions": {
+            "spec": "t30634e9240bb675f"
+          },
+          "action": "acceptance.run"
+        },
+        {
+          "index": 3,
+          "kind": "release_record",
+          "result": null,
+          "subject": "release",
+          "subject_revision": "t9f2fb3c002745832",
+          "upstream_revisions": {},
+          "action": "release.publish"
+        },
+        {
+          "index": 4,
+          "kind": "health_observation",
+          "result": "healthy",
+          "subject": "release",
+          "subject_revision": "t9f2fb3c002745832",
+          "upstream_revisions": {},
+          "action": "release.observe"
+        }
+      ],
+      "program_runs": [
+        {
+          "action": "spec.gate",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "release.build",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "acceptance.run",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "release.publish",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        },
+        {
+          "action": "release.observe",
+          "attempt": 1,
+          "exit": 0,
+          "retry_followed": false
+        }
+      ],
+      "person_steps": [
+        {
+          "order": 4,
+          "action": null,
+          "answer": "granted",
+          "actor": "person:owner",
+          "capability": "release.approve"
+        }
+      ]
+    }
+  ],
+  "copies": [
+    {
+      "action": "roadmap.read",
+      "kind": "roadmap_approval",
+      "from_protocol": "sdc.direction",
+      "from": "IDEA-1.direction",
+      "to": "IDEA-1",
+      "subject": "roadmap",
+      "subject_revision": "ta20bf9965fee8991"
+    },
+    {
+      "action": "roadmap.read",
+      "kind": "roadmap_approval",
+      "from_protocol": "sdc.direction",
+      "from": "IDEA-1.direction",
+      "to": "IDEA-1.billing",
+      "subject": "roadmap",
+      "subject_revision": "ta20bf9965fee8991"
+    },
+    {
+      "action": "roadmap.read",
+      "kind": "roadmap_approval",
+      "from_protocol": "sdc.direction",
+      "from": "IDEA-1.direction",
+      "to": "IDEA-1.billing.spec",
+      "subject": "roadmap",
+      "subject_revision": "ta20bf9965fee8991"
+    },
+    {
+      "action": "roadmap.read",
+      "kind": "roadmap_approval",
+      "from_protocol": "sdc.direction",
+      "from": "IDEA-1.direction",
+      "to": "IDEA-1.billing.plan",
+      "subject": "roadmap",
+      "subject_revision": "ta20bf9965fee8991"
+    }
+  ],
+  "decision_requests": [],
+  "protocols": [
+    {
+      "id": "sdc",
+      "revision": 8,
+      "digest": "8a05e12f608e8fefb91e2e4bbfac97c5106e8f3a7c1a930a636835864ffe70d2"
+    },
+    {
+      "id": "sdc.direction",
+      "revision": 7,
+      "digest": "835c3d7e2761aa436515b2e525950569f26b7557567e014a1f7656fab87788ce"
+    },
+    {
+      "id": "sdc.epic",
+      "revision": 5,
+      "digest": "4a3725989ba7bae2b987f37a3221c4014250d50a71fc82cab190573ddd241ec5"
+    },
+    {
+      "id": "sdc.intake",
+      "revision": 9,
+      "digest": "c1c49e21565d472d466dc6bfbac29ace179db82e77b990e945649e686c27f03d"
+    },
+    {
+      "id": "sdc.plan",
+      "revision": 7,
+      "digest": "333867b761c60af62379350069d4736c74ff2107f7411137830bb2d7340a240a"
+    },
+    {
+      "id": "sdc.release",
+      "revision": 4,
+      "digest": "b07e7c01b2048d17f4ddb32840dcbff19b4ec8731d4af9e9761e28dfc2aebc71"
+    },
+    {
+      "id": "sdc.spec",
+      "revision": 5,
+      "digest": "5763de94a31898171d31b2a5b83a3cb3c0a9a302d76bbe5b37905651af812512"
+    },
+    {
+      "id": "sdc.story",
+      "revision": 7,
+      "digest": "cc6b30d31e77bca59a31f0d654a1d789fd8da732aa27180c804588f918fc6836"
+    }
+  ],
+  "product_tree": [
+    {
+      "path": ".sdc/cover-ir.json",
+      "sha256": "fd892db3b12e08edd67243142ac9c421e186692c02786eafa77e8a2be29ed6da"
+    },
+    {
+      "path": ".sdc/gate/ir.json",
+      "sha256": "fd892db3b12e08edd67243142ac9c421e186692c02786eafa77e8a2be29ed6da"
+    },
+    {
+      "path": ".sdc/gate/suite-interpreted.err",
+      "sha256": "4ceb4cff0e466783938775e64c6e08ac22b63a968afc9399bca4c058fddac30a"
+    },
+    {
+      "path": ".sdc/gate/suite-interpreted.json",
+      "sha256": "848d92504236fef00e0e20579337c1be36385d8b207bb1e5e6b96ed5da6fdefa"
+    },
+    {
+      "path": ".sdc/gate/suite.json",
+      "sha256": "5fd0ece62ad1a06f4aaa8b2a42047501450ae0a1c05722782b101a87332b1296"
+    },
+    {
+      "path": ".sdc/impl-gate-ir.json",
+      "sha256": "fd892db3b12e08edd67243142ac9c421e186692c02786eafa77e8a2be29ed6da"
+    },
+    {
+      "path": ".sdc/impl-gate-testcode.rs",
+      "sha256": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714"
+    },
+    {
+      "path": ".sdc/report-acceptance.run.json",
+      "sha256": "f49357fe5eb53d4d1c89700da91460e19f3512648a50ed6febeb51553836f425"
+    },
+    {
+      "path": ".sdc/report-tests.run.json",
+      "sha256": "f49357fe5eb53d4d1c89700da91460e19f3512648a50ed6febeb51553836f425"
+    },
+    {
+      "path": ".sdc/spec-ir.json",
+      "sha256": "fd892db3b12e08edd67243142ac9c421e186692c02786eafa77e8a2be29ed6da"
+    },
+    {
+      "path": ".sdc/suite-interpreted.err",
+      "sha256": "4ceb4cff0e466783938775e64c6e08ac22b63a968afc9399bca4c058fddac30a"
+    },
+    {
+      "path": ".sdc/suite-interpreted.json",
+      "sha256": "848d92504236fef00e0e20579337c1be36385d8b207bb1e5e6b96ed5da6fdefa"
+    },
+    {
+      "path": ".sdc/suite.json",
+      "sha256": "5fd0ece62ad1a06f4aaa8b2a42047501450ae0a1c05722782b101a87332b1296"
+    },
+    {
+      "path": ".sdc/trace-ir.json",
+      "sha256": "fd892db3b12e08edd67243142ac9c421e186692c02786eafa77e8a2be29ed6da"
+    },
+    {
+      "path": "aep/.derived-from",
+      "sha256": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3"
+    },
+    {
+      "path": "aep/epic/billing.md",
+      "sha256": "e938d89e3da3ab4fd4278ac9eb2e4139b5f433c29cfa9bd14e22661e25d87e5b"
+    },
+    {
+      "path": "aep/initiative/roadmap.md",
+      "sha256": "a20bf9965fee899115cb9a584d8a4a8a3d2d3ac76c5f54f5f5357f9742b91582"
+    },
+    {
+      "path": "aep/story/invoices.md",
+      "sha256": "06b5d2e33f6a6d3436feac7bcd0a1f2ae8e4c2bef247ee321fcbc7cca9502df1"
+    },
+    {
+      "path": "aep/vision/product.md",
+      "sha256": "bc0bad094dab26527f57b006747e2e200939a3c118d589780618fc8c67a7d236"
+    },
+    {
+      "path": "context.yaml",
+      "sha256": "aee57460908c89e241f9dac7b628dfbb783eb0546ae7574792bf5a25ecf6054e"
+    },
+    {
+      "path": "dissection.yaml",
+      "sha256": "91f5e450c9a644d778ca5d658da8173ac5b6e9c6d17eceb5126f28b7b69156dc"
+    },
+    {
+      "path": "idea.yaml",
+      "sha256": "dd34e27c4406f5fe6bbe7618b653a0c6c69c67ec8942d67e0cb15bf501f001a1"
+    },
+    {
+      "path": "impl/.derived-from",
+      "sha256": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3"
+    },
+    {
+      "path": "impl/Cargo.lock",
+      "sha256": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8"
+    },
+    {
+      "path": "impl/Cargo.toml",
+      "sha256": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a"
+    },
+    {
+      "path": "impl/README.md",
+      "sha256": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab"
+    },
+    {
+      "path": "impl/Taskfile.yml",
+      "sha256": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7"
+    },
+    {
+      "path": "impl/src/lib.rs",
+      "sha256": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b"
+    },
+    {
+      "path": "impl/tests/billing.rs",
+      "sha256": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714"
+    },
+    {
+      "path": "mainline/.derived-from",
+      "sha256": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3"
+    },
+    {
+      "path": "mainline/Cargo.lock",
+      "sha256": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8"
+    },
+    {
+      "path": "mainline/Cargo.toml",
+      "sha256": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a"
+    },
+    {
+      "path": "mainline/README.md",
+      "sha256": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab"
+    },
+    {
+      "path": "mainline/Taskfile.yml",
+      "sha256": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7"
+    },
+    {
+      "path": "mainline/src/lib.rs",
+      "sha256": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b"
+    },
+    {
+      "path": "mainline/tests/billing.rs",
+      "sha256": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714"
+    },
+    {
+      "path": "published/.derived-from",
+      "sha256": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3"
+    },
+    {
+      "path": "published/Cargo.lock",
+      "sha256": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8"
+    },
+    {
+      "path": "published/Cargo.toml",
+      "sha256": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a"
+    },
+    {
+      "path": "published/PROVENANCE",
+      "sha256": "823c713f87d5c2892802e1eaedb23330deb037445bf9c4df11284e4ac85afa4d"
+    },
+    {
+      "path": "published/README.md",
+      "sha256": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab"
+    },
+    {
+      "path": "published/Taskfile.yml",
+      "sha256": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7"
+    },
+    {
+      "path": "published/src/lib.rs",
+      "sha256": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b"
+    },
+    {
+      "path": "published/tests/billing.rs",
+      "sha256": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714"
+    },
+    {
+      "path": "questions.yaml",
+      "sha256": "d238b798e35ca7d03a407149f47d164bb0431657be362e1c296e4f5f3a23b1c2"
+    },
+    {
+      "path": "release/.derived-from",
+      "sha256": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3"
+    },
+    {
+      "path": "release/Cargo.lock",
+      "sha256": "3031783b8f3138c81d48c24ccfaac7cbfda14c2dd71357390d38357a37de33c8"
+    },
+    {
+      "path": "release/Cargo.toml",
+      "sha256": "29a238738678a4d84a6dbd508451aee6fac255ada4102ab888fb6e0e7ffc7d3a"
+    },
+    {
+      "path": "release/PROVENANCE",
+      "sha256": "823c713f87d5c2892802e1eaedb23330deb037445bf9c4df11284e4ac85afa4d"
+    },
+    {
+      "path": "release/README.md",
+      "sha256": "838553c9576a61a69551fd3c6208386f0bcea0bb4450f7f9bc6ea36200b296ab"
+    },
+    {
+      "path": "release/Taskfile.yml",
+      "sha256": "5c57f6c5f89a9fb1286834eef18d0fbb13dd2904dafffc806a070456a6e0c8c7"
+    },
+    {
+      "path": "release/src/lib.rs",
+      "sha256": "df81d66079b39b9d4316ff12ce63e83413e1fce4473ec29a05831474d255dc8b"
+    },
+    {
+      "path": "release/tests/billing.rs",
+      "sha256": "8a7b41286069e0cdb85ccdfcacbcad08917fe8936b81007be5c5259bfff37714"
+    },
+    {
+      "path": "requirements.yaml",
+      "sha256": "e23630e115159d67591e7abfbab5bd7c25bcab343035e5708c15a3d692d701b0"
+    },
+    {
+      "path": "spec/.derived-from",
+      "sha256": "50c68fb82fbc7d8fd6c4cca641706d9b222870938ab477b505014c90a23b40d3"
+    },
+    {
+      "path": "spec/README.md",
+      "sha256": "555fbcae2149dca63c8b222b25deb2a499de0092d8a9f91f14eaf06c6f7e6c80"
+    },
+    {
+      "path": "spec/components.yaml",
+      "sha256": "ee4986381f8dbb44f76ab05c44742f4654795e369ef46c0ed3aab8e3b85f2583"
+    },
+    {
+      "path": "spec/domains/email.yaml",
+      "sha256": "8f8a7973e88fc7fa1b73534003f5088c223501e5054d5b59ec4d4e27509ca0e7"
+    },
+    {
+      "path": "spec/domains/invoice.yaml",
+      "sha256": "1899f25740bf1bcd70e24a001b4f2d691e7d03317016529b07b94cc40df9e6de"
+    },
+    {
+      "path": "spec/system.yaml",
+      "sha256": "7f71d0feb8dd3703b7676104f1ee563f933927282612f578a2f5849bde8c65c0"
+    },
+    {
+      "path": "spec/topology.yaml",
+      "sha256": "8857ca73c313730aea54bff148c3e7ef325cd27735145bde1c0bd1c5ec24e23d"
+    },
+    {
+      "path": "spec/traces.json",
+      "sha256": "fe58fe825ba6828c05501574c907811e3bf834c0ca707a8b6592745dcdfc2a3a"
+    }
+  ]
+}
