@@ -31,8 +31,9 @@
 - The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
   `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
   the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The pinned Loom
-  commit is `5af3f9c2`. A run of `stub-cycle` through `runbook loom-run` on it
-  (`--confinement local`, scripted approvals, no model) compares `parity: identical` with the
+  commit is `5bcc26d9`, for the child binary of `runbook loom-run --loom` and for the library the
+  crate links. A run of `stub-cycle` through `runbook loom-run` on `5af3f9c2`
+  (`--confinement local`, scripted approvals, no model) compared `parity: identical` with the
   driver's (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"); it does not cover a run
   with a model. The first equal comparison was made against `2c0a6f48` (`docs/parity.md`, "First
   equal comparison").

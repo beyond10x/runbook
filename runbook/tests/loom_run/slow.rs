@@ -72,16 +72,16 @@ fn the_stub_cycle_on_the_real_loom_compares_identical_with_the_driver_run() {
     assert_eq!((c.status.code(), out.lines().last()), (Some(0), Some("parity: identical")), "compare:\n{out}");
 }
 
-/// The sha256 of the `b10x-loom` binary the in-process library is compared with (Loom `5af3f9c2`).
-const CHILD_LOOM_SHA256: &str = "074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2";
+/// The sha256 of the `b10x-loom` binary the in-process library is compared with (Loom `5bcc26d9`).
+const CHILD_LOOM_SHA256: &str = "28378a17470e09fabdaa04de29f1079e379b0e1cb030740aa78049a758819f80";
 
 /// The stub cycle once through the child and once through `--in-process`, on the same inputs.
 /// Returns the directory of the two summaries, or `None` (with a message) when the child binary is absent.
 fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
     let home = PathBuf::from(std::env::var_os("HOME").expect("HOME"));
-    let loom = std::env::var_os("RUNBOOK_LOOM_BIN").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state/runbook/loom/5af3f9c2/b10x-loom"));
+    let loom = std::env::var_os("RUNBOOK_LOOM_BIN").map(PathBuf::from).unwrap_or_else(|| home.join(".local/state/runbook/loom/5bcc26d9/b10x-loom"));
     if !loom.is_file() {
-        eprintln!("SKIPPED: the child binary {} is absent (RUNBOOK_LOOM_BIN names another); build Loom 5af3f9c2 there to run this lane", loom.display());
+        eprintln!("SKIPPED: the child binary {} is absent (RUNBOOK_LOOM_BIN names another); build Loom 5bcc26d9 there to run this lane", loom.display());
         return None;
     }
     let sha = sha256_of(&loom);
@@ -133,7 +133,7 @@ fn stub_cycle_both_ways(tag: &str) -> Option<(PathBuf, PathBuf)> {
 }
 
 #[test]
-#[ignore = "slow lane: `task test:loom-in-process` (needs RUNBOOK_LOOM_WORK and the child binary of Loom 5af3f9c2)"]
+#[ignore = "slow lane: `task test:loom-in-process` (needs RUNBOOK_LOOM_WORK and the child binary of Loom 5bcc26d9)"]
 fn the_stub_cycle_through_the_child_and_in_process_compares_identical() {
     let Some((child, library)) = stub_cycle_both_ways("both-ways") else { return };
     let c = Command::new(BIN).args(["parity", "compare", "--product-digests"]).arg(&child).arg(&library).output().unwrap();

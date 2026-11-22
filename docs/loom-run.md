@@ -347,8 +347,8 @@ engine tests (`runbook/tests/fixtures/engine-runbook/`), in the gate lane and wi
 a delivery with scripted approvals, a rejection with reasons that sends the writer back, the spend
 cap, a sample of `/proc` that finds no `b10x-loom`, `canon` or `sdc-drive` below the process, the
 environment of a bound program, and the usage errors. The slow lane `task test:loom-in-process`
-(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `5af3f9c2` from
-`~/.local/state/runbook/loom/5af3f9c2/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
+(needs `RUNBOOK_LOOM_WORK`; starts the child binary of Loom `5bcc26d9` from
+`~/.local/state/runbook/loom/5bcc26d9/b10x-loom`, or `RUNBOOK_LOOM_BIN`, and skips with a message
 when it is absent) runs the `sdc` stub cycle once through the child and once through `--in-process`,
 summarizes both with `runbook parity summarize --loom-run` and compares them with `runbook parity
 compare --product-digests`, which has to end `parity: identical`.
