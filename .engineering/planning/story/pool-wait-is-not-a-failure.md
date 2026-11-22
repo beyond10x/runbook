@@ -35,7 +35,7 @@ scope:
   path: scripts/run-finding-cycles.sh
 - confidence: cited
   path: scripts/run-trial.sh
-revision: 13
+revision: 14
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 3, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
 - {from: "proposed", to: "active", at: "2026-11-22T07:09:32Z", actor: "human:operator", revision: 4, executor: "agent:rb3-pool-wait", correlation: "operator-standing-acceptance-2026-11-22"}
@@ -70,7 +70,7 @@ the wait. This story fixes both in the tool, the bindings and the driver, with t
   (`slot cancel`) and the tool exits 69. One bound per step, shared by its pool commands through a
   ledger file. The bound is the argv option `--pool-wait <seconds>` (the environment variable
   `SDC_POOL_WAIT` wins, for tests); without either, no bound, as before.
-- The run bound stays the pool's (slot 0.22: 10 minutes of run time, or `slot --timeout <t>`, at most 1 hour). The tool does not name
+- The run bound stays the pool's (slot 0.22: 10 minutes of run time, or `slot --timeout <t>`, at most 30 minutes). The tool does not name
   one: no binding needs more. A job the pool ends at its limit exits 124; the tool exits 70, "ran over its time", and the driver stops with `run_over_time` without a repeat.
 - The driver retries a step whose exit is 69 up to 3 attempts, records nothing, counts no run, and
   then stops with the verdict `pool_wait_spent` (exit 5). Rejected: recording a result such as
@@ -142,3 +142,33 @@ Acceptance:
 - `sdc-drive run` on a bug-fix case whose `repro.run` tool exits 69 takes 3 attempts, records no
   evidence, calls no `change.fix` and ends `pool_wait_spent` (finding cycle `bugfix-pool-wait`); at
   exit 70 it ends `run_over_time` at once (finding cycle `bugfix-over-time`).
+
+## A start is never inferred from a missing line (2026-11-22)
+
+Observed in a full cycle run at a load average of about 100 (cycle `pool-wait`, step `impl-gate`):
+`pool_run` took a job as started when slot's `queued` line had not appeared within 3 s. The stand-in's
+line came later than that, the wait bound (1 s) was never applied, and the step waited for the
+stand-in's whole 600 s. With the real pool the same rule meant that a slow `slot` client made a queued
+job count as started, left its queue time unbounded and made the step's wait ledger wrong.
+
+Design. Being started is never inferred from the absence of a line within a time. `pool_run` (shell
+tool) and `pool_job` (`sdc-bugfix`, the same rule in Rust) read the error output for the `queued` line
+for as long as the job's process lives; once the id is known the state is read from `slot status`
+as before. A process that ends without ever printing the line was admitted at once: it is started, it
+waited nothing, and the ledger keeps what it was. Slot offers nothing better that is documented: the
+line is sent only for a job that has to wait (`crates/slot/src/server/mod.rs:1530-1537`, slot
+`3a0b985`; documented in `plugin/skills/building/SKILL.md:61-63`), the client prints no start line
+(the start frame at `crates/slot/src/client.rs:641` is internal), and there is no option, environment
+variable or id file that names the job's id. Exits 69 and 70 and the ledger of waited milliseconds
+keep their meaning.
+
+Acceptance:
+
+- With a stand-in `slot` that prints its `queued` line 4 s after it was started
+  (`POOL_FAKE_QUEUED_DELAY=4`) and never starts the job, `sdc-tool.sh impl-gate` and `sdc-bugfix
+  repro-run` with a wait bound of 1 s exit 69 and cancel the job, a few seconds after the line
+  appears and not after the job's own time (tests `a_queued_line_that_comes_late_does_not_make_the_job_started`
+  in `driver/tests/impl_gate.rs` and `driver/tests/bugfix_languages.rs`; the cycle `pool-wait` with
+  `POOL_FAKE_QUEUED_DELAY=4` in its environment).
+- A job that prints no `queued` line and runs 3.5 s with a bound of 1 s is not cancelled and ends
+  with the command's own exit (tests `a_job_admitted_at_once_prints_no_queued_line_and_runs_to_its_end`).

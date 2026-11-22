@@ -355,8 +355,8 @@ entries:
   label: 0.3.0
   short: Loom tools, 4 switches
   date: 2026-11-22
-  tree: null
-  tree_note: not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation
+  tree: ae7a697616857a2bf2744c85a33e58b0b5927dc8
+  tree_note: 'tag 0.3.0 at main ae7a697: 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation'
   experiments: []
   changes:
   - commit: be5eafa
@@ -390,5 +390,54 @@ entries:
     line: the bug-fix runbook starts from a ticket and works on a repository of any language
     effect: none
   limits:
-  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
+  - 'The registration runs of 0.3.0 were stopped after 8 of 9 had started (record release-0.3.0, status abandoned): the test step waited in the shared build pool and was recorded as a failed run, so the runs measured the queue. 0.3.0 has no registration numbers; they are made on 0.3.1.'
   - The four switches are registered in experiment records that have no run.
+- id: 0.3.1
+  kind: release
+  version: 0.3.1
+  label: 0.3.1
+  short: pool wait, parity, daemon
+  date: 2026-11-22
+  tree: null
+  tree_note: not tagged yet; 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation
+  experiments: []
+  changes:
+  - commit: 5a4ba7f
+    line: a story step that got no build slot is not a failed test run; 3 tries, then pool_wait_spent; a job the pool ends at its limit is run_over_time
+    effect: unmeasured
+  - commit: 8bddf50
+    line: the bug-fix tool does the same for repro.run, tests.run and gate.run
+    effect: unmeasured
+  - commit: f795462
+    line: runbook check reads a checkout's text layout
+    effect: none
+  - commit: f242962
+    line: the cycle script runs named cycles with --only
+    effect: none
+  - commit: 357f218
+    line: one driver test binary, 60 s per test, 120 s per step; the UI step the same, beside it in task check
+    effect: none
+  - commit: fc6d565
+    line: check-protocols compares digests with a committed ledger and ends in under a minute
+    effect: none
+  - commit: 77550ba
+    line: the prompts of sdc-reply implement-run, sdc-conform and sdc-unstick are instruction files, byte-identical
+    effect: none
+  - commit: 2dc0f48
+    line: the feedback and requester texts are instruction files
+    effect: none
+  - commit: f9b38d6
+    line: bindings name the registrations of their protocol files and program_root
+    effect: none
+  - commit: 7eb1a52
+    line: runbook parity compares a driver run with a Loom run; the first comparison of stub-cycle is equal
+    effect: none
+  - commit: 42cb7ba
+    line: the ESS domain sdc.daemon and its generated API; the daemon itself is not built
+    effect: none
+  - commit: a3e48ca
+    line: the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned
+    effect: none
+  limits:
+  - The registration runs of 0.3.1 are registered under a record that is added after the tag; until then no run has used this tree.
+  - Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
