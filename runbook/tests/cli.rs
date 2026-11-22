@@ -1789,3 +1789,57 @@ fn parity_loom_product_tree_leaves_out_the_feedback_copies_too() {
     let table = stdout(&parity(&["compare", "--rules"]));
     assert!(table.lines().any(|l| l.starts_with("product_tree[.sdc/loom-feedback/**] | never compared | ")), "{table}");
 }
+
+// ---- runbook parity: the revision a child's `case_outcome` record carries in its parent
+
+/// A one-case summary of three records of the subject `doc`: a check, the `case_outcome` record of
+/// a child opened by `child.open`, and a second check. `outcome_rev` is the revision the outcome
+/// record carries, `outcome_up` its upstream revision, `check_rev` the revision of the first check.
+fn outcome_summary(check_rev: &str, outcome_rev: &str, outcome_up: &str) -> Value {
+    let mut v = mini_summary("p");
+    let rec = |i: usize, kind: &str, action: &str, rev: &str, up: Value| {
+        json!({"index": i, "kind": kind, "result": null, "subject": "doc", "subject_revision": rev,
+            "upstream_revisions": up, "action": action})
+    };
+    v["cases"][0]["evidence"] = json!([
+        rec(0, "a_check", "check.run", check_rev, json!({})),
+        rec(1, "case_outcome", "child.open", outcome_rev, json!({"doc": outcome_up})),
+        rec(2, "b_check", "check.run", "tNEW", json!({})),
+    ]);
+    v
+}
+
+fn compare_summaries(tag: &str, a: &Value, b: &Value) -> (i32, Vec<String>) {
+    let s = Synth::new(tag);
+    s.put_json("a.json", a);
+    s.put_json("b.json", b);
+    let o = parity(&["compare", path_str(&s.root.join("a.json")), path_str(&s.root.join("b.json"))]);
+    (o.status.code().unwrap(), stdout(&o).lines().map(String::from).collect())
+}
+
+#[test]
+fn parity_compare_leaves_the_revision_of_a_case_outcome_record_out() {
+    let _t = Timed::start("parity_compare_leaves_the_revision_of_a_case_outcome_record_out");
+    // the driver keeps the revision of the opening, Loom the one the child ended with, which a
+    // later record of the parent also holds: counted, the labels of both records would differ
+    let a = outcome_summary("tOLD", "tOLD2", "u1");
+    let b = outcome_summary("tOLD", "tNEW", "u2");
+    let (code, lines) = compare_summaries("outcome-equal", &a, &b);
+    assert_eq!((code, lines.len()), (0, 1), "{lines:?}");
+    let table = stdout(&parity(&["compare", "--rules"]));
+    for m in ["cases[].evidence[case_outcome].subject_revision", "cases[].evidence[case_outcome].upstream_revisions.*"] {
+        let row = table.lines().find(|l| l.starts_with(&format!("{m} | never compared | "))).unwrap_or_else(|| panic!("no row {m}"));
+        assert!(row.contains("opening") && row.contains("termination"), "{row}");
+    }
+}
+
+#[test]
+fn parity_compare_still_tells_the_revision_of_another_record_apart() {
+    let _t = Timed::start("parity_compare_still_tells_the_revision_of_another_record_apart");
+    // the first check holds the revision of the second on one side only: the pattern differs
+    let a = outcome_summary("tOLD", "tOLD2", "u1");
+    let b = outcome_summary("tNEW", "tOLD2", "u1");
+    let (code, lines) = compare_summaries("outcome-other", &a, &b);
+    assert_eq!(code, 1, "{lines:?}");
+    assert_eq!(lines, [r#"cases[0].evidence[2].subject_revision: a="r2" b="r1""#]);
+}
