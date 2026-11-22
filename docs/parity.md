@@ -34,7 +34,7 @@ first real run under Loom still has to confirm.
 - `protocols[]`: `id`, `revision`, `digest` (of the compiled protocol).
 - `product_tree[]`: sorted relative paths of the product (the root case's `work/`, without `target/`,
   `node_modules/` and `.git/`, and aep's `.aep-planning-writer-*.lock`, whose name is a digest of the absolute
-  path) with the sha256 of each. In a text file every stamp `YYYY-MM-DDTHH:MM:SSZ` is read as `<time>`
+  path; and everything under `.sdc/loom-feedback/`, see "The rules") with the sha256 of each. In a text file every stamp `YYYY-MM-DDTHH:MM:SSZ` is read as `<time>`
   before digesting: `aep` writes the wall clock into the transitions of every planning file of the
   product, so two stub runs differ in those files and in nothing else (found on `stub-cycle`).
 
@@ -48,6 +48,21 @@ on both sides, then compared, so that "the green names the red's revision" is co
 are not); never compared (`source`, `not_recorded`). File digests of the product tree are compared only
 with `--product-digests`: a stub run is deterministic, a model run is not. A test fails when a member of
 a summary has no row.
+
+Two named rules came from the first real run under Loom (`stub-cycle`):
+
+- Registration stem (`cases[].protocol`, `copies[].from_protocol`, `protocols[].id`). The driver records
+  a protocol's declared id (`sdc.intake`), Loom the name the protocol is registered under (`sdc-intake`:
+  the id with `.` and `_` written as `-`). `compare` reads both sides as stems, so the two spellings are
+  equal; the summaries keep what each runtime recorded. The rule cannot tell apart two ids that differ
+  only in `.`, `_` and `-` (`sdc.intake`, `sdc_intake` and `sdc-intake` are one id to it). Two ids that
+  differ in a letter or a digit still differ.
+- Feedback copies (`product_tree[.sdc/loom-feedback/**]`). In Loom mode `bindings/tools/llm-node.sh`
+  copies the retry-feedback document and the log tails of a retry into `.sdc/loom-feedback/<16 hex>/` in
+  the workspace; the driver hands the same feedback to the writer in a variable and writes no file. The
+  listing of the product tree leaves out everything under `.sdc/loom-feedback/`, on both sides, where
+  the summary is written (`walk_product`); it is the transport of feedback, not product. Another
+  directory under `.sdc/` is listed as before.
 
 A third answer besides equal and different: a member exactly one side lists under `not_recorded` (or
 lies below a member it lists) is not compared, and `compare` names it on a line
@@ -102,7 +117,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `cases[].id` | `case.json` `id` | cases[].case | as is; Loom ids (root, root.first) and the driver's compare by pattern |
 | `cases[].link` | the case id without the parent's id and a dot | cases[].name | as is; none on the root (null); another case without a name is an error |
 | `cases[].parent` | the case directory it lies below | cases[].parent | as is; none on the root only; a parent that is not a case of the tree is an error |
-| `cases[].protocol` | `case.json` `protocol` | cases[].protocol_id | as is (the id without @revision) |
+| `cases[].protocol` | `case.json` `protocol` | cases[].protocol_id | as is (the id without @revision); compared by registration stem |
 | `cases[].protocol_revision` | `opened` event, `protocol.revision` | cases[].protocol_revision | text to integer; anything else is an error |
 | `cases[].outcome` | `case.json` `termination` | cases[].outcome | as is; none is null (the case runs on) |
 | `cases[].stop` | newest evaluation, `bindings.json`, last budget event | cases[].stop | null when the case has an outcome (its last stop is then old); none without an outcome is null |
@@ -126,7 +141,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `cases[].person_steps[].actor` | `action_finished` with a principal, `authority_recorded`, `ir.json` | cases[].approvals[].actor | as is; equal only when the Loom run passed the principal the driver run used |
 | `copies[].action` | `action_started` with `copy`, then `action_finished` | (not recorded) | a copy entry holds source_case, target_case and record_kind only |
 | `copies[].kind` | `action_started` with `copy`, then `action_finished` | cases[].copies[].record_kind | as is |
-| `copies[].from_protocol` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | protocol_id of that case |
+| `copies[].from_protocol` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | protocol_id of that case; compared by registration stem |
 | `copies[].from` | `action_started` with `copy`, then `action_finished` | cases[].copies[].source_case | as is |
 | `copies[].to` | `action_started` with `copy`, then `action_finished` | cases[].copies[].target_case | as is |
 | `copies[].subject` | `action_started` with `copy`, then `action_finished` | (not recorded) | the entry names no record |
@@ -138,10 +153,11 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `decision_requests[].options[]` | `decision_recorded` events | (under a member not recorded) | an empty list |
 | `decision_requests[].answer` | `decision_recorded` events | (under a member not recorded) | an empty list |
 | `decision_requests[].who` | `decision_recorded` events | (under a member not recorded) | an empty list |
-| `protocols[].id` | `opened` event | cases[].protocol_id | the distinct protocols of the cases, by id then revision |
+| `protocols[].id` | `opened` event | cases[].protocol_id | the distinct protocols of the cases, by id then revision; compared by registration stem |
 | `protocols[].revision` | `opened` event | cases[].protocol_revision | as for the case |
 | `protocols[].digest` | `opened` event | (not recorded) | the status's protocols[] is empty and is not read |
 | `product_tree[].path` | the root case's `work/` | --product-tree, else workspace | the directory walked as the driver's work/ is |
+| `product_tree[.sdc/loom-feedback/**]` | the root case's `work/` | --product-tree, else workspace | left out of the listing of both sides when the summary is written |
 | `product_tree[].sha256` | the root case's `work/` | --product-tree, else workspace | the same digest of the same file |
 
 Not recorded, and what compare says: `source.run_settings`, `copies[].action`, `copies[].subject`,
@@ -153,16 +169,19 @@ carry the revision of the copied record in the target case) and the stand-in set
 ## What the first real run needs
 
 Each line is something the reader assumes about `loom.tree-status/1` that Loom's code at `1016c251`
-does not settle. A first real run confirms it or the reader changes. File and line are Loom's.
+does not settle. A first real run confirms it or the reader changes. File and line are Loom's. The
+first real run (`stub-cycle`, 8 cases, 69 evidence records, 54 program runs, 5 person steps, equal
+counts on both sides) settled the items marked **Settled**; the others were not exercised by it.
 
 1. The link name. The brief said a case's name is joined from `children[].name` and `outcome_evidence`,
    and that an evidence entry may carry a `name` later. At `1016c251` neither exists: the name is the
    member `name` of the case entry (`status.rs:148`, `encode.rs:48`) and an evidence entry has no
    `name` (`encode.rs:71-94`). The reader reads the case's `name`. A later `name` on the evidence entry
-   is not read.
+   is not read. **Settled:** all 7 child cases carry `name` and no `link` differs.
 2. Case order. `status.rs:38-39` says root first and each case before its children in the order opened;
    `tree` itself (`CanonGovernor::tree`) was not read. The reader orders by `parent` links, siblings in
-   the order the status lists them, and assumes that is the order they were opened.
+   the order the status lists them, and assumes that is the order they were opened. **Settled:** all 8
+   cases sit at the driver's positions (no `id`, `parent` or `link` line differs).
 3. The stop of a parent. `last_stop` takes the last `stopped` line of the case's own log
    (`status.rs:177-188`); a run that waits on a child names the child (`tree_run.rs:463-475`). Whether the
    parent's log holds a `stopped` line is not settled. The driver derives the parent's stop from its own
@@ -176,42 +195,55 @@ does not settle. A first real run confirms it or the reader changes. File and li
 5. Outcomes and obligations. Outcome names (`status.rs:140-143`, examples `arrived`, `passed` at
    `tree_run.rs:650,657`) and obligation ids (`status.rs:118-123`) are the protocol's and Canon's; the
    reader assumes the driver's `termination` and obligation ids are the same strings for the same
-   protocol.
+   protocol. **Settled:** outcomes and open obligations of all 8 cases are equal.
 6. Evidence order and the opening record. The records are in the order received (`status.rs:190-191`).
    A child's `case_outcome` record has no `action` (`tree_run.rs:691-692`); the reader gives it the
    action of the next record that has one, taken to be the step that opened the child, as the driver
-   does. A `case_outcome` record with no such record after it is an error.
+   does. A `case_outcome` record with no such record after it is an error. **Settled:** 7 `case_outcome`
+   records came without `action`, each found one after it, and every `evidence[].action` is equal.
 7. Run order and `exit`. Runs are "in the order the store keeps their observations" (`status.rs:237`);
    taken as chronological. `exit` is left out when the payload holds no integer (`status.rs:272`,
-   `encode.rs:99`), for example a program a signal ended: the reader refuses that status.
+   `encode.rs:99`), for example a program a signal ended: the reader refuses that status. **Settled
+   for runs that exit:** 54 runs in the driver's order, 13 with a non-zero integer `exit`, no line
+   differs.
 8. Retries. `retried` (`status.rs:256-269`) is read as the driver's `retry_followed`: the next run of the
    action carries a non-empty `retry_of`. Loom's `attempt` counts within a retry chain, so a rerun with
    no `retry_of` starts at 1; the summary counts the runs of the action instead and does not read it.
 9. The instant of an approval. `at` is the line's time (`status.rs:322`); every test passes one fixed
    instant with `--at` (`tree_run.rs:36`). The reader orders person steps by `at` as text, then by the
    case's place and the approval's. When a run passes one instant, `order` is by case, not by time, and
-   may differ from the driver's.
+   may differ from the driver's. **Settled:** the run passed a distinct instant per approval (five,
+   two minutes apart) and `order` equals the driver's; a run with one instant is still unchecked.
 10. The answer of an approval with an action. `action` is set only for an allowed approval followed at
     once by the finish of a person action (`status.rs:308-316`). The reader takes the result of the
     n-th record with that action in the case (the label is `status.rs:212-216`) as the driver's word
     (`approved`), which assumes one record per finish. No such record is an error. A denial never has an
-    action, and `Deny` is read as the driver's `denied` (`driver/src/main.rs:1885`).
+    action, and `Deny` is read as the driver's `denied` (`driver/src/main.rs:1885`). **Settled for
+    `Allow`:** the 4 approvals with an action and the grant without one give the driver's `approved` and
+    `granted`; no `Deny` occurred.
 11. The actor. `actor` is the principal passed on the command line (`status.rs:321`); it equals the
     driver's only when the Loom run was given the principal the driver run recorded (`person:stand-in`).
+    **Settled:** the run passed `person:owner` and `operator`, and the 5 actors differ for that reason
+    alone.
 12. Copies. An entry holds `source_case`, `target_case` and `record_kind` (`encode.rs:120-126`). The
     record is not named, so `action`, `subject` and `subject_revision` are not recorded. An entry whose
-    kind cannot be found is left out by Loom (`status.rs:343-351`) and shows up as a missing copy.
+    kind cannot be found is left out by Loom (`status.rs:343-351`) and shows up as a missing copy. **Settled:** the 4 copies are equal in `kind`, `from` and `to`, and
+    none went missing.
 13. Protocols. `protocol_id` and `protocol_revision` come from splitting `protocol` at the last `@`
     (`status.rs:130-133`); a protocol with no `@` has an empty revision and the reader refuses it. The
-    status's own `protocols[]` is always empty (`status.rs:165`) and is not read, so no digest.
+    status's own `protocols[]` is always empty (`status.rs:165`) and is not read, so no digest. **Settled:** `sdc-intake@9` splits into `sdc-intake` and 9; the revisions
+    are equal, and the id is the registration stem (rule "registration stem" above).
 14. The product tree. `workspace` is `manifest.workspace` (`status.rs:162`). The test fixture of Loom
     copies the bindings files and the stubs into its workspace (`tree_run.rs:66-79`); if a real
     workspace holds files the driver's `work/` does not, `product_tree[]` differs by path. Pass the
-    directory that holds the product alone with `--product-tree`.
+    directory that holds the product alone with `--product-tree`. **Settled:** the workspace held the
+    product and `.sdc/loom-feedback/` (3 files) and nothing else; the rule "feedback copies" leaves that
+    directory out.
 15. A damaged log. A run log that does not verify reads as empty (`status.rs:171-174`): the stop,
     the approvals and the actions are then missing without a word. Run `tree verify` before reading.
 16. Decisions. The status holds no decision that was recorded; `stop_next` names the open ones only
     (`status.rs:129,151`). The driver's `decision_recorded` events have nothing to be compared to.
 17. The document. The reader takes the whole of what `tree status` printed as a file
     (`tree_run.rs:795-807`), checks `format` (`read.rs:175-191`) and needs `version`
-    (`read.rs:194`); a status of another format, or none, is refused by name.
+    (`read.rs:194`); a status of another format, or none, is refused by name. **Settled:** the status of
+    the run (version 0.58.0) is read whole.
