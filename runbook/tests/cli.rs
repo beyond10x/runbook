@@ -20,8 +20,17 @@ impl World {
     fn new(tag: &str) -> World {
         let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
-        for d in ["bin", "home", "assets/protocol", "assets/driver/examples/sdc", "assets/scripts", "assets/ui"] {
+        for d in ["bin", "home"] {
             std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        for d in LAYOUT_DIRS {
+            std::fs::create_dir_all(root.join("assets").join(d)).unwrap();
+        }
+        std::fs::write(root.join("assets/bindings/sdc.yaml"), "").unwrap();
+        for t in TOOLS {
+            let p = root.join("assets").join(t);
+            std::fs::write(&p, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         World { root }
     }
@@ -71,6 +80,15 @@ impl Drop for World {
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
+
+const LAYOUT_DIRS: [&str; 9] =
+    ["protocol", "scripts", "driver/examples/sdc", "bindings", "bindings/tools", "instructions", "views", "cycles", "ui"];
+const TOOLS: [&str; 4] = [
+    "bindings/tools/sdc-tool.sh",
+    "bindings/tools/llm-node.sh",
+    "bindings/tools/decider.sh",
+    "bindings/tools/llm-adapter-claude-cli.sh",
+];
 
 const PROGRAMS: [&str; 14] =
     ["canon", "bash", "jq", "yq", "git", "claude", "aep", "ess", "task", "slot", "cargo", "cargo-clippy", "rustfmt", "node"];
@@ -283,6 +301,91 @@ fn doctor_reports_missing_assets_with_what_to_do() {
     assert!(line.starts_with("fail") && line.contains("no protocol/ directory") && line.contains("-- fix:"), "{line}");
 }
 
+fn world_with_everything(tag: &str) -> World {
+    let w = World::new(tag);
+    w.fakes(&PROGRAMS);
+    w.fakes(&HELPERS);
+    w.login("{}");
+    w
+}
+
+#[test]
+fn doctor_reports_every_directory_of_the_text_layout_present_in_this_checkout() {
+    let w = World::new("doctor-layout-checkout");
+    let o = w.run(&["doctor"], &[("RUNBOOK_HOME", repo().to_str().unwrap())]);
+    for name in ["protocol/", "scripts/", "driver/examples/sdc/", "bindings/", "bindings/*.yaml", "bindings/tools/", "instructions/", "views/", "cycles/", "ui/"] {
+        let line = line_of(&o, name);
+        assert!(line.starts_with("pass") && line.contains("required"), "{line}");
+    }
+    for tool in TOOLS {
+        assert!(line_of(&o, tool).starts_with("pass"), "{}", line_of(&o, tool));
+    }
+}
+
+#[test]
+fn doctor_names_the_directory_of_the_text_layout_that_is_missing() {
+    let w = world_with_everything("doctor-layout-fake");
+    assert_eq!(w.run(&["doctor"], &[]).status.code(), Some(0));
+    for dir in ["instructions", "views", "cycles", "bindings/tools"] {
+        let at = w.root.join("assets").join(dir);
+        let away = w.root.join("away");
+        std::fs::rename(&at, &away).unwrap();
+        let o = w.run(&["doctor"], &[]);
+        assert_eq!(o.status.code(), Some(1), "{dir}\n{}", stdout(&o));
+        let line = line_of(&o, &format!("{dir}/"));
+        assert!(line.starts_with("fail") && line.contains("missing") && line.contains("-- fix:"), "{line}");
+        std::fs::rename(&away, &at).unwrap();
+    }
+    std::fs::remove_file(w.root.join("assets/bindings/sdc.yaml")).unwrap();
+    let o = w.run(&["doctor"], &[]);
+    assert_eq!(failed(&o), ["bindings/*.yaml"], "{}", stdout(&o));
+}
+
+#[test]
+fn doctor_on_a_copy_of_this_checkout_without_instructions_names_it() {
+    let w = World::new("doctor-layout-copy");
+    let copy = w.root.join("copy");
+    std::fs::create_dir_all(&copy).unwrap();
+    for d in LAYOUT_DIRS.iter().map(|d| d.split('/').next().unwrap()).collect::<std::collections::BTreeSet<_>>() {
+        std::os::unix::fs::symlink(repo().join(d), copy.join(d)).unwrap();
+    }
+    let o = w.run(&["doctor"], &[("RUNBOOK_HOME", copy.to_str().unwrap())]);
+    assert!(line_of(&o, "instructions/").starts_with("pass"));
+    std::fs::rename(copy.join("instructions"), copy.join("instructions.away")).unwrap();
+    let o = w.run(&["doctor"], &[("RUNBOOK_HOME", copy.to_str().unwrap())]);
+    let line = line_of(&o, "instructions/");
+    assert!(line.starts_with("fail") && line.contains("missing") && line.contains("-- fix:"), "{line}");
+}
+
+#[test]
+fn doctor_checks_the_tools_at_bindings_tools_and_that_they_run() {
+    let w = world_with_everything("doctor-tools");
+    for tool in TOOLS {
+        let line = line_of(&w.run(&["doctor"], &[]), tool);
+        assert!(line.starts_with("pass") && line.contains("required"), "{line}");
+    }
+    let tool = w.root.join("assets/bindings/tools/decider.sh");
+    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(failed(&w.run(&["doctor"], &[])), ["bindings/tools/decider.sh"]);
+    std::fs::remove_file(&tool).unwrap();
+    let o = w.run(&["doctor"], &[]);
+    assert_eq!(failed(&o), ["bindings/tools/decider.sh"]);
+    assert!(line_of(&o, "bindings/tools/decider.sh").contains("-- fix:"));
+}
+
+#[test]
+fn doctor_cites_no_line_numbers() {
+    let w = World::new("doctor-no-lines");
+    let o = w.run(&["doctor"], &[]);
+    for l in stdout(&o).lines() {
+        let cites = l.split(|c: char| c.is_whitespace() || c == ',' || c == '(').any(|t| {
+            let t = t.trim_end_matches([')', ';']);
+            [".sh", ".rs", ".mjs", ".yaml", ".json"].iter().any(|e| t.split_once(&format!("{e}:")).is_some_and(|(_, n)| n.starts_with(|c: char| c.is_ascii_digit())))
+        });
+        assert!(!cites, "{l}");
+    }
+}
+
 #[test]
 fn list_reads_the_fixture_protocols_without_starting_anything() {
     let w = World::new("list-fixture");
@@ -340,6 +443,14 @@ fn list_finds_a_checkout_from_the_working_directory() {
     let o = Command::new(BIN).arg("list").env_remove("RUNBOOK_HOME").current_dir(repo().join("docs")).output().unwrap();
     assert_eq!(o.status.code(), Some(0));
     assert_eq!(stdout(&o).lines().count(), 9);
+}
+
+#[test]
+fn version_is_the_repository_version() {
+    let manifest = std::fs::read_to_string(repo().join("driver/Cargo.toml")).unwrap();
+    let want = manifest.lines().find_map(|l| l.strip_prefix("version = \"").and_then(|r| r.strip_suffix('"'))).unwrap();
+    let o = Command::new(BIN).arg("--version").output().unwrap();
+    assert_eq!(stdout(&o).trim(), format!("runbook {want}"));
 }
 
 #[test]

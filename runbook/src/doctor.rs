@@ -3,7 +3,7 @@
 //! The table below is the list of prerequisites, each with the place in the code that makes the
 //! program necessary. A login or an API key is only checked for existence; its value is never read.
 
-use crate::assets::{is_executable, Assets, Lookup};
+use crate::assets::{is_executable, Assets, Lookup, Shape, Part, LAYOUT};
 use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -73,31 +73,31 @@ const fn program(bin: &'static str) -> Kind {
 
 #[rustfmt::skip]
 const SPECS: &[Spec] = &[
-    Spec { name: "assets", kind: Kind::Assets, needs: RUN_UI, by: "every runbook: protocol/, scripts/, driver/examples/sdc/, bindings/tools/, ui/", hint: "set RUNBOOK_HOME, install them at <prefix>/share/runbook, or run inside a checkout" },
-    Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: sdc-drive compiles and evaluates the protocols (driver/src/main.rs:29,409,863)", hint: "set CANON=<a canon binary of the pinned version, driver/canon-pin.json>, or run scripts/check-protocols.sh once to install the pinned Canon into the cache" },
+    Spec { name: "assets", kind: Kind::Assets, needs: RUN_UI, by: "every runbook: the directories of the text layout, each checked on its own line below", hint: "set RUNBOOK_HOME, install them at <prefix>/share/runbook, or run inside a checkout" },
+    Spec { name: "canon", kind: Kind::Canon, needs: RUN, by: "every runbook: sdc-drive compiles and evaluates the protocols (driver/src/main.rs)", hint: "set CANON=<a canon binary of the pinned version, driver/canon-pin.json>, or run scripts/check-protocols.sh once to install the pinned Canon into the cache" },
     Spec { name: "bash", kind: program("bash"), needs: RUN, by: "every runbook: the bindings' tools are bash scripts (bindings/tools)", hint: SHELL_TOOLS },
-    Spec { name: "jq", kind: program("jq"), needs: RUN_UI, by: "every runbook and the ui (sdc-tool.sh:23, llm-node.sh:36, decider.sh:39)", hint: SHELL_TOOLS },
-    Spec { name: "yq", kind: Kind::Yq, needs: RUN_UI, by: "every runbook and the ui, the Go yq v4 (sdc-tool.sh:23, llm-node.sh:36, decider.sh:39, ui/decisions.mjs:52)", hint: "install the Go yq v4 (its --version prints v4.x), not the Python yq" },
+    Spec { name: "jq", kind: program("jq"), needs: RUN_UI, by: "every runbook and the ui (bindings/tools/sdc-tool.sh, llm-node.sh, decider.sh)", hint: SHELL_TOOLS },
+    Spec { name: "yq", kind: Kind::Yq, needs: RUN_UI, by: "every runbook and the ui, the Go yq v4 (bindings/tools/sdc-tool.sh, llm-node.sh, decider.sh, and ui/decisions.mjs)", hint: "install the Go yq v4 (its --version prints v4.x), not the Python yq" },
     Spec { name: "git", kind: program("git"), needs: RUN, by: "every runbook: run records name the commit; sdc-replay and sdc-experiment use git", hint: SHELL_TOOLS },
-    Spec { name: "claude", kind: program("claude"), needs: RUN, by: "every runbook: the model steps run the claude CLI (llm-adapter-claude-cli.sh:16)", hint: "npm install -g @anthropic-ai/claude-code" },
-    Spec { name: "claude-login", kind: Kind::Login, needs: RUN, by: "every runbook: a login file or ANTHROPIC_API_KEY (llm-adapter-claude-cli.sh:21-27)", hint: "log in once with `claude`, or export ANTHROPIC_API_KEY" },
-    Spec { name: "aep", kind: program("aep"), needs: RUN, by: "every runbook: the story step and the plan nodes (sdc-bugfix.rs:417, sdc-tool.sh:40)", hint: B10X },
-    Spec { name: "ess", kind: program("ess"), needs: &[(S, Req)], by: "sdc: the spec and story protocols (sdc-tool.sh:38-39,163)", hint: B10X },
-    Spec { name: "task", kind: program("task"), needs: &[(S, Req)], by: "sdc: the story gate runs `task check` in the implementation (sdc-tool.sh:201)", hint: "install go-task (taskfile.dev/installation)" },
-    Spec { name: "slot", kind: program("slot"), needs: &[(S, Req), (B, Opt)], by: "sdc: the story gate (sdc-tool.sh:39,201,271); sdc-bugfix: builds go through it when present (sdc-bugfix.rs:609)", hint: B10X },
-    Spec { name: "cargo", kind: program("cargo"), needs: RUN, by: "sdc: the story's interim gate (sdc-tool.sh:271); sdc-bugfix: the code tree's gate (sdc-bugfix.rs:316-338,604-628)", hint: "install Rust with rustup (rustup.rs)" },
-    Spec { name: "clippy", kind: program("cargo-clippy"), needs: &[(B, Req)], by: "sdc-bugfix: the gate's lint step (sdc-bugfix.rs:604-628)", hint: "rustup component add clippy" },
-    Spec { name: "rustfmt", kind: program("rustfmt"), needs: &[(B, Req)], by: "sdc-bugfix: the gate's format step (sdc-bugfix.rs:604-628)", hint: "rustup component add rustfmt" },
+    Spec { name: "claude", kind: program("claude"), needs: RUN, by: "every runbook: the model steps run the claude CLI (bindings/tools/llm-adapter-claude-cli.sh)", hint: "npm install -g @anthropic-ai/claude-code" },
+    Spec { name: "claude-login", kind: Kind::Login, needs: RUN, by: "every runbook: a login file or ANTHROPIC_API_KEY, as bindings/tools/llm-adapter-claude-cli.sh reads them", hint: "log in once with `claude`, or export ANTHROPIC_API_KEY" },
+    Spec { name: "aep", kind: program("aep"), needs: RUN, by: "every runbook: the story step and the plan nodes (driver/src/bin/sdc-bugfix.rs, bindings/tools/sdc-tool.sh)", hint: B10X },
+    Spec { name: "ess", kind: program("ess"), needs: &[(S, Req)], by: "sdc: the spec and story protocols (bindings/tools/sdc-tool.sh)", hint: B10X },
+    Spec { name: "task", kind: program("task"), needs: &[(S, Req)], by: "sdc: the story gate runs `task check` in the implementation (bindings/tools/sdc-tool.sh)", hint: "install go-task (taskfile.dev/installation)" },
+    Spec { name: "slot", kind: program("slot"), needs: &[(S, Req), (B, Opt)], by: "sdc: the story gate (bindings/tools/sdc-tool.sh); sdc-bugfix: builds go through it when present (driver/src/bin/sdc-bugfix.rs)", hint: B10X },
+    Spec { name: "cargo", kind: program("cargo"), needs: RUN, by: "sdc: the story's interim gate (bindings/tools/sdc-tool.sh); sdc-bugfix: the code tree's gate (driver/src/bin/sdc-bugfix.rs)", hint: "install Rust with rustup (rustup.rs)" },
+    Spec { name: "clippy", kind: program("cargo-clippy"), needs: &[(B, Req)], by: "sdc-bugfix: the gate's lint step (driver/src/bin/sdc-bugfix.rs)", hint: "rustup component add clippy" },
+    Spec { name: "rustfmt", kind: program("rustfmt"), needs: &[(B, Req)], by: "sdc-bugfix: the gate's format step (driver/src/bin/sdc-bugfix.rs)", hint: "rustup component add rustfmt" },
     Spec { name: "node", kind: program("node"), needs: &[(U, Req)], by: "the ui only (ui/server.mjs)", hint: "install Node.js" },
     Spec { name: "sdc-drive", kind: Kind::Helper, needs: RUN_UI, by: "every runbook and the ui: runs one case tree", hint: BUILD_HELPERS },
-    Spec { name: "sdc-findings", kind: Kind::Helper, needs: RUN, by: "every runbook: late findings (sdc-tool.sh:26, llm-node.sh)", hint: BUILD_HELPERS },
-    Spec { name: "sdc-bugfix", kind: Kind::Helper, needs: RUN, by: "every runbook: the bugfix steps (sdc-tool.sh:32)", hint: BUILD_HELPERS },
-    Spec { name: "sdc-decision-request", kind: Kind::Helper, needs: RUN, by: "every runbook: decider.sh, sdc-tool.sh", hint: BUILD_HELPERS },
-    Spec { name: "sdc-reply", kind: Kind::Helper, needs: RUN, by: "every runbook: decider.sh, run-trial.sh", hint: BUILD_HELPERS },
-    Spec { name: "sdc-replay", kind: Kind::Helper, needs: RUN, by: "every runbook: llm-node.sh, run-trial.sh", hint: BUILD_HELPERS },
-    Spec { name: "sdc-check-routes", kind: Kind::Helper, needs: RUN, by: "every runbook: run-trial.sh", hint: BUILD_HELPERS },
-    Spec { name: "sdc-unstick", kind: Kind::Helper, needs: RUN, by: "every runbook: run-trial.sh", hint: BUILD_HELPERS },
-    Spec { name: "sdc-conform", kind: Kind::Helper, needs: RUN, by: "every runbook: run-trial.sh", hint: BUILD_HELPERS },
+    Spec { name: "sdc-findings", kind: Kind::Helper, needs: RUN, by: "every runbook: late findings (bindings/tools/sdc-tool.sh, llm-node.sh)", hint: BUILD_HELPERS },
+    Spec { name: "sdc-bugfix", kind: Kind::Helper, needs: RUN, by: "every runbook: the bugfix steps (bindings/tools/sdc-tool.sh)", hint: BUILD_HELPERS },
+    Spec { name: "sdc-decision-request", kind: Kind::Helper, needs: RUN, by: "every runbook: bindings/tools/decider.sh, sdc-tool.sh", hint: BUILD_HELPERS },
+    Spec { name: "sdc-reply", kind: Kind::Helper, needs: RUN, by: "every runbook: bindings/tools/decider.sh, scripts/run-trial.sh", hint: BUILD_HELPERS },
+    Spec { name: "sdc-replay", kind: Kind::Helper, needs: RUN, by: "every runbook: bindings/tools/llm-node.sh, scripts/run-trial.sh", hint: BUILD_HELPERS },
+    Spec { name: "sdc-check-routes", kind: Kind::Helper, needs: RUN, by: "every runbook: scripts/run-trial.sh", hint: BUILD_HELPERS },
+    Spec { name: "sdc-unstick", kind: Kind::Helper, needs: RUN, by: "every runbook: scripts/run-trial.sh", hint: BUILD_HELPERS },
+    Spec { name: "sdc-conform", kind: Kind::Helper, needs: RUN, by: "every runbook: scripts/run-trial.sh", hint: BUILD_HELPERS },
     Spec { name: "sdc-experiment", kind: Kind::Helper, needs: RUN_OPT, by: "optional: experiment records and runs under systemd", hint: BUILD_HELPERS },
     Spec { name: "sdc-run-metrics", kind: Kind::Helper, needs: RUN_OPT, by: "optional: run metrics", hint: BUILD_HELPERS },
     Spec { name: "sdc-run-timeline", kind: Kind::Helper, needs: RUN_OPT, by: "optional: run timeline", hint: BUILD_HELPERS },
@@ -107,7 +107,7 @@ const SPECS: &[Spec] = &[
     Spec { name: "sdc-protocol-site", kind: Kind::Helper, needs: RUN_OPT, by: "optional: the documentation site's data", hint: BUILD_HELPERS },
     Spec { name: "sdc-free-agent", kind: Kind::Helper, needs: RUN_OPT, by: "optional: free-agent runs", hint: BUILD_HELPERS },
     Spec { name: "sdc-watch", kind: Kind::Helper, needs: ANY_OPT, by: "optional: the file-change record of a run; SDC_WATCH=0 turns it off", hint: BUILD_HELPERS },
-    Spec { name: "rsync", kind: program("rsync"), needs: RUN_OPT, by: "optional: the model decider copies its inputs (decider.sh:307)", hint: SHELL_TOOLS },
+    Spec { name: "rsync", kind: program("rsync"), needs: RUN_OPT, by: "optional: the model decider copies its inputs (bindings/tools/decider.sh)", hint: SHELL_TOOLS },
     Spec { name: "systemd-run", kind: program("systemd-run"), needs: ANY_OPT, by: "optional: sdc-experiment starts runs as transient units", hint: "needs systemd" },
     Spec { name: "curl", kind: program("curl"), needs: ANY_OPT, by: "optional: sdc-conform downloads artifacts", hint: SHELL_TOOLS },
     Spec { name: "tar", kind: program("tar"), needs: ANY_OPT, by: "optional: sdc-conform unpacks artifacts", hint: SHELL_TOOLS },
@@ -158,8 +158,28 @@ pub fn run(l: &Lookup, var: &dyn Fn(&str) -> Option<OsString>, only: Option<(&st
         let required = levels.contains(&Req);
         let (found, detail, path) = probe(spec, l, var, assets.as_ref());
         checks.push(Check { name: spec.name, found, required, detail, path, by: spec.by, hint: spec.hint });
+        if matches!(spec.kind, Kind::Assets) {
+            checks.extend(LAYOUT.iter().map(|part| layout_check(part, assets.as_ref())));
+        }
     }
     Report { scope: only.map(|(id, _)| id.to_string()), assets, checks }
+}
+
+const LAYOUT_HINT: &str = "restore it in the asset root: it holds every directory of the text layout, as the repository does";
+
+/// One part of the text layout, found under the asset root or `missing` by name. Every part is
+/// required, as the `assets` line is (every runbook and the ui need all of them).
+fn layout_check(part: &Part, assets: Option<&Assets>) -> Check {
+    let (found, detail, path) = match assets {
+        None => missing("no assets"),
+        Some(a) if part.present(&a.root) => (true, a.root.join(part.path).display().to_string(), Some(a.root.join(part.path))),
+        Some(_) => missing(match part.shape {
+            Shape::Dir => "no such directory",
+            Shape::Files(_) => "no such files",
+            Shape::Program => "not an executable file",
+        }),
+    };
+    Check { name: part.name, found, required: true, detail, path, by: part.by, hint: LAYOUT_HINT }
 }
 
 fn missing(why: &str) -> (bool, String, Option<PathBuf>) {

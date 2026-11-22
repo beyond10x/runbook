@@ -129,12 +129,13 @@ tasks:
       vars: [VERSION]
     cmds:
       - |
-        for f in driver/Cargo.toml watch/Cargo.toml goals/Cargo.toml; do
+        for f in driver/Cargo.toml watch/Cargo.toml goals/Cargo.toml runbook/Cargo.toml; do
           grep -qx 'version = "{{.VERSION}}"' "$f" || { echo "$f is not at {{.VERSION}}"; exit 1; }
         done
         for f in driver/Cargo.lock watch/Cargo.lock goals/Cargo.lock; do
           grep -A1 '^name = "sdc-' "$f" | grep -qx 'version = "{{.VERSION}}"' || { echo "$f is not at {{.VERSION}}"; exit 1; }
         done
+        grep -A1 '^name = "runbook"$' runbook/Cargo.lock | grep -qx 'version = "{{.VERSION}}"' || { echo "runbook/Cargo.lock is not at {{.VERSION}}"; exit 1; }
         grep -q '"version": "{{.VERSION}}"' ui/package.json || { echo "ui/package.json is not at {{.VERSION}}"; exit 1; }
         for f in plugin/.claude-plugin/plugin.json plugin/.codex-plugin/plugin.json; do
           grep -q '"version": "{{.VERSION}}"' "$f" || { echo "$f is not at {{.VERSION}}"; exit 1; }

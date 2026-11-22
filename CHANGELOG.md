@@ -1,11 +1,15 @@
 # Changelog
 
 All notable changes to this repository are recorded here. One version covers the repository
-(`sdc-drive`, `sdc-watch`, `sdc-goals`, `ui/`, the plugin manifests), released under bare-version
+(`sdc-drive`, `sdc-watch`, `sdc-goals`, `runbook`, `ui/`, the plugin manifests), released under bare-version
 tags such as `0.1.0`. The crates are `publish = false`; releases are source releases at
 bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
+
+### Changed
+
+- `runbook doctor` checks the text layout by name (`bindings/`, `bindings/*.yaml`, `bindings/tools/`, `instructions/`, `views/`, `cycles/` beside the earlier directories) and the four tools at `bindings/tools/`, and cites no line numbers; `runbook --version` prints the repository version (0.3.0, not 0.1.4) and `task release:check` reads `runbook/Cargo.toml` (`story:runbook-command-knows-the-text-layout`).
 
 ## [0.3.0] - 2026-11-22
 

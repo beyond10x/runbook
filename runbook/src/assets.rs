@@ -1,5 +1,5 @@
-//! Where the runbook finds its assets (`protocol/`, `scripts/`, `driver/examples/sdc/`, `ui/`, laid
-//! out as in the repository) and its helper binaries.
+//! Where the runbook finds its assets (the directories of `LAYOUT`, laid out as in the repository)
+//! and its helper binaries.
 //!
 //! Assets, first match wins:
 //! 1. `RUNBOOK_HOME`, when set and non-empty. It is used as given; a directory without `protocol/`
@@ -40,6 +40,61 @@ pub struct Assets {
 impl Assets {
     pub fn protocol_dir(&self) -> PathBuf {
         self.root.join("protocol")
+    }
+}
+
+/// What one part of an installed runbook is: a directory, a directory that holds files with an
+/// extension, or one program that must be executable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    Dir,
+    Files(&'static str),
+    Program,
+}
+
+/// One part of the layout under the asset root, and what needs it.
+#[derive(Debug, Clone, Copy)]
+pub struct Part {
+    /// Also the name of its `runbook doctor` line.
+    pub name: &'static str,
+    /// Relative to the asset root.
+    pub path: &'static str,
+    pub shape: Shape,
+    pub by: &'static str,
+}
+
+/// Every part an installed runbook has, in the order `runbook doctor` prints them: the protocols,
+/// the text of a runbook (bindings, instructions, views, cycles), the tools the bindings run, the
+/// scripts and the inspector.
+#[rustfmt::skip]
+pub const LAYOUT: &[Part] = &[
+    Part { name: "protocol/", path: "protocol", shape: Shape::Dir, by: "every runbook: the protocol files" },
+    Part { name: "scripts/", path: "scripts", shape: Shape::Dir, by: "every runbook: the trial, evaluation and check scripts" },
+    Part { name: "driver/examples/sdc/", path: "driver/examples/sdc", shape: Shape::Dir, by: "every runbook: the bindings the driver runs" },
+    Part { name: "bindings/", path: "bindings", shape: Shape::Dir, by: "every runbook: the bindings in Loom's format" },
+    Part { name: "bindings/*.yaml", path: "bindings", shape: Shape::Files("yaml"), by: "every runbook: at least one binding file" },
+    Part { name: "bindings/tools/", path: "bindings/tools", shape: Shape::Dir, by: "every runbook: the programs the bindings run" },
+    Part { name: "instructions/", path: "instructions", shape: Shape::Dir, by: "every runbook: the instruction files of the model's calls" },
+    Part { name: "views/", path: "views", shape: Shape::Dir, by: "every runbook and the ui: the view files of the run inspector" },
+    Part { name: "cycles/", path: "cycles", shape: Shape::Dir, by: "every runbook: the finding cycles as data" },
+    Part { name: "ui/", path: "ui", shape: Shape::Dir, by: "every runbook: the run inspector" },
+    Part { name: "bindings/tools/sdc-tool.sh", path: "bindings/tools/sdc-tool.sh", shape: Shape::Program, by: "every runbook: the tool the story and plan nodes run" },
+    Part { name: "bindings/tools/llm-node.sh", path: "bindings/tools/llm-node.sh", shape: Shape::Program, by: "every runbook: the model nodes" },
+    Part { name: "bindings/tools/decider.sh", path: "bindings/tools/decider.sh", shape: Shape::Program, by: "every runbook: the decider" },
+    Part { name: "bindings/tools/llm-adapter-claude-cli.sh", path: "bindings/tools/llm-adapter-claude-cli.sh", shape: Shape::Program, by: "every runbook: the adapter that runs the claude CLI" },
+];
+
+impl Part {
+    /// Whether the part is there under `root`.
+    pub fn present(&self, root: &Path) -> bool {
+        let p = root.join(self.path);
+        match self.shape {
+            Shape::Dir => p.is_dir(),
+            Shape::Files(ext) => std::fs::read_dir(&p)
+                .map(|d| d.flatten().any(|e| e.path().is_file() && e.path().extension().is_some_and(|x| x == ext)))
+                .unwrap_or(false),
+            Shape::Program => is_executable(&p),
+        }
     }
 }
 
