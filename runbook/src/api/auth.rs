@@ -6,7 +6,7 @@
 
 use super::refusal;
 use axum::extract::{Request, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use sha2::{Digest, Sha256};
@@ -16,6 +16,9 @@ use std::sync::Arc;
 
 pub struct Auth {
     digest: Option<[u8; 32]>,
+    /// With `--ui`: a read (`GET`, `HEAD`) without an `Authorization` header may carry the token in
+    /// the cookie a browser got from the login form (`crate::ui_embed`); `admits` checks it the same way.
+    ui_cookie: bool,
 }
 
 fn digest(token: &str) -> [u8; 32] {
@@ -24,7 +27,12 @@ fn digest(token: &str) -> [u8; 32] {
 
 impl Auth {
     pub fn new(token: Option<&str>) -> Auth {
-        Auth { digest: token.map(digest) }
+        Auth { digest: token.map(digest), ui_cookie: false }
+    }
+
+    pub fn with_ui_cookie(mut self) -> Auth {
+        self.ui_cookie = true;
+        self
     }
 
     pub fn required(&self) -> bool {
@@ -49,7 +57,11 @@ impl Auth {
 
 pub async fn guard(State(auth): State<Arc<Auth>>, request: Request, next: Next) -> Response {
     let header = request.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
-    if auth.admits(header) {
+    let cookie = match header {
+        None if auth.ui_cookie && matches!(*request.method(), Method::GET | Method::HEAD) => crate::ui_embed::cookie_token(request.headers()).map(|t| format!("Bearer {t}")),
+        _ => None,
+    };
+    if auth.admits(cookie.as_deref().or(header)) {
         return next.run(request).await;
     }
     let mut response = refusal(StatusCode::UNAUTHORIZED, "unauthorized", "a bearer token is required: send Authorization: Bearer <token>");

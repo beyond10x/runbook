@@ -90,6 +90,13 @@ pub fn router(daemon: Daemon, token: Option<&str>) -> Router {
 
 /// The router with the behaviour of streams given and the signal that closes them.
 pub fn router_with(daemon: Daemon, token: Option<&str>, streams: Streams, closing: watch::Receiver<bool>) -> Router {
+    router_ui(daemon, token, streams, closing, false)
+}
+
+/// The router, with the embedded UI beside the API when `ui` is set (`crate::ui_embed`): its files
+/// are the fallback, so they sit behind the same token middleware as every route, and the form that
+/// hands a browser's token over (`POST /ui/login`) is the one route outside it.
+pub fn router_ui(daemon: Daemon, token: Option<&str>, streams: Streams, closing: watch::Receiver<bool>, ui: bool) -> Router {
     let app = App { daemon, streams, closing };
     let mut router = Router::new();
     for name in routes::COMMANDS {
@@ -104,11 +111,15 @@ pub fn router_with(daemon: Daemon, token: Option<&str>, streams: Streams, closin
             get(move |State(app): State<App>, Query(query): Query<HashMap<String, String>>, request: Request| view_route(app, name, query, request)),
         );
     }
-    router
-        .method_not_allowed_fallback(method_not_allowed)
-        .fallback(not_found)
-        .with_state(app)
-        .layer(middleware::from_fn_with_state(Arc::new(Auth::new(token)), auth::guard))
+    let auth = Arc::new(if ui { Auth::new(token).with_ui_cookie() } else { Auth::new(token) });
+    let router = router.method_not_allowed_fallback(method_not_allowed);
+    let router = if ui { router.fallback(crate::ui_embed::fallback) } else { router.fallback(not_found) };
+    let router = router.with_state(app).layer(middleware::from_fn_with_state(auth.clone(), auth::guard));
+    if !ui {
+        return router;
+    }
+    let login = Router::new().route("/ui/login", post(crate::ui_embed::login)).with_state(auth);
+    router.layer(middleware::from_fn(crate::ui_embed::login_form)).merge(login)
 }
 
 /// How streams behave: the interval of the keep-alive comment and the most events a live stream may
@@ -143,8 +154,24 @@ pub async fn serve_with(
     streams: Streams,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<()> {
+    serve_ui_with(listener, daemon, token, streams, false, shutdown).await
+}
+
+/// `serve` with the embedded UI beside the API when `ui` is set.
+pub async fn serve_ui(listener: tokio::net::TcpListener, daemon: Daemon, token: Option<&str>, ui: bool, shutdown: impl Future<Output = ()> + Send + 'static) -> io::Result<()> {
+    serve_ui_with(listener, daemon, token, Streams::default(), ui, shutdown).await
+}
+
+async fn serve_ui_with(
+    listener: tokio::net::TcpListener,
+    daemon: Daemon,
+    token: Option<&str>,
+    streams: Streams,
+    ui: bool,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> io::Result<()> {
     let (closing_tx, closing) = watch::channel(false);
-    let router = router_with(daemon, token, streams, closing.clone());
+    let router = router_ui(daemon, token, streams, closing.clone(), ui);
     let serving = axum::serve(listener, router).with_graceful_shutdown(async move {
         shutdown.await;
         let _ = closing_tx.send(true);
