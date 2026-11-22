@@ -374,7 +374,7 @@ of it. Same case, same bytes (no clock; keys print sorted). Tested on a trial-2 
   the option's text, `produces: artifact_revision`, `admits: [scope.answer]`
   (`ess/domains/decision.yaml:86-105`).
 - Unblocks: kind `question`, action and capability `scope.answer`, the action the run takes after
-  the answer (`docs/trial-2.md:168-185`; `bindings/tools/sdc-tool.sh:286-298`).
+  the answer (`docs/trial-2.md:168-185`; `bindings/tools/sdc-tool.sh:285-297`).
 - Recommendation: the question's default, strength `weak`, proposed by `rule`, one ground of source
   `idea` citing the question's dissection item as `work/dissection.yaml:<first line>-<last line>`
   with `default_reason` as its `how`. The tool runs `tools/decision-grounds.sh` on it

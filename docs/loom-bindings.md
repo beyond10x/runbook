@@ -80,10 +80,10 @@ build). The others are checks over files with `yq`, `jq`, `aep`, `grep`, `cp`, `
 
 | Value | Bindings | Why |
 |---|---|---|
-| 1800 | `spec.gate` (epic, plan, story, release) | `ess-gate`: compile, synthesis, interpreted suite (`bindings/tools/sdc-tool.sh:239-244`) |
+| 1800 | `spec.gate` (epic, plan, story, release) | `ess-gate`: compile, synthesis, interpreted suite (`bindings/tools/sdc-tool.sh:238-243`) |
 | 3000 | story `tests.run` | `story-tests` with `--pool-wait 1200`: wait 1200 + 2 pool jobs x 600 + 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 2400 | release `acceptance.run` | `conform-run release` with `--pool-wait 1200`: 1200 + 1 job x 600 + 600 |
-| 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:246`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
+| 1800 | spec `spec.compile`, `spec.synthesize`, `spec.trace`; plan `plan.cover` | `ess specify compile` or the interpreted suite (`sdc-tool.sh:245`, `:248`, `:418-427`; `sdc-findings` `gate spec` compiles, `driver/src/bin/sdc-findings.rs:590`) |
 | 3000, 3000, 4200 (3600 in `bindings/sdc-bugfix.yaml`: Loom refuses more, `TimeoutOutOfRange`) | bugfix `repro.run`, `tests.run`, `gate.run` | `--pool-wait 1200` with 2, 2 and 4 pool jobs of 600 and 600 of other work; the limit covers the queue wait and the run (`docs/driver.md`, "The build pool wait") |
 | 1500 | spec `spec.author`, story `change.implement`, bugfix `change.fix` | `timeout_s` of the JSON; agent nodes |
 | 900 | the other agent nodes: intake 4, direction 3, plan `plan.decompose`, story `change.review`, bugfix `test.reproduce` | `timeout_s` of the JSON |
@@ -222,8 +222,8 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 
 | Marker | Reads | Under Loom | Status |
 |---|---|---|---|
-| `sdc-bugfix.rs:746`, `:786` | `SDC_ACTION` (`story.update`'s `aep` actor) | exported by `sdc-tool.sh` from `--action` | done |
-| `sdc-bugfix.rs:1382` | `PATH` | unchanged: Loom gives `PATH` | done |
+| `sdc-bugfix.rs:745`, `:786` | `SDC_ACTION` (`story.update`'s `aep` actor) | exported by `sdc-tool.sh` from `--action` | done |
+| `sdc-bugfix.rs:1381` | `PATH` | unchanged: Loom gives `PATH` | done |
 | `sdc-findings.rs:1435` | `SDC_STUB_REFUSE_DECISION` (stub cycles) | the default: none | pending: N3 |
 | `sdc-findings.rs:1552` | `SDC_CONSISTENCY_RULES` | unchanged: both tools pass `--rules` | done |
 | `reply/adapters.rs` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `sdc-node` takes `--adapter`; the class adapters take their defaults | pending: N9 |

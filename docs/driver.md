@@ -49,8 +49,7 @@ The driver ran one SDC case on top of Canon. Canon decided every status. It read
 - An LLM executor for the agent nodes (`tools/llm-node.sh`, see "LLM executor") behind a
   pluggable adapter: metaharness (default for a trial), `claude -p`, dry, or any program with the
   same contract. Model `claude-haiku-5-5`, a binding value. The stub stays the default, so
-  `runbook test cycles/tree-suite.yaml` runs unchanged with no LLM (the script
-  `scripts/run-full-cycle.sh` that did so is deleted).
+  `runbook test cycles/tree-suite.yaml` runs with no LLM (`scripts/run-full-cycle.sh`, deleted, did).
 - Closed: stops on `context.default` and `vision.write` (sdc.direction r3); a per-action tool
   timeout (`timeout_s`); a store lock; evidence and `action_finished` before the revision bump;
   atomic document writes and an appended log; caps on LLM calls (`run --max-llm-calls`, over the
@@ -1273,8 +1272,8 @@ formats (`driver/tests/impl_gate.rs` for story and release, `driver/tests/bugfix
 bugfix). Worst case a `tests.run` step is 3 runs of 1200 s of wait,
 about an hour, before `pool_wait_spent`; `sdc-run-metrics` reports `pool_waits` (takes with exit
 69) and `ran_over_time` (exit 70) apart from `could_not_run` and from failures, and the stop shows as `stop_cause:
-pool_wait_spent` or `run_over_time`. The former trial script ended with that cause and did not call `run.unstick` (a
-paid call) for it.
+pool_wait_spent` or `run_over_time`. The former trial script ended with that cause and made no paid call to
+recover from it (`unstick` is not ported).
 
 Note: `aep plan artifact create` does not exist; the verb is `new`. `aep` refused to activate a
 story that serves no vision objective (`empty_declaration … serves no objective`); the decompose
