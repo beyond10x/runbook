@@ -1,12 +1,20 @@
 {
   "format": "sdc.rule-ends/1",
-  "driver": {
+  "runtime": {
     "capped_effects": ["write"],
     "cap_per_kind": true,
     "backstop": 8,
     "rejection_is_arrival": true,
     "own_failure_fed_back": true,
-    "rejection_logs_fed_back": true
+    "rejection_logs_fed_back": true,
+    "provided_by": {
+      "capped_effects": "loom: budget.max_runs (docs/loom-run.md:281)",
+      "cap_per_kind": "pending: docs/loom-bindings.md:103",
+      "backstop": "pending: docs/loom-bindings.md:106",
+      "rejection_is_arrival": "pending: docs/loom-bindings.md:106",
+      "own_failure_fed_back": "pending: docs/loom-bindings.md:103",
+      "rejection_logs_fed_back": "pending: docs/loom-bindings.md:103"
+    }
   },
   "rework_limit": 2,
   "questions": {

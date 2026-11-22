@@ -83,7 +83,7 @@ fn is_llm_node(b: &Value) -> bool {
 
 fn check(protocols: &[Protocol], classes: &Value, ends: &Value) -> Vec<String> {
     let mut f = Vec::new();
-    let drv = &ends["driver"];
+    let drv = &ends["runtime"];
     let capped: Vec<&str> = drv["capped_effects"].as_array().into_iter().flatten().filter_map(|e| e.as_str()).collect();
     for p in protocols {
         let ir = &p.ir;
@@ -301,6 +301,23 @@ fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
     Ok((protocols, read(&ex.join("decision-classes.json"))?, read(&ex.join("rule-ends.json"))?))
 }
 
+/// One line per member of the `runtime` block of the rule ends, naming who holds it in a run of
+/// `runbook run` (the member of `provided_by`): a Loom member, `sdc-node` through a `LOOM_*`
+/// variable, or `pending` with the story or the line of docs/loom-bindings.md that says so. They
+/// state facts and are not findings: they change no exit code and are not in the doc's block.
+fn capability_lines(ends: &Value) -> Vec<String> {
+    ends["runtime"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, _)| k.as_str() != "provided_by")
+        .map(|(k, _)| match ends["runtime"]["provided_by"][k].as_str() {
+            Some(who) => format!("capability {k}: {who}"),
+            None => format!("capability {k}: undeclared (no provided_by)"),
+        })
+        .collect()
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let opt = |n: &str| args.iter().position(|a| a == n).and_then(|i| args.get(i + 1)).cloned();
@@ -315,6 +332,7 @@ fn main() -> ExitCode {
     let found = check(&protocols, &classes, &ends);
     let Some(doc) = opt("--doc") else {
         found.iter().for_each(|l| println!("{l}"));
+        capability_lines(&ends).iter().for_each(|l| println!("{l}"));
         return if found.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) };
     };
     let text = std::fs::read_to_string(&doc).unwrap_or_default();
@@ -330,12 +348,12 @@ fn main() -> ExitCode {
     for l in &gone {
         println!("- {l}  (in {doc}, no longer found: remove its line)");
     }
-    if extra.is_empty() && gone.is_empty() {
+    let ok = extra.is_empty() && gone.is_empty();
+    if ok {
         println!("routes: {} findings, all listed in {doc}", found.len());
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(1)
     }
+    capability_lines(&ends).iter().for_each(|l| println!("{l}"));
+    if ok { ExitCode::SUCCESS } else { ExitCode::from(1) }
 }
 
 #[cfg(test)]
@@ -346,7 +364,7 @@ mod tests {
         vec![Protocol { name: "t.p".into(), ir, bindings }]
     }
     fn ends(extra: Value) -> Value {
-        let mut e = json!({"driver": {"capped_effects": ["write"], "cap_per_kind": true, "rejection_is_arrival": true,
+        let mut e = json!({"runtime": {"capped_effects": ["write"], "cap_per_kind": true, "rejection_is_arrival": true,
             "own_failure_fed_back": true, "rejection_logs_fed_back": true}, "rework_limit": 2,
             "questions": {"reject": "refused"}, "findings": {"refused_by_check": "retry"}, "close": {}, "approvals": {}, "checks": []});
         if let (Some(m), Some(x)) = (e.as_object_mut(), extra.as_object()) {
@@ -395,7 +413,7 @@ mod tests {
                        "doc.review": {"argv": ["sdc-tool.sh", "review"], "produces": "doc_review", "results": {"0": "approved", "*": "rejected"}}});
         let mut i = ir();
         i["actions"]["doc.review"] = json!({"effect": "read"});
-        let e = ends(json!({"driver": {"capped_effects": ["write"], "cap_per_kind": false, "rejection_is_arrival": true,
+        let e = ends(json!({"runtime": {"capped_effects": ["write"], "cap_per_kind": false, "rejection_is_arrival": true,
             "own_failure_fed_back": false, "rejection_logs_fed_back": false}}));
         let f = check(&proto(i, b), &no_classes(), &e);
         let want = [
@@ -456,6 +474,21 @@ mod tests {
         let mut other = b.clone();
         other["doc.check"]["subject"] = json!("elsewhere");
         assert_eq!(run(&i, &other, &guard("doc.ok", "doc.check")).len(), 1);
+    }
+
+    #[test]
+    fn each_capability_of_the_runtime_prints_who_holds_it() {
+        let e = json!({"runtime": {"capped_effects": ["write"], "own_failure_fed_back": true, "cap_per_kind": true,
+            "provided_by": {"capped_effects": "loom: budget.max_runs", "own_failure_fed_back": "pending: docs/loom-bindings.md:103"}}});
+        assert_eq!(
+            capability_lines(&e),
+            [
+                "capability cap_per_kind: undeclared (no provided_by)",
+                "capability capped_effects: loom: budget.max_runs",
+                "capability own_failure_fed_back: pending: docs/loom-bindings.md:103",
+            ]
+        );
+        assert!(capability_lines(&json!({})).is_empty());
     }
 
     #[test]
