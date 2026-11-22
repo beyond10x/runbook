@@ -100,10 +100,10 @@ fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
         assert_eq!(name, name_after);
         let mut expect = was.clone();
         let kind = was["executor"]["kind"].as_str().unwrap();
-        if kind == "person" && !name.ends_with(":scope.answer") {
+        if kind == "person" {
             people += 1;
             expect["executor"]["principal"] = "decider:model".into();
-            for e in expect["evidence"].as_sequence_mut().unwrap() {
+            for e in expect.get_mut("evidence").and_then(Yaml::as_sequence_mut).into_iter().flatten() {
                 e["producer"] = "decider:model".into();
             }
         }
@@ -132,23 +132,38 @@ fn rewriting_keeps_all_66_bindings_and_changes_only_the_rewritten_members() {
         }
         assert_eq!(&expect, is, "{name}: something other than the rewritten members changed");
     }
-    assert_eq!(people, 4, "the person steps but scope.answer");
+    assert_eq!(people, 5, "every person step: the answers file declares scope.answer");
     assert_eq!(nodes, 14, "{nodes} model nodes");
 }
 
 #[test]
-fn the_principal_of_person_steps_is_rewritten_in_executor_and_evidence_and_scope_answer_keeps_its_person() {
+fn the_principal_of_person_steps_is_rewritten_in_executor_and_evidence_and_scope_answer_follows_the_answers_file() {
     let (_dir, dst, root) = make("r2-copy-principal", &model_settings());
     root.unwrap();
     for (name, action) in actions(&dst) {
         if action["executor"]["kind"].as_str() != Some("person") {
             continue;
         }
+        assert_eq!(action["executor"]["principal"].as_str(), Some("decider:model"), "{name}: declared in tools/answers.yaml or a recorded result");
+        for e in action["evidence"].as_sequence().into_iter().flatten() {
+            assert_eq!(e["producer"].as_str(), Some("decider:model"), "{name}");
+        }
+    }
+    // Without the declaration the step whose outcome is a person's text keeps its person; the
+    // steps that record a result do not need one.
+    let dir = Dir::new("r2-copy-undeclared");
+    let src = dir.path().join("src/bindings");
+    copy_dir(&committed(), &src).unwrap();
+    std::fs::remove_file(src.join(crate::loom_run::answers::FILE)).unwrap();
+    let dst = dir.path().join("run/bindings");
+    std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+    materialise(&src, &dst, "sdc", &model_settings(), None).unwrap();
+    for (name, action) in actions(&dst) {
+        if action["executor"]["kind"].as_str() != Some("person") {
+            continue;
+        }
         let expect = if name.ends_with(":scope.answer") { "person:owner" } else { "decider:model" };
         assert_eq!(action["executor"]["principal"].as_str(), Some(expect), "{name}");
-        for e in action["evidence"].as_sequence().into_iter().flatten() {
-            assert_eq!(e["producer"].as_str(), Some(expect), "{name}");
-        }
     }
     for autonomy in ["A0", "A3", "A4"] {
         let mut s = model_settings();

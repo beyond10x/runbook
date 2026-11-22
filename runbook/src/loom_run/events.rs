@@ -40,6 +40,12 @@ pub enum Event {
     /// The decider answered; `approve` false is a denial. The answer was then recorded by
     /// `tree approve`.
     DecisionAnswered { decision: Value, approve: bool, principal: String, cost_micro_usd: u64, model_calls: u64 },
+    /// The decider answered, or declined to answer, one request of the answers file. `line` is the
+    /// line of `decisions.jsonl` (`answers::decision_line`).
+    AnswerRecorded { line: Value },
+    /// A decision whose action the answers file declares was taken after its requests were
+    /// answered; its answers are the `AnswerRecorded` events before it.
+    DeclaredTaken { decision: Value, principal: String },
     /// A cost was added to the ledger. `record` is the cost record as read (a line of
     /// `.sdc/llm/calls.jsonl`) or a note of the decider.
     CostedCall { source: CostSource, cost_micro_usd: u64, record: Value },

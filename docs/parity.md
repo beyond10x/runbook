@@ -214,7 +214,7 @@ record has none in Loom), `program_runs[].attempt` (counted, not read), `person_
 | `copies[].to` | `action_started` with `copy`, then `action_finished` | cases[].copies[].target_case | as is |
 | `copies[].subject` | `action_started` with `copy`, then `action_finished` | cases[].evidence[].subject | that record of the target case |
 | `copies[].subject_revision` | `action_started` with `copy`, then `action_finished` | cases[].evidence[].subject_revision | that record of the target case |
-| `decision_requests` | `decision_recorded` events | run directory: decisions.jsonl | one entry per answered decision that is a question; the runner answers approvals only, so the list is empty and a decision of another kind is an error; tree status alone holds no decision record (not recorded) |
+| `decision_requests` | `decision_recorded` events | run directory: decisions.jsonl | one entry per answered decision that is a question; the runner answers approvals only, so the list is empty; a row of type question or finding (the decider answering a request of the answers file) is read and compared to nothing, a row of another type is an error; tree status alone holds no decision record (not recorded) |
 | `decision_requests[].id` | `decision_recorded` events | (under a member not recorded) | an empty list |
 | `decision_requests[].case` | `decision_recorded` events | (under a member not recorded) | an empty list |
 | `decision_requests[].question` | `decision_recorded` events | (under a member not recorded) | an empty list |
@@ -239,7 +239,8 @@ members that `tree status` holds nothing for, and the principal.
    members. The n-th copy of a kind into a case is the n-th record of that kind in the case that the
    source case's own action did not write.
 5. `decision_requests`: `decisions.jsonl`; the runner answers approvals only, which are no request, so
-   the list is empty; a row of another type or kind is an error.
+   the list is empty; a row of type `question` or `finding` (the decider's answer to a request of the
+   answers file) is read and compared to nothing; a row of another type or kind is an error.
 6. `protocols[].digest`: the sha256 of the copy of the protocol file in `protocols/` of the run
    directory, per id and revision.
 7. The principal of an answer (`cases[].person_steps[].actor`): `decider.principal` of the settings
@@ -494,7 +495,9 @@ again; items 3, 4, 8, 15 and 16 are still open, and each says why.
     (`decision_requests` is empty), so the member was not exercised; `compare` names it as not
     recorded by Loom.
     **Settled for `runbook loom-run`:** `decisions.jsonl` of the run directory is read; the runner
-    answers approvals only, so the list is empty on both sides, and a row of another kind is an error.
+    answers approvals only, so the list is empty on both sides; a row of type `question` or `finding`
+    (an answer of the decider to a request of the answers file) is read and compared to nothing, and a
+    row of another type or kind is an error.
 17. The document. The reader takes the whole of what `tree status` printed as a file
     (`tree_run.rs:795-807`), checks `format` (`read.rs:175-191`) and needs `version`
     (`read.rs:194`); a status of another format, or none, is refused by name. **Settled:** the status of

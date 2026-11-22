@@ -174,7 +174,9 @@ fn handoff_unknown_and_question_entries_cannot_be_decided() {
     assert_eq!(reason(ask(&w, &s, &unknown, 250_000)), "kind Wish not known");
     let mut question = approve_action(&w);
     question["action"] = json!("scope.answer");
-    assert!(reason(ask(&w, &s, &question, 250_000)).contains("scope.answer is a question"));
+    std::fs::write(w.run.join("bindings/sdc.yaml"), "format: loom.bindings/1\nactions:\n  - action: scope.answer\n    executor: {kind: person, principal: person:owner}\n").unwrap();
+    let why = reason(ask(&w, &s, &question, 250_000));
+    assert!(why.contains("scope.answer is a step whose outcome is a person's text") && why.contains("tools/answers.yaml"), "{why}");
     assert!(!w.run.join("decider").exists(), "none of these started the program");
 }
 
@@ -499,4 +501,131 @@ fn the_rule_decider_obeys_the_autonomy_rule_too() {
     let s = json!({"autonomy": "A2", "decider": {"kind": "rule", "verdict": "approve", "program": real_decider_sh().display().to_string()}});
     let why = reason(ask(&w, &s, &approve_action(&w), 0));
     assert!(why.starts_with("reserved for a person: autonomy A2"), "{why}");
+}
+
+// --- requests of the answers file ---------------------------------------------------------------
+
+fn scope_decision() -> Value {
+    json!({"case": "IDEA-1.direction", "kind": "ApproveAction", "action": "scope.answer", "capability": "owner.answer", "command": ["b10x-loom", "tree", "approve"]})
+}
+
+fn request_line(kind: &str, default: &str) -> crate::loom_run::answers::Request {
+    let line = json!({"type": kind, "id": "q1", kind: {"default": default}, "subject": "intake", "path": "intake.yaml"});
+    crate::loom_run::answers::parse_requests(&line.to_string()).unwrap().remove(0)
+}
+
+fn ask_request(decider: &dyn Decider, w: &World, decision: &Value, request: &crate::loom_run::answers::Request, budget: u64) -> Asked {
+    let env = env_with_path();
+    decider.ask(&AskRequest { decision, request, run_dir: &w.run, workspace: &w.work, budget_micro_usd: budget, child_env: &env, login_link: None })
+}
+
+fn answer_reply(decision: &str, extra: &str) -> String {
+    format!(r#"{{"decision":"{decision}","answer":"take it","reasons":["fine"],"cites":[],"valid":true,"adapter":"claude-cli","cost_usd":0.25{extra}}}"#)
+}
+
+const INVALID: &str = r#"{"decision":"approve","valid":false,"invalid_reason":"no cites","reasons":[],"cites":[],"adapter":"claude-cli","cost_usd":0.1}"#;
+
+fn decisions_of(asked: &Asked) -> Vec<String> {
+    asked.lines.iter().map(|l| l["decision"].as_str().unwrap().to_owned()).collect()
+}
+
+#[test]
+fn a_question_is_asked_with_the_members_of_the_drivers_request_and_answered() {
+    let w = world("ask-question", &fake(&answer_reply("approve", "")));
+    let s = settings(&w, json!({}));
+    let decider = from_settings(&s).unwrap();
+    assert!(decider.answers_requests());
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!((asked.cost_micro_usd, asked.model_calls), (250_000, 1));
+    assert_eq!(asked.lines.len(), 1);
+    assert_eq!((asked.lines[0]["decision"].as_str(), asked.lines[0]["class"].as_str(), asked.lines[0]["question"].as_str()), (Some("approve"), Some("scope_changing_answer"), Some("q1")));
+    let given = asked.result.unwrap();
+    assert_eq!((given.answer.as_str(), given.principal.as_deref()), ("take it", Some("decider:model")));
+    let rec = first_record(&w);
+    assert!(rec.file_name().unwrap().to_str().unwrap().starts_with("001-q1"));
+    let seen: Value = serde_json::from_str(&std::fs::read_to_string(rec.join("seen.json")).unwrap()).unwrap();
+    assert_eq!((seen["type"].as_str(), seen["class"].as_str(), seen["side"].as_str(), seen["autonomy"].as_str()), (Some("question"), Some("scope_changing_answer"), Some("delivering"), Some("A5")));
+    assert_eq!((seen["subject"].as_str(), seen["path"].as_str(), seen["action"].as_str()), (Some("intake"), Some("intake.yaml"), Some("scope.answer")));
+    assert_eq!(seen["question"]["default"], "keep");
+    assert!(seen["decisions_log"].as_str().unwrap().ends_with("decisions.jsonl"));
+}
+
+#[test]
+fn an_invalid_reply_is_retried_then_takes_the_default_under_final() {
+    let w = world("ask-invalid-final", &fake(INVALID));
+    let s = settings(&w, json!({"retries": 1}));
+    let decider = from_settings(&s).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(decisions_of(&asked), ["invalid_reply", "invalid_reply", "approve"]);
+    assert_eq!(asked.lines[2]["fallback"], "invalid_reply_default");
+    assert_eq!((asked.cost_micro_usd, asked.model_calls), (200_000, 2));
+    assert_eq!(asked.result.unwrap().answer, "keep");
+    assert_eq!(record_dirs(&w.run.join("decider")), 2);
+}
+
+#[test]
+fn an_invalid_reply_under_stop_escalates_and_names_why() {
+    let w = world("ask-invalid-stop", &fake(INVALID));
+    let s = settings(&w, json!({"retries": 0, "escalate": "stop"}));
+    let decider = from_settings(&s).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(decisions_of(&asked), ["escalate"]);
+    assert!(asked.result.unwrap_err().contains("invalid decider reply after 1 attempts: no cites"));
+}
+
+#[test]
+fn a_finding_that_escalates_under_final_takes_the_best_answer_else_its_default() {
+    for (extra, want) in [(r#","best":"fix it""#, "fix it"), ("", "defer")] {
+        let w = world("ask-finding-final", &fake(&answer_reply("escalate", extra)));
+        let s = settings(&w, json!({}));
+        let decider = from_settings(&s).unwrap();
+        let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("finding", "defer"), 1_000_000);
+        assert_eq!(decisions_of(&asked), ["escalation_suppressed", "approve"]);
+        assert_eq!(asked.lines[1]["suppressed"], true);
+        assert_eq!(asked.lines[0]["class"], "finding");
+        assert_eq!(asked.result.unwrap().answer, want);
+    }
+}
+
+#[test]
+fn an_escalation_without_a_default_to_take_is_an_error() {
+    let w = world("ask-no-default", &fake(&answer_reply("escalate", "")));
+    let s = settings(&w, json!({}));
+    let decider = from_settings(&s).unwrap();
+    let line = json!({"type": "question", "id": "q1", "question": {}});
+    let request = crate::loom_run::answers::parse_requests(&line.to_string()).unwrap().remove(0);
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request, 1_000_000);
+    assert!(asked.result.unwrap_err().contains("names no default"));
+}
+
+#[test]
+fn a_reject_of_a_question_stops_the_run() {
+    let w = world("ask-reject", &fake(&answer_reply("reject", "")));
+    let s = settings(&w, json!({}));
+    let decider = from_settings(&s).unwrap();
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(decisions_of(&asked), ["reject"]);
+    assert!(asked.result.unwrap_err().contains("not a rejection"));
+}
+
+#[test]
+fn the_call_cap_counts_the_record_directories_of_requests_too() {
+    let w = world("ask-cap", &fake(&answer_reply("approve", "")));
+    let s = settings(&w, json!({"max_calls": 1}));
+    let decider = from_settings(&s).unwrap();
+    assert!(ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000).result.is_ok());
+    let again = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert_eq!(again.result.unwrap_err(), "decider budget spent: 1 decider calls (max_calls)");
+}
+
+#[test]
+fn only_a_decider_at_a5_answers_requests() {
+    let w = world("ask-a4", &fake(&answer_reply("approve", "")));
+    let mut below = settings(&w, json!({}));
+    below["autonomy"] = json!("A4");
+    let decider = from_settings(&below).unwrap();
+    assert!(!decider.answers_requests());
+    let asked = ask_request(decider.as_ref(), &w, &scope_decision(), &request_line("question", "keep"), 1_000_000);
+    assert!(asked.result.unwrap_err().starts_with("reserved for a person"));
+    assert!(from_settings(&settings(&w, json!({}))).unwrap().answers_requests());
 }
