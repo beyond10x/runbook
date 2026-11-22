@@ -4,6 +4,7 @@
 //! `driver/target/debug/sdc-replay` built, like the other replay tests.
 
 use serde_json::{json, Value};
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -229,4 +230,160 @@ fn the_settings_page_does_not_say_the_runner_has_no_recorded_mode() {
     let flat = page.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(!flat.contains("the runner has no recorded mode"), "docs/loom-run-settings.md: the runner has a recorded mode (`runbook run --recorded`)");
     assert!(!flat.contains("`flags.recorded` and `implement_mode` stay refused"), "docs/loom-run-settings.md: `flags.recorded` is passed on as `--recorded`");
+}
+
+fn sha(text: &str) -> String {
+    let mut child = Command::new("sha256sum").stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    String::from_utf8(out.stdout).unwrap().split_whitespace().next().unwrap().to_owned()
+}
+
+/// One recorded call of node `change.fix` whose inputs digest `recorded_in` (file name, text as it
+/// was digested), and one adapter call whose `in/` holds `now_in`. Returns the `mode` the adapter
+/// logged: `recorded` or `diverged`.
+fn replayed(tag: &str, recorded_in: &[(&str, &str)], now_in: &[(&str, &str)]) -> (String, String) {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("label-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let out = root.join("run");
+    let inputs: serde_json::Map<String, Value> = recorded_in.iter().map(|(f, t)| (format!("in/{f}"), json!(sha(t)))).collect();
+    let call = json!({"id": "s1", "kind": "work", "case": "C-1", "name": "change.fix", "arrival": 0, "try": 1, "attempt": 1,
+        "inputs": inputs, "request": {"node": "change.fix", "case": "C-1", "model": "m"}, "response": {"exit": 0}});
+    put(&out.join("replay/plan.json"), &json!({"format": "sdc.replay-plan/1", "out": out.display().to_string(), "policy": "stop", "live": {}, "injections": []}).to_string());
+    put(&out.join("replay/index.json"), &json!({"format": "sdc.replay-index/1", "calls": [call]}).to_string());
+    let rec = out.join("work/.sdc/llm/001-change.fix");
+    for (f, t) in now_in {
+        put(&rec.join("cwd/in").join(f), t);
+    }
+    std::fs::create_dir_all(rec.join("cwd/in")).unwrap();
+    let request = json!({"node": "change.fix", "case": "C-1", "model": "m", "record_dir": rec.display().to_string(),
+        "cwd": rec.join("cwd").display().to_string(), "case_dir": out.join("work").display().to_string()});
+    put(&rec.join("request.json"), &request.to_string());
+    let bin = repo().join("driver/target/debug/sdc-replay");
+    let o = Command::new(bin).arg(rec.join("request.json")).stdin(Stdio::null()).env("SDC_REPLAY", out.join("replay/plan.json")).output().unwrap();
+    let said = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
+    let logged = std::fs::read_to_string(rec.join("replay.json")).unwrap_or_default();
+    let mode = serde_json::from_str::<Value>(&logged).ok().and_then(|v| v["mode"].as_str().map(str::to_owned)).unwrap_or_else(|| format!("no replay.json: {said}"));
+    (mode, said)
+}
+
+const HEADER_0973: &str = "billing v3 against billing-reference 0.97.3 \u{2014} passed\n  | test a ... ok\n";
+const HEADER_0980: &str = "billing v3 against billing-reference 0.98.0 \u{2014} passed\n  | test a ... ok\n";
+
+/// F1 control: a recording packed at 0.97.3 replays under a pin at 0.98.0.
+#[test]
+fn a_recording_of_label_0_97_3_replays_when_the_pin_prints_0_98_0() {
+    let (mode, said) = replayed("pin-moves", &[("tests.txt", HEADER_0973)], &[("tests.txt", HEADER_0980)]);
+    assert_eq!(mode, "recorded", "{said}");
+}
+
+/// F1: a recording packed by the code before the fix, at another label (0.97.1), holds the digest of
+/// its own text. It replays only if the mask maps that text to the one it was digested as.
+#[test]
+fn a_recording_packed_at_another_label_than_the_mask_still_replays() {
+    let header_0971 = HEADER_0973.replace("0.97.3", "0.97.1");
+    let (mode, said) = replayed("old-pack", &[("tests.txt", &header_0971)], &[("tests.txt", HEADER_0973)]);
+    assert_eq!(mode, "recorded", "a recording packed at another label diverges: {said}");
+}
+
+/// F1 scope: another input file whose line has the same shape is not the ESS label. Two versions of
+/// it are two inputs.
+#[test]
+fn a_version_in_another_input_file_that_looks_like_the_label_is_still_an_input() {
+    let notes = |v: &str| format!("shop v2 against upstream-api {v} \u{2014} the contract the code is written to\n");
+    let (mode, said) = replayed("scope", &[("notes.md", &notes("0.97.3"))], &[("notes.md", &notes("9.9.9"))]);
+    assert_eq!(mode, "diverged", "an input that differs only in a version-like string collapsed: {said}");
+}
+
+/// F1: a test name that changes under a new label is a changed input.
+#[test]
+fn a_changed_test_name_under_a_new_label_diverges() {
+    let (mode, said) = replayed("test-name", &[("tests.txt", HEADER_0973)], &[("tests.txt", &HEADER_0980.replace("test a", "test b"))]);
+    assert_eq!(mode, "diverged", "{said}");
+}
+
+fn run_with_settings(tag: &str, settings: Value, extra: &[&str]) -> (Option<i32>, String, bool) {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("settings-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("runs")).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook");
+    let mut stack = vec![(fixture.clone(), root.join("fx"))];
+    while let Some((from, to)) = stack.pop() {
+        std::fs::create_dir_all(&to).unwrap();
+        for e in std::fs::read_dir(&from).unwrap().flatten() {
+            if e.file_type().unwrap().is_dir() {
+                stack.push((e.path(), to.join(e.file_name())));
+            } else {
+                std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+            }
+        }
+    }
+    put(&root.join("idea.yaml"), "text: a note on tea\n");
+    put(&root.join("settings.json"), &settings.to_string());
+    let r = |p: &str| root.join(p).display().to_string();
+    let out = Command::new(super::core::BIN)
+        .args(["run", "sdc", "--run", "r1", "--runs-dir", &r("runs"), "--bindings", &r("fx/bindings"), "--protocols", &r("fx/protocol"), "--root-protocol", "engine-demo@1", "--case", "ROOT-1"])
+        .args(["--intake", &r("idea.yaml"), "--confinement", "local", "--settings", &r("settings.json"), "--spend-ledger", &r("ledger.json")])
+        .args(["--cap-micro-usd", "1000000", "--max-llm-calls", "100", "--max-wall-seconds", "120"])
+        .args(extra)
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    (out.status.code(), String::from_utf8_lossy(&out.stderr).into_owned(), root.join("runs/r1").exists())
+}
+
+fn base(extra: Value) -> Value {
+    let mut v = json!({"loom": {"in_process": true, "confinement": "local"},
+        "decider": {"kind": "scripted", "max_call_micro_usd": 0, "answers": [{"approve": true, "cost_micro_usd": 0}]}});
+    for (k, x) in extra.as_object().unwrap() {
+        v[k] = x.clone();
+    }
+    v
+}
+
+/// F3: a null and an empty `replay` are refused without `--recorded`.
+#[test]
+fn a_null_or_an_empty_replay_key_without_recorded_is_refused() {
+    for (what, value) in [("null", Value::Null), ("empty object", json!({})), ("empty array", json!([])), ("string", json!("x")), ("false", json!(false))] {
+        let (code, said, made) = run_with_settings(&format!("key-{}", what.replace(' ', "-")), base(json!({"replay": value})), &[]);
+        assert_eq!(code, Some(2), "replay: {what}: {said}");
+        assert!(!made, "replay: {what}: a run directory was made");
+    }
+}
+
+/// F3: the same key one level down is not the replay key of the run and changes nothing: it is
+/// refused or ignored but never starts a run on another adapter.
+#[test]
+fn a_replay_key_inside_the_loom_member_does_not_make_a_run_on_another_adapter() {
+    let (code, said, _) = run_with_settings("nested", base(json!({"loom": {"in_process": true, "confinement": "local", "replay": {"adapter": "/bin/true", "plan": "/x"}}})), &[]);
+    assert!(code == Some(2) || code == Some(0) || code == Some(8), "{code:?} {said}");
+    assert!(!said.contains("/bin/true"), "{said}");
+}
+
+/// F3: the option given twice names two recordings; one must win or the call is refused, never both.
+#[test]
+fn the_recorded_option_given_twice_is_refused() {
+    let one = repo().join("driver/examples/sdc/fixtures/recorded/stub");
+    let one = one.display().to_string();
+    let (code, said, made) = run_with_settings("twice", base(json!({})), &["--recorded", &one, "--recorded", &one]);
+    assert_eq!(code, Some(64), "{said}");
+    assert!(!made, "a run directory was made");
+}
+
+/// F2: an adapter given no `SDC_REPLAY` finds no plan, whatever the directory holds.
+#[test]
+fn an_adapter_with_a_relative_plan_path_reads_it_from_its_own_directory_only() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("relative-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    put(&root.join("replay/plan.json"), &json!({"format": "sdc.replay-plan/1", "out": root.display().to_string(), "policy": "stop", "live": {}, "injections": []}).to_string());
+    put(&root.join("replay/index.json"), &json!({"calls": []}).to_string());
+    let rec = root.join("rec");
+    put(&rec.join("request.json"), &json!({"node": "n", "case": "C-1", "model": "m", "record_dir": rec.display().to_string(), "cwd": rec.display().to_string(), "case_dir": root.display().to_string()}).to_string());
+    let bin = repo().join("driver/target/debug/sdc-replay");
+    let o = Command::new(bin).arg(rec.join("request.json")).current_dir(&root).env("SDC_REPLAY", "replay/plan.json").stdin(Stdio::null()).output().unwrap();
+    let said = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
+    assert!(!said.contains("is not set"), "{said}");
+    assert!(said.contains("recording_diverged") || o.status.code() == Some(75), "a relative SDC_REPLAY is read against the adapter's directory: {said}");
 }

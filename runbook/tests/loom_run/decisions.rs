@@ -552,3 +552,74 @@ fn a_missing_table_stops_for_a_person_at_a5_too_and_calls_no_model() {
     assert_eq!(adapter_starts(&w), 0, "the decider was asked with no table");
     assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "an approval was given with no table");
 }
+
+/// the table and the classes are read once. Deleting them after the first action changes
+/// nobody's routing: the decider still takes what the first read gave it.
+#[test]
+fn a_program_that_deletes_the_table_and_the_classes_changes_nobody_s_routing_for_the_run() {
+    let w = World::new("delete-a3");
+    install_decider(&w, &reject_reply("fixture: the context names no platform"));
+    bindings(&w, &bindings_of("context.approve"));
+    approve_tree(&w, "context.approve");
+    w.fake.hook("tree_run", "1", "rm -f tools/autonomy-levels.json driver/examples/sdc/decision-classes.json\n");
+    at_level(&w, "A3");
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert!(!w.run_dir("r1/tools/autonomy-levels.json").exists(), "the program did not delete the copy");
+    assert_eq!(adapter_starts(&w), 1, "the decider was asked: {}", stderr(&o));
+    assert_eq!(code(&o), 10, "{}", stderr(&o));
+}
+
+/// A5 closes by rule from the first read of the table; a delete after the start keeps it.
+#[test]
+fn at_a5_a_program_that_deletes_the_table_does_not_end_the_close_by_rule() {
+    let w = World::new("delete-a5");
+    install_decider(&w, &reject_reply("unused").replace("\"reject\"", "\"approve\""));
+    close_tree(&w);
+    w.fake.hook("tree_run", "1", "rm -f tools/autonomy-levels.json\n");
+    write_settings(&w, &fixture_settings(&w, 5_000_000));
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert!(!w.run_dir("r1/tools/autonomy-levels.json").exists(), "the program did not delete the copy");
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(adapter_starts(&w), 0, "the decider was asked");
+    let decided = super::decider::lines(&w.run_dir("r1/decisions.jsonl"));
+    assert_eq!(decided[0]["principal"], "rule:autopilot");
+}
+
+/// a table that is unreadable at the start stops for a person at every level, A1 to A5.
+#[test]
+fn a_table_that_is_unreadable_at_the_start_stops_for_a_person_at_every_level() {
+    for level in ["A1", "A2", "A3", "A4", "A5"] {
+        for how in ["missing", "empty", "not json"] {
+            let w = World::new(&format!("unreadable-{level}-{}", how.replace(' ', "-")));
+            install_decider(&w, &reject_reply("unused").replace("\"reject\"", "\"approve\""));
+            let table = w.root.join("tools/autonomy-levels.json");
+            match how {
+                "missing" => std::fs::remove_file(&table).unwrap(),
+                "empty" => std::fs::write(&table, "").unwrap(),
+                _ => std::fs::write(&table, "{").unwrap(),
+            }
+            bindings(&w, &bindings_of("context.approve"));
+            approve_tree(&w, "context.approve");
+            at_level(&w, level);
+            let o = w.run(&w.args("r1", 5_000_000));
+            assert_eq!(code(&o), 8, "{level} {how}: {}", stderr(&o));
+            assert_eq!(adapter_starts(&w), 0, "{level} {how}: the decider was asked");
+            assert!(w.fake.calls_of(&["tree", "approve"]).is_empty(), "{level} {how}: approved");
+        }
+    }
+}
+
+/// what is still read per decision. A program that deletes the decider's instructions
+/// after the first action changes what the decider is asked, or whether it is.
+#[test]
+fn a_program_that_deletes_the_decider_instructions_does_not_change_whether_the_decider_is_asked() {
+    let w = World::new("delete-instructions");
+    install_decider(&w, &reject_reply("fixture: the context names no platform"));
+    bindings(&w, &bindings_of("context.approve"));
+    approve_tree(&w, "context.approve");
+    w.fake.hook("tree_run", "1", "rm -rf instructions\n");
+    at_level(&w, "A3");
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert!(!w.run_dir("r1/instructions").exists(), "the program did not delete the copy");
+    assert_eq!((code(&o), adapter_starts(&w)), (10, 1), "{}", stderr(&o));
+}
