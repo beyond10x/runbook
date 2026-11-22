@@ -417,6 +417,9 @@ fn views(root: &Path, r: &mut Report, seen: &mut Seen) {
 /// suite file: `converted` runs as expected, `pending` is marked `pending: true`.
 const TABLE_IN_SUITE: [&str; 2] = ["converted", "pending"];
 
+/// The four words the `state` cell of a row of `docs/cycles-suite.md` may say, as the page defines them.
+const TABLE_STATES: [&str; 4] = ["converted", "pending", "held by a Rust test", "dropped with the driver"];
+
 /// The ids of the list of old entries: one per line, a line of white space or `#` is skipped.
 fn names_of(text: &str) -> Vec<String> {
     text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).map(String::from).collect()
@@ -539,6 +542,15 @@ fn cycles(root: &Path, r: &mut Report, seen: &mut Seen) {
     }
     for (name, state) in rowed {
         let pending = in_suite.get(name).copied();
+        if !TABLE_STATES.contains(&state) {
+            r.add(
+                "cycles",
+                CYCLES_TABLE,
+                format!("entry {name}: the state \"{state}\" is none of {}", TABLE_STATES.join(", ")),
+                "write one of those words in the state cell and any qualification in the third cell",
+            );
+            continue;
+        }
         match (state, pending) {
             ("converted", Some(false)) | ("pending", Some(true)) => {}
             (s, _) if TABLE_IN_SUITE.contains(&s) => r.add(
