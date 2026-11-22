@@ -15,6 +15,7 @@ const words = (x) => String(x || '').replace(/_/g, ' ');
 // the state of a run: a class for its shape, the word in a row, the short word in the header button
 export function runState(s) {
   const r = s?.run || {};
+  if (r.daemon) return r.daemon;
   if (s && s.exists === false) return {cls: 'wait', text: 'waiting for its store', short: 'waiting'};
   if (r.state === 'running') return {cls: 'run', text: 'running', short: 'running'};
   if (r.state === 'stopped') return {cls: 'stop', text: `stopped · ${words(r.cause) || `by ${r.stopBy || 'someone'}`}`, short: 'stopped'};

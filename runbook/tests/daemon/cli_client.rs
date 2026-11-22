@@ -365,9 +365,11 @@ fn cut_once(upstream: SocketAddr) -> CutOnce {
                 }
                 let text = String::from_utf8_lossy(&head).into_owned();
                 let is_stream = text.contains("text/event-stream");
-                seen.lock().unwrap().push(text);
+                seen.lock().unwrap().push(text.clone());
                 let mut up = TcpStream::connect(upstream).unwrap();
-                up.write_all(&head).unwrap();
+                // a proxy in front of the daemon names the daemon in `Host`, as a reverse proxy does
+                let forwarded: Vec<String> = text.split("\r\n").map(|l| if l.to_ascii_lowercase().starts_with("host:") { format!("Host: {upstream}") } else { l.to_string() }).collect();
+                up.write_all(forwarded.join("\r\n").as_bytes()).unwrap();
                 let first_stream = is_stream && !cut.swap(true, Ordering::SeqCst);
                 let mut got = Vec::new();
                 let mut buf = [0u8; 4096];

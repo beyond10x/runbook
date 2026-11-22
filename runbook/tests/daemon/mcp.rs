@@ -467,7 +467,7 @@ fn http_answers_the_errors_of_the_protocol_with_their_statuses() {
     assert_eq!(r.status, 400, "a client's response is no message");
     let r = d.mcp(&[], &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     assert_eq!((r.status, r.body.len()), (202, 0), "a notification is accepted and has no answer");
-    let r = send(d.addr, "POST", "/mcp", &[], Some(b"{not json"));
+    let r = send(d.addr, "POST", "/mcp", &[("Content-Type", "application/json")], Some(b"{not json"));
     assert_eq!((r.status, r.json()["error"]["code"].clone()), (400, json!(-32700)));
     for method in ["GET", "DELETE", "PUT"] {
         let r = d.mcp_method(method);
@@ -498,8 +498,8 @@ fn http_refuses_an_origin_that_is_not_the_host_of_the_request() {
     assert_eq!(with("https://evil.example"), 403);
     assert_eq!(with("null"), 403);
     assert_eq!(with("http://localhost:1"), 403);
-    // The Host header the test client sends is `localhost`: a page of that origin is the same host.
-    assert_eq!(with("http://localhost"), 200);
+    // The Host header the test client sends is the listen address: a page of that origin is the same host.
+    assert_eq!(with(&format!("http://{}", d.addr)), 200);
     assert_eq!(d.mcp(&ping, &call).status, 200, "no Origin: not a browser");
 }
 

@@ -87,7 +87,7 @@ impl Resp {
 pub fn send(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str)], body: Option<&[u8]>) -> Resp {
     let mut s = TcpStream::connect(addr).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    let mut head = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n");
+    let mut head = format!("{method} {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n");
     for (k, v) in headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -179,7 +179,7 @@ fn a_token_is_checked_by_one_middleware_on_every_route() {
     let cmd = s.send(
         "POST",
         "/daemon/commands/open-session",
-        &[("Authorization", "Bearer s3cret-token")],
+        &[("Authorization", "Bearer s3cret-token"), ("Content-Type", "application/json")],
         Some(json!({"session_id": "s1", "client": "t"}).to_string().as_bytes()),
     );
     assert_eq!(cmd.status, 202);
@@ -369,8 +369,8 @@ fn the_server_has_the_routes_of_the_openapi_document_and_no_others() {
 fn a_body_the_command_layer_cannot_take_is_400_and_a_wrong_query_too() {
     let s = Server::start("bad", None);
     let bad = [
-        s.send("POST", "/daemon/commands/submit-run", &[], Some(b"not json")),
-        s.send("POST", "/daemon/commands/submit-run", &[], Some(b"")),
+        s.send("POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(b"not json")),
+        s.send("POST", "/daemon/commands/submit-run", &[("Content-Type", "application/json")], Some(b"")),
         s.post("submit-run", &json!({"intake": "x"})),
         s.post("submit-run", &json!({"runbook_id": "quick", "intake": 5})),
         s.post("submit-run", &json!({"runbook_id": "quick", "intake": "x", "confinement": "oci"})),
@@ -431,7 +431,7 @@ fn the_intake_limit_holds_over_http_and_the_body_limit_is_a_little_over_what_a_v
     let declared = api::MAX_BODY_BYTES + 1;
     let mut stream = TcpStream::connect(s.addr).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    stream.write_all(format!("POST /daemon/commands/submit-run HTTP/1.1\r\nHost: x\r\nConnection: close\r\nContent-Length: {declared}\r\n\r\n").as_bytes()).unwrap();
+    stream.write_all(format!("POST /daemon/commands/submit-run HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {declared}\r\n\r\n", s.addr).as_bytes()).unwrap();
     let r = read_response(&mut stream);
     assert_eq!(r.status, 413, "{}", r.text());
     assert_eq!(r.json()["refused"], "request body too large");
@@ -443,7 +443,7 @@ fn a_chunked_body_over_the_limit_is_refused_while_it_streams() {
     let s = Server::start("chunked", None);
     let mut stream = TcpStream::connect(s.addr).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    stream.write_all(b"POST /daemon/commands/submit-run HTTP/1.1\r\nHost: x\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
+    stream.write_all(format!("POST /daemon/commands/submit-run HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nConnection: close\r\nTransfer-Encoding: chunked\r\n\r\n", s.addr).as_bytes()).unwrap();
     let chunk = vec![b'a'; 1 << 20];
     let mut sent = 0usize;
     let mut refused = false;

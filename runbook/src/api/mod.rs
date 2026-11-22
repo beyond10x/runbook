@@ -22,6 +22,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::{Future, IntoFuture};
 use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::watch;
@@ -90,6 +91,14 @@ pub fn router(daemon: Daemon, token: Option<&str>) -> Router {
 
 /// The router with the behaviour of streams given and the signal that closes them.
 pub fn router_with(daemon: Daemon, token: Option<&str>, streams: Streams, closing: watch::Receiver<bool>) -> Router {
+    router_full(daemon, token, streams, closing, false, None, None)
+}
+
+/// The whole router: the API, the embedded UI beside it when `ui` is set (`crate::ui_embed`: its
+/// files are the fallback and `POST /ui/login` is a route), and the routes of `extra` (the MCP
+/// endpoint). One middleware (`auth::guard`) wraps all of them, the fallback included. `listen` is
+/// the address the listener is bound to; with it the guard checks `Host` on a loopback listener.
+pub fn router_full(daemon: Daemon, token: Option<&str>, streams: Streams, closing: watch::Receiver<bool>, ui: bool, extra: Option<Router>, listen: Option<SocketAddr>) -> Router {
     let app = App { daemon, streams, closing };
     let mut router = Router::new();
     for name in routes::COMMANDS {
@@ -104,16 +113,28 @@ pub fn router_with(daemon: Daemon, token: Option<&str>, streams: Streams, closin
             get(move |State(app): State<App>, Query(query): Query<HashMap<String, String>>, request: Request| view_route(app, name, query, request)),
         );
     }
+    let mut auth = Auth::new(token);
+    if ui {
+        auth = auth.with_ui();
+    }
+    if let Some(listen) = listen {
+        auth = auth.with_listen(listen);
+    }
+    let auth = Arc::new(auth);
+    let router = router.method_not_allowed_fallback(method_not_allowed);
+    let router = if ui { router.fallback(crate::ui_embed::fallback) } else { router.fallback(not_found) };
+    let mut router = router.with_state(app);
+    if let Some(extra) = extra {
+        router = router.merge(extra);
+    }
+    if ui {
+        router = router.merge(Router::new().route("/ui/login", post(crate::ui_embed::login)).with_state(auth.clone()));
+    }
+    let router = router.layer(middleware::from_fn_with_state(auth, auth::guard));
+    if ui {
+        return router.layer(middleware::from_fn(crate::ui_embed::login_form));
+    }
     router
-        .method_not_allowed_fallback(method_not_allowed)
-        .fallback(not_found)
-        .with_state(app)
-        .layer(middleware::from_fn_with_state(Arc::new(Auth::new(token)), auth::guard))
-}
-
-/// The routes of a router behind the one token check of the daemon (`auth::guard`).
-pub fn guarded(router: Router, token: Option<&str>) -> Router {
-    router.route_layer(middleware::from_fn_with_state(Arc::new(Auth::new(token)), auth::guard))
 }
 
 /// How streams behave: the interval of the keep-alive comment and the most events a live stream may
@@ -148,11 +169,15 @@ pub async fn serve_with(
     streams: Streams,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<()> {
-    serve_extra(listener, daemon, token, streams, None, shutdown).await
+    serve_all(listener, daemon, token, streams, false, None, shutdown).await
 }
 
-/// `serve_with` and the routes of `extra`, which sit behind the same token check as the others
-/// (`guarded`): the MCP endpoint (`crate::mcp::router`) is such a router.
+/// `serve` with the embedded UI beside the API when `ui` is set.
+pub async fn serve_ui(listener: tokio::net::TcpListener, daemon: Daemon, token: Option<&str>, ui: bool, shutdown: impl Future<Output = ()> + Send + 'static) -> io::Result<()> {
+    serve_all(listener, daemon, token, Streams::default(), ui, None, shutdown).await
+}
+
+/// `serve_with` and the routes of `extra`: the MCP endpoint (`crate::mcp::router`) is such a router.
 pub async fn serve_extra(
     listener: tokio::net::TcpListener,
     daemon: Daemon,
@@ -161,11 +186,22 @@ pub async fn serve_extra(
     extra: Option<Router>,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> io::Result<()> {
+    serve_all(listener, daemon, token, streams, false, extra, shutdown).await
+}
+
+/// Everything `runbook serve` can mount: the API, the UI when `ui` is set and the routes of
+/// `extra`, all behind the one guard (`auth::guard`), which knows the address of the listener.
+pub async fn serve_all(
+    listener: tokio::net::TcpListener,
+    daemon: Daemon,
+    token: Option<&str>,
+    streams: Streams,
+    ui: bool,
+    extra: Option<Router>,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> io::Result<()> {
     let (closing_tx, closing) = watch::channel(false);
-    let mut router = router_with(daemon, token, streams, closing.clone());
-    if let Some(extra) = extra {
-        router = router.merge(guarded(extra, token));
-    }
+    let router = router_full(daemon, token, streams, closing.clone(), ui, extra, listener.local_addr().ok());
     let serving = axum::serve(listener, router).with_graceful_shutdown(async move {
         shutdown.await;
         let _ = closing_tx.send(true);
