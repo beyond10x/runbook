@@ -10,6 +10,7 @@ bare-version tags (`docs/releasing.md`).
 ### Added
 
 - `runbook check` reads the text of a checkout and prints one finding per line, with the file and the fix: the text layout, the two forms of bindings (they parse, name the same existing instruction files per action and run executable tools), the placeholders of the instruction files, the view files, and `cycles/suite.yaml` against the arrays of `scripts/run-finding-cycles.sh`; it exits 1 on any finding and has `--json`. `task check:cycles-suite` runs it instead of its shell, and `CYCLES_SUITE` is replaced by `RUNBOOK_HOME` (`story:runbook-check-of-the-text-layout`).
+- The run inspector reads what a change of a runbook's records means (`file_kinds.parsers`) and the decisions a person can take (`decisions`) from the view file too, a run is shown with the view that covers its protocols and never with another runbook's, a run no view covers says which view is missing, and a view with a member the inspector does not know is refused with a message that names it (`ui/README.md`, `story:ui-view-data-parsers-and-actions`).
 
 ### Changed
 

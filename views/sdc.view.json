@@ -1,5 +1,9 @@
 {
   "format": "runbook.view/1",
+  "runbook": "sdc",
+  "protocols": [
+    "^sdc(\\.|$)"
+  ],
   "phases": {
     "stages": [
       "Intake",
@@ -297,6 +301,199 @@
       "stories": "planning",
       "change": "code",
       "release": "code"
+    },
+    "parsers": {
+      "requirements": {
+        "type": "keyed-list",
+        "subject": "requirements",
+        "list": "requirements",
+        "word": "requirement",
+        "added": [
+          {
+            "text": "requirement {id} added: {text!90}"
+          }
+        ],
+        "changed": {
+          "rules": [
+            {
+              "when": {
+                "changed": [
+                  "text"
+                ]
+              },
+              "text": "requirement {id} reworded: {text!80}"
+            },
+            {
+              "each": true,
+              "except": [
+                "text"
+              ],
+              "text": "requirement {id}: {$field} changed"
+            }
+          ]
+        }
+      },
+      "questions": {
+        "type": "keyed-list",
+        "subject": "questions",
+        "list": "questions",
+        "word": "question",
+        "added": [
+          {
+            "when": {
+              "set": [
+                "answer"
+              ]
+            },
+            "text": "question {id} answered: {answer!60}[ (by {answered_by})]"
+          },
+          {
+            "text": "question {id} asked: {question!90}"
+          }
+        ],
+        "changed": {
+          "rules": [
+            {
+              "when": {
+                "was_unset": [
+                  "answer"
+                ],
+                "set": [
+                  "answer"
+                ]
+              },
+              "stop": true,
+              "text": "question {id} answered: {answer!70}[ (by {answered_by})]"
+            },
+            {
+              "when": {
+                "changed": [
+                  "answer"
+                ]
+              },
+              "text": "question {id}: answer changed to {answer!60}"
+            },
+            {
+              "when": {
+                "changed": [
+                  "status"
+                ]
+              },
+              "text": "question {id}: {old.status|'—'} → {status|'—'}",
+              "variants": [
+                {
+                  "when": {
+                    "equals": {
+                      "status": "accepted"
+                    },
+                    "set": [
+                      "answer"
+                    ]
+                  },
+                  "text": "question {id}: {old.status|'—'} → {status|'—'} ({answer!50})"
+                }
+              ]
+            },
+            {
+              "when": {
+                "changed": [
+                  "question"
+                ]
+              },
+              "text": "question {id} reworded"
+            }
+          ],
+          "otherwise": "question {id} changed"
+        }
+      },
+      "findings": {
+        "type": "keyed-list",
+        "subject": "findings",
+        "list": "findings",
+        "word": "finding",
+        "added": [
+          {
+            "text": "finding {id} raised[ by {raised_by}]: {text|summary|finding!70}"
+          }
+        ],
+        "changed": {
+          "rules": [
+            {
+              "when": {
+                "changed": [
+                  "status"
+                ]
+              },
+              "stop": true,
+              "text": "finding {id}: {old.status|'—'} → {status|'—'}[ (by {decided_by})]"
+            }
+          ],
+          "otherwise": "finding {id} changed"
+        }
+      },
+      "dissection": {
+        "type": "keyed-list",
+        "subject": "dissection",
+        "list": "items",
+        "word": "item",
+        "added": [
+          {
+            "text": "dissection {id} ({type|'item'}): {note|span!70}"
+          }
+        ],
+        "changed": {
+          "otherwise": "dissection {id} changed"
+        }
+      },
+      "context": {
+        "type": "keyed-list",
+        "subject": "context",
+        "as": "map",
+        "word": "context",
+        "added": [
+          {
+            "text": "context {id} set: {value!60}[ ({status})]"
+          }
+        ],
+        "removed": "context {id} removed",
+        "changed": {
+          "rules": [
+            {
+              "when": {
+                "changed": [
+                  "value"
+                ]
+              },
+              "stop": true,
+              "text": "context {id}: {old.value!36} → {value!36}[ ({status})]"
+            },
+            {
+              "when": {
+                "changed": [
+                  "status"
+                ]
+              },
+              "stop": true,
+              "text": "context {id}: {old.status|'—'} → {status|'—'}"
+            }
+          ],
+          "otherwise": "context {id}: reason changed"
+        }
+      },
+      "roadmap": {
+        "type": "document",
+        "subject": "roadmap",
+        "entries": {
+          "word": "epic",
+          "sections": "^[\\w.-]+\\s*:",
+          "summary": "epics?:\\s*(.*)$"
+        },
+        "created": "roadmap written: epics {entries|'—'}"
+      },
+      "vision": {
+        "type": "document",
+        "subject": "vision"
+      }
     }
   },
   "tool_owners": {
@@ -336,5 +533,37 @@
         ]
       }
     ]
+  },
+  "decisions": {
+    "scope_answer": {
+      "action": "scope.answer",
+      "check": "questions.check",
+      "artifact": "questions",
+      "list": "questions",
+      "flag": "scope_changing",
+      "refused_answerers": [
+        "non-interactive"
+      ]
+    },
+    "stall": {
+      "action": "amend.upstream",
+      "artifact": "findings",
+      "list": "findings",
+      "noun": "finding",
+      "status": "status",
+      "needs_person": "needs_person"
+    },
+    "context": {
+      "artifact": "context",
+      "field_pattern": "^[a-z_]+$",
+      "changed": "changed"
+    },
+    "continue": {
+      "script": "scripts/run-trial.sh",
+      "runs_dir": "runs",
+      "env": {
+        "SDC_PRINCIPAL": "{principal}"
+      }
+    }
   }
 }

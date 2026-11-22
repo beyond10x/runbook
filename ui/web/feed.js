@@ -7,6 +7,7 @@ import {esc} from './lenses.js';
 import {actorOf} from './model.js';
 import {KIND_LABEL, fmtAgo, meaningFor, classBadge} from './now.js';
 import {CLASSES, CLASS_LABEL, classify, storeItems} from './meaning.js';
+import {questionsKind} from './view.js';
 import {principalOf, autopilot, runSettings} from './principal.js';
 
 const clock = (t) => (t == null || isNaN(t) ? '' : new Date(t).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}));
@@ -59,7 +60,7 @@ export function feedItems(cases, live, history, facts) {
       out.push({...it, who, store: true});
     }
   }
-  const qFromFs = fsOn && live.fs.changes.some((x) => classify(x.path).kind === 'questions');
+  const qFromFs = fsOn && live.fs.changes.some((x) => classify(x.path).kind === questionsKind());
   (history || []).forEach((d, i) => {
     if (d.src === 'ui-actions.jsonl' || d.refused) return;
     const who = whoOfPrincipal(d.principal, d.model) || {kind: 'none', label: 'Principal not recorded'};

@@ -2,6 +2,7 @@
 // under the header and as the first rows of the Metrics tab. A value the run did not record is
 // "not recorded", never 0.
 import {phaseStates, llmTotals, esc} from './lenses.js';
+import {stallRule} from './view.js';
 import {fmtDur} from './now.js';
 import {isPersonPrincipal, principalOf, autopilot, standIn} from './principal.js';
 
@@ -139,7 +140,7 @@ export function computeKpis(cases, run, history, ns, now = Date.now()) {
 
 const NR = '<span class="k-nr">not recorded</span>';
 const shortId = (c) => (c.parent && c.id.startsWith(c.parent + '.') ? c.id.slice(c.parent.length + 1) : c.id);
-const stopWhat = (x) => (x.actions.length ? x.actions.map((a) => (a === 'amend.upstream' ? 'findings (amend.upstream)' : a)).join(', ') : x.verdict.replace('_', ' '));
+const stopWhat = (x) => (x.actions.length ? x.actions.map((a) => (stallRule() && a === stallRule().action ? `${stallRule().artifact} (${a})` : a)).join(', ') : x.verdict.replace('_', ' '));
 // one stop a person held, as a link to its event (the case, the action or the findings, how long)
 export function stopLink(x, cls) {
   return `<button class="${cls}" data-goto="${esc(x.c.rel)}" data-seq="${x.seq}" title="${esc(`${x.c.id}: ${x.verdict.replace('_', ' ')} on ${stopWhat(x)} at event ${x.seq}, ${fmtDur(x.ms)}${x.open ? ' (still open)' : ''}`)}"><span class="ks-c">${esc(shortId(x.c))}</span><span class="ks-a">${esc(stopWhat(x))}</span><span class="ks-d">${esc(fmtDur(x.ms))}</span></button>`;

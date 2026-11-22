@@ -163,27 +163,70 @@ URL parameters for links: `source`, `case` (path below the store, for example
 ## The view file: one inspector, any runbook
 
 What the page knows about one runbook, and cannot read from the case store, is data the runbook
-ships: `views/sdc.view.json` for SDC (format `runbook.view/1`). `node server.mjs --view FILE`
-serves another one; without `--view` the server takes `views/sdc.view.json` of the checkout when
-it exists; `--no-view` runs without one. The page reads it from `/api/view` (`null` without one).
-Three tables:
+ships: `views/sdc.view.json` for SDC (format `runbook.view/1`). The code knows the runtime's records
+(events, evaluations, evidence, decisions, bindings, the AEP, ESS and ADR file formats) and nothing
+about one runbook. `node server.mjs --view FILE` (repeatable) loads views; without `--view` the
+server loads every `views/*.view.json` of the checkout; `--no-view` loads none. A run is shown with
+the first view that covers it, so one server can hold runs of different runbooks. The page reads the
+view of the run on screen from `/api/view?source=N` (`null` without one) and what is missing from
+`/api/view-info?source=N` (`protocols`, `file`, `runbook`, `missing`).
 
+A view is checked when the server starts: a member the inspector does not know, or one of the wrong
+type, refuses the start with a message that names it (`decisions.scope_answer.escalate: view member
+"escalate" is not known to the inspector (runbook.view/1)`), exit code 2. A new member needs a change
+of `web/view.js` (`VIEW_SCHEMA`), not only of the file.
+
+Members (all optional but `format`):
+
+- `runbook`: its name. `protocols`: regular expressions of its protocol ids; the view covers a run
+  when one case of the run has such a protocol. Without `protocols` the protocols of `phases.items`
+  count, and a view without either covers every run.
 - `phases`: `stages` (names, in order), `items` (`id`, `stage`, `label`, `short`, `protocol`, the
   `claims` that make the phase, `doc` for the tooltip, `has_source`, `root_outcome`) and `absent`
   (a stage shown with a note while no case of `protocol_pattern` exists, the "Ticket" row of SDC).
 - `file_kinds`: `rules` (a `match` regular expression, optional `flags`, a `class` of planning, spec,
-  direction, decision or code, a `kind`, or `$basename`; the first rule that matches wins) and
-  `artifacts` (an artifact name of the protocols to its class).
+  direction, decision or code, a `kind`, or `$basename`; the first rule that matches wins),
+  `artifacts` (an artifact name of the protocols to its class) and `parsers` (a `kind` of a rule to
+  what a change of such a file means, below).
 - `tool_owners`: the programs an act needs on the server's PATH: `always`, `driver` (an act that
   starts the driver), `continue` (the whole run), and per `tools` entry (`argv0`, matched on the
   binding's program) the `needs` of each `subcommands` entry (`match` on the first argument).
+- `decisions`: which decisions a person can take.
+  - `scope_answer`: a question a person answers and the approval that goes with it. `action` (its
+    capability is named like it), `check` (the action that records the changed artifact), `artifact`
+    (a name of the case's artifacts), `list` (the key of the records in that file), `flag` (the
+    record's field that marks a question for a person), `fields` (the file's names for `id`, `item`,
+    `question`, `options`, `default`, `status`, `answer`, `answered_by`, `answered_at`, `reason`;
+    the file's own names when a field is not listed), `statuses` (the file's words for `open`,
+    `accepted`, `changed`) and `refused_answerers` (names the program refuses as an answerer).
+  - `stall`: a wait on `action` with no record in `artifact`'s `list` whose `status` is
+    `needs_person` is not a decision (the Now band says why nothing runs); `noun` is the word the
+    sentence uses.
+  - `context`: a field of the `artifact` a person may change (`field_pattern`, the word `changed`
+    for its status, `fields` for the names of `value`, `status`, `reason`).
+  - `continue`: the `script` that continues a run (relative to the checkout), the `runs_dir` the run
+    must be in, and the `env` it gets (`{principal}` is the server's principal).
+
+A parser (`file_kinds.parsers.<kind>`) says what a change of a file of that kind means, in sentences.
+Two types read it. `keyed-list`: records with an id, in a list under `list` (or a map, `as: "map"`);
+`added` is the first rule whose `when` holds (`text`), `removed` a sentence, `changed` rules in order
+(a rule with `stop` ends them, `each` and `except` make one sentence per changed field, `variants`
+refine a sentence), `otherwise` the sentence when no rule fired. `when` holds when every part holds:
+`set` (fields not empty now), `was_unset`, `changed`, `equals`. In a sentence `{name}` is a field,
+`{old.name}` the field before, `{id}` the record's id, `{$field}` a changed field's name,
+`{a|b|'x'}` the first that is not empty, `{name!N}` the value in quotes cut to N characters, and
+`[ ... ]` is left out when a field in it is empty. `document`: a front matter document with
+sections; `entries` (`word`, `sections`, `summary`: where its entries are named) and `created` (the
+sentence for a new file). A kind with no parser is read as its top-level keys.
 
 Without a view the page still works: one stage "Protocols" with one phase per protocol found in the
-store, every file labelled by its path (class code), and only the driver and canon binaries checked.
-`test/view.spec.mjs` runs a second runbook (`test/second-runbook.mjs`, protocol `triage.ticket`) with no
-view and with a two-phase one (ports 7621 and 7622, `SDC_UI_VIEW_PORT`). What still reads SDC names in
-code, not data: the parsers of the direction and intake files by kind (`web/meaning.js`) and the
-scope-answer and amend actions of the Decisions drawer (`decisions.mjs`).
+store, every file labelled by its path (class code), no decision of the runbook, and only the driver
+and canon binaries checked; a note above the phases says which view is missing (the protocols found,
+`--view FILE`). The same holds for a run no loaded view covers: it is never shown with another
+runbook's view. `test/view.spec.mjs` runs a second runbook (`test/second-runbook.mjs`, protocol
+`triage.ticket`, a record `asks.yaml` and a decision of its own) on servers of free ports with no view,
+a two-phase view, a view that does not cover it, and a write server whose answer is stored with the
+view's own field names; it also refuses a view with an unknown member.
 
 ## Where "now" comes from
 
