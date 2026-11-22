@@ -28,7 +28,8 @@ Commits the rows were read at. Paths are under `crates/` of that repository.
 | T | Canon | tag `0.10.0` | `2c7a1ea6a` | read at the tag by Runbook (2026-11-22), not run, not compiled against; the Canon tag Loom pins |
 | C | Canon | `wave/2026-11-21` | `7d1a28a20` | read, not run; also on `origin/wave/2026-11-21` |
 | H | Loom | plan tree `wave/2026-11-21-w7` | `50ddc47d` | in no tag and in no remote branch; the integration head of the same branch was `54204526` when Loom reported the parity path |
-| B | Loom | `impl/tree-run-command` | `c8ca4ad6` (base `5751f164`) | unmerged; holds `loom-tree` |
+| I | Loom | merge into the integration branch `wave/2026-11-21-w7` | `1016c251` (2026-11-22) | merges `impl/tree-run-command` (`3bb75aa1`); in no tag; read by Runbook (function heads, manifests and `Cargo.lock`), not run |
+| B | Loom | `impl/tree-run-command` | `c8ca4ad6` (base `5751f164`) | holds `loom-tree` before the merge I |
 | P | Loom | plan commit | `df62eaec` | holds the stories `concurrent-confined-runs`, `cancel-a-running-bound-program` and `per-run-program-path` (proposed); their `file:line` are copied from the stories and were not re-read in the code |
 | main | Loom | `origin/main` | `b4b5de28` | has no `tree` command |
 | 0.58.0 | Loom | tag | `1378f8fe` (2026-11-21, in `main`) | has neither `loom-tree` nor `loom-decision`; pins Canon `0.9.0` |
@@ -86,13 +87,13 @@ covers it. "Blocks" names stories of the epic.
 | L1 | load protocols (from YAML text) | `b10x-loom-protocols`: `ProtocolCatalog::default()` and `add_yaml(&mut self, name: &str, yaml: &str, source: ProtocolSource) -> Result<(), String>` (compiles with Canon) | H `protocols/src/lib.rs:241` | on a branch (`wave/2026-11-21-w7`) | |
 | L2 | load protocols from a directory | `--protocols`, the `Directory` source kind and a public `registration_for` (private today) | H `protocols/src/lib.rs:318`; Loom story `tree-run-command` § Outcome | requested (Loom story; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (whether `add_yaml` alone is enough: not checked) |
 | L3 | load and check bindings | `b10x-loom-bindings`: `decode(text: &str) -> Result<BindingsDocument, Refusal>`, `check(&BindingsDocument, registration: &str, &b10x_canon::model::Protocol) -> Result<(), Refusal>`; `ProtocolEntry.model` is a public Canon `Protocol` | H `bindings/src/decode.rs:56`, `bindings/src/load.rs:30`, `protocols/src/lib.rs:60-65` | on a branch (`wave/2026-11-21-w7`) | |
-| L4 | open a case tree | `b10x-loom-tree`: `open_tree(&OpenRequest<'_>) -> Result<OpenedTree, Refused>`; `OpenRequest` holds store, workspace, protocol registration, bindings path, revisions `Vec<(String, String)>`, case, `TreeTime` and `&ProtocolCatalog` | B `tree/src/open.rs:89`, `:41-58` | on a branch (`impl/tree-run-command`, unmerged; its `Cargo.toml` pins Canon `0.9.0`) | |
+| L4 | open a case tree | `b10x-loom-tree`: `open_tree(&OpenRequest<'_>) -> Result<OpenedTree, Refused>`; `OpenRequest` holds store, workspace, protocol registration, bindings path, revisions `Vec<(String, String)>`, case, `TreeTime` and `&ProtocolCatalog` | I `tree/src/open.rs:89` (B: `:89`, `:41-58`) | on the integration branch (merge `1016c251`), not in a tag; its `Cargo.toml` pins Canon tag `0.10.0` | |
 | L5 | open a tree from an intent | `open_tree` takes a registration, not an intent; routing an intent to `tree open` (a model call) is in no story Loom read | B `tree/src/open.rs:41-58` | not planned | |
-| L6 | run a tree in process | `run_tree` in `crates/loom-tree`: agreed 2026-11-22, plain-data arguments, an optional observer called per run-log line, a cancel handle checked between steps. Loom's story `tree-run-command` § Acceptance (line 303) names it and states no signature. Its parts exist on H: `run_until_blocked(governor, executor, authority, effects, commission, runs, context) -> Result<LoopEnd, LoopError>`, `ProgramEffects::new(governor, case, document, workspace, store, runner) -> Result<Self, ConfinementError>`; `terminate` is on `impl/child-case-runtime` | H `commission/src/runtime.rs:1194`, `bindings/src/program.rs:132`; `governor/src/children.rs:643` on `impl/child-case-runtime` | requested (agreed 2026-11-22, not built; needs `child-case-runtime`, `bound-program-retry-records`, `bound-program-contract`, all unmerged; blocker `loom-library-entry`, also `loom-tree-run`) | `engine-on-loom-library-entry`, `run-in-process-and-cli-as-daemon-client`, `parity-run-on-loom`, `presets-embedded-and-runbook-test` |
+| L6 | run a tree in process | `b10x-loom-tree`: `run_tree(store: &Path, catalog: &ProtocolCatalog, settings: &RunSettings, observer: Option<&mut dyn RunObserver>, cancel: Option<&AtomicBool>) -> Result<TreeRun, Refused>` at `1016c251` (`RunSettings`: `max_steps`, `max_wall_seconds`, `time`, `runner`; `RunObserver::line(&mut self, case: &str, line: &RunLogLine)`; `cancel` ends the run before its next step). Before that merge: agreed 2026-11-22, plain-data arguments, an optional observer called per run-log line, a cancel handle checked between steps; Loom's story `tree-run-command` § Acceptance (line 303) named it and stated no signature. Whether the parts it needed (`child-case-runtime`, `bound-program-retry-records`, `bound-program-contract`) are in the merge was not read. Its parts exist on H: `run_until_blocked(governor, executor, authority, effects, commission, runs, context) -> Result<LoopEnd, LoopError>`, `ProgramEffects::new(governor, case, document, workspace, store, runner) -> Result<Self, ConfinementError>`; `terminate` is on `impl/child-case-runtime` | I `tree/src/run.rs:122`; H `commission/src/runtime.rs:1194`, `bindings/src/program.rs:132`; `governor/src/children.rs:643` on `impl/child-case-runtime` | on the integration branch (merge `1016c251`), not in a tag; read as a function head and its manifest only, not run | `engine-on-loom-library-entry`, `run-in-process-and-cli-as-daemon-client`, `parity-run-on-loom`, `presets-embedded-and-runbook-test` |
 | L7 | records as they are written | the observer of L6, one call per run-log line (agreed 2026-11-22, not built). Today no callback, channel or stream exists or is planned. Commission's `EventSink::emit(&mut self, &RuntimeEvent)` carries runtime events, not run-log lines; a bridge from it into the run log is only "inferred" in `tree-run-command` § Scope. A stream of evidence records: not known | H `commission/src/ports/events.rs:26`; B `tree/src/log.rs:136-169` (the tree's writer `Logs` is `pub(crate)`) | requested (agreed, not built; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (acceptance: every record reaches the sink), `daemon-skeleton-on-a-runtime-trait` only through its stub |
-| L8 | records by reading | `RunLog::append(&self, case, at, RunLogEvent)` and `read(&self, case)` in `b10x-loom-runlog`; `tree_status` and `verify_tree` take no lock, so they can be polled | H `runlog/src/lib.rs:193`, `:208`; B `tree/src/lib.rs:18-19` | on a branch (`wave/2026-11-21-w7`; `impl/tree-run-command`) | |
-| L9 | the status reading for the parity comparison | `tree status` prints `format: loom.tree-status/1` with, per case: evidence, runs, approvals, copies, link name, parent, protocol id and revision, outcome or stop, open obligations. The same value is the return of a public library function (agreed 2026-11-22, not built). Runbook's Loom-side reader reads that one output and no store file. Today `tree status` prints JSON per case with id, protocol, outcome or stop, open obligations and the paths of the case file and run log; `status_json` and `tree_status` are on B | B `cli/src/tree.rs:11-14`, `:60-143`; `tree/src/lib.rs:18-19` | requested (agreed, not built; blocker `loom-library-entry`). Today's narrower reading: on a branch (`impl/tree-run-command`) | `parity-run-on-loom` |
-| L10 | approve a `person` action | `approve(&ApproveRequest<'_>) -> Result<CaseApproval, Refused>` | B `tree/src/approve.rs:48` | on a branch (`impl/tree-run-command`) | |
+| L8 | records by reading | `RunLog::append(&self, case, at, RunLogEvent)` and `read(&self, case)` in `b10x-loom-runlog`; `tree_status` and `verify_tree` take no lock, so they can be polled | H `runlog/src/lib.rs:193`, `:208`; I `tree/src/status.rs:89` (`tree_status`), `tree/src/verify.rs:20` (`verify_tree`) | on a branch (`wave/2026-11-21-w7`); `tree_status` and `verify_tree` on the integration branch (merge `1016c251`), not in a tag | |
+| L9 | the status reading for the parity comparison | `tree status` prints `format: loom.tree-status/1` with, per case: evidence, runs, approvals, copies, link name, parent, protocol id and revision, outcome or stop, open obligations. The same value is the return of a public library function (agreed 2026-11-22). At `1016c251` three exist: `tree_status(store: &Path, catalog: &ProtocolCatalog) -> Result<TreeStatus, Refused>`, `read_status(bytes: &[u8]) -> Result<TreeStatus, Refused>` and `stored_catalog(store: &Path) -> Result<Option<ProtocolCatalog>, Refused>`, with `STATUS_FORMAT` and `status_json`. Whether `TreeStatus` holds every field listed here was not read. Runbook's Loom-side reader reads that one output and no store file. Earlier, on B, `tree status` printed JSON per case with id, protocol, outcome or stop, open obligations and the paths of the case file and run log | I `tree/src/status.rs:89` (`tree_status`), `:63` (`stored_catalog`), `tree/src/read.rs:168` (`read_status`); B `cli/src/tree.rs:11-14`, `:60-143` | on the integration branch (merge `1016c251`), not in a tag; the agreed fields of the value not confirmed | `parity-run-on-loom` |
+| L10 | approve a `person` action | `approve(&ApproveRequest<'_>) -> Result<CaseApproval, Refused>` | I `tree/src/approve.rs:54` (B: `:48`); a different `approve` is at `intake-slice/src/grant.rs:275` | on the integration branch (merge `1016c251`), not in a tag | |
 | L11 | decisions: list open requests for a principal, answer, take the recommendation | `b10x-loom-decision`: `open_decisions_for_principal(&S, &Principal)`, `decide(&mut S, Decide) -> Result<DecideOutcome, DecisionError>`, `take_recommendation`, trait `DecisionStore`, `InMemoryDecisionStore`. Not in `main` or `0.58.0` | H `decision/src/views.rs:56`, `apply.rs:400`, `apply.rs:517`, `store.rs:119`, `store.rs:193` | on a branch (`wave/2026-11-21-w7`) | |
 | L12 | a file-backed decision store | `FileDecisionStore::open(dir)` | `governor/src/file_decision.rs:108`, `:122` on `impl/decision-request-file-store` (commit not recorded) | on a branch (`impl/decision-request-file-store`) | |
 | L13 | a tree wait becomes a decision request; `loom_sdk::decisions` | Loom stories `tree-waits-open-decision-requests` and `decision-inbox-commands` (both proposed) | Loom story files | requested (Loom stories, proposed, not agreed; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (answer a decision), `run-in-process-and-cli-as-daemon-client` (`runbook decide`) |
@@ -107,9 +108,11 @@ covers it. "Blocks" names stories of the epic.
 | L22 | Canon through one Loom crate, so Runbook names no `b10x-canon` dependency | a re-export of Canon in `loom-protocols` (agreed 2026-11-22). Today no crate has `pub use b10x_canon`; Canon types are public in Loom's API (`ProtocolEntry.model`, `check(.., &Protocol)`); only `loom_governor::gates` re-exports some types | H `protocols/src/lib.rs:60-65` | requested (agreed, not built; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (the form of `runbook/Cargo.toml`) |
 | L23 | the `PATH` of a run's bound programs | Loom story `per-run-program-path` (proposed, Loom plan commit `df62eaec`; depends on `tree-run-command` and `bound-program-contract`). The settings value `run_tree` takes gains `program_path: Option<String>` (directories separated by `:`) and `program_path_source` (`library` by default); the CLI gets `--program-path <dirs>`. Absent means the process `PATH`, as today. Every bound program and every `arguments_from` program of the run starts with it (`ProgramEffects::with_program_path`). The check is one public function of `b10x-loom-bindings`, `program_path(value, workspace, local) -> Result<ProgramPath, ProgramPathRefusal>`. Refused before any process starts and without a run-log line, as `ProgramPathUnusable` (a new reason of `loom.tree.TreeRefusalReason`): longer than 4096 bytes, an empty entry, an entry that is not absolute, has a `..` component or is not an existing directory. Under a runner that is not `local`, also refused: an entry reached through a symbolic link, an entry that is, holds or lies inside the run's workspace, and more than 4 entries outside the system view (`/usr`, `/bin`, `/lib`, `/lib64`); each such entry is mounted read-only at its own path, at most 4 (`ChildCommand::MAX_READ_ONLY_ROOTS`). The run log gets one `program path` line before the first step (`loom.runlog.ProgramPath`) with `source` (`command line`, `library` or `process`), `entries` (the count) and `sha256` (of the value as given, or of the process `PATH`); it holds no directory and no value | as cited in the story, not re-read: `bindings/src/child.rs:33-53`, `:47-70`, `bindings/src/program.rs:132-150`, `intake-slice/src/bindings.rs:75`, `:86`, `:414-450`, `intake-slice/src/confinement.rs:1233`, `:1242-1259`, `:1255`, `:1297-1306` | requested (Loom story, proposed; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (Loom's reason: a daemon with several runbooks, each with its own tool directory, would otherwise put every directory on one process `PATH`) |
 
-Counts (23 rows): 8 `on a branch` (L1, L3, L4, L8, L10, L11, L12, L16), 12 `requested` (L2, L6,
-L7, L9, L13, L14, L15, L18, L19, L21, L22, L23), 2 `not planned` (L5, L17), 1 `not checked` (L20),
-0 `exists`. L9 also has a narrower reading `on a branch`; it is counted once, as `requested`.
+Counts (23 rows): 10 `on a branch` (L1, L3, L4, L6, L8, L9, L10, L11, L12, L16; L4, L6, L8, L9
+and L10 on the integration branch at merge `1016c251`, in no tag), 10 `requested` (L2, L7, L13, L14,
+L15, L18, L19, L21, L22, L23), 2 `not planned` (L5, L17), 1 `not checked` (L20), 0 `exists`. L7 and
+L14 are not re-judged: `run_tree` at `1016c251` takes an observer and a cancel flag (L6), and
+whether they meet what was agreed was not read.
 Three rows rest on Loom stories filed on 2026-11-22 (plan commit `df62eaec`, status proposed):
 `concurrent-confined-runs` (L18), `cancel-a-running-bound-program` (L15) and
 `per-run-program-path` (L23); `mixed-egress-launches` (L19, proposed later the same day) follows
@@ -137,9 +140,37 @@ each case file `runlog-<stem>.jsonl` (hash-chained lines with `seq`, `at`, `kind
 members); beside the root case `tree-protocols.json` (per protocol id: revision, file name, sha256)
 and the recorded workspace path (`governor/src/file_store.rs:1-30`).
 
+### Loom at merge 1016c251
+
+Loom's integration branch `wave/2026-11-21-w7` took `impl/tree-run-command` in the merge `1016c251`
+(2026-11-22). In no tag. Runbook read the function heads below at that commit with `git grep -n -E
+'pub fn (open_tree|run_tree|approve|tree_status|read_status|stored_catalog|verify_tree)\b' 1016c251
+-- crates`, and the manifests and `Cargo.lock`; nothing was run or compiled against. Crate
+`b10x-loom-tree` (library `b10x_loom_tree`), paths under `crates/loom-tree/src/`. State of each:
+on the integration branch (merge `1016c251`), not in a tag. The Loom session named these seven.
+
+| function | signature at `1016c251` | read at | row |
+|---|---|---|---|
+| `open_tree` | `(request: &OpenRequest<'_>) -> Result<OpenedTree, Refused>` | `open.rs:89` | L4 |
+| `run_tree` | `(store: &Path, catalog: &ProtocolCatalog, settings: &RunSettings, observer: Option<&mut dyn RunObserver>, cancel: Option<&AtomicBool>) -> Result<TreeRun, Refused>` | `run.rs:122` | L6 |
+| `approve` | `(request: &ApproveRequest<'_>) -> Result<CaseApproval, Refused>` (the grep also finds `approve` at `loom-intake-slice/src/grant.rs:275`, another function) | `approve.rs:54` | L10 |
+| `tree_status` | `(store: &Path, catalog: &ProtocolCatalog) -> Result<TreeStatus, Refused>` | `status.rs:89` | L8, L9 |
+| `read_status` | `(bytes: &[u8]) -> Result<TreeStatus, Refused>` | `read.rs:168` | L9 |
+| `stored_catalog` | `(store: &Path) -> Result<Option<ProtocolCatalog>, Refused>` | `status.rs:63` | L9 |
+| `verify_tree` | `(store: &Path, catalog: &ProtocolCatalog) -> Result<TreeVerify, Refused>` | `verify.rs:20` | L8 |
+
+All seven are `pub fn` at that commit; none is "named by Loom, not found". `loom-tree/Cargo.toml`
+pins `b10x-canon` tag `0.10.0` there.
+
+Not in that merge, as Loom reported: openings by `each` from `arguments_from`, `tree close` and
+`--protocols`. Runbook's grep of the merge finds no `Close` command and no `--protocols` option in
+`crates/loom-cli/src`, and no `arguments_from` in `crates/loom-tree/src` (the decoding of the
+`arguments_from` field is in `loom-bindings`); the openings by `each` were not searched for further.
+
 ### Order of the stub-cycle path in Loom
 
-Still to merge into the integration branch, in order: `child-case-runtime`,
+Written before the merge `1016c251`, which took `tree-run-command` (above); whether the four before
+it are in the merge was not read. Still to merge into the integration branch, in order: `child-case-runtime`,
 `record-copy-between-cases`, `bound-program-contract`, `open-children-from-arguments-from`,
 `tree-run-command` (`tree open/run/approve/close/status/verify`). The first runnable commit is the
 head of `impl/tree-run-command` after it has merged the four; Loom names the sha. The integration
@@ -160,12 +191,13 @@ After that path, in the order Loom set (2026-11-22, not built): `per-run-program
   `b10x-canon` with the same git source and the same tag as Loom, so that cargo unifies it; two
   spellings link two Canons and their `Protocol` types do not match. Loom's crates pin tag `0.10.0`
   on the integration branch (`loom-bindings/Cargo.toml:14`, `loom-governor/Cargo.toml:15`,
-  `loom-protocols/Cargo.toml:14`; `Cargo.lock:188-190`). B's `loom-tree/Cargo.toml` pins tag `0.9.0`;
-  the merge must change it, or two Canons are linked.
+  `loom-protocols/Cargo.toml:14`; `Cargo.lock:188-190`). At the merge `1016c251` `loom-tree/Cargo.toml` pins
+  tag `0.10.0` too (read there; the earlier `0.9.0` was B's own commit `c8ca4ad6`), so one Canon is
+  linked, and `Cargo.lock` resolves it to `2c7a1ea6a9dc2e19633fb225290c826b1c9988ce`.
 - Pin: Runbook pins the commit Loom names, the first with `run_tree` (L6), and then the tag that
-  contains it. No commit has `run_tree` yet. No tag contains `loom-tree` or `loom-decision`; `0.58.0`
-  does not, and `50ddc47d` is in no tag and no remote branch, so nothing complete can be pinned
-  today.
+  contains it. `run_tree` is in the merge `1016c251` (see "Loom at merge 1016c251"), which has no
+  tag. No tag contains `loom-tree` or `loom-decision`; `0.58.0` does not, and `50ddc47d` is in no
+  tag and no remote branch, so nothing complete can be pinned today.
 - Canon rows C1 to C6 are read at tag `0.10.0` (`2c7a1ea6a`), the Canon version Runbook links: the
   one Loom pins (`Cargo.toml` of `loom-bindings`, `loom-governor`, `loom-protocols` and `loom-tree`,
   and `Cargo.lock`, at the Loom integration commit `1016c251`). Read, not run and not compiled
@@ -190,7 +222,7 @@ After that path, in the order Loom set (2026-11-22, not built): `per-run-program
     llm-routing, llm-tool-call (which brings llm-http, llm-credentials, llm-providers),
     substrate-host (git2, gix, curl, tokio), substrate-wire, tokio `rt-multi-thread`, nix, chrono and
     jiff.
-  - `loom-tree` (on B): canon `0.9.0`, bindings, commission, governor, intake-slice, protocols,
+  - `loom-tree` (at the merge `1016c251`; B pinned `0.9.0`): canon `0.10.0`, bindings, commission, governor, intake-slice, protocols,
     runlog, the generated `loom`, serde_json, sha2.
   - Substrate: `b10x-substrate-host` (feature `git`) and `b10x-substrate-wire` at rev `adfde402…`,
     version `=0.21.0`, in `loom-intake-slice`; every crate that depends on `loom-bindings` gets them.
