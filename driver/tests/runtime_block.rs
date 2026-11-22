@@ -277,3 +277,9 @@ fn no_stale_retry_names_a_kind_the_yaml_binding_produces() {
     let stale: Vec<&str> = out.lines().filter(|l| l.starts_with("stale-retry")).collect();
     assert!(stale.is_empty(), "{stale:?}");
 }
+
+#[test]
+fn a_host_name_with_a_port_is_not_a_file_and_line() {
+    let (code, out, err) = run_with("host", |e| e["runtime"]["provided_by"]["capped_effects"] = json!("loom: see example.com:443"));
+    assert_eq!(code, 2, "a host and a port read as a file and a line:\n{out}{err}");
+}
