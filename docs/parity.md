@@ -59,11 +59,23 @@ child's `case_outcome` record, is described under "Known differences of the two 
   only in `.`, `_` and `-` (`sdc.intake`, `sdc_intake` and `sdc-intake` are one id to it). Two ids that
   differ in a letter or a digit still differ.
 - Feedback copies (`product_tree[.sdc/loom-feedback/**]`). In Loom mode `bindings/tools/llm-node.sh`
-  copies the retry-feedback document and the log tails of a retry into `.sdc/loom-feedback/<16 hex>/` in
-  the workspace; the driver hands the same feedback to the writer in a variable and writes no file. The
-  listing of the product tree leaves out everything under `.sdc/loom-feedback/`, on both sides, where
-  the summary is written (`walk_product`); it is the transport of feedback, not product. Another
-  directory under `.sdc/` is listed as before.
+  copies the document that `LOOM_RETRY_FEEDBACK` names, and the log tails it cites, into
+  `.sdc/loom-feedback/<16 hex>/` in the workspace (`bindings/tools/llm-node.sh:94-104`; the directory
+  name is the first 16 hex digits of the document's sha256, so it differs between runs). Runbook's own
+  script writes the files. Loom sets the variable on a writer step whenever the case holds records of
+  the kinds and results the writer's `retry_when` lists, at a revision of their subject that is not
+  `none` (Loom `2c0a6f48`, `crates/loom-bindings/src/retry.rs:48-84`, the variable set at `:191-206`
+  and `child.rs:120`). It does not wait for a retry: in the `stub-cycle` run the first run of the plan
+  writer (`plan.decompose`) found `decomposition_coverage` `uncovered`, `stories_scoped` `unassessed`
+  and `story_states` `draft` (`bindings/sdc-plan.yaml:33-37`), and the three files are that
+  document and the tails of its two logs. `retry_followed` counts retries taken (a next run of the
+  action), which is not the same fact. The driver hands the same records to the writer in the variable
+  `SDC_FEEDBACK` as a file in the case's `blobs/` directory, not in the workspace
+  (`driver/src/main.rs:549-565` chooses the records, `:1512-1547` hands them over); its first
+  `plan.decompose` run names the same three kinds in `retry_of`. The listing of the product tree
+  leaves out everything under `.sdc/loom-feedback/`, on both sides, where the summary is written
+  (`walk_product`); it is the transport of feedback, not product. Another directory under `.sdc/` is
+  listed as before.
 
 A third answer besides equal and different: a member exactly one side lists under `not_recorded` (or
 lies below a member it lists) is not compared, and `compare` names it on a line
@@ -124,7 +136,8 @@ order (`path` from the root, `case` link name, `action`, `capability`, `answer`,
 
 ## From Loom's status to the summary
 
-Read at Loom commit `1016c251` (`crates/loom-tree/src/status.rs`, `encode.rs`, `read.rs`). The table
+Read at Loom commit `1016c251` (`crates/loom-tree/src/status.rs`, `encode.rs`, `read.rs`); the first
+equal comparison read a status of Loom `2c0a6f48` with the same reader. The table
 is `RULES` in `runbook/src/parity.rs` printed by `runbook parity compare --rules`: the columns
 `Loom member` and `Rule` are its last two, and a test fails when this page and the code differ. The
 `Driver` column is where the driver reader finds the member. `[]` is any list index. A Loom member
@@ -197,12 +210,73 @@ a Loom summary names each as `not recorded on one side` and compares nothing the
 work on the driver side and are lost on Loom's: a copy's `subject_revision` (the evidence lists still
 carry the revision of the copied record in the target case) and the stand-in settings of the run.
 
+## First equal comparison (2026-11-22)
+
+`story:parity-first-run`. The cycle `stub-cycle` was run twice from one export of Runbook commit
+`ee90434` (the tools and the bindings), once by the old driver and once under Loom, and the two
+summaries compare equal on what both sides record.
+
+- Driver run: `scripts/run-full-cycle.sh stub-cycle`, exit 0, 108 s. The driver binaries were built
+  from the driver sources of `5d9e679`. `git diff --stat 5d9e679 1b81110 -- driver/src` is not empty:
+  it lists five files (`sdc-conform-adapter.rs`, `sdc-conform.rs`, `sdc-reply/implement.rs`,
+  `sdc-unstick.rs`, `instructions.rs`), the move of the model instructions of three binaries to
+  files, which goldens hold byte for byte. The run does not show whether the cycle reaches them.
+- Loom run: a binary built from Loom commit `2c0a6f48` (version 0.58.0; the merge of `7d071ad8` into
+  the integration branch). Six `tree run` calls and five `tree approve` calls; the last `tree run`
+  exit 0; `tree verify` exit 0 with `{"cases":8}`; 43 s for the whole script (protocol
+  registration, open, runs, approvals, status, verify).
+- Both sides: principal `person:owner`; no wrapper around `ess` or `aep`; no `HOME` for the programs
+  under Loom.
+- Summaries: written by the `runbook` binary of commit `45287aa` (the parity rules of this page).
+  Both print `8 cases, 69 evidence records, 54 program runs, 5 person steps, 62 product files`.
+- `runbook parity compare` and `runbook parity compare --product-digests`: exit 0 and the same
+  output. The first line is `equal on what both sides record: 8 cases, 69 evidence records, 54
+  program runs, 5 person steps, 62 product files`; then six lines `not recorded on one side: <member>
+  (not recorded by b)`, for `source.run_settings`, `copies[].action`, `copies[].subject`,
+  `copies[].subject_revision`, `decision_requests` and `protocols[].digest`.
+- With Loom `64e8f5e2` the same comparison printed one more line,
+  `cases[2].evidence[6].upstream_revisions.vision`: the driver records the revision of the vision on
+  the evidence of `roadmap_approval`, and that Loom commit recorded none on a person step. Loom's
+  commit `7d071ad8` (in `2c0a6f48`) records it, and the line is gone.
+- Process names below `b10x-loom` over the six `tree run` calls, sampled every 20 ms: `bash`,
+  `cargo`, `ess`, `rustc`, `sccache`, `sdc-findings`, `slot`; never `sdc-drive` and never `canon`.
+  The limit: a program that lives shorter than the sampling interval can be missed, so this shows
+  that no `sdc-drive` and no `canon` process lived long enough to be sampled, and no more.
+
+What "equal on what both sides record" does not cover:
+
+- The six members Loom's status holds nothing for, which are not compared: the run settings (so the
+  stand-in settings of the driver's run), a copy's action, subject and subject revision, the
+  decision requests, the digest of a protocol.
+- The revision of a child's `case_outcome` record in its parent, by rule: it is neither compared nor
+  counted (see "Known differences of the two runtimes").
+- Directory revisions, compared by pattern (order of first appearance), not by value; the same for
+  case ids, request ids and protocol digests. A protocol id is read as its registration stem.
+- What `.sdc/loom-feedback/` holds: it is left out of the product tree on both sides.
+- A model. This is the stub cycle: no model call on either side. It says nothing about the two
+  runtimes on a run whose actions a model writes, on a retry, on a refusal, on a spent budget or on
+  a person's `Deny`.
+
+Two things the run showed that are not differences of the comparison:
+
+- The export of a commit has no `driver/target/debug/`, and the driver's tools look for
+  `sdc-findings` and `sdc-reply` there, so the driver run needed that directory linked to prebuilt
+  binaries (`story:driver-tools-find-binaries-without-build-dir`).
+- Three files under `.sdc/loom-feedback/<16 hex>/` although neither run shows a retry
+  (`retry_followed` is 0 in both summaries). Not a defect: Loom hands retry feedback to a writer
+  whose `retry_when` records exist, not only after a retry, and `llm-node.sh` copies it there;
+  the driver hands the same three records over as well ("The rules", feedback copies).
+
+The comparison was made against Loom `2c0a6f48` (the table below was read at `1016c251`).
+
 ## What the first real run needs
 
 Each line is something the reader assumes about `loom.tree-status/1` that Loom's code at `1016c251`
 does not settle. A first real run confirms it or the reader changes. File and line are Loom's. The
 first real run (`stub-cycle`, 8 cases, 69 evidence records, 54 program runs, 5 person steps, equal
-counts on both sides) settled the items marked **Settled**; the others were not exercised by it.
+counts on both sides) settled the items marked **Settled**; the others were not exercised by it. The
+equal comparison above settles the last difference the first run left on item 11 and confirms 14
+again; items 3, 4, 8, 15 and 16 are still open, and each says why.
 
 1. The link name. The brief said a case's name is joined from `children[].name` and `outcome_evidence`,
    and that an evidence entry may carry a `name` later. At `1016c251` neither exists: the name is the
@@ -216,13 +290,16 @@ counts on both sides) settled the items marked **Settled**; the others were not 
 3. The stop of a parent. `last_stop` takes the last `stopped` line of the case's own log
    (`status.rs:177-188`); a run that waits on a child names the child (`tree_run.rs:463-475`). Whether the
    parent's log holds a `stopped` line is not settled. The driver derives the parent's stop from its own
-   evaluation, so a parent over a waiting child may show a stop on one side and none on the other.
+   evaluation, so a parent over a waiting child may show a stop on one side and none on the other. **Open:** the
+   equal comparison read the status after the root had its outcome, so no parent was read while it
+   waited.
 4. Stop words. `TreeStop` is `Terminal, AwaitingPerson, AwaitingAuthority, Stuck, BudgetSpent`
    (`ess/domains/tree.yaml:31`); the status holds the variant name (`status.rs:183`, `tree_run.rs:664`).
    `Stuck` is read as the driver's fallback `stopped` and `BudgetSpent` as `budget_spent`. The driver
    names the budget (`step_budget_spent`, `wall_time_spent`, ...); the status does not
    (`encode.rs:225-232`, the name sits in the run's `detail`), so a run stopped on a budget differs on
-   `stop.cause`. `Terminal` on a case with no outcome is an error.
+   `stop.cause`. `Terminal` on a case with no outcome is an error. **Open:** the equal comparison read
+   a status in which every case has an outcome, so no `stop` is read and no run stopped on a budget.
 5. Outcomes and obligations. Outcome names (`status.rs:140-143`, examples `arrived`, `passed` at
    `tree_run.rs:650,657`) and obligation ids (`status.rs:118-123`) are the protocol's and Canon's; the
    reader assumes the driver's `termination` and obligation ids are the same strings for the same
@@ -239,7 +316,8 @@ counts on both sides) settled the items marked **Settled**; the others were not 
    differs.
 8. Retries. `retried` (`status.rs:256-269`) is read as the driver's `retry_followed`: the next run of the
    action carries a non-empty `retry_of`. Loom's `attempt` counts within a retry chain, so a rerun with
-   no `retry_of` starts at 1; the summary counts the runs of the action instead and does not read it.
+   no `retry_of` starts at 1; the summary counts the runs of the action instead and does not read it. **Open:**
+   `retry_followed` is 0 in all 54 program runs of both summaries; no retry occurred.
 9. The instant of an approval. `at` is the line's time (`status.rs:322`); every test passes one fixed
    instant with `--at` (`tree_run.rs:36`). The reader orders person steps by `at` as text, then by the
    case's place and the approval's. When a run passes one instant, `order` is by case, not by time, and
@@ -255,7 +333,8 @@ counts on both sides) settled the items marked **Settled**; the others were not 
 11. The actor. `actor` is the principal passed on the command line (`status.rs:321`); it equals the
     driver's only when the Loom run was given the principal the driver run recorded (`person:stand-in`).
     **Settled:** the run passed `person:owner` and `operator`, and the 5 actors differ for that reason
-    alone.
+    alone. **Settled again:** in the equal comparison both runs passed `person:owner` and the 5
+    actors are equal.
 12. Copies. An entry holds `source_case`, `target_case` and `record_kind` (`encode.rs:120-126`). The
     record is not named, so `action`, `subject` and `subject_revision` are not recorded. An entry whose
     kind cannot be found is left out by Loom (`status.rs:343-351`) and shows up as a missing copy. **Settled:** the 4 copies are equal in `kind`, `from` and `to`, and
@@ -269,11 +348,16 @@ counts on both sides) settled the items marked **Settled**; the others were not 
     workspace holds files the driver's `work/` does not, `product_tree[]` differs by path. Pass the
     directory that holds the product alone with `--product-tree`. **Settled:** the workspace held the
     product and `.sdc/loom-feedback/` (3 files) and nothing else; the rule "feedback copies" leaves that
-    directory out.
+    directory out. **Settled again:** the equal comparison holds 62 product files, equal in path and,
+    with `--product-digests`, in sha256; the workspace again held 3 files under `.sdc/loom-feedback/`
+    without a retry (feedback is handed over without one, "The rules").
 15. A damaged log. A run log that does not verify reads as empty (`status.rs:171-174`): the stop,
-    the approvals and the actions are then missing without a word. Run `tree verify` before reading.
+    the approvals and the actions are then missing without a word. Run `tree verify` before reading. **Open:** the equal comparison ran `tree verify` before it read the
+    status and it exited 0 with `{"cases":8}`; no damaged log was read.
 16. Decisions. The status holds no decision that was recorded; `stop_next` names the open ones only
-    (`status.rs:129,151`). The driver's `decision_recorded` events have nothing to be compared to.
+    (`status.rs:129,151`). The driver's `decision_recorded` events have nothing to be compared to. **Open:** the driver's summary of `stub-cycle` holds no decision request
+    (`decision_requests` is empty), so the member was not exercised; `compare` names it as not
+    recorded by Loom.
 17. The document. The reader takes the whole of what `tree status` printed as a file
     (`tree_run.rs:795-807`), checks `format` (`read.rs:175-191`) and needs `version`
     (`read.rs:194`); a status of another format, or none, is refused by name. **Settled:** the status of

@@ -30,7 +30,9 @@
   refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
 - The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
   `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
-  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`).
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The first equal
+  comparison on `stub-cycle` was made against Loom `2c0a6f48` (`docs/parity.md`, "First equal
+  comparison"); it does not cover a run with a model.
 - The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
   runtime, the UI server or the release.
 
