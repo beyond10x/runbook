@@ -217,6 +217,14 @@ Members (all optional but `format`):
   not delivered") when the view lists good ends and not this one; neutral (a diamond, "ended:
   <outcome>", no red) when there is no view, or the view has no `good_outcomes`. A run that was
   stopped (`run-stopped.json`) is "stopped", whatever the view says.
+- `product`: the main file a run of the runbook produces, one string: a path relative to the run directory
+  (`"product": "work/example/example.md"`). The page links it under the header, one click from the first
+  screen. It is refused where the view is checked (the server start and `runbook check`) when it is not a
+  string, is empty, is absolute, leaves the run (`..`) or has a component that starts with a dot. Without
+  the member the page takes `work/<runbook>/<runbook>.md` when the run has it, else the Markdown files
+  directly under `work/` and one level below, the newest first, and says which rule named the file. A
+  view that names a file the run has not written says "the view names <path>; this run has not written
+  it".
 - `phases`: `stages` (names, in order), `items` (`id`, `stage`, `label`, `short`, `protocol`, the
   `claims` that make the phase, `doc` for the tooltip, `has_source`, `root_outcome`) and `absent`
   (a stage shown with a note while no case of `protocol_pattern` exists, the "Ticket" row of SDC).
@@ -254,6 +262,45 @@ runbook's view. `test/view.spec.mjs` runs a second runbook (`test/second-runbook
 `triage.ticket`, a record `asks.yaml` and a decision of its own) on servers of free ports with no view,
 a two-phase view and a view that does not cover it; it also checks that no route takes an answer, and
 refuses a view with an unknown member.
+
+## What a step produced: the Products tab
+
+The Products tab of the panel (and the product line under the header) shows what the steps of a run
+produced: the evidence records of the case with every field and nested value, the actions with their exit
+code, and the files of the run with their content. It reads and acts on nothing.
+
+- Routes, all GET and behind the guard of every route (a Host that is not this server's is 421):
+  `/api/products?source=N` (the files under the run's `work/` and the `work/` of each case, with size,
+  format and, for a `.txt` step file, its `result:` line; the product and the rule that named it; how many
+  entries were left out), `/api/file?source=N&path=P` (one file: its text in a JSON member, or its size and
+  type), `/api/output?source=N&case=C&seq=S` (the tail of an action's output). Every answer is JSON with
+  `X-Content-Type-Options: nosniff`; no file is served as a type a browser renders.
+- Every read goes through the run-path check of `runfiles.mjs`: the real path lies under the run. The type
+  is read before the file is opened and only a regular file is read: a directory, a named pipe, a socket
+  and a device are refused (415, with the type) and never opened; a link that leaves the run is refused
+  (403). A path that is absolute or climbs out (`..`) is 400.
+- A path with a component that starts with a dot (a tool's cache or login) is neither listed nor served: 404
+  for the file route, also through a link and an encoded dot; the listing says how many entries it left out.
+  There is no switch to show them.
+- A file over 1 MiB is shown cut at 1 MiB with its full byte count. A file that is not UTF-8 text (a NUL
+  byte or bytes that are not UTF-8) is shown by its size and type only. JSON is shown indented, YAML and text
+  as written, Markdown rendered.
+- The Markdown renderer (`web/markdown.js`) is code of this repository with no dependency. It builds
+  elements from text and never assigns markup; raw HTML in a file stays text; an image is a link with its alt
+  text and loads nothing; a link opens only when it is an http or https address (a new tab, no opener) or a
+  path inside the run (opened in the panel); any other address is shown as text with its address.
+- An action's exit code is shown as recorded. Its output is the one blob the run keeps (standard output
+  followed by standard error), tail of 4096 bytes. `runbook run` records no start, end or duration of an
+  action, only a whole-second span for its step (`observed.jsonl`): the page says "not recorded by this
+  run" and shows the span of the step. It shows standard output and standard error as one stream: the run
+  does not keep them apart. The blob of a run of `runbook run` is found through Loom's own run log
+  (`store/runlog-case-<hex of the case id>.jsonl`, `blob_digest`, `store/blobs/<sha256>`); the runner's
+  projected events do not carry the digest.
+- Served by the daemon (`runbook serve --ui`), the page has the same tab and line. The daemon's API has no
+  view of the files, evidence or actions of a run, so both say "the daemon serves no files of a run yet".
+
+Specs: `test/step-products-api.spec.mjs`, `test/step-products-page.spec.mjs`, `test/markdown-hostile.spec.mjs`,
+`test/view-product.spec.mjs`, `test/daemon-ui.spec.mjs`.
 
 ## Where "now" comes from
 

@@ -108,10 +108,11 @@ export function writeProductsRun(dir, {product = 'convention'} = {}) {
   put(path.join(work, 'example', 'latin1.txt'), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]));
   put(path.join(work, '.cache', 'token.txt'), `${TOKEN_TEXT}\n`);
   put(path.join(work, 'example', '.hidden.txt'), `${TOKEN_TEXT}\n`);
-  put(path.join(dir, 'outside', 'secret.txt'), `${SECRET_TEXT}\n`);
+  const outside = path.join(path.dirname(path.dirname(dir)), `outside-${path.basename(dir)}`, 'secret.txt'); // beside the runs folder, not in the run
+  put(outside, `${SECRET_TEXT}\n`);
   fs.mkdirSync(path.join(work, 'example', 'sub'), {recursive: true});
   put(path.join(work, 'example', 'sub', 'inner.txt'), 'inner text\n');
-  fs.symlinkSync(path.join(dir, 'outside', 'secret.txt'), path.join(work, 'example', 'leak.txt'));
+  fs.symlinkSync(outside, path.join(work, 'example', 'leak.txt'));
   fs.symlinkSync(path.join(work, 'example', 'report.md'), path.join(work, 'example', 'alias.txt'));
   fs.symlinkSync(path.join(work, '.cache', 'token.txt'), path.join(work, 'example', 'viatoken.txt'));
   fs.symlinkSync('/dev/null', path.join(work, 'example', 'null.dev'));

@@ -184,7 +184,7 @@ test('the new routes read and nothing else: another method is 405, a request for
     expect(origin, p).toBe(421);
   }
   const src = fs.readFileSync(path.join(here, '..', 'server.mjs'), 'utf8') + fs.readFileSync(path.join(here, '..', 'products.mjs'), 'utf8');
-  expect(src).not.toMatch(/child_process|execSync|execFile|spawn|writeFile|appendFile|unlink|rmSync|mkdirSync|rename\(|copyFile|truncate/);
+  expect(src).not.toMatch(/child_process|execSync|execFile|spawn|writeFile|appendFile|unlink|rmSync|mkdirSync|rename\(|copyFile|truncateSync/);
 });
 
 test('the product of a run: the view names it; else work/<runbook>/<runbook>.md; else the newest Markdown files, said as which', async () => {

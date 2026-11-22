@@ -24,7 +24,7 @@ function recordCard(c, id, status, reason, atSeq) {
     why = `<div class="why ok">Applied: about <code>${esc(r.subject)}@${esc(r.subject_revision)}</code>, which is the current revision.</div>`;
   }
   return `<div class="rec ${status === 'excluded' ? 'excl' : ''}">
-    <div><b>${esc(r.id)}</b> <span class="muted">canon-evidence/1</span></div>
+    <div><b>${esc(r.id)}</b> <span class="muted">canon-evidence/1</span> · <a href="#" data-open="evidence" data-id="${esc(r.id)}" data-case="${esc(c.rel)}">every field</a></div>
     <div>kind <b>${esc(r.kind)}</b> = <b>${esc(r.result ?? '(any)')}</b> · producer <b>${esc(r.producer)}</b>${c.case?.independence?.[r.producer] ? ' (independent)' : ''}</div>
     <div>about <code>${esc(r.subject)}@${esc(r.subject_revision)}</code>${r.upstream_revisions ? ` · upstream ${esc(Object.entries(r.upstream_revisions).map(([a, v]) => `${a}@${v}`).join(', '))}` : ''}${r.child_case ? ` · child <b>${esc(r.child_case)}</b>` : ''}</div>
     <div class="muted">observed ${esc(r.observed_at)}${pe ? ` · from event #${pe.seq} ${esc(pe.event === 'action_finished' ? `${pe.action} exit ${pe.exit}${pe.principal ? ' by ' + principalOf(pe.principal).label : ''}` : pe.event)}` : ''}${pe?.log ? ` · <a href="#" data-blob="${esc(pe.log)}" data-case="${esc(c.rel)}">tool output</a>` : ''}</div>
@@ -72,7 +72,7 @@ export function renderExplain(c, nodeId, ev, atSeq) {
     const b = c.bindings?.[name];
     h += `<h4>Binding</h4><pre class="pred">${esc((b === undefined && a.kind === 'unavailable' ? a.why : JSON.stringify(b ?? 'unbound', null, 1)).replace(/\/home\/[^"]*\/tools\//g, 'tools/'))}</pre>`;
     const runs = c.events.filter((e) => e.action === name && e.event === 'action_finished' && (atSeq == null || e.seq <= atSeq));
-    h += `<h4>Runs (${runs.length})</h4>` + (runs.map((e) => `<div class="bec"><a href="#" data-seq="${e.seq}">#${e.seq}</a> ${esc(e.at)} exit <b>${esc(e.exit)}</b>${e.principal ? ` by ${esc(principalOf(e.principal).label)}` : ''} → ${esc((e.evidence || []).join(', ') || 'no evidence')}${Object.keys(e.revises || {}).length ? ` · revised ${esc(Object.keys(e.revises).join(', '))}` : ''} · <a href="#" data-blob="${esc(e.log)}" data-case="${esc(c.rel)}">output</a></div>`).join('') || '<p class="muted">never ran</p>');
+    h += `<h4>Runs (${runs.length})</h4>` + (runs.map((e) => `<div class="bec"><a href="#" data-seq="${e.seq}">#${e.seq}</a> ${esc(e.at)} exit <b>${esc(e.exit)}</b>${e.principal ? ` by ${esc(principalOf(e.principal).label)}` : ''} → ${esc((e.evidence || []).join(', ') || 'no evidence')}${Object.keys(e.revises || {}).length ? ` · revised ${esc(Object.keys(e.revises).join(', '))}` : ''} · ${e.log ? `<a href="#" data-blob="${esc(e.log)}" data-case="${esc(c.rel)}">output</a> · ` : ''}<a href="#" data-open="action" data-aseq="${e.seq}" data-case="${esc(c.rel)}">exit, time, output</a></div>`).join('') || '<p class="muted">never ran</p>');
   } else if (kind === 'outcome' || kind === 'obligation') {
     const d = kind === 'outcome' ? ir.outcomes[name] : ir.obligations[name];
     const st = kind === 'outcome' ? ev?.outcomes?.[name]?.status : (ev?.obligations || []).find((o) => o.id === name)?.status;

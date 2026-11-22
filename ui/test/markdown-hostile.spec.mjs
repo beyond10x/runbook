@@ -125,3 +125,31 @@ test('the renderer builds nodes from text: its source never assigns markup, and 
   expect(r.html).not.toMatch(/<script|<img|<div|<b /i);
   expect(r.html).toContain('&lt;script&gt;');
 });
+
+test('a file made to keep the renderer busy (a hundred thousand brackets, stars, backticks, quotes and lists nested deep) is rendered within a few seconds and does not throw', async ({page}) => {
+  await page.goto(base);
+  const r = await page.evaluate(async () => {
+    const {renderMarkdown} = await import('/markdown.js');
+    const hostile = {
+      brackets: '['.repeat(100000),
+      links: '[a](b '.repeat(20000),
+      stars: '*a '.repeat(40000),
+      ticks: '`a``b```'.repeat(15000),
+      quotes: '> '.repeat(20000) + 'x',
+      lists: Array.from({length: 3000}, (_, i) => `${' '.repeat(i % 40)}- item`).join('\n'),
+    };
+    const out = {};
+    for (const [name, md] of Object.entries(hostile)) {
+      const host = document.createElement('div');
+      const t0 = performance.now();
+      let error = null;
+      try { renderMarkdown(md, {dir: 'work', open: () => {}}, host); } catch (e) { error = String(e); }
+      out[name] = {ms: Math.round(performance.now() - t0), error, nodes: host.querySelectorAll('*').length};
+    }
+    return out;
+  });
+  for (const [name, x] of Object.entries(r)) {
+    expect(x.error, name).toBeNull();
+    expect(x.ms, `${name}: ${x.ms} ms`).toBeLessThan(5000);
+  }
+});

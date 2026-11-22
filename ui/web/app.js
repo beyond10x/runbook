@@ -12,6 +12,7 @@ import {decisionRows} from './lenses.js';
 import {setRunSettings, autopilot, standIn} from './principal.js';
 import {api, openEvents, daemonView, daemon} from './source.js';
 import {isStub, renderPickerButton, pickerTitle, pickerGroups, visibleItems, renderPickerList} from './picker.js';
+import {renderProducts, renderProductBar, bindProducts, showProduct} from './products.js';
 // the act code (the token field, the POST of an answer) is a file only the daemon serves (ui/daemon/): this server
 // has no such file, and a page the daemon served loads it only because the daemon named itself
 const renderDaemonDrawer = daemon ? (await import('./decide.js')).renderDaemonDrawer : null;
@@ -68,6 +69,23 @@ async function loadTree(only) {
   for (const c of t.cases) S.cases.set(c.rel, c);
   for (const k of Array.from(S.cases.keys())) if (!t.present.includes(k)) S.cases.delete(k);
 }
+// the files of the run and the rule that named its product (what a step produced: web/products.js); the daemon's
+// adapter answers {served: false}
+async function loadProducts(force) {
+  const now = Date.now();
+  if (S.productsSrc !== S.src) { S.products = null; S.productsAt = 0; }
+  if (!force && S.productsSrc === S.src && now - S.productsAt < (S.panel && S.tab === 'products' ? 1500 : 10000)) return;
+  S.productsSrc = S.src; S.productsAt = now;
+  S.products = await api(`/api/products?source=${S.src}`).catch(() => null);
+}
+// the Products tab is built outside patch(): what a run holds never becomes markup (web/products.js)
+function mountProducts(c) {
+  const p = $('#panel');
+  if (p.dataset.tab !== 'products') { p.dataset.tab = 'products'; p.scrollTop = 0; p.replaceChildren(); }
+  p.__html = null;
+  renderProducts(p, {c, products: S.products, src: S.src, daemon});
+}
+bindProducts({refresh: () => render(), open: (view) => { showProduct(view); openPanel('products'); render(); }});
 async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
@@ -176,7 +194,8 @@ async function selectSource(i) {
   q.set('source', String(i));
   q.set('run', S.sources[i].name);
   history.replaceState(null, '', `${location.pathname}?${q}`);
-  await loadTree(); await loadRun(); await loadLive(); if (daemon) await loadInbox(); pickFollow(); render();
+  showProduct({kind: 'list'});
+  await loadTree(); await loadRun(); await loadLive(); loadProducts(true).then(schedule); if (daemon) await loadInbox(); pickFollow(); render();
 }
 document.addEventListener('click', (ev) => {
   const t = ev.target;
@@ -239,7 +258,10 @@ function render() {
     patch($('#tree'), dv?.tree ?? `<div class="empty"><div class="spinner"></div><p>${S.exists ? 'No case yet in' : 'Waiting for'}</p><code>${esc(src?.path)}</code><p class="muted">The view fills in as the run writes its store.</p></div>`);
     $('#graph').innerHTML = '';
     patch($('#gtitle'), '');
-    patch($('#panel'), '');
+    renderProductBar($('#product'), {products: S.products, daemon});
+    if (S.panel && S.tab === 'products') mountProducts(null);
+    else { if ($('#panel').dataset.tab === 'products') $('#panel').dataset.tab = ''; patch($('#panel'), ''); }
+    document.querySelectorAll('#tabs button[data-tab]').forEach((b) => { b.classList.toggle('on', S.panel && b.dataset.tab === S.tab); b.setAttribute('aria-expanded', String(S.panel && b.dataset.tab === S.tab)); });
     patch($('#timeline'), '');
     return;
   }
@@ -259,6 +281,7 @@ function render() {
   if (ns.mode === 'between' && S.lastRunAt && now - S.lastRunAt < 1500) setTimeout(schedule, 1550 - (now - S.lastRunAt));
   else { nowEl.className = `m-${ns.mode}`; patch(nowEl, renderNow(ns, now, S.inbox?.items, isStub(src) ? src.program : null)); patch($('#nowbar'), renderNowBar(ns)); }
   patch($('#view-note'), viewNote());
+  renderProductBar($('#product'), {products: S.products, daemon});
   patch($('#phases'), renderPhases(cases, activePhases(ns)));
   S.kpis = computeKpis(cases, S.run, S.inbox?.history, ns, now);
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
@@ -288,6 +311,8 @@ function render() {
   if (!S.panel) return;
   const scope = S.scopeCase ? c.id : null;
   const p = $('#panel');
+  if (S.tab === 'products') return mountProducts(c);
+  if (p.dataset.tab === 'products') p.dataset.tab = '';
   let html = '';
   if (S.tab === 'explain') html = renderExplain(c, S.node, ev, S.atSeq);
   else if (S.tab === 'autonomy') html = scopeBox() + renderAutonomy(cases, S.run, S.meta, scope, S.inbox?.history);
@@ -457,6 +482,15 @@ document.addEventListener('click', async (ev) => {
     if (row) { row.scrollIntoView({block: 'center'}); row.classList.remove('flash'); void row.offsetWidth; row.classList.add('flash'); }
     return;
   }
+  // a link from the explanation to what a step produced: an evidence record, an action
+  const opn = t.closest('a[data-open]');
+  if (opn) {
+    ev.preventDefault();
+    if (opn.dataset.case && opn.dataset.case !== S.sel && S.cases.has(opn.dataset.case)) selectCase(opn.dataset.case);
+    showProduct(opn.dataset.open === 'evidence' ? {kind: 'evidence', id: opn.dataset.id} : {kind: 'action', seq: Number(opn.dataset.aseq)});
+    openPanel('products');
+    return render();
+  }
   const gr = t.closest('[data-grounds]');
   if (gr && !t.closest('[data-fs]')) { ev.preventDefault(); return openGrounds(Number(gr.dataset.grounds)); }
   const fsEl = t.closest('[data-fs]');
@@ -565,6 +599,8 @@ async function drain() {
       if (full || cases.length) await loadTree(full ? null : cases);
       if (run) await loadRun();
       if (live) await loadLive();
+      // never waited for: the page shows the run first and the product line when the files are read
+      if (full || cases.length || run || live) loadProducts(full).then(schedule);
       if (full || cases.length || run) await loadInbox();
     }
     S.lastChange = new Date();
@@ -607,6 +643,7 @@ function connect() {
   await loadTree();
   await loadRun();
   await loadLive();
+  loadProducts(true).then(schedule);
   if (q0.get('case')) { S.sel = q0.get('case'); S.follow = false; } else pickFollow();
   if (q0.get('node')) S.node = q0.get('node');
   if (q0.get('at')) S.atSeq = Number(q0.get('at'));

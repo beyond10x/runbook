@@ -1479,3 +1479,63 @@ html:where(.phone):not(.rp-open) #tabs button[data-tab],
 :where(html.phone) .pk-g.g-exp .pk-row { margin-left: 6px; }
 html:where(.phone.pk-open) body { overflow: hidden; }
 
+/* what a step produced: the product line and the Products panel (web/products.js, web/markdown.js) */
+#product { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 20px; border-bottom: 1px solid var(--line); background: var(--bg-2); font-size: 12px; line-height: 1.5; min-width: 0; }
+#product[hidden] { display: none; }
+html:not(.rp-open) #product { margin-right: 44px; }
+:where(html.phone) #product { padding: 6px 12px; margin-right: 0; }
+.prod-k { font-size: 10.5px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.prod-link { color: var(--accent-2); font-family: var(--mono); overflow-wrap: anywhere; }
+.prod-other { color: var(--text-3); }
+.prod-via { color: var(--text-3); overflow-wrap: anywhere; }
+.prod, .prod * { min-width: 0; }
+.prod { overflow-wrap: anywhere; }
+.prod-lists button, .prod-back { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 6px 10px; text-align: left; cursor: pointer; }
+.prod-lists button { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; width: 100%; margin: 0 0 4px; }
+.prod-lists button:hover, .prod-back:hover { background: var(--hover); }
+.prod-fp { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.prod-sub, .prod-meta { font-size: 11.5px; color: var(--text-3); }
+.prod-result { font-size: 11.5px; color: var(--true); margin-left: auto; }
+.prod-act[data-bad="true"] .prod-sub, .pf-row[data-bad="true"] .pf-v { color: var(--false); }
+.prod-note { color: var(--text-3); font-size: 12px; margin: 6px 0; display: block; }
+.prod-hidden { color: var(--text-3); font-size: 11.5px; margin: 6px 0; }
+.prod-refused { color: var(--false); }
+.prod-back { margin: 0 0 10px; }
+.prod-title { margin-top: 4px; }
+.prod-path { font-family: var(--mono); font-size: 12.5px; margin: 4px 0; overflow-wrap: anywhere; }
+.prod-text { margin: 8px 0; padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r); font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; }
+.pf-rows, .pf-nested { display: grid; gap: 4px; margin: 8px 0; }
+.pf-row { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; line-height: 1.5; }
+.prod-title code { text-transform: none; letter-spacing: 0; font-size: 12px; }
+.pf-k { flex: 0 0 11em; color: var(--text-3); font-family: var(--mono); overflow-wrap: anywhere; }
+.pf-v { flex: 1 1 12em; font-family: var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.pf-nr .pf-v { color: var(--text-3); font-style: italic; font-family: var(--sans); }
+.pf-out .pf-v .prod-text { margin-top: 0; }
+.pf-grp { padding-left: 10px; border-left: 1px solid var(--line-2); display: grid; gap: 4px; }
+.pf-gk { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
+.md { font-size: 13px; line-height: 1.6; color: var(--text); overflow-wrap: anywhere; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { color: var(--text); text-transform: none; letter-spacing: 0; font-size: 1.1em; margin: 16px 0 6px; }
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.2em; }
+.md p { margin: 8px 0; }
+.md ul, .md ol { margin: 6px 0; padding-left: 22px; }
+.md code { font-family: var(--mono); font-size: .92em; background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+.md pre { margin: 8px 0; padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--r); overflow: auto; max-width: 100%; }
+.md pre code { background: none; padding: 0; white-space: pre; }
+.md blockquote { margin: 8px 0; padding: 2px 12px; border-left: 3px solid var(--line-3); color: var(--text-2); }
+.md hr { border: 0; border-top: 1px solid var(--line-2); margin: 14px 0; }
+.md a { color: var(--accent-2); }
+.md-table { overflow-x: auto; max-width: 100%; margin: 8px 0; }
+.md table { border-collapse: collapse; font-size: 12.5px; }
+.md th, .md td { border: 1px solid var(--line-2); padding: 4px 8px; text-align: left; }
+/* a phone: labels 12 px and more, body text 14 px and more, every tap target 44 px (UXF-022, UXF-023) */
+:where(html.phone) #product, :where(html.phone) .prod, :where(html.phone) .md { font-size: 14px; }
+:where(html.phone) .prod-k, :where(html.phone) .prod-sub, :where(html.phone) .prod-meta, :where(html.phone) .prod-hidden, :where(html.phone) .prod-note, :where(html.phone) .pf-row, :where(html.phone) .pf-k, :where(html.phone) .pf-gk, :where(html.phone) .prod-fp, :where(html.phone) .prod-path, :where(html.phone) .prod-result, :where(html.phone) .prod-text, :where(html.phone) .prod-title code { font-size: 14px; }
+:where(html.phone) .prod-k { font-size: 12px; }
+:where(html.phone) .md code, :where(html.phone) .md table { font-size: 14px; }
+:where(html.phone) #product .prod-link { display: inline-flex; align-items: center; min-height: 44px; }
+:where(html.phone) .prod-lists button, :where(html.phone) .prod-back { min-height: 44px; }
+:where(html.phone) .pf-k { flex-basis: 100%; }
+.md .al-center { text-align: center; }
+.md .al-right { text-align: right; }
+

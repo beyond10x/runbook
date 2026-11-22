@@ -254,19 +254,31 @@ test('the panels fit a phone: 390 px wide, no horizontal scroll of the page, in 
   await page.setViewportSize({width: 390, height: 844});
   await page.addInitScript(() => { try { localStorage.clear(); } catch { /* first load */ } });
   await open(page, 'viewed');
+  // the phone contract of mobile.spec (UXF-023): a label is 12 px or more, any other text 14 px or more
+  const small = () => page.evaluate(() => [...document.querySelectorAll('#product, #product *, #panel .prod, #panel .prod *')]
+    .filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.nodeValue.trim()))
+    .map((e) => ({sel: e.tagName.toLowerCase() + '.' + e.className, px: parseFloat(getComputedStyle(e).fontSize), label: e.classList.contains('prod-k') || (/^H[1-6]$/.test(e.tagName) && !e.closest('.md'))}))
+    .filter((x) => x.px < (x.label ? 12 : 14)));
   const overflow = () => page.evaluate(() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth);
   expect(await overflow()).toBeLessThanOrEqual(0);
+  expect(await small()).toEqual([]);
+  // every tap target is 44 px tall (UXF-022): the product link and each row of the lists
+  expect(await page.locator('#product .prod-link').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)).filter((h) => h < 44))).toEqual([]);
   await snap(page, 'first-screen');
   await tab(page);
   expect(await overflow()).toBeLessThanOrEqual(0);
+  expect(await small()).toEqual([]);
+  expect(await page.locator('#panel .prod-lists button').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().height)).filter((h) => h < 44))).toEqual([]);
   await snap(page, 'lists');
   await page.locator('#panel .prod-file[data-path="work/example/report.md"]').click();
   await expect(detail(page, 'file').locator('.md table')).toBeVisible();
   expect(await overflow()).toBeLessThanOrEqual(0);
+  expect(await small()).toEqual([]);
   await snap(page, 'report');
   await detail(page, 'file').locator('.prod-back').click();
   await page.locator('#panel .prod-ev[data-id="e0007-report.check"]').click();
   expect(await overflow()).toBeLessThanOrEqual(0);
+  expect(await small()).toEqual([]);
   await snap(page, 'evidence');
   await detail(page, 'evidence').locator('.prod-back').click();
   await page.locator('#panel .prod-act').filter({hasText: 'report.check'}).click();

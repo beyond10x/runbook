@@ -21,6 +21,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {setView, checkView, viewCovers, bindViewScope, newViewState} from './web/view.js';
 import {installClock, readGate} from './vclock.mjs';
 import {registerRun, runPath, leavesRun, readText, readJson, statOf, exists, statSig, listDir} from './runfiles.mjs';
+import {fileAnswer, listFiles, productOf, outputOf} from './products.mjs';
 
 // the measured run of the ux loop: a shared clock, and a rescan when the fixture player reports a step
 const CLOCK = process.env.SDC_CLOCK_DIR ? path.resolve(process.env.SDC_CLOCK_DIR) : null;
@@ -657,6 +658,25 @@ function workFacts(src) {
   return {files};
 }
 
+// The files of a run and its product (products.mjs): the run's work/ and the work/ of each case, the artifacts the
+// bindings place, and the rule that named the product.
+const posix = (p) => p.split(path.sep).join('/');
+function productsOf(src) {
+  const runDir = runDirOf(src);
+  const entries = Array.from(src.cases.values());
+  const roots = [path.join(runDir, 'work'), ...entries.map((e) => path.join(e.dir, 'work'))];
+  const artifacts = new Map();
+  for (const e of entries) {
+    for (const [name, f] of Object.entries(loadCase(src, e).bindings?.$artifacts || {})) {
+      if (typeof f === 'string') for (const base of [path.join(runDir, 'work'), path.join(e.dir, 'work')]) artifacts.set(posix(path.relative(runDir, path.join(base, f))), name);
+    }
+  }
+  const listing = listFiles(runDir, [...new Set(roots)], artifacts);
+  const {view, runbook, protocols} = viewOf(src);
+  const ids = [...new Set([view?.runbook, runbook, ...protocols].filter((x) => typeof x === 'string' && x))];
+  return {served: true, product: productOf({runDir, files: listing.files, view, ids}), ...listing};
+}
+
 function liveInfo(src) {
   const runDir = runDirOf(src);
   const records = openRecords(runDir).map((r) => recordProgress(r, runDir));
@@ -855,9 +875,16 @@ function tick() {
 
 const MIME = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml'};
 const send = (res, code, body, type = 'application/json; charset=utf-8') => {
-  res.writeHead(code, {'content-type': type, 'cache-control': 'no-store'});
+  res.writeHead(code, {'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff'});
   if (Buffer.isBuffer(body) && !/^(text|image\/svg)/.test(type)) return res.end(body);
   res.end(shownPaths(typeof body === 'string' ? body : Buffer.isBuffer(body) ? body.toString('utf8') : JSON.stringify(body)));
+};
+// What a run holds (a file's text, the output of an action) leaves as JSON, never as a file with a type of its own
+// that a browser would render or run, and byte for byte: `send` rewrites home paths for the screenshots of the page,
+// and a file of a run is not rewritten.
+const sendRun = (res, code, body) => {
+  res.writeHead(code, {'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff'});
+  res.end(JSON.stringify(body));
 };
 
 // A request is for this server when its Host is a loopback name with the port the server listens on (the
@@ -919,6 +946,17 @@ function handle(req, res, url) {
   if (p === '/api/run') return send(res, 200, runInfo(src));
   if (p === '/api/live') return send(res, 200, liveInfo(src));
   if (p === '/api/workfacts') return send(res, 200, workFacts(src));
+  // what a step produced: reads only, through the run-path check (products.mjs)
+  if (p === '/api/products') return sendRun(res, 200, productsOf(src));
+  if (p === '/api/file') { const r = fileAnswer(runDirOf(src), url.searchParams.get('path')); return sendRun(res, r.status, r.body); }
+  if (p === '/api/output') {
+    const rel = url.searchParams.get('case') ?? '.';
+    const seq = Number(url.searchParams.get('seq'));
+    const entry = Array.from(src.cases.values()).find((e) => (path.relative(src.path, e.dir) || '.') === rel);
+    const c = entry && Number.isInteger(seq) ? loadCase(src, entry) : null;
+    const r = c ? outputOf({runDir: runDirOf(src), caseDir: entry.dir, storeDir: path.dirname(treeRootOf(entry.dir)), caseId: c.id, events: c.events, seq}) : null;
+    return sendRun(res, r ? 200 : 404, r ?? {error: 'no such action finish'});
+  }
   if (p === '/api/fschange') {
     const r = fsChange(runDirOf(src), Number(url.searchParams.get('seq')));
     return send(res, r ? 200 : 404, r || {error: 'no such change'});

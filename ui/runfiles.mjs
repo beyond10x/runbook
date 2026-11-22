@@ -54,6 +54,56 @@ export function statOf(p, root) {
 }
 export const exists = (p, root) => runPath(p, root) !== null;
 export const statSig = (p) => { const s = statOf(p); return s ? `${s.size}:${s.mtimeMs}` : '-'; };
+// the real path of `p` relative to the real path of its run directory, or null when the check refuses it
+export function runRel(p, root) {
+  const real = runPath(p, root);
+  if (!real) return null;
+  const run = root ? path.resolve(root) : ownerOf(path.resolve(p));
+  try { return path.relative(fs.realpathSync.native(run), real); } catch { return null; }
+}
+
+// ---- the content of a file of a run, for the page that shows it ----------------------------------------
+// A name that starts with a dot is a tool's cache or login, never listed and never served. This is the one test.
+export const dotName = (n) => n.startsWith('.');
+export const hasDotPart = (rel) => String(rel).split(/[\\/]+/).some((n) => n !== '' && dotName(n));
+
+const TYPES = [['isDirectory', 'directory'], ['isFIFO', 'named pipe'], ['isSocket', 'socket'], ['isBlockDevice', 'block device'], ['isCharacterDevice', 'character device'], ['isSymbolicLink', 'symbolic link']];
+export const typeOf = (st) => TYPES.find(([m]) => st[m]())?.[1] ?? (st.isFile() ? 'file' : 'unknown');
+
+// The bytes of a regular file of a run, at most `limit` of them (from the start, or the last `limit` with
+// `tail`). The type is read with a stat of the checked real path BEFORE anything opens the file: a directory, a
+// named pipe, a socket or a device is refused and never opened, so a pipe cannot block the server. The file is
+// then opened without blocking and its type read again from the descriptor, so a file swapped for a pipe between
+// the two is refused too. Answers {state: 'ok', size, mtimeMs, bytes, cut} | {state: 'missing'} |
+// {state: 'refused', why, type?}.
+export function readRegular(p, {root, limit = 1048576, tail = false} = {}) {
+  const abs = path.resolve(p);
+  const real = runPath(abs, root);
+  if (!real) {
+    try { fs.lstatSync(abs); } catch { return {state: 'missing'}; }
+    return {state: 'refused', why: 'leaves the run'};
+  }
+  let st;
+  try { st = fs.statSync(real); } catch { return {state: 'missing'}; }
+  if (!st.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(st)};
+  let fd;
+  try {
+    fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW);
+    const now = fs.fstatSync(fd);
+    if (!now.isFile()) return {state: 'refused', why: 'not a regular file', type: typeOf(now)};
+    const want = Math.min(now.size, limit);
+    const buf = Buffer.alloc(want);
+    const from = tail ? Math.max(0, now.size - want) : 0;
+    let got = 0;
+    while (got < want) {
+      const n = fs.readSync(fd, buf, got, want - got, from + got);
+      if (n === 0) break;
+      got += n;
+    }
+    return {state: 'ok', size: now.size, mtimeMs: now.mtimeMs, bytes: buf.subarray(0, got), cut: now.size > got};
+  } catch { return {state: 'missing'}; } finally { if (fd != null) fs.closeSync(fd); }
+}
+
 // the names in a directory of a run; an entry whose real path leaves the run is not listed
 export function listDir(p, root) {
   const real = runPath(p, root);
