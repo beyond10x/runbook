@@ -1,0 +1,2 @@
+{"action":"spec.approve","capability":"approve","case":"IDEA-1.spec","class":"approval","cost_usd":0.0,"decision":"approve","model":null,"model_calls":0,"principal":"person:reviewer-1","time":"2026-11-22T09:00:53Z","type":"approval"}
+{"action":"idea.close","capability":"close","case":"IDEA-1","class":"approval","cost_usd":0.125,"decision":"approve","model":"claude-opus-5-5","model_calls":1,"principal":"decider:model","record":"decider/001-idea.close","time":"2026-11-22T09:00:54Z","type":"close"}

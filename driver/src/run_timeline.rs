@@ -1,6 +1,7 @@
 //! Timeline of one recorded run, `sdc.run-timeline/1` (docs/llm-is-not-the-runtime.md).
 //!
-//! Two kinds of run directory are read into the same document:
+//! Two kinds of run directory are read into the same document (an `sdc` run is the driver's or a
+//! `runbook loom-run` directory, `run_kind.rs`):
 //!
 //! - `sdc`: a run `scripts/run-trial.sh` or `sdc-experiment run` wrote. Every take of a bound
 //!   action is a span: `program` (a tool the driver ran because the action was admissible), `model`
@@ -21,6 +22,7 @@ use std::path::Path;
 
 use serde_json::{json, Map, Value as J};
 
+use crate::run_kind::{self, RunKind};
 use crate::run_metrics::{self as rm, epoch_ms, js, Fail, Res};
 
 pub const FORMAT: &str = "sdc.run-timeline/1";
@@ -242,7 +244,7 @@ fn settings_of(last: &J) -> J {
         "autonomy": last["autonomy"], "max_llm_calls": last["max_llm_calls"], "max_wall_seconds": last["max_wall_seconds"]})
 }
 
-fn load_sdc(dir: &Path, name: &str) -> Res<J> {
+fn load_sdc(dir: &Path, name: &str, kind: RunKind) -> Res<J> {
     let root = rm::root_case_dir(dir);
     if !root.join("events.jsonl").is_file() {
         return Err(Fail(format!("cannot read {}: no such file", root.join("events.jsonl").display())));
@@ -352,12 +354,17 @@ fn load_sdc(dir: &Path, name: &str) -> Res<J> {
 
     // Model calls: each llm-calls.jsonl line joined to the model take of its case and action whose
     // span holds the call's start; a call no take holds is a span of its own.
+    // The call record directories: the driver's `llm/`; Loom's tool writes them in the product tree.
+    let llm_dir = match kind {
+        RunKind::Driver => dir.join("llm"),
+        RunKind::Loom => dir.join("work").join(".sdc").join("llm"),
+    };
     let calls = rm::jsonl(&dir.join("llm-calls.jsonl"), &mut malformed)?;
     if calls.is_none() {
         notes.insert("no llm-calls.jsonl: model spans carry no figures".into());
     }
     for l in calls.iter().flatten() {
-        let rec = l["record"].as_str().and_then(base_name).map(|b| dir.join("llm").join(b));
+        let rec = l["record"].as_str().and_then(base_name).map(|b| llm_dir.join(b));
         let times = match &rec {
             Some(r) => call_times(r)?,
             None => None,
@@ -491,6 +498,9 @@ fn load_sdc(dir: &Path, name: &str) -> Res<J> {
     let settings = settings.last().map(settings_of).unwrap_or(J::Null);
     let end = status.as_ref().map(|s| json!({"state": s["state"], "outcome": s["outcome"], "delivered": s["delivered"]})).unwrap_or(J::Null);
     notes.insert("model and decider spans carry the session totals of llm-calls.jsonl and decisions.jsonl; per-request output tokens are not recorded correctly by the stream (it holds the count at the start of each response), so they are not split per request".into());
+    if kind == RunKind::Loom {
+        notes.insert("a runbook loom-run directory (docs/loom-run-directory.md, \"The two evaluation tools\"): model call records are read from work/.sdc/llm, a take's start is the start of its step (Loom's run log has one line, at the finish), and no take has a cause (Loom's run log has no evaluation record)".into());
+    }
     finish("sdc", name, settings, J::Array(tree), spans, &event_times, Some(&rr), end, notes, malformed, None)
 }
 
@@ -896,7 +906,8 @@ pub fn load(dir: &Path) -> Res<J> {
     if let Some(meta) = rm::json_opt(&dir.join("free-agent.json"))? {
         return load_free(dir, &name, meta);
     }
-    load_sdc(dir, &name)
+    let kind = run_kind::detect(dir).map_err(Fail)?;
+    load_sdc(dir, &name, kind)
 }
 
 /// A number as a record writes it: `25`, not `25.0`.

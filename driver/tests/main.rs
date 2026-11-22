@@ -8,6 +8,7 @@ mod bugfix_prompt;
 mod conformance;
 mod decision_request;
 mod experiment_loom;
+mod finding_kpis;
 mod impl_gate;
 mod plugin;
 mod progress;

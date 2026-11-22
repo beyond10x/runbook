@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- `sdc-finding-kpis` and `sdc-run-timeline` read the run directory of `runbook loom-run` as well as the driver's, detected from its files (`settings.json`, else `store/<case>/events.jsonl`) and printing the same shape; a figure a Loom directory has no source for is `null` with a reason, and a directory of neither kind is refused with exit 2 (`docs/loom-run-directory.md`, "The two evaluation tools").
+
 ### Fixed
 
 - `runbook loom-run`: a model step that ended before it started any adapter (its call directory has no `request.json`, which `llm-node.sh` writes before every adapter start, and a `status.json` with the step's exit) costs nothing: its reservation is released instead of booked, an event `no_model_call` names the call and the exit, and the run goes on with what Loom says of the step instead of ending `error` at the cost reader; a directory with a `request.json` and no cost record, and one without a readable `status.json` exit, stay fail-closed as before (`docs/loom-run.md`).

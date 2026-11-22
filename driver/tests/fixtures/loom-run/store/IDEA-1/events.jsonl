@@ -1,0 +1,6 @@
+{"at":"2026-11-22T09:00:00Z","event":"opened","protocol":{"id":"sdc","revision":1},"seq":0,"source":"loom"}
+{"action":"idea.dissect","at":"2026-11-22T09:00:20Z","event":"action_started","llm":true,"retry_of":[],"seq":1,"source":"loom"}
+{"action":"idea.dissect","at":"2026-11-22T09:00:20Z","event":"action_finished","evidence":[],"exit":"0","seq":2,"source":"loom"}
+{"action":"idea.close","at":"2026-11-22T09:00:55Z","event":"action_started","llm":false,"retry_of":[],"seq":3,"source":"loom"}
+{"action":"idea.close","at":"2026-11-22T09:00:55Z","event":"action_finished","evidence":[],"exit":"0","principal":"decider:model","seq":4,"source":"loom"}
+{"at":"2026-11-22T09:00:55Z","event":"terminated","outcome":"operating","seq":5,"source":"loom"}
