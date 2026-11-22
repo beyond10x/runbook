@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DecisionRequestId.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DecisionRequestId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:81d83b51f2717dfe637488f28324d54363122ab68a34c86d46680ea5496fcf76",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

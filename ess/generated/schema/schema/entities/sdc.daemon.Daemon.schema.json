@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/entities/sdc.daemon.Daemon.schema.json",
+  "title": "Daemon",
+  "description": "The configuration row of the daemon: what it was started with and what every run is held to. One row, created when the daemon starts.",
+  "x-ess-name": "sdc.daemon.Daemon",
+  "x-ess-kind": "entity",
+  "type": "object",
+  "properties": {
+    "daemon_id": {
+      "$ref": "#/$defs/sdc.daemon.DaemonId"
+    },
+    "confinement_floor": {
+      "$ref": "#/$defs/sdc.daemon.ConfinementLevel",
+      "description": "The lowest level the daemon takes (runbook serve --min-confinement). A run below it is refused."
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "$ref": "#/$defs/sdc.daemon.Daemon.State"
+    }
+  },
+  "required": [
+    "daemon_id",
+    "confinement_floor",
+    "started_at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:0b183b9549c4de1a06d9be4bb8125092aa4718e753806078e9a6085b7aadbe59",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "local",
+        "linux"
+      ]
+    },
+    "sdc.daemon.Daemon.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.Daemon.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Up"
+      ]
+    },
+    "sdc.daemon.DaemonId": {
+      "title": "DaemonId",
+      "description": "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon.",
+      "x-ess-name": "sdc.daemon.DaemonId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

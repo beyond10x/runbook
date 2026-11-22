@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.NoSuchDecisionRequest.schema.json",
+  "title": "NoSuchDecisionRequest payload",
+  "description": "No decision request has this id.",
+  "x-ess-name": "sdc.daemon.NoSuchDecisionRequest",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.daemon.DecisionRequestId"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:53001c73a872f559f17652db0a01a5ffd2429a25845b3eb0bc7909330f533a54",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

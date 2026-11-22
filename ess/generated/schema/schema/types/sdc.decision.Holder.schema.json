@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.Holder.schema.json",
+  "$ref": "#/$defs/sdc.decision.Holder",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:fc24d8a6131c2d1a12a6f9b832eaee4fd839750144d8cb65d3e7a8aee6baf18e",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.Holder": {
+      "title": "Holder",
+      "description": "Who decides this request, the cell of docs/autonomy-levels.md:242-257 for its class at the run's level (holders :233-239). person: P, a person decides. advised: P+, a person decides with the decider's proposal shown as the recommendation (propose only). decider: D→P, the decider takes any option and an escalate goes to a person. decider_final: D*, an escalate is suppressed and the decider's best is final. rule: R and the cells 'R, then P', a rule decides and an escalate goes to a person. rule_final: the cells 'R: end', a rule decides, an escalate is refused and the run ends. rule_and_decider: R∧D→P, the rule's verdict is recorded as a strong recommendation; the decider takes it (TakeRecommendation) or vetoes, and a veto is an Escalate; it never grants against the rule. rule_and_decider_final: R∧D*, the same, except that a veto is a Decide on the denying option, after which the run ends as refused with no explicitly_abandoned record. Under decider_final and rule_and_decider_final a decider result that is missing, failed or withheld by the grounding check decides the denying option, or ends the run where no option denies, and escalation_suppressed records the cause; a rule verdict withheld under rule_and_decider counts as no recommendation and goes to a person, under rule_and_decider_final the run ends. Override order (docs/autonomy-levels.md § 2.3): person < advised < rule_and_decider < rule, decider (not comparable); each non-final holder < its final variant; rule_and_decider_final < rule_final, decider_final. A move down is a lowering; every other move is a raise and needs the class's admitted ceiling.",
+      "x-ess-name": "sdc.decision.Holder",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "person",
+        "advised",
+        "decider",
+        "decider_final",
+        "rule",
+        "rule_final",
+        "rule_and_decider",
+        "rule_and_decider_final"
+      ]
+    }
+  }
+}

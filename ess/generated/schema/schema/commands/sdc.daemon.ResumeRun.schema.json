@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.daemon.ResumeRun.schema.json",
+  "title": "Report a run resumed input",
+  "description": "The runtime took up the answers and the run goes on. Refused while a decision request of the run is still Open: the run waits on every one of them.",
+  "x-ess-name": "sdc.daemon.ResumeRun",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:70c5f3603b6b44efe402c052c48815e5a786365cb6c24c52130efa9b6834cabc",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

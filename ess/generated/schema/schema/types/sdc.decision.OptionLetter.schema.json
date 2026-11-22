@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.OptionLetter.schema.json",
+  "$ref": "#/$defs/sdc.decision.OptionLetter",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:de600dfcb7c44906c79efc1bd0fbca3c4975cbeaf9304caa5780568e043c2bca",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

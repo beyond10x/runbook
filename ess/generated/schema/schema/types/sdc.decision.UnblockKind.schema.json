@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.UnblockKind.schema.json",
+  "$ref": "#/$defs/sdc.decision.UnblockKind",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:e7fa521608721c7d48055a47841c15c7d09de26aa516987da15a7aaf76c55253",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.UnblockKind": {
+      "title": "UnblockKind",
+      "description": "What the decision unblocks. approval: an action that is approval-required, decided by an authority grant. question: an interview question a writer hands off (questions.answer handoff, docs/driver.md:112-114). outcome: a case outcome that requires an explicit decision (canon-decisions/1); its request has two options, the decision (produces canon_decisions) and 'leave it untaken' (produces none).",
+      "x-ess-name": "sdc.decision.UnblockKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "approval",
+        "question",
+        "outcome"
+      ]
+    }
+  }
+}

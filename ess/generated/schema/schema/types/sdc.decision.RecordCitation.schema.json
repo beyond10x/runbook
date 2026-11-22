@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.RecordCitation.schema.json",
+  "$ref": "#/$defs/sdc.decision.RecordCitation",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a388161244fb607f9cb132cb496d8f8289cddf869cfaaead817fda78c6606ce5",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.RecordCitation": {
+      "title": "RecordCitation",
+      "x-ess-name": "sdc.decision.RecordCitation",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "store": {
+          "$ref": "#/$defs/sdc.decision.RecordStore"
+        },
+        "record_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "store",
+        "record_id"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.RecordStore": {
+      "title": "RecordStore",
+      "description": "Where a cited record id is looked up: the decision request log, a case's evidence/ (canon-evidence/1 id), authority.json, decisions.json, or an AEP planning store (kind:name).",
+      "x-ess-name": "sdc.decision.RecordStore",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "sdc_decisions",
+        "canon_evidence",
+        "canon_authority",
+        "canon_decisions",
+        "aep_artifact"
+      ]
+    }
+  }
+}

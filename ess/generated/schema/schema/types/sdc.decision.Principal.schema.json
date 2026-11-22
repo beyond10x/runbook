@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.Principal.schema.json",
+  "$ref": "#/$defs/sdc.decision.Principal",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ded4220d1dc361d7ec8133100edd070c5dd1c480f890eef7037852983cc4957a",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

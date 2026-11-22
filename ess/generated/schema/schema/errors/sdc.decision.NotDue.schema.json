@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.decision.NotDue.schema.json",
+  "title": "NotDue payload",
+  "description": "The host tick's instant is before the request's expires_at, or the request has none: silence takes nothing and nothing expires.",
+  "x-ess-name": "sdc.decision.NotDue",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    }
+  },
+  "required": [
+    "request_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:1bbc9eb044cf108094e780041b33b0cda4317f061f1c31af6f9006f6e51baded",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.decision.RecommendationRecorded.schema.json",
+  "title": "RecommendationRecorded payload",
+  "x-ess-name": "sdc.decision.RecommendationRecorded",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "recommended_option": {
+      "$ref": "#/$defs/sdc.decision.OptionLetter"
+    },
+    "recommended_answer": {
+      "type": "string"
+    },
+    "strength": {
+      "$ref": "#/$defs/sdc.decision.Strength"
+    }
+  },
+  "required": [
+    "request_id",
+    "strength"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:faa0b40cf648e1bb3decb1a6f1d94d4997d041e29bf6546f50d25294008100de",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Strength": {
+      "title": "Strength",
+      "description": "How strongly the grounds support the recommended option. none: the request carries no recommendation (stored before Recommend and after a withheld one; a Recommend sending none is refused). strong: a vision, requirement, PRD, story or spec states it, or a prior decision on the same question and subject stands with its grounds unchanged. moderate: a policy, an autonomy rule or an evidence record supports it by inference. weak: the grounds make it plausible only.",
+      "x-ess-name": "sdc.decision.Strength",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "none",
+        "weak",
+        "moderate",
+        "strong"
+      ]
+    }
+  }
+}

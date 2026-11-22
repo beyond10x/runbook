@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.RunOutcome.schema.json",
+  "$ref": "#/$defs/sdc.daemon.RunOutcome",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:88dcc4ca3ffaf3ccde84a3426e219e5d97dc54320470c4fee8f43c09882b8e7f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunOutcome": {
+      "title": "RunOutcome",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not.",
+      "x-ess-name": "sdc.daemon.RunOutcome",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

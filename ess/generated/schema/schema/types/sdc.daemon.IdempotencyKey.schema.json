@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.IdempotencyKey.schema.json",
+  "$ref": "#/$defs/sdc.daemon.IdempotencyKey",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:af9370a0dad1d6bf2628094e12f926a2e66e4d6d627bbeffad9e20ed2c29d98f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.IdempotencyKey": {
+      "title": "IdempotencyKey",
+      "description": "Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none.",
+      "x-ess-name": "sdc.daemon.IdempotencyKey",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    }
+  }
+}

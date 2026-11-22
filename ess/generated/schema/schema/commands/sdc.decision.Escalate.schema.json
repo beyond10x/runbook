@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.decision.Escalate.schema.json",
+  "title": "Escalate input",
+  "description": "Move an Open or Escalated request to a person. A decider or a rule escalates when it will not decide under D→P, R, or R∧D→P, where an Escalate is also the decider's veto (docs/autonomy-levels.md:235-239, escalation.mode person :385). Under P and P+ an Escalate is a person passing the request on to someone else, also from Escalated. Escalate never opens a request: the escalation row of the class table (:257) is not a request class, it gives the holder of the request after Escalate (P at A2 to A4 in SDC's table).",
+  "x-ess-name": "sdc.decision.Escalate",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "escalate_to": {
+      "$ref": "#/$defs/sdc.decision.Principal"
+    },
+    "reason": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "escalate_to",
+    "reason"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:8d21aa607c7d7f5bec6474ca4ae007467844f3ed59e7b470e4a592be074510fd",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

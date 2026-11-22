@@ -1,0 +1,143 @@
+type: ess-scenario/1
+domain: sdc.daemon
+scenario: daemon-cancel-a-run
+summary: "A waiting run is cancelled; its Open request is withdrawn and an answer to it is refused; a second cancel and a late event are refused."
+
+timeline:
+  - at: 2026-11-22T10:00:00Z
+    command: sdc.daemon.StartDaemon
+    actor: sdc.daemon.Operator
+    input:
+      daemon_id: "runbookd"
+      confinement_floor: linux
+      at: 2026-11-22T10:00:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:01:00Z
+    command: sdc.daemon.SubmitRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      runbook_id: "sdc"
+      daemon_id: "runbookd"
+      runbook_version: "0.3.0"
+      intake: "intake.md"
+      runbook_known: true
+      context_inside_roots: true
+      settings: {}
+      confinement: linux
+      at: 2026-11-22T10:01:00Z
+    outcome: submitted
+
+  - at: 2026-11-22T10:02:00Z
+    command: sdc.daemon.StartRun
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:02:00Z
+    outcome: started
+
+  - at: 2026-11-22T10:03:00Z
+    command: sdc.daemon.WaitOnDecision
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+    outcome: waiting
+
+  - at: 2026-11-22T10:04:00Z
+    command: sdc.daemon.RequestDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+      run_id: "run-1"
+      question: "Merge the change?"
+      case_id: "IDEA-1"
+      action: "merge"
+      capability: "change.merge"
+      options:
+        - letter: "A"
+          does: "Grant change.merge."
+          cost: "None beyond the merge."
+          consequence: {admits: ["change.merge"], blocks: [], grant: granted, produces: canon_authority}
+        - letter: "B"
+          does: "Deny change.merge."
+          cost: "The run ends as refused."
+          consequence: {admits: [], blocks: ["change.merge"], grant: denied, produces: canon_authority}
+      at: 2026-11-22T10:04:00Z
+    outcome: requested
+
+  - at: 2026-11-22T10:05:00Z
+    command: sdc.daemon.CancelRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:05:00Z
+    outcome: cancelled
+    events:
+      - event: sdc.daemon.RunCancelled
+        payload:
+          run_id: "run-1"
+
+  - at: 2026-11-22T10:05:30Z
+    command: sdc.daemon.WithdrawDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+    outcome: withdrawn
+    events:
+      - event: sdc.daemon.DecisionRequestWithdrawn
+        payload:
+          request_id: "dr-1"
+
+  - at: 2026-11-22T10:05:40Z
+    command: sdc.daemon.WithdrawDecision
+    actor: sdc.daemon.Runtime
+    input:
+      request_id: "dr-1"
+    outcome: not-open
+
+  - at: 2026-11-22T10:06:00Z
+    command: sdc.daemon.CancelRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      at: 2026-11-22T10:06:00Z
+    outcome: already-ended
+
+  - at: 2026-11-22T10:07:00Z
+    command: sdc.daemon.RecordRunEvent
+    actor: sdc.daemon.Runtime
+    input:
+      run_id: "run-1"
+      sequence: 1
+      position: 1
+      kind: "case.opened"
+      record: {case: "IDEA-1"}
+      at: 2026-11-22T10:07:00Z
+    outcome: run-closed
+
+  - at: 2026-11-22T10:08:00Z
+    command: sdc.daemon.AnswerDecision
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-1"
+      request_id: "dr-1"
+      answer: "A"
+      answered_by: "operator"
+      at: 2026-11-22T10:08:00Z
+    outcome: withdrawn
+
+  - at: 2026-11-22T10:09:00Z
+    command: sdc.daemon.CancelRun
+    actor: sdc.daemon.Client
+    input:
+      run_id: "run-unknown"
+      at: 2026-11-22T10:09:00Z
+    outcome: no-run
+
+assert:
+  - view: sdc.daemon.Runs
+    contains: {run_id: "run-1", state: Cancelled, ended_at: 2026-11-22T10:05:00Z}
+  - view: sdc.daemon.DecisionsOfRun
+    params: {run_id: "run-1"}
+    contains: {request_id: "dr-1", state: Withdrawn}

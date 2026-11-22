@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.RunEnded.schema.json",
+  "title": "RunEnded payload",
+  "x-ess-name": "sdc.daemon.RunEnded",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "outcome": {
+      "$ref": "#/$defs/sdc.daemon.RunOutcome"
+    }
+  },
+  "required": [
+    "run_id",
+    "outcome"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:a9ac169909340b5b702d4e750e67eeea6237600b601e96ba6521021355b92d72",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunOutcome": {
+      "title": "RunOutcome",
+      "description": "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not.",
+      "x-ess-name": "sdc.daemon.RunOutcome",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,1235 @@
+domain: sdc.daemon
+summary: "The API of the Runbook daemon (runbookd, the same binary as runbook serve): runs, the sessions that group them, the decision requests a waiting run raises, and the ordered events each run records. HTTP carries the commands and the views; each event stream is a view paged by position and served as server-sent events (EventsAfter, EventsOfSessionAfter, EventsOfDaemonAfter; see the note on EventsAfter). docs/layers.md says what the runtime is; the runtime behind the daemon sits behind a trait, so the daemon's commands and views do not change with it."
+
+naming:
+  wire: daemon
+  display: Daemon
+
+types:
+  - name: sdc.daemon.SessionId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The name of a session, chosen by the client that opens it."
+
+  - name: sdc.daemon.ClientLabel
+    kind: newtype
+    of: String
+    invariants:
+      - value.count <= 200
+    naming:
+      summary: "A label the client gives when it opens a session: free text, at most 200 characters, for display. It grants nothing: who may call is decided by the bearer token alone, and the token's subject is not a member of any entity."
+
+  - name: sdc.daemon.DaemonId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The id of the one daemon the specification describes: the configuration row it holds is keyed by it. The HTTP handler fills it; one process is one daemon."
+
+  - name: sdc.daemon.RunId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it."
+
+  - name: sdc.daemon.DecisionRequestId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The id of a decision request: the runtime's, copied. A request id that is already taken cannot occur, because the runtime mints it; the specification has no refusal for it."
+
+  - name: sdc.daemon.EventId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The id the daemon gives a recorded event. It is the row's identity only; the stream's id is the event's position."
+
+  - name: sdc.daemon.RunbookId
+    kind: newtype
+    of: String
+    naming:
+      summary: "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir."
+
+  - name: sdc.daemon.RunbookVersion
+    kind: newtype
+    of: String
+    naming:
+      summary: "The version of a runbook, as runbook list shows it. Optional in a submit: absent means the version the daemon has."
+
+  - name: sdc.daemon.ContextPath
+    kind: newtype
+    of: String
+    naming:
+      summary: "A directory on the daemon's host, given as an absolute path. The daemon accepts it only when it lies under one of its context roots (runbook serve --context-root <dir>, repeatable; none given means no context from a path), and copies it into the run's workspace before the run starts."
+
+  - name: sdc.daemon.IdempotencyKey
+    kind: newtype
+    of: String
+    invariants:
+      - value.count <= 200
+    naming:
+      summary: "Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none."
+
+  - name: sdc.daemon.EventKind
+    kind: newtype
+    of: String
+    naming:
+      summary: "Open text: the kind of the runtime's run-log line, copied. Events the daemon writes itself have a kind that starts with `runbook.` (runbook.submitted, runbook.cancel-requested, runbook.start-failed). Not a closed set."
+
+  - name: sdc.daemon.RunOutcome
+    kind: newtype
+    of: String
+    naming:
+      summary: "Open text: the outcome name of the runbook's protocol for the root case. The run's state is the closed set; the outcome is not."
+
+  - name: sdc.daemon.ConfinementLevel
+    kind: enum
+    ordered: true
+    variants: [local, linux]
+    naming:
+      summary: "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor."
+
+  - name: sdc.daemon.RunSettings
+    kind: newtype
+    of: "Map<String, String>"
+    naming:
+      summary: "The settings of a run: a map from text to text (runbook run --set key=value), kept as written. Typed members come with the runtime's run-settings story; none are declared now."
+
+entities:
+  - name: sdc.daemon.Session
+    naming:
+      summary: "A named group of runs of one client. Open until the client closes it; a closed session takes no new run and keeps the runs it has."
+    identity:
+      name: session_id
+      type: sdc.daemon.SessionId
+    fields:
+      - {name: client, type: sdc.daemon.ClientLabel}
+      - {name: opened_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+    lifecycle:
+      initial: Open
+      states: [Open, Closed]
+      terminal: [Closed]
+      transitions:
+        - {name: close, from: [Open], to: Closed}
+
+  - name: sdc.daemon.Daemon
+    naming:
+      summary: "The configuration row of the daemon: what it was started with and what every run is held to. One row, created when the daemon starts."
+    identity:
+      name: daemon_id
+      type: sdc.daemon.DaemonId
+    fields:
+      - {name: confinement_floor, type: sdc.daemon.ConfinementLevel, summary: "The lowest level the daemon takes (runbook serve --min-confinement). A run below it is refused."}
+      - {name: started_at, type: Timestamp}
+    lifecycle:
+      initial: Up
+      states: [Up]
+      terminal: [Up]
+
+  - name: sdc.daemon.Run
+    naming:
+      summary: "One run of a runbook on the daemon: its inputs as submitted, its confinement, where it stands and how it ended."
+    identity:
+      name: run_id
+      type: sdc.daemon.RunId
+    fields:
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: intake, type: String, summary: "The intake document itself, inline in the submit: text, at most 1 MiB."}
+      - {name: context_path, type: Optional<sdc.daemon.ContextPath>, summary: "The context directory the run reads (runbook run --context), under one of the daemon context roots; absent when none was given."}
+      - {name: settings, type: sdc.daemon.RunSettings}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>, summary: "The session the run was submitted into; absent for a run of no session."}
+      - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>, summary: "The key the submit carried, when it carried one; a later submit with the same key returns this run."}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>, summary: "When the run left its last live state: ended, cancelled or failed to start."}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>, summary: "Set when the run Ended; absent in every other state."}
+      - {name: failure, type: Optional<String>, summary: "Why the run failed to start; absent in every other state."}
+    relations:
+      - name: session
+        kind: references
+        target: sdc.daemon.Session
+        cardinality: one
+        via: session_id
+      - name: decision_requests
+        kind: owns
+        target: sdc.daemon.DecisionRequest
+        cardinality: many
+        via: run_id
+      - name: events
+        kind: owns
+        target: sdc.daemon.RunEvent
+        cardinality: many
+        via: run_id
+    lifecycle:
+      initial: Submitted
+      states: [Submitted, Running, WaitingOnDecision, Ended, Cancelled, FailedToStart]
+      terminal: [Ended, Cancelled, FailedToStart]
+      transitions:
+        - {name: start, from: [Submitted], to: Running, summary: "The runtime took the run up."}
+        - {name: fail_to_start, from: [Submitted], to: FailedToStart, summary: "The runtime could not take the run up."}
+        - {name: wait, from: [Running], to: WaitingOnDecision, summary: "The run stopped on a decision."}
+        - {name: end, from: [Running], to: Ended, summary: "The run reached an outcome."}
+        - {name: resume, from: [WaitingOnDecision], to: Running, summary: "Every decision the run waited on is answered and the runtime took the answers up."}
+        - {name: cancel, from: [Submitted, Running, WaitingOnDecision], to: Cancelled, summary: "A client cancelled the run before it ended."}
+
+  - name: sdc.daemon.DecisionRequest
+    naming:
+      summary: "A question a waiting run raised, as a mirror of the runtime's decision request: the daemon copies id, case, action, capability, question and options from the runtime's record and adds the run id. Once a client answered, it holds the answer and who gave it. The runbook's decision contract (sdc.decision) stays the rule for who may answer: the daemon passes the answer and the principal to the runtime, which decides. A request whose run was cancelled is Withdrawn: it stays on record, shows no more as open, and takes no answer."
+    identity:
+      name: request_id
+      type: sdc.daemon.DecisionRequestId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: case_id, type: String, summary: "The case the runtime opened the request for."}
+      - {name: action, type: String}
+      - {name: capability, type: String}
+      - {name: question, type: String}
+      - {name: options, type: "List<sdc.decision.DecisionOption>"}
+      - {name: opened_at, type: Timestamp}
+      - {name: answer, type: Optional<String>, summary: "The option letter, or the free text for a question that takes one; present once Answered."}
+      - {name: answered_by, type: Optional<sdc.decision.Principal>}
+      - {name: answered_at, type: Optional<Timestamp>}
+    lifecycle:
+      initial: Open
+      states: [Open, Answered, Withdrawn]
+      terminal: [Answered, Withdrawn]
+      transitions:
+        - {name: answer, from: [Open], to: Answered}
+        - {name: withdraw, from: [Open], to: Withdrawn, summary: "The run was cancelled: the request is no longer waited on."}
+
+  - name: sdc.daemon.RunEvent
+    naming:
+      summary: "One record of a run, in the order the runtime wrote it. The runtime's own record is carried unchanged, as an opaque document; the daemon adds the run, the session, two numbers and the time. `sequence` counts per run, `position` counts per daemon over all runs: the stream's event id is the position, and a client resumes after the last position it saw."
+    identity:
+      name: event_id
+      type: sdc.daemon.EventId
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>, summary: "The session of the run, copied from it by the handler when it records the event; absent for a run of no session. It is what lets the events of a session be paged by position."}
+      - {name: sequence, type: Integer, summary: "Per run, from 1; each later event of the run has a larger number."}
+      - {name: position, type: Integer, summary: "Per daemon, from 1, strictly increasing over all runs; minted by the daemon when it records the event."}
+      - {name: kind, type: sdc.daemon.EventKind}
+      - {name: record, type: Json, summary: "The runtime's record, byte for byte as a document; no secret appears in it (design sheet, decision 10)."}
+      - {name: at, type: Timestamp}
+    relations:
+      - name: session
+        kind: references
+        target: sdc.daemon.Session
+        cardinality: one
+        via: session_id
+    invariants:
+      - sequence >= 1
+      - position >= 1
+    lifecycle:
+      initial: Recorded
+      states: [Recorded]
+      terminal: [Recorded]
+
+actors:
+  - name: sdc.daemon.Runtime
+    naming:
+      display: Runtime
+      summary: "The engine behind the daemon (Loom, or a stub in the tests): reports how each run goes. Not reachable over the network: the daemon issues these commands on the runtime's behalf."
+    may:
+      - sdc.daemon.StartRun
+      - sdc.daemon.FailRunStart
+      - sdc.daemon.WaitOnDecision
+      - sdc.daemon.RequestDecision
+      - sdc.daemon.WithdrawDecision
+      - sdc.daemon.ResumeRun
+      - sdc.daemon.RecordRunEvent
+      - sdc.daemon.EndRun
+
+  - name: sdc.daemon.Operator
+    naming:
+      display: Operator
+      summary: "Whoever starts the daemon (runbook serve): sets what every run is held to."
+    may:
+      - sdc.daemon.StartDaemon
+
+  - name: sdc.daemon.Client
+    naming:
+      display: Client
+      summary: "A caller of the API: the CLI, the web UI or an MCP tool, over HTTP."
+    may:
+      - sdc.daemon.OpenSession
+      - sdc.daemon.CloseSession
+      - sdc.daemon.SubmitRun
+      - sdc.daemon.CancelRun
+      - sdc.daemon.AnswerDecision
+
+errors:
+  - name: sdc.daemon.NoSuchDecisionRequest
+    summary: "No decision request has this id."
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+
+  - name: sdc.daemon.DecisionAlreadyAnswered
+    summary: "The decision request is already Answered: the first answer stands and nothing changed."
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+
+  - name: sdc.daemon.DecisionWithdrawn
+    summary: "The decision request was withdrawn when its run was cancelled: it takes no answer; nothing changed."
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+
+  - name: sdc.daemon.DecisionNotOpen
+    summary: "The decision request is not Open, so it cannot be withdrawn; nothing changed."
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+
+  - name: sdc.daemon.ContextOutsideRoots
+    summary: "The context directory does not lie under any of the daemon's context roots (runbook serve --context-root), or the daemon has none: the run was not submitted. The handler checks the path against the host and reports the fact in `context_inside_roots`."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.NoSuchRunbook
+    summary: "No preset and no runbook of the daemon's --runbook-dir has this name (and version): the run was not submitted. The handler looks the runbook up and reports the fact in `runbook_known`."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.IntakeTooLarge
+    summary: "The inline intake is larger than 1 MiB: the run was not submitted."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.PositionNotAscending
+    summary: "An event of the daemon already has this position or a larger one: positions only grow over all runs, and nothing was recorded."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: position, type: Integer}
+
+  - name: sdc.daemon.DecisionNotOfRun
+    summary: "The decision request belongs to another run than the one named; nothing changed."
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.DecisionStillOpen
+    summary: "The run still has an open decision request, so it cannot resume; nothing changed."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.RunNotWaiting
+    summary: "The run is not WaitingOnDecision: it takes no decision request and no answer; nothing changed."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.RunClosedToEvents
+    summary: "The run has ended, was cancelled or failed to start: it takes no more events."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.SequenceNotAscending
+    summary: "The run already has an event with this sequence number or a larger one: the sequence number of a run only grows, and nothing was recorded."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: sequence, type: Integer}
+
+  - name: sdc.daemon.NoSuchRun
+    summary: "No run has this id."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.RunStateConflict
+    summary: "The run is not in a state this command acts from, so nothing moved."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.RunAlreadyEnded
+    summary: "The run has ended, was cancelled or failed to start: there is nothing left to cancel."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+
+  - name: sdc.daemon.DaemonAlreadyStarted
+    summary: "The daemon already has its configuration row; the first start stands."
+    fields:
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+
+  - name: sdc.daemon.NoSuchDaemon
+    summary: "No daemon was started under this id."
+    fields:
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+
+  - name: sdc.daemon.BelowConfinementFloor
+    summary: "The requested confinement is below the daemon's floor; the run was not submitted."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+
+  - name: sdc.daemon.SessionClosedToRuns
+    summary: "The session is Closed and takes no new run; the run was not submitted."
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: session_id, type: sdc.daemon.SessionId}
+
+  - name: sdc.daemon.SessionExists
+    summary: "A session with this name is already open or closed; nothing was opened."
+    fields:
+      - {name: session_id, type: sdc.daemon.SessionId}
+
+  - name: sdc.daemon.NoSuchSession
+    summary: "No session has this name."
+    fields:
+      - {name: session_id, type: sdc.daemon.SessionId}
+
+  - name: sdc.daemon.SessionStateConflict
+    summary: "The session is not in a state this command acts from, so nothing moved."
+    fields:
+      - {name: session_id, type: sdc.daemon.SessionId}
+
+commands:
+  - name: sdc.daemon.OpenSession
+    naming:
+      wire: open-session
+      display: Open a session
+      summary: "Open a named session for a client. Runs submitted into it are listed and streamed together."
+    input:
+      - {name: session_id, type: sdc.daemon.SessionId}
+      - {name: client, type: sdc.daemon.ClientLabel}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: opened
+        when_related: {via: input.session_id, exists: false}
+        creates: sdc.daemon.Session
+        instance: session_id
+        sets:
+          client: input.client
+          opened_at: input.at
+        emits:
+          - sdc.daemon.SessionOpened
+        payload:
+          sdc.daemon.SessionOpened:
+            session_id: input.session_id
+            client: input.client
+        summary: "The session is Open and holds no run."
+      - name: session-exists
+        error: sdc.daemon.SessionExists
+        summary: "The name is taken: the first session stands."
+
+  - name: sdc.daemon.CloseSession
+    naming:
+      wire: close-session
+      display: Close a session
+      summary: "Close a session: it takes no new run. Its runs go on and stay listed."
+    input:
+      - {name: session_id, type: sdc.daemon.SessionId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-session
+        unknown_instance: true
+        error: sdc.daemon.NoSuchSession
+        summary: "No session has this name."
+      - name: closed
+        moves: sdc.daemon.Session.close
+        instance: session_id
+        sets:
+          closed_at: input.at
+        emits:
+          - sdc.daemon.SessionClosed
+        payload:
+          sdc.daemon.SessionClosed:
+            session_id: input.session_id
+        summary: "The session is Closed."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.SessionStateConflict
+        summary: "The session is already Closed."
+
+  - name: sdc.daemon.StartDaemon
+    naming:
+      wire: start-daemon
+      display: Start the daemon
+      summary: "Record what the daemon was started with: its confinement floor. Runs once, before the daemon takes a request; the daemon holds the row until it stops."
+    input:
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+      - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: started
+        when_related: {via: input.daemon_id, exists: false}
+        creates: sdc.daemon.Daemon
+        instance: daemon_id
+        sets:
+          confinement_floor: input.confinement_floor
+          started_at: input.at
+        emits:
+          - sdc.daemon.DaemonStarted
+        payload:
+          sdc.daemon.DaemonStarted:
+            daemon_id: input.daemon_id
+            confinement_floor: input.confinement_floor
+        summary: "The daemon holds its floor."
+      - name: already-started
+        error: sdc.daemon.DaemonAlreadyStarted
+        summary: "The daemon was started already: its first floor stands."
+
+  - name: sdc.daemon.SubmitRun
+    naming:
+      wire: submit-run
+      display: Submit a run
+      summary: "Submit a run of a runbook: its intake (inline), its context (a path under a daemon context root), its settings and its confinement, into a session or alone. The run is Submitted; the runtime starts it. The daemon mints the run id and the HTTP handler fills `run_id` and `daemon_id`; a client never chooses them. A client that wants a safe retry sends an `idempotency_key`: a second submit with a key already used returns the first run and creates none (outcome already-submitted, answered with the first run). The handler also reports three facts it reads from the host, because the language cannot read a file system: `runbook_known`, `context_inside_roots` and the size of the inline intake (checked here); the checks themselves are outside the language and are tested in the story daemon-skeleton-on-a-runtime-trait. The client names no daemon: `daemon_id` is an input because a guard that reads the Daemon row through a row set cannot be synthesized (ESS-SYNTH-001), while `via` plus `predicate` can. The floor guard spells the order of the two levels out, one outcome for the one floor that refuses something, because the ordered comparison `confinement_floor > input.confinement` validates but the interpreted target then accepts every level (a defect of the interpreted target of ESS 0.96.0); the outcome changes with the level names."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: intake, type: String}
+      - {name: context_path, type: Optional<sdc.daemon.ContextPath>}
+      - {name: settings, type: sdc.daemon.RunSettings}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+      - {name: runbook_known, type: Boolean}
+      - {name: context_inside_roots, type: Boolean}
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: intake-too-large
+        when: intake.count > 1048576
+        error: sdc.daemon.IntakeTooLarge
+        summary: "The inline intake is larger than 1 MiB: nothing was submitted."
+      - name: no-runbook
+        when: runbook_known == false
+        error: sdc.daemon.NoSuchRunbook
+        summary: "No preset and no runbook of the daemon's runbook directory has this name: nothing was submitted."
+      - name: context-outside-roots
+        when: context_inside_roots == false
+        error: sdc.daemon.ContextOutsideRoots
+        summary: "The context path lies under no context root of the daemon: nothing was submitted."
+      - name: no-daemon
+        when_related: {via: input.daemon_id, exists: false}
+        error: sdc.daemon.NoSuchDaemon
+        summary: "No daemon was started under this id: nothing was submitted."
+      - name: below-floor
+        when: {confinement: {in: [local]}}
+        when_related: {via: input.daemon_id, predicate: confinement_floor == linux}
+        error: sdc.daemon.BelowConfinementFloor
+        summary: "The daemon's floor is linux and the confinement is local: nothing was submitted."
+      - name: no-session
+        when_related: {via: input.session_id, exists: false}
+        error: sdc.daemon.NoSuchSession
+        summary: "A session was named and none has that name: nothing was submitted."
+      - name: session-closed
+        when_related: {via: input.session_id, predicate: state == Closed}
+        error: sdc.daemon.SessionClosedToRuns
+        summary: "The named session is Closed and takes no new run: nothing was submitted."
+      - name: already-submitted
+        when: defined(idempotency_key)
+        when_related:
+          entity: sdc.daemon.Run
+          where: idempotency_key == input.idempotency_key
+          exists: true
+        emits:
+          - sdc.daemon.SubmitReplayed
+        payload:
+          sdc.daemon.SubmitReplayed:
+            idempotency_key: input.idempotency_key
+        summary: "A run was submitted with this idempotency key: nothing is created and the answer is that first run."
+      - name: submitted
+        creates: sdc.daemon.Run
+        instance: run_id
+        sets:
+          runbook_id: input.runbook_id
+          runbook_version: input.runbook_version
+          intake: input.intake
+          context_path: input.context_path
+          settings: input.settings
+          confinement: input.confinement
+          session_id: input.session_id
+          idempotency_key: input.idempotency_key
+          submitted_at: input.at
+        emits:
+          - sdc.daemon.RunSubmitted
+        payload:
+          sdc.daemon.RunSubmitted:
+            run_id: input.run_id
+            runbook_id: input.runbook_id
+            confinement: input.confinement
+        summary: "The run is Submitted."
+
+  - name: sdc.daemon.CancelRun
+    naming:
+      wire: cancel-run
+      display: Cancel a run
+      summary: "Cancel a run that has not ended: Submitted, Running or WaitingOnDecision. The daemon stops the run in the runtime; a run that ended, was cancelled or failed to start is refused. Cancelling withdraws the run's Open decision requests: the daemon then issues WithdrawDecision for each (a command moves one entity, so the two moves are two commands). An answer to a withdrawn request is refused as DecisionWithdrawn."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: cancelled
+        moves: sdc.daemon.Run.cancel
+        instance: run_id
+        sets:
+          ended_at: input.at
+        emits:
+          - sdc.daemon.RunCancelled
+        payload:
+          sdc.daemon.RunCancelled:
+            run_id: input.run_id
+        summary: "The run is Cancelled."
+      - name: already-ended
+        wrong_state: true
+        error: sdc.daemon.RunAlreadyEnded
+        summary: "The run is Ended, Cancelled or FailedToStart."
+
+  - name: sdc.daemon.StartRun
+    naming:
+      wire: start-run
+      display: Report a run started
+      summary: "The runtime took a Submitted run up."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: started
+        moves: sdc.daemon.Run.start
+        instance: run_id
+        sets:
+          started_at: input.at
+        emits:
+          - sdc.daemon.RunStarted
+        payload:
+          sdc.daemon.RunStarted:
+            run_id: input.run_id
+        summary: "The run is Running."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not Submitted."
+
+  - name: sdc.daemon.FailRunStart
+    naming:
+      wire: fail-run-start
+      display: Report a run that could not start
+      summary: "The runtime could not take a Submitted run up: the reason is kept and the run is FailedToStart."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: reason, type: String}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: failed
+        moves: sdc.daemon.Run.fail_to_start
+        instance: run_id
+        sets:
+          failure: input.reason
+          ended_at: input.at
+        emits:
+          - sdc.daemon.RunFailedToStart
+        payload:
+          sdc.daemon.RunFailedToStart:
+            run_id: input.run_id
+            reason: input.reason
+        summary: "The run is FailedToStart."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not Submitted."
+
+  - name: sdc.daemon.WaitOnDecision
+    naming:
+      wire: wait-on-decision
+      display: Report a run waiting on a decision
+      summary: "The runtime stopped a Running run on a decision. It reports this first and then raises the request with RequestDecision, so a request is only ever raised for a run that waits."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: waiting
+        moves: sdc.daemon.Run.wait
+        instance: run_id
+        emits:
+          - sdc.daemon.RunWaiting
+        payload:
+          sdc.daemon.RunWaiting:
+            run_id: input.run_id
+        summary: "The run is WaitingOnDecision."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not Running."
+
+  - name: sdc.daemon.ResumeRun
+    naming:
+      wire: resume-run
+      display: Report a run resumed
+      summary: "The runtime took up the answers and the run goes on. Refused while a decision request of the run is still Open: the run waits on every one of them."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: still-open
+        when_related:
+          entity: sdc.daemon.DecisionRequest
+          where: {all: [run_id == input.run_id, state == Open]}
+          exists: true
+        error: sdc.daemon.DecisionStillOpen
+        summary: "A decision request of the run is Open."
+      - name: resumed
+        moves: sdc.daemon.Run.resume
+        instance: run_id
+        emits:
+          - sdc.daemon.RunResumed
+        payload:
+          sdc.daemon.RunResumed:
+            run_id: input.run_id
+        summary: "The run is Running again."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not WaitingOnDecision."
+
+  - name: sdc.daemon.RequestDecision
+    naming:
+      wire: request-decision
+      display: Raise a decision request
+      summary: "The runtime asks a question of a run that waits (after WaitOnDecision). The request is Open until a client answers it."
+    input:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: case_id, type: String}
+      - {name: action, type: String}
+      - {name: capability, type: String}
+      - {name: question, type: String}
+      - {name: options, type: "List<sdc.decision.DecisionOption>"}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        when_related: {via: input.run_id, exists: false}
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: run-not-waiting
+        when_related: {via: input.run_id, predicate: state != WaitingOnDecision}
+        error: sdc.daemon.RunNotWaiting
+        summary: "The run is not WaitingOnDecision."
+      - name: requested
+        creates: sdc.daemon.DecisionRequest
+        instance: request_id
+        sets:
+          run_id: input.run_id
+          case_id: input.case_id
+          action: input.action
+          capability: input.capability
+          question: input.question
+          options: input.options
+          opened_at: input.at
+        emits:
+          - sdc.daemon.DecisionRequested
+        payload:
+          sdc.daemon.DecisionRequested:
+            request_id: input.request_id
+            run_id: input.run_id
+        summary: "The request is Open."
+
+  - name: sdc.daemon.WithdrawDecision
+    naming:
+      wire: withdraw-decision
+      display: Withdraw a decision request
+      summary: "The daemon cancelled the run: each Open decision request of it is withdrawn, one command per request. The request keeps its record, shows no more in OpenDecisionsOfRun and takes no answer."
+    input:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+    outcomes:
+      - name: no-request
+        unknown_instance: true
+        error: sdc.daemon.NoSuchDecisionRequest
+        summary: "No decision request has this id."
+      - name: withdrawn
+        moves: sdc.daemon.DecisionRequest.withdraw
+        instance: request_id
+        emits:
+          - sdc.daemon.DecisionRequestWithdrawn
+        payload:
+          sdc.daemon.DecisionRequestWithdrawn:
+            request_id: input.request_id
+        summary: "The request is Withdrawn."
+      - name: not-open
+        wrong_state: true
+        error: sdc.daemon.DecisionNotOpen
+        summary: "The request is Answered or Withdrawn already."
+
+  - name: sdc.daemon.AnswerDecision
+    naming:
+      wire: answer-decision
+      display: Answer a decision
+      summary: "A client answers an Open decision request of a run that waits. An answer to a request that is already answered is refused: the first answer stands."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: answer, type: String}
+      - {name: answered_by, type: sdc.decision.Principal}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-request
+        unknown_instance: true
+        error: sdc.daemon.NoSuchDecisionRequest
+        summary: "No decision request has this id."
+      - name: not-of-run
+        when_subject:
+          predicate: run_id != input.run_id
+        error: sdc.daemon.DecisionNotOfRun
+        summary: "The request belongs to another run than the one named."
+      - name: withdrawn
+        when_subject:
+          predicate: state == Withdrawn
+        error: sdc.daemon.DecisionWithdrawn
+        summary: "The request was withdrawn when its run was cancelled: it takes no answer. Checked before the run's own state, so the answer names the request and not the run."
+      - name: no-run
+        when_related: {via: input.run_id, exists: false}
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: run-not-waiting
+        when_related: {via: input.run_id, predicate: state != WaitingOnDecision}
+        error: sdc.daemon.RunNotWaiting
+        summary: "The run is not WaitingOnDecision, so nothing is waiting for an answer."
+      - name: answered
+        moves: sdc.daemon.DecisionRequest.answer
+        instance: request_id
+        sets:
+          answer: input.answer
+          answered_by: input.answered_by
+          answered_at: input.at
+        emits:
+          - sdc.daemon.DecisionAnswered
+        payload:
+          sdc.daemon.DecisionAnswered:
+            request_id: input.request_id
+            run_id: input.run_id
+            answered_by: input.answered_by
+        summary: "The request is Answered; the runtime takes the answer up and reports ResumeRun."
+      - name: already-answered
+        wrong_state: true
+        error: sdc.daemon.DecisionAlreadyAnswered
+        summary: "The request is already Answered."
+
+  - name: sdc.daemon.RecordRunEvent
+    naming:
+      wire: record-run-event
+      display: Record a run event
+      summary: "A record of a run, from the runtime or written by the daemon itself (kind starts with `runbook.`): keep it, unchanged, under its sequence number (per run, only grows) and its position (per daemon, minted by the daemon, only grows over all runs). The handler fills `position` and `session_id` (copied from the run). An event for a run that has ended, was cancelled or failed to start is refused."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: sequence, type: Integer}
+      - {name: position, type: Integer}
+      - {name: kind, type: sdc.daemon.EventKind}
+      - {name: record, type: Json}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        when_related: {via: input.run_id, exists: false}
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: run-closed
+        when_related:
+          via: input.run_id
+          predicate: {any: [state == Ended, state == Cancelled, state == FailedToStart]}
+        error: sdc.daemon.RunClosedToEvents
+        summary: "The run is Ended, Cancelled or FailedToStart."
+      - name: not-ascending
+        when_related:
+          entity: sdc.daemon.RunEvent
+          where: {all: [run_id == input.run_id, sequence >= input.sequence]}
+          exists: true
+        error: sdc.daemon.SequenceNotAscending
+        summary: "An event of the run has this number or a larger one."
+      - name: position-not-ascending
+        when_related:
+          entity: sdc.daemon.RunEvent
+          where: position >= input.position
+          exists: true
+        error: sdc.daemon.PositionNotAscending
+        summary: "An event of the daemon has this position or a larger one."
+      - name: recorded
+        creates: sdc.daemon.RunEvent
+        instance: event_id
+        sets:
+          run_id: input.run_id
+          session_id: input.session_id
+          sequence: input.sequence
+          position: input.position
+          kind: input.kind
+          record: input.record
+          at: input.at
+        emits:
+          - sdc.daemon.RunEventRecorded
+        payload:
+          sdc.daemon.RunEventRecorded:
+            event_id: {generated: true}
+            run_id: input.run_id
+            sequence: input.sequence
+            position: input.position
+        summary: "The event is kept under its sequence number and its position."
+
+  - name: sdc.daemon.EndRun
+    naming:
+      wire: end-run
+      display: Report a run ended
+      summary: "The runtime finished a Running run with an outcome."
+    input:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: outcome, type: sdc.daemon.RunOutcome}
+      - {name: at, type: Timestamp}
+    outcomes:
+      - name: no-run
+        unknown_instance: true
+        error: sdc.daemon.NoSuchRun
+        summary: "No run has this id."
+      - name: ended
+        moves: sdc.daemon.Run.end
+        instance: run_id
+        sets:
+          outcome: input.outcome
+          ended_at: input.at
+        emits:
+          - sdc.daemon.RunEnded
+        payload:
+          sdc.daemon.RunEnded:
+            run_id: input.run_id
+            outcome: input.outcome
+        summary: "The run is Ended with its outcome."
+      - name: wrong-state
+        wrong_state: true
+        error: sdc.daemon.RunStateConflict
+        summary: "The run is not Running."
+
+events:
+  - name: sdc.daemon.SubmitReplayed
+    fields:
+      - {name: idempotency_key, type: Optional<sdc.daemon.IdempotencyKey>}
+  - name: sdc.daemon.DecisionRequestWithdrawn
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+  - name: sdc.daemon.DaemonStarted
+    fields:
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+      - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+  - name: sdc.daemon.RunSubmitted
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+  - name: sdc.daemon.RunResumed
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.DecisionRequested
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.DecisionAnswered
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: answered_by, type: sdc.decision.Principal}
+  - name: sdc.daemon.RunEventRecorded
+    fields:
+      - {name: event_id, type: sdc.daemon.EventId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: sequence, type: Integer}
+      - {name: position, type: Integer}
+  - name: sdc.daemon.RunCancelled
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunStarted
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunFailedToStart
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: reason, type: String}
+  - name: sdc.daemon.RunWaiting
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+  - name: sdc.daemon.RunEnded
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: outcome, type: sdc.daemon.RunOutcome}
+  - name: sdc.daemon.SessionOpened
+    fields:
+      - {name: session_id, type: sdc.daemon.SessionId}
+      - {name: client, type: sdc.daemon.ClientLabel}
+  - name: sdc.daemon.SessionClosed
+    fields:
+      - {name: session_id, type: sdc.daemon.SessionId}
+
+views:
+  - name: sdc.daemon.Sessions
+    naming:
+      wire: sessions
+      display: Sessions
+    source: sdc.daemon.Session
+    consistency: read_your_writes
+    fields:
+      - {name: session_id, type: sdc.daemon.SessionId}
+      - {name: client, type: sdc.daemon.ClientLabel}
+      - {name: state, type: sdc.daemon.Session.State}
+      - {name: opened_at, type: Timestamp}
+      - {name: closed_at, type: Optional<Timestamp>}
+
+  - name: sdc.daemon.DaemonConfiguration
+    naming:
+      wire: configuration
+      display: Daemon configuration
+    source: sdc.daemon.Daemon
+    consistency: read_your_writes
+    fields:
+      - {name: daemon_id, type: sdc.daemon.DaemonId}
+      - {name: confinement_floor, type: sdc.daemon.ConfinementLevel}
+      - {name: started_at, type: Timestamp}
+
+  - name: sdc.daemon.Runs
+    naming:
+      wire: runs
+      display: Runs
+      summary: "Every run. GET /daemon/views/runs is this view; /daemon/views/runs-of-session (session_id), /daemon/views/runs-in-state (state) and /daemon/views/runs-of-session-in-state (both) filter it."
+    source: sdc.daemon.Run
+    consistency: read_your_writes
+    order_by:
+      - submitted_at desc
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: state, type: sdc.daemon.Run.State}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+
+  - name: sdc.daemon.RunsOfSession
+    naming:
+      wire: runs-of-session
+      display: Runs of a session
+    source: sdc.daemon.Run
+    consistency: read_your_writes
+    params:
+      - {name: session_id, type: sdc.daemon.SessionId}
+    filter: session_id == param.session_id
+    order_by:
+      - submitted_at desc
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: state, type: sdc.daemon.Run.State}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+
+  - name: sdc.daemon.RunsInState
+    naming:
+      wire: runs-in-state
+      display: Runs in a state
+    source: sdc.daemon.Run
+    consistency: read_your_writes
+    params:
+      - {name: state, type: sdc.daemon.Run.State}
+    filter: state == param.state
+    order_by:
+      - submitted_at desc
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: state, type: sdc.daemon.Run.State}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+
+  - name: sdc.daemon.RunsOfSessionInState
+    naming:
+      wire: runs-of-session-in-state
+      display: Runs of a session in a state
+    source: sdc.daemon.Run
+    consistency: read_your_writes
+    params:
+      - {name: session_id, type: sdc.daemon.SessionId}
+      - {name: state, type: sdc.daemon.Run.State}
+    filter:
+      all:
+        - session_id == param.session_id
+        - state == param.state
+    order_by:
+      - submitted_at desc
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: state, type: sdc.daemon.Run.State}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+
+  - name: sdc.daemon.RunDetail
+    naming:
+      wire: run
+      display: One run
+      summary: "One run with every field it was submitted with. The run's open decision requests are the view OpenDecisionsOfRun: GET /daemon/views/run and GET /daemon/views/open-decisions, each with run_id, answer the two. A view has one source entity, so the language cannot join them in one row."
+    source: sdc.daemon.Run
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: runbook_id, type: sdc.daemon.RunbookId}
+      - {name: runbook_version, type: Optional<sdc.daemon.RunbookVersion>}
+      - {name: intake, type: String, summary: "The intake document itself, inline in the submit: text, at most 1 MiB."}
+      - {name: context_path, type: Optional<sdc.daemon.ContextPath>}
+      - {name: settings, type: sdc.daemon.RunSettings}
+      - {name: state, type: sdc.daemon.Run.State}
+      - {name: confinement, type: sdc.daemon.ConfinementLevel}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: submitted_at, type: Timestamp}
+      - {name: started_at, type: Optional<Timestamp>}
+      - {name: ended_at, type: Optional<Timestamp>}
+      - {name: outcome, type: Optional<sdc.daemon.RunOutcome>}
+      - {name: failure, type: Optional<String>}
+
+  - name: sdc.daemon.OpenDecisionsOfRun
+    naming:
+      wire: open-decisions
+      display: Open decision requests of a run
+    source: sdc.daemon.DecisionRequest
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter:
+      all:
+        - run_id == param.run_id
+        - state == Open
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: question, type: String}
+      - {name: options, type: "List<sdc.decision.DecisionOption>"}
+      - {name: opened_at, type: Timestamp}
+
+  - name: sdc.daemon.DecisionsOfRun
+    naming:
+      wire: decisions
+      display: Decision requests of a run, answered or not
+    source: sdc.daemon.DecisionRequest
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+    filter: run_id == param.run_id
+    fields:
+      - {name: request_id, type: sdc.daemon.DecisionRequestId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: state, type: sdc.daemon.DecisionRequest.State}
+      - {name: question, type: String}
+      - {name: options, type: "List<sdc.decision.DecisionOption>"}
+      - {name: opened_at, type: Timestamp}
+      - {name: answer, type: Optional<String>}
+      - {name: answered_by, type: Optional<sdc.decision.Principal>}
+      - {name: answered_at, type: Optional<Timestamp>}
+
+  - name: sdc.daemon.EventsAfter
+    naming:
+      wire: events
+      display: Events of a run after a position
+      summary: "The events of one run with a position above `after_position`, in position order: the page the run's event stream serves. SSE is outside the language: ESS 0.96.0 has no construct for a server-sent event stream or a subscription (it has `asyncapi` for the events components publish, which describes a broker and not an HTTP stream), so the stream is not declared; the views are the page a stream serves, and the HTTP binding (the three events views below, served with `text/event-stream`) is written and tested in the story daemon-skeleton-on-a-runtime-trait. GET /daemon/views/events?run_id=... with `Accept: text/event-stream` streams this view: every row with position > after_position, each as one SSE event whose `id` is the row's position, then each new event as it is recorded; a reconnect sends `Last-Event-ID: n`, a position, and the stream continues with after_position = n; after_position = 0 is the whole run. Without that header the same path answers the rows as a JSON page."
+    source: sdc.daemon.RunEvent
+    consistency: read_your_writes
+    params:
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: after_position, type: Integer}
+    filter:
+      all:
+        - run_id == param.run_id
+        - position > param.after_position
+    order_by:
+      - position
+    fields:
+      - {name: event_id, type: sdc.daemon.EventId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: sequence, type: Integer}
+      - {name: position, type: Integer}
+      - {name: kind, type: sdc.daemon.EventKind}
+      - {name: record, type: Json}
+      - {name: at, type: Timestamp}
+
+  - name: sdc.daemon.EventsOfSessionAfter
+    naming:
+      wire: session-events
+      display: Events of a session after a position
+      summary: "The events of every run of one session with a position above `after_position`, in position order: the page the session's event stream serves (GET /daemon/views/session-events?session_id=... with `Accept: text/event-stream`, same SSE rules as EventsAfter; the SSE id is the position, so the interleaving of the session's runs is the daemon's order). Outside the language: SSE itself."
+    source: sdc.daemon.RunEvent
+    consistency: read_your_writes
+    params:
+      - {name: session_id, type: sdc.daemon.SessionId}
+      - {name: after_position, type: Integer}
+    filter:
+      all:
+        - session_id == param.session_id
+        - position > param.after_position
+    order_by:
+      - position
+    fields:
+      - {name: event_id, type: sdc.daemon.EventId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: sequence, type: Integer}
+      - {name: position, type: Integer}
+      - {name: kind, type: sdc.daemon.EventKind}
+      - {name: record, type: Json}
+      - {name: at, type: Timestamp}
+
+  - name: sdc.daemon.EventsOfDaemonAfter
+    naming:
+      wire: daemon-events
+      display: Events of the daemon after a position
+      summary: "The events of every run of the daemon with a position above `after_position`, in position order: the page the daemon-wide event stream serves (GET /daemon/views/daemon-events with `Accept: text/event-stream`, same SSE rules as EventsAfter). Outside the language: SSE itself."
+    source: sdc.daemon.RunEvent
+    consistency: read_your_writes
+    params:
+      - {name: after_position, type: Integer}
+    filter: position > param.after_position
+    order_by:
+      - position
+    fields:
+      - {name: event_id, type: sdc.daemon.EventId}
+      - {name: run_id, type: sdc.daemon.RunId}
+      - {name: session_id, type: Optional<sdc.daemon.SessionId>}
+      - {name: sequence, type: Integer}
+      - {name: position, type: Integer}
+      - {name: kind, type: sdc.daemon.EventKind}
+      - {name: record, type: Json}
+      - {name: at, type: Timestamp}

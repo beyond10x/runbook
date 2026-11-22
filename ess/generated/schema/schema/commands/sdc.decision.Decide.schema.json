@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.decision.Decide.schema.json",
+  "title": "Decide input",
+  "description": "Take one option of an Open or Escalated request. Decide checks every guard and writes no Canon record. Where the option's consequence names a produces kind, the runtime then writes that Canon record, keyed by its record id (the Canon entry carries no request id; two open requests for the same record id must not exist); RecordProduced stores it as produced_record; the run resumes only once produced_record is set. If the case revision moved between Decide and the Canon write, the write is refused and the request is superseded. A crash after Decide leaves a Decided request without produced_record, and the retry writes the Canon record and records it. An option that produces no record resumes or ends the run directly after Decide. A question request may be decided with a free answer in place of an option (both of the operator's trial-2 answers were 'neither option as asked', docs/requester.md § 1); the answer is written to questions.yaml and produces its new revision (artifact_revision).",
+  "x-ess-name": "sdc.decision.Decide",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "option": {
+      "$ref": "#/$defs/sdc.decision.OptionLetter"
+    },
+    "answer": {
+      "description": "A free answer in place of an option, for a question request only.",
+      "type": "string"
+    },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal"
+    },
+    "principal_kind": {
+      "$ref": "#/$defs/sdc.decision.PrincipalKind"
+    },
+    "decided_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "reasons": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "request_id",
+    "principal",
+    "principal_kind",
+    "decided_at",
+    "reasons"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:2aa89397adbb5a6c5e4492932f0578c374e0f543710e456427efbc0dd84e1d37",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.OptionLetter": {
+      "title": "OptionLetter",
+      "description": "The letter of an option: A, B, C, in the order presented.",
+      "x-ess-name": "sdc.decision.OptionLetter",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Principal": {
+      "title": "Principal",
+      "description": "Who decides: a person's name (operator), decider:<kind> (decider:model, decider:approve, decider:reject; decider:haiku in runs before D149), or silence for a default taken because nobody answered. Recorded as given, as Canon records a principal (canon-decisions/1).",
+      "x-ess-name": "sdc.decision.Principal",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.PrincipalKind": {
+      "title": "PrincipalKind",
+      "description": "person: a named person. decider: decider:<kind>. rule: rule:<name>, a program deciding from evidence (docs/autonomy-levels.md:202-203). silence: the recommended default taken because nobody answered before expires_at (not in autonomy-levels.md; a person-facing addition, A0 to A4 only in practice).",
+      "x-ess-name": "sdc.decision.PrincipalKind",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "person",
+        "decider",
+        "rule",
+        "silence"
+      ]
+    }
+  }
+}

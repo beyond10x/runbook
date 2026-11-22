@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.CapabilityId.schema.json",
+  "$ref": "#/$defs/sdc.decision.CapabilityId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:6aa028f3f57675c289d19231b0aeb26aeda0aaef84b6886877c8f8403cbbbb34",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.CapabilityId": {
+      "title": "CapabilityId",
+      "description": "A Canon capability an action requires, such as owner.approve.",
+      "x-ess-name": "sdc.decision.CapabilityId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

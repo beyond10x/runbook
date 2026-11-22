@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/errors/sdc.daemon.NoSuchRun.schema.json",
+  "title": "NoSuchRun payload",
+  "description": "No run has this id.",
+  "x-ess-name": "sdc.daemon.NoSuchRun",
+  "x-ess-kind": "error-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    }
+  },
+  "required": [
+    "run_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:c5094ce5ea0e05bb226cfec531dc091a20324d6b740eaa53ac21a01eb318e62f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

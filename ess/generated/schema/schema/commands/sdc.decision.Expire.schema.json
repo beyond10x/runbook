@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/commands/sdc.decision.Expire.schema.json",
+  "title": "Expire input",
+  "description": "End a request nobody answered before expires_at, when it has no default on silence. Fired by a host tick that passes the instant as input (at); the command reads no clock.",
+  "x-ess-name": "sdc.decision.Expire",
+  "x-ess-kind": "command-input",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "at": {
+      "description": "The instant of the host tick that fired the command.",
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "request_id",
+    "at"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ef70c1a30d26641dae3aafbdf62ac3967dbdd47cc71d146282a07146a89affe3",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

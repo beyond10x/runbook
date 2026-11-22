@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.CheckVerdict.schema.json",
+  "$ref": "#/$defs/sdc.decision.CheckVerdict",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:52d7f98c1d6e7fc57435ebb2c204ddef28f5e8d90c7c7b961a7f6f4824a8f104",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.CheckVerdict": {
+      "title": "CheckVerdict",
+      "description": "The grounding check's verdict on a proposed recommendation: verified when it cites at least one ground, every citation resolves and a ground supports the recommended option or free answer; refused otherwise.",
+      "x-ess-name": "sdc.decision.CheckVerdict",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "verified",
+        "refused"
+      ]
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.Consequence.schema.json",
+  "$ref": "#/$defs/sdc.decision.Consequence",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:19ff4abcfbd12271fc49d2496e864b3a8a39c0b1bd7a3a7dde6f7fbac66577ac",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ActionId": {
+      "title": "ActionId",
+      "description": "A protocol action id, such as roadmap.approve.",
+      "x-ess-name": "sdc.decision.ActionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Consequence": {
+      "title": "Consequence",
+      "description": "What choosing the option does to the protocol.",
+      "x-ess-name": "sdc.decision.Consequence",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "admits": {
+          "description": "Actions that become admissible.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "blocks": {
+          "description": "Actions that become blocked.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/sdc.decision.ActionId"
+          }
+        },
+        "grant": {
+          "$ref": "#/$defs/sdc.decision.Grant",
+          "description": "The authority entry the option writes, for an approval."
+        },
+        "answer": {
+          "description": "The answer written to questions.yaml, for a question.",
+          "type": "string"
+        },
+        "produces": {
+          "$ref": "#/$defs/sdc.decision.ProducedDocument",
+          "description": "The kind of Canon record the option produces when decided; absent when it produces none, such as 'leave it untaken' on an outcome request. Only a decided option that produces a record goes through RecordProduced before the run resumes."
+        }
+      },
+      "required": [
+        "admits",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "sdc.decision.Grant": {
+      "title": "Grant",
+      "description": "A canon-authority/1 decision (documents.md:123-132).",
+      "x-ess-name": "sdc.decision.Grant",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied"
+      ]
+    },
+    "sdc.decision.ProducedDocument": {
+      "title": "ProducedDocument",
+      "description": "The Canon record a decided request produced. canon_authority: an AuthorityDecision entry bound to the case revision (approval). canon_decisions: an ExplicitDecision entry (outcome). canon_evidence: the approval evidence a manual action produced (context_approval, vision_approval, roadmap_approval). artifact_revision: the new revision of questions.yaml holding the answer (question).",
+      "x-ess-name": "sdc.decision.ProducedDocument",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "canon_authority",
+        "canon_decisions",
+        "canon_evidence",
+        "artifact_revision"
+      ]
+    }
+  }
+}

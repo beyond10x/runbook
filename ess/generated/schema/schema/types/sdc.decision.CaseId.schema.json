@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.CaseId.schema.json",
+  "$ref": "#/$defs/sdc.decision.CaseId",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:3234ca2319ec27d1c7a944a32474a61857977e3843691b2d50494567417a2e85",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.CaseId": {
+      "title": "CaseId",
+      "description": "A Canon case id (canon-case/1 id), such as IDEA-1.direction.",
+      "x-ess-name": "sdc.decision.CaseId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

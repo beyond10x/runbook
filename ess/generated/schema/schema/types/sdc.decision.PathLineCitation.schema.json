@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.PathLineCitation.schema.json",
+  "$ref": "#/$defs/sdc.decision.PathLineCitation",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:03ee39095353dadd693b82fded424ab25af9047d09209141e8064ed5407e0276",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.PathLineCitation": {
+      "title": "PathLineCitation",
+      "x-ess-name": "sdc.decision.PathLineCitation",
+      "x-ess-kind": "struct",
+      "type": "object",
+      "properties": {
+        "path": {
+          "description": "A file path relative to the repository root.",
+          "type": "string"
+        },
+        "line": {
+          "type": "integer"
+        },
+        "line_end": {
+          "type": "integer"
+        },
+        "digest": {
+          "description": "sha256:<hex> of the cited lines when the ground was checked; a different digest later means the ground changed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "line"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

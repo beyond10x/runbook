@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.SessionClosed.schema.json",
+  "title": "SessionClosed payload",
+  "x-ess-name": "sdc.daemon.SessionClosed",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "session_id": {
+      "$ref": "#/$defs/sdc.daemon.SessionId"
+    }
+  },
+  "required": [
+    "session_id"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:4424d1c04c92330b48a452c9e313ca12a0f73d7d65ce27166dc6c8769ffe9c30",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.SessionId": {
+      "title": "SessionId",
+      "description": "The name of a session, chosen by the client that opens it.",
+      "x-ess-name": "sdc.daemon.SessionId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

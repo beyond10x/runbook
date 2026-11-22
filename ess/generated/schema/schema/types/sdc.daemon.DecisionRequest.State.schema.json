@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.daemon.DecisionRequest.State.schema.json",
+  "$ref": "#/$defs/sdc.daemon.DecisionRequest.State",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:b806f24d926af270ce9b064cb52a25b3fd3b87b0dc845afaf9b9e0fe8f6c766f",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.DecisionRequest.State": {
+      "title": "State",
+      "x-ess-name": "sdc.daemon.DecisionRequest.State",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "Answered",
+        "Open",
+        "Withdrawn"
+      ]
+    }
+  }
+}

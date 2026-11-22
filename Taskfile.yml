@@ -7,12 +7,13 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; the test steps of the driver and of ui/ (run side by side); bindings, fixture cases, the protocol checks (fast lane), the CI change classifier, the ESS specification and its generated output and the planning store.
     deps:
       - test:driver
       - test:ui
     cmds:
       - task: check:ci-paths
+      - task: check:ess-generated
       - task: check:cycles-suite
       - task: check:protocols
       - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
@@ -101,6 +102,13 @@ tasks:
     cmds:
       - cd runbook && cargo build --locked --quiet --bin runbook
       - RUNBOOK_HOME="${RUNBOOK_HOME:-$PWD}" runbook/target/debug/runbook check
+
+  check:ess-generated:
+    desc: Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output is current.
+    cmds:
+      - ess specify validate --path ess
+      - ess generate --path ess --kind schema --schema-id-base https://sdc.invalid/ --out ess/generated/schema --check
+      - ess generate --path ess --kind openapi --out ess/generated/openapi --check
 
   check:protocols:
     desc: Validate, compile, check, probe and simulate the nine protocols from protocol/check-ledger.json (fast lane, 120 s budget; re-checks a protocol whose sources changed).

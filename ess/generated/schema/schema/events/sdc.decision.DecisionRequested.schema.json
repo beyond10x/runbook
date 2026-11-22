@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.decision.DecisionRequested.schema.json",
+  "title": "DecisionRequested payload",
+  "x-ess-name": "sdc.decision.DecisionRequested",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "request_id": {
+      "$ref": "#/$defs/sdc.decision.DecisionRequestId"
+    },
+    "case_id": {
+      "$ref": "#/$defs/sdc.decision.CaseId"
+    },
+    "subject_artifact": {
+      "$ref": "#/$defs/sdc.decision.ArtifactId"
+    },
+    "subject_revision": {
+      "$ref": "#/$defs/sdc.decision.Revision"
+    }
+  },
+  "required": [
+    "request_id",
+    "case_id",
+    "subject_artifact",
+    "subject_revision"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:ec925d079363263c44a83d602056477fd5a317832a30dd44fa75e16bcc8e2d6a",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.ArtifactId": {
+      "title": "ArtifactId",
+      "description": "A case artifact id (canon-case/1 artifacts key), such as roadmap.",
+      "x-ess-name": "sdc.decision.ArtifactId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.CaseId": {
+      "title": "CaseId",
+      "description": "A Canon case id (canon-case/1 id), such as IDEA-1.direction.",
+      "x-ess-name": "sdc.decision.CaseId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.DecisionRequestId": {
+      "title": "DecisionRequestId",
+      "description": "Id of a decision request, chosen by the driver: DR-<case>-<action or question id>-<n>.",
+      "x-ess-name": "sdc.decision.DecisionRequestId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.decision.Revision": {
+      "title": "Revision",
+      "description": "An artifact or case revision as the case snapshot writes it.",
+      "x-ess-name": "sdc.decision.Revision",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

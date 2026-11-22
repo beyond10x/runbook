@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.RunSubmitted.schema.json",
+  "title": "RunSubmitted payload",
+  "x-ess-name": "sdc.daemon.RunSubmitted",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "#/$defs/sdc.daemon.RunId"
+    },
+    "runbook_id": {
+      "$ref": "#/$defs/sdc.daemon.RunbookId"
+    },
+    "confinement": {
+      "$ref": "#/$defs/sdc.daemon.ConfinementLevel"
+    }
+  },
+  "required": [
+    "run_id",
+    "runbook_id",
+    "confinement"
+  ],
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:4411e4e03e450b90967abf4d80a386544d51cf13cde1c47491f18ae68fca8104",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.ConfinementLevel": {
+      "title": "ConfinementLevel",
+      "description": "How strongly a run is sandboxed, weakest first: the runtime's names. local is not confined; linux is. oci and pod are the runtime's planned levels and are not in the set until it offers them. The default of a submit is linux (the handler fills it); the daemon's default floor is linux; local must be asked for by name and is refused under a linux floor.",
+      "x-ess-name": "sdc.daemon.ConfinementLevel",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "local",
+        "linux"
+      ]
+    },
+    "sdc.daemon.RunId": {
+      "title": "RunId",
+      "description": "The id of a run. The daemon mints it (a UUID, version 7) in the HTTP handler and returns it in the answer to the submit; the handler fills the `run_id` input of SubmitRun and a client never chooses it. The state directory of the run is named after it. A run id that is already taken cannot occur, because the daemon mints it; the specification has no refusal for it.",
+      "x-ess-name": "sdc.daemon.RunId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    },
+    "sdc.daemon.RunbookId": {
+      "title": "RunbookId",
+      "description": "The name of a runbook: a preset (sdc, sdc-bugfix) or the name of a runbook in the daemon's --runbook-dir.",
+      "x-ess-name": "sdc.daemon.RunbookId",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

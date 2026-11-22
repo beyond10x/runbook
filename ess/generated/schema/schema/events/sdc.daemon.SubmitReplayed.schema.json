@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/events/sdc.daemon.SubmitReplayed.schema.json",
+  "title": "SubmitReplayed payload",
+  "x-ess-name": "sdc.daemon.SubmitReplayed",
+  "x-ess-kind": "event-payload",
+  "type": "object",
+  "properties": {
+    "idempotency_key": {
+      "$ref": "#/$defs/sdc.daemon.IdempotencyKey"
+    }
+  },
+  "additionalProperties": false,
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:c70bd3fa6c60e28c16db262c723e729a8d71754012dc5e9e145f620cde817e4c",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.daemon.IdempotencyKey": {
+      "title": "IdempotencyKey",
+      "description": "Optional text, at most 200 characters, unique per daemon, that a client sends to retry a submit safely: a second submit with a key already used returns the first run and creates none.",
+      "x-ess-name": "sdc.daemon.IdempotencyKey",
+      "x-ess-kind": "newtype",
+      "type": "string",
+      "maxLength": 200,
+      "x-ess-invariants": [
+        "value.count <= 200"
+      ]
+    }
+  }
+}

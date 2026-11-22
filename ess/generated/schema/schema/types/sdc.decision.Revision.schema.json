@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.Revision.schema.json",
+  "$ref": "#/$defs/sdc.decision.Revision",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:867a98525515620841df6c4914166c559aaa1d4fd6c43323c6cc526468b72168",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.Revision": {
+      "title": "Revision",
+      "description": "An artifact or case revision as the case snapshot writes it.",
+      "x-ess-name": "sdc.decision.Revision",
+      "x-ess-kind": "newtype",
+      "type": "string"
+    }
+  }
+}

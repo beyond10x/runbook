@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdc.invalid/types/sdc.decision.Grant.schema.json",
+  "$ref": "#/$defs/sdc.decision.Grant",
+  "x-ess-provenance": {
+    "system": "sdc",
+    "specification_version": "v1",
+    "contract_digest": "slice-sha256/2:d2a39af3404779309d3f8a7e98550a6dbf997d29567640581f0cac52c2accf7c",
+    "regenerate": "ess generate"
+  },
+  "$defs": {
+    "sdc.decision.Grant": {
+      "title": "Grant",
+      "description": "A canon-authority/1 decision (documents.md:123-132).",
+      "x-ess-name": "sdc.decision.Grant",
+      "x-ess-kind": "enum",
+      "type": "string",
+      "enum": [
+        "granted",
+        "denied"
+      ]
+    }
+  }
+}
