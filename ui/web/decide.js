@@ -45,6 +45,12 @@ function consequence(option) {
   return [option.cost && option.cost !== 'none' ? `costs ${option.cost}` : '', part('admits', c.admits), part('blocks', c.blocks)].filter(Boolean).join(' · ');
 }
 
+function field(name, text) {
+  const el = h('span', {class: 'chip-r', text});
+  el.dataset.field = name;
+  return el;
+}
+
 function card(row) {
   const id = String(row.request_id);
   const opts = (Array.isArray(row.options) ? row.options : []).map((o, i) => {
@@ -59,6 +65,9 @@ function card(row) {
   const art = h('article', {class: 'dcard k-question'},
     h('div', {class: 'dc-h'}, h('span', {class: 'dk q', text: 'Decision'}), h('h3', {text: String(row.question)})),
     h('div', {class: 'dc-meta'},
+      field('case_id', `case ${row.case_id ?? ''}`),
+      field('action', `action ${row.action ?? ''}`),
+      field('capability', `capability ${row.capability ?? ''}`),
       h('span', {class: 'chip-r', text: `request ${id}`}),
       h('span', {class: 'chip-r', text: `opened ${String(row.opened_at || '').slice(0, 19).replace('T', ' ')}`})),
     ...opts,

@@ -88,10 +88,20 @@ impl Script {
 /// The outcome a script that has no `End` step ends with.
 pub const DEFAULT_OUTCOME: &str = "done";
 
+/// One call of `Runtime::answer`, as the stub was given it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnswerGiven {
+    pub run_id: String,
+    pub request_id: String,
+    pub answer: String,
+    pub principal: String,
+}
+
 #[derive(Default)]
 pub struct StubRuntime {
     table: Mutex<HashMap<String, Script>>,
     answers: Mutex<HashMap<String, Sender<String>>>,
+    given: Mutex<Vec<AnswerGiven>>,
 }
 
 const POLL: Duration = Duration::from_millis(2);
@@ -99,6 +109,11 @@ const POLL: Duration = Duration::from_millis(2);
 impl StubRuntime {
     pub fn new() -> StubRuntime {
         StubRuntime::default()
+    }
+
+    /// Every call of `answer` so far, in order: what the daemon handed the runtime.
+    pub fn answers_given(&self) -> Vec<AnswerGiven> {
+        self.given.lock().unwrap().clone()
     }
 
     /// Put a script in the table under a runbook name.
@@ -234,7 +249,8 @@ impl Runtime for StubRuntime {
         Ok(Finish::Outcome(DEFAULT_OUTCOME.to_string()))
     }
 
-    fn answer(&self, run_id: &str, request_id: &str, _answer: &str, _principal: &str) -> Result<(), AnswerFailure> {
+    fn answer(&self, run_id: &str, request_id: &str, answer: &str, principal: &str) -> Result<(), AnswerFailure> {
+        self.given.lock().unwrap().push(AnswerGiven { run_id: run_id.into(), request_id: request_id.into(), answer: answer.into(), principal: principal.into() });
         match self.answers.lock().unwrap().get(run_id) {
             Some(tx) => tx.send(request_id.to_string()).map_err(|_| AnswerFailure::UnknownRun),
             None => Err(AnswerFailure::UnknownRun),

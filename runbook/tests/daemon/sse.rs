@@ -599,7 +599,7 @@ fn sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s() {
     let _t = timed("sigterm_closes_every_open_stream_and_serve_exits_0_within_2_s");
     let dir = super::state::scratch("sse-sigterm");
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_runbook"));
-    cmd.arg("serve").arg("--state-dir").arg(dir.join("state")).args(["--listen", "127.0.0.1:0"]);
+    cmd.arg("serve").args(["--principal", super::PRINCIPAL]).arg("--state-dir").arg(dir.join("state")).args(["--listen", "127.0.0.1:0"]);
     cmd.env_remove("RUNBOOK_TOKEN").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
     let mut child = cmd.spawn().unwrap();
     struct Guard(std::process::Child);

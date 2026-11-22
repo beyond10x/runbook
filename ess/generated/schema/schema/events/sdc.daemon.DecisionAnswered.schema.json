@@ -14,18 +14,22 @@
     },
     "answered_by": {
       "$ref": "#/$defs/sdc.decision.Principal"
+    },
+    "principal": {
+      "$ref": "#/$defs/sdc.decision.Principal"
     }
   },
   "required": [
     "request_id",
     "run_id",
-    "answered_by"
+    "answered_by",
+    "principal"
   ],
   "additionalProperties": false,
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:269bcf5091bf6674339544508a499bc21837de81bf73a2e37f42c90969143ccf",
+    "contract_digest": "slice-sha256/2:f3263dfe0d0aadf47132e8fef77fdd5e8be4c8a228a5c97fe1f3fdc219e98f04",
     "regenerate": "ess generate"
   },
   "$defs": {

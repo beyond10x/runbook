@@ -58,6 +58,9 @@ struct Gate {
     skipped: usize,
 }
 
+/// The principal of the daemon the scenarios run against: the `principal` of their `StartDaemon` steps.
+const CONFORMANCE_PRINCIPAL: &str = "agent:conformance";
+
 const GATE: Gate = Gate { total: 12, executed: 12, passed: 12, skipped: 0 };
 
 /// Scenarios that fail today, by name, with the reason: a different failure cannot hide behind them.
@@ -288,7 +291,7 @@ impl Scn {
             let root = self.dir.join("ctx");
             std::fs::create_dir_all(&root).map_err(|e| Stop::Fail(e.to_string()))?;
             let root = std::fs::canonicalize(root).map_err(|e| Stop::Fail(e.to_string()))?;
-            let cfg = Config { state_dir: self.dir.join("state"), confinement_floor: self.floor, context_roots: vec![root.clone()], runbook_dir: None };
+            let cfg = Config { state_dir: self.dir.join("state"), confinement_floor: self.floor, context_roots: vec![root.clone()], runbook_dir: None, principal: CONFORMANCE_PRINCIPAL.into() };
             let daemon = Daemon::start_with_clock(cfg, self.runtime.clone(), self.clock.clone()).map_err(|e| Stop::Fail(format!("the daemon did not start: {e}")))?;
             let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().map_err(|e| Stop::Fail(e.to_string()))?;
             let listener = rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).map_err(|e| Stop::Fail(e.to_string()))?;
@@ -488,6 +491,10 @@ impl Scn {
         let Some(row) = rows.first() else { return fail("the daemon holds no configuration row after its start") };
         if row["confinement_floor"].as_str() != Some(floor.as_str()) {
             return fail(format!("the daemon was started with the floor {floor_name} and holds {}", row["confinement_floor"]));
+        }
+        let principal = text(input, "principal")?;
+        if row["principal"].as_str() != Some(principal.as_str()) {
+            return fail(format!("the daemon was started with the principal {principal} and holds {}", row["principal"]));
         }
         let id = row["daemon_id"].as_str().unwrap_or_default().to_string();
         self.binds.insert(given, id.clone());

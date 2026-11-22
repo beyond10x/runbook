@@ -68,6 +68,9 @@ pub enum DecisionState {
 pub struct DaemonRow {
     pub daemon_id: String,
     pub confinement_floor: Confinement,
+    /// Who the daemon acts as; a journal line written before the daemon had one has none (the row lives as long as the process, so a replayed one is never read).
+    #[serde(default)]
+    pub principal: String,
     pub started_at: String,
 }
 
@@ -112,6 +115,9 @@ pub struct DecisionRequest {
     pub state: DecisionState,
     pub answer: Option<String>,
     pub answered_by: Option<String>,
+    /// The daemon's principal at the answer; none in a fact written before the daemon had one.
+    #[serde(default)]
+    pub principal: Option<String>,
     pub answered_at: Option<String>,
 }
 
@@ -142,7 +148,14 @@ pub enum Fact {
     RunEnded { run_id: String, outcome: String, at: String },
     RunCancelled { run_id: String, at: String },
     DecisionRequested(DecisionRequest),
-    DecisionAnswered { request_id: String, answer: String, answered_by: String, at: String },
+    DecisionAnswered {
+        request_id: String,
+        answer: String,
+        answered_by: String,
+        #[serde(default)]
+        principal: Option<String>,
+        at: String,
+    },
     DecisionWithdrawn { request_id: String },
     EventRecorded(RunEvent),
 }
@@ -331,11 +344,12 @@ impl State {
                 self.decision_index.insert(request.request_id.clone(), self.decisions.len());
                 self.decisions.push(request.clone());
             }
-            Fact::DecisionAnswered { request_id, answer, answered_by, at } => {
+            Fact::DecisionAnswered { request_id, answer, answered_by, principal, at } => {
                 let d = self.decision_mut(request_id)?;
                 d.state = DecisionState::Answered;
                 d.answer = Some(answer.clone());
                 d.answered_by = Some(answered_by.clone());
+                d.principal = principal.clone();
                 d.answered_at = Some(at.clone());
             }
             Fact::DecisionWithdrawn { request_id } => self.decision_mut(request_id)?.state = DecisionState::Withdrawn,

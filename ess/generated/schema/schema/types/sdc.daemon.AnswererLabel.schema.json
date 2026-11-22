@@ -5,13 +5,13 @@
   "x-ess-provenance": {
     "system": "sdc",
     "specification_version": "v1",
-    "contract_digest": "slice-sha256/2:e6a2ba077fc2131f1a46254983c422c20c35ba6a5624ae5b8b879759508ed8ab",
+    "contract_digest": "slice-sha256/2:d39d89b2abac8c7736126a323addb54d63ded46e6e111d563688bb7e759ed4ff",
     "regenerate": "ess generate"
   },
   "$defs": {
     "sdc.daemon.AnswererLabel": {
       "title": "AnswererLabel",
-      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is recorded as a sdc.decision.Principal and grants nothing: the daemon authenticates no principal.",
+      "description": "The name a client gives when it answers a decision (the answered_by of AnswerDecision): free text, at most 200 characters, like ClientLabel. The daemon refuses a longer one (400). It is stored and shown as given and is never the principal: the principal of an answer is the daemon's own (runbook serve --principal), fixed when the daemon starts, and a label a client types grants nothing.",
       "x-ess-name": "sdc.daemon.AnswererLabel",
       "x-ess-kind": "newtype",
       "type": "string",

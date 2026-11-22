@@ -46,7 +46,7 @@ fn event(run: &str, sequence: u64, position: u64) -> RunEvent {
 
 fn some_facts() -> Vec<Fact> {
     vec![
-        Fact::DaemonStarted(DaemonRow { daemon_id: "d1".into(), confinement_floor: Confinement::Linux, started_at: "t".into() }),
+        Fact::DaemonStarted(DaemonRow { daemon_id: "d1".into(), confinement_floor: Confinement::Linux, principal: "agent:d1".into(), started_at: "t".into() }),
         Fact::SessionOpened { session_id: "s1".into(), client: "me".into(), at: "t".into() },
         Fact::RunSubmitted(run("r1")),
         Fact::EventRecorded(event("r1", 1, 1)),
@@ -170,11 +170,12 @@ fn a_decision_request_keeps_its_record_through_answer_and_withdrawal() {
             state: DecisionState::Open,
             answer: None,
             answered_by: None,
+            principal: None,
             answered_at: None,
         }))
         .unwrap();
     }
-    a.commit(Fact::DecisionAnswered { request_id: "q1".into(), answer: "A".into(), answered_by: "operator".into(), at: "t2".into() }).unwrap();
+    a.commit(Fact::DecisionAnswered { request_id: "q1".into(), answer: "A".into(), answered_by: "operator".into(), principal: Some("agent:d1".into()), at: "t2".into() }).unwrap();
     a.commit(Fact::DecisionWithdrawn { request_id: "q2".into() }).unwrap();
     drop(a);
     let b = State::open(&dir).unwrap();

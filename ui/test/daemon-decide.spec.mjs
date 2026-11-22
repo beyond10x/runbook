@@ -24,7 +24,7 @@ let dir;
 function start(name, env) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawn(bin, ['serve', '--ui', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawn(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
     proc.stderr.on('data', (d) => { err += d; });
@@ -116,6 +116,9 @@ test('a run that waits shows its open decisions, and an answer from the page end
   // what is asked and the options the daemon's view names
   const first = card(page, 0);
   await expect(first).toContainText('Approve the release plan');
+  await expect(first.locator('[data-field=case_id]')).toHaveText('case case-1');
+  await expect(first.locator('[data-field=action]')).toHaveText('action stub.approve');
+  await expect(first.locator('[data-field=capability]')).toHaveText('capability approve');
   await expect(first.locator('button[data-answer="A"]')).toContainText('yes');
   await expect(first.locator('button[data-answer="B"]')).toContainText('no');
   await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'none');

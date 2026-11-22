@@ -13,7 +13,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 const BIN: &str = env!("CARGO_BIN_EXE_runbook");
 const MODERN: &str = "2026-07-28";
-const SIX: [&str; 6] = ["submit_run", "list_runs", "read_run", "read_events", "answer_decision", "cancel_run"];
+const SEVEN: [&str; 7] = ["submit_run", "list_runs", "read_run", "read_events", "read_open_decisions", "answer_decision", "cancel_run"];
 
 // ---- a daemon with the MCP endpoint, in process ----
 
@@ -193,7 +193,7 @@ fn base64(bytes: &[u8]) -> String {
 // ---- acceptance 1: initialize, server info, the six tools ----
 
 #[test]
-fn stdio_initialize_answers_server_info_and_the_six_tools() {
+fn stdio_initialize_answers_server_info_and_the_seven_tools() {
     let d = Daemon::start("mcp-init", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
     let r = c.initialize();
@@ -209,12 +209,12 @@ fn stdio_initialize_answers_server_info_and_the_six_tools() {
     c.write(&json!({"jsonrpc": "2.0", "id": 7, "method": "tools/list"}));
     let l = c.read();
     assert_eq!(l["id"], json!(7));
-    assert_eq!(names(&l["result"]["tools"]), SIX);
+    assert_eq!(names(&l["result"]["tools"]), SEVEN);
     assert!(l["result"].get("resultType").is_none(), "a legacy answer is bare: {l}");
 }
 
 #[test]
-fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_six_tools() {
+fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_seven_tools() {
     let d = Daemon::start("mcp-modern", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
     let r = c.ask("server/discover", json!({}));
@@ -224,7 +224,7 @@ fn stdio_a_client_of_the_current_revision_discovers_and_lists_exactly_six_tools(
     assert_eq!(r["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"], "runbook");
     let l = c.ask("tools/list", json!({}));
     assert_eq!(l["result"]["resultType"], "complete");
-    assert_eq!(names(&l["result"]["tools"]), SIX);
+    assert_eq!(names(&l["result"]["tools"]), SEVEN);
     // A request of an unsupported revision is the error that names the revisions; one without the
     // per-request metadata is invalid params, before any handshake.
     c.write(&json!({"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {"_meta": {"io.modelcontextprotocol/protocolVersion": "1900-01-01", "io.modelcontextprotocol/clientCapabilities": {}}}}));
@@ -321,6 +321,48 @@ fn stdio_answers_a_decision_as_the_http_route_does() {
 }
 
 #[test]
+fn stdio_reads_the_open_decisions_of_a_run_with_the_step_that_asks_as_the_view_has_them() {
+    let d = Daemon::start("mcp-open-decisions", None, "127.0.0.1:0");
+    let mut c = Stdio1::to(&d);
+    let run = run_of(&c.tool("submit_run", json!({"runbook_id": "ask", "intake": "x"}))["structuredContent"]);
+    d.fx.wait_open_decisions(&run, 1);
+    let read = c.tool("read_open_decisions", json!({"run_id": run}));
+    assert_eq!((read["isError"].clone(), read["_meta"]["runbook/http-status"].clone()), (json!(false), json!(200)), "{read}");
+    let http = d.get(&format!("/daemon/views/open-decisions?run_id={run}")).json();
+    assert_eq!(read["structuredContent"], http, "the body of the route");
+    let row = &read["structuredContent"]["rows"][0];
+    assert_eq!((row["request_id"].clone(), row["case_id"].clone(), row["action"].clone(), row["capability"].clone()), (json!("q1"), json!("case-1"), json!("intake.approve"), json!("approve")), "{row}");
+    super::openapi::check_row("OpenDecisionsOfRun", row);
+    let none = c.tool("read_open_decisions", json!({"run_id": "no-such-run"}));
+    assert_eq!(none["structuredContent"]["rows"], json!([]), "a run with nothing open has no row");
+    let refused = c.ask("tools/call", json!({"name": "read_open_decisions", "arguments": {}}));
+    assert!(refused["error"]["code"] == -32602 || refused["result"]["isError"] == true, "run_id is required: {refused}");
+    d.fx.answer(&run, "q1");
+    d.wait_state(&run, "Ended");
+}
+
+#[test]
+fn an_answer_through_mcp_reaches_the_runtime_with_the_daemons_principal_and_no_argument_sets_it() {
+    let d = Daemon::start("mcp-principal", None, "127.0.0.1:0");
+    let mut c = Stdio1::to(&d);
+    let run = run_of(&c.tool("submit_run", json!({"runbook_id": "ask", "intake": "x"}))["structuredContent"]);
+    d.fx.wait_open_decisions(&run, 1);
+    let refused = c.ask("tools/call", json!({"name": "answer_decision", "arguments": {"run_id": run, "request_id": "q1", "answer": "A", "answered_by": "operator", "principal": "person:another-one"}}));
+    assert_eq!(refused["error"]["code"], -32602, "a tool takes no principal: {refused}");
+    assert!(d.fx.stub.answers_given().is_empty(), "nothing reached the runtime");
+    let a = c.tool("answer_decision", json!({"run_id": run, "request_id": "q1", "answer": "A", "answered_by": "person:someone-else"}));
+    assert_eq!((a["isError"].clone(), a["structuredContent"]["outcome"].clone()), (json!(false), json!("answered")));
+    let payload = &a["structuredContent"]["published"][0]["payload"];
+    assert_eq!((payload["answered_by"].clone(), payload["principal"].clone()), (json!("person:someone-else"), json!(super::PRINCIPAL)), "{a}");
+    let given = d.fx.stub.answers_given();
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].principal, super::PRINCIPAL, "the runtime was given the daemon's principal and not the label");
+    let rows = d.get(&format!("/daemon/views/decisions?run_id={run}")).json();
+    assert_eq!((rows["rows"][0]["answered_by"].clone(), rows["rows"][0]["principal"].clone()), (json!("person:someone-else"), json!(super::PRINCIPAL)));
+    d.wait_state(&run, "Ended");
+}
+
+#[test]
 fn a_tool_takes_no_path_the_http_command_does_not_take() {
     let d = Daemon::start("mcp-path", None, "127.0.0.1:0");
     let mut c = Stdio1::to(&d);
@@ -378,7 +420,7 @@ fn http_endpoint_answers_the_same_tools_list_as_stdio() {
     assert!(r.header("content-type").unwrap().starts_with("application/json"));
     let http = r.json();
     assert_eq!(http["id"], 1);
-    assert_eq!(names(&http["result"]["tools"]), SIX);
+    assert_eq!(names(&http["result"]["tools"]), SEVEN);
     let mut c = Stdio1::to(&d);
     let stdio = c.ask("tools/list", json!({}));
     assert_eq!(http["result"]["tools"], stdio["result"]["tools"], "one list on both transports");
@@ -400,7 +442,7 @@ fn http_endpoint_without_the_bearer_token_gets_401_on_a_non_loopback_listener() 
     right.push(("Authorization", "Bearer s3cret-token"));
     let r = d.mcp(&right, &list);
     assert_eq!(r.status, 200, "{}", r.text());
-    assert_eq!(names(&r.json()["result"]["tools"]), SIX);
+    assert_eq!(names(&r.json()["result"]["tools"]), SEVEN);
     // The same check guards the other routes, so a request to the endpoint is not a way round it.
     assert_eq!(d.get("/daemon/views/runs").status, 401);
     // A GET to the endpoint without the token is 401 too, not 405: the check comes first.
@@ -411,7 +453,7 @@ fn http_endpoint_without_the_bearer_token_gets_401_on_a_non_loopback_listener() 
 fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
     for (flag, want) in [(true, 200), (false, 404)] {
         let dir = super::state::scratch(if flag { "mcp-serve-on" } else { "mcp-serve-off" });
-        let mut args = vec!["serve", "--listen", "127.0.0.1:0", "--state-dir", dir.to_str().unwrap()];
+        let mut args = vec!["serve", "--principal", super::PRINCIPAL, "--listen", "127.0.0.1:0", "--state-dir", dir.to_str().unwrap()];
         if flag {
             args.push("--mcp");
         }
@@ -425,7 +467,7 @@ fn serve_with_the_flag_serves_the_endpoint_and_without_it_there_is_none() {
         let _ = child.wait();
         assert_eq!(r.status, want, "serve flag {flag}: {}", r.text());
         if flag {
-            assert_eq!(names(&r.json()["result"]["tools"]), SIX);
+            assert_eq!(names(&r.json()["result"]["tools"]), SEVEN);
         }
     }
 }
@@ -515,7 +557,7 @@ fn http_serves_a_legacy_client_without_a_session() {
     let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
     let r = d.mcp(&[("MCP-Protocol-Version", "2025-06-18")], &list);
     assert_eq!(r.status, 200, "{}", r.text());
-    assert_eq!(names(&r.json()["result"]["tools"]), SIX);
+    assert_eq!(names(&r.json()["result"]["tools"]), SEVEN);
     assert!(r.json()["result"].get("resultType").is_none());
     let r = d.mcp(&[], &list);
     assert_eq!((r.status, r.json()["error"]["code"].clone()), (400, json!(-32602)), "neither era is named");
@@ -628,7 +670,7 @@ fn standalone(v: &Value) -> bool {
 fn input_schemas_are_derived_from_the_openapi_document() {
     let doc = super::openapi::doc();
     let tools = mcp::tools::list();
-    assert_eq!(names(&Value::Array(tools.clone())), SIX);
+    assert_eq!(names(&Value::Array(tools.clone())), SEVEN);
     let by = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap().clone();
     let input = |command: &str| doc["components"]["schemas"][format!("sdc.daemon.{}.Input", command)].clone();
     let keys = |v: &Value| -> Vec<String> { v.as_object().unwrap().keys().cloned().collect() };
@@ -651,14 +693,17 @@ fn input_schemas_are_derived_from_the_openapi_document() {
     // The other two commands: the document's members less `at`.
     for (tool, command) in [("cancel_run", "CancelRun"), ("answer_decision", "AnswerDecision")] {
         let mut want = keys(&input(command)["properties"]);
-        want.retain(|k| k != "at");
+        let filled: &[&str] = if tool == "answer_decision" { &mcp::tools::ANSWER_FILLED } else { &["at"] };
+        want.retain(|k| !filled.contains(&k.as_str()));
         assert_eq!(keys(&by(tool)["inputSchema"]["properties"]), want, "{tool}");
         let mut req: Vec<Value> = input(command)["required"].as_array().unwrap().clone();
-        req.retain(|k| k != "at");
+        req.retain(|k| !filled.contains(&k.as_str().unwrap_or_default()));
         assert_eq!(by(tool)["inputSchema"]["required"], Value::Array(req), "{tool}");
     }
     // The views: their query parameters.
     assert_eq!(by("read_run")["inputSchema"]["required"], json!(["run_id"]));
+    assert_eq!(by("read_open_decisions")["inputSchema"]["required"], json!(["run_id"]));
+    assert_eq!(keys(&by("read_open_decisions")["inputSchema"]["properties"]), ["run_id"]);
     assert_eq!(by("list_runs")["inputSchema"]["required"], json!([]));
     assert_eq!(by("list_runs")["inputSchema"]["properties"]["state"]["enum"], doc["components"]["schemas"]["sdc.daemon.Run.State"]["enum"]);
     assert_eq!(keys(&by("read_events")["inputSchema"]["properties"]), ["run_id", "after_sequence", "after_position"]);

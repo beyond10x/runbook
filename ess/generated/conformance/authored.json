@@ -3,8 +3,8 @@
     "suite_version": "ess-conformance/34",
     "system": "sdc",
     "specification_version": "v1",
-    "spec_digest": "15aed340423d5240d215057d2f829f453a40115bb107eb1652fb883ca74f9bce",
-    "contract_digest": "2aaed8aa575833810be1e79de7b1fac921acebf14ae6c84cbd9a217b2388a2b9",
+    "spec_digest": "362047b7a9e737c94e4f369da6b9e9ff2c81d2a5a7aa4c2bd7a1d741356abeba",
+    "contract_digest": "e33827723b8e2c1e489cf239fa886bc6a12c12113a34ce35d495dbc3c706bf28",
     "scenario_initial_state": "empty"
   },
   "scenarios": {
@@ -27,6 +27,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -523,6 +527,10 @@
               "kind": "literal",
               "value": "2026-11-22T11:01:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -956,6 +964,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -1161,6 +1173,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:05:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -1218,6 +1234,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:07:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -1281,6 +1301,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:09:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -1515,6 +1539,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:17:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -1831,6 +1859,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -2143,6 +2175,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:05:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -2176,6 +2212,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:06:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -2213,6 +2253,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:07:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -2469,6 +2513,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -2795,6 +2843,10 @@
             "at": {
               "kind": "literal",
               "value": "2026-11-22T10:08:00Z"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             },
             "request_id": {
               "kind": "literal",
@@ -3139,6 +3191,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -3559,6 +3615,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.CloseSession"
         },
@@ -3671,6 +3731,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -3927,6 +3991,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.StartDaemon"
         },
@@ -3995,6 +4063,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -4326,6 +4398,10 @@
               "kind": "literal",
               "value": "2026-11-22T10:07:00Z"
             },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
+            },
             "request_id": {
               "kind": "literal",
               "value": "dr-1"
@@ -4351,11 +4427,16 @@
           "event": "sdc.daemon.DecisionAnswered",
           "payload": {
             "answered_by": "operator",
+            "principal": "agent:conformance",
             "request_id": "dr-1",
             "run_id": "run-1"
           },
           "shape": {
             "answered_by": {
+              "holds": "primitive",
+              "kind": "string"
+            },
+            "principal": {
               "holds": "primitive",
               "kind": "string"
             },
@@ -4455,6 +4536,10 @@
               "answered_by": {
                 "kind": "literal",
                 "value": "operator"
+              },
+              "principal": {
+                "kind": "literal",
+                "value": "agent:conformance"
               },
               "request_id": {
                 "kind": "literal",
@@ -4741,6 +4826,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -5176,6 +5265,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.RecordRunEvent"
         },
@@ -5256,6 +5349,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -5636,6 +5733,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.StartDaemon"
         },
@@ -5705,6 +5806,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -6278,6 +6383,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.EndRun"
         },
@@ -6397,6 +6506,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -6644,6 +6757,10 @@
           "name": "sdc.daemon.SessionId"
         },
         {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
+        },
+        {
           "kind": "command",
           "name": "sdc.daemon.StartDaemon"
         },
@@ -6713,6 +6830,10 @@
             "daemon_id": {
               "kind": "literal",
               "value": "runbookd"
+            },
+            "principal": {
+              "kind": "literal",
+              "value": "agent:conformance"
             }
           }
         },
@@ -7748,6 +7869,10 @@
         {
           "kind": "type",
           "name": "sdc.daemon.SessionId"
+        },
+        {
+          "kind": "type",
+          "name": "sdc.decision.Principal"
         },
         {
           "kind": "command",

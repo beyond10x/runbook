@@ -17,7 +17,7 @@ let dir;
 function start(name, env) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(path.join(dir, name, 'empty'), {recursive: true});
-    const proc = spawn(bin, ['serve', '--ui', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
+    const proc = spawn(bin, ['serve', '--ui', '--principal', 'agent:test-daemon', '--listen', '127.0.0.1:0', '--state-dir', path.join(dir, name, 'state')], {cwd: path.join(dir, name, 'empty'), env: {...process.env, HOME: path.join(dir, name), RUNBOOK_TOKEN: '', ...env}, stdio: ['ignore', 'pipe', 'pipe']});
     let out = '', err = '';
     const timer = setTimeout(() => { proc.kill(); reject(new Error(`no listening line in 15 s: ${out}${err}`)); }, 15000);
     proc.stderr.on('data', (d) => { err += d; });
@@ -107,6 +107,7 @@ test('hostile fields of an open decision, in every place the page shows or store
   const letter = `A"] , button[data-send], [x="${evil}`;
   const hostile = {
     request_id: `q"1${evil}`, run_id: id, opened_at: `2026-01-01T00:00:00${evil}`,
+    case_id: `case${evil}`, action: `action${evil}`, capability: `capability${evil}`,
     question: `<script>window.__pwned=3</script>${evil}`,
     options: [{letter, does: evil, cost: evil, consequence: {admits: [evil], blocks: [evil]}}, {letter: 'B', does: 'plain', cost: 'none', consequence: {admits: [], blocks: []}}],
   };
@@ -118,6 +119,9 @@ test('hostile fields of an open decision, in every place the page shows or store
   await enter(page, s);
   await drawer(page, id, 1);
   await expect(card(page, 0)).toContainText('<script>');
+  for (const field of ['case_id', 'action', 'capability']) {
+    await expect(card(page, 0).locator(`[data-field=${field}]`)).toContainText(`${field === 'case_id' ? 'case' : field}${evil}`);
+  }
   expect(await page.locator('#drawer img, #drawer svg, #drawer script, #drawer [onerror], #drawer [onload]').count()).toBe(0);
   expect(await page.locator('#drawer [data-run]').count()).toBe(1);
   expect(await page.evaluate(() => window.__pwned)).toBeUndefined();
