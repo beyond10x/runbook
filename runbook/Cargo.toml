@@ -14,5 +14,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 sha2 = "0.10"
+uuid = { version = "1", default-features = false, features = ["v7", "std"] }
 
 [workspace]
