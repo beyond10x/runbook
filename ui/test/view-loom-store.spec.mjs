@@ -47,6 +47,15 @@ test('a run of the runner (events.jsonl with an opened event, no case.json) gets
   expect(sources[0].view).toMatchObject({protocols: [PROTOCOL], runbook: 'example'});
 });
 
+test('the page reads the protocol of a case of the runner from its opened event; the id and the parent are the directory names', async ({request}) => {
+  const tree = await (await request.get(`${base}/api/tree?source=0`)).json();
+  expect(tree.cases.map((c) => ({id: c.id, parent: c.parent, protocol: c.case.protocol}))).toEqual([
+    {id: 'CASE-1', parent: null, protocol: PROTOCOL},
+    {id: 'CASE-2', parent: 'CASE-1', protocol: PROTOCOL},
+  ]);
+});
+
 test('a case that has case.json and an opened event keeps the protocol of case.json', async ({request}) => {
   expect(await (await request.get(`${base}/api/view-info?source=1`)).json()).toMatchObject({protocols: [PROTOCOL], missing: false, runbook: 'example'});
+  expect((await (await request.get(`${base}/api/tree?source=1`)).json()).cases[0].case.protocol).toBe(PROTOCOL);
 });
