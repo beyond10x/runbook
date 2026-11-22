@@ -253,6 +253,36 @@ fn a_check_sends_the_writer_back_and_a_not_called_run_is_no_take() {
 }
 
 #[test]
+fn a_step_that_got_no_build_slot_is_a_pool_wait_apart_from_could_not_run_and_from_failures() {
+    // tests.run ran three times and each time its tool exited 69 (no slot within its wait bound):
+    // no evidence, no real take, no failure, no `could_not_run`; the run was stopped `pool_wait_spent`.
+    let run = scratch("pool-wait").join("run-p");
+    root(&run, None);
+    let effects = [("change.implement", "write"), ("tests.run", "read")];
+    let mut c = CaseW::new(run.join("store/IDEA-1/children/IDEA-1.s"), "sdc.story", &effects, &[]);
+    c.take("change.implement", true, &[], 5, "0", "implementation_change", None, None, None);
+    for _ in 0..3 {
+        c.take("tests.run", false, &[], 2, "69", "", None, None, None);
+    }
+    c.take("tests.run", false, &[], 30, "70", "", None, None, None);
+    c.finish(None);
+    write_json(&run.join("run-stopped.json"), &json!({"format": "sdc.run-stopped/1", "at": at_whole(100), "by": "rule:autopilot",
+        "verdict_at_stop": "pool_wait_spent", "cause": "pool_wait_spent", "case": "IDEA-1.s"}));
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    let n = node(&doc, "story/tests.run");
+    assert_eq!((n["takings"].as_u64(), n["real_takes"].as_u64(), n["pool_waits"].as_u64(), n["could_not_run"].as_u64(), n["ran_over_time"].as_u64()), (Some(4), Some(0), Some(3), Some(0), Some(1)));
+    assert_eq!(n["rework_takes"], 0);
+    let m = &doc["metrics"];
+    assert_eq!((m["pool_waits"].as_u64(), m["ran_over_time"].as_u64(), m["could_not_run"].as_u64(), m["rework_takes"].as_u64()), (Some(3), Some(1), Some(0), Some(0)));
+    assert_eq!(m["stop_cause"], "pool_wait_spent");
+    assert_eq!(m["end"], "stopped: pool_wait_spent in IDEA-1.s");
+    let o = Command::new(env!("CARGO_BIN_EXE_sdc-run-metrics")).arg(&run).output().unwrap();
+    let text = String::from_utf8_lossy(&o.stdout);
+    assert!(text.contains("pool waits 3 ran over time 1"), "{text}");
+}
+
+#[test]
 fn a_run_refused_by_its_postcondition_is_its_own_retry_kind() {
     // change.implement's first run is refused by its requirement coverage postcondition (no
     // evidence, `refused` on action_finished); the second, sent back by it, passes; tests.run passes.

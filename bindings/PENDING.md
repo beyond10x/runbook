@@ -14,7 +14,7 @@ from its YAML file must have a line here.
 
 ## Program contract (Loom G1, wave 2)
 
-- `sdc.bindings.json:55` `epics.open` `{dir}` in `args_from` — D13 — G1, wave 2 — none: the argv already names `tools/sdc-tool.sh`, a path relative to `bindings/` (step 2, `story:loom-tools-program-contract`). At Loom's head a relative program path is a workspace path; G1 (`story:bound-program-contract`, draft) resolves it beside the bindings file with `program_root: bindings` and `resolve_programs`.
+- `sdc.bindings.json:55` `epics.open` `{dir}` in `args_from` — D13 — G1, wave 2 — none: the argv already names `tools/sdc-tool.sh`, a path relative to `bindings/` (step 2, `story:loom-tools-program-contract`). Every file that binds a program names `program_root: bindings`, which makes Loom resolve the path beside the bindings file (`resolve_programs`; Loom at `af8de2c9`).
 - `sdc-intake.bindings.json:11` `*` `{dir}` in every `argv` (9 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-direction.bindings.json:12` `*` `{dir}` in every `argv` (6 bindings) — D13 — G1, wave 2 — none, as above.
 - `sdc-epic.bindings.json:13` `*` `{dir}` in `argv` and `args_from` (2 bindings) — D13 — G1, wave 2 — none, as above.
@@ -31,6 +31,11 @@ from its YAML file must have a line here.
 - `sdc-story.bindings.json:14` `*` program-error exits on all 6 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
 - `sdc-release.bindings.json:7` `*` program-error exits on all 5 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
 - `sdc-bugfix.bindings.json:10` `*` program-error exits on all 8 program bindings — D36 — G1, wave 2 — as above; list `[75, 126, 127]`.
+- `sdc-story.bindings.json:75` `tests.run` exit 69, the tool's "no build slot within `--pool-wait`, nothing ran" (`sdc-tool.sh`, `pool_run`) — `story:pool-wait-is-not-a-failure` — G1, wave 2 — the driver takes 69 as a program error with up to 3 runs of the step and then the verdict `pool_wait_spent`; under Loom the YAML's `results` `"*": failed` still maps 69 to `failed` until the loader has `exits: {error: [...]}`: list `[69, 70, 75, 126, 127]` on this binding (70: the pool ended a started job at its run limit), which then ends the run `ProgramError` with nothing recorded (Loom `2c0a6f48`, `crates/loom-bindings/src/program.rs:21`), and Loom does not run the step again: an open item of the story.
+- `sdc-release.bindings.json:31` `acceptance.run` exit 69 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as above; list `[69, 70, 75, 126, 127]`.
+- `sdc-bugfix.bindings.json:68` `repro.run` exits 69 and 70 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as the `tests.run` line of `sdc-story.bindings.json`: the tool's "no build slot within `--pool-wait`, nothing ran" (69; `sdc-bugfix` `repro-run`, `tests-run` and `gate-run` bound the wait themselves) and "the pool ended a started job at its run limit" (70); list `[69, 70, 75, 126, 127]`.
+- `sdc-bugfix.bindings.json:123` `tests.run` exits 69 and 70 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as above; list `[69, 70, 75, 126, 127]`.
+- `sdc-bugfix.bindings.json:157` `gate.run` exits 69 and 70 — `story:pool-wait-is-not-a-failure` — G1, wave 2 — as above; list `[69, 70, 75, 126, 127]`.
 - `sdc-intake.bindings.json:24` `idea.dissect` not called (`llm-node.sh` writes `SDC_NOT_CALLED`, exit 0) — D37 — G1, wave 2 — drafted as `exits: {not_called: [...]}` in `story:bound-program-contract`. Under Loom (`LOOM_CASE` set) `llm-node.sh` prints the reason and exits 0 as in the driver; it takes a not-called exit code once the loader has the member and the binding names one.
 - `sdc-intake.bindings.json:63` `questions.write` not called — D37 — G1, wave 2 — as above.
 - `sdc-intake.bindings.json:86` `questions.answer` not called — D37 — G1, wave 2 — as above.
@@ -44,7 +49,7 @@ from its YAML file must have a line here.
 - `sdc-story.bindings.json:83` `change.review` not called — D37 — G1, wave 2 — as above.
 - `sdc-bugfix.bindings.json:10` `bug.dissect` not called — D37 — G1, wave 2 — as above.
 - `sdc-bugfix.bindings.json:47` `test.reproduce` not called — D37 — G1, wave 2 — as above.
-- `sdc-bugfix.bindings.json:86` `change.fix` not called — D37 — G1, wave 2 — as above.
+- `sdc-bugfix.bindings.json:89` `change.fix` not called — D37 — G1, wave 2 — as above.
 
 ## Agent nodes (Loom `story:bound-agent-node`, wave 4; stub adapter `N3`, wave 5)
 
@@ -83,8 +88,8 @@ fixture adapter.
 - `sdc-bugfix.bindings.json:18` `bug.dissect` `llm.stub` `[stub-file, bugfix-pager/stub-dissection.json, bug-dissection.json]` — D21 — N3, wave 5 — syntax not fixed.
 - `sdc-bugfix.bindings.json:51` `test.reproduce` `llm` — D18, D19, D20 — bound-agent-node, wave 4 — `executor: {kind: agent, adapter: claude-code, model: claude-haiku-5-5}`, `budget: {max_runs: 3, max_turns: 30, max_budget_micro_usd: 1000000}`.
 - `sdc-bugfix.bindings.json:55` `test.reproduce` `llm.stub` `[stub-repro, bugfix-pager/stub-repro]` — D21 — N3, wave 5 — syntax not fixed.
-- `sdc-bugfix.bindings.json:99` `change.fix` `llm` — D18, D19, D20 — bound-agent-node, wave 4 — `executor: {kind: agent, adapter: claude-code, model: claude-haiku-5-5}`, `budget: {max_runs: 3, max_turns: 40, max_budget_micro_usd: 2000000}`.
-- `sdc-bugfix.bindings.json:103` `change.fix` `llm.stub` `[stub-tree, bugfix-pager/stub-fix, impl]` — D21 — N3, wave 5 — syntax not fixed.
+- `sdc-bugfix.bindings.json:102` `change.fix` `llm` — D18, D19, D20 — bound-agent-node, wave 4 — `executor: {kind: agent, adapter: claude-code, model: claude-haiku-5-5}`, `budget: {max_runs: 3, max_turns: 40, max_budget_micro_usd: 2000000}`.
+- `sdc-bugfix.bindings.json:106` `change.fix` `llm.stub` `[stub-tree, bugfix-pager/stub-fix, impl]` — D21 — N3, wave 5 — syntax not fixed.
 - `sdc-intake.bindings.json:28` `*` `llm.instructions`, the files of the instruction text of the 14 agent actions (`instructions/<action>.md` and its parts), named by every binding with an `llm` object — none — no Loom story states the member — syntax not fixed; the YAML files name none, and `llm-node.sh` takes the paths from the JSON bindings until the agent executor has a member for them.
 
 ## Tool environment under Loom (step 2)

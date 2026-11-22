@@ -1,5 +1,6 @@
 format: loom.bindings/1
-protocol: sdc-plan@1
+protocol: sdc-plan@7
+program_root: bindings
 artifacts:
   roadmap: aep/initiative/roadmap.md
   spec: spec
@@ -11,7 +12,7 @@ actions:
     executor:
       kind: copy
       evidence: roadmap_approval
-      from: sdc-direction@1
+      from: sdc-direction@7
   - action: spec.gate
     executor:
       kind: program

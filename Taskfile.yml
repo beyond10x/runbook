@@ -198,6 +198,13 @@ tasks:
         printf 'sources %s\nsuite %s\n' "$(task --silent ess-suite:digest)" "$(sha256sum < "$dir/suite.json" | cut -d' ' -f1)" > "$dir/DIGEST"
         echo "written $dir/suite.json and $dir/DIGEST"
 
+  cycles:only:
+    desc: "Run only the named finding cycles: task cycles:only SCRATCH=<dir> NAMES=<name>[,<name>...]. Passes them to scripts/run-finding-cycles.sh --only (docs/cycles-suite.md, \"Running named cycles\"): a cycle that reads an earlier one runs that one too, the verdict line says how many were selected, exit 2 on an unknown name."
+    requires:
+      vars: [SCRATCH, NAMES]
+    cmds:
+      - scripts/run-finding-cycles.sh "{{.SCRATCH}}" --only "{{.NAMES}}"
+
   check:protocols:
     desc: Validate, compile, check, probe and simulate the nine protocols from protocol/check-ledger.json (fast lane, 120 s budget; re-checks a protocol whose sources changed).
     cmds:

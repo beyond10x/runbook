@@ -98,12 +98,13 @@
       "executor": {
         "kind": "program",
         "producer": "ess",
-        "program": "sdc-tool.sh story-tests impl",
+        "program": "sdc-tool.sh story-tests impl --pool-wait 1200",
         "results": {
           "*": "failed",
           "0": "passed",
           "5": "finding"
-        }
+        },
+        "timeout_s": 3000
       },
       "name": "tests.run",
       "precondition": [

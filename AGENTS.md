@@ -30,7 +30,9 @@
   refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
 - The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
   `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
-  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`).
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The first equal
+  comparison on `stub-cycle` was made against Loom `2c0a6f48` (`docs/parity.md`, "First equal
+  comparison"); it does not cover a run with a model.
 - The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
   runtime, the UI server or the release.
 
@@ -80,6 +82,9 @@
 - Protocol changes are checked with `scripts/check-protocols.sh` and `scripts/check-bindings.sh`.
   A protocol change runs the simulate step; a changed finding set is re-pinned (`--repin`) in the
   same commit with the reason in the commit body (`docs/protocol-notes.md`, "Simulate").
+  A new `revision` of a protocol file moves the registration (`<id with . and _ as ->@<revision>`)
+  in `bindings/<name>.yaml` and in every `copy` `from:` in the same commit;
+  `scripts/check-bindings.sh` refuses a mismatch.
   `scripts/check-protocols.sh` is a digest check against the committed `protocol/check-ledger.json`
   (the 14 `canon check` calls cost about 590 s and are not repeated for an unchanged protocol): after
   a change to a protocol, `canon-pin.json` or the script, run `scripts/check-protocols.sh --record`
