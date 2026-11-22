@@ -27,7 +27,7 @@ scope:
   path: runbook/src/stub.rs
 - confidence: cited
   path: runbook/tests
-revision: 5
+revision: 6
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -57,27 +57,39 @@ every route.
 
 ## Acceptance
 
+Every route below is one of the generated OpenAPI document `ess/generated/openapi/openapi/runbookd.yaml`
+(commands are `POST /daemon/commands/<name>`, views are `GET /daemon/views/<name>`); the daemon
+serves no other path for the API.
+
 - `runbook serve --listen 127.0.0.1:0` prints the bound address on one line and keeps running; with
   `--listen 0.0.0.0:7000` and no token (`--token-file` or `RUNBOOK_TOKEN`) it exits 1 and prints
   that a token is required; with a token, a request without `Authorization: Bearer` gets 401 on
-  the API, the SSE routes and the UI route, and a request with it gets 200.
-- `POST /v1/runs` returns a run id; `GET /v1/runs` lists it; `GET /v1/runs/<id>` shows its state;
-  `POST /v1/runs/<id>/cancel` moves it to `cancelled` and a second cancel answers with the same
-  state (paths as the ESS-generated OpenAPI document gives them).
-- `GET /v1/runs/<id>/events` (SSE) sends events with strictly increasing `id` and the runtime's
-  record unchanged plus run id and sequence number; reconnecting with `Last-Event-ID: <n>` sends
-  exactly the events after `n`, with none repeated and none lost; the session and daemon streams
-  do the same.
-- A stub run that asks a decision shows up in `GET /v1/runs/<id>/decisions`; the answer is
-  accepted once, a second answer to the same request is refused with 409.
-- A session groups runs: two runs submitted into session `s1` and one into `s2` are listed per
-  session and the session stream of `s1` carries only the events of its two runs.
+  the `/daemon` routes, the event streams and the UI route, and a request with it gets 200.
+- `POST /daemon/commands/submit-run` answers 202 with outcome `submitted` and a run id;
+  `GET /daemon/views/runs` lists it; `GET /daemon/views/run?run_id=<id>` shows its state;
+  `POST /daemon/commands/cancel-run` moves it to `Cancelled`; a second cancel is refused 409 with
+  `RunAlreadyEnded` and the state stays `Cancelled`.
+- `GET /daemon/views/events?run_id=<id>&after_position=0` with `Accept: text/event-stream` sends
+  events whose SSE `id` is the event's `position`, strictly increasing, with the runtime's record
+  unchanged plus run id and sequence number; reconnecting with `Last-Event-ID: <n>` sends exactly
+  the events with a position after `n`, with none repeated and none lost; `session-events`
+  (`session_id`, `after_position`) and `daemon-events` (`after_position`) do the same.
+- A stub run that asks a decision shows up in `GET /daemon/views/open-decisions?run_id=<id>`;
+  `POST /daemon/commands/answer-decision` accepts the answer once, and a second answer to the same
+  request is refused 409 with `DecisionAlreadyAnswered`.
+- A session groups runs: after `POST /daemon/commands/open-session` for `s1` and `s2`, two runs
+  submitted into `s1` and one into `s2` are listed per session by
+  `GET /daemon/views/runs-of-session?session_id=<id>`, and `session-events` of `s1` carries only
+  the events of its two runs.
 - A run's record (its store and logs) is under `$XDG_STATE_HOME/runbook/runs/<id>`, and the
   directory for its workspace is `$XDG_STATE_HOME/runbook/workspaces/<id>`, a child of the one
   shared directory `$XDG_STATE_HOME/runbook/workspaces` (the caller's duty of Loom's
   `concurrent-confined-runs`, `docs/library-entries.md`, "What the daemon must do for confined
-  runs"); after the daemon is stopped and started again, `GET /v1/runs` lists the same runs with
-  the same states.
+  runs"); after the daemon is stopped and started again, `GET /daemon/views/runs` lists the same
+  runs with the same states.
+- The 1 MiB intake limit is counted in bytes by the handler (1,048,576 bytes of UTF-8), tested with a
+  multi-byte text.
+- The checks of `ContextOutsideRoots` and `NoSuchRunbook` read the host and are tested here.
 - The conformance suite of `story:daemon-api-specified-in-ess` runs against the stub daemon and all
   its scenarios pass.
 - Budget: no test over 60 s and the test step within 120 s from job start; one daemon is started
