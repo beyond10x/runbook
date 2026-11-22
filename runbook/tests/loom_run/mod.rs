@@ -11,6 +11,7 @@ mod goals;
 mod inproc;
 mod login;
 mod model_call;
+mod replay;
 mod run_dir;
 mod settings;
 mod slow;

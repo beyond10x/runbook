@@ -46,19 +46,21 @@ fn dry_is_built_and_no_longer_refused() {
 }
 
 #[test]
-fn the_replay_options_are_accepted_and_refused_until_built() {
+fn the_replay_options_are_accepted_and_a_source_that_is_no_directory_is_refused() {
     let root = scratch("replay");
-    refused(&root, &["--recorded", "rec"], "--recorded is not built yet");
+    let source = root.join("no-such-recording").display().to_string();
+    let line = format!("--recorded needs a run directory or a recording, not '{source}'");
+    refused(&root, &["--recorded", &source], &line);
     refused(
         &root,
         &[
-            "--recorded", "rec", "--on-divergence", "nearest", "--live-adapter", "dry", "--live-cap", "3", "--inject", "timeout", "--inject", "reject",
+            "--recorded", &source, "--on-divergence", "nearest", "--live-adapter", "dry", "--live-cap", "3", "--inject", "timeout", "--inject", "reject",
             "--set", "max_llm_calls=5", "--take-recorded", "check", "--source-tree", "abc123",
         ],
-        "--recorded is not built yet",
+        &line,
     );
     for policy in ["stop", "nearest", "live"] {
-        refused(&root, &["--recorded", "rec", "--on-divergence", policy], "--recorded is not built yet");
+        refused(&root, &["--recorded", &source, "--on-divergence", policy], &line);
     }
 }
 
