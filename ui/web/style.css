@@ -79,6 +79,7 @@ select:hover, select:focus { border-color: var(--line-3); outline: none; }
 .pk-mk.m-stop i::before { content: '■'; color: var(--text-2); }
 .pk-mk.m-idle i::before { content: '○'; color: var(--text-3); }
 .pk-mk.m-wait i::before { content: '…'; color: var(--text-3); }
+.pk-mk.m-end i::before { content: '◆'; color: var(--text-2); }
 .pk-mk.m-run { color: var(--accent-2); }
 .pk-mk.m-ok { color: var(--true); }
 .pk-mk.m-bad { color: #ff8a8f; }
@@ -304,7 +305,7 @@ svg.pgraph { display: block; margin: 8px auto 16px; font-family: var(--sans); }
 .chip text { font: 650 9.5px var(--sans); letter-spacing: .04em; fill: var(--program); }
 .chip.c-llm rect { fill: rgba(192, 140, 255, .16); } .chip.c-llm text { fill: var(--llm); }
 .chip.c-person rect { fill: rgba(255, 181, 71, .15); } .chip.c-person text { fill: var(--person); }
-.chip.c-driver rect { fill: rgba(255, 255, 255, .06); } .chip.c-driver text { fill: var(--text-2); }
+.chip.c-driver rect, .chip.c-unavailable rect { fill: rgba(255, 255, 255, .06); } .chip.c-driver text, .chip.c-unavailable text { fill: var(--text-2); }
 .chip.c-review rect { fill: rgba(60, 203, 214, .14); } .chip.c-review text { fill: var(--review); }
 .node.sel .body { stroke: #fff; stroke-width: 1.8; }
 .node.dim { opacity: .22; }
@@ -403,7 +404,7 @@ pre.pred { background: var(--surface); border: 1px solid var(--line); border-rad
 .badge-h.b-program { background: rgba(127, 167, 217, .14); color: var(--program); }
 .badge-h.b-driver { background: rgba(255, 255, 255, .06); color: var(--text-2); }
 .badge-h.b-review { background: rgba(60, 203, 214, .14); color: var(--review); }
-.badge-h.b-unbound { background: rgba(255, 255, 255, .04); color: var(--text-3); }
+.badge-h.b-unbound, .badge-h.b-unavailable { background: rgba(255, 255, 255, .04); color: var(--text-3); }
 table.steps { border-collapse: collapse; width: 100%; font-size: 12px; }
 table.steps th { text-align: left; color: var(--text-3); font-weight: 550; font-size: 11px; border-bottom: 1px solid var(--line-2); padding: 6px 6px; }
 table.steps td { border-bottom: 1px solid var(--line); padding: 6px 6px; vertical-align: top; color: var(--text-2); }

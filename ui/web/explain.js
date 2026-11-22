@@ -70,7 +70,7 @@ export function renderExplain(c, nodeId, ev, atSeq) {
     h += `<pre class="pred">precondition\n${esc(predicateText(d?.precondition, ev?.claims, 1))}${d?.requires?.length ? `\nrequires capability ${d.requires.map((r) => r.capability).join(', ')}` : ''}\nmay produce: ${(d?.may_produce || []).map((m) => m.evidence).join(', ') || 'nothing (a writer: its only effect is a new artifact revision)'}</pre>`;
     h += `<h4>Why (Canon's explanation)</h4>` + (x.actions?.[name] ? becauseList(c, x.actions[name].because, ev, atSeq) : `<p class="muted">${st === 'admissible' ? 'Admissible: every precondition holds and no capability is missing.' : 'No explanation entry.'}</p>`);
     const b = c.bindings?.[name];
-    h += `<h4>Binding</h4><pre class="pred">${esc(JSON.stringify(b ?? 'unbound', null, 1).replace(/\/home\/[^"]*\/tools\//g, 'tools/'))}</pre>`;
+    h += `<h4>Binding</h4><pre class="pred">${esc((b === undefined && a.kind === 'unavailable' ? a.why : JSON.stringify(b ?? 'unbound', null, 1)).replace(/\/home\/[^"]*\/tools\//g, 'tools/'))}</pre>`;
     const runs = c.events.filter((e) => e.action === name && e.event === 'action_finished' && (atSeq == null || e.seq <= atSeq));
     h += `<h4>Runs (${runs.length})</h4>` + (runs.map((e) => `<div class="bec"><a href="#" data-seq="${e.seq}">#${e.seq}</a> ${esc(e.at)} exit <b>${esc(e.exit)}</b>${e.principal ? ` by ${esc(principalOf(e.principal).label)}` : ''} → ${esc((e.evidence || []).join(', ') || 'no evidence')}${Object.keys(e.revises || {}).length ? ` · revised ${esc(Object.keys(e.revises).join(', '))}` : ''} · <a href="#" data-blob="${esc(e.log)}" data-case="${esc(c.rel)}">output</a></div>`).join('') || '<p class="muted">never ran</p>');
   } else if (kind === 'outcome' || kind === 'obligation') {
