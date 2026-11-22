@@ -21,8 +21,13 @@ bare-version tags (`docs/releasing.md`).
 - `scripts/check-protocols.sh` ends in under a minute instead of about 10: it checks the digest of each protocol's sources against the committed `protocol/check-ledger.json` and runs `canon check`, the gate probe and `canon simulate` only for a protocol whose digest changed (`--record` writes the ledger, `task check:protocols:slow` regenerates it in full and compares bytes), prints the time per protocol and fails above 120 s (`story:check-protocols-budget`).
 - The fast lane of `scripts/check-protocols.sh` is part of `task check`; each ledger entry carries a seal over its digest and results, so a hand edit of `protocol/check-ledger.json` fails it; `--record` and `--repin` refuse `SDC_SIMULATE=off`; CI runs the slow lane when `protocol/**`, `driver/canon-pin.json` or the script change (`.github/workflows/protocols.yml`).
 
+- `task check` runs the UI test step (`task test:ui`, Playwright, 112 tests) beside the driver's (`task test:driver`); on the shared pool the two together took 105 s of the 120 s each step may take (the UI step alone 77 s, the driver's alone 59 s).
+- The UI server reads Canon from `SDC_UI_CANON` and the driver from `SDC_UI_DRIVE` when set (one place, `ui/binaries.mjs`, shared with the test fixtures); a program that is not there is a refusal that names its path.
+
 ### Fixed
 
+- The UI server keeps one view per request and per tick (an `AsyncLocalStorage` scope read by `ui/web/view.js`), so an action that waits in its tool is no longer given the view of another source's request that arrived meanwhile; a stage name or phase id from a view is escaped in `ui/web/lenses.js`; four reasons in a committed fixture name the role instead of a first name.
+- `runbook parity summarize` exits 2 and names the file for an input it cannot read or parse (a truncated event file, a malformed evidence record, a missing member) and no longer drops it; its digests use the `sha2` crate.
 - The shell tools no longer fall back to a `beyond10x/sdc` path for `sdc-findings` and `sdc-finding-kpis` (a missing one stops with its name and where it looked), `llm-adapter-claude-cli.sh` runs with `HOME` unset (`--claude-credentials <file>` on `llm-node.sh`, else a message naming the variables), and the text of `in/feedback.md` and the requester request is in `instructions/` (`story:tool-texts-and-paths`).
 
 ## [0.3.0] - 2026-11-22
