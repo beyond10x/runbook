@@ -4581,27 +4581,27 @@
       "variants": [
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 3,
           "id": "strong",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 3,
           "id": "mixed",
-          "listed": 0,
+          "listed": 3,
           "primary": null
         },
         {
           "clean_passes": 0,
-          "ended": 0,
+          "ended": 2,
           "id": "haiku",
-          "listed": 0,
+          "listed": 2,
           "primary": null
         }
       ],
-      "verdict": "planned, no run yet",
+      "verdict": "descriptive",
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
@@ -5138,7 +5138,39 @@
     },
     {
       "path": "experiments/release-0.3.0.yaml",
-      "sha256": "6adf685655059f7ee03880ac469894301f30ce3a5b1b20ac840458ee65df7d2c"
+      "sha256": "530454702bc6b7ec5e442cc56de105a8503a39deb5a8544b1cd015b1a5ccfd94"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.haiku.1.json",
+      "sha256": "cae63e9109f79e34fde3ad78f3d1a34011b8aabad096d7de5aacff5dfc54779b"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.haiku.2.json",
+      "sha256": "b594db645704071fc13f3bb895f096f2a3800fe6bfc5b7a66b6b4d57e1c1df9e"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.mixed.1.json",
+      "sha256": "7b38c3c5c77e7e8eeb8306c45e4ade644a90b6cbe4090388e28a17e1f3178679"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.mixed.2.json",
+      "sha256": "446897916ea4051e712abf4c3577dff96100760405a23e44bf478b4a4167b9ed"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.mixed.3.json",
+      "sha256": "14f720308e5a15a152bf1d68b982d277befa65faa56cffc28eca02b679ebeb2c"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.1.json",
+      "sha256": "f9d6617e730d7e5067becf1275ad310644dbdd1176d14317d527f83168c6ba34"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.2.json",
+      "sha256": "2c352812baadc5829758aab4263dba76d7a3d9018d2e77f6b8d1c5c40138ee3b"
+    },
+    {
+      "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.3.json",
+      "sha256": "6adca8818d0434ca59e9ea84506d2169ab3b9ed2da34d5524eb8247f6ac8c925"
     },
     {
       "path": "experiments/review-haiku-replay.yaml",
