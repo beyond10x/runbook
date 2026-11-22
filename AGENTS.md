@@ -77,6 +77,7 @@
 - The UI test step is `task test:ui` at the root (`task test` in `ui/`; part of `task check`, beside `test:driver`; Playwright, four workers, 60 s a test, 120 s the run, the ten
   slowest printed). It needs no `runs/`, no built binary and no server of your own; its servers take free
   ports. Specs that need those are the slow lane (`task slow`, listed in `ui/test/lanes.mjs`).
+  A test child (server, fixture player, daemon) is started with `spawnChild` or `startServer` of `ui/test/child.mjs` and `ui/test/serve.mjs`, never with `spawn`: it ends with its parent, also after SIGKILL (`ui/test/guard.mjs`, `ui/test/child.spec.mjs`).
 - Anything that runs longer than about 30 s runs in the background.
 - Layers: Canon is the kernel (protocol semantics, evaluation), Loom the runtime, Substrate
   confinement and process start (`docs/layers.md:47-52`). A capability missing in one of them is

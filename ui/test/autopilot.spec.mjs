@@ -4,7 +4,8 @@
 // test/fixtures/runs)/principals, served by a server of its own (test/serve.mjs: a port the kernel gives)
 // over the runs directory. Screenshots: screenshots/{1600x1000,1366x768}-autopilot.png, -human.png.
 import {test, expect} from '@playwright/test';
-import {spawn, spawnSync} from 'node:child_process';
+import {spawnSync} from 'node:child_process';
+import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -50,7 +51,7 @@ test.beforeAll(async ({}, info) => {
 test('autopilot: the decider is deciding or no decision is pending, never a person, never "waiting on you"', async ({page}) => {
   test.setTimeout(60000);
   // the decider's call plays slowly enough to be seen deciding
-  procs.push(spawn('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '0.6'], {cwd: ui, stdio: 'ignore'}));
+  procs.push(spawnChild('node', ['test/fixture-run.mjs', 'autopilot', path.join(runs, 'autopilot'), '0.6'], {cwd: ui, stdio: 'ignore'}));
   for (let i = 0; i < 100 && !fs.existsSync(path.join(runs, 'autopilot', 'store')); i++) await new Promise((x) => setTimeout(x, 100));
   await expect.poll(async () => (sources = await (await fetch(base + '/api/sources')).json()).some((s) => s.path.endsWith('/autopilot/store')), {timeout: 15000}).toBe(true);
   await page.setViewportSize(GATING[0]);

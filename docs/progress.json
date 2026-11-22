@@ -4834,6 +4834,77 @@
       "tree": "5955f827359378701dba0ca900ba19ba6f490073",
       "tree_note": "tag 0.4.0 at main 5955f82: 0.3.1 (ebea58d) with the merges of the daemon on its stub runtime (e7dfa4b), of the runner on Loom (b49b511) and the preparation",
       "version": "0.4.0"
+    },
+    {
+      "changes": [
+        {
+          "commit": "69f07f5",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook loom-run, a model step that ended before it started any adapter costs nothing and the run goes on"
+        },
+        {
+          "commit": "0a3b8eb",
+          "effect": "none",
+          "experiment": null,
+          "line": "the product checks of a run and the ESS specification run ESS 0.97.3 (was 0.96.0), the daemon's synthesized conformance suite is committed"
+        },
+        {
+          "commit": "619e2dd",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-check-unreferenced, a check for tracked files that nothing refers to"
+        },
+        {
+          "commit": "5ba5aa1",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-finding-kpis and sdc-run-timeline read the run directory of runbook loom-run"
+        },
+        {
+          "commit": "224c3c0",
+          "effect": "none",
+          "experiment": null,
+          "line": "every UI test child ends with the process that started it"
+        }
+      ],
+      "date": "2026-11-22",
+      "experiments": [],
+      "id": "0.4.1",
+      "kind": "release",
+      "label": "0.4.1",
+      "limits": [
+        "No run has used this tree and the release claims no measured change; it rests on the operator's order (approval-record:release-0-4-1), not on the standing rule of docs/releasing.md.",
+        "A comparison of runs across the move from ESS 0.96.0 to 0.97.3 has to say so; the engine that runs a case on Loom inside the daemon is not in this release."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": "da86a8f7b81fb5be09c06d19b062e790a6950ada",
+      "tree_note": "tag 0.4.1 at main da86a8f: 0.4.0 (5955f82) with the merges of the loom-run fix, ESS 0.97.3, the reference check, the two evaluation tools reading a Loom run, the UI test children and the preparation",
+      "version": "0.4.1"
     }
   ],
   "format": "sdc.progress/1",
@@ -5768,7 +5839,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "2898b7e0b2f1e45ea36547aad2a57211c31a9d9a9a579949952e32d099f98551"
+      "sha256": "cd89edf43f44f26d106cf455ded8866cc6491a50d56ec865ca0ffaded6bd0085"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",

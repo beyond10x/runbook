@@ -2,7 +2,7 @@
 // watches (its source given in SDC_UI_LIVE_SOURCE, path in SDC_UI_LIVE_DIR), and check that the
 // page grows in place: the first case row and the graph are the same DOM nodes at the end.
 import {test, expect} from '@playwright/test';
-import {spawn} from 'node:child_process';
+import {spawnChild} from './child.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -20,7 +20,7 @@ test('empty store grows in place', async ({page}, info) => {
   fs.rmSync(target, {recursive: true, force: true});
   await page.goto(`/?source=${source}`);
   await expect(page.locator('#tree .empty')).toBeVisible();
-  const replay = spawn('node', [path.join(sdc, 'scripts/replay-store.mjs'), path.join(sdc, 'runs/full-cycle-1/store'), target, '25'], {stdio: 'ignore'});
+  const replay = spawnChild('node', [path.join(sdc, 'scripts/replay-store.mjs'), path.join(sdc, 'runs/full-cycle-1/store'), target, '25'], {stdio: 'ignore'});
   try {
     await expect(page.locator('#tree .case').first()).toBeVisible({timeout: 30000});
     const first = await page.locator('#tree .case').first().elementHandle();
