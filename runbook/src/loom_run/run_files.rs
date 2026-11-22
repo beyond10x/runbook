@@ -22,6 +22,25 @@ impl BasicFiles {
     }
 }
 
+/// `text` with the run directory made relative: `<run dir>/x` is `x`, the run directory itself `.`.
+/// Loom prints absolute paths of its store and workspace; none of them may reach a file of this
+/// unit in the run directory.
+pub fn relative_text(run_dir: &Path, text: &str) -> String {
+    let root = run_dir.display().to_string();
+    let root = root.trim_end_matches('/');
+    if root.is_empty() {
+        return text.to_owned();
+    }
+    text.replace(&format!("{root}/"), "").replace(root, ".")
+}
+
+/// Writes `bytes` to `path` through a temporary file and a rename, so a reader never sees half a file.
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// The JSON object of one event: `{"at": secs, "event": "<name>", ...}`.
 pub fn event_json(at_secs: u64, event: &Event) -> Value {
     let (name, fields) = match event {
@@ -69,6 +88,7 @@ impl EventSink for BasicFiles {
             std::fs::write(self.run_dir.join("settings.json"), text).map_err(|e| format!("settings.json: {e}"))?;
         }
         let line = serde_json::to_string(&event_json(at_secs, event)).map_err(|e| e.to_string())?;
+        let line = relative_text(&self.run_dir, &line);
         writeln!(self.log, "{line}").map_err(|e| format!("events.jsonl: {e}"))?;
         if let Event::Ended { outcome, reason, loom_exit, stderr_tail, exit_code, steps, spent_micro_usd, llm_calls } = event {
             let v = json!({
@@ -83,21 +103,30 @@ impl EventSink for BasicFiles {
                 "llm_calls": llm_calls,
             });
             let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n";
-            std::fs::write(self.run_dir.join("outcome.json"), text).map_err(|e| format!("outcome.json: {e}"))?;
+            write_atomic(&self.run_dir.join("outcome.json"), relative_text(&self.run_dir, &text).as_bytes())?;
         }
         Ok(())
     }
 }
 
-/// Writes `tree-status.json` (what `tree status` printed, byte for byte) and `tree-verify.json`
-/// (`{"exit", "stdout", "stderr"}` of `tree verify`).
-pub fn write_tree_files(run_dir: &Path, status_stdout: &[u8], verify_exit: i32, verify_stdout: &[u8], verify_stderr: &[u8]) -> Result<(), String> {
-    std::fs::write(run_dir.join("tree-status.json"), status_stdout).map_err(|e| format!("tree-status.json: {e}"))?;
+/// Writes `tree-status.json`: what `tree status` printed with the run directory made relative
+/// (`store`, `work`, `store/case-....json`), through a temporary file and a rename.
+pub fn write_status(run_dir: &Path, status_stdout: &[u8]) -> Result<(), String> {
+    let text = relative_text(run_dir, &String::from_utf8_lossy(status_stdout));
+    write_atomic(&run_dir.join("tree-status.json"), text.as_bytes())
+}
+
+/// Writes `tree-status.json` (see [`write_status`]; kept as it is when `None`) and `tree-verify.json` (`{"exit", "stdout",
+/// "stderr"}` of `tree verify`, the run directory made relative).
+pub fn write_tree_files(run_dir: &Path, status_stdout: Option<&[u8]>, verify_exit: i32, verify_stdout: &[u8], verify_stderr: &[u8]) -> Result<(), String> {
+    if let Some(status) = status_stdout {
+        write_status(run_dir, status)?;
+    }
     let v = json!({
         "exit": verify_exit,
-        "stdout": String::from_utf8_lossy(verify_stdout),
-        "stderr": String::from_utf8_lossy(verify_stderr),
+        "stdout": relative_text(run_dir, &String::from_utf8_lossy(verify_stdout)),
+        "stderr": relative_text(run_dir, &String::from_utf8_lossy(verify_stderr)),
     });
     let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())? + "\n";
-    std::fs::write(run_dir.join("tree-verify.json"), text).map_err(|e| format!("tree-verify.json: {e}"))
+    write_atomic(&run_dir.join("tree-verify.json"), text.as_bytes())
 }

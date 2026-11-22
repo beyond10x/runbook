@@ -81,7 +81,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     }
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
-    let redacted = settings::redacted(&settings_value);
+    let redacted = settings::with_run(&settings::redacted(&settings_value), args, &sha);
     let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
     let mut runner = Runner {
         args,
@@ -260,6 +260,12 @@ impl Runner<'_> {
         self.ledger = Some(Ledger::open(&self.args.spend_ledger)?);
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings)?;
         std::fs::copy(&self.args.idea, self.workspace.join("idea.yaml")).map_err(|e| format!("--idea: {e}"))?;
+        let copies = self.run_dir.join("protocols");
+        std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
+        for (_, file) in protocols {
+            let name = file.file_name().ok_or_else(|| format!("{}: no file name", file.display()))?;
+            std::fs::copy(file, copies.join(name)).map_err(|e| format!("{}: {e}", file.display()))?;
+        }
         for (name, file) in protocols {
             let r = self.loom(&["protocols", "add", name], &["--file".to_owned(), file.display().to_string()])?;
             expect_exit0(&r, &format!("protocols add {name}"))?;
@@ -305,6 +311,7 @@ impl Runner<'_> {
             let stop = tree.get("stop").and_then(Value::as_str).unwrap_or("").to_owned();
             let steps = tree.get("steps").and_then(Value::as_i64).unwrap_or(0);
             self.steps += u64::try_from(steps).unwrap_or(0);
+            self.refresh_status()?;
             self.emit(Event::StepMade { index, exit: code, stop, steps })?;
             match code {
                 0 => {
@@ -318,6 +325,20 @@ impl Runner<'_> {
                 other => return Err(Halt::Loom { reason: format!("b10x-loom tree run exited {other}, an exit code the runner does not know"), exit: Some(other), stderr_tail: tail_of(&result.stderr) }),
             }
         }
+    }
+
+    /// Runs `tree status` and writes `tree-status.json` (atomically, paths relative to the run
+    /// directory). A refusal ends the run: `tree status` reads the protocol catalog (`HOME` and
+    /// `XDG_DATA_HOME` of the run), and a store read with another catalog answers
+    /// `GovernorUnavailable`.
+    fn refresh_status(&mut self) -> Result<(), Halt> {
+        let store = ["--store".to_owned(), self.store.display().to_string()];
+        let r = self.loom(&["tree", "status"], &store)?;
+        if r.code != Some(0) {
+            return Err(Halt::Loom { reason: format!("b10x-loom tree status refused (exit {:?}); it needs the protocol catalog of the run", r.code), exit: r.code, stderr_tail: tail_of(&r.stderr) });
+        }
+        run_files::write_status(&self.run_dir, &r.stdout)?;
+        Ok(())
     }
 
     fn ledger(&self) -> &Ledger {
@@ -439,11 +460,15 @@ impl Runner<'_> {
                 (Ok(s), Ok(v)) => {
                     let se = s.code.unwrap_or(-1);
                     let ve = v.code.unwrap_or(-1);
-                    if let Err(e) = run_files::write_tree_files(&self.run_dir, &s.stdout, ve, &v.stdout, &v.stderr) {
+                    if let Err(e) = run_files::write_tree_files(&self.run_dir, (se == 0).then_some(s.stdout.as_slice()), ve, &v.stdout, &v.stderr) {
                         outcome = Outcome::Error { reason: e };
                     }
-                    if se != 0 && matches!(outcome, Outcome::Ended { .. }) {
-                        outcome = Outcome::Error { reason: format!("tree status exited {se}") };
+                    if se != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
+                        outcome = Outcome::LoomFailed {
+                            reason: format!("b10x-loom tree status refused (exit {se}) after the run ended as {}; it needs the protocol catalog of the run", outcome.label()),
+                            exit: Some(se),
+                            stderr_tail: tail_of(&s.stderr),
+                        };
                     }
                     if ve != 0 {
                         outcome = Outcome::Error { reason: format!("tree verify exited {ve} (the run had ended: {})", outcome.label()) };

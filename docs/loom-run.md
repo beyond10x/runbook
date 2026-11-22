@@ -22,10 +22,12 @@ Every option is required and none has a default. `--confinement` is passed uncha
    path is missing, or `<runs-dir>/<name>` exists.
 2. Creates the run directory, writes `settings.json` (the login file's path replaced by `named`),
    copies `--bindings` into `bindings/` (the copy is what Loom reads; the checkout is never
-   edited), puts `--idea` at `work/idea.yaml`, registers every `*.protocol.yaml` of `--protocols`
-   (`b10x-loom protocols add`) and opens the tree (`tree open --store store/ --workspace work/`).
+   edited), puts `--idea` at `work/idea.yaml`, copies every `*.protocol.yaml` of `--protocols` into
+   `protocols/`, registers them (`b10x-loom protocols add`) and opens the tree (`tree open --store
+   store/ --workspace work/`).
 3. Loops `b10x-loom tree run --max-steps 1 --confinement <level>`. After each step it reads what the
-   step cost, then reacts to the exit code of `tree run`:
+   step cost, refreshes `tree-status.json` (one `tree status` call, written through a temporary file
+   and a rename), then reacts to the exit code of `tree run`:
 
    | Exit | Meaning | The runner |
    |---|---|---|
@@ -36,7 +38,8 @@ Every option is required and none has a default. `--confinement` is passed uncha
    | anything else | not known | ends: outcome `error` with the exit code and the tail of standard error |
 
 4. At the end it stores `tree status` and `tree verify` (`tree-status.json`, `tree-verify.json`). A
-   non-zero `tree verify` makes the outcome `error`.
+   non-zero `tree verify` makes the outcome `error`; a `tree status` the binary refuses (at any step
+   or at the end) ends the run as `error` with the exit code and the tail of standard error.
 
 ## The decisions
 
@@ -64,6 +67,15 @@ The child gets a built environment (`env_clear`, then these three), never the ru
 | `PATH` | the runner's `PATH` |
 | `HOME` | the directory `home/` of the run directory |
 | `XDG_DATA_HOME` | `data/` inside that directory (Loom's protocol catalog) |
+
+`tree status`, `tree verify` and `tree run` all read the protocol catalog, which lives under
+`HOME` and `XDG_DATA_HOME`. A store is only readable with the catalog that holds its protocols:
+measured with the real binary on one store, `env -i` with `PATH` alone answers `UnknownProtocol:
+the host's protocol catalog cannot be read: HOME is unavailable`, the same store with the
+environment of another catalog answers `StoreUnreadable: ... GovernorUnavailable`, and `HOME` plus
+`XDG_DATA_HOME` of the run's catalog answers the status. The working directory does not matter. So
+every call, `tree status` too, gets the three variables of the table; a copy of a store has to be
+read with the catalog of its run.
 
 Bound programs get only `PATH` from Loom itself. No login file, no path of one and no credential
 variable is in the run directory or in the child's environment; the login file's path is a setting
@@ -103,23 +115,30 @@ unreadable line fails the run closed and books the whole reservation.
 
 The run ends as `error` (exit 1) when: the ledger is unreadable or invalid, a decider answers
 without a cost, `tree run` exits with a code the runner does not know, `tree run` prints no JSON,
-a model step has no cost record, or an event sink fails. Known limits: a SIGKILL of the runner
+a model step has no cost record, `tree status` is refused, or an event sink fails. Known limits: a SIGKILL of the runner
 leaves a reservation in the ledger (it counts against the cap until the ledger is reset), and one
 call can overshoot its budget by what the model tool itself allows.
 
 ## The run directory
 
 ```
-<runs-dir>/<name>/settings.json    redacted settings
+<runs-dir>/<name>/settings.json    redacted settings, and what the command was given: loom
+                                   {sha256, confinement, cap_micro_usd}, max_llm_calls,
+                                   max_wall_seconds, case, root_protocol (not the binary's path)
                   events.jsonl     one object per event: {"at": seconds, "event": "...", ...}
                   outcome.json     runbook.loom-run-outcome/1: outcome, reason, loom_exit_code,
                                    stderr_tail, exit_code, steps, spent_micro_usd, llm_calls
                   tree-status.json, tree-verify.json
-                  bindings/ work/ store/ home/
+                  protocols/ bindings/ work/ store/ home/
 ```
 
+The files this command writes name no path of the runs directory: in `events.jsonl`,
+`outcome.json`, `tree-status.json` and `tree-verify.json` the run directory is made relative
+(`<run dir>/store` is `store`, the run directory itself `.`). Loom's own `store/tree.json` holds
+absolute paths and is not edited, so the run directory as a whole can still hold one.
+
 The files that `sdc-experiment report` and `runbook parity summarize` read are written by
-`run_dir.rs` from the same events.
+`run_dir.rs` from the same events (`docs/loom-run-directory.md`).
 
 ## Tests
 

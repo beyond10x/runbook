@@ -677,3 +677,100 @@ fn real_loom_output_is_read_and_its_printed_command_runs_as_printed() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].argv, words[1..].to_vec(), "the printed command, word for word");
 }
+
+// the requests of unit R3
+
+#[test]
+fn run_started_settings_carry_what_the_command_was_given_and_not_the_binary_path() {
+    let w = World::new("runsettings");
+    w.one_decision_tree();
+    w.scripted_approve();
+    let o = w.run(&w.args("r1", 1_234_567));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let text = std::fs::read_to_string(w.run_dir("r1/settings.json")).unwrap();
+    let s: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(s["loom"]["sha256"], w.fake.sha256());
+    assert_eq!(s["loom"]["confinement"], "local");
+    assert_eq!(s["loom"]["cap_micro_usd"], 1_234_567);
+    assert_eq!(s["max_llm_calls"], 100);
+    assert_eq!(s["max_wall_seconds"], 600);
+    assert_eq!(s["case"], "IDEA-1");
+    assert_eq!(s["root_protocol"], "sdc@8");
+    assert_eq!(s["login_file"], "named");
+    assert!(!text.contains(&w.fake.bin().display().to_string()), "the path of the binary is not recorded");
+    assert!(!text.contains(&w.root.display().to_string()), "no path of the runs directory: {text}");
+}
+
+#[test]
+fn the_protocol_files_are_copied_into_the_run_directory_before_tree_open() {
+    let w = World::new("protocopy");
+    w.one_decision_tree();
+    w.scripted_approve();
+    w.fake.hook("tree_open", "default", "mkdir -p \"$store\"\nls protocols > \"$D/protocols-at-open\"\n");
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    for name in ["sdc.protocol.yaml", "sdc-intake.protocol.yaml"] {
+        let copy = std::fs::read_to_string(w.run_dir("r1/protocols").join(name)).unwrap();
+        assert_eq!(copy, std::fs::read_to_string(w.root.join("protocols").join(name)).unwrap());
+    }
+    let at_open = std::fs::read_to_string(w.fake.dir.join("protocols-at-open")).unwrap();
+    assert!(at_open.contains("sdc.protocol.yaml") && at_open.contains("sdc-intake.protocol.yaml"), "{at_open}");
+}
+
+#[test]
+fn the_files_the_runner_writes_name_no_path_of_the_runs_directory() {
+    let w = World::new("relative");
+    let d = decision_json("owner.approve", "ApproveAction", "person:owner");
+    w.fake.answer("tree_run", "1", &tree_run_json("AwaitingPerson", 0, None, &format!("[{d}]")), 3);
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    w.fake.answer("tree_approve", "default", "{}\n", 0);
+    let status = "{\"cases\":[{\"case\":\"IDEA-1\",\"case_file\":\"@STORE@/case-1.json\",\"run_log\":\"@STORE@/runlog-1.jsonl\"}],\"format\":\"loom.tree-status/1\",\"store\":\"@STORE@\",\"workspace\":\"@STORE@/../work\"}\n";
+    w.fake.answer("tree_status", "default", status, 0);
+    w.fake.answer("tree_verify", "default", "{\"cases\":1,\"store\":\"@STORE@\"}\n", 0);
+    w.scripted_approve();
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    let prefix = w.root.display().to_string();
+    let mut hits = Vec::new();
+    for file in ["tree-status.json", "tree-verify.json", "events.jsonl", "outcome.json", "settings.json"] {
+        let text = std::fs::read_to_string(w.run_dir("r1").join(file)).unwrap();
+        if text.contains(&prefix) {
+            hits.push(file);
+        }
+    }
+    assert!(hits.is_empty(), "a path of the runs directory is in {hits:?}");
+    let s: Value = serde_json::from_str(&std::fs::read_to_string(w.run_dir("r1/tree-status.json")).unwrap()).unwrap();
+    assert_eq!(s["store"], "store");
+    assert_eq!(s["cases"][0]["case_file"], "store/case-1.json");
+    assert_eq!(s["workspace"], "store/../work");
+}
+
+#[test]
+fn the_status_is_refreshed_after_every_step_and_never_left_half_written() {
+    let w = World::new("statusrefresh");
+    w.one_decision_tree();
+    w.scripted_approve();
+    w.fake.hook("tree_status", "default", "[ -e tree-status.tmp ] && echo leftover >> \"$D/tmp-seen\"\n");
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 4);
+    assert_eq!(w.fake.calls_of(&["tree", "status"]).len(), 5, "one after each of the 4 steps and one at the end");
+    assert!(!w.fake.dir.join("tmp-seen").exists(), "a temporary file was left behind");
+    assert!(!w.run_dir("r1/tree-status.tmp").exists());
+}
+
+#[test]
+fn a_status_the_binary_refuses_ends_the_run_with_its_exit_code_and_stderr() {
+    let w = World::new("statusrefused");
+    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.answer("tree_status", "default", "", 1);
+    w.fake.stderr("tree_status", "default", "b10x-loom: tree refused: StoreUnreadable: case IDEA-1: GovernorUnavailable\n");
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    let outcome = w.outcome("r1");
+    assert_eq!(outcome["outcome"], "error");
+    assert_eq!(outcome["loom_exit_code"], 1);
+    assert!(outcome["stderr_tail"].as_str().unwrap().contains("GovernorUnavailable"));
+    assert!(outcome["reason"].as_str().unwrap().contains("protocol catalog"));
+    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 1, "no step after the refused status");
+}

@@ -24,7 +24,7 @@ scope:
   path: runbook/tests/cli.rs
 - confidence: cited
   path: runbook/tests/loom_run
-revision: 3
+revision: 4
 ---
 # Story: runbook-loom-run-command
 
@@ -81,3 +81,50 @@ of 2026-11-22.
 ## Open Questions
 
 None beyond the ambiguities above.
+
+## The run directory (unit R3, `rb3-loom-run-dir`)
+
+Tests: `runbook/tests/loom_run/run_dir.rs`; page: `docs/loom-run-directory.md`.
+
+- From the events of a small complete run (two model steps with costs, one decision answered by the
+  model decider with a cost, outcome delivered), the writer makes a run directory that the contract's
+  rules read as finished, closed, delivered and clean, with `run.cost_usd` equal to the sum of the
+  costs of the events and `run.llm_calls` 2, `run.decider_calls` 1: test
+  `a_small_complete_run_reads_as_closed_delivered_and_clean_with_the_cost_of_the_events`.
+- From a run stopped by the spend cap it makes a directory read as finished, not closed, not
+  delivered, with `run-stopped.json` and the cost spent before the stop: test
+  `a_run_stopped_by_the_spend_cap_is_finished_not_closed_and_not_delivered`.
+- A run that is killed leaves whole lines in every append-only file and a case store the reader takes
+  as open: tests `a_run_that_is_killed_leaves_a_directory_the_reader_takes_as_open` and
+  `the_files_are_appended_line_by_line_as_the_events_arrive`.
+- No file the writer makes holds a login path, a marker of a login file's content, a token, a path
+  under a home directory or an environment variable: test
+  `a_run_dir_holds_no_login_path_no_marker_no_home_path_and_no_environment`.
+- `runbook parity summarize --loom-status <run>/loom/status.json --product-tree <run>/work` on a
+  directory the writer made from the committed fixture status prints the fixture's counts line: test
+  `the_run_directory_names_the_files_of_parity_summarize_and_the_counts_line_is_the_fixtures`.
+- `docs/loom-run-directory.md` lists, per member of the contract, its source in a Loom run, the
+  members a Loom run does not record with the measure each affects, and, per row of
+  `experiments/release-0.1.2/report.md`, whether a Loom run directory gives it.
+
+## What the core gives the run directory writer (requests of unit R3)
+
+- `RunStarted` settings carry `loom{sha256, confinement, cap_micro_usd}`, `max_llm_calls`,
+  `max_wall_seconds`, `case` and `root_protocol`, and not the binary's path: test
+  `run_started_settings_carry_what_the_command_was_given_and_not_the_binary_path`.
+- The protocol files are copied into `<run>/protocols/` before `tree open`: test
+  `the_protocol_files_are_copied_into_the_run_directory_before_tree_open`.
+- `events.jsonl`, `outcome.json`, `tree-status.json` and `tree-verify.json` name no path of the
+  runs directory: test `the_files_the_runner_writes_name_no_path_of_the_runs_directory`.
+- `tree-status.json` is refreshed after every step through a temporary file and a rename: test
+  `the_status_is_refreshed_after_every_step_and_never_left_half_written`.
+- A `tree status` the binary refuses ends the run as `error` with its exit code and stderr (a store is
+  only readable with the protocol catalog of its run): test
+  `a_status_the_binary_refuses_ends_the_run_with_its_exit_code_and_stderr`.
+
+## Open requests
+
+- `DecisionAnswered` does not yet carry the model name and the duration of the decider call
+  (request 5 of unit R3): the writer reads the model from the settings or the cost record.
+- `runbook parity summarize --run-dir <dir>` as one option (request 6) is nobody's in this wave: the
+  two-option form works.

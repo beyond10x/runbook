@@ -227,7 +227,7 @@ impl World {
         self.ev(T0 + 131, Event::TreeStored { status_exit: 0, verify_exit: 0 });
         self.ev(
             T0 + 131,
-            Event::Ended { outcome: "ended".into(), reason: Some("operating".into()), exit_code: 0, steps: 7, spent_micro_usd: 230_000, llm_calls: 3 },
+            Event::Ended { outcome: "ended".into(), reason: Some("operating".into()), loom_exit: None, stderr_tail: None, exit_code: 0, steps: 7, spent_micro_usd: 230_000, llm_calls: 3 },
         );
     }
 }
@@ -636,7 +636,7 @@ fn a_run_stopped_by_the_spend_cap_is_finished_not_closed_and_not_delivered() {
     w.ev(T0 + 96, Event::TreeStored { status_exit: 0, verify_exit: 0 });
     w.ev(
         T0 + 96,
-        Event::Ended { outcome: "stopped: spend cap".into(), reason: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 },
+        Event::Ended { outcome: "stopped: spend cap".into(), reason: None, loom_exit: None, stderr_tail: None, exit_code: 4, steps: 5, spent_micro_usd: 200_000, llm_calls: 2 },
     );
     let m = read_run(&w.dir).unwrap();
     assert_eq!((m.finished, m.closed, m.delivered, m.clean), (true, false, false, false));
