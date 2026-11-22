@@ -4,12 +4,17 @@
 //! sdc-finding-kpis <run dir> [--json]
 //! ```
 //!
-//! `<run dir>` is what run-trial.sh or run-full-cycle.sh writes: store/IDEA-1/ (the case tree;
-//! every case's events.jsonl), optionally rounds.jsonl (run-trial.sh: one line per round with
-//! started, ended, seconds, verdict), run-settings.jsonl (one line per leg), run-stopped.json (the
-//! stop record), decision.json (present once the root is closed) and decisions.jsonl (a decider's
-//! decisions). Reads nothing else. A KPI reported as a failure carries `failure: true` and prints
-//! as `FAILED`.
+//! `<run dir>` is what run-trial.sh or run-full-cycle.sh writes: store/<root>/ (the case tree;
+//! every case's events.jsonl and case.json; `<root>` is `IDEA-1` unless the store holds one other
+//! case), optionally rounds.jsonl (run-trial.sh: one line per round with started, ended, seconds,
+//! verdict), run-settings.jsonl (one line per leg), run-stopped.json (the stop record),
+//! decision.json (present once the root is closed) and decisions.jsonl (a decider's decisions).
+//! Or it is what `runbook loom-run` writes: the same case store layout (no case.json), the product
+//! tree's `work/`, `rounds.jsonl`, `run-settings.jsonl`, `status.json`. The kind is read from the
+//! files (`run_kind.rs`); both print the same shape, and a figure a Loom directory has no source
+//! for is `null` with a `why` (docs/loom-run-directory.md, "The two evaluation tools"). A directory
+//! of neither kind is refused with exit 2. Reads nothing else. A KPI reported as a failure carries
+//! `failure: true` and prints as `FAILED`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -18,6 +23,16 @@ use std::process::ExitCode;
 
 use serde_json::{json, Value as J};
 use serde_yaml::Value;
+
+#[path = "../run_metrics.rs"]
+#[allow(dead_code)]
+mod run_metrics;
+#[path = "../run_kind.rs"]
+mod run_kind;
+
+use run_kind::RunKind;
+
+const LOOM_NO_SOURCE: &str = "no source in a runbook loom-run directory (docs/loom-run-directory.md)";
 
 fn yaml(path: &Path) -> Value {
     fs::read_to_string(path)
@@ -53,9 +68,10 @@ fn person(p: &str) -> bool {
         )
 }
 
-/// Every case directory under `root` (events.jsonl and case.json), not following symlinks.
-fn cases(root: &Path, out: &mut Vec<PathBuf>) {
-    if root.join("events.jsonl").is_file() && root.join("case.json").is_file() {
+/// Every case directory under `root` (events.jsonl, and case.json for a driver run: a Loom run's
+/// case store has none), not following symlinks.
+fn cases(root: &Path, kind: RunKind, out: &mut Vec<PathBuf>) {
+    if root.join("events.jsonl").is_file() && (kind == RunKind::Loom || root.join("case.json").is_file()) {
         out.push(root.to_path_buf());
     }
     let Ok(dir) = fs::read_dir(root) else { return };
@@ -66,7 +82,7 @@ fn cases(root: &Path, out: &mut Vec<PathBuf>) {
         .collect();
     subs.sort();
     for d in subs {
-        cases(&d, out);
+        cases(&d, kind, out);
     }
 }
 
@@ -97,15 +113,23 @@ fn main() -> ExitCode {
     };
     let as_json = args.iter().any(|a| a == "--json");
     let run = Path::new(run);
-    let root = run.join("store").join("IDEA-1");
-    let work = root.join("work");
+    let kind = match run_kind::detect(run) {
+        Ok(k) => k,
+        Err(m) => {
+            eprintln!("sdc-finding-kpis: {m}");
+            return ExitCode::from(2);
+        }
+    };
+    let loom = kind == RunKind::Loom;
+    let root = run_metrics::root_case_dir(run);
+    let work = run_kind::work_dir(run, &root, kind);
     let mut k: Vec<(&str, J)> = vec![];
 
     // L1 human interventions: person actions (approvals and scope.answer through `approve`) plus
     // person answers (scope-changing questions, finding decisions, findings raised by a person,
     // context fields a person set).
     let mut dirs = vec![];
-    cases(&root, &mut dirs);
+    cases(&root, kind, &mut dirs);
     let (mut acts, mut grants) = (vec![], vec![]);
     let mut revs: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for c in &dirs {
@@ -174,10 +198,16 @@ fn main() -> ExitCode {
         .iter()
         .find(|s| s["stand_in"] == json!(true))
         .map(|s| s["stand_in_by"].clone());
+    // A Loom run's settings have no `stand_in` member: both are null, not false.
+    let (stand_in_flag, stand_in_by) = if loom {
+        (J::Null, J::Null)
+    } else {
+        (json!(stand_in.is_some()), json!(stand_in))
+    };
     k.push((
         "L1_human_interventions",
         json!({"value": person_actions + answers_sum, "person_actions": person_actions,
-        "person_answers": answers_map, "stand_in": stand_in.is_some(), "stand_in_by": stand_in}),
+        "person_answers": answers_map, "stand_in": stand_in_flag, "stand_in_by": stand_in_by}),
     ));
 
     // L2 autonomous run time between human interventions: the wall seconds of each round that
@@ -228,32 +258,42 @@ fn main() -> ExitCode {
 
     // L7 time waiting on a person: every stop after which the run did not go on by itself.
     // A stop record followed by a reopened leg is time stopped for a fix, its own figure.
-    let (l7, fixes) = waiting(run);
+    let (l7, fixes) = waiting(run, loom);
     k.push(("L7_waiting_on_person_seconds", l7));
 
     // Keep-going (D142): the continuations rule:keep-going forced, and every defect line
     // (defects.jsonl). A run with one forced is evidence for defects, not a clean pass.
-    let defects = jsonl(&run.join("defects.jsonl"));
-    let forced = defects.iter().filter(|d| d["forced"] == json!(true)).count();
-    k.push(("forced", json!({"value": forced, "defects": defects.iter().map(|d| json!({
-        "cause": d["cause"], "case": d["case"], "action": d["action"], "forced": d["forced"],
-        "continuation": d["continuation"], "event_seq": d["event_seq"]})).collect::<Vec<_>>()})));
-    // Reopens: each stop record a later leg reopened (run-stopped.<at>.json), and the seconds
-    // from each record to the next leg. A run with one is not a clean run either.
-    let reopens = reopened_stops(run);
-    k.push(("stopped_for_fix", json!({"reopens": reopens.len(),
-        "seconds": fixes.iter().filter_map(|f| f["seconds"].as_i64()).sum::<i64>(),
-        "stops": reopens.iter().map(|s| json!({"at": s["at"], "by": s["by"], "cause": s["cause"], "case": s["case"]})).collect::<Vec<_>>(),
-        "gaps": fixes})));
-    // Unstick (D147): the moves of run.unstick other than stop, each with its diagnosis. A run
-    // it moved on closed unattended, not clean: each diagnosis is a defect to fix.
-    let unstick: Vec<&J> = defects.iter().filter(|d| d["unstick"] == json!(true)).collect();
-    let unstuck = unstick.iter().filter(|d| d["unstuck"] == json!(true)).count();
-    k.push(("unstuck", json!({"value": unstuck, "diagnoses": unstick.iter().map(|d| json!({
-        "cause": d["cause"], "case": d["case"], "action": d["action"], "move": d["move"], "unstuck": d["unstuck"],
-        "defect_class": d["defect_class"], "diagnosis": d["diagnosis"]})).collect::<Vec<_>>()})));
-    k.push(("clean_run", json!({"value": forced == 0 && unstuck == 0 && reopens.is_empty(), "forced": forced,
-        "unstuck": unstuck, "reopens": reopens.len()})));
+    // A Loom run has no keep-going mode, no unstick and no reopen, so no record of them: these four
+    // are null with the reason, not 0 (a 0 would say "looked and found none").
+    if loom {
+        let why = LOOM_NO_SOURCE;
+        k.push(("forced", json!({"value": null, "defects": [], "why": why})));
+        k.push(("stopped_for_fix", json!({"reopens": null, "seconds": null, "stops": [], "gaps": [], "why": why})));
+        k.push(("unstuck", json!({"value": null, "diagnoses": [], "why": why})));
+        k.push(("clean_run", json!({"value": null, "forced": null, "unstuck": null, "reopens": null, "why": why})));
+    } else {
+        let defects = jsonl(&run.join("defects.jsonl"));
+        let forced = defects.iter().filter(|d| d["forced"] == json!(true)).count();
+        k.push(("forced", json!({"value": forced, "defects": defects.iter().map(|d| json!({
+            "cause": d["cause"], "case": d["case"], "action": d["action"], "forced": d["forced"],
+            "continuation": d["continuation"], "event_seq": d["event_seq"]})).collect::<Vec<_>>()})));
+        // Reopens: each stop record a later leg reopened (run-stopped.<at>.json), and the seconds
+        // from each record to the next leg. A run with one is not a clean run either.
+        let reopens = reopened_stops(run);
+        k.push(("stopped_for_fix", json!({"reopens": reopens.len(),
+            "seconds": fixes.iter().filter_map(|f| f["seconds"].as_i64()).sum::<i64>(),
+            "stops": reopens.iter().map(|s| json!({"at": s["at"], "by": s["by"], "cause": s["cause"], "case": s["case"]})).collect::<Vec<_>>(),
+            "gaps": fixes})));
+        // Unstick (D147): the moves of run.unstick other than stop, each with its diagnosis. A run
+        // it moved on closed unattended, not clean: each diagnosis is a defect to fix.
+        let unstick: Vec<&J> = defects.iter().filter(|d| d["unstick"] == json!(true)).collect();
+        let unstuck = unstick.iter().filter(|d| d["unstuck"] == json!(true)).count();
+        k.push(("unstuck", json!({"value": unstuck, "diagnoses": unstick.iter().map(|d| json!({
+            "cause": d["cause"], "case": d["case"], "action": d["action"], "move": d["move"], "unstuck": d["unstuck"],
+            "defect_class": d["defect_class"], "diagnosis": d["diagnosis"]})).collect::<Vec<_>>()})));
+        k.push(("clean_run", json!({"value": forced == 0 && unstuck == 0 && reopens.is_empty(), "forced": forced,
+            "unstuck": unstuck, "reopens": reopens.len()})));
+    }
 
     // L3 defaults accepted without change.
     let res: Vec<&Value> = fd
@@ -304,10 +344,18 @@ fn main() -> ExitCode {
     // L6 rework: revisions after the first, per artifact, over the whole tree.
     let by_artifact: BTreeMap<&String, usize> =
         revs.iter().map(|(a, v)| (a, v.len() - 1)).collect();
-    k.push((
-        "L6_rework",
-        json!({"value": by_artifact.values().sum::<usize>(), "by_artifact": by_artifact}),
-    ));
+    if loom {
+        // Loom's run log has no `revised` line (docs/loom-run-directory.md, "Not recorded").
+        k.push((
+            "L6_rework",
+            json!({"value": null, "by_artifact": {}, "why": "Loom's run log has no revised event"}),
+        ));
+    } else {
+        k.push((
+            "L6_rework",
+            json!({"value": by_artifact.values().sum::<usize>(), "by_artifact": by_artifact}),
+        ));
+    }
 
     if as_json {
         let obj: serde_json::Map<String, J> =
@@ -373,7 +421,7 @@ fn epoch(t: &str) -> Option<i64> {
 /// A gap that a stop record lies in (a run stopped, then reopened: `run-stopped.<at>.json`) is
 /// the time the run was stopped for a fix, not a wait on a person: it goes to `fixes` (the
 /// second value), with the seconds from the record to the next leg.
-fn waiting(run: &Path) -> (J, Vec<J>) {
+fn waiting(run: &Path, loom: bool) -> (J, Vec<J>) {
     let rounds = jsonl(&run.join("rounds.jsonl"));
     if rounds.is_empty() {
         return (json!({"value": null, "why": "no rounds.jsonl (scripted runs use a fixed --at)"}), vec![]);
@@ -391,7 +439,9 @@ fn waiting(run: &Path) -> (J, Vec<J>) {
     let stopped = fs::read_to_string(run.join("run-stopped.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<J>(&t).ok());
-    let closed = run.join("decision.json").is_file();
+    // A Loom run writes no decision.json: it is closed once its status.json says so.
+    let closed = run.join("decision.json").is_file()
+        || (loom && fs::read_to_string(run.join("status.json")).ok().and_then(|t| serde_json::from_str::<J>(&t).ok()).is_some_and(|s| s["state"] == "closed"));
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

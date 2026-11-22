@@ -1,0 +1,3 @@
+{"case_dir":"","ended":"2026-11-22T09:00:20Z","ended_epoch":1795338020,"seconds":20,"started":"2026-11-22T09:00:00Z","started_epoch":1795338000,"verdict":"awaiting_authority"}
+{"case_dir":"","ended":"2026-11-22T09:00:53Z","ended_epoch":1795338053,"seconds":32,"started":"2026-11-22T09:00:21Z","started_epoch":1795338021,"verdict":"awaiting_authority"}
+{"case_dir":"","ended":"2026-11-22T09:00:55Z","ended_epoch":1795338055,"seconds":1,"started":"2026-11-22T09:00:54Z","started_epoch":1795338054,"verdict":"terminable"}

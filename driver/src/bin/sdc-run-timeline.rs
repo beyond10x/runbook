@@ -6,7 +6,9 @@
 //! ```
 //!
 //! Reads an SDC run directory (the case tree under `store/`, `llm-calls.jsonl` and `llm/`,
-//! `decisions.jsonl` and `decider/`, `rounds.jsonl`, `run-settings.jsonl`, `status.json`) or a
+//! `decisions.jsonl` and `decider/`, `rounds.jsonl`, `run-settings.jsonl`, `status.json`), the same
+//! files of a `runbook loom-run` directory (`settings.json` marks it; call records in
+//! `work/.sdc/llm`; `run_kind.rs`, docs/loom-run-directory.md), or a
 //! free-running agent's run directory (`free-agent.json`, `events.jsonl`, `received.jsonl`) and
 //! writes `sdc.run-timeline/1`: settings, case tree, totals and spans (program, model, decider,
 //! rule, tool, idle), sanitized (no prompt, reply, file content or absolute path). Without
@@ -26,6 +28,9 @@ mod run_metrics;
 #[path = "../run_timeline.rs"]
 #[allow(dead_code)]
 mod run_timeline;
+#[path = "../run_kind.rs"]
+#[allow(dead_code)]
+mod run_kind;
 
 const USAGE: &str = "usage: sdc-run-timeline <run dir> [--json <file>|-] [--text <file>|-] [--check] [--metrics <file>|-]
        sdc-run-timeline --check-doc <timeline.json>";

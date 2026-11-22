@@ -1,0 +1,25 @@
+questions:
+- id: Q1
+  item: R1
+  excerpt: invented excerpt one
+  question: Should invented thing one be offline?
+  options: [yes, no]
+  default: no
+  default_reason: invented reason
+  consequences: invented consequence
+  scope_changing: true
+  status: accepted
+  answer: no
+  answered_by: person:reviewer-1
+- id: Q2
+  item: R2
+  excerpt: invented excerpt two
+  question: Which invented format?
+  options: [a, b]
+  default: a
+  default_reason: invented reason
+  consequences: invented consequence
+  scope_changing: false
+  status: changed
+  answer: b
+  answered_by: decider:model

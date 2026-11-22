@@ -1,0 +1,9 @@
+audience:
+  value: invented audience
+  status: default
+platform:
+  value: invented platform
+  status: accepted
+licence:
+  value: invented licence
+  status: changed
