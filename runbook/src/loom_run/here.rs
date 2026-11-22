@@ -7,6 +7,7 @@
 //! `--loom` with `--loom-sha256` runs the `b10x-loom` binary as a child process. A missing required
 //! option is a usage error that names it (clap, exit 64); a refusal of the run itself is exit 2.
 
+use super::ports::{refuse_unbuilt, Bugfix, Conformance, OnDivergence, Ports, Refusal, Replay};
 use super::{Args, Confinement, EXIT_REFUSED};
 use clap::Args as ClapArgs;
 use runbook::client::RunArgs;
@@ -63,17 +64,52 @@ pub struct HereOptions {
     /// The id of the root case.
     #[arg(long, value_name = "ID", default_value = DEFAULT_CASE, conflicts_with = "detach")]
     pub case: String,
+    /// The stub cycle: print every model command, run none, approve person steps by script. Not built yet.
+    #[arg(long, conflicts_with = "detach")]
+    pub dry: bool,
+    /// Re-drive a recorded run (a run directory or a recording), answering each call with the recorded reply. Not built yet.
+    #[arg(long, value_name = "DIR", conflicts_with = "detach")]
+    pub recorded: Option<PathBuf>,
+    /// With `--recorded`, what a call with no recorded reply does: stop, take the nearest reply, or go live. Not built yet.
+    #[arg(long, value_enum, value_name = "POLICY", conflicts_with = "detach")]
+    pub on_divergence: Option<OnDivergence>,
+    /// With `--recorded`, the adapter of a live call: `dry`, `metaharness`, `claude-cli` or a path. Not built yet.
+    #[arg(long, value_name = "ADAPTER", conflicts_with = "detach")]
+    pub live_adapter: Option<String>,
+    /// With `--recorded`, the most live calls. Not built yet.
+    #[arg(long, value_name = "N", conflicts_with = "detach")]
+    pub live_cap: Option<u64>,
+    /// With `--recorded`, a fault to inject; repeatable. Not built yet.
+    #[arg(long, value_name = "FAULT", conflicts_with = "detach")]
+    pub inject: Vec<String>,
+    /// With `--recorded`, the actions whose recorded results are taken as they are. Not built yet.
+    #[arg(long, value_name = "ACTIONS", conflicts_with = "detach")]
+    pub take_recorded: Option<String>,
+    /// With `--recorded`, the commit of the recorded run's source tree. Not built yet.
+    #[arg(long, value_name = "COMMIT", conflicts_with = "detach")]
+    pub source_tree: Option<String>,
+    /// Open a bug-fix case from a seed directory. Not built yet.
+    #[arg(long, value_name = "DIR", conflicts_with = "detach")]
+    pub bugfix: Option<PathBuf>,
+    /// Open a bug-fix case from a ticket file (`sdc.ticket/1`). Not built yet.
+    #[arg(long, value_name = "FILE", conflicts_with = "detach")]
+    pub bugfix_ticket: Option<PathBuf>,
+    /// The requester's goals document, copied into the root case's workspace. Not built yet.
+    #[arg(long, value_name = "FILE", conflicts_with = "detach")]
+    pub goals: Option<PathBuf>,
+    /// Record every file change of the run beside it (`fs/changes.jsonl`). Not built yet.
+    #[arg(long, conflicts_with = "detach")]
+    pub watch: bool,
+    /// Hold the delivered product to the specification's suite after a close: `off` (default) or `observe`. `observe` is not built yet.
+    #[arg(long, value_enum, value_name = "MODE", default_value = "off", conflicts_with = "detach")]
+    pub conformance: Conformance,
 }
 
-/// A refusal of the options: the exit code and the line.
-type Refusal = (u8, String);
-
 /// The detach-only options a run in this process does not take: the first one given, named.
+/// `--set` is not among them: in process it is a condition of the replay (`--recorded`).
 fn detach_only(base: &RunArgs) -> Option<&'static str> {
     if base.context.is_some() {
         Some("--context")
-    } else if !base.set.is_empty() {
-        Some("--set")
     } else if base.json {
         Some("--json")
     } else if base.remote.daemon.is_some() {
@@ -99,6 +135,23 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
     if let Some(flag) = detach_only(base) {
         return Err((USAGE, format!("{flag} belongs to --detach: a run in this process takes no daemon and no context")));
     }
+    let ports = Ports {
+        dry: here.dry,
+        replay: Replay {
+            recorded: here.recorded,
+            on_divergence: here.on_divergence,
+            live_adapter: here.live_adapter,
+            live_cap: here.live_cap,
+            inject: here.inject,
+            set: base.set.clone(),
+            take_recorded: here.take_recorded,
+            source_tree: here.source_tree,
+        },
+        bugfix: Bugfix { seed: here.bugfix, ticket: here.bugfix_ticket },
+        goals: here.goals,
+        watch: here.watch,
+        conformance: here.conformance,
+    };
     let missing = |flag: &str| (USAGE, format!("{flag} is required"));
     let intake = runbook::client::read_intake(&base.intake).map_err(|f| (EXIT_REFUSED, f.message))?;
     let assets = if here.bindings.is_none() || here.protocols.is_none() {
@@ -136,6 +189,7 @@ pub fn args_of(base: &RunArgs, here: HereOptions) -> Result<Args, Refusal> {
         cap_micro_usd: here.cap_micro_usd.ok_or_else(|| missing("--cap-micro-usd"))?,
         max_llm_calls: here.max_llm_calls.ok_or_else(|| missing("--max-llm-calls"))?,
         max_wall_seconds: here.max_wall_seconds.ok_or_else(|| missing("--max-wall-seconds"))?,
+        ports,
     })
 }
 
@@ -148,6 +202,10 @@ pub fn command(base: RunArgs, here: HereOptions) -> ExitCode {
             return ExitCode::from(code);
         }
     };
+    if let Err((code, line)) = refuse_unbuilt(&args.ports) {
+        eprintln!("runbook run: {line}");
+        return ExitCode::from(code);
+    }
     match super::run_loop::run(&args) {
         Ok(outcome) => {
             match outcome.reason() {

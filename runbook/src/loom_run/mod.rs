@@ -16,21 +16,28 @@
 pub mod answers;
 pub mod bindings_copy;
 pub mod budget;
+pub mod bugfix;
 pub mod child;
 pub mod child_host;
+pub mod conformance;
 pub mod cost;
 pub mod decide;
 pub mod decider;
+pub mod dry;
 pub mod events;
+pub mod goals;
 pub mod here;
 pub mod host;
 pub mod ledger;
 pub mod library;
+pub mod ports;
 pub mod private;
+pub mod replay;
 pub mod run_dir;
 pub mod run_files;
 pub mod run_loop;
 pub mod settings;
+pub mod watch;
 
 use clap::ValueEnum;
 use std::path::PathBuf;
@@ -89,6 +96,8 @@ pub struct Args {
     pub max_llm_calls: u64,
     /// The most wall seconds of this run.
     pub max_wall_seconds: u64,
+    /// The options of the six ports of the old driver's launcher (`ports.rs`).
+    pub ports: ports::Ports,
 }
 
 /// How the run reaches Loom, from the options: one of the two ways.
