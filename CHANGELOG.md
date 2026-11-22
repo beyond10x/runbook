@@ -7,6 +7,10 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+### Changed
+
+- The ESS specification of the daemon is pinned to ess 0.97.3 (`requires: ess 0.97.3` in `ess/ess-inputs.yaml`); its tasks run inside `ess/`, where the dispatcher switches to the pin. The synthesized conformance suite is committed (`ess/generated/conformance/suite.json`, `DIGEST`) and its fast digest check is part of `task check:ess-generated`; `task check:ess-suite:slow` synthesizes it again and compares bytes.
+
 ### Fixed
 
 - `runbook loom-run`: a model step that ended before it started any adapter (its call directory has no `request.json`, which `llm-node.sh` writes before every adapter start, and a `status.json` with the step's exit) costs nothing: its reservation is released instead of booked, an event `no_model_call` names the call and the exit, and the run goes on with what Loom says of the step instead of ending `error` at the cost reader; a directory with a `request.json` and no cost record, and one without a readable `status.json` exit, stay fail-closed as before (`docs/loom-run.md`).
