@@ -1,0 +1,108 @@
+format: sdc.experiment/1
+id: release-0.3.1
+kind: prospective
+status: planned
+created: 2026-11-22
+title: Release 0.3.1 on main ebea58d, the to-do idea in the three baseline settings
+purpose: Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: ebea58dee2d1b4c9326a07d4e70128fa922bd01b
+fixed:
+  decider.kind: model
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  review.adapter: claude-cli
+  implement_mode: session
+  rule_approvals: off
+  review_mode: session
+  implement_coverage: off
+variants:
+- id: strong
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+  runs: []
+- id: mixed
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs: []
+- id: haiku
+  settings:
+    models.writer.model: claude-haiku-5-5
+    models.implement.model: claude-haiku-5-5
+    models.review.model: claude-haiku-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs: []
+runs_per_variant: 3
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: 'Registered sentence: on the to-do idea, release 0.3.1 delivers in at least as many runs per setting as release 0.1.2 did and run.cost_usd per setting is not higher by complete separation. The tree is the variable, which one record cannot hold (docs/improving.md step 4; a record with a hypothesis needs two variants of one tree that differ in one setting), so sdc-experiment reports this record as descriptive and the comparison with release-0.1.2 (same input, same settings, tree 72a3eef) is made per setting with the registered predictions below. Delivery: a setting meets P1 when its run.delivered count is at least release 0.1.2''s (strong 3 of 3, mixed 2 of 3, haiku 2 of 3). Cost: n = 3 against n = 3, run.cost_usd is higher only when every 0.3.1 run of the setting costs more than every release-0.1.2 run of it (exact one-sided p = 1/20); overlapping ranges claim no effect. Every end counts; no run is repaired, reopened or forced. A refuted or inconclusive result is published as such.'
+predictions:
+- id: P1
+  setting: strong, mixed, haiku
+  metric: run.delivered
+  baseline: release-0.1.2 (experiments/release-0.1.2/report.md, runs that closed) strong 3 of 3, mixed 2 of 3, haiku 2 of 3
+  direction: none
+  why: the registered sentence says at least as many; the 0.3.x changes to what a run does are behind switches that stay at their defaults, and what is not behind a switch (the instructions as files, 622819b; Canon 0.10.0; ess 0.96.0 in the tools) should not cost a delivery. Fewer than release 0.1.2 in a setting is reported as a miss of P1.
+- id: P2
+  setting: strong, mixed, haiku
+  metric: run.cost_usd
+  baseline: release-0.1.2 strong 4.6952 [4.4604, 4.8158] USD, mixed 2.5232 [1.3728, 3.0348] USD, haiku 0.9317 [0.8816, 1.7237] USD (median [min, max], 3 runs each)
+  direction: none
+  why: not higher by complete separation; a setting whose three runs all cost more than the highest release-0.1.2 run of it is a miss of P2, any other outcome is no claim.
+- id: P0
+  setting: all
+  metric: all of the above
+  baseline: release-0.1.2
+  direction: none
+  why: the honest alternative, that a setting misses P1 or P2. Three runs per setting and the spread of release 0.1.2 (mixed 1.37 to 3.03 USD, haiku 0.88 to 1.72 USD) make a small drift invisible; this record does not claim one.
+registered_guards:
+- run.delivered of each setting is at least release-0.1.2's count
+- run.cost_usd of each setting does not separate upward from release-0.1.2
+cost_estimate: 'From the release-0.1.2 medians: 3 x (4.70 + 2.52 + 0.93) = 24.5 USD; from its maxima 3 x (4.82 + 3.03 + 1.72) = 28.7 USD; plus the Opus unstick calls of Haiku runs, unmeasured (inferred under 1 USD per run). About 1.5 hours at 6 runs at a time (longest release-0.1.2 run 3278 s, a Haiku run; the Haiku runs start last), inferred. Cap: 30.00 USD for the 9 runs, stop line 29.00 USD (the operator''s pick of 2026-11-22 10:15 CET).'
+launch:
+  max_parallel: 6
+  stagger_s: 30
+  principal: agent:sdc-experiment
+known_confounds:
+- key: unstick
+  note: run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick, as in release-0.1.2. An unstuck run is not a clean pass.
+- key: canon
+  note: release-0.1.2 used the canon binary of the canon checkout at run time; 0.3.1 pins Canon 0.10.0 (driver/canon-pin.json) and every script refuses another version, so the two series differ in the Canon version.
+- key: ess
+  note: sdc-tool.sh runs ess 0.96.0 whatever ess is on PATH (docs/releases/0.3.0.md); release-0.1.2 used the installed ess.
+- key: instructions
+  note: what a model call is told moved from code to files under instructions/ (622819b) with 40 golden prompts held byte for byte; its effect is unmeasured (experiments/releases.yaml).
+- key: launcher
+  note: both series are started by sdc-experiment run, with experiment.json; the run directory and the build of the tree are made by the tool.
+- key: switches
+  note: SDC_IMPLEMENT_MODE, SDC_RULE_APPROVALS, SDC_REVIEW_MODE and SDC_IMPLEMENT_COVERAGE are set in `fixed` to their defaults (session, off, session, off), so run-settings.jsonl records them and none of the four is on; no 0.3.1 run measures a switch.
+- key: pool-wait
+  note: the wait for a slot of the shared build pool is bounded and reported apart in 0.3.1 (exit 69 repeated, then pool_wait_spent; exit 70, run_over_time), which release-0.1.2 did not have; a run of 0.3.1 that waits in the pool ends differently from a run of 0.1.2 that waited, and the queue of the host differs between the two series.
+facts:
+- 'Tree: main at ebea58dee2d1b4c9326a07d4e70128fa922bd01b, the merge of pull request 5 and the tag 0.3.1 (experiments/releases.yaml, 0.3.1: no run has used this tree yet).'
+- 'Replaces release-0.3.0 on tree ae7a697: that record was abandoned after 8 of 9 runs started, because the test step waited in the shared build pool and was recorded as a failed run, so the runs measured the queue; 0.3.1 fixes that (a step that got no build slot is not a failed test run). 0.3.0 has no registration numbers.'
+- 'Comparison basis: experiments/release-0.1.2/report.md, input todo-app (sha256 f384a752a2cb), the same three variants and the same models; strong 3 of 3 clean passes, mixed 2 of 3, haiku 2 of 3; the two stops were writer_spent in IDEA-1.sharedlist.list (mixed.1) and in IDEA-1.list.sync (haiku.1).'
+- 'Not launched: this record is committed before any run.'
+links:
+- 'experiments/release-0.1.2.yaml: the baseline this record is compared with'
+- 'experiments/release-0.3.0.yaml: the stopped series this record replaces'
+- 'experiments/releases.yaml: the ledger entry of 0.3.1, whose limit says no run has used this tree yet'

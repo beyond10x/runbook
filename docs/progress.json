@@ -4093,7 +4093,7 @@
       "kind": "release",
       "label": "0.3.1",
       "limits": [
-        "The registration runs of 0.3.1 are registered under a record that is added after the tag; until then no run has used this tree.",
+        "No run has used this tree yet: the registration runs are registered under the record release-0.3.1 (planned, 9 runs, cap 30 USD), committed before any run.",
         "Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time."
       ],
       "settings": [],
@@ -4121,8 +4121,8 @@
         "rate": null,
         "small_n": true
       },
-      "tree": null,
-      "tree_note": "not tagged yet; 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation",
+      "tree": "ebea58dee2d1b4c9326a07d4e70128fa922bd01b",
+      "tree_note": "tag 0.3.1 at main ebea58d: 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation",
       "version": "0.3.1"
     }
   ],
@@ -4660,6 +4660,88 @@
     },
     {
       "hypothesis": null,
+      "id": "parity-loom-strong",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "runtime",
+          "note": "the runs go through Loom with `runbook loom-run`, the driver runs through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal."
+        },
+        {
+          "key": "confinement",
+          "note": "--confinement local, the runs are not confined; the driver runs were not either."
+        },
+        {
+          "key": "unstick",
+          "note": "the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick, a run that stops stays stopped."
+        },
+        {
+          "key": "decider",
+          "note": "the model decider is the one of bindings/tools/decider.sh through the claude-cli adapter in both runtimes; its answers reach Loom as printed decision commands with a named result and the reasons of a rejection as a file."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary on the login's PATH at run time, which no record pins; release-0.1.2 had the same confound."
+        }
+      ],
+      "primary": null,
+      "purpose": "Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom (\"Tolerance, written before the Loom runs\"). It is the evaluation run of that story.",
+      "tree": "0c28adc",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 3,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
+      "id": "parity-loom-strong-2",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "runtime",
+          "note": "the runs go through Loom with `runbook loom-run`, the driver runs through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal."
+        },
+        {
+          "key": "confinement",
+          "note": "--confinement local, the runs are not confined; the driver runs were not either."
+        },
+        {
+          "key": "unstick",
+          "note": "the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick, a run that stops stays stopped."
+        },
+        {
+          "key": "decider",
+          "note": "the model decider is the one of bindings/tools/decider.sh through the claude-cli adapter in both runtimes; its answers reach Loom as printed decision commands with a named result and the reasons of a rejection as a file."
+        },
+        {
+          "key": "canon",
+          "note": "every run uses the canon binary on the login's PATH at run time, which no record pins; release-0.1.2 had the same confound."
+        }
+      ],
+      "primary": null,
+      "purpose": "Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom (\"Tolerance, written before the Loom runs\"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited.",
+      "tree": "ee6b50b",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 3,
+          "id": "strong",
+          "listed": 3,
+          "primary": null
+        }
+      ],
+      "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
       "id": "release-0.3.0",
       "kind": "prospective",
       "known_confounds": [
@@ -4715,6 +4797,69 @@
         }
       ],
       "verdict": "descriptive",
+      "why": "no hypothesis: the record describes its runs and decides nothing"
+    },
+    {
+      "hypothesis": null,
+      "id": "release-0.3.1",
+      "kind": "prospective",
+      "known_confounds": [
+        {
+          "key": "unstick",
+          "note": "run.unstick (D147, 0.1.1) is on under autopilot unless SDC_UNSTICK=off, with the model claude-opus-5-5 unless SDC_LLM_MODEL_UNSTICK is set (scripts/run-trial.sh); neither is a launch setting of sdc-experiment, so every variant runs with an Opus unstick, as in release-0.1.2. An unstuck run is not a clean pass."
+        },
+        {
+          "key": "canon",
+          "note": "release-0.1.2 used the canon binary of the canon checkout at run time; 0.3.1 pins Canon 0.10.0 (driver/canon-pin.json) and every script refuses another version, so the two series differ in the Canon version."
+        },
+        {
+          "key": "ess",
+          "note": "sdc-tool.sh runs ess 0.96.0 whatever ess is on PATH (docs/releases/0.3.0.md); release-0.1.2 used the installed ess."
+        },
+        {
+          "key": "instructions",
+          "note": "what a model call is told moved from code to files under instructions/ (622819b) with 40 golden prompts held byte for byte; its effect is unmeasured (experiments/releases.yaml)."
+        },
+        {
+          "key": "launcher",
+          "note": "both series are started by sdc-experiment run, with experiment.json; the run directory and the build of the tree are made by the tool."
+        },
+        {
+          "key": "switches",
+          "note": "SDC_IMPLEMENT_MODE, SDC_RULE_APPROVALS, SDC_REVIEW_MODE and SDC_IMPLEMENT_COVERAGE are set in `fixed` to their defaults (session, off, session, off), so run-settings.jsonl records them and none of the four is on; no 0.3.1 run measures a switch."
+        },
+        {
+          "key": "pool-wait",
+          "note": "the wait for a slot of the shared build pool is bounded and reported apart in 0.3.1 (exit 69 repeated, then pool_wait_spent; exit 70, run_over_time), which release-0.1.2 did not have; a run of 0.3.1 that waits in the pool ends differently from a run of 0.1.2 that waited, and the queue of the host differs between the two series."
+        }
+      ],
+      "primary": null,
+      "purpose": "Baseline of release 0.3.1, which replaces the stopped series of release 0.3.0 (record release-0.3.0, abandoned), and the registered comparison with release-0.1.2 on the same input and settings, with the four switches added since at their defaults.",
+      "tree": "ebea58d",
+      "variants": [
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "strong",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "mixed",
+          "listed": 0,
+          "primary": null
+        },
+        {
+          "clean_passes": 0,
+          "ended": 0,
+          "id": "haiku",
+          "listed": 0,
+          "primary": null
+        }
+      ],
+      "verdict": "planned, no run yet",
       "why": "no hypothesis: the record describes its runs and decides nothing"
     },
     {
@@ -4931,7 +5076,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "1b2cf146bda83f75f82a6e9ce2d65ba1c3e5109848a8eabd91342d75fb86185e"
+      "sha256": "14c5220d8c79985f4280efd026989d80f7af492f04840af1511d50369813b6c7"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
@@ -5210,6 +5355,26 @@
       "sha256": "cfdfaeb973b38cac4a18b6ffa941889a5004877dacf0eff20bc42e21bed98e89"
     },
     {
+      "path": "experiments/parity-loom-strong-2.yaml",
+      "sha256": "58a347c2a3417d7ff27f6c2ab639d089f8ef7d6e9aa65e1932ee12bec2281a5a"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2/runs/parity-loom-strong-2.strong.1.json",
+      "sha256": "5f11e3f029edb601020295959eb239103cffb3bcd54bc4fe48544aff133757d7"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2/runs/parity-loom-strong-2.strong.2.json",
+      "sha256": "8f65717e68728e382354658ae8e38baf62d9a91d629bc87e72b7ba9f17e40941"
+    },
+    {
+      "path": "experiments/parity-loom-strong-2/runs/parity-loom-strong-2.strong.3.json",
+      "sha256": "7f4cf4116e0eee0901b8bae1d9c7bfada93e04bc0faf29321aa53dfb4d958879"
+    },
+    {
+      "path": "experiments/parity-loom-strong.yaml",
+      "sha256": "e44d6e8da8d02d898bb83a28cc9b7176c748d85d1ccf27c62b8e33e313ce9a6d"
+    },
+    {
       "path": "experiments/release-0.1.2.yaml",
       "sha256": "04e94752d01b60101d6fb1de915df6d40827dfd52cb2eb81e2b9f736ee1c0da7"
     },
@@ -5284,6 +5449,10 @@
     {
       "path": "experiments/release-0.3.0/runs/release-0.3.0.strong.3.json",
       "sha256": "6adca8818d0434ca59e9ea84506d2169ab3b9ed2da34d5524eb8247f6ac8c925"
+    },
+    {
+      "path": "experiments/release-0.3.1.yaml",
+      "sha256": "3ba77efed8f2ac6a5cbaa7796973057398aea4de4029fe4c4d966b6937025a8c"
     },
     {
       "path": "experiments/review-haiku-replay.yaml",

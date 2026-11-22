@@ -30,9 +30,12 @@
   refuses. The binary carries the runbooks as presets that the evaluations measure and improve.
 - The driver runtime (`driver/src/main.rs`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`,
   `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) is deleted once a run on Loom matches
-  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The first equal
-  comparison on `stub-cycle` was made against Loom `2c0a6f48` (`docs/parity.md`, "First equal
-  comparison"); it does not cover a run with a model.
+  the driver's (`story:parity-run-on-loom`, then `story:driver-runtime-removed`). The pinned Loom
+  commit is `5af3f9c2`. A run of `stub-cycle` through `runbook loom-run` on it
+  (`--confinement local`, scripted approvals, no model) compares `parity: identical` with the
+  driver's (`docs/parity.md`, "Identical comparison on Loom `5af3f9c2`"); it does not cover a run
+  with a model. The first equal comparison was made against `2c0a6f48` (`docs/parity.md`, "First
+  equal comparison").
 - The plan is `epic:runbook-one-binary-and-daemon`; read its stories in order before work on the
   runtime, the UI server or the release.
 
@@ -46,7 +49,7 @@
 - `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess and `driver/canon-pin.json` the Canon that Runbook calls (`canon_resolve` in `scripts/evaluate-cases.sh` checks the version; no script builds or enters a Canon checkout).
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
-- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
+- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook check` (the text layout of a checkout; `task check:cycles-suite` runs it), `runbook --version`, `runbook parity` (`src/parity.rs`: summarize, compare, approvals; `docs/parity.md`) and `runbook loom-run` (`src/loom_run/`: the loop, the caps and the spend ledger, the decider, the answers file `bindings/tools/answers.yaml` (`answers.rs`, `decider/ask.rs`, `run_loop/declared.rs`, the program `driver/src/bin/sdc-answers.rs`), the copy of the bindings, the private directory of the login link, the run directory writer; `docs/loom-run.md`, `docs/loom-run-settings.md`, `docs/loom-run-directory.md`, `docs/loom-run-decisions.md`; tests in `runbook/tests/loom_run/` against a fake `b10x-loom`; the slow lane against the real binary is `task test:loom-real`). `run`, `ui` and the other commands are not built (`story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
 - `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
@@ -93,6 +96,12 @@
   The fast lane (under 1 s) is part of `task check`; each ledger entry carries a seal over its digest
   and result fields, so a hand edit of a result fails it. CI runs the slow lane
   (`.github/workflows/protocols.yml`) when `protocol/**`, `driver/canon-pin.json` or the script changed.
+- After a merge, `scripts/check-bindings.sh` runs before the push (build the driver first): a merge
+  can leave `website/data/protocols/index.json` stale without a conflict.
+- The full cycle run starts as a systemd unit, which has `LANG=de_DE.UTF-8` on this host. A tool
+  that reads a number printed by bash or a program does not depend on the decimal separator
+  (`EPOCHREALTIME` holds a comma there). A cycle that passes in a terminal and fails in the unit is
+  checked for the locale first.
 - An LLM call whose output is a data document is made with a response schema and its reply is
   validated by a program against the same schema; an invalid reply is retried with the validator's
   error at most twice and then fails with a named cause. Free-form outputs (code, prose) are the

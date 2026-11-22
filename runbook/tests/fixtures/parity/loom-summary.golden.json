@@ -7,9 +7,6 @@
   },
   "not_recorded": [
     "source.run_settings",
-    "copies[].action",
-    "copies[].subject",
-    "copies[].subject_revision",
     "decision_requests",
     "protocols[].digest"
   ],
@@ -194,13 +191,13 @@
   ],
   "copies": [
     {
-      "action": null,
+      "action": "approval.copy",
       "kind": "route_approval",
       "from_protocol": "tour-leg",
       "from": "root.first",
       "to": "root",
-      "subject": null,
-      "subject_revision": null
+      "subject": "route",
+      "subject_revision": "rev-r2"
     }
   ],
   "decision_requests": [],
