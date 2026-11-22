@@ -241,3 +241,39 @@ fn every_refusal_is_named_on_its_own_line() {
     }
     assert!(err.lines().all(|l| l.starts_with("sdc-check-routes: ")), "{err}");
 }
+
+#[test]
+fn a_web_address_is_not_a_file_and_line() {
+    let (code, out, err) = run_with("url", |e| e["runtime"]["provided_by"]["capped_effects"] = json!("loom: see https://example.com:443"));
+    assert_eq!(code, 2, "a port number read as a line:\n{out}{err}");
+}
+
+#[test]
+fn value_forms_of_no_known_kind_are_refused() {
+    let forms: Vec<(&str, Value)> = vec![
+        ("capped_effects", json!(["Write"])),
+        ("cap_per_kind", Value::Null),
+        ("capped_effects", json!([])),
+    ];
+    for (member, v) in forms {
+        let (code, out, err) = run_with("forms", |e| e["runtime"][member] = v.clone());
+        assert_eq!(code, 2, "{member}={v}:\n{out}{err}");
+    }
+    for who in ["loom: x, a:1-2-3", "loom: x, :5", "loom: x, a:\u{661}"] {
+        let (code, out, err) = run_with("whos", |e| e["runtime"]["provided_by"]["capped_effects"] = json!(who));
+        assert_eq!(code, 2, "{who:?}:\n{out}{err}");
+    }
+    let (code, out, err) = run_with("array", |e| e["runtime"] = json!([]));
+    assert_eq!(code, 2, "{out}{err}");
+    assert!(out.is_empty());
+}
+
+#[test]
+fn no_stale_retry_names_a_kind_the_yaml_binding_produces() {
+    // The YAML Loom runs says `questions.answer` records `answer_applied` (evidence entry, results 0 and 1);
+    // the check must not call that kind one no bound action produces.
+    let o = Command::new(env!("CARGO_BIN_EXE_sdc-check-routes")).arg("--root").arg(root()).output().unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    let stale: Vec<&str> = out.lines().filter(|l| l.starts_with("stale-retry")).collect();
+    assert!(stale.is_empty(), "{stale:?}");
+}
