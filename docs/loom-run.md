@@ -352,7 +352,9 @@ one) or from a run directory of this runner or of the old driver, by the adapter
 `timeout@<case>/<action>#<n>`, `check-fail@<action>#<n>`), `--set k=v` (conditions: `max_runs.<name>`,
 `timeout_s.<name>`), `--take-recorded <actions>` and `--source-tree <commit>`;
 each of them without `--recorded` is exit 64 (`<option> needs --recorded <source>`), as is a source that
-is no directory.
+is no directory. The adapter reads `replay/plan.json` and `replay/calls.jsonl` of the run directory
+at each call. Under `--confinement local` a bound program can write them, and `local` is unconfined
+(see above); under `--confinement substrate` the run directory is out of a bound program's reach.
 
 - The plan of `sdc-replay prepare` becomes settings of the run: the source's autonomy and decider
   (on the adapter `sdc-replay`), and under `replay` the adapter of each model node (`sdc-replay`

@@ -69,8 +69,16 @@ Notes.
   by. A bound program can write that copy under `--confinement local`, so the runner reads both
   files once, right after the copy is made and before the first action of the run
   (`Decider::pin_routing`), and routes every decision of the run, the requester's classes
-  included, from that read in memory: a rewrite of the copy during the run changes no routing. A
-  table that cannot be read at that first read is kept as the error, and every decision stops for a
+  included, from that read in memory: a rewrite of the copy during the run changes no routing. The
+  pin does not cover the rest of the run directory. Under `--confinement local` a bound program
+  can write all of it, and the runner reads the decider's instruction files
+  (`<run>/instructions/decider/*.md`) and starts the decider's adapter
+  (`<run>/bindings/tools/llm-adapter-<name>.sh`) at each decision, and the replay adapter reads its
+  plan (`<run>/replay/plan.json`) and its call log (`<run>/replay/calls.jsonl`) at each call.
+  `local` is not a confinement: it is "unconfined and declared insecure"
+  ([`docs/loom-run.md`](loom-run.md), the sentence on `--confinement`), so nothing in the run
+  directory is protected from a bound program under it. Under `--confinement substrate` the run
+  directory is out of a bound program's reach. A table that cannot be read at that first read is kept as the error, and every decision stops for a
   person, at every level. A test reads the table of the document and compares it to the JSON.
   The driver's A3 routing (the decider rejects a release, the decider is asked for the close) is
   not ported: the table gives the release and the close at A3 to a person, and a level never widens
