@@ -9,6 +9,8 @@ import {feedItems} from '../web/feed.js';
 import {computeKpis, isPerson} from '../web/kpis.js';
 import {decisionRecord} from '../decisions.mjs';
 import {needRun} from './need-run.mjs';
+import {useSdcView} from './sdc-view.mjs';
+useSdcView();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const WORK = path.resolve(here, '../../runs/trial-todo-1/store/IDEA-1/work');

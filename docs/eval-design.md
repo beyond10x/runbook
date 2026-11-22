@@ -30,7 +30,7 @@ Docs cited as `02` and `03` are `docs/canon-research/02-branching-and-universes.
 - **The dry run found a verifier hole** (§ 4.5). A scripted story implementer that writes only
   `impl/README.md` containing `status: done` takes `sdc.story` to `passed`. The conformance run
   tests ESS's built-in `billing` target, not `impl/` (`driver.md:408-410`), and the review stub
-  checks only that `impl/README.md` is non-empty (`driver/examples/sdc/tools/sdc-tool.sh:156`).
+  checks only that `impl/README.md` is non-empty (`bindings/tools/sdc-tool.sh:156`).
   This has to be fixed before any empirical story run: as things stand every level would score
   100 % on stories.
 - **A Haiku pilot is ready to run** (§ 5.5): `spec.author` at L1 to L3, 30 runs, ≤ $15 by cap,
@@ -179,7 +179,7 @@ Added:
 3. **Run manifest**: the fields of bench's run record, so runs can
    be imported into bench and counted with `aep eval matrix`.
 
-**Landed since this design was drafted** (another session, `driver/examples/sdc/tools/`,
+**Landed since this design was drafted** (another session, `bindings/tools/`,
 2026-11-21 00:04-00:06; read, not changed here). `llm-node.sh` writes one record directory per
 agent call, `work/.sdc/llm/NNN-<action>/`, holding `request.json`, `response.json`, `events.jsonl`
 and `transcripts/`. It also writes one line per call to `calls.jsonl` (`llm-node.sh:262-270`) with:
@@ -428,7 +428,7 @@ Tasks:
 
 - `spec.author`: requirements lists derived from ESS example specifications that have a runnable
   reference target. Hidden oracle: the authored spec's synthesized suite run against that reference
-  target. Only `billing` is confirmed (`driver/examples/sdc/tools/sdc-tool.sh:107`); how many other targets exist is not
+  target. Only `billing` is confirmed (`bindings/tools/sdc-tool.sh:107`); how many other targets exist is not
   checked (D6).
 - story: one request or command each. Hidden oracle: conformance against the actual
   implementation, plus protected earlier tests for regressions (BOBA-bench chains are public,
@@ -614,7 +614,7 @@ The pilot is built so that it needs nothing more than that adapter.
 
 | # | Decision | Options | Recommendation | Cost |
 |---|---|---|---|---|
-| D1 | The story verifier hole (§ 4.5). Still open with the new pair: `story-readme` false done = 1 (§ 4.5, re-run) | **a** ask ESS for a conformance target that runs an outside implementation: ESS 0.96.0 has none (`driver/examples/sdc/tools/sdc-tool.sh:100-104`); **b** grade stories by the eval's hidden oracle only, outside the protocol; **c** for non-billing specs the binding already requires the tree's own `task check` (`sdc-tool.sh:111-113`), but the agent writes those tests itself (BOBA F4: own passing tests miss 8.3 %); **d** run the empirical eval on `spec.author` only until a | **a** (an ESS request), with **d** until it lands and **b** as the eval's grader meanwhile | a: one ESS story; b: an oracle per story task; d: halves the matrix |
+| D1 | The story verifier hole (§ 4.5). Still open with the new pair: `story-readme` false done = 1 (§ 4.5, re-run) | **a** ask ESS for a conformance target that runs an outside implementation: ESS 0.96.0 has none (`bindings/tools/sdc-tool.sh:100-104`); **b** grade stories by the eval's hidden oracle only, outside the protocol; **c** for non-billing specs the binding already requires the tree's own `task check` (`sdc-tool.sh:111-113`), but the agent writes those tests itself (BOBA F4: own passing tests miss 8.3 %); **d** run the empirical eval on `spec.author` only until a | **a** (an ESS request), with **d** until it lands and **b** as the eval's grader meanwhile | a: one ESS story; b: an oracle per story task; d: halves the matrix |
 | D2 | Mining rule | **a** `A_∩` only (the operator's rule); **b** `A_θ` only; **c** both, compared on hold-out (H4) | **c** | one extra L4 cell per node per model (+120 runs in stage 3) |
 | D3 | Where tool-call records live | **a** inside `events.jsonl`; **b** a per-node `traces/` file linked by digest from `action_finished`; **c** only in a bench run directory; **d** the landed `work/.sdc/llm/NNN-<action>/` plus `calls.jsonl`, with the record's digest added to `action_finished` | **d** (it exists; § 3.1) | one field in the driver, the other session's area |
 | D4 | `author`, `revises`, `decided_by` | **a** wait for Canon; **b** an eval-side table of judgement actions now, replaced later | **b** now, **a** when Canon has them | b: one JSON file; a: one Canon story (02 § 4 item 1) |

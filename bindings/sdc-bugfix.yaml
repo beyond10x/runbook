@@ -1,0 +1,97 @@
+format: loom.bindings/1
+protocol: sdc-bugfix@1
+artifacts:
+  report: bug.yaml
+  dissection: bug-dissection.json
+  repro: repro
+  change: impl
+  story: aep
+actions:
+  - action: bug.dissect
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, bug.dissect, --model, claude-haiku-5-5, --max-turns, "20", --max-budget-usd, "1", --instructions, '{"task":"instructions/bug.dissect.md"}', --stub, stub-file, bugfix-pager/stub-dissection.json, bug-dissection.json]
+    budget: {max_runs: 3}
+    timeout_seconds: 600
+    retry_when:
+      dissection_check: [invalid]
+  - action: dissection.check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, dissection-check, --action, dissection.check]
+    evidence:
+      - kind: dissection_check
+        subject: dissection
+        producer: sdc-bugfix
+        from: exit
+        results: {"0": valid, "*": invalid}
+  - action: test.reproduce
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, test.reproduce, --model, claude-haiku-5-5, --max-turns, "30", --max-budget-usd, "1", --instructions, '{"task":"instructions/test.reproduce.md"}', --stub, stub-repro, bugfix-pager/stub-repro]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      repro_run: [not_red]
+  - action: repro.run
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, repro-run, --action, repro.run]
+    timeout_seconds: 1800
+    evidence:
+      - kind: repro_run
+        subject: repro
+        producer: sdc-bugfix
+        from: exit
+        results: {"0": red, "*": not_red}
+        upstream: [change]
+  - action: change.fix
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, change.fix, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/change.fix.md","stdlib":"instructions/change.fix.stdlib.md","no_gate":"instructions/change.fix.no-gate.md"}', --stub, stub-tree, bugfix-pager/stub-fix, impl]
+    budget: {max_runs: 3}
+    timeout_seconds: 1500
+    retry_when:
+      test_run: [failed]
+      gate_run: [failed]
+    evidence:
+      - kind: implementation_change
+        subject: change
+        producer: llm-node
+        from: exit
+        results: {"0": null}
+        upstream: [repro]
+  - action: tests.run
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, tests-run, --action, tests.run]
+    timeout_seconds: 1800
+    evidence:
+      - kind: test_run
+        subject: change
+        producer: sdc-bugfix
+        from: exit
+        results: {"0": passed, "*": failed}
+        upstream: [repro]
+  - action: story.update
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, story-update, --action, story.update]
+    budget: {max_runs: 2}
+    evidence:
+      - kind: story_record
+        subject: story
+        producer: sdc-bugfix
+        from: exit
+        results: {"0": null}
+  - action: gate.run
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, bugfix, gate-run, --action, gate.run]
+    timeout_seconds: 1800
+    evidence:
+      - kind: gate_run
+        subject: change
+        producer: sdc-bugfix
+        from: exit
+        results: {"0": passed, "*": failed}

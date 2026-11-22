@@ -23,11 +23,16 @@
 ## Directory map
 
 - `protocol/` the eight stage protocols and `sdc-bugfix` (one bug fix, red first: `docs/bugfix.md`), `compiled/` IR, `probes/`, `draft/` (`orchestrate.protocol.yaml`).
+- `bindings/` the nine bindings in Loom's `loom.bindings/1`, not run yet (the driver runs `driver/examples/sdc/*.bindings.json`); `PENDING.md` lists what the format lacks (`docs/loom-bindings.md`). `bindings/tools/` the programs both formats run (`sdc-tool.sh`, `llm-node.sh`, the adapters, `decider.sh`, `node-classes.json`): driver mode, or Loom mode when `LOOM_CASE` is set.
+- `instructions/` the model's instruction texts, one file per prompt part (`<action>.md`, `shared/`, `decider/`), read and filled by `bindings/tools/llm-node.sh` and `decider.sh`; `golden/` holds the prompt each makes on stub inputs, checked byte for byte by `driver/tests/bugfix_prompt.rs` (`docs/driver.md`, "Instructions").
+- `cycles/` the finding cycles as data: `cycles/suite.yaml` lists every cycle of `scripts/run-finding-cycles.sh` with its state; `task check:cycles-suite` holds the two equal.
 - `cases/` fixture cases evaluated by `scripts/evaluate-cases.sh`.
-- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess that Runbook calls.
+- `driver/` Rust crate `sdc-drive` (plus `sdc-findings`, `sdc-finding-kpis`, `sdc-run-compare`: `docs/run-compare.md`; `sdc-bugfix`: `docs/bugfix.md`; `sdc-run-metrics`, `sdc-experiment`: `docs/workflow-metrics.md`; `sdc-run-timeline`: `docs/llm-is-not-the-runtime.md`; `sdc-conform`, `sdc-conform-adapter`: `docs/conformance.md`); bindings in `driver/examples/sdc/`; `driver/ess-pin.json` pins the ess and `driver/canon-pin.json` the Canon that Runbook calls (`canon_resolve` in `scripts/evaluate-cases.sh` checks the version; no script builds or enters a Canon checkout).
 - `experiments/` experiment records (`sdc.experiment/1`), their reports and run summaries, and `INDEX.md`; launched, checked and reported by `sdc-experiment`. `experiments/releases.yaml` is the release table of the progress ledger (`docs/progress.md`, `docs/img/progress.svg`, written by `sdc-experiment progress`; the loop: `docs/improving.md`).
 - `watch/` Rust crate `sdc-watch`: filesystem changes of a run (`docs/fs-changes.md`).
+- `runbook/` Rust crate `runbook`, the command people type: `runbook doctor`, `runbook list`, `runbook --version` (a skeleton: `run`, `ui` and the other commands are not built; `story:runbook-cli-skeleton`).
 - `ui/` Node live view of a run (`ui/README.md`).
+- `views/` the view file each runbook ships for the inspector: phases, file kinds, tool owners (`views/sdc.view.json`; `ui/README.md`, "The view file").
 - `decision/` decision-contract examples (`docs/decisions.md`).
 - `ess/` ESS specification of the decision contract (domain `sdc.decision`).
 - `eval/` eval runner, adversaries, levels, reports (`docs/eval-design.md`).
@@ -35,12 +40,13 @@
 - `scripts/` check, evaluate, trial and full-cycle scripts.
 - `tools/` decision-contract shell tools (`decision-grounds.sh`, `decision-from-record.sh`).
 - `docs/` design notes and research results; start with `phases.md`, `driver.md`, `orchestration.md`.
+- `plugin/` the `runbook` plugin (skills `workflow-builder`, `harden`, `record`; marketplace `.claude-plugin/marketplace.json`; `plugin/README.md`). A command or path in a `SKILL.md` must be checked against the script or binary it names before it is written; `driver/tests/plugin.rs` fails on a missing path or a version that differs from the release version.
 - `.engineering/planning/` the AEP planning store.
 
 ## Rules
 
 - Anything new that runs is Rust (the organization's language rule). Never Python. The existing bash and
-  jq tools (`driver/examples/sdc/tools/`, `scripts/`, `tools/`) are prototype glue: they get fixes,
+  jq tools (`bindings/tools/`, `scripts/`, `tools/`) are prototype glue: they get fixes,
   no new bash tool is added, and each is retired by a Rust binary or by Loom.
 - Every build and test runs through `slot`. The `cargo` shim does it; prefix anything else
   (`slot npx playwright test --workers=2`). Never set `-j` or `CARGO_BUILD_JOBS`.
@@ -77,6 +83,8 @@
   manner. It shouldn't end up messy."
 - No run is started by hand: `sdc-experiment run <id>` starts them, on the record's commit, with the
   record's settings (the operator, 2026-11-21, same words). Stop one with `sdc-experiment stop`.
+- CI classifies the changed files in one place, the step "Classify the changed files" of `.github/workflows/pages.yml` (planning, docs-site or code; a planning-only change builds and tests nothing); a change to that path list changes `task check:ci-paths` in the same commit.
+- The rustc version is pinned in `rust-toolchain.toml`, and the pages workflow's `toolchain:` repeats it; change both in one commit. The step "Check the rustc pin" of `.github/workflows/pages.yml` fails when the workflow's `toolchain:` value differs from the channel in `rust-toolchain.toml` (it reads both as text; inside the repository rustup runs the pinned channel whatever the workflow installs).
 
 ## Commits
 

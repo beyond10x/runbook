@@ -14,7 +14,7 @@
   },
   "spec.gate": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "ess-gate"
     ],
     "produces": "ess_gate",
@@ -27,13 +27,13 @@
   },
   "plan.decompose": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "plan.decompose"
     ],
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 15,
-      "max_budget_usd": 0.5,
+      "max_budget_usd": 0.5, "instructions": {"task": "instructions/plan.decompose.md", "inputs": "instructions/plan.decompose.inputs.md"},
       "stub": [
         "stub-decompose"
       ]
@@ -57,7 +57,7 @@
   },
   "plan.validate": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "plan-validate"
     ],
     "produces": "plan_validation",
@@ -73,7 +73,7 @@
   },
   "plan.cover": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "plan-cover"
     ],
     "produces": "decomposition_coverage",
@@ -90,7 +90,7 @@
   },
   "plan.scope": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "plan-scope"
     ],
     "produces": "stories_scoped",
@@ -103,7 +103,7 @@
   },
   "plan.status": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "plan-status"
     ],
     "produces": "story_states",
@@ -116,7 +116,7 @@
   },
   "amend.upstream": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "amend",
       "plan"
     ],
@@ -124,7 +124,7 @@
     "timeout_s": 300,
     "handoff": "decide the open findings: in {work}/findings.yaml, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again",
     "handoff_when": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "findings-wait"
     ]
   }

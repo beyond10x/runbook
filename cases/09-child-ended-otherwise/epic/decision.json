@@ -234,7 +234,7 @@
       "protocol": "sdc.epic",
       "protocol_revision": 5,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },
@@ -289,6 +289,11 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "spec.gate": [
+      "ess_gate"
+    ]
+  },
   "obligations": [
     {
       "id": "gate.required",
@@ -334,6 +339,18 @@
       ],
       "status": "blocked"
     }
+  },
+  "pending_decisions": {
+    "decisions": [
+      {
+        "case_revision": "c1",
+        "decision": "explicitly_abandoned",
+        "options": [
+          "taken"
+        ],
+        "outcome": "abandoned"
+      }
+    ]
   },
   "protocol": "sdc.epic",
   "protocol_revision": 5

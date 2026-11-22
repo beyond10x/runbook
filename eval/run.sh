@@ -63,7 +63,11 @@ while IFS=$'\t' read -r v verdict st runs _; do
 done < <(awk -F'\t' 'NR>1 && $2=="stuck"' "$tsv")
 
 examples=${EXAMPLES:-$sdc/driver/examples/sdc}
-exdigest=$( (cd "$examples" && find . -type f | LC_ALL=C sort | xargs sha256sum) | sha256sum | cut -c1-16)
+exdigest=$( { (cd "$examples" && find . -type f | LC_ALL=C sort | xargs sha256sum)
+  for t in bindings/tools instructions; do
+    (cd "$sdc/$t" && find . -type f | LC_ALL=C sort | sed "s#^\./#$t/#" | while IFS= read -r p; do
+      printf '%s  %s\n' "$(sha256sum < "$p" | cut -d' ' -f1)" "$p"; done)
+  done; } | sha256sum | cut -c1-16)
 layers=$(jq -n --arg c "$(sha256sum < "$canon" | cut -c1-16)" --arg d "$(sha256sum < "$drive" | cut -c1-16)" \
   --arg x "$exdigest" \
   --arg p "$(cat "$protocols"/*.protocol.yaml | sha256sum | cut -c1-16)" \

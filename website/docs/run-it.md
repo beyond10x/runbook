@@ -7,7 +7,7 @@ description: The scripted checks and a dry run of Runbook with stub executors.
 
 ## What it needs
 
-A Canon checkout with a built `canon` binary (`CANON_DIR`, default `$HOME/beyond10x/canon`), Rust,
+A `canon` binary of the pinned version (`driver/canon-pin.json`): the scripts take `CANON` when set, else the cached install of the pinned commit, and refuse any other `canon --version`. Rust,
 `jq`, `yq`, and Node 22 for the live view in `ui/`
 ([`README.md:48-49`](https://github.com/beyond10x/runbook/blob/0.1.1/README.md#L48-L49)).
 

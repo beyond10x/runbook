@@ -3,6 +3,8 @@ import {test, expect} from '@playwright/test';
 import {inFlight, nowState, waitOf, recentSteps, executorOf, phaseOf, parseDiff, fmtDur, fmtAgo, changesFor, driverState, renderNow} from '../web/now.js';
 import {highlightLine, langOf} from '../web/highlight.js';
 import {unifiedDiff} from '../udiff.mjs';
+import {useSdcView} from './sdc-view.mjs';
+useSdcView();
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
 

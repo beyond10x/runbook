@@ -6,6 +6,8 @@ import {nowState, renderNow} from '../web/now.js';
 import {holderOf, fieldsOf, fieldCounts, deciderPerField, takenText} from '../web/holder.js';
 import {computeKpis, renderKpis, personStops} from '../web/kpis.js';
 import {principalOf} from '../web/principal.js';
+import {useSdcView} from './sdc-view.mjs';
+useSdcView();
 
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
 

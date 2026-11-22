@@ -201,7 +201,7 @@
       "protocol": "sdc.release",
       "protocol_revision": 4,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },
@@ -251,6 +251,12 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "release.build": [],
+    "release.publish": [
+      "release_record"
+    ]
+  },
   "obligations": [
     {
       "id": "acceptance.required",
@@ -301,6 +307,18 @@
       ],
       "status": "blocked"
     }
+  },
+  "pending_decisions": {
+    "decisions": [
+      {
+        "case_revision": "c2",
+        "decision": "explicitly_withheld",
+        "options": [
+          "taken"
+        ],
+        "outcome": "withheld"
+      }
+    ]
   },
   "protocol": "sdc.release",
   "protocol_revision": 4

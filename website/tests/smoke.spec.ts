@@ -1,5 +1,5 @@
 import {test, expect, type Page} from '@playwright/test';
-import AxeBuilder from '@axe-core/playwright';
+import {everyMode, seriousViolations} from './variants';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -9,53 +9,30 @@ const protocols: Array<{stem: string; id: string; actions: number}> = index.prot
 
 const PAGES = ['', 'docs/', 'docs/flow', 'docs/built-on', 'docs/run-it', 'protocols', 'evaluation', 'llm-is-not-the-runtime'];
 const ROUTES = [...PAGES, ...protocols.map((p) => `protocols/${p.stem}`)];
-const MODES = [
-  {name: '1440 light', viewport: {width: 1440, height: 900}, theme: 'light'},
-  {name: '1440 dark', viewport: {width: 1440, height: 900}, theme: 'dark'},
-  {name: '390 light', viewport: {width: 390, height: 844}, theme: 'light'},
-  {name: '390 dark', viewport: {width: 390, height: 844}, theme: 'dark'},
-] as const;
 
 const FLOW_BOX_MIN_WIDTH = 200;
 const FLOW_BOX_MAX_HEIGHT = 260;
 
-async function open(page: Page, route: string, theme: string): Promise<string[]> {
-  const errors: string[] = [];
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
-  });
-  page.on('pageerror', (e) => errors.push(String(e)));
-  await page.addInitScript((t) => window.localStorage.setItem('theme', t), theme);
-  const res = await page.goto(route, {waitUntil: 'networkidle'});
-  expect(res?.status(), `status of ${route}`).toBe(200);
-  await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-  return errors;
-}
+test.use({viewport: {width: 1440, height: 900}, colorScheme: 'light'});
 
-for (const mode of MODES) {
-  test.describe(mode.name, () => {
-    test.use({viewport: mode.viewport, colorScheme: mode.theme});
-    for (const route of ROUTES) {
-      test(`/${route}`, async ({page}) => {
-        const errors = await open(page, route, mode.theme);
-        await expect(page.locator('h1').first()).toBeVisible();
-        const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-        expect(scroll, 'horizontal page scroll in px').toBeLessThanOrEqual(0);
-        const stem = route.startsWith('protocols/') ? route.slice('protocols/'.length) : null;
-        if (stem) {
-          const p = protocols.find((x) => x.stem === stem)!;
-          await expect(page.locator('.sdc-action')).toHaveCount(p.actions);
-          await expect(page.locator('.sdc-action').first()).toBeVisible();
-        }
-        if (route === 'docs/flow') await checkFlow(page, mode.viewport.width);
-        if (route === 'evaluation') await checkEvaluation(page);
-        if (route === 'llm-is-not-the-runtime') await checkLlm(page);
-        const axe = await new AxeBuilder({page: page as never}).analyze();
-        const bad = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
-        expect(bad.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`), 'serious or critical axe violations').toEqual([]);
-        expect(errors, 'console errors').toEqual([]);
-      });
-    }
+for (const route of ROUTES) {
+  test(`/${route}`, async ({page}) => {
+    await everyMode(page, route, async (mode, errors) => {
+      await expect(page.locator('h1').first()).toBeVisible();
+      const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(scroll, 'horizontal page scroll in px').toBeLessThanOrEqual(0);
+      const stem = route.startsWith('protocols/') ? route.slice('protocols/'.length) : null;
+      if (stem) {
+        const p = protocols.find((x) => x.stem === stem)!;
+        await expect(page.locator('.sdc-action')).toHaveCount(p.actions);
+        await expect(page.locator('.sdc-action').first()).toBeVisible();
+      }
+      if (route === 'docs/flow') await checkFlow(page, mode.viewport.width);
+      if (route === 'evaluation') await checkEvaluation(page);
+      if (route === 'llm-is-not-the-runtime') await checkLlm(page);
+      expect(await seriousViolations(page), 'serious or critical axe violations').toEqual([]);
+      expect(errors, 'console errors').toEqual([]);
+    });
   });
 }
 
@@ -137,7 +114,10 @@ async function checkEvaluation(page: Page): Promise<void> {
   const exp = page.locator('section[aria-labelledby="experiments"] tbody tr');
   expect(await exp.count()).toBeGreaterThanOrEqual(5);
   await expect(exp.filter({hasText: 'free-agent-0.1.0'})).toContainText('contradicted');
-  await expect(exp.filter({hasText: 'build-constraints'})).toContainText('planned');
+  const pageStates = ['running', 'planned', 'ended'];
+  const buildConstraints = exp.filter({hasText: 'build-constraints'});
+  await expect(buildConstraints).toHaveCount(1);
+  expect(pageStates, 'a state the page renders').toContain((await buildConstraints.locator('.sdc-state').innerText()).trim());
   await expect(page.locator('[id="exp-free-agent-0.1.0"]')).toHaveCount(1);
   for (const id of ['baseline-0.1.0', 'release-0.1.2', 'trial-3-attempts', 'undefined']) await expect(page.locator(`[id="exp-${id}"]`)).toHaveCount(0);
 }
@@ -188,14 +168,16 @@ async function checkLlm(page: Page): Promise<void> {
   await expect(page.getByText('Blinding did not hide the side')).toBeVisible();
 }
 
-test('every internal link resolves', async ({page, request, baseURL}) => {
+test('every internal link resolves', async ({request, baseURL}) => {
   const base = new URL(baseURL!);
   const seen = new Set<string>();
   const queue = [...ROUTES];
   const failures: string[] = [];
   for (const route of queue) {
-    await page.goto(route, {waitUntil: 'networkidle'});
-    const hrefs = await page.locator('a[href]').evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).href));
+    const res = await request.get(route);
+    expect(res.status(), `status of /${route}`).toBe(200);
+    const html = await res.text();
+    const hrefs = [...html.matchAll(/<a\s(?:[^>"']|"[^"]*"|'[^']*')*?\bhref=(?:"([^"]*)"|'([^']*)'|([^\s>"']+))/g)].map((m) => new URL((m[1] ?? m[2] ?? m[3]).replace(/&amp;/g, '&'), res.url()).href);
     for (const h of hrefs) {
       const u = new URL(h);
       if (u.origin !== base.origin || !u.pathname.startsWith(base.pathname)) continue;

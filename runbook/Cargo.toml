@@ -1,0 +1,16 @@
+[package]
+name = "runbook"
+version = "0.1.4"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "runbook"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+
+[workspace]

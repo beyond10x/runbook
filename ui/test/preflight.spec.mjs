@@ -9,6 +9,8 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needDriver} from './need-run.mjs';
 import {missingPrograms, onPath} from '../decisions.mjs';
+import {useSdcView} from './sdc-view.mjs';
+useSdcView();
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
@@ -49,7 +51,7 @@ test('the preflight names what is missing, per act', () => {
   expect(onPath('yq', env)).toBe(false);
   expect(missingPrograms(ctx, {kind: 'context'}, env)).toEqual(['yq']);
   expect(missingPrograms(ctx, {kind: 'approve'}, env)).toEqual(['yq', '/nonexistent/sdc-drive']);
-  const c = {bindings: {'spec.gate': {argv: ['{dir}/tools/sdc-tool.sh', 'ess-gate']}}};
+  const c = {bindings: {'spec.gate': {argv: ['{dir}/../../../bindings/tools/sdc-tool.sh', 'ess-gate']}}};
   expect(missingPrograms(ctx, {kind: 'approve', c, action: 'spec.gate'}, env)).toEqual(['yq', '/nonexistent/sdc-drive', 'ess']);
   expect(missingPrograms(ctx, {kind: 'continue'}, env)).toEqual(['yq', '/nonexistent/sdc-drive', 'ess', 'aep']);
 });

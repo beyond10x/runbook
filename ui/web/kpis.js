@@ -133,7 +133,7 @@ export function computeKpis(cases, run, history, ns, now = Date.now()) {
   const front = ph.find((p) => p.status !== 'done' && p.status !== 'none') || (ph.every((p) => p.status === 'done') ? {label: 'all done'} : ph.find((p) => p.status !== 'done'));
   kp.push({key: 'progress', ids: 'F10', label: 'Progress', value: opened ? done / opened : null, text: opened ? `${done}/${opened}` : null, unit: 'cases closed',
     parts: [{label: 'phase', text: front?.short || front?.label || null}],
-    title: 'F10: cases of the tree that ended (terminated) / cases opened. Phase: the first SDC phase (docs/phases.md) not yet done, derived from Canon claims.'});
+    title: 'F10: cases of the tree that ended (terminated) / cases opened. Phase: the first phase (from the runbook view file) not yet done, derived from Canon claims.'});
   return kp;
 }
 

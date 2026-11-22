@@ -1,7 +1,8 @@
-//! `questions.check` (`check-questions` in `driver/examples/sdc/tools/sdc-tool.sh`) on a scope-changing
+//! `questions.check` (`check-questions` in `bindings/tools/sdc-tool.sh`) on a scope-changing
 //! question's context keys (`story:interview-question-context`): `excerpt`, `default_reason` and a
 //! `consequences` entry `{does, cost}` for every option. The shape is the one
-//! `sdc-decision-request` parses.
+//! `sdc-decision-request` parses. Module `loom_mode`: the tools started as Loom starts a bound
+//! program behave as the driver-mode run of the same input (`story:loom-tools-program-contract`).
 
 use std::fs;
 use std::path::PathBuf;
@@ -41,7 +42,7 @@ fn manifest() -> PathBuf {
 }
 
 fn tool() -> PathBuf {
-    manifest().join("examples/sdc/tools/sdc-tool.sh")
+    manifest().join("../bindings/tools/sdc-tool.sh")
 }
 
 /// A case's work/ with one dissection and the given questions.yaml; runs `check-questions` in it.
@@ -205,5 +206,362 @@ fn scope_changing_questions_in_fixtures_carry_the_keys() {
             assert!(q["excerpt"].as_str().is_some_and(|s| !s.is_empty()));
             assert!(q["default_reason"].as_str().is_some_and(|s| !s.is_empty()));
         }
+    }
+}
+
+/// Loom mode of the tools (`LOOM_CASE` set; docs/loom-bindings.md, "Tool changes for Loom's
+/// program contract"). Each tool is started as Loom starts a bound program: an empty environment
+/// but `PATH` and `LOOM_CASE` (and `LOOM_RETRY_FEEDBACK` on a retry), the arguments as one JSON
+/// object on standard input, the workspace as its start directory, the binding's argv. Each run
+/// is compared with the driver-mode run of the same input (the driver's variables, standard input
+/// empty): the same exit, output and files in the workspace. The driver-mode run is given what
+/// Loom gives: no case directory, and feedback records that name no action and no exit.
+mod loom_mode {
+    use regex::Regex;
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+
+    fn tools() -> PathBuf {
+        super::manifest().join("../bindings/tools")
+    }
+
+    fn fx() -> PathBuf {
+        super::manifest().join("examples/sdc/fixtures")
+    }
+
+    /// `<tmp>/loom-mode/<name>/{driver,loom}`, each empty with a `work/`.
+    fn roots(name: &str) -> (PathBuf, PathBuf) {
+        let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("loom-mode").join(name);
+        let _ = fs::remove_dir_all(&base);
+        let (d, l) = (base.join("driver"), base.join("loom"));
+        fs::create_dir_all(d.join("work")).unwrap();
+        fs::create_dir_all(l.join("work")).unwrap();
+        (d, l)
+    }
+
+    /// Both workspaces get the same file.
+    fn put(roots: &(PathBuf, PathBuf), rel: &str, text: &str) {
+        for r in [&roots.0, &roots.1] {
+            let p = r.join("work").join(rel);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, text).unwrap();
+        }
+    }
+
+    /// This process's PATH with the driver crate's binaries first: under Loom `sdc-findings` and
+    /// `sdc-bugfix` come from PATH.
+    fn path() -> String {
+        let bins = Path::new(env!("CARGO_BIN_EXE_sdc-findings")).parent().unwrap();
+        format!("{}:{}", bins.display(), std::env::var("PATH").unwrap_or_default())
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Run {
+        code: Option<i32>,
+        stdout: String,
+        stderr: String,
+        files: BTreeMap<String, String>,
+    }
+
+    /// Text with the run's root and the instants and process ids it wrote made comparable.
+    fn norm(root: &Path, text: &str) -> String {
+        let t = text.replace(&root.display().to_string(), "<root>");
+        let t = Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z").unwrap().replace_all(&t, "<instant>");
+        Regex::new(r#""pid":\s*\d+"#).unwrap().replace_all(&t, r#""pid":0"#).into_owned()
+    }
+
+    /// Every file under `dir`, by path relative to `work`, normalized; Loom mode's own copy of the
+    /// feedback (`.sdc/loom-feedback/`) is not an output.
+    fn files(root: &Path, work: &Path, dir: &Path, out: &mut BTreeMap<String, String>) {
+        for e in fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            let rel = p.strip_prefix(work).unwrap().display().to_string();
+            if rel == ".sdc/loom-feedback" {
+                continue;
+            }
+            if p.is_dir() {
+                files(root, work, &p, out);
+            } else {
+                out.insert(rel, norm(root, &String::from_utf8_lossy(&fs::read(&p).unwrap())));
+            }
+        }
+    }
+
+    fn run(root: &Path, mut c: Command, stdin: &str) -> Run {
+        let work = root.join("work");
+        c.current_dir(&work).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = c.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        let o = child.wait_with_output().unwrap();
+        let mut f = BTreeMap::new();
+        files(root, &work, &work, &mut f);
+        Run {
+            code: o.status.code(),
+            stdout: norm(root, &String::from_utf8_lossy(&o.stdout)),
+            stderr: norm(root, &String::from_utf8_lossy(&o.stderr)),
+            files: f,
+        }
+    }
+
+    /// The driver's start: its variables, standard input empty, `sdc-findings` named by variable.
+    fn driver(root: &Path, tool: &str, argv: &[&str], env: &[(&str, &str)]) -> Run {
+        let mut c = Command::new(tools().join(tool));
+        c.args(argv).env_clear().env("PATH", path()).env("SDC_FINDINGS", env!("CARGO_BIN_EXE_sdc-findings"));
+        for (k, v) in env {
+            c.env(k, v);
+        }
+        run(root, c, "")
+    }
+
+    /// Loom's start: `PATH`, `LOOM_CASE`, `LOOM_RETRY_FEEDBACK` when given, the arguments on stdin.
+    fn loom(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>) -> Run {
+        loom_named(root, tool, argv, case, arguments, feedback, &[])
+    }
+
+    /// Loom's start with the names it gave the case: `LOOM_CASE_NAME`, `LOOM_PARENT_CASE_NAME`.
+    fn loom_named(root: &Path, tool: &str, argv: &[&str], case: &str, arguments: &str, feedback: Option<&Path>, names: &[(&str, &str)]) -> Run {
+        let mut c = Command::new(tools().join(tool));
+        c.args(argv).env_clear().env("PATH", path()).env("LOOM_CASE", case);
+        for (k, v) in names {
+            c.env(k, v);
+        }
+        if let Some(f) = feedback {
+            c.env("LOOM_RETRY_FEEDBACK", f);
+        }
+        run(root, c, arguments)
+    }
+
+    fn same(what: &str, d: &Run, l: &Run) {
+        assert_eq!(d.code, l.code, "{what}: exit; driver {d:#?}\nloom {l:#?}");
+        assert_eq!(d.stdout, l.stdout, "{what}: stdout");
+        assert_eq!(d.stderr, l.stderr, "{what}: stderr");
+        assert_eq!(d.files.keys().collect::<Vec<_>>(), l.files.keys().collect::<Vec<_>>(), "{what}: the files written");
+        for (k, v) in &d.files {
+            assert_eq!(v, &l.files[k], "{what}: {k}");
+        }
+    }
+
+    /// The binding's argv of an agent node (bindings/sdc-intake.yaml and the like): the model, the
+    /// turn and budget caps, the stub's argv last.
+    fn node_argv<'a>(node: &'a str, stub: &[&'a str], extra: &[&'a str]) -> Vec<&'a str> {
+        let mut a = vec![node, "--model", "claude-haiku-5-5", "--max-turns", "15", "--max-budget-usd", "0.5"];
+        a.extend_from_slice(extra);
+        a.push("--stub");
+        a.extend_from_slice(stub);
+        a
+    }
+
+    const WRITE_INSTRUCTIONS: &str = r#"{"task":"instructions/questions.write.md"}"#;
+    const NODE: &str = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"instructions":{"task":"instructions/questions.write.md"},"stub":["stub-file","questions-open.yaml","questions.yaml"]}"#;
+
+    #[test]
+    fn a_check_subcommand_runs_the_same_under_loom() {
+        let r = roots("check");
+        let dissection = fs::read_to_string(fx().join("dissection.yaml")).unwrap();
+        put(&r, "dissection.yaml", &dissection);
+        for (i, q) in ["questions-open.yaml", "questions-answered.yaml"].iter().enumerate() {
+            put(&r, "questions.yaml", &fs::read_to_string(fx().join(q)).unwrap());
+            let d = driver(&r.0, "sdc-tool.sh", &["check-questions"], &[("SDC_ACTION", "questions.check"), ("SDC_CASE", "IDEA-1.intake")]);
+            let l = loom(&r.1, "sdc-tool.sh", &["check-questions", "--action", "questions.check"], "IDEA-1.intake", "{}", None);
+            assert_eq!(d.code, Some([1, 0][i]), "{q}: {d:#?}");
+            same(q, &d, &l);
+        }
+        // A check that runs sdc-findings: from PATH under Loom, never from HOME.
+        for f in ["idea.yaml", "requirements.yaml"] {
+            put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
+        }
+        let d = driver(&r.0, "sdc-tool.sh", &["check-requirements"], &[("SDC_ACTION", "requirements.check"), ("SDC_CASE", "IDEA-1.intake")]);
+        let l = loom(&r.1, "sdc-tool.sh", &["check-requirements", "--action", "requirements.check"], "IDEA-1.intake", "{}", None);
+        assert_eq!(d.code, Some(0), "{d:#?}");
+        same("check-requirements", &d, &l);
+    }
+
+    #[test]
+    fn list_stories_reads_the_epic_from_loom_case() {
+        let r = roots("list-stories");
+        for root in [&r.0, &r.1] {
+            let aep = |args: &[&str]| {
+                let o = Command::new("aep").args(args).args(["--store", "aep", "--root", "."]).current_dir(root.join("work")).output().unwrap();
+                assert!(o.status.success(), "aep {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+            };
+            aep(&["plan", "artifact", "new", "epic", "billing", "--title", "Billing", "--summary", "invoices"]);
+            aep(&["plan", "artifact", "new", "story", "invoices", "--title", "Invoices", "--summary", "covers billing.invoice.Create", "--relate", "delivers:epic:billing"]);
+            aep(&["plan", "artifact", "new", "story", "other", "--title", "Other", "--summary", "covers nothing"]);
+        }
+        let d = driver(&r.0, "sdc-tool.sh", &["list-stories"], &[("SDC_ACTION", "stories.open"), ("SDC_CASE", "IDEA-1.billing")]);
+        let l = loom(&r.1, "sdc-tool.sh", &["list-stories", "--action", "stories.open"], "IDEA-1.billing", "{}", None);
+        assert_eq!((d.code, d.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{d:#?}");
+        same("list-stories", &d, &l);
+    }
+
+    /// An epic case: the epic is `LOOM_CASE_NAME`, whatever the case id looks like.
+    #[test]
+    fn list_stories_in_an_epic_case_reads_the_epic_from_loom_case_name() {
+        let r = roots("list-stories-named");
+        let aep = |args: &[&str]| {
+            let o = Command::new("aep").args(args).args(["--store", "aep", "--root", "."]).current_dir(r.1.join("work")).output().unwrap();
+            assert!(o.status.success(), "aep {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        };
+        aep(&["plan", "artifact", "new", "epic", "billing", "--title", "Billing", "--summary", "invoices"]);
+        aep(&["plan", "artifact", "new", "story", "invoices", "--title", "Invoices", "--summary", "covers billing.invoice.Create", "--relate", "delivers:epic:billing"]);
+        let l = loom_named(&r.1, "sdc-tool.sh", &["list-stories", "--action", "stories.open"], "IDEA-1.unrelated", "{}", None, &[("LOOM_CASE_NAME", "billing")]);
+        assert_eq!((l.code, l.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{l:#?}");
+        let l = loom_named(&r.1, "sdc-tool.sh", &["list-stories", "--action", "stories.open"], "IDEA-1.billing.2", "{}", None, &[("LOOM_CASE_NAME", "billing")]);
+        assert_eq!((l.code, l.stdout.as_str()), (Some(0), "{\"stories\":[\"invoices\"]}\n"), "{l:#?}");
+    }
+
+    /// The prompt llm-node wrote on the dry adapter for `node`, under Loom with `names`.
+    fn named_prompt(name: &str, node: &str, case: &str, names: &[(&str, &str)]) -> String {
+        let r = roots(name);
+        let cfg = if node == "plan.decompose" { "plan.decompose" } else { "change.implement" };
+        let instructions = if node == "plan.decompose" {
+            r#"{"task":"instructions/plan.decompose.md","inputs":"instructions/plan.decompose.inputs.md"}"#
+        } else {
+            r#"{"task":"instructions/change.implement.md","coverage":"instructions/change.implement.coverage.md","coverage_inputs":"instructions/change.implement.coverage.inputs.md"}"#
+        };
+        let argv = [cfg, "--model", "claude-haiku-5-5", "--max-turns", "15", "--max-budget-usd", "0.5", "--instructions", instructions, "--adapter", "dry", "--stub", "stub-tree", "impl", "impl"];
+        let l = loom_named(&r.1, "llm-node.sh", &argv, case, "{}", None, names);
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        l.files[&format!(".sdc/llm/001-{node}/prompt.md")].clone()
+    }
+
+    /// A story case takes its story from `LOOM_CASE_NAME` and its epic from `LOOM_PARENT_CASE_NAME`,
+    /// not from the case id: under a repeated epic the id is `IDEA-1.billing.2.story-a`.
+    #[test]
+    fn a_story_case_takes_story_and_epic_from_the_names_loom_gave() {
+        let p = named_prompt("named-story", "change.implement", "IDEA-1.billing.2.story-a", &[("LOOM_CASE_NAME", "story-a"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("aep/story/story-a.md") && !p.contains("aep/story/2.md"), "{p}");
+        let p = named_prompt("named-story-ids", "change.implement", "IDEA-1.x.y", &[("LOOM_CASE_NAME", "story-a"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("aep/story/story-a.md"), "{p}");
+        let p = named_prompt("named-plan", "plan.decompose", "IDEA-1.billing.2.plan", &[("LOOM_CASE_NAME", "plan"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("Decompose epic 'billing'"), "{p}");
+        let p = named_prompt("named-plan-ids", "plan.decompose", "IDEA-1.x.plan", &[("LOOM_CASE_NAME", "plan"), ("LOOM_PARENT_CASE_NAME", "billing")]);
+        assert!(p.contains("Decompose epic 'billing'"), "{p}");
+    }
+
+    /// Without the names (a Loom before its wave 2) the tools cut the case id, as in driver mode.
+    #[test]
+    fn without_the_names_loom_mode_cuts_the_case_id() {
+        let p = named_prompt("unnamed-story", "change.implement", "IDEA-1.billing.story-a", &[]);
+        assert!(p.contains("aep/story/story-a.md"), "{p}");
+        let p = named_prompt("unnamed-plan", "plan.decompose", "IDEA-1.billing.plan", &[]);
+        assert!(p.contains("Decompose epic 'billing'"), "{p}");
+    }
+
+    /// A feedback record whose blob digest is not 64 hex digits is not a log path: the file it
+    /// would name (`<loom-feedback>/x` for `../x`) is not read into `in/feedback.md`.
+    #[test]
+    fn a_retry_feedback_record_with_a_path_for_a_digest_reads_no_file() {
+        let r = roots("retry-traversal");
+        for f in ["idea.yaml", "dissection.yaml"] {
+            put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
+        }
+        put(&r, "questions.yaml", "questions: []\n");
+        put(&r, ".sdc/loom-feedback/x", "SECRET-OUTSIDE-THE-LOG-DIRECTORY\n");
+        let doc = serde_json::json!({"format": "loom.retry-feedback/1", "case": "IDEA-1.intake", "action": "questions.write",
+            "records": [{"evidence_id": "e1", "kind": "questions_shape", "subject": "questions", "subject_revision": "r1",
+                "result": "invalid", "producer": "sdc-check", "observed_at": "2026-11-21T00:00:00Z", "blob_sha256": "../x"}],
+            "logs": [{"blob_sha256": "../x", "tail": "the tail"}]});
+        let doc_path = r.1.join("store-feedback.json");
+        fs::write(&doc_path, doc.to_string()).unwrap();
+        let stub = ["stub-file", "questions-open.yaml", "questions.yaml"];
+        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
+        assert_eq!(l.code, Some(0), "{l:#?}");
+        let feedback = &l.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
+        assert!(feedback.contains("## questions_shape = invalid") && !feedback.contains("SECRET-OUTSIDE"), "{feedback}");
+    }
+
+    /// The named option, not a guess: each bad option value says which option it was.
+    #[test]
+    fn a_bad_option_value_names_the_option() {
+        let r = roots("bad-options");
+        let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
+        for (extra, want) in [
+            (vec!["--max-turns", "many"], "--max-turns takes a number"),
+            (vec!["--max-budget-usd", "lots"], "--max-budget-usd takes a number"),
+            (vec!["--instructions", "{not json"], "--instructions takes a JSON object"),
+        ] {
+            let mut argv = vec!["idea.dissect"];
+            argv.extend_from_slice(&extra);
+            argv.extend_from_slice(&["--stub"]);
+            argv.extend_from_slice(&stub);
+            let l = loom(&r.1, "llm-node.sh", &argv, "IDEA-1.intake", "{}", None);
+            assert_eq!(l.code, Some(64), "{extra:?}: {l:#?}");
+            assert!(l.stderr.contains(want), "{extra:?}: {}", l.stderr);
+        }
+    }
+
+    #[test]
+    fn an_agent_node_on_the_stub_and_on_dry_runs_the_same_under_loom() {
+        // idea.dissect on the stub: the binding's stub argv writes dissection.yaml.
+        let r = roots("stub");
+        put(&r, "idea.yaml", &fs::read_to_string(fx().join("idea.yaml")).unwrap());
+        let stub = ["stub-file", "dissection.yaml", "dissection.yaml"];
+        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":15,"max_budget_usd":0.5,"instructions":{"task":"instructions/idea.dissect.md"},"stub":["stub-file","dissection.yaml","dissection.yaml"]}"#;
+        let d = driver(&r.0, "llm-node.sh", &["idea.dissect"], &[("SDC_ACTION", "idea.dissect"), ("SDC_CASE", "IDEA-1.intake"), ("SDC_ARGS", "{}"), ("SDC_LLM_NODE", cfg)]);
+        let l = loom(&r.1, "llm-node.sh", &node_argv("idea.dissect", &stub, &["--instructions", r#"{"task":"instructions/idea.dissect.md"}"#]), "IDEA-1.intake", "{}", None);
+        assert_eq!(d.code, Some(0), "{d:#?}");
+        assert!(d.files.contains_key("dissection.yaml"), "{d:#?}");
+        same("idea.dissect on the stub", &d, &l);
+        // spec.author on dry: the prompt names the domain the arguments give (standard input under
+        // Loom, SDC_ARGS for the driver), the request names the binding's model and caps.
+        let r = roots("dry");
+        for f in ["idea.yaml", "requirements.yaml", "context.yaml"] {
+            put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
+        }
+        let cfg = r#"{"model":"claude-haiku-5-5","max_turns":40,"max_budget_usd":2,"instructions":{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"},"stub":["stub-tree","billing-spec","spec"]}"#;
+        let args = r#"{"domain":"billing"}"#;
+        let d = driver(&r.0, "llm-node.sh", &["spec.author"], &[("SDC_ACTION", "spec.author"), ("SDC_CASE", "IDEA-1.billing.spec"), ("SDC_ARGS", args), ("SDC_LLM_NODE", cfg), ("SDC_LLM_ADAPTER", "dry")]);
+        let argv = ["spec.author", "--model", "claude-haiku-5-5", "--max-turns", "40", "--max-budget-usd", "2", "--instructions", r#"{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}"#, "--adapter", "dry", "--stub", "stub-tree", "billing-spec", "spec"];
+        let l = loom(&r.1, "llm-node.sh", &argv, "IDEA-1.billing.spec", args, None);
+        assert_eq!(d.code, Some(0), "{d:#?}");
+        let prompt = &d.files[".sdc/llm/001-spec.author/prompt.md"];
+        assert!(prompt.contains("format: ess/1, system: billing, version: v1"), "{prompt}");
+        assert!(d.files[".sdc/llm/001-spec.author/request.json"].contains("\"max_turns\": 40"), "{d:#?}");
+        assert!(d.files.contains_key("spec/system.yaml"), "{d:#?}");
+        same("spec.author on dry", &d, &l);
+    }
+
+    #[test]
+    fn a_retried_writer_reads_its_feedback_from_loom_retry_feedback() {
+        let r = roots("retry");
+        for f in ["idea.yaml", "dissection.yaml"] {
+            put(&r, f, &fs::read_to_string(fx().join(f)).unwrap());
+        }
+        put(&r, "questions.yaml", "questions: []\n");
+        let stub = ["stub-file", "questions-open.yaml", "questions.yaml"];
+        let env = [("SDC_ACTION", "questions.write"), ("SDC_CASE", "IDEA-1.intake"), ("SDC_ARGS", "{}"), ("SDC_LLM_NODE", NODE), ("SDC_LLM_ADAPTER", "dry")];
+        // No feedback: questions.yaml exists, so questions.write is not called.
+        let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
+        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", None);
+        assert!(d.code == Some(0) && d.stdout.contains("questions.write not called"), "{d:#?}");
+        same("questions.write, no feedback", &d, &l);
+        // The check's record that sent it back, with its log: the driver's SDC_FEEDBACK, and Loom's
+        // loom.retry-feedback/1 document holding the record and the log's tail.
+        let log = "check-questions: scope-changing question lacks a key\nq1: lacks excerpt\n";
+        fs::write(r.0.join("check.log"), log).unwrap();
+        let fb = serde_json::json!([{"kind": "questions_shape", "result": "invalid", "subject": "questions",
+            "action": null, "exit": null, "log": r.0.join("check.log")}]);
+        fs::write(r.0.join("feedback.json"), fb.to_string()).unwrap();
+        let blob = "4f".repeat(32);
+        let doc = serde_json::json!({"format": "loom.retry-feedback/1", "case": "IDEA-1.intake", "action": "questions.write",
+            "records": [{"evidence_id": "e1", "kind": "questions_shape", "subject": "questions", "subject_revision": "r1",
+                "result": "invalid", "producer": "sdc-check", "observed_at": "2026-11-21T00:00:00Z", "blob_sha256": blob}],
+            "logs": [{"blob_sha256": blob, "tail": log}]});
+        fs::create_dir_all(r.1.join("store/blobs")).unwrap();
+        let doc_path = r.1.join("store/blobs/feedback");
+        fs::write(&doc_path, doc.to_string()).unwrap();
+        let fb_path = r.0.join("feedback.json").display().to_string();
+        let mut env = env.to_vec();
+        env.push(("SDC_FEEDBACK", &fb_path));
+        let d = driver(&r.0, "llm-node.sh", &["questions.write"], &env);
+        let l = loom(&r.1, "llm-node.sh", &node_argv("questions.write", &stub, &["--adapter", "dry", "--instructions", WRITE_INSTRUCTIONS]), "IDEA-1.intake", "{}", Some(&doc_path));
+        assert_eq!(d.code, Some(0), "{d:#?}");
+        let feedback = &d.files[".sdc/llm/001-questions.write/cwd/in/feedback.md"];
+        assert!(feedback.contains("## questions_shape = invalid (from ?, exit ?)") && feedback.contains("q1: lacks excerpt"), "{feedback}");
+        same("questions.write, retried", &d, &l);
     }
 }

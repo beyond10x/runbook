@@ -1,0 +1,8 @@
+format: protocol/1
+
+protocol:
+  id: sdc.bugfix
+  revision: 1
+  title: Fixture bugfix runbook
+  description: >-
+    Ignored, because the title key wins.

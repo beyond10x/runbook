@@ -1,0 +1,16 @@
+{
+  "name": "runbook",
+  "owner": {
+    "name": "Beyond10x"
+  },
+  "metadata": {
+    "description": "Runbook: fixed, checked ways to handle a case, where a program decides the next step from recorded facts and a model carries out single steps."
+  },
+  "plugins": [
+    {
+      "name": "runbook",
+      "source": "./plugin",
+      "description": "Skills for building, recording and hardening a runbook: a protocol-driven workflow whose next step a program decides from recorded facts."
+    }
+  ]
+}

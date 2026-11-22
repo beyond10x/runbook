@@ -1,0 +1,96 @@
+format: sdc.experiment/1
+id: decider-program-approvals-mixed
+kind: prospective
+status: planned
+created: 2026-11-21
+title: Approvals taken by program checks under A5 against every approval asked of the decider, mixed setting
+purpose: Whether taking context.approve, roadmap.approve and release.publish by rule:autopilot when the program check guarding each passed at the exact revision removes decider time from the mixed setting's runs without losing a clean pass or letting a merge or review rejection through. The strong setting is the sibling record decider-program-approvals (one variable per record).
+hypothesis: With SDC_RULE_APPROVALS on instead of off, run.decider_s of the mixed setting falls by at least 60 s per run.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: f2c503bc03d2d51bf563847efccff7a254893e97
+target:
+  kind: run
+  name: run.decider_s
+variable: rule_approvals
+fixed:
+  models.writer.model: claude-sonnet-5-5
+  models.implement.model: claude-sonnet-5-5
+  models.review.model: claude-sonnet-5-5
+  models.other.model: claude-haiku-5-5
+  decider.kind: model
+  decider.model: claude-haiku-5-5
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  review.adapter: claude-cli
+  efforts.writer.effort: high
+  efforts.implement.effort: high
+  efforts.review.effort: high
+  efforts.other.effort: high
+  efforts.decider.effort: xhigh
+  adapter: metaharness
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  autonomy: A5
+launch:
+  max_parallel: 3
+  stagger_s: 30
+  principal: agent:sdc-experiment
+variants:
+- id: off
+  settings:
+    rule_approvals: off
+  runs: []
+- id: on
+  settings:
+    rule_approvals: on
+  runs: []
+baseline: off
+treatment: on
+runs_per_variant: 3
+pass_rule: clean-delivery
+primary:
+  metric: run.decider_s
+  direction: decrease
+  min_effect: 60
+guards:
+- metric: run.delivered
+  worse: decrease
+  max_worsening: 0
+- metric: run.clean
+  worse: decrease
+  max_worsening: 0
+- metric: 'edge.story: merge.approve:rejected -> change.implement.count'
+  worse: increase
+  max_worsening: 1
+- metric: 'edge.story: change.review:rejected -> change.implement.count'
+  worse: increase
+  max_worsening: 1
+decision_rule:
+  rule: complete-separation
+  text: held when off and on each have 3 ended runs, every on run's run.decider_s lies below every off run's (exact one-sided p = 1/20 = 0.05) and the medians differ by at least 60 s; contradicted when the ranges separate the other way or by less than 60 s; inconclusive otherwise. Adopt the rule as the default under A5 only when held, every guard holds and the sibling record decider-program-approvals does not contradict it; a refuted or inconclusive result is published as such.
+adoption:
+  decision: pending
+  commit: null
+cost_estimate: '6 runs at the mixed median of baseline-0.1.0, 2.55 USD: 15.3 USD; at its maximum 3.88 USD: 23.3 USD. The decider is 6 to 7 percent of a mixed run''s cost (0.17 to 0.25 USD), the covered approvals 0.043 to 0.046 USD of it, so the treatment should change cost by about 0.05 USD per run (inferred). Expected saving of decider time: the Haiku decider took 693 to 952 s per mixed run over 11 to 15 calls (about 60 s a call on average, 96 to 173 s on merge.approve and release.publish), so three fewer calls take roughly 160 s off a run (inferred). About 1 hour at 3 runs at a time.'
+known_confounds:
+- key: coverage
+  note: vision.approve has no program check and stays with the decider in both arms; merge.approve, scope answers, finding decisions and upstream amendments are asked of the decider in both arms.
+- key: unstick
+  note: run.unstick is on with an Opus model in both variants (scripts/run-trial.sh; not a launch setting); it is the same in both arms, and a run it touched is not clean.
+- key: canon
+  note: the canon binary of the canon checkout at run time, not pinned; the same for both arms when they run in one launch.
+- key: decider_time
+  note: run.decider_s sums the decider calls' own durations; a long merge.approve call (96 to 173 s in baseline-0.1.0) that the rule does not cover moves it as much as the covered ones do, so the three medians differ by call mix as well as by the treatment.
+facts:
+- 'Registered basis: in baseline-0.1.0 (3 strong and 3 mixed runs, plus the earlier trial-3 runs on the same decider), the decider stopped nothing on context.approve, roadmap.approve, vision.approve and release.publish: 25 of 25 approved.'
+- 'Decider seconds per mixed run in baseline-0.1.0: 717, 952, 693 (48, 45, 46 percent of wall 1480, 2091, 1489 s).'
+- 'Not launched: this record is committed before any run.'
+links:
+- 'experiments/decider-program-approvals.yaml: the strong setting, primary run.decider_cost_usd'
+- 'experiments/effort-decider-mixed.yaml: the same decider seconds, treated by effort'
+- 'experiments/baseline-0.1.0.yaml: the strong and mixed medians above'

@@ -1,0 +1,7 @@
+format: protocol/1
+
+protocol:
+  id: sdc.story
+  revision: 4
+  description: >-
+    Fixture child protocol for one story. It is never started on its own.

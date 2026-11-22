@@ -1,0 +1,105 @@
+format: loom.bindings/1
+protocol: sdc-spec@1
+artifacts:
+  roadmap: aep/initiative/roadmap.md
+  spec: spec
+  findings: findings.yaml
+  requirements: requirements.yaml
+independence:
+  reviewer-stub: [different_principal]
+actions:
+  - action: roadmap.read
+    executor:
+      kind: copy
+      evidence: roadmap_approval
+      from: sdc-direction@1
+  - action: spec.author
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, spec.author, --model, claude-haiku-5-5, --max-turns, "40", --max-budget-usd, "2", --instructions, '{"task":"instructions/spec.author.md","inputs":"instructions/spec.author.inputs.md"}', --stub, stub-tree, billing-spec, spec]
+    arguments_from: [tools/sdc-tool.sh, spec-domain, --action, spec.author]
+    budget: {max_runs: 4}
+    timeout_seconds: 1500
+    retry_when:
+      spec_validation: [invalid]
+      spec_compile: [refused]
+      open_markers: [present]
+      spec_synthesis: [refused]
+      scope_trace: [untraced]
+      spec_review: [rejected]
+    evidence:
+      - kind: spec_source
+        subject: spec
+        producer: llm-node
+        from: exit
+        results: {"0": authored}
+  - action: spec.validate
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, spec-validate, --action, spec.validate]
+    evidence:
+      - kind: spec_validation
+        subject: spec
+        producer: ess
+        from: exit
+        results: {"0": valid, "*": invalid}
+  - action: spec.compile
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, spec-compile, --action, spec.compile]
+    timeout_seconds: 1800
+    evidence:
+      - kind: spec_compile
+        subject: spec
+        producer: ess
+        from: exit
+        results: {"0": compiled, "*": refused}
+  - action: spec.scan
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, spec-scan, --action, spec.scan]
+    evidence:
+      - kind: open_markers
+        subject: spec
+        producer: grep
+        from: exit
+        results: {"0": none, "*": present}
+  - action: spec.synthesize
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, spec-synthesize, --action, spec.synthesize]
+    timeout_seconds: 1800
+    evidence:
+      - kind: spec_synthesis
+        subject: spec
+        producer: ess
+        from: exit
+        results: {"0": clean, "*": refused}
+  - action: spec.trace
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, spec-trace, --action, spec.trace]
+    timeout_seconds: 1800
+    evidence:
+      - kind: scope_trace
+        subject: spec
+        producer: sdc-check
+        from: exit
+        results: {"0": traced, "5": finding, "*": untraced}
+  - action: spec.review
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, review-spec, --action, spec.review]
+    evidence:
+      - kind: spec_review
+        subject: spec
+        producer: reviewer-stub
+        from: exit
+        results: {"0": approved, "*": rejected}
+  - action: amend.upstream
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, amend, spec, --action, amend.upstream]
+    budget: {max_runs: 12}
+    timeout_seconds: 300
+    handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

@@ -1,0 +1,2760 @@
+format: runbook.cycles/1
+script: scripts/run-finding-cycles.sh
+cycles:
+  - id: stub-cycle
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: []
+    expect:
+      exit: 0
+    source: {lines: "201-202"}
+  - id: finding-agent
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-agent.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-agent.yaml}
+    expect:
+      exit: 0
+    source: {lines: "203-204"}
+  - id: finding-person-stop
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-person.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml}
+    expect:
+      exit: 3
+    source: {lines: "205"}
+  - id: finding-person
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-person.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, FINDING_DECISION: "option:2"}
+    expect:
+      exit: 0
+    source: {lines: "206-207"}
+  - id: scope-answer
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-question]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-question}
+    expect:
+      exit: 0
+    source: {lines: "208-209"}
+  - id: finding-program
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/storage-conflict]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/storage-conflict}
+    expect:
+      exit: 0
+    source: {lines: "210-211"}
+  - id: scope-changed
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-question]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches:
+      SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-question
+      SDC_LLM_NODES: questions.answer
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SCOPE_ANSWERS: '{"q2": "the billing clerk or the customer, before it is paid"}'
+    expect:
+      exit: 0
+      pass_line: "q2 the person's answer, answered_by person:stand-in; requirements written after scope.answer"
+      checks:
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .status', equals: changed}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .answer', equals: "the billing clerk or the customer, before it is paid"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .answered_by', equals: "person:stand-in"}
+    unexpressed:
+      - {kind: event-order, lines: "224-228", note: "requirements.normalise exit 0 after the last scope.answer (seq)"}
+    source: {lines: "212-233"}
+  - id: intake-decision
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-question, driver/examples/sdc/fixtures/finding-intake-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches:
+      SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-question
+      SDC_LLM_NODES: questions.answer
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SCOPE_ANSWERS: '{"q2": "the billing clerk or the customer, before it is paid"}'
+      SCOPE_RESUME_FIRST: "1"
+      NO_YQ_STEP: questions.check
+      SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-person.yaml
+      FINDING_DECISION: "option:3"
+    expect:
+      exit: 0
+      pass_line: "questions.check without yq exits 127 and records nothing, the check is admitted again and records; questions.write once; q2 and the decision (option 3) person:stand-in"
+    unexpressed:
+      - {kind: aggregate, lines: "253-256", note: "two questions match (q2 answer, or decision 'the customer asks, the billing clerk cancels') both person:stand-in"}
+      - {kind: event-order, lines: "257-262", note: "one 127 questions.check, no evidence from 127 runs, a recording check after it"}
+      - {kind: aggregate, lines: "257-262", note: "questions.write ran exactly once"}
+    source: {lines: "234-263"}
+  - id: offline-sync
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/offline-sync]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-sync}
+    expect:
+      exit: 0
+      pass_line: "no offline-hosted finding, deployment kept"
+      checks:
+        - {kind: file_absent_text, file: "{work}/findings.yaml", text: offline-hosted}
+        - {kind: yaml_equals, file: "{work}/context.yaml", query: ".deployment.value", equals: "a hosted web server reachable over the internet"}
+    source: {lines: "265-275"}
+  - id: offline-decision
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/offline-decision]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+    expect:
+      exit: 3
+      pass_line: "amendment reverted, needs_person, basis names q3 and both sides"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .status', equals: needs_person}
+        - {kind: yaml_matches, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .basis', regex: "decision q3"}
+        - {kind: yaml_matches, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .basis', regex: "both sides"}
+        - {kind: yaml_equals, file: "{work}/context.yaml", query: ".deployment.value", equals: "a hosted web server reachable over the internet"}
+    source: {lines: "276-289"}
+  - id: plan-in-project
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/plan-stories.json]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches:
+      RUNS: "{scratch}/in-project/runs"
+      SDC_LLM_NODES: plan.decompose
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SDC_FIXTURE_STUB: '{"plan.decompose":["plan-stories.json","stories.json"]}'
+    setup:
+      - {mkdir: ["{scratch}/in-project/.engineering", "{scratch}/in-project/runs"]}
+      - {copy: {from: .engineering/project.yaml, to: "{scratch}/in-project/.engineering/project.yaml"}}
+    expect:
+      exit: 0
+      pass_line: "decompose applied once inside a development.standard project"
+      checks:
+        - {kind: event_count, log: "{scratch}/in-project/store/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.plan/events.jsonl", event: action_finished, action: plan.decompose, count: 1}
+        - {kind: json_count, file: "{scratch}/in-project/store/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.plan/events.jsonl", select: '.event == "action_finished" and .action == "plan.decompose" and .exit != "0"', count: 0}
+    unexpressed:
+      - {kind: setup-shell, lines: "299", note: "rm -rf of the project dir before the run; case store is {scratch}/in-project/store"}
+    source: {lines: "290-311"}
+  - id: story-decision
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-story-rounds.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-rounds.yaml, FINDING_DECISION: "option:2"}
+    expect:
+      exit: 0
+      pass_line: "a fresh allowance after the person's decision; change.implement 4 runs"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_finished, action: change.implement, count: 4}
+    source: {lines: "312-325"}
+  - id: story-spent
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-story-spent.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-spent.yaml}
+    expect:
+      exit: 1
+      pass_line: "writer_spent: change.implement, 3 runs"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "writer_spent" and .spent[0].action == "change.implement" and .spent[0].runs == 3', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "331-333", note: "the LAST of stuck/awaiting_person/writer_spent events is that writer_spent"}
+    source: {lines: "326-337"}
+  - id: story-late-person
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-story-late-person.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-late-person.yaml, FINDING_DECISION: "option:2"}
+    expect:
+      exit: 0
+      pass_line: "person stop on the late finding, then a fresh allowance"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: awaiting_person, count: 1}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: writer_spent, count: 0}
+    source: {lines: "338-350"}
+  - id: superseded-answer
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-superseded-spec.yaml, driver/examples/sdc/fixtures/finding-superseded-story.yaml]
+    switches: {SDC_STUB_FINDINGS: "driver/examples/sdc/fixtures/finding-superseded-spec.yaml:driver/examples/sdc/fixtures/finding-superseded-story.yaml"}
+    expect:
+      exit: 0
+      pass_line: "q3 superseded by q4; r1 cites q4 only, no Postgres text"
+      checks:
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .status', equals: superseded}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .superseded_by', equals: q4}
+        - {kind: yaml_matches, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q4") | .answer', regex: "data file"}
+        - {kind: yaml_has_item, file: "{work}/requirements.yaml", query: '.requirements[] | select(.id == "r1") | .cites', item: q4}
+        - {kind: yaml_lacks_item, file: "{work}/requirements.yaml", query: '.requirements[] | select(.id == "r1") | .cites', item: q3}
+        - {kind: yaml_not_matches, file: "{work}/requirements.yaml", query: '.requirements[] | select(.id == "r1") | .text', regex: "Postgres|q3"}
+    source: {lines: "351-367"}
+  - id: spec-duplicate
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-duplicate.yaml]
+    switches: {SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-duplicate.yaml}
+    expect:
+      exit: 0
+      pass_line: "the repeated finding not added; spec.author 2 runs"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '[.findings[] | select(.says | test("cancelled invoice"))] | length', equals: 1}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: action_finished, action: spec.author, count: 2}
+    source: {lines: "368-379"}
+  - id: spec-own-default
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-rounds.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches:
+      SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-rounds.yaml
+      SDC_LLM_NODES: spec.author
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+    expect:
+      exit: 0
+      pass_line: "the writer's own default re-derived without an LLM call; spec.author 2 runs, 1 call"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: writer_spent, count: 0}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: action_finished, action: spec.author, count: 2}
+        - {kind: json_count, file: "{work}/.sdc/llm/calls.jsonl", select: '.action == "spec.author"', count: 1}
+    source: {lines: "380-393"}
+  - id: trace-gap
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trace-gap]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-gap}
+    expect:
+      exit: 0
+      pass_line: "r3 traced to no behaviour: finding, writer sent back, then traced"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .decided_by', equals: agent}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .says', equals: "r3: traces to no behaviour (cites billing.audit, which declares no command)"}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: action_finished, action: spec.author, count: 2}
+    unexpressed:
+      - {kind: cross-record, lines: "395-397,406", note: "last spec.trace log blob (via event log) contains '3 traced to behaviour, 0 constraint, 0 dropped, 0 untraced'"}
+    source: {lines: "395-410"}
+  - id: trace-gap-drop
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trace-gap-drop]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-gap-drop, FINDING_DECISION: "option:3"}
+    expect:
+      exit: 0
+      pass_line: "the gap went to a person after one send-back; r3 dropped by the person"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .decided_by', equals: "person:stand-in"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .decision', equals: "drop r3 from this epic's scope"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-trace-r3") | .attempts', equals: 1}
+        - {kind: yaml_equals, file: "{work}/requirements.yaml", query: '.requirements[] | select(.id == "r3") | .behaviour', equals: dropped}
+    unexpressed:
+      - {kind: cross-record, lines: "420-421", note: "last spec.trace log blob contains '1 dropped (r3), 0 untraced'"}
+    source: {lines: "411-423"}
+  - id: trace-constraint
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trace-constraint]
+    switches: {SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-constraint}
+    expect:
+      exit: 0
+      pass_line: "r3 a constraint with its reason: passes, counted"
+      checks:
+        - {kind: file_absent_text, file: "{work}/findings.yaml", text: p-trace}
+    unexpressed:
+      - {kind: cross-record, lines: "430-431", note: "spec.trace log blobs contain '2 traced to behaviour, 1 constraint (r3), 0 dropped, 0 untraced'"}
+    source: {lines: "424-433"}
+  - id: trace-constraint-decided
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trace-gap-drop]
+    switches:
+      SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-gap-drop
+      FINDING_DECISION: "r3 is a constraint, not behaviour: mark r3 as a constraint outside the specification."
+    expect:
+      exit: 0
+      pass_line: "the constraint answer applied, r3 counted a constraint; the send-back answer superseded"
+      checks:
+        - {kind: yaml_equals, file: "{work}/requirements.yaml", query: '.requirements[] | select(.id == "r3") | .behaviour', equals: constraint}
+    unexpressed:
+      - {kind: cross-record, lines: "442", note: "last spec.trace log blob contains '1 constraint (r3), 0 dropped, 0 untraced'"}
+      - {kind: cross-record, lines: "443-449", note: "two p-trace-r3 questions: first superseded_by second; r3 cites second only"}
+    source: {lines: "434-451"}
+  - id: review-reject-once
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: []
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        rounds:
+          - {decision: rejected, summary: "fixture: the README does not say how to run it", findings: [{kind: violation, at: "impl/README.md:1", violates: r1, says: "fixture: the README names no command to run the service"}]}
+          - {decision: approved, summary: "fixture: the rework addresses the finding", findings: []}
+    switches:
+      SDC_LLM_NODES: change.review
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SDC_REVIEW_REPLIES: "{rounds: [<rejected>, <approved>]}"
+    expect:
+      exit: 0
+      pass_line: "rejected with a cited finding, reworked with the rejection, approved, both by llm-review; the second review got no rejection"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_finished, action: change.implement, count: 2}
+        - {kind: file_contains, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/work/impl/.rework", text: "impl/README.md:1"}
+    unexpressed:
+      - {kind: cross-record, lines: "470-473,478", note: "code_review evidence records: results [rejected, approved], producer llm-review (evidence joined to events)"}
+      - {kind: cross-record, lines: "479-480", note: "rejection log blob: sdc.rejection/1 with citations and count 1"}
+      - {kind: event-order, lines: "481", note: "last change.implement start has retry_of [code_review]"}
+      - {kind: cross-record, lines: "474-477,483", note: "second change.review call record: no in/rejection.json, no 'Rework.' prompt line"}
+    source: {lines: "452-486"}
+  - id: review-minimal-input
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: []
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies: "as review-reject-once: rounds [rejected, approved]"
+    switches:
+      SDC_LLM_NODES: change.review
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SDC_REVIEW_MODE: facts
+      SDC_REVIEW_REPLIES: "{rounds: [<rejected>, <approved>]}"
+    expect:
+      pass_line: "no tools, one document of N bytes in the prompt; an untouched file is listed, not shown; a listed file is cited by path, an absent one refused"
+      checks:
+        - {kind: json_count, file: "{work}/.sdc/llm/calls.jsonl", select: '.action == "change.review"', count: 2}
+        - {kind: json_count, file: "{work}/.sdc/llm/calls.jsonl", select: '.action == "change.review" and (.allowed_operations != [] or .max_turns > 4 or (.input_bytes | type) != "number" or .input_bytes <= 0)', count: 0}
+    unexpressed:
+      - {kind: derived-value, lines: "514-515", note: "first review's input_bytes equals the size of its in/review.md"}
+      - {kind: cross-record, lines: "514-518", note: "first review call record dir: prompt has one review header; no tests.txt gate.txt commands.json; README present"}
+      - {kind: mutated-store, lines: "500-504", note: "copy of the store with an untouched file, edited README, server.js added"}
+      - {kind: second-run, lines: "505-512,519-529", note: "sdc-reply review-inputs and check-review on the copy: exit codes 1,2,2 and messages"}
+      - {kind: tree-search, lines: "519-520", note: "UNTOUCHED_MARKER absent from the review input tree; review.md listings"}
+    source: {lines: "487-533"}
+  - id: review-invalid
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: []
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        rounds:
+          - {decision: rejected, summary: fixture, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "fixture: a line that does not exist"}]}
+    switches:
+      SDC_LLM_NODES: change.review
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SDC_REVIEW_REPLIES: "{rounds: [<invalid rejection>]}"
+    expect:
+      exit: 1
+      pass_line: "a rejection citing no line of the change: refused, nothing recorded, never approved"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_finished, action: change.review, count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "action_finished" and .action == "change.review" and .exit == "2"', count: 1}
+    unexpressed:
+      - {kind: cross-record, lines: "543", note: "no code_review evidence record in the story case"}
+      - {kind: tree-search, lines: "541,544-546", note: "newest .sdc/llm/*-change.review dir: reply.try2.json, prompt reason, review-check.err text"}
+    source: {lines: "534-550"}
+  - id: review-spent
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: []
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        rounds:
+          - {decision: rejected, summary: "fixture: the README does not say how to run it", findings: [{kind: violation, at: "impl/README.md:1", violates: r1, says: "fixture: the README names no command to run the service"}]}
+    switches:
+      SDC_LLM_NODES: change.review
+      SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh
+      SDC_REVIEW_REPLIES: "{rounds: [<rejected>]}"
+    expect:
+      exit: 1
+      pass_line: "three rejections: writer_spent on change.implement, sent back by change.review"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "writer_spent" and .spent[0].action == "change.implement" and .spent[0].runs == 3 and ([.spent[0].sent_back[].by] == ["change.review","change.review","change.review"])', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "555-557", note: "the LAST of stuck/awaiting_person/writer_spent events is that writer_spent"}
+      - {kind: cross-record, lines: "558", note: "code_review evidence records: three, all rejected"}
+    source: {lines: "551-563"}
+  - id: decider-scope-answer
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-two]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        scope.answer: {decision: escalate, answer: null, best: null, cites: [q2, q3, questions.settled], reasons: ["Questions q2 and q3 are scope-changing and still open.", "The claim questions.settled is false at the current revision."]}
+        q3: {decision: approve, answer: "the billing clerk who issued it, as a copy", best: null, cites: [d5, d2], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    expect:
+      exit: 0
+      pass_line: "q2 default, q3 free answer, both decider:model; class scope_changing_answer; questions.settled marked"
+      checks:
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .status', equals: accepted}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .answered_by', equals: "decider:model"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .status', equals: changed}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .answer', equals: "the billing clerk who issued it, as a copy"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .answered_by', equals: "decider:model"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.class == "scope_changing_answer" and .decision == "approve"', count: 2}
+    unexpressed:
+      - {kind: field-compare, lines: "601-602", note: "q2 answer equals its default"}
+      - {kind: event-order, lines: "602-603", note: "approved questions are q2 then q3 in decisions.jsonl"}
+      - {kind: tree-search, lines: "603-604", note: "first decider/*-q2 call: in/checks.json marks questions.settled settled_by_this_decision"}
+    source: {lines: "586-610"}
+
+  - id: decider-model-name
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-two]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        scope.answer: {decision: escalate, answer: null, best: null, cites: [q2, q3, questions.settled], reasons: ["Questions q2 and q3 are scope-changing and still open."]}
+        q3: {decision: approve, answer: "the billing clerk who issued it, as a copy", best: null, cites: [d5, d2], reasons: ["The clerk who issued an invoice needs to see what the customer was sent."]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_MODEL_DECIDER: claude-opus-5-5, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    expect:
+      exit: 0
+      pass_line: "SDC_DECIDER=haiku runs as decider:model (claude-opus-5-5): start line, run-settings, decisions, answers, log"
+      checks:
+        - {kind: file_contains, file: "{console}", regex: '^started decider-model-name: .*decider model \(claude-opus-5-5\),'}
+        - {kind: file_absent_text, file: "{console}", regex: 'decider haiku|decider:haiku'}
+        - {kind: file_contains, file: "{console}", text: "  decider:model (claude-opus-5-5) approve IDEA-1.intake|scope.answer|q3|"}
+    unexpressed:
+      - {kind: aggregate, lines: "625-626", note: "every run-settings line has decider kind model and model claude-opus-5-5"}
+      - {kind: aggregate, lines: "627-628", note: "at least 3 decisions lines, all principal decider:model"}
+      - {kind: aggregate, lines: "629-630", note: "scope-changing questions' answered_by list is exactly two decider:model"}
+    source: {lines: "611-635"}
+
+  - id: decider-scope-final
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-two]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        scope.answer: {decision: escalate, answer: null, best: null, cites: [], reasons: ["The claim questions.settled is false."]}
+        q3: {decision: escalate, answer: null, best: null, cites: [d5], reasons: ["Who else is emailed adds a kind of recipient the idea does not name."]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_ESCALATE: final, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    expect:
+      exit: 0
+      pass_line: "q3 escalated, suppressed, its default taken"
+      checks:
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .status', equals: accepted}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .answered_by', equals: "decider:model"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q3" and .decision == "escalation_suppressed"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q3" and .decision == "approve"', count: 1}
+    unexpressed:
+      - {kind: field-compare, lines: "643-644", note: "q3 answer equals its default"}
+      - {kind: event-order, lines: "645-646", note: "q3 decisions are escalation_suppressed then approve"}
+    source: {lines: "636-650"}
+
+  - id: decider-finding
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        f1: {decision: approve, answer: "the customer and the billing clerk", best: null, cites: [r2], reasons: ["The clerk who issues an invoice is the one asked about it, so the clerk gets the email too."]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    expect:
+      exit: 0
+      pass_line: "f1 option 2 by decider:model, amended, class finding"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decision', equals: "the customer and the billing clerk"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decided_by', equals: "decider:model"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.item == "f1") | .answer', equals: "the customer and the billing clerk"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.item == "f1") | .answered_by', equals: "decider:model"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.class == "finding"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.class == "finding" and .finding == "f1" and .decision == "approve"', count: 1}
+    source: {lines: "651-669"}
+
+  - id: decider-finding-final
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/finding-spec-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        f1: {decision: escalate, answer: null, best: null, cites: [r2], reasons: ["Who else is emailed is the requester's call."]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_DECIDER_ESCALATE: final, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    expect:
+      exit: 0
+      pass_line: "f1 escalated, suppressed, its default taken"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decided_by', equals: "decider:model"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.finding == "f1" and .decision == "escalation_suppressed"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.finding == "f1" and .decision == "approve"', count: 1}
+    unexpressed:
+      - {kind: field-compare, lines: "677-678", note: "f1 decision equals its default"}
+      - {kind: event-order, lines: "679-680", note: "f1 decisions are escalation_suppressed then approve"}
+    source: {lines: "670-683"}
+
+  - id: decider-finding-refused
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/offline-decision]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+    arguments: [--autopilot]
+    expect:
+      exit: 3
+      pass_line: "the decider's amendment refused and reverted, a person decides"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .status', equals: needs_person}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .decision // ""', equals: ""}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .refused_decision.decided_by', equals: "decider:model"}
+        - {kind: yaml_matches, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "p-offline-hosted-context.deployment") | .refused_decision.why', regex: "q3"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.class == "finding"', count: 1}
+        - {kind: yaml_equals, file: "{work}/context.yaml", query: ".deployment.value", equals: "a hosted web server reachable over the internet"}
+    source: {lines: "684-701"}
+
+  - id: run-stop
+    state: expected
+    protocol: sdc
+    driver: trial
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: person, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off"}
+    expect:
+      exit: 3
+      pass_line: "record written, events untouched, resume refused, L7 to the stop, reopen renames and goes on"
+    unexpressed:
+      - {kind: second-run, lines: "713-739", note: "--stop exit 0, resume exit 8, --reopen exit 3, then record and run.log checks"}
+      - {kind: setup-shell, lines: "716-718", note: "sleep 2 so the wait has a duration"}
+      - {kind: derived-value, lines: "715-731", note: "sha256 of all events before and after; L7 value >= 2 and stop until stopped"}
+      - {kind: tree-search, lines: "732-736", note: "run-stopped.*.json glob exists after reopen"}
+    source: {lines: "702-740"}
+
+  - id: run-stop-decider
+    state: expected
+    uses_run_of: decider-finding-refused
+    protocol: sdc
+    driver: other
+    expect:
+      pass_line: "a decider's run waiting on a person: L7 seconds, reported FAILED"
+    unexpressed:
+      - {kind: second-run, lines: "741-747", note: "run-trial.sh --stop on decider-finding-refused's run, then sdc-finding-kpis"}
+      - {kind: derived-value, lines: "743-746", note: "L7 value >= 1, failure true, decider model; kpis text says FAILED"}
+    source: {lines: "741-748"}
+
+  - id: autopilot
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-two, driver/examples/sdc/fixtures/finding-spec-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "closed; 0 person principals; L7 0; A5, escalate final; work/aep transitions by agent:, no human:"
+      checks:
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decided_by', equals: "decider:model"}
+        - {kind: file_exists, file: "{work}/aep"}
+    unexpressed:
+      - {kind: aggregate, lines: "762-769", note: "census: no person principal in decisions, findings, questions, event grants"}
+      - {kind: derived-value, lines: "761-770", note: "L7 seconds 0 and failure false from sdc-finding-kpis"}
+      - {kind: aggregate, lines: "771", note: "every run-settings line A5, escalate final, decider kind model"}
+      - {kind: tree-search, lines: "773-774", note: "no human: and some actor agent: under work/aep (grep -r)"}
+    source: {lines: "750-777"}
+
+  - id: trace-reraised
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trace-gap-drop]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        p-trace-r3: {decision: approve, answer: "specify r3 in the spec: name in spec/traces.json the commands or views that deliver it", reasons: ["fixture: the writer can name the views that deliver r3"], cites: [r3], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trace-gap-drop, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 7
+      pass_line: "stopped finding_reraised on the second raise, naming p-trace-r3 and the decision; one decider call"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: finding_reraised}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: 'finding_reraised: p-trace-r3 raised again after decider:model.s decision "specify r3'}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.finding == "p-trace-r3" and .decision == "approve"', count: 1}
+    source: {lines: "778-795"}
+
+  - id: decider-budget-reason
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-two]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_MAX_DECIDER_CALLS: "1"}
+    arguments: [--autopilot]
+    expect:
+      exit: nonzero
+      pass_line: "the stop reason names scope.answer in IDEA-1.intake and the cap"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: decider_budget_spent}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: '^autopilot: scope.answer in IDEA-1.intake: decider_budget_spent \(1 LLM decider calls'}
+    source: {lines: "796-807"}
+
+  - id: autopilot-person
+    state: expected
+    protocol: sdc
+    driver: trial
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: person, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off"}
+    arguments: [--autopilot]
+    expect:
+      exit: 64
+      pass_line: "refused to start with SDC_DECIDER=person"
+      checks:
+        - {kind: file_absent, file: "{run}/store"}
+    source: {lines: "808-813"}
+
+  - id: autopilot-stop
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/offline-decision]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+    arguments: [--autopilot]
+    expect:
+      exit: 7
+      pass_line: "exit 7, rule:autopilot, cause decision_not_takeable; step named, no path, no person; L7 0"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".format", equals: "sdc.run-stopped/1"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: decision_not_takeable}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".verdict_at_stop", equals: awaiting_person}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "amend.upstream in IDEA-1"}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "person", negate: true}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "[/]home[/]|[/]tmp[/]", negate: true}
+    unexpressed:
+      - {kind: console-regex, lines: "818-819", note: "console from the first 'round ' line on names no person (awaiting_person removed)"}
+      - {kind: derived-value, lines: "820", note: "L7 seconds 0 and failure false from sdc-finding-kpis"}
+    source: {lines: "814-825"}
+
+  - id: decider-cite-address
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve: {decision: approve, answer: null, reasons: ["fixture: the context fits"], cites: ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "an entry and lines of context.yaml resolve; approved on the first reply"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "approve" and .valid == true', count: 1}
+    unexpressed:
+      - {kind: aggregate, lines: "838-839", note: "the decision's citation forms are artifact_revision, path_line, id in order"}
+    source: {lines: "826-843"}
+
+  - id: decider-cite-retry
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve:
+          - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
+          - {decision: approve, answer: null, reasons: ["fixture: the context fits"], cites: ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "refused once, asked again with the reason, approved; 2 decider calls"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve"', count: 2}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "invalid_reply" and (.invalid_reason | test("context.nope"))', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "approve" and .attempts == 2', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "849-850", note: "the invalid reply comes before the approval"}
+      - {kind: tree-search, lines: "851-852", note: "two decider/*-context.approve dirs; last prompt.md mentions context.nope"}
+    source: {lines: "844-855"}
+
+  - id: decider-invalid-approval
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve:
+          - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
+          - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
+          - {decision: approve, answer: null, reasons: ["fixture: cites what is not there"], cites: [context.nope], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "3 invalid replies, approved_on_checks, the run goes on and closes"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "invalid_reply"', count: 3}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "approve" and .fallback == "approved_on_checks"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "859-860", note: "three invalid_reply then approve, in this order"}
+      - {kind: tree-search, lines: "860", note: "three decider/*-context.approve dirs"}
+    source: {lines: "856-865"}
+
+  - id: decider-invalid-scope
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/scope-two]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        q2:
+          - {decision: approve, answer: fixture, reasons: ["fixture: cites what is not there"], cites: [context.idea_excerpt], best: null}
+          - {decision: approve, answer: fixture, reasons: ["fixture: cites what is not there"], cites: [context.idea_excerpt], best: null}
+          - {decision: approve, answer: fixture, reasons: ["fixture: cites what is not there"], cites: [context.idea_excerpt], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "3 invalid replies to q2, its default taken as invalid_reply_default"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q2" and .decision == "invalid_reply"', count: 3}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q2" and .decision == "approve" and .fallback == "invalid_reply_default"', count: 1}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .answered_by', equals: "decider:model"}
+    unexpressed:
+      - {kind: event-order, lines: "870-871", note: "q2 decisions are three invalid_reply then approve"}
+      - {kind: field-compare, lines: "872-873", note: "q2 answer equals its default"}
+    source: {lines: "866-877"}
+
+  - id: decider-escalate-nobest
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve:
+          - {decision: escalate, answer: null, reasons: ["fixture: a person should say"], cites: [context.kind], best: null}
+          - {decision: approve, answer: null, reasons: ["fixture: the context fits"], cites: ["context@{rev}#platform.value", "context.yaml:1-2", "context.valid"], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "autopilot asks for best; an escalate without it is refused and asked again"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "invalid_reply" and (.invalid_reason | test("best"))', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .decision == "approve"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "882-883", note: "invalid_reply comes before approve"}
+      - {kind: tree-search, lines: "883-884", note: "first decider/*-context.approve prompt.md has the best instruction line"}
+    source: {lines: "878-888"}
+
+  - id: decider-reject
+    state: expected
+    when: "context.approve of driver/examples/sdc/sdc-direction.bindings.json cannot record rejected (ctx_rework is no); else decider-rework-context and decider-rework-model take its place"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 6
+      pass_line: "exit 6, rejected_without_rework_path, step and case named, no person, L7 0"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: rejected_without_rework_path}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".case", equals: "IDEA-1.direction"}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "^autopilot: context.approve in IDEA-1.direction: "}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "person", negate: true}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "[/]home[/]|[/]tmp[/]", negate: true}
+    unexpressed:
+      - {kind: conditional, lines: "890-891, 903", note: "exists only when the direction bindings' context.approve lacks a rejected result"}
+      - {kind: console-regex, lines: "896-897", note: "console from the first 'round ' line on names no person"}
+      - {kind: derived-value, lines: "898", note: "L7 seconds 0 and failure false from sdc-finding-kpis"}
+    source: {lines: "889-902"}
+
+  - id: decider-rework-context
+    state: expected
+    when: "context.approve of driver/examples/sdc/sdc-direction.bindings.json can record rejected (ctx_rework is yes)"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 6
+      pass_line: "context.default reworked the context twice with the rejection, the third rejection is rework_spent"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: rework_spent}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".case", equals: "IDEA-1.direction"}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "^autopilot: context.approve in IDEA-1.direction: rework_spent"}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "1: .*2: .*3: "}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "person", negate: true}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "[/]home[/]|[/]tmp[/]", negate: true}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.direction/events.jsonl", select: '.event == "action_started" and .action == "context.default" and .retry_of == ["context_approval"]', count: 2}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.direction/events.jsonl", select: '.event == "action_finished" and .action == "context.approve" and .result == "rejected"', count: 3}
+    unexpressed:
+      - {kind: conditional, lines: "903-904", note: "exists only when the direction bindings' context.approve records rejected"}
+    source: {lines: "904-919"}
+
+  - id: decider-rework-model
+    state: expected
+    when: "context.approve of driver/examples/sdc/sdc-direction.bindings.json can record rejected (ctx_rework is yes)"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_LLM_NODES: context.default, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 4
+      pass_line: "the model writer got in/rejection.json; no rework marker in work/; writer_spent names context.default"
+      checks:
+        - {kind: file_exists, file: "{work}"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: '^autopilot: context.default in IDEA-1.direction: writer_spent \([0-9]+ runs'}
+    unexpressed:
+      - {kind: tree-search, lines: "929", note: "no file under work/ contains 'of the rejection of ' (grep -r)"}
+      - {kind: cross-record, lines: "931", note: "last context.default call record's in/rejection.json is sdc.rejection/1 for context.approve"}
+    source: {lines: "920-935"}
+
+  - id: decider-rework
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve:
+          rounds:
+            - {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
+            - {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "rejected once, change.implement ran again with the rejection, approved, closed"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "reject"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "approve"', count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "action_finished" and .action == "change.implement"', count: 2}
+        - {kind: file_contains, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/work/impl/.rework", text: "127.0.0.1"}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/evidence/*.json", select: '.kind == "merge_approval" and .result == "rejected"', count: 1}
+    unexpressed:
+      - {kind: conditional, lines: "943-944", note: "exists only when the story protocol declares merge.approve"}
+      - {kind: event-order, lines: "951-953", note: "merge.approve decisions are reject then approve; last change.implement start has retry_of merge_approval"}
+      - {kind: tree-search, lines: "955", note: "last decider/*-merge.approve in/decision.json has one prior_rejections entry"}
+    source: {lines: "937-963"}
+
+  - id: run-metrics
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    uses_run_of: decider-rework
+    protocol: sdc
+    driver: other
+    expect:
+      pass_line: "change.implement LF 2 sent back by merge.approve:rejected, one approval edge, merge.approve asked 2 rejected 1, closed clean"
+    unexpressed:
+      - {kind: second-run, lines: "964-976", note: "sdc-run-metrics --json on decider-rework's run"}
+      - {kind: derived-value, lines: "967-973", note: "looping factor, first-pass yield, retries by cause, edge count, asked/rejected counts, end and clean"}
+    source: {lines: "964-977"}
+
+  - id: decider-rework-spent
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve: {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 6
+      pass_line: "three rejections: rework_spent by rule:autopilot, the three reasons named"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: rework_spent}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: '^autopilot: merge.approve in IDEA-1[.][a-z]+[.][a-z]+: rework_spent'}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "1: .*2: .*3: "}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "person", negate: true}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "[/]home[/]|[/]tmp[/]", negate: true}
+    unexpressed:
+      - {kind: console-regex, lines: "985-986", note: "console from the first 'round ' line on names no person"}
+    source: {lines: "978-988"}
+
+  - id: rework-cap
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve: {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_MAX_REJECTIONS: "1", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 6
+      pass_line: "default 2 from rule-ends.json, SDC_MAX_REJECTIONS=1 stops at the second rejection after one rework, the prompt says of at most 5 under 5, x refused; each recorded in run-settings"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: rework_spent}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: 'rejected .* 2 times: 1: .*2: '}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "3: ", negate: true}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "action_started" and .action == "change.implement" and .retry_of == ["merge_approval"]', count: 1}
+        - {kind: file_contains, file: "{console}", text: "rejection 2; at most 1 are reworked"}
+    unexpressed:
+      - {kind: cross-record, lines: "1006-1007", note: "decider-rework-spent's last run-settings line has rework_limit {value 2, source rule-ends.json}"}
+      - {kind: aggregate, lines: "1008", note: "every run-settings line of this run has rework_limit {value 1, source SDC_MAX_REJECTIONS}"}
+      - {kind: second-run, lines: "1000-1002", note: "rework-cap-prompt run, SDC_MAX_REJECTIONS=5, change.implement on the fixture adapter"}
+      - {kind: tree-search, lines: "1002, 1013-1014", note: "that run's last change.implement prompt.md has '(rejection 1 of at most 5)'; its run-settings rework_limit is 5"}
+      - {kind: second-run, lines: "1003-1005, 1015-1016", note: "rework-cap-bad run with SDC_MAX_REJECTIONS=x: exit 64 and its console says the cap is a whole number"}
+    source: {lines: "989-1018"}
+
+  - id: rework-not-called
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/rework-not-called, driver/examples/sdc/fixtures/finding-story-rework.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve:
+          rounds:
+            - {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
+            - {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/rework-not-called, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-rework.yaml, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "the not-called run recorded not_called and not counted; a fourth run fixed the tree; approved, closed"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "action_finished" and .action == "change.implement"', count: 4}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "action_finished" and .action == "change.implement" and (.not_called | type == "string")', count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "writer_spent"', count: 0}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", select: '.action == "change.implement"', count: 3}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "reject"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "approve"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "1037", note: "merge.approve decisions are reject then approve"}
+    source: {lines: "1019-1042"}
+
+  - id: rework-pending-rejection
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    uses_run_of: rework-not-called
+    protocol: sdc
+    driver: other
+    expect:
+      pass_line: "a pending rejection: the writer called with in/rejection.json, the own-default skip not taken"
+    unexpressed:
+      - {kind: mutated-store, lines: "1048-1054", note: "copies rework-not-called's story case, cuts events at the rejection, edits impl/.derived-from"}
+      - {kind: setup-shell, lines: "1047-1050", note: "rm/mkdir/cp -a/cp -rL of the case and work dirs"}
+      - {kind: second-run, lines: "1055-1058", note: "tools/llm-node.sh change.implement on the copy with SDC_FEEDBACK unset; exit 0, no 'not called'"}
+      - {kind: tree-search, lines: "1060", note: "last llm/*-change.implement cwd/in/rejection.json is sdc.rejection/1 for merge.approve"}
+    source: {lines: "1043-1063"}
+
+  - id: review-no-rework-prompt
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve:
+          rounds:
+            - {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1, so a partner on another device cannot open it"], cites: [r1], best: null}
+            - {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "merge.approve rejected, then approved; the review after the rejection got no in/rejection.json and no Rework. line"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "reject"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "approve"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "1071", note: "merge.approve decisions are reject then approve"}
+      - {kind: cross-record, lines: "1070-1073", note: "second change.review call in llm-calls.jsonl names a record dir: no cwd/in/rejection.json, no '^Rework.' line in prompt.md"}
+    source: {lines: "1064-1078"}
+
+  - id: decider-later-obligation
+    state: expected
+    uses_run_of: autopilot
+    protocol: sdc
+    driver: other
+    expect:
+      pass_line: "health.required met after release.publish, roadmap.required after vision.approve: listed apart, not open"
+    unexpressed:
+      - {kind: tree-search, lines: "1085-1086", note: "last runs/autopilot/decider/*-release.publish and *-vision.approve dirs"}
+      - {kind: field-compare, lines: "1087-1092", note: "open_obligations lacks health.required/roadmap.required; met_after_this_action names action and obligations"}
+      - {kind: tree-search, lines: "1089-1090", note: "release.publish prompt.md has the met_after_this_action line"}
+    source: {lines: "1080-1095"}
+
+  - id: replay-sibling
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/plan-two-stories.json, driver/examples/sdc/fixtures/finding-story-second.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {RUNS: "{scratch}/runs", SDC_LLM_NODES: plan.decompose, SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_FIXTURE_STUB: '{"plan.decompose":["plan-two-stories.json","stories.json"]}', SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-story-second.yaml}
+    expect:
+      exit: 3
+      pass_line: "one story closed, stopped in its sibling; replay exit 0"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/events.jsonl", select: '.event == "child_closed" and .child_case == "IDEA-1.billing.emails"', count_at_least: 1}
+        - {kind: json_equals, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/case.json", query: 'has("termination")', equals: false}
+    unexpressed:
+      - {kind: second-run, lines: "1101-1105", note: "sdc-drive replay of the stopped tree exits 0"}
+    source: {lines: "1096-1113"}
+
+  - id: writer-not-called
+    state: expected
+    uses_run_of: replay-sibling
+    protocol: sdc
+    driver: other
+    expect:
+      pass_line: "not-called runs, uncounted, then the stop writer_not_called"
+      checks:
+        - {kind: json_count, file: "{scratch}/not-called/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "writer_not_called"', count: 1}
+        - {kind: json_count, file: "{scratch}/not-called/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "writer_spent"', count: 0}
+        - {kind: json_count, file: "{scratch}/not-called/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "action_finished" and .action == "change.implement" and (.not_called | type == "string")', count_at_least: 1}
+    unexpressed:
+      - {kind: mutated-store, lines: "1121-1127", note: "copy of replay-sibling's tree: change.implement bound to a not-called program, amend.upstream deleted, finding dismissed, impl/Cargo.toml removed"}
+      - {kind: setup-shell, lines: "1121-1128", note: "rm/cp -a, jq edit of bindings.json, yq -i on findings.yaml, rm Cargo.toml"}
+      - {kind: second-run, lines: "1128-1130", note: "sdc-drive run --at <now> on the copy: exit 4 and stdout verdict writer_not_called"}
+    source: {lines: "1114-1136"}
+
+  - id: cite-dark-spot
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/cite-dark-spot, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-dark-spot, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "a dark spot beside its question accepted at write; the decider's decision applied; closed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.says | test("cancelled invoice is shown")) | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.says | test("cancelled invoice is shown")) | .decided_by', equals: "decider:model"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.says | test("cancelled invoice is shown")) | .refused_decision', equals: null}
+    unexpressed:
+      - {kind: event-order, lines: "1148-1149", note: "the last requirements.check in the intake events exited 0"}
+      - {kind: tree-search, lines: "1150-1151", note: "log blobs of requirements.check runs contain no ' cites ' line"}
+    source: {lines: "1137-1156"}
+
+  - id: cite-fault-sent-back
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/cite-fault, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml}
+    arguments: [--autopilot]
+    expect:
+      exit: 4
+      pass_line: "the decision applied; the writer sent back with the citation fault, then writer_spent"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: yaml_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "requirements.normalise in IDEA-1.intake"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.says | test("cancelled invoice is shown")) | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.says | test("cancelled invoice is shown")) | .decided_by', equals: "decider:model"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.says | test("cancelled invoice is shown")) | .refused_decision', equals: null}
+        - {kind: json_equals, file: "{store}/IDEA-1/children/IDEA-1.intake/events.jsonl", query: 'select(.event == "writer_spent") | .spent[0].action', equals: requirements.normalise}
+        - {kind: json_equals, file: "{store}/IDEA-1/children/IDEA-1.intake/events.jsonl", query: 'select(.event == "writer_spent") | .spent[0].runs', equals: 3}
+        - {kind: json_equals, file: "{store}/IDEA-1/children/IDEA-1.intake/events.jsonl", query: 'select(.event == "writer_spent") | .spent[0].sent_back[0].by', equals: requirements.check}
+    unexpressed:
+      - {kind: event-order, lines: "1170-1171", note: "the writer_spent checked is the last writer_spent event"}
+      - {kind: tree-search, lines: "1172-1174", note: "last requirements.check log blob contains 'r2 cites d3, an unknown that no question it cites asks about'"}
+      - {kind: derived-value, lines: "1175-1177", note: "console 'LLM calls so far N' equals started llm actions minus not_called finishes over all events"}
+    source: {lines: "1157-1180"}
+
+  - id: autopilot-close
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        close: {decision: reject, answer: null, reasons: ["fixture: the close is refused"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "closed operating by rule:autopilot; the decider was not asked"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: operating}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_count, file: "{store}/IDEA-1/events.jsonl", select: '.event == "terminated"', count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/events.jsonl", select: '.event == "terminated" and .outcome == "operating" and .principal == "rule:autopilot"', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.class == "close"', count: 0}
+    unexpressed:
+      - {kind: tree-search, lines: "1195", note: "no decider/*-close dir under the run"}
+    source: {lines: "1181-1200"}
+
+  - id: autopilot-close-a3
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        close: {decision: reject, answer: null, reasons: ["fixture: the close is refused"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_AUTONOMY: A3, SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: []
+    expect:
+      exit: 6
+      pass_line: "A3: the decider is asked for the close, rejects, the run stops unclosed"
+      checks:
+        - {kind: file_absent, file: "{run}/status.json"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.class == "close" and .decision == "reject" and .principal == "decider:model"', count_at_least: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/events.jsonl", select: '.event == "terminated"', count: 0}
+    unexpressed:
+      - {kind: tree-search, lines: "1207", note: "a decider/*-close dir exists under the run"}
+    source: {lines: "1201-1211"}
+
+  - id: conformance-default-off
+    state: expected
+    uses_run_of: autopilot-close
+    run: conformance-observe
+    protocol: sdc
+    driver: trial
+    stub:
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        close: {decision: reject, answer: null, reasons: ["fixture: the close is refused"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_CONFORMANCE: observe, SDC_CONFORM_BIN: "{scratch}/conform-stub", SDC_DECIDER_REPLIES: "{stub.replies}"}
+    arguments: [--autopilot]
+    setup:
+      - {write_executable: {path: "{scratch}/conform-stub", content: "#!/usr/bin/env bash\necho \"$@\" > \"$2/conform-called\"\n"}}
+    expect:
+      exit: 0
+      pass_line: "no observation by default; SDC_CONFORMANCE=observe calls sdc-conform observe <run>"
+      checks:
+        - {kind: file_contains, file: "{scratch}/autopilot-close.txt", regex: '^conformance: not observed \(off by default; SDC_CONFORMANCE=observe turns it on\)$'}
+        - {kind: file_absent, file: "{scratch}/runs/autopilot-close/oracle.json"}
+        - {kind: file_contains, file: "{scratch}/runs/conformance-observe/conform-called", text: "observe {scratch}/runs/conformance-observe"}
+        - {kind: file_absent_text, file: "{scratch}/conformance-observe.txt", regex: "^conformance: not observed"}
+    source: {lines: "1212-1228"}
+  - id: rule-approvals
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "context, roadmap and release taken by rule:autopilot on their checks' evidence ids, no decider call; vision and merge asked; metrics count N decisions by rule, N decider calls"
+      checks:
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: operating}
+    unexpressed:
+      - {kind: aggregate, lines: "1230-1241,1257", note: "every rule line of context.approve, roadmap.approve, release.publish names rule, check, no model, cost 0"}
+      - {kind: cross-record, lines: "1236-1237", note: "rule line cites equal the checks' evidence ids; evidence files exist"}
+      - {kind: tree-search, lines: "1238,1245-1253", note: "decider dirs per action counted by find; vision and merge asked"}
+      - {kind: aggregate, lines: "1259", note: "all context.approve evidence records have producer rule:autopilot"}
+      - {kind: event-order, lines: "1260", note: "last run-settings line has rule_approvals on"}
+      - {kind: second-run, lines: "1255,1261-1265", note: "sdc-run-metrics --json: decisions_by_rule, decider_calls, by_action"}
+    source: {lines: "1228-1270"}
+
+  - id: rule-approvals-check-failed
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", DRIVE: driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh, TAMPER_REAL: driver/target/debug/sdc-drive, TAMPER_MODE: result}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "the context check's record read finding: the decider was asked and declined-by-rule is on its line; roadmap and release still by rule"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .principal == "rule:autopilot"', count: 0}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .principal == "decider:model" and .decision != "invalid_reply" and .valid == true and .rule == null and (.rule_declined | test("recorded no passing context_defaults \\(valid\\)"))', count: 1}
+    unexpressed:
+      - {kind: tree-search, lines: "1230-1241,1277-1284", note: "exactly one decider dir for context.approve (find)"}
+      - {kind: aggregate, lines: "1230-1241,1281-1282", note: "roadmap.approve and release.publish rule lines pass rule_ok"}
+      - {kind: aggregate, lines: "1283", note: "all context.approve evidence records have producer decider:model"}
+    source: {lines: "1272-1291"}
+
+  - id: rule-approvals-revision-changed
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", DRIVE: driver/examples/sdc/fixtures/rule-approvals/drive-tamper.sh, TAMPER_REAL: driver/target/debug/sdc-drive, TAMPER_MODE: revision}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "the only passing check is about an earlier revision: the decider was asked; roadmap and release still by rule"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .principal == "rule:autopilot"', count: 0}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "context.approve" and .principal == "decider:model" and .decision != "invalid_reply" and .valid == true and .rule == null and (.rule_declined | test("about context@"))', count: 1}
+    unexpressed:
+      - {kind: tree-search, lines: "1230-1241,1277-1284", note: "exactly one decider dir for context.approve (find)"}
+      - {kind: aggregate, lines: "1230-1241,1281-1282", note: "roadmap.approve and release.publish rule lines pass rule_ok"}
+      - {kind: aggregate, lines: "1283", note: "all context.approve evidence records have producer decider:model"}
+    source: {lines: "1293-1298"}
+
+  - id: rule-approvals-off
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "SDC_RULE_APPROVALS=off: no rule line, the decider asked for context, vision, roadmap and release; run-settings rule_approvals off"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.principal == "rule:autopilot"', count: 0}
+        - {kind: file_absent, file: "{run}/rule-approvals"}
+        - {kind: json_count, file: "{run}/run-settings.jsonl", select: '.rule_approvals != "off"', count: 0}
+    unexpressed:
+      - {kind: tree-search, lines: "1242-1248,1305-1306", note: "decider asked for context, vision, roadmap, release: a decision line and a decider dir each"}
+    source: {lines: "1300-1309"}
+
+  - id: rule-approvals-a3
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "on", SDC_AUTONOMY: A3}
+    arguments: []
+    expect:
+      exit: 0
+      pass_line: "A3: the decider asked for context, vision, roadmap and release, no rule line, no rule request"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.principal == "rule:autopilot"', count: 0}
+        - {kind: file_absent, file: "{run}/rule-approvals"}
+    unexpressed:
+      - {kind: event-order, lines: "1316", note: "last run-settings line has autonomy A3 and rule_approvals on"}
+      - {kind: tree-search, lines: "1242-1248,1318", note: "decider asked for context, vision, roadmap, release: a decision line and a decider dir each"}
+    source: {lines: "1311-1321"}
+
+  - id: decider-input
+    state: expected
+    protocol: sdc
+    driver: other
+    needs: [autopilot, autopilot-close-a3]
+    stub:
+      fixtures: []
+    expect:
+      pass_line: "close reads published/README.md, no aep/; impl/Cargo.lock copied; aep status note; decider answers binding, no escalation to a person"
+    unexpressed:
+      - {kind: tree-search, lines: "1330-1332", note: "close decider record of autopilot-close-a3 has in/published/README.md, no in/aep"}
+      - {kind: tree-search, lines: "1333-1334", note: "a decider record with an impl input has in/impl/Cargo.lock"}
+      - {kind: tree-search, lines: "1335-1336", note: "roadmap.approve prompt says aep files belong to the planning tool"}
+      - {kind: aggregate, lines: "1337-1338", note: "no autopilot decider prompt offers escalation; every prompt says answer is product owner's own"}
+    source: {lines: "1324-1342"}
+
+  - id: keep-going-three
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going, driver/examples/sdc/fixtures/finding-spec-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        f1: {decision: approve, answer: "the customer and the billing clerk", best: null, cites: [r2], reasons: ["fixture: the clerk gets the email too"]}
+        merge.approve: {decision: reject, answer: null, reasons: ["fixture: the server binds only to 127.0.0.1"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot, --keep-going]
+    expect:
+      exit: 0
+      pass_line: "writer_spent, decision_not_takeable, rework_spent forced by rule:keep-going; closed (forced 3)"
+      checks:
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: operating}
+        - {kind: json_equals, file: "{run}/status.json", query: ".forced", equals: 3}
+        - {kind: file_contains, file: "{console}", regex: '^closed IDEA-1: "operating" by rule:autopilot \(forced 3\)'}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: 'true', count: 3}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.forced == true and .principal == "rule:keep-going" and .format == "sdc.run-defect/1"', count: 3}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.cause == "writer_spent"', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.cause == "decision_not_takeable"', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.cause == "rework_spent"', count: 1}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decided_by', equals: "rule:keep-going"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decision', equals: "the customer only"}
+    unexpressed:
+      - {kind: event-order, lines: "1369-1371", note: "defect causes in order writer_spent, decision_not_takeable, rework_spent"}
+      - {kind: field-compare, lines: "1369-1371", note: "defect reason non-empty; event_seq and llm_calls are numbers"}
+      - {kind: second-run, lines: "1372", note: "sdc-finding-kpis --json: forced.value 3"}
+    source: {lines: "1344-1377"}
+
+  - id: keep-going-off
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going, driver/examples/sdc/fixtures/finding-spec-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies: "as keep-going-three"
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<as keep-going-three>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 4
+      pass_line: "without --keep-going the first stop ends the run: writer_spent, no defects.jsonl"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "requirements.normalise in IDEA-1.intake"}
+        - {kind: file_absent, file: "{run}/defects.jsonl"}
+        - {kind: file_absent, file: "{run}/status.json"}
+    source: {lines: "1378-1388"}
+
+  - id: keep-going-repeat
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/offline-decision]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+    arguments: [--autopilot, --keep-going]
+    expect:
+      exit: 7
+      pass_line: "the default forced once, refused again by the same check: stops decision_not_takeable"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: decision_not_takeable}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: 'true', count: 2}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.forced == true and .cause == "decision_not_takeable"', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.forced == false and .cause == "decision_not_takeable" and .continuation == "stops"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "1394", note: "forced defect line first, the stopping line second"}
+      - {kind: aggregate, lines: "1395", note: "some finding has refused_decision.decided_by rule:keep-going"}
+    source: {lines: "1389-1399"}
+
+  - id: unstick-end
+    state: expected
+    when: "protocol/sdc-story.protocol.yaml declares action merge.approve"
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve: {decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}
+        unstick: {rework_spent: {move: "end:dropped", defect_class: decider_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: end:dropped"]}}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_DECIDER_REPLIES: "<stub.replies.merge.approve as JSON under key merge.approve>", SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "rework_spent: run.unstick ended the story through dropped; closed not_delivered (unstuck 1)"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: not_delivered}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".unstuck", equals: 1}
+        - {kind: file_contains, file: "{console}", regex: '^closed IDEA-1: "not_delivered" by rule:autopilot \(unstuck 1\)'}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: 'true', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.unstick == true and .unstuck == true and .move == "end:dropped" and .cause == "rework_spent" and .principal == "agent:unstick" and .defect_class == "decider_error" and .forced == false', count: 1}
+        - {kind: json_equals, file: "{run}/unstick/001-rework_spent/request.json", query: ".effort", equals: xhigh}
+    unexpressed:
+      - {kind: tree-search, lines: "1424-1426", note: "story case found with find; its last 3 non-evaluated events: rejected merge.approve, explicitly_dropped by agent:unstick, terminated dropped"}
+      - {kind: event-order, lines: "1426-1428", note: "story events tail order"}
+      - {kind: aggregate, lines: "1429", note: "three merge_approval evidence records with result rejected"}
+      - {kind: field-compare, lines: "1431", note: "defect diagnosis longer than 20 characters"}
+      - {kind: derived-value, lines: "1432", note: "unstick/001-rework_spent/cwd/in/stop.json is non-empty"}
+      - {kind: event-order, lines: "1434", note: "last run-settings line efforts.unstick is xhigh from default"}
+      - {kind: aggregate, lines: "1435", note: "stop.json moves include end:dropped, approve:merge.approve, stop"}
+      - {kind: second-run, lines: "1436", note: "sdc-finding-kpis --json: unstuck 1, clean_run false, diagnosis move"}
+    source: {lines: "1401-1442"}
+
+  - id: unstick-rerun
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        unstick: {writer_spent: {move: "rerun:requirements.normalise", defect_class: writer_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: rerun:requirements.normalise"]}}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "writer_spent: one allowance by agent:unstick, the writer ran again, closed (unstuck 1)"
+      checks:
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: operating}
+        - {kind: json_equals, file: "{run}/status.json", query: ".unstuck", equals: 1}
+        - {kind: file_contains, file: "{console}", regex: '^closed IDEA-1: "operating" by rule:autopilot \(unstuck 1\)'}
+        - {kind: event_count, log: "{run}/store/IDEA-1/children/IDEA-1.intake/events.jsonl", event: allowance_granted, count: 1}
+        - {kind: json_count, file: "{run}/store/IDEA-1/children/IDEA-1.intake/events.jsonl", select: '.event == "allowance_granted" and .action == "requirements.normalise" and .principal == "agent:unstick"', count: 1}
+        - {kind: event_count, log: "{run}/store/IDEA-1/children/IDEA-1.intake/events.jsonl", event: action_finished, action: requirements.normalise, count: 4}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: 'true', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.unstuck == true and .move == "rerun:requirements.normalise" and .cause == "writer_spent"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "1452", note: "last action_started requirements.normalise has retry_of [requirements_shape]"}
+      - {kind: event-order, lines: "1454", note: "last run-settings line: unstick on, model claude-opus-5-5"}
+    source: {lines: "1446-1461"}
+
+  - id: unstick-invalid
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/cite-fault, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        unstick: {"*": {move: "approve:nothing", defect_class: other, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: approve:nothing"]}}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 4
+      pass_line: "three invalid replies: no move, the run stops writer_spent"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "requirements.normalise in IDEA-1.intake"}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: 'true', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.forced == false and .cause == "writer_spent" and .unstick == true and .unstuck == false and .attempts == 3 and (.continuation | test("invalid reply after 2 retries: move \"approve:nothing\" is not one of the ids"))', count: 1}
+        - {kind: json_equals, file: "{run}/unstick/001-writer_spent/result.json", query: ".attempts", equals: 3}
+        - {kind: json_equals, file: "{run}/unstick/001-writer_spent/result.json", query: ".valid", equals: false}
+        - {kind: file_absent, file: "{run}/status.json"}
+    unexpressed:
+      - {kind: derived-value, lines: "1470", note: "console has exactly 3 lines 'run.unstick: reply refused by the check'"}
+    source: {lines: "1463-1474"}
+
+  - id: unstick-limit
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/cite-fault, driver/examples/sdc/fixtures/finding-intake-scope.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        unstick: {"*": {move: "rerun:requirements.normalise", defect_class: writer_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: rerun:requirements.normalise"]}}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "on", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/cite-fault, SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-intake-scope.yaml, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 4
+      pass_line: "one allowance, spent again: the same stop is not unstuck twice, unstick_spent"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: unstick_spent}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "unstick_spent: writer_spent at requirements.normalise in IDEA-1.intake[^ ]* was unstuck once before"}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: 'true', count: 1}
+        - {kind: json_count, file: "{run}/defects.jsonl", select: '.unstuck == true and .move == "rerun:requirements.normalise"', count: 1}
+        - {kind: event_count, log: "{run}/store/IDEA-1/children/IDEA-1.intake/events.jsonl", event: allowance_granted, count: 1}
+    unexpressed:
+      - {kind: tree-search, lines: "1484", note: "exactly one directory under {run}/unstick (find count)"}
+    source: {lines: "1476-1488"}
+
+  - id: unstick-off
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/keep-going]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        unstick: {writer_spent: {move: "rerun:requirements.normalise", defect_class: writer_error, diagnosis: "fixture run.unstick: the stop is a defect of the system, named here for the people who fix it.", reasons: ["fixture: rerun:requirements.normalise"]}}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/keep-going, SDC_UNSTICK_REPLIES: "<stub.replies.unstick as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 4
+      pass_line: "SDC_UNSTICK=off: the first stop ends the run as today, writer_spent"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "requirements.normalise in IDEA-1.intake"}
+        - {kind: file_absent, file: "{run}/defects.jsonl"}
+        - {kind: file_absent, file: "{run}/unstick"}
+        - {kind: file_absent, file: "{run}/status.json"}
+    unexpressed:
+      - {kind: event-order, lines: "1494", note: "last run-settings line has unstick.on false"}
+    source: {lines: "1490-1499"}
+
+  - id: reopen-refused-decision
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/finding-spec-person.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        f1: {decision: approve, answer: "the customer and the billing clerk", best: null, cites: [r2], reasons: ["fixture: the clerk gets the email too"]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FINDINGS: driver/examples/sdc/fixtures/finding-spec-person.yaml, SDC_STUB_REFUSE_DECISION: "the customer and the billing clerk", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 7
+      pass_line: "refused, stopped; reopened with the check fixed: the decision applied, closed; KPIs: 1 reopen, not clean, L7 0"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: file_contains, file: "{run}/run.log", regex: '^# reopen: 1 refused decision\(s\) in .* put back for the current check'}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .status', equals: resolved}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decided_by', equals: "decider:model"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .decision', equals: "the customer and the billing clerk"}
+        - {kind: yaml_equals, file: "{work}/findings.yaml", query: '.findings[] | select(.id == "f1") | .refused_decision', equals: null}
+    unexpressed:
+      - {kind: second-run, lines: "1511-1516", note: "run-trial.sh --reopen --autopilot with SDC_DECIDER=haiku, no SDC_STUB_REFUSE_DECISION, SDC_PRINCIPAL agent:finding-cycles; exit 0"}
+      - {kind: tree-search, lines: "1518", note: "run-stopped.<at>.json exists (glob) with cause decision_not_takeable"}
+      - {kind: second-run, lines: "1522", note: "sdc-finding-kpis --json: stopped_for_fix.reopens 1, not clean, L7 0"}
+    source: {lines: "1501-1526"}
+
+  - id: decider-release-a3
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        release.publish: {decision: reject, answer: null, reasons: ["fixture: the release notes name no version"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_AUTONOMY: A3, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: []
+    expect:
+      exit: 6
+      pass_line: "A3: rejected_without_rework_path, nothing recorded; decide refused outside the refused state"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: file_absent, file: "{run}/status.json"}
+        - {kind: file_contains, file: "{console}", regex: 'release.publish in .*rejected_without_rework_path'}
+    unexpressed:
+      - {kind: tree-search, lines: "1544-1545", note: "release case dir found with find -name '*.release'; its decisions.json empty, authority.json has no denied"}
+      - {kind: setup-shell, lines: "1546-1548", note: "copy the release case, write a rejection reasons file"}
+      - {kind: second-run, lines: "1549-1555", note: "sdc-drive decide --decision explicitly_withheld on the copy exits non-zero with the refusal text; copy decisions.json empty"}
+    source: {lines: "1529-1558"}
+
+  - id: decider-release-withheld
+    state: expected
+    when: "protocol/compiled/sdc-epic.ir.json has outcome not_released"
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        release.publish: {decision: reject, answer: null, reasons: ["fixture: the release notes name no version"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "release withheld by rule:autopilot after the decider's refusal, epic not_released, root not_delivered; exit 0, no person, L7 0, replay matches"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: file_contains, file: "{console}", text: 'closed IDEA-1: "not_delivered" (release withheld: fixture: the release notes name no version)'}
+        - {kind: json_equals, file: "{run}/status.json", query: ".state", equals: closed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: not_delivered}
+        - {kind: json_equals, file: "{run}/status.json", query: ".delivered", equals: false}
+    unexpressed:
+      - {kind: tree-search, lines: "1565-1566", note: "release case and epic case dirs found with find"}
+      - {kind: aggregate, lines: "1568-1572", note: "census: no person principal in decisions.jsonl and all event logs"}
+      - {kind: cross-record, lines: "1567,1577", note: "withheld decision log id names a blob holding sdc.rejection/1 with the reasons"}
+      - {kind: event-order, lines: "1575-1578", note: "release authority.json is one denied release.approve; decisions.json one explicitly_withheld by rule:autopilot; terminated outcomes withheld (release), not_released (epic)"}
+      - {kind: second-run, lines: "1579", note: "sdc-finding-kpis --json: L7 value 0"}
+      - {kind: aggregate, lines: "1580", note: "replay.json: every entry has state_matches_log and decision_matches_log"}
+    source: {lines: "1529-1584"}
+
+  - id: requester-decider
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trial-2, driver/examples/sdc/fixtures/trial-2/requester-replies.json, decision/examples/goals/trial-2.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_REQUESTER_DECIDER: haiku, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trial-2, SDC_AUTONOMY: A3, SDC_REQUESTER_REPLIES: driver/examples/sdc/fixtures/trial-2/requester-replies.json}
+    arguments: [--goals, decision/examples/goals/trial-2.yaml]
+    expect:
+      exit: 0
+      pass_line: "q1, q3 by decider:requester on verified goals grounds, its in/ exactly the request, subject, cited files, idea, dissection, goals, decisions; merge by decider:model"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '(.question == "q1" or .question == "q3") and .decision == "approve" and .principal == "decider:requester" and .side == "requester"', count: 2}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q1") | .answered_by', equals: "decider:requester"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .answered_by', equals: "decider:requester"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '(.action == "merge.approve" or .action == "change.merge") and (.principal != "decider:model" or .side != "delivering")', count: 0}
+    unexpressed:
+      - {kind: aggregate, lines: "1613", note: "at least one merge.approve or change.merge decision exists (length > 0)"}
+      - {kind: tree-search, lines: "1610-1611", note: "q1 decider record in/ holds exactly decisions.json dissection.yaml goals.yaml idea.yaml questions.yaml request.json"}
+      - {kind: tree-search, lines: "1612", note: "grounds-check.json of q1 and q3 records: recommend.check_verdict verified"}
+    source: {lines: "1586-1619"}
+
+  - id: requester-no-ground
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/trial-2, driver/examples/sdc/fixtures/trial-2/requester-replies.json, decision/examples/goals/trial-2.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies: "requester-replies.json with q3 replaced by {option: null, answer: null, reasons: [fixture: no entry covers sign-in], grounds: [], strength: weak, no_ground_in_goals: true}"
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: haiku, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_REQUESTER_DECIDER: haiku, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/trial-2, SDC_REQUESTER_REPLIES: "<requester-replies.json with q3 replaced, as JSON>"}
+    arguments: [--autopilot, --goals, decision/examples/goals/trial-2.yaml]
+    expect:
+      exit: 0
+      pass_line: "A5: no ground for q3, its default taken, marked no_ground_in_goals"
+      checks:
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .answered_by', equals: "decider:requester"}
+    unexpressed:
+      - {kind: computed-input, lines: "1622", note: "SDC_REQUESTER_REPLIES built with jq from requester-replies.json"}
+      - {kind: event-order, lines: "1624-1625", note: "last q3 requester decision: no_ground_in_goals, suppressed, answer 'Sign in with a one-time code sent by email'"}
+      - {kind: field-compare, lines: "1626", note: "q3 answer equals q3 default"}
+    source: {lines: "1621-1631"}
+
+  - id: principals
+    state: expected
+    protocol: sdc
+    driver: other
+    needs: [finding-person, finding-person-stop]
+    stub:
+      fixtures: []
+    expect:
+      pass_line: "person:stand-in on the person path, stand_in labelled; a decision with no principal refused"
+    unexpressed:
+      - {kind: setup-shell, lines: "1637-1640", note: "copy finding-person-stop's work dir, edit its needs_person finding with yq -i"}
+      - {kind: mutated-store, lines: "1638-1640", note: "decision written by hand with no principal into the copy"}
+      - {kind: second-run, lines: "1641-1646", note: "sdc-findings amend spec refuses 'no principal'; sdc-tool.sh findings-wait succeeds"}
+      - {kind: aggregate, lines: "1642", note: "every decided finding of finding-person has decided_by person:stand-in"}
+      - {kind: aggregate, lines: "1643", note: "some run-settings line of finding-person has stand_in true, stand_in_by scripts/run-full-cycle.sh"}
+      - {kind: tree-search, lines: "1646", note: "no 'human' in the copy's questions.yaml (grep -r)"}
+    source: {lines: "1634-1650"}
+
+  - id: models
+    state: expected
+    protocol: sdc
+    driver: trial
+    runs:
+      - {name: models-binding, switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku}}
+      - {name: models-all, switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_MODEL: model-all}}
+      - {name: models-class, switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_MODEL: model-all, SDC_LLM_MODEL_WRITER: model-writer, SDC_LLM_MODEL_IMPLEMENT: model-implement, SDC_LLM_MODEL_REVIEW: model-review, SDC_LLM_MODEL_DECIDER: model-decider, SDC_LLM_MODEL_OTHER: model-other}}
+    stub:
+      fixtures: [bindings/tools/node-classes.json]
+    switches: {}
+    arguments: [--dry]
+    expect:
+      pass_line: "binding default, one model for all, one per class; each call names its model; run settings per class"
+      checks:
+        - {kind: exit, run: models-binding, equals: 0}
+        - {kind: exit, run: models-all, equals: 0}
+        - {kind: exit, run: models-class, equals: 0}
+    unexpressed:
+      - {kind: computed-input, lines: "1666-1667,1675", note: "expected model per node computed from the bindings' llm.model and node-classes.json"}
+      - {kind: aggregate, lines: "1656-1664,1676-1678", note: "every line of llm-calls.jsonl and decisions.jsonl names the expected model, per run"}
+      - {kind: event-order, lines: "1680-1683", note: "last run-settings line models.<class>.model and .source for models-class and models-binding"}
+    source: {lines: "1652-1688"}
+
+  - id: decider-question-reject
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/scope-two]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        q2:
+          - {decision: reject, answer: null, reasons: ["fixture: neither option fits"], cites: [d4], best: null}
+          - {decision: approve, answer: "the billing clerk, before it is paid", reasons: ["fixture: the idea names only the clerk"], cites: [d4], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-two, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "a reject of a question refused with its reason, asked again, answered; closed"
+      checks:
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q2"', count: 2}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q2" and .decision == "invalid_reply" and (.invalid_reason | test("a question is decided with approve"))', count: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.question == "q2" and .decision == "approve"', count: 1}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .answered_by', equals: "decider:model"}
+    unexpressed:
+      - {kind: event-order, lines: "1706", note: "q2 decisions in order invalid_reply, then approve"}
+    source: {lines: "1694-1713"}
+
+  - id: rework-fresh-allowance
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/rework-allowance]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve: {rounds: [{decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}, {decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}, {decision: approve, answer: null, reasons: ["fixture: the rework addresses the rejection"], cites: [r1], best: null}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/rework-allowance, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "a test retry and two merge reworks: 4 runs, no writer_spent; closed"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_finished, action: change.implement, count: 4}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: writer_spent, count: 0}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve"', count: 3}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "reject"', count: 2}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.action == "merge.approve" and .decision == "approve"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "1723", note: "merge.approve decisions in order reject, reject, approve"}
+    source: {lines: "1715-1729"}
+
+  - id: spec-review-rework
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/spec-review-reject]
+    switches: {RUNS: "{scratch}/runs", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/spec-review-reject}
+    arguments: []
+    expect:
+      exit: 0
+      pass_line: "a rejected spec review sends spec.author back; operating"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: action_finished, action: spec.author, count: 2}
+    unexpressed:
+      - {kind: event-order, lines: "1737-1738", note: "last spec.author start has retry_of including spec_review"}
+    source: {lines: "1731-1742"}
+
+  - id: spec-interp-unsupported
+    state: expected
+    protocol: sdc
+    driver: full-cycle
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/spec-interp-unsupported, driver/examples/sdc/fixtures/billing-spec]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {RUNS: "{scratch}/runs", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/spec-interp-unsupported, SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_LLM_NODES: spec.author}
+    arguments: []
+    expect:
+      exit: 0
+      pass_line: "the gate refuses a spec its interpreter cannot carry out, naming the scenario; spec.author sent back with it; the clean spec passes; operating"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: action_finished, action: spec.author, count: 2}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.spec/events.jsonl", event: action_finished, action: spec.synthesize, count: 2}
+    unexpressed:
+      - {kind: setup-shell, lines: "1757-1759", note: "copy bad (billing-spec.0) and clean (billing-spec) specs into two scratch dirs"}
+      - {kind: second-run, lines: "1760-1761,1763-1764", note: "sdc-tool.sh ess-gate: bad exits 1 naming the scenario, clean exits 0 with 'interpreted run: 32 scenarios, all passed'"}
+      - {kind: event-order, lines: "1765-1768", note: "spec.author last start retry_of spec_synthesis; spec.synthesize exits [1,0]"}
+      - {kind: tree-search, lines: "1763,1769", note: "latest spec.author in/feedback.md (find) contains the scenario id and ESS reason"}
+    source: {lines: "1744-1772"}
+
+  - id: scope-unattributed-reject
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/scope-unattributed]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        scope.answer: {decision: reject, answer: null, reasons: ["fixture: the answers were given by nobody who may give them"], cites: [d4], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/scope-unattributed, SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "unattributed answers put to the decider one by one; closed"
+      checks:
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q2") | .answered_by', equals: "decider:model"}
+        - {kind: yaml_equals, file: "{work}/questions.yaml", query: '.questions[] | select(.id == "q3") | .answered_by', equals: "decider:model"}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.type == "approval" and .action == "scope.answer"', count: 0}
+    unexpressed:
+      - {kind: aggregate, lines: "1782", note: "the script selects scope_changing questions (not ids q2, q3): exactly two, in order"}
+    source: {lines: "1774-1788"}
+
+  - id: finding-refused-reask
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/offline-decision]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/offline-decision}
+    arguments: [--autopilot]
+    expect:
+      exit: 7
+      pass_line: "the refused decision asked again twice with the refusal, then decision_not_takeable"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: decision_not_takeable}
+        - {kind: json_count, file: "{run}/decisions.jsonl", select: '.finding == "p-offline-hosted-context.deployment" and .decision == "approve"', count: 3}
+    unexpressed:
+      - {kind: tree-search, lines: "1797-1799", note: "last decider record dir for the finding (ls glob): its prompt.md mentions 'refused' case-insensitively"}
+    source: {lines: "1790-1804"}
+
+  - id: rework-spent-dropped
+    state: pending
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        merge.approve: {decision: reject, answer: null, reasons: ["fixture: the change does not meet r1"], cites: [r1], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "third rejection: story dropped by rule:autopilot, root not_delivered, closed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".state", equals: closed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: not_delivered}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/decisions.json", select: '.decision == "explicitly_dropped" and .principal == "rule:autopilot"', min: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", select: '.event == "terminated" and .outcome == "dropped"', count: 1}
+    unexpressed:
+      - {kind: event-order, lines: "1816", note: "terminated outcomes of the story are exactly [dropped]"}
+    source: {lines: "1806-1820"}
+
+  - id: rework-spent-abandoned
+    state: pending
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        context.approve: {decision: reject, answer: null, reasons: ["fixture: the context is not usable"], cites: [context.platform], best: null}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_RULE_APPROVALS: "off", SDC_DECIDER_REPLIES: "<stub.replies as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "third rejection of the context: root abandoned by rule:autopilot, closed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".state", equals: closed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: abandoned}
+        - {kind: json_count, file: "{store}/IDEA-1/decisions.json", select: '.decision == "explicitly_abandoned" and .principal == "rule:autopilot"', min: 1}
+    source: {lines: "1822-1833"}
+
+  - id: review-invalid-named
+    state: expected
+    when: "driver/examples/sdc/sdc-story.bindings.json change.review has an llm binding (else the script prints FAILED)"
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        review: {rounds: [{decision: rejected, summary: fixture, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "fixture: a line that does not exist"}]}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, SDC_REVIEW_REPLIES: "<stub.replies.review as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit_not: 0
+      pass_line: "invalid review replies: a named stop at change.review, not stuck"
+      checks:
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "change.review"}
+    unexpressed:
+      - {kind: field-compare, lines: "1842", note: "run-stopped cause is not stuck and not null"}
+      - {kind: conditional, lines: "1838,1849", note: "runs only when change.review has an llm binding; the script prints FAILED otherwise"}
+    source: {lines: "1835-1849"}
+
+  - id: writer-own-error
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/own-error]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/own-error, SDC_LLM_NODES: questions.answer}
+    arguments: [--autopilot]
+    expect:
+      pass_line: "the refused apply's log fed back to the next run as in/feedback.md"
+    unexpressed:
+      - {kind: cross-record, lines: "1856-1858", note: "second questions.answer record named in llm-calls.jsonl; its in/feedback.md contains 'changed a scope-changing question'"}
+    source: {lines: "1851-1862"}
+
+  - id: implement-percause
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/implement-percause]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/implement-percause}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "two test failures and a review rejection: counted per kind, 4 runs; closed"
+      checks:
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: action_finished, action: change.implement, count: 4}
+        - {kind: event_count, log: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", event: writer_spent, count: 0}
+    source: {lines: "1864-1877"}
+
+  - id: writer-sees-test-failure
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/test-failure]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/test-failure}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "the failing test's message reached the next writer run; closed"
+    unexpressed:
+      - {kind: cross-record, lines: "1886-1890", note: "second change.implement record from llm-calls.jsonl: in/feedback.md has the assertion message and no 'slot: job' line"}
+    source: {lines: "1879-1893"}
+  - id: implement-request-build
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "one request, no operation offered, the reply written into impl/; closed"
+      checks:
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement}, count: 1}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement, implement_mode: request, requests: 1, reply_retries: 0, continuations: 0, allowed_operations: [], applied_exit: 0}, count: 1}
+        - {kind: file_contains, file: "{call:change.implement#1}/prompt.md", text: "you have no tools, nothing to read"}
+        - {kind: json_equals, file: "{call:change.implement#1}/reply-schema.json", query: ".required", equals: [files, note, findings, remaining]}
+        - {kind: json_equals, file: "{call:change.implement#1}/implement-inputs.json", query: ".tree.first_story", equals: true}
+        - {kind: file_same_as, file: "{work}/impl/src/lib.rs", as: driver/examples/sdc/fixtures/impl/src/lib.rs}
+    unexpressed:
+      - {kind: field-compare, lines: "1910-1911", note: "implement-inputs.json .commands is not an empty list"}
+    source: {lines: "1902-1918", helpers: "1895-1901"}
+
+  - id: implement-request-tests-rework
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl, driver/examples/sdc/fixtures/test-failure]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/test-failure}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "the failing test and the current files in the second request; closed"
+      checks:
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement}, count: 2}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement, requests: 1}, count: 2}
+        - {kind: file_contains, file: "{call:change.implement#2}/prompt.md", text: "fixture-failure: the second email of an account counts 2"}
+        - {kind: file_absent_text, file: "{call:change.implement#2}/prompt.md", regex: "^slot: job "}
+        - {kind: file_contains, file: "{call:change.implement#2}/prompt.md", regex: "^### impl/tests/billing.rs"}
+    source: {lines: "1920-1932"}
+
+  - id: implement-request-review-rework
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_REVIEW_REPLIES:
+          rounds:
+            - {decision: rejected, summary: "fixture: the README does not say how to run it", findings: [{kind: violation, at: "impl/README.md:1", violates: r1, says: "fixture: the README names no command to run the service"}]}
+            - {decision: approved, summary: "fixture: the rework addresses the finding", findings: []}
+        SDC_IMPLEMENT_REPLIES:
+          rounds:
+            - stub
+            - {files: [{path: README.md, content: "# billing\n\nRun the service: cargo run -- 8080 billing.json\nRun the tests: task check\n"}], note: "1. README.md:3 names the command that runs it", findings: [], remaining: []}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: "change.implement change.review"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "the rejection and the current README in the second request, README replaced; closed"
+      checks:
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement}, count: 2}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement, requests: 1}, count: 2}
+        - {kind: file_contains, file: "{call:change.implement#2}/prompt.md", regex: "^## Rework"}
+        - {kind: file_contains, file: "{call:change.implement#2}/prompt.md", text: "fixture: the README names no command to run the service"}
+        - {kind: file_contains, file: "{call:change.implement#2}/prompt.md", regex: "^### impl/README.md"}
+        - {kind: file_contains, file: "{work}/impl/README.md", text: "cargo run -- 8080"}
+    source: {lines: "1934-1952"}
+
+  - id: implement-request-invalid-retry
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_IMPLEMENT_REPLIES:
+          rounds:
+            - [{files: [], note: "", findings: [], remaining: []}, stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "an empty reply refused, retried with the error, accepted; closed"
+      checks:
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement}, count: 1}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement, requests: 2, reply_retries: 1}, count: 1}
+        - {kind: file_contains, file: "{call:change.implement#1}/req-2/prompt.md", text: "The program check refused it: `files` is empty"}
+    source: {lines: "1954-1966"}
+
+  - id: implement-request-invalid-named
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_IMPLEMENT_REPLIES:
+          rounds:
+            - [{files: [{path: src/lib.rs}], note: x, findings: [], remaining: []}]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit_not: 0
+      pass_line: "three requests per call, nothing written, stopped implement_reply_invalid"
+      checks:
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement, requests: 3, reply_retries: 2, cause: implement_reply_invalid}, count_min: 1}
+        - {kind: file_absent, file: "{work}/impl/src/lib.rs"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: implement_reply_invalid}
+    unexpressed:
+      - {kind: aggregate, lines: "1975", note: "every change.implement call has requests 3, retries 2, that cause"}
+    source: {lines: "1968-1980"}
+
+  - id: implement-request-path-escape
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_IMPLEMENT_REPLIES:
+          rounds:
+            - [{files: [{path: ../escape.rs, content: "fn main() {}\n"}], note: "", findings: [], remaining: []}, stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_MODE: request, SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "../escape.rs refused, nothing written outside impl/; closed"
+      checks:
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement, requests: 2}, count_min: 1}
+        - {kind: file_contains, file: "{call:change.implement#1}/req-2/prompt.md", text: "path \"../escape.rs\": leaves the product tree"}
+        - {kind: file_absent, file: "{call:change.implement#1}/**/escape.rs"}
+        - {kind: file_absent, file: "{work}/**/escape.rs"}
+    source: {lines: "1982-1995"}
+
+  - id: coverage-complete
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_COVERAGE_REPLIES:
+          rounds:
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: "change.implement change.review"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "every requirement cited: the change recorded, the review read in/coverage.json; closed"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement, exit: "0", refused: null}, count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement}, count: 1}
+        - {kind: file_contains, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/blobs/*", text: "requirement coverage of story invoices: 2 built and cited (r1 r2)", note: "the blob named by the last change.implement event's log"}
+        - {kind: json_equals, file: "{call:change.review#last}/cwd/in/coverage.json", query: ".requirements[1].test", equals: send_email}
+        - {kind: file_contains, file: "{call:change.review#last}/prompt.md", regex: "^- in/coverage.json \\(read-only"}
+        - {kind: file_absent, file: "{call:change.review#last}/cwd/in/impl/.sdc"}
+    unexpressed:
+      - {kind: field-compare, lines: "2029", note: "the one implement run recorded exactly one evidence record"}
+      - {kind: field-compare, lines: "2031", note: "impl/.sdc/coverage.json lists 2 requirements"}
+    source: {lines: "2019-2035", helpers: "1997-2018"}
+
+  - id: coverage-not-built
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_COVERAGE_REPLIES:
+          rounds:
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: not_built, reason: "fixture: the email is not sent yet"}]}
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "r2 not_built: refused before tests.run, fed back naming r2, the next run passed; metrics requirement_coverage:refused 1; closed"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement}, count: 2}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement, exit: "0", "refused.kind": requirement_coverage}, count: 1}
+        - {kind: file_contains, file: "{call:change.implement#2}/cwd/in/feedback.md", regex: "^## requirement_coverage = refused \\(from change.implement"}
+        - {kind: file_contains, file: "{call:change.implement#2}/cwd/in/feedback.md", text: "- r2: not built: fixture: the email is not sent yet"}
+        - {kind: file_contains, file: "{call:change.implement#2}/cwd/in/feedback.md", regex: "^refused requirements: r2$"}
+    unexpressed:
+      - {kind: event-order, lines: "2043-2044", note: "first implement run refused, second not; first has 0 evidence, second 1"}
+      - {kind: event-order, lines: "2045", note: "no tests.run between the refused run and the next implement run"}
+      - {kind: event-order, lines: "2046", note: "second change.implement start has retry_of requirement_coverage"}
+      - {kind: second-run, lines: "2050-2051", note: "sdc-run-metrics: retries_by_cause requirement_coverage:refused is 1"}
+    source: {lines: "2037-2054"}
+
+  - id: coverage-line-outside
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_COVERAGE_REPLIES:
+          rounds:
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 999}], test: send_email}]}
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "a cited line outside its file: refused, fed back, fixed; closed"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement, "refused.kind": requirement_coverage}, count: 1}
+        - {kind: file_contains, file: "{call:change.implement#2}/cwd/in/feedback.md", text: "- r2: src/lib.rs:999 is outside src/lib.rs (79 lines)"}
+    unexpressed:
+      - {kind: event-order, lines: "2060", note: "refusals per implement run are [requirement_coverage, null] in that order"}
+      - {kind: event-order, lines: "2061", note: "no tests.run between the refused run and the next implement run"}
+    source: {lines: "2056-2067"}
+
+  - id: coverage-test-missing
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_COVERAGE_REPLIES:
+          rounds:
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: email_is_sent}]}
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "a named test that does not exist: refused, fed back, fixed; closed"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement, "refused.kind": requirement_coverage}, count: 1}
+        - {kind: file_contains, file: "{call:change.implement#2}/cwd/in/feedback.md", text: "- r2: test email_is_sent: no #[test] function of that name in the test sources"}
+    unexpressed:
+      - {kind: event-order, lines: "2074", note: "refusals per implement run are [requirement_coverage, null] in that order"}
+      - {kind: event-order, lines: "2075", note: "no tests.run between the refused run and the next implement run"}
+    source: {lines: "2069-2080"}
+
+  - id: coverage-spent
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_COVERAGE_REPLIES:
+          rounds:
+            - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: not_built, reason: "fixture: the email is not sent yet"}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit_not: 0
+      pass_line: "r2 never built: writer_spent on change.implement after 3 runs, kind requirement_coverage, no tests.run"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: requirement_coverage}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: writer_spent, "spent[0].action": change.implement, "spent[0].kind": requirement_coverage, "spent[0].runs": 3}, count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {action: tests.run}, count: 0}
+    unexpressed:
+      - {kind: aggregate, lines: "2090", note: "the three sent_back kinds are all requirement_coverage; spent record is the last stop event"}
+    source: {lines: "2082-2096"}
+
+  - id: coverage-reply-retry
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/impl]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_COVERAGE_REPLIES:
+          rounds:
+            - - {requirements: [{id: r1, status: built, at: [], test: create_invoice}, {id: r2, status: not_built, reason: x}]}
+              - {requirements: [{id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}, {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_IMPLEMENT_COVERAGE: "on", SDC_LLM_NODES: change.implement}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "a reply outside the schema asked again with the reason in the same run; two call lines; closed"
+      checks:
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement, exit: "0", refused: null}, count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/events.jsonl", where: {event: action_finished, action: change.implement}, count: 1}
+        - {kind: file_exists, file: "{call:change.implement#1}/coverage.try1.json"}
+        - {kind: file_contains, file: "{call:change.implement#1}/prompt.md", text: "Your coverage document was refused by the program check: invalid coverage reply: entry 1 (r1): built needs `at`"}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.implement}, count: 2}
+    unexpressed:
+      - {kind: field-compare, lines: "2107", note: "the one implement run recorded exactly one evidence record"}
+    source: {lines: "2098-2112"}
+
+  - id: review-real-path
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, FAKE_MODEL_LOG: "{scratch}/review-real-path.model.jsonl"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "metaharness run: the review on claude-cli with a response schema and read-only tools, approved, the run closed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".adapters.review.adapter", equals: claude-cli}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".adapters.review.json_schema", equals: true}
+        - {kind: json_matches, file: "{run}/run-settings.jsonl", record: last, query: ".adapters.review.source", regex: "^default: claude-cli"}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.review, adapter: claude-cli}, count_min: 1}
+        - {kind: json_count, file: "{scratch}/review-real-path.model.jsonl", where: {cli: claude}, count_min: 1}
+        - {kind: json_equals, file: "{call:change.review#last}/response.json", query: ".schema_constrained", equals: true}
+        - {kind: json_count, file: "{store}/IDEA-1/children/*/children/IDEA-1.*.invoices/evidence/*.json", where: {kind: code_review, result: approved, producer: llm-review}, count_min: 1}
+    unexpressed:
+      - {kind: aggregate, lines: "2133", note: "every change.review call is on claude-cli"}
+      - {kind: aggregate, lines: "2134-2135", note: "every claude call has --json-schema and allowedTools Glob,Grep,Read"}
+      - {kind: aggregate, lines: "2137", note: "every code_review record is approved by llm-review"}
+    source: {lines: "2124-2141", helpers: "2113-2123"}
+
+  - id: review-real-path-facts
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_MODE: facts, FAKE_MODEL_LOG: "{scratch}/review-real-path-facts.model.jsonl"}
+    arguments: [--autopilot]
+    expect:
+      exit: 0
+      pass_line: "metaharness run: the review on claude-cli with a response schema, no tools and the review input in its prompt, approved, the run closed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".adapters.review.adapter", equals: claude-cli}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".adapters.review.json_schema", equals: true}
+        - {kind: json_matches, file: "{run}/run-settings.jsonl", record: last, query: ".adapters.review.source", regex: "^default: claude-cli"}
+        - {kind: json_count, file: "{run}/llm-calls.jsonl", where: {action: change.review, adapter: claude-cli}, count_min: 1}
+        - {kind: json_count, file: "{scratch}/review-real-path-facts.model.jsonl", where: {cli: claude}, count_min: 1}
+        - {kind: json_equals, file: "{call:change.review#last}/response.json", query: ".schema_constrained", equals: true}
+        - {kind: json_count, file: "{store}/IDEA-1/children/*/children/IDEA-1.*.invoices/evidence/*.json", where: {kind: code_review, result: approved, producer: llm-review}, count_min: 1}
+    unexpressed:
+      - {kind: aggregate, lines: "2154", note: "every change.review call is on claude-cli"}
+      - {kind: aggregate, lines: "2155-2158", note: "every claude call: --json-schema, --tools empty, no --allowedTools, prompt has review input"}
+      - {kind: aggregate, lines: "2160", note: "every code_review record is approved by llm-review"}
+    source: {lines: "2143-2162"}
+
+  - id: review-invalid-stop
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        FAKE_MODEL_REPLY: {decision: rejected, summary: fake, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "a line that does not exist"}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, FAKE_MODEL_REPLY: "<the reply above as JSON>"}
+    arguments: [--autopilot]
+    expect:
+      exit_not: 0
+      pass_line: "the review stayed invalid: the run stopped review_invalid, naming case and call"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".by", equals: "rule:autopilot"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: review_invalid}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "change.review in IDEA-1[.][a-z]+[.]invoices: review_invalid"}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "call llm/[0-9]+-change.review"}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "lines 9999-9999 outside impl/README.md"}
+        - {kind: json_count, file: "{store}/IDEA-1/children/*/children/IDEA-1.*.invoices/evidence/*.json", where: {kind: code_review}, count: 0}
+    unexpressed:
+      - {kind: console-regex, lines: "2172-2173", note: "reason must not match an absolute home or tmp path (negative regex over one field)"}
+    source: {lines: "2164-2178"}
+
+  - id: review-adapter-refused
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_ADAPTER: metaharness, FAKE_MODEL_LOG: "{scratch}/review-adapter-refused.model.jsonl"}
+    arguments: [--autopilot]
+    expect:
+      exit: 64
+      pass_line: "a schema class on an adapter without a schema: the run refused to start, exit 64"
+      checks:
+        - {kind: file_contains, file: "{console}", text: "refused: node class review (spec.review, change.review) replies under a response schema, but its adapter metaharness (SDC_REVIEW_ADAPTER) takes none"}
+        - {kind: file_empty, file: "{scratch}/review-adapter-refused.model.jsonl"}
+    source: {lines: "2180-2189"}
+
+  - id: efforts
+    state: expected
+    protocol: sdc
+    driver: other
+    stub:
+      fixtures: [bindings/tools/node-classes.json]
+    switches:
+      efforts-default: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku}
+      efforts-all: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_EFFORT: low}
+      efforts-class: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_EFFORT: low, SDC_LLM_EFFORT_WRITER: high, SDC_LLM_EFFORT_IMPLEMENT: xhigh, SDC_LLM_EFFORT_REVIEW: medium, SDC_LLM_EFFORT_DECIDER: max, SDC_LLM_EFFORT_OTHER: medium}
+      efforts-bad: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: haiku, SDC_LLM_EFFORT_WRITER: bogus}
+      stand-in-claude: {CLAUDE: "<generated stand-in>", FAKE_OUT: "{scratch}/hermetic", SDC_CLAUDE_CREDENTIALS: "{scratch}/hermetic/login.json", CLAUDE_CODE_EFFORT_LEVEL: low}
+    arguments: [--dry]
+    expect:
+      checks:
+        - {kind: file_contains, file: "{scratch}/efforts-bad.txt", text: "low, medium, high, xhigh, max"}
+        - {kind: file_absent, file: "{scratch}/runs/efforts-bad/run-settings.jsonl"}
+    unexpressed:
+      - {kind: second-run, lines: "2213-2227", note: "four dry runs exit 0 0 0 64; stand-in claude adapter run exits 0"}
+      - {kind: setup-shell, lines: "2220-2232", note: "writes the stand-in claude script, request JSON, login file"}
+      - {kind: aggregate, lines: "2192-2198", note: "every llm-calls and decisions line names the expected effort per class"}
+      - {kind: aggregate, lines: "2199-2203", note: "dry argv --effort of the first call per node (efforts-default, -all, -class)"}
+      - {kind: aggregate, lines: "2247-2255", note: "last run-settings efforts per class and source for the three runs"}
+      - {kind: derived-value, lines: "2233-2246", note: "stand-in claude argv and env: hermetic flags, effort, fresh config home removed after"}
+    source: {lines: "2191-2259", helpers: "2192-2212"}
+
+  - id: reopen-review-invalid
+    state: expected
+    protocol: sdc
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/idea.yaml, driver/examples/sdc/fixtures/fake-model]
+      adapter: bindings/tools/llm-adapter-fixture.sh
+      replies:
+        SDC_REVIEW_REPLIES:
+          rounds:
+            - {decision: rejected, summary: fake, findings: [{kind: violation, at: "impl/README.md:9999", violates: r1, says: "a line that does not exist"}]}
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: metaharness, SDC_DECIDER: model, SDC_DECIDER_ADAPTER: bindings/tools/llm-adapter-fixture.sh, SDC_UNSTICK: "off", SDC_LLM_NODES: change.review, METAHARNESS: driver/examples/sdc/fixtures/fake-model/metaharness, CLAUDE: driver/examples/sdc/fixtures/fake-model/claude, SDC_REVIEW_ADAPTER: bindings/tools/llm-adapter-fixture.sh}
+    arguments: [--autopilot]
+    expect:
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.*.json", query: ".cause", equals: review_invalid}
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{call:change.review#last}/response.json", query: ".adapter", equals: claude-cli}
+        - {kind: json_equals, file: "{call:change.review#last}/response.json", query: ".schema_constrained", equals: true}
+        - {kind: json_count, file: "{store}/IDEA-1/children/*/children/IDEA-1.*.invoices/events.jsonl", where: {event: reopened}, count_min: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/*/children/IDEA-1.*.invoices/evidence/*.json", where: {kind: code_review, result: approved}, count: 1}
+        - {kind: json_count, file: "{store}/IDEA-1/children/*/children/IDEA-1.*.invoices/evidence/*.json", where: {kind: code_review}, count: 1}
+    unexpressed:
+      - {kind: second-run, lines: "2268-2272", note: "leg 2: run-trial.sh --reopen --autopilot with review adapter unset; leg 1 exit nonzero, leg 2 exit 0"}
+      - {kind: derived-value, lines: "2273-2277", note: "review call count after leg 2 is the count after leg 1 plus one"}
+    source: {lines: "2261-2286"}
+
+  - id: bugfix-full
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: approve, SDC_STUB_FIXTURES: ""}
+    arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
+    expect:
+      exit: 0
+      pass_line: "fixed; red at one change revision, the same repro revision green at the next"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+    unexpressed:
+      - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
+      - {kind: cross-record, lines: "2310-2313", note: "last red repro_run and last passed test_run: revisions chain (red_then_green)"}
+    source: {lines: "2314-2315", helpers: "2290-2313"}
+
+  - id: bugfix-not-red
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager, driver/examples/sdc/fixtures/bugfix-pager/cycles/not-red]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: approve, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/bugfix-pager/cycles/not-red}
+    arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
+    expect:
+      exit: 0
+      pass_line: "a test passing on the seed recorded not_red, the next red, then fixed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+    unexpressed:
+      - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
+      - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
+      - {kind: field-compare, lines: "2317", note: "exactly one repro_run not_red whose subject_revision is not none"}
+    source: {lines: "2316-2318", helpers: "2290-2313"}
+
+  - id: bugfix-edited-test
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager, driver/examples/sdc/fixtures/bugfix-pager/cycles/edited-test]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: approve, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/bugfix-pager/cycles/edited-test}
+    arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
+    expect:
+      exit: 0
+      pass_line: "the fix that changed the test refused by tests.run, the next fixed"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: file_contains, file: "{store}/BUG-1/blobs/*", text: "the reproducing test was changed"}
+    unexpressed:
+      - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
+      - {kind: cross-record, lines: "2310-2313", note: "red_then_green revision chain"}
+      - {kind: event-order, lines: "2320-2321", note: "test_run results in order are [failed, passed]"}
+    source: {lines: "2319-2323", helpers: "2290-2313"}
+
+  - id: bugfix-never-red
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager, driver/examples/sdc/fixtures/bugfix-pager/cycles/never-red]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_LLM_ADAPTER: stub, SDC_DECIDER: approve, SDC_STUB_FIXTURES: driver/examples/sdc/fixtures/bugfix-pager/cycles/never-red}
+    arguments: ["--bugfix", driver/examples/sdc/fixtures/bugfix-pager, --autopilot]
+    expect:
+      exit: 0
+      pass_line: "every test passes on the seed: not_reproduced, no fix written"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: not_reproduced}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: repro_run, result: red}, count: 0}
+        - {kind: json_count, file: "{store}/BUG-1/evidence/*.json", where: {kind: implementation_change}, count: 0}
+    unexpressed:
+      - {kind: aggregate, lines: "2304", note: "replay.json: every case has state_matches_log and decision_matches_log"}
+    source: {lines: "2324-2326", helpers: "2290-2313"}
+
+  - id: bugfix-from-ticket
+    state: expected
+    protocol: sdc-bugfix
+    driver: trial
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/bugfix-pager/crate, driver/examples/sdc/fixtures/bugfix-pager/ticket.yaml]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0", SDC_DECIDER: approve}
+    arguments: ["--bugfix-ticket", "{scratch}/bugfix-from-ticket-input/ticket.yaml", --dry, --autopilot]
+    setup:
+      - {copy: {from: driver/examples/sdc/fixtures/bugfix-pager/crate, to: "{scratch}/bugfix-from-ticket-input/repo"}}
+    expect:
+      exit: 0
+      pass_line: "fixed from the ticket on a git repository: only tracked files seeded, base recorded, constraints in the prompt, no ticket text in the output; a dirty worktree refused"
+      checks:
+        - {kind: file_absent, file: "{run}/run-stopped.json"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: fixed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".closed_by", equals: "rule:autopilot"}
+        - {kind: file_absent, file: "{store}/BUG-1/work/mainline/ignored.txt"}
+        - {kind: file_absent, file: "{store}/BUG-1/work/mainline/untracked.txt"}
+        - {kind: json_equals, file: "{store}/BUG-1/work/.sdc/seed.json", query: ".ticket.id", equals: PAGER-7}
+        - {kind: yaml_equals, file: "{store}/BUG-1/work/bug.yaml", query: ".story", equals: "story:ticket-pager-7"}
+        - {kind: yaml_equals, file: "{store}/BUG-1/work/bug.yaml", query: ".ticket.id", equals: PAGER-7}
+        - {kind: file_contains, file: "{store}/BUG-1/work/aep/story/ticket-pager-7.md", regex: "^status: implemented"}
+        - {kind: file_contains, file: "{call:change.fix#last}/prompt.md", text: "- Keep the public API of the crate unchanged."}
+        - {kind: file_absent_text, file: "{call:change.fix#last}/prompt.md", text: "Standard library only"}
+        - {kind: file_absent_text, file: "{console}", text: "never shown"}
+        - {kind: file_absent_text, file: "{console}", text: "multiple of the page size"}
+        - {kind: file_contains, file: "{scratch}/bugfix-from-ticket-dirty.txt", text: "is dirty"}
+    unexpressed:
+      - {kind: setup-shell, lines: "2336-2346", note: "git init and commit of the crate copy, ignored and untracked files, ticket with base commit"}
+      - {kind: computed-input, lines: "2342-2343", note: "ticket.yaml repository.base.commit set to the new HEAD commit"}
+      - {kind: aggregate, lines: "2353", note: "replay.json: every case has state_matches_log and decision_matches_log"}
+      - {kind: cross-record, lines: "2354", note: "red_then_green revision chain over the evidence"}
+      - {kind: derived-value, lines: "2355-2356", note: "mainline files equal git ls-files of the repository"}
+      - {kind: cross-record, lines: "2358", note: "seed.json base commit equals the repository HEAD"}
+      - {kind: field-compare, lines: "2359", note: "bug.yaml constraints has 2 entries"}
+      - {kind: second-run, lines: "2347-2351", note: "dirty repository run exits 1; ticket run 2 after editing lib.rs"}
+    source: {lines: "2327-2366"}
+
+  - id: replay-unchanged
+    state: expected
+    protocol: sdc
+    driver: redrive
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub]
+    expect:
+      exit: 0
+      pass_line: "closed operating, same actions in every case, <n> calls recorded, 0 reused, live, diverged, paid"
+      checks:
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.label", equals: "re-driven: recorded replies only"}
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.calls.reused", equals: 0}
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.calls.live", equals: 0}
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.calls.diverged", equals: 0}
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.calls.paid", equals: 0}
+        - {kind: json_equals, file: "{run}/status.json", query: ".state", equals: closed}
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: operating}
+        - {kind: file_contains, file: "{run}/console.txt", line: 1, regex: "^re-drive of stub \\(recorded on tree [0-9a-f]{12}\\) on tree "}
+    unexpressed:
+      - {kind: second-run, lines: "2397", note: "sdc-replay compare of the run against the recording exits 0 (same actions per case)"}
+      - {kind: field-compare, lines: "2398", note: "replay.calls.recorded equals the recording's call count"}
+      - {kind: aggregate, lines: "2400", note: "every llm-calls line has replay mode recorded and clock virtual"}
+      - {kind: aggregate, lines: "2401", note: "every rounds line: clock virtual and seconds equals real plus virtual"}
+    source: {lines: "2392-2407", helpers: "2368-2391"}
+
+  - id: rule-approvals-default
+    state: expected
+    protocol: sdc
+    driver: redrive
+    shared_run: switches-default
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --on-divergence, nearest]
+    expect:
+      exit: 0
+      pass_line: "SDC_RULE_APPROVALS unset: off; <n> calls as main's recording, no prompt changed, the decider asked for context, roadmap and release"
+      checks:
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.diverged", equals: 0}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.live", equals: 0}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.prompt_changed", equals: 0}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".state", equals: closed}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".outcome", equals: operating}
+        - {kind: file_absent, file: "{scratch}/runs/switches-default/rule-approvals"}
+        - {kind: json_count, file: "{scratch}/runs/switches-default/decisions.jsonl", where: {principal: "rule:autopilot"}, count: 0}
+    unexpressed:
+      - {kind: second-run, lines: "2409-2427", note: "shared run switches-default: sdc-replay compare exits 0"}
+      - {kind: field-compare, lines: "2420", note: "calls recorded plus reused equals the recording's call count"}
+      - {kind: aggregate, lines: "2423", note: "every replay call is recorded, or reused with source and only in/tests.txt differing"}
+      - {kind: aggregate, lines: "2429", note: "every run-settings line has rule_approvals off"}
+      - {kind: aggregate, lines: "2431-2432", note: "at least 3 context/roadmap/release decisions, all principals start with decider:"}
+    source: {lines: "2428-2437", helpers: "2409-2427"}
+
+  - id: review-mode-default
+    state: expected
+    protocol: sdc
+    driver: redrive
+    shared_run: switches-default
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --on-divergence, nearest]
+    expect:
+      exit: 0
+      pass_line: "SDC_REVIEW_MODE unset: session; <n> reviews read the tree with Glob, Read and Grep, as main's recording"
+      checks:
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/run-settings.jsonl", record: last, query: ".review_mode", equals: session}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.diverged", equals: 0}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.prompt_changed", equals: 0}
+        - {kind: json_count, file: "{scratch}/runs/switches-default/llm-calls.jsonl", where: {action: change.review, allowed_operations: [dir.list, file.read, search], max_turns: 30}, count_min: 1}
+    unexpressed:
+      - {kind: second-run, lines: "2409-2427", note: "shared run switches-default: sdc-replay compare exits 0"}
+      - {kind: aggregate, lines: "2444-2445", note: "every change.review call has those operations, max_turns 30 and no input_bytes"}
+      - {kind: aggregate, lines: "2441-2443", note: "every review call dir has tests.txt gate.txt commands.json, no review.md or listing.json"}
+    source: {lines: "2439-2454"}
+
+  - id: implement-coverage-default
+    state: expected
+    protocol: sdc
+    driver: redrive
+    shared_run: switches-default
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --on-divergence, nearest]
+    expect:
+      exit: 0
+      pass_line: "SDC_IMPLEMENT_COVERAGE unset: off; no coverage document, no postcondition, no refusal, as main's recording"
+      checks:
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/run-settings.jsonl", record: last, query: ".implement_coverage", equals: "off"}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.diverged", equals: 0}
+        - {kind: json_equals, file: "{scratch}/runs/switches-default/status.json", query: ".replay.calls.prompt_changed", equals: 0}
+        - {kind: file_absent, file: "{scratch}/runs/switches-default/store/**/impl/.sdc/coverage.json"}
+        - {kind: file_absent, file: "{call:change.implement#*}/cwd/in/story-requirements.json"}
+        - {kind: file_absent, file: "{call:change.implement#*}/coverage-schema.json"}
+        - {kind: file_absent, file: "{call:change.review#*}/cwd/in/coverage.json"}
+        - {kind: file_absent_text, file: "{scratch}/runs/switches-default/store/IDEA-1/children/*/children/*/blobs/*", text: "sdc-drive: postcondition"}
+    unexpressed:
+      - {kind: second-run, lines: "2409-2427", note: "shared run switches-default: sdc-replay compare exits 0"}
+      - {kind: aggregate, lines: "2423", note: "every replay call is recorded, or reused with only in/tests.txt differing"}
+      - {kind: aggregate, lines: "2465-2466", note: "no event of any story case carries a refusal"}
+    source: {lines: "2456-2472"}
+
+  - id: replay-reject-stop
+    state: expected
+    protocol: sdc
+    driver: redrive
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --inject, "reject@merge.approve#1=the change misses a refusal"]
+    expect:
+      exit: 9
+      pass_line: "reject recorded, rework asked a call the source never made, stopped recording_diverged"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: recording_diverged}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "IDEA-1.billing.invoices/change.implement@1.2"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.calls.diverged", equals: 1}
+        - {kind: json_count, file: "{run}/decisions.jsonl", where: {action: merge.approve, decision: reject, reasons: ["the change misses a refusal"]}, count_min: 1}
+    source: {lines: "2474-2487"}
+
+  - id: replay-reject-nearest
+    state: expected
+    protocol: sdc
+    driver: redrive
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --inject, "reject@merge.approve#1=the change misses a refusal", --on-divergence, nearest]
+    expect:
+      exit: 4
+      pass_line: "the rework reused the recorded reply, writer_spent, reused calls labelled"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.calls.diverged", equals: 0}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.label", equals: "re-driven: with reused replies"}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".unstick.on", equals: false}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".replay.unstick.on", equals: false}
+    unexpressed:
+      - {kind: field-compare, lines: "2496", note: "replay.calls.reused is at least 1"}
+      - {kind: event-order, lines: "2499-2500", note: "change.implement call modes: first recorded, all later reused"}
+    source: {lines: "2489-2503"}
+
+  - id: replay-timeout
+    state: expected
+    protocol: sdc
+    driver: redrive
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --inject, "timeout@IDEA-1.billing.invoices/change.implement#1", --on-divergence, nearest]
+    expect:
+      exit: 0
+      pass_line: "exit timeout on the virtual clock, the retry reused the recorded reply, closed operating"
+      checks:
+        - {kind: json_equals, file: "{run}/status.json", query: ".outcome", equals: operating}
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.calls.faults", equals: 1}
+        - {kind: json_equals, file: "{run}/status.json", query: ".replay.calls.reused", equals: 1}
+        - {kind: file_contains, file: "{store}/IDEA-1/children/IDEA-1.billing/children/IDEA-1.billing.invoices/blobs/*", text: "killed after 1500 s (virtual clock"}
+    unexpressed:
+      - {kind: event-order, lines: "2509", note: "change.implement exit codes in order are [timeout, 0]"}
+    source: {lines: "2505-2516"}
+
+  - id: replay-live-dry
+    state: expected
+    protocol: sdc
+    driver: redrive
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+      adapter: bindings/tools/llm-adapter-dry.sh
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --inject, "reject@merge.approve#1", --on-divergence, live, --live-adapter, dry, --live-cap, "1"]
+    expect:
+      exit: 9
+      pass_line: "1 live call through dry, unpaid, the next stopped at the cap"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: recording_diverged}
+        - {kind: json_matches, file: "{run}/run-stopped.json", query: ".reason", regex: "live call cap is spent"}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.calls.live", equals: 1}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.calls.paid", equals: 0}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.label", equals: "re-driven: with live model calls"}
+        - {kind: file_count_lines, file: "{run}/dry-commands.txt", regex: "^would run: metaharness", count: 1}
+    source: {lines: "2518-2530"}
+
+  - id: replay-check-fail
+    state: expected
+    protocol: sdc
+    driver: redrive
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {SDC_RUNS_DIR: "{scratch}/runs", SDC_WATCH: "0"}
+    arguments: [--autopilot, --recorded, driver/examples/sdc/fixtures/recorded/stub, --inject, "check-fail@tests.run#1", --set, "max_runs.implement=2", --on-divergence, nearest]
+    expect:
+      exit: 4
+      pass_line: "tests.run failed once by injection, writer_spent at max_runs 2, the condition recorded"
+      checks:
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".cause", equals: writer_spent}
+        - {kind: json_equals, file: "{run}/run-stopped.json", query: ".replay.programs.check_fail", equals: 1}
+        - {kind: json_equals, file: "{run}/run-settings.jsonl", record: last, query: ".replay.conditions[\"max_runs.implement\"]", equals: 2}
+        - {kind: file_contains, file: "{console}", text: "(max_runs 2)"}
+    unexpressed:
+      - {kind: event-order, lines: "2538", note: "change.implement exit codes in order are [0, 0]"}
+    source: {lines: "2532-2545"}
+
+  - id: replay-recording-clean
+    state: expected
+    protocol: sdc
+    driver: other
+    stub:
+      fixtures: [driver/examples/sdc/fixtures/recorded/stub]
+    switches: {}
+    expect:
+      checks:
+        - {kind: json_equals, file: "driver/examples/sdc/fixtures/recorded/stub/recording.json", query: ".format", equals: "sdc.recording/1"}
+        - {kind: file_absent_text, file: "driver/examples/sdc/fixtures/recorded/stub/**", regex: "[/]home[/]"}
+        - {kind: file_absent, file: "driver/examples/sdc/fixtures/recorded/stub/**/prompt.md"}
+        - {kind: file_absent, file: "driver/examples/sdc/fixtures/recorded/stub/**/transcripts"}
+        - {kind: file_absent, file: "driver/examples/sdc/fixtures/recorded/stub/**/calls/**/events.jsonl"}
+    unexpressed:
+      - {kind: field-compare, lines: "2548", note: "recording.json .tree.commit is a string and .calls is not empty"}
+    source: {lines: "2547-2553"}

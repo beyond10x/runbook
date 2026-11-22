@@ -1,0 +1,96 @@
+format: loom.bindings/1
+protocol: sdc-direction@1
+artifacts:
+  requirements: requirements.yaml
+  goals: goals.yaml
+  context: context.yaml
+  vision: aep/vision/product.md
+  roadmap: aep/initiative/roadmap.md
+  findings: findings.yaml
+  questions: questions.yaml
+actions:
+  - action: context.default
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, context.default, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/context.default.md"}', --stub, stub-file, context.yaml, context.yaml]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      context_defaults: [invalid]
+      context_approval: [rejected]
+  - action: context.check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, check-context, --action, context.check]
+    evidence:
+      - kind: context_defaults
+        subject: context
+        producer: sdc-check
+        from: exit
+        results: {"0": valid, "5": finding, "*": invalid}
+        upstream: [requirements]
+  - action: context.approve
+    executor:
+      kind: person
+      principal: person:owner
+    evidence:
+      - kind: context_approval
+        subject: context
+        producer: person:owner
+        from: effect
+        results: {performed: approved}
+  - action: vision.write
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, vision.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/vision.write.md"}', --stub, stub-vision]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      vision_approval: [rejected]
+  - action: vision.approve
+    executor:
+      kind: person
+      principal: person:owner
+    evidence:
+      - kind: vision_approval
+        subject: vision
+        producer: person:owner
+        from: effect
+        results: {performed: approved}
+  - action: roadmap.write
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, roadmap.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/roadmap.write.md"}', --stub, stub-roadmap]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      roadmap_validation: [invalid]
+      roadmap_approval: [rejected]
+  - action: roadmap.validate
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, roadmap-validate, --action, roadmap.validate]
+    evidence:
+      - kind: roadmap_validation
+        subject: roadmap
+        producer: aep
+        from: exit
+        results: {"0": valid, "*": invalid}
+  - action: roadmap.approve
+    executor:
+      kind: person
+      principal: person:owner
+    evidence:
+      - kind: roadmap_approval
+        subject: roadmap
+        producer: person:owner
+        from: effect
+        results: {performed: approved}
+        upstream: [vision]
+  - action: amend.upstream
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, amend, context, --action, amend.upstream]
+    budget: {max_runs: 12}
+    timeout_seconds: 300
+    handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"

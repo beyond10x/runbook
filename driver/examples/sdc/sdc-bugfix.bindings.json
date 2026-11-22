@@ -8,13 +8,13 @@
   },
   "bug.dissect": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "bug.dissect"
     ],
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 20,
-      "max_budget_usd": 1,
+      "max_budget_usd": 1, "instructions": {"task": "instructions/bug.dissect.md"},
       "stub": [
         "stub-file",
         "bugfix-pager/stub-dissection.json",
@@ -31,7 +31,7 @@
   },
   "dissection.check": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
       "dissection-check"
     ],
@@ -45,13 +45,13 @@
   },
   "test.reproduce": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "test.reproduce"
     ],
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 30,
-      "max_budget_usd": 1,
+      "max_budget_usd": 1, "instructions": {"task": "instructions/test.reproduce.md"},
       "stub": [
         "stub-repro",
         "bugfix-pager/stub-repro"
@@ -67,7 +67,7 @@
   },
   "repro.run": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
       "repro-run"
     ],
@@ -84,7 +84,7 @@
   },
   "change.fix": {
     "argv": [
-      "{dir}/tools/llm-node.sh",
+      "{dir}/../../../bindings/tools/llm-node.sh",
       "change.fix"
     ],
     "produces": "implementation_change",
@@ -99,7 +99,7 @@
     "llm": {
       "model": "claude-haiku-5-5",
       "max_turns": 40,
-      "max_budget_usd": 2,
+      "max_budget_usd": 2, "instructions": {"task": "instructions/change.fix.md", "stdlib": "instructions/change.fix.stdlib.md", "no_gate": "instructions/change.fix.no-gate.md"},
       "stub": [
         "stub-tree",
         "bugfix-pager/stub-fix",
@@ -119,7 +119,7 @@
   },
   "tests.run": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
       "tests-run"
     ],
@@ -136,7 +136,7 @@
   },
   "story.update": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
       "story-update"
     ],
@@ -150,7 +150,7 @@
   },
   "gate.run": {
     "argv": [
-      "{dir}/tools/sdc-tool.sh",
+      "{dir}/../../../bindings/tools/sdc-tool.sh",
       "bugfix",
       "gate-run"
     ],

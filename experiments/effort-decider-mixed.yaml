@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: effort-decider-mixed
 kind: prospective
-status: planned
+status: complete
 created: 2026-11-21
 title: Decider effort medium against xhigh on the Haiku decider of the mixed setting, everything else fixed
 purpose: Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass.
@@ -43,11 +43,17 @@ variants:
 - id: xhigh
   settings:
     efforts.decider.effort: xhigh
-  runs: []
+  runs:
+  - effort-decider-mixed.xhigh.1
+  - effort-decider-mixed.xhigh.2
+  - effort-decider-mixed.xhigh.3
 - id: medium
   settings:
     efforts.decider.effort: medium
-  runs: []
+  runs:
+  - effort-decider-mixed.medium.1
+  - effort-decider-mixed.medium.2
+  - effort-decider-mixed.medium.3
 baseline: xhigh
 treatment: medium
 runs_per_variant: 3
@@ -72,6 +78,132 @@ guards:
 decision_rule:
   rule: complete-separation
   text: held when xhigh and medium each have 3 ended runs, every medium run's run.wall_s lies below every xhigh run's (exact one-sided p = 1/20 = 0.05) and the medians differ by at least 300 s; contradicted when the ranges separate the other way or by less than 300 s; inconclusive otherwise, then effort-decider-mixed-2 with the same settings. Adopt medium as the decider's default effort for a Haiku decider only when held and every guard holds; a refuted or inconclusive result is published as such.
+result:
+  computed_by: sdc-experiment report
+  direction: decrease
+  guards:
+  - baseline:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 3
+      values:
+        effort-decider-mixed.xhigh.1: 1.0
+        effort-decider-mixed.xhigh.2: 1.0
+        effort-decider-mixed.xhigh.3: 1.0
+    metric: run.delivered
+    state: holds
+    treatment:
+      max: 1.0
+      median: 1.0
+      min: 1.0
+      n: 3
+      values:
+        effort-decider-mixed.medium.1: 1.0
+        effort-decider-mixed.medium.2: 1.0
+        effort-decider-mixed.medium.3: 1.0
+    worsening: 0.0
+  - baseline:
+      max: 5.675331
+      median: 4.12176
+      min: 3.143094
+      n: 3
+      values:
+        effort-decider-mixed.xhigh.1: 5.675331
+        effort-decider-mixed.xhigh.2: 3.143094
+        effort-decider-mixed.xhigh.3: 4.12176
+    metric: run.cost_usd
+    state: holds
+    treatment:
+      max: 3.094878
+      median: 3.078269
+      min: 2.470915
+      n: 3
+      values:
+        effort-decider-mixed.medium.1: 2.470915
+        effort-decider-mixed.medium.2: 3.078269
+        effort-decider-mixed.medium.3: 3.094878
+    worsening: -1.043491
+  - baseline:
+      max: 20.0
+      median: 16.0
+      min: 15.0
+      n: 3
+      values:
+        effort-decider-mixed.xhigh.1: 20.0
+        effort-decider-mixed.xhigh.2: 16.0
+        effort-decider-mixed.xhigh.3: 15.0
+    metric: run.decider_calls
+    state: holds
+    treatment:
+      max: 19.0
+      median: 17.0
+      min: 17.0
+      n: 3
+      values:
+        effort-decider-mixed.medium.1: 19.0
+        effort-decider-mixed.medium.2: 17.0
+        effort-decider-mixed.medium.3: 17.0
+    worsening: 1.0
+  - baseline:
+      max: 58.0
+      median: 55.0
+      min: 47.0
+      n: 3
+      values:
+        effort-decider-mixed.xhigh.1: 55.0
+        effort-decider-mixed.xhigh.2: 58.0
+        effort-decider-mixed.xhigh.3: 47.0
+    metric: run.rework_takes
+    state: holds
+    treatment:
+      max: 66.0
+      median: 60.0
+      min: 51.0
+      n: 3
+      values:
+        effort-decider-mixed.medium.1: 66.0
+        effort-decider-mixed.medium.2: 60.0
+        effort-decider-mixed.medium.3: 51.0
+    worsening: 5.0
+  guards_ok: true
+  median_difference: -1201.0
+  metric: run.wall_s
+  min_effect: 300.0
+  p_one_sided: null
+  recommendation: run more
+  separation: overlap
+  variants:
+  - clean_passes: 3
+    ended: 3
+    id: xhigh
+    listed: 3
+    primary:
+      max: 3677.0
+      median: 3032.0
+      min: 1913.0
+      n: 3
+      values:
+        effort-decider-mixed.xhigh.1: 3032.0
+        effort-decider-mixed.xhigh.2: 1913.0
+        effort-decider-mixed.xhigh.3: 3677.0
+    without_summary: []
+  - clean_passes: 2
+    ended: 3
+    id: medium
+    listed: 3
+    primary:
+      max: 2191.0
+      median: 1831.0
+      min: 1424.0
+      n: 3
+      values:
+        effort-decider-mixed.medium.1: 1424.0
+        effort-decider-mixed.medium.2: 1831.0
+        effort-decider-mixed.medium.3: 2191.0
+    without_summary: []
+  verdict: inconclusive
+  why: 'the ranges overlap (median difference -1201): no effect is claimed'
 adoption:
   decision: pending
   commit: null

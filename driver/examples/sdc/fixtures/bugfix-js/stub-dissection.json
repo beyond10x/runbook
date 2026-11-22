@@ -1,0 +1,6 @@
+{
+  "observed": "pageCount(11, 5) returns 2 and page(items, 3, 5) returns an empty list, so item 11 is never shown",
+  "expected": "pageCount(11, 5) returns 3 and page(items, 3, 5) returns the list holding item 11",
+  "where": "src/pager.js:9",
+  "reproduce": "call pageCount(11, 5) and page(items, 3, 5) from src/pager.js with items 1 to 11"
+}

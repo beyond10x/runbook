@@ -1,0 +1,101 @@
+format: sdc.experiment/1
+id: implement-cites-requirements
+kind: prospective
+status: planned
+created: 2026-11-21
+title: change.implement cites its requirements, checked by program before tests.run, on branch impr/implement-cites-requirements
+purpose: Whether the coverage check of story:implement-cites-requirements lowers the review rejections per run against release 0.1.2 in the strong and mixed settings.
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: 3f3a57703ef30ebaebeb479121a31134f2eb87a7
+trees:
+- impr/implement-cites-requirements at 3f3a577 (release 0.1.2, 72a3eef, plus the coverage reply, the postcondition and the review input); the comparison tree is release 0.1.2 at 72a3eef, whose runs belong to experiments/release-0.1.2.yaml
+fixed:
+  decider.kind: model
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  review.adapter: claude-cli
+variants:
+- id: strong
+  settings:
+    implement_coverage: on
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+  runs: []
+- id: mixed
+  settings:
+    implement_coverage: on
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-haiku-5-5
+    decider.model: claude-haiku-5-5
+  runs: []
+runs_per_variant: 3
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: 'The tree is the variable (release 0.1.2 against this branch), which one record cannot hold: sdc-experiment names one tree per record and has no tree setting, and the change has no run setting that turns it off (docs/improving.md step 4). So this record holds the treatment only and is reported as descriptive; the comparison is made per setting against the runs of experiments/release-0.1.2.yaml (same input, same settings, tree 72a3eef; registered on exp/improve-1, f619fd4), with the registered predictions below and the default rule: n = 3 against n = 3, a difference is claimed only when the two ranges separate completely in the registered direction (exact one-sided p = 1/20); overlapping ranges claim no effect. If release-0.1.2 has no complete runs when these end, baseline-0.1.0 (tree 4468bfd) is the comparison and the report says so. Every end counts; no run is repaired, reopened or forced. A refuted or inconclusive result is published as such.'
+predictions:
+- id: P1
+  setting: strong, mixed
+  metric: 'review rejections per run: edge story: change.review:rejected -> change.implement count (sdc-run-metrics)'
+  baseline: 'release-0.1.2 runs (not run yet); for orientation baseline-0.1.0: strong 5 in 3 runs, mixed 2 in 3 runs'
+  direction: decrease
+  why: in baseline-0.1.0, 4 of the 10 review rejections were a requirement of the story not built (strong-2 twice, strong-3, mixed-3), and in three of them the build's own README said so; a node that must name each requirement as built with a line and a test, or not_built, is sent back by the program before tests.run and the review.
+- id: P2
+  setting: strong, mixed
+  metric: 'reruns of change.implement after a review rejection: retries_by_cause change.review:rejected of story/change.implement'
+  baseline: same source as P1
+  direction: decrease
+  why: each review rejection costs one implement rerun and a second review; this is the cost side of P1.
+- id: P3
+  setting: strong, mixed
+  metric: retries_by_cause requirement_coverage:refused of story/change.implement
+  baseline: 0 (the kind does not exist on 72a3eef)
+  direction: increase
+  why: descriptive only, not a test; where the refusals land shows whether the check catches what the review caught before. A count of 0 with P1 unmoved says the node cited every requirement.
+- id: P0
+  setting: strong, mixed
+  metric: all of the above
+  baseline: release-0.1.2
+  direction: none
+  why: 'the honest risk: the node may cite lines and tests that exist but do not build the requirement (the check proves existence, not behaviour), which moves nothing; and a strong implementer may already cite everything it built, so the check refuses nothing and the review rejects as before.'
+registered_guards:
+- run.delivered of strong and mixed stays 3 of 3 (release 0.1.2's count when it has one)
+- run.cost_usd of strong and mixed does not separate upward from release 0.1.2 (the coverage reply adds tokens to every implement call, and an invalid reply a whole model call)
+- run.wall_s of strong and mixed does not separate upward
+- run.llm_calls (model calls) of strong and mixed does not separate upward
+- the count of merge.approve rejections does not rise (a requirement caught earlier must not be caught later instead)
+cost_estimate: 'From the baseline-0.1.0 medians: 3 x (5.50 + 2.55) = 24.2 USD; from its maxima 3 x (6.19 + 3.88) = 30.2 USD; plus the coverage reply in every implement call and any reply retries, unmeasured (inferred under 0.5 USD per run). About 1 to 1.5 hours at 3 runs at a time (longest strong or mixed baseline run 2091 s).'
+launch:
+  max_parallel: 3
+  stagger_s: 30
+  principal: agent:sdc-experiment
+known_confounds:
+- key: tree
+  note: the comparison runs are on another tree, started from another record at another time; everything else that differs between 72a3eef and this tree is the change of this branch only (git diff 72a3eef 3f3a577).
+- key: unstick
+  note: run.unstick is on under autopilot with an Opus model in both trees (scripts/run-trial.sh); an unstuck run is not a clean pass.
+- key: canon
+  note: every run uses the canon binary of the canon checkout at run time, which no record pins; release-0.1.2 has the same confound.
+- key: adapter
+  note: the implement node runs on metaharness, which has no response-schema option, so the coverage schema reaches it in the prompt and the reply is a file (out/coverage.json) checked by program; under claude-cli it would be schema-constrained.
+facts:
+- 'The change (docs/driver.md, "Requirement coverage"): change.implement replies with a coverage document; the binding''s postcondition sdc-reply check-coverage refuses the revision before tests.run when a requirement of the story is missing, not built, cited at a file or line the tree lacks, or named with a test that does not exist; the refusal reaches the next implement run as in/feedback.md and counts as retry kind requirement_coverage against max_runs 3; the review gets the document as in/coverage.json.'
+- 'baseline-0.1.0 review rejections, 10 in 9 runs: a requirement not built in the story that covers it 4 (strong-2 twice, strong-3, mixed-3), sync logic wrong 2, scope and build disagree 2, the Postgres default q9 1, build diverges from the spec 1 (experiments/baseline-0.1.0/losses.md, on exp/improve-1).'
+links:
+- 'experiments/release-0.1.2.yaml (exp/improve-1, f619fd4): the comparison tree''s record'
+- 'experiments/baseline-0.1.0.yaml: the earlier baseline, same input and settings'
+- story:implement-cites-requirements

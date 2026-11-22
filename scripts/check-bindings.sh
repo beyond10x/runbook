@@ -2,7 +2,10 @@
 # Check every driver/examples/sdc/<protocol>.bindings.json against its compiled protocol: every
 # bound action is declared, every produced kind is in the action's may_produce, every placed
 # artifact is declared, a `child` binding is on a `case_open` action, and every action that may
-# produce evidence or opens a case is bound or is a person's (unbound) action. Run
+# produce evidence or opens a case is bound or is a person's (unbound) action; and its
+# bindings/<protocol>.yaml (loom.bindings/1) binds the same actions, less those in
+# bindings/PENDING.md, and no action the protocol does not declare, and names each program as
+# bindings/tools/<file> (no `..`) or a bare name from PATH. Run
 # check-protocols.sh or evaluate-cases.sh first: it reads protocol/compiled/. Then the route check
 # (sdc-check-routes) against docs/reject-routes.md. Then the experiment
 # records: `sdc-experiment check --all` (a record that fails its check, a stale report, verdict or
@@ -29,6 +32,53 @@ for b in "$sdc"/driver/examples/sdc/*.bindings.json; do
   ' "$b")
   unbound=$(jq -r --slurpfile ir "$ir" '. as $b | $ir[0].actions | to_entries[]
     | select($b[.key] == null) | .key' "$b" | paste -sd' ')
+  # The loom.bindings/1 file beside it (docs/loom-bindings.md): every action bound here is bound
+  # there or has a line in bindings/PENDING.md, and every action bound there is declared.
+  y=$sdc/bindings/$name.yaml
+  if [[ ! -f $y ]]; then
+    findings+=${findings:+$'\n'}"no bindings/$name.yaml"
+  else
+    ya=$(yq -o=json '[.actions[].action]' "$y")
+    for a in $(jq -r --argjson y "$ya" 'keys[] | select(startswith("$") | not) | select(. as $a | $y | index($a) | not)' "$b"); do
+      grep -qE "^- \`$name\\.bindings\\.json:[0-9]+\` \`${a//./\\.}\`" "$sdc/bindings/PENDING.md" 2>/dev/null ||
+        findings+=${findings:+$'\n'}"action $a is bound in the JSON file, not in bindings/$name.yaml, and has no line in bindings/PENDING.md"
+    done
+    findings+=$(jq -r --slurpfile ir "$ir" '.[] | select($ir[0].actions[.] == null) | "\nbindings/'"$name"'.yaml binds undeclared action \(.)"' <<< "$ya")
+    # A bindings file reaches no program outside its own directory (docs/loom-bindings.md, "Tool
+    # changes for Loom's program contract"): no argv or arguments_from entry holds a `..` segment,
+    # and every program named with a `/` is tools/<file> beside the file, executable. A program
+    # named without a `/` comes from PATH.
+    acts=$(yq -o=json '.actions' "$y")
+    findings+=$(jq -r '.[] | .action as $a | ((.executor.argv // []), (.arguments_from // []))[]
+      | select(test("(^|/)\\.\\.(/|$)")) | "\nbindings/'"$name"'.yaml \($a) names \(.): a path with .."' <<< "$acts")
+    # The instruction files of an agent action (docs/driver.md, "Instructions") are named twice:
+    # --instructions in bindings/<name>.yaml and llm.instructions in the JSON file. The two name the
+    # same files per action; the value of --instructions is parsed, and every file named is
+    # instructions/<...>.md without a `..` segment and exists.
+    findings+=$(jq -r --slurpfile j "$b" '
+      def ins: (.executor.argv // []) as $v | [range(0; ($v | length) - 1) | select($v[.] == "--instructions") | $v[. + 1]][0];
+      .[] | .action as $a
+      | (ins | if . == null then null else (try fromjson catch "bad") end) as $y
+      | ($j[0][$a].llm.instructions // null) as $d
+      | if $y == "bad" then "\nbindings/'"$name"'.yaml \($a): --instructions is not a JSON object"
+        elif $j[0][$a] == null then empty
+        elif $y != $d then "\nbindings/'"$name"'.yaml \($a): --instructions \($y | tojson) differs from llm.instructions \($d | tojson) of '"$name"'.bindings.json"
+        else empty end' <<< "$acts")
+    while IFS= read -r p; do
+      [[ $p =~ ^instructions/.+\.md$ && ! $p =~ (^|/)\.\.(/|$) && -f $sdc/$p ]] ||
+        findings+=$'\n'"$name: instruction file $p is not an existing instructions/<...>.md without .."
+    done < <(
+      jq -r '(.[] | (.executor.argv // []) as $v | [range(0; ($v | length) - 1) | select($v[.] == "--instructions") | $v[. + 1]][]
+          | (try fromjson catch {}) | if type == "object" then .[] else empty end)' <<< "$acts"
+      jq -r 'to_entries[] | select(.key | startswith("$") | not) | .value.llm.instructions // {} | .[]' "$b")
+    while IFS=$'\t' read -r a m p; do
+      [[ $p == */* ]] || continue
+      [[ $p =~ ^tools/[^/]+$ && -f $sdc/bindings/$p && -x $sdc/bindings/$p ]] ||
+        findings+=$'\n'"bindings/$name.yaml $a $m names $p: not an executable bindings/tools/<file>"
+    done < <(jq -r '.[] | .action as $a | (["executor.argv[0]", .executor.argv[0]?], ["arguments_from[0]", .arguments_from[0]?])
+      | select(.[1] != null) | [$a, .[0], .[1]] | @tsv' <<< "$acts")
+    findings=${findings#$'\n'}
+  fi
   if [[ -n $findings ]]; then
     echo "FAIL $name"; echo "$findings" | sed 's/^/  /'; fail=1
   else

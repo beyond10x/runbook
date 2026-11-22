@@ -1,11 +1,164 @@
 # Changelog
 
 All notable changes to this repository are recorded here. One version covers the repository
-(`sdc-drive`, `sdc-watch`, `sdc-goals`, `ui/`), released under bare-version tags such as `0.1.0`.
-The crates are `publish = false`; releases are source releases at bare-version tags
-(`docs/releasing.md`).
+(`sdc-drive`, `sdc-watch`, `sdc-goals`, `ui/`, the plugin manifests), released under bare-version
+tags such as `0.1.0`. The crates are `publish = false`; releases are source releases at
+bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
+
+### Added
+
+- `driver/canon-pin.json` pins Canon 0.10.0: every script resolves one binary (`CANON`, else the cached pinned install) and refuses another `canon --version`, none builds or enters a Canon checkout (`CANON_DIR` and the `$HOME` default are gone), and `runbook doctor` compares the version with the pin (`story:canon-0-10-0-pin`).
+- Loom mode of `llm-node.sh` takes the `llm` object's `instructions` as `--instructions <json>` (`bindings/*.yaml` names it for the 14 agent nodes), so the instruction files load under Loom as under the driver. `bugfix_prompt` and `questions_check` name the tools at `bindings/tools/`.
+- `cycles/suite.yaml` (`runbook.cycles/1`, `story:cycles-suite-as-data`): the finding cycles of
+  `scripts/run-finding-cycles.sh` as data, what cannot be said declaratively listed per cycle as
+  `unexpressed`, and `task check:cycles-suite` holding it equal to the script's cycle ids and states
+  (`docs/cycles-suite.md`).
+- The local gate and CI read one pinned rustc (`rust-toolchain.toml`, 1.99.1), `.cargo/config.toml` drops debug info from the dev and test profiles, and `task ci:watch SHA=<commit>` exits non-zero unless every forge run of a commit succeeded (`story:local-gate-equals-forge`).
+- The run inspector reads its runbook's phases, file kinds and tool owners from a view file
+  (`views/sdc.view.json`, format `runbook.view/1`; `--view FILE`, `--no-view`; `ui/README.md`), so it
+  renders a runbook that is not SDC (`story:ui-view-data-per-runbook`).
+- The instructions of the 14 agent actions and of the decider are files under `instructions/`
+  (`instructions/<action>.md`, `instructions/shared/`, `instructions/decider/`, `{{name}}`
+  placeholders), named by `llm.instructions` in each JSON binding; `llm-node.sh` and `decider.sh`
+  only read and fill them, and `driver/tests/bugfix_prompt.rs` holds all 36 prompts byte for byte
+  against `instructions/golden/` (`story:instructions-as-files`, `docs/driver.md`, "Instructions").
+- `change.implement` as one request (`story:implement-one-request`), behind the run setting
+  `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
+  `run-settings.jsonl`, a launch setting of `sdc-experiment`). `sdc-reply implement-run` assembles
+  the node's whole input (the story, its requirements and acceptance lines, only its commands and
+  views from the compiled IR with what they name, the build constraints, the product tree by rule
+  up to 64,000 bytes with the rest listed by path and size, findings, and on a rework the failed
+  checks and the rejection), asks once with no tool, checks the reply's envelope against
+  `sdc-reply schema --type implement` and every path against the product tree, retries an invalid
+  reply at most twice (`implement_reply_invalid`), continues by rule for paths the reply left
+  `remaining` (at most two, `implement_reply_incomplete`), and writes the files into the revision.
+  The call's `llm-calls.jsonl` line carries `requests`, `continuations` and `reply_retries`. Request
+  mode runs on a schema adapter (`SDC_IMPLEMENT_ADAPTER`, else claude-cli under metaharness;
+  metaharness is refused at start). `docs/driver.md`, "Implement as one request".
+- `docs/driver.md`: the list of free-form exceptions to the response-schema rule; request mode's
+  envelope is schema-checked and its file contents are free text.
+- Cycles `implement-request-build`, `-tests-rework`, `-review-rework`, `-invalid-retry`,
+  `-invalid-named`, `-path-escape` (fixture adapter, `SDC_IMPLEMENT_REPLIES`).
+- Experiment records `implement-one-request` (mixed) and `implement-one-request-strong`, session
+  against request, three runs each, registered before any run.
+- Approvals by program (`story:decider-program-approvals`), behind the run switch
+  `SDC_RULE_APPROVALS=on|off` (default `off`, so a default run asks the decider as before): under
+  A5, `context.approve`, `roadmap.approve` and `release.publish` are taken by `rule:autopilot`,
+  with no decider call, when the program check guarding each (`context.check`,
+  `roadmap.validate`; `spec.gate`, `release.build`, `acceptance.run`) recorded a passing result
+  for the exact revision approved; otherwise the decider is asked. The mapping is
+  `driver/examples/sdc/rule-ends.json` (`approvals.*.by_rule`), checked by `sdc-check-routes`
+  (finding `rule-guard`); `vision.approve` has no program check and is left out. The switch is
+  recorded in `run-settings.jsonl` (`rule_approvals`); the records
+  `decider-program-approvals{,-mixed}` set it per variant. Not measured: no experiment has tested
+  this change; cycle `rule-approvals-default` re-drives main's stub recording with the switch
+  unset (same calls, prompts and actions). The decision record names the rule, the check and the
+  evidence ids. `sdc-run-metrics` counts these as `decisions_by_rule`,
+  not decider calls, and reports `decider_s`. New `sdc-reply rule-approval`; cycles
+  `rule-approvals*`; experiment record `experiments/decider-program-approvals.yaml`.
+- `docs/improving.md`, "Run switches": the four switches (`SDC_IMPLEMENT_MODE`,
+  `SDC_RULE_APPROVALS`, `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_COVERAGE`), their defaults, settings,
+  records and cycles. A change in what a run does merges off by default until its record holds.
+  Cycles `rule-approvals-default`, `review-mode-default` and `implement-coverage-default` re-drive
+  main's stub recording once with every switch at its default (run `switches-default`).
+- `runbook`, the command people type (`runbook/`, a new crate; `story:runbook-cli-skeleton`):
+  `runbook doctor` checks the assets, the Canon binary and the programs a run needs, one line per
+  check with what to do on a fail (`--for`, `--json`); `runbook list` lists the runbooks and child
+  protocols of `protocol/`; `runbook --version`. `run`, `ui` and the other commands are not built.
+  `task check` builds, tests and lints it (`b6f7225`). No run metric is affected.
+- The `runbook` plugin (`plugin/`, `.claude-plugin/marketplace.json`): skills `workflow-builder`
+  (moved from `skills/`), `harden` and `record`, for Claude Code and Codex. Its manifests carry the
+  repository version, which `task release:check` compares; `driver/tests/plugin.rs` checks the
+  versions, the marketplace entry and that every repository path a `SKILL.md` names exists
+  (`story:runbook-plugin`). No run metric is affected.
+- The bug-fix runbook starts from a ticket document (`sdc.ticket/1`) on a clean git worktree:
+  `sdc-bugfix seed --ticket <file> [--repo <worktree>]`, `scripts/run-trial.sh --bugfix-ticket`
+  (`story:ticket-input-and-repo-seed`). No run metric is affected: the benchmark input does not run
+  `sdc-bugfix`.
+- The bug-fix runbook works on a repository of any language. Its suite, single-test and gate
+  commands are the case's `checks.yaml` (`sdc.checks/1`), from `seed --checks`, the repository's
+  `.runbook/checks.yaml`, or the marker-file table `driver/examples/sdc/checks-detect.yaml`; with
+  none, the seed fails naming `--checks`. Tested: Rust (unchanged), JavaScript with `node --test`,
+  and a supplied `checks.yaml`; the Go, Python, Java, npm and make rows are not tested. The writers'
+  prompts quote `checks.yaml` and name no language (`story:bugfix-any-language`). No run metric is
+  affected: the benchmark input does not run `sdc-bugfix`.
+- The six runs of `build-constraints` on tree 3ca26fe (`fix/superseded-answers-0.1.2`, not merged):
+  report and run summaries, Haiku 0 of 3 clean passes, mixed 1 of 3; descriptive, the record has
+  no hypothesis (`89b8de0`). Two runs ended after the ess on PATH changed at about 20:54Z (see
+  Fixed); whether they called it after that is not checked.
+- The six runs of `effort-decider-mixed` on tree 72a3eef: report and run summaries, xhigh 3 of 3
+  clean passes, medium 2 of 3; `run.wall_s` xhigh 3032 [1913, 3677] (3), medium 1831 [1424, 2191]
+  (3); inconclusive, the ranges overlap (`experiments/effort-decider-mixed/report.md`).
+- `bindings/`: the nine bindings files in Loom's `loom.bindings/1`, beside the JSON files the
+  driver still runs from, each accepted by Loom's loader at Loom `8a8fad3b`; `bindings/PENDING.md`
+  lists what the format cannot express yet, and `scripts/check-bindings.sh` checks the YAML files
+  against the JSON files and the protocols (`docs/loom-bindings.md`).
+- In Loom mode `llm-node.sh` and `sdc-tool.sh` take the epic and the story of a case from `LOOM_PARENT_CASE_NAME` and `LOOM_CASE_NAME` (the names Loom gave the cases) and fall back to the cut of the case id when neither is set, so a story under a repeated epic (`IDEA-1.billing.2.story-a`) is `story-a` (`docs/loom-bindings.md`, `bindings/PENDING.md`).
+
+### Changed
+
+- The tools the bindings run moved from `driver/examples/sdc/tools/` to `bindings/tools/`
+  (`story:loom-tools-program-contract`): `bindings/*.yaml` names each as `tools/<file>`, with no
+  `..`, and `scripts/check-bindings.sh` refuses any other program path. `sdc-tool.sh` and
+  `llm-node.sh` run under Loom's program contract when `LOOM_CASE` is set (arguments on standard
+  input, `LOOM_RETRY_FEEDBACK`, the binding's `--action`, `--model`, `--stub` and other values as
+  argv, the driver's binaries from `PATH`), and as before when it is not
+  (`docs/loom-bindings.md`, "Tool changes").
+- Runbook evaluates with Canon 0.10.0 (`story:canon-0-10-0-pin`): the 52 `cases/*/decision.json` are
+  regenerated (new `semantics.canon` and the new `missing_evidence` and `pending_decisions`
+  sections; no claim, action or outcome changed) and the docs that state the pin say 0.10.0.
+- `change.review` on the smallest fact set (`story:review-minimal-facts`), behind the run switch
+  `SDC_REVIEW_MODE=session|facts` (default `session`, main's review; recorded as `review_mode` in
+  `run-settings.jsonl`, a launch setting of `sdc-experiment`). With `facts`:
+  `sdc-reply review-inputs` assembles one document, `in/review.md`, with the story's requirements
+  and commands, the test summary (counts and failing names, not the log), the build constraints
+  when the tree has them, the diff, the full text of only the files the diff touches and a listing
+  of every other product file (path, size, top-level item names; capped at 4 KB, then paths only); the
+  review is one request with no tools (`operations` empty, `max_turns` 4, `--tools ""`), and the
+  document's size is recorded per call as `input_bytes` in `llm-calls.jsonl`. Verdict rules and the
+  response schema are unchanged except that a finding's `at` may cite a listed file by path
+  without a line (a line of an untouched file stays refused). The record
+  `review-minimal-facts` (variant `minimal-facts` sets `review_mode: facts`) decides by recorded
+  replay whether the decisions hold (`docs/driver.md`, "Facts review"). Not measured: no experiment
+  has tested this change; cycle `review-mode-default` re-drives main's stub recording with the
+  switch unset.
+- `change.implement` cites its requirements (`story:implement-cites-requirements`), behind the
+  run switch `SDC_IMPLEMENT_COVERAGE=on|off` (default `off`, main's implement step; recorded as
+  `implement_coverage` in `run-settings.jsonl`, a launch setting of `sdc-experiment`; a binding's
+  `postcondition` may name a `switch` it runs under). With `on`, besides its change it replies with a coverage document checked against a response schema (per requirement
+  of the story, `built` with file, line and a test, or `not_built` with a reason), and the
+  binding's new `postcondition`, `sdc-reply check-coverage`, run by `sdc-drive` right after the
+  implement step, refuses the revision before `tests.run` when a requirement is missing, not
+  built, cited at a file or line the tree lacks, or named with a test that does not exist. The
+  refusal names the requirement ids, reaches the next implement run as `in/feedback.md`, counts
+  under its own retry kind `requirement_coverage` against `max_runs`, and shows in
+  `sdc-run-metrics` as `requirement_coverage:refused`. The review gets the document as
+  `in/coverage.json`. Off, no coverage document is asked for or checked. No protocol rule changed (`docs/driver.md`, "Requirement coverage").
+  Not measured: no experiment has tested this change; `experiments/implement-cites-requirements.yaml`
+  (both variants set `implement_coverage: on`) is registered and not launched; cycle
+  `implement-coverage-default` re-drives main's stub recording with the switch unset.
+- The approval record of 0.2.1 and the ledger tree of 0.2.1 (99f5617) (`db85df0`).
+- CI: a change of only planning or prose files passes `Documentation validation` without building or testing, and deploys nothing; a docs-site change skips the `sdc-protocol-site` unit tests (`story:ci-planning-only-skip`).
+- Docs tests: the Playwright step ends within 120 s (59 s for 108 tests with four workers, was over 120 s for 126), 60 s per test, ten slowest tests printed (`story:docs-test-budget`).
+
+### Fixed
+
+- The tools of the bindings (`driver/examples/sdc/tools/sdc-tool.sh`) run ess 0.96.0 whatever
+  `ess` is on PATH (`ESS_TOOLCHAIN=0.96.0`, `ESS_TOOLCHAIN_QUIET=1` unless the caller sets them).
+  Since about 20:54Z on 2026-11-21 the `ess` on PATH can be a version dispatcher, 0.97.1, which
+  ran itself in a case tree: the conformance line of a story's `tests.run` log then names 0.97.1,
+  so `in/tests.txt` and the replay cycles depended on the installed ess (`f82aa7c`). It restores
+  the release of every committed recording and record; not measured otherwise.
+
+### Security
+
+- `llm-node.sh` and `decider.sh` refuse an instruction path that is not `instructions/<...>.md` or
+  has a `..` segment (exit 126), and `llm-node.sh` in Loom mode reads a retry feedback log only for a
+  blob digest of 64 hex digits, so a binding value or a feedback record cannot read a file outside
+  `instructions/` or the feedback directory into a prompt; `scripts/check-bindings.sh` parses the
+  `--instructions` value.
 
 ## [0.2.1] - 2026-11-21
 

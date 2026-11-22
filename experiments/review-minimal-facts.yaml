@@ -10,7 +10,7 @@ inputs:
   kind: idea
   text: A to-do list web app for me and my partner that also works on the train without a connection
   sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
-tree_commit: null
+tree_commit: 9152866bd16c049b825cc2a6b62ba4cb55457241
 fixed:
   models.writer.model: claude-sonnet-5-5
   models.implement.model: claude-sonnet-5-5
@@ -27,7 +27,8 @@ fixed:
   autonomy: A5
 variants:
 - id: minimal-facts
-  settings: {}
+  settings:
+    review_mode: facts
   runs: []
 runs_per_variant: 3
 pass_rule: clean-delivery

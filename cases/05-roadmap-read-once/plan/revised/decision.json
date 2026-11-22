@@ -376,7 +376,7 @@
       "protocol": "sdc.plan",
       "protocol_revision": 7,
       "semantics": {
-        "canon": "0.9.0",
+        "canon": "0.10.0",
         "format": "canon-decision/1"
       }
     },
@@ -455,6 +455,11 @@
     }
   },
   "format": "canon-decision/1",
+  "missing_evidence": {
+    "roadmap.read": [
+      "roadmap_approval"
+    ]
+  },
   "obligations": [
     {
       "id": "activation.required",

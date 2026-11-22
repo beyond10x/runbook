@@ -1,0 +1,101 @@
+format: loom.bindings/1
+protocol: sdc-intake@1
+artifacts:
+  idea: idea.yaml
+  goals: goals.yaml
+  dissection: dissection.yaml
+  questions: questions.yaml
+  requirements: requirements.yaml
+  findings: findings.yaml
+actions:
+  - action: idea.check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, check-idea, --action, idea.check]
+    evidence:
+      - kind: idea_shape
+        subject: idea
+        producer: sdc-check
+        from: exit
+        results: {"0": valid, "*": invalid}
+  - action: idea.dissect
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, idea.dissect, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/idea.dissect.md"}', --stub, stub-file, dissection.yaml, dissection.yaml]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      dissection_shape: [invalid]
+  - action: dissection.check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, check-dissection, --action, dissection.check]
+    evidence:
+      - kind: dissection_shape
+        subject: dissection
+        producer: sdc-check
+        from: exit
+        results: {"0": valid, "*": invalid}
+        upstream: [idea]
+  - action: questions.write
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, questions.write, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.write.md"}', --stub, stub-file, questions-open.yaml, questions.yaml]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      questions_shape: [invalid]
+  - action: questions.answer
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, questions.answer, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/questions.answer.md"}', --stub, stub-file, questions-answered.yaml, questions.yaml]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+  - action: questions.check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, check-questions, --action, questions.check]
+    evidence:
+      - kind: questions_shape
+        subject: questions
+        producer: sdc-check
+        from: exit
+        results: {"0": valid, "1": valid, "3": valid, "*": invalid}
+        upstream: [dissection]
+      - kind: questions_settled
+        subject: questions
+        producer: sdc-check
+        from: exit
+        results: {"0": settled, "1": open, "3": needs_scope_answer, "*": open}
+        upstream: [dissection]
+  - action: requirements.normalise
+    executor:
+      kind: program
+      argv: [tools/llm-node.sh, requirements.normalise, --model, claude-haiku-5-5, --max-turns, "15", --max-budget-usd, "0.5", --instructions, '{"task":"instructions/requirements.normalise.md"}', --stub, stub-file, requirements.yaml, requirements.yaml]
+    budget: {max_runs: 3}
+    timeout_seconds: 900
+    retry_when:
+      requirements_shape: [invalid]
+  - action: requirements.check
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, check-requirements, --action, requirements.check]
+    evidence:
+      - kind: requirements_shape
+        subject: requirements
+        producer: sdc-check
+        from: exit
+        results: {"0": valid, "5": finding, "*": invalid}
+        upstream: [questions]
+  - action: amend.upstream
+    executor:
+      kind: program
+      argv: [tools/sdc-tool.sh, amend, requirements, --action, amend.upstream]
+    budget: {max_runs: 12}
+    timeout_seconds: 300
+    handoff: "decide the open findings: in findings.yaml of the workspace, for every finding with status needs_person, set `decision:` to one of its options or your own answer and `decided_by: person:<your id>` (the questions and the requirements are amended from it), or set `status: dismissed` when it is no conflict; then run again"
+  - action: scope.answer
+    executor:
+      kind: person
+      principal: person:owner
+    budget: {max_runs: 8}

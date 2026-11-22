@@ -2,7 +2,7 @@
 
 Written by `sdc-experiment report effort-decider-mixed` from `experiments/effort-decider-mixed.yaml` and the run summaries in `experiments/effort-decider-mixed/runs/`; `sdc-experiment check --all` fails when it is stale. Definitions: `docs/workflow-metrics.md`.
 
-- Kind: prospective; status: planned; created 2026-11-21.
+- Kind: prospective; status: complete; created 2026-11-21.
 - Purpose: Whether lowering the Haiku decider's reasoning effort from its default xhigh to medium removes the decider's share of the mixed setting's wall time without costing a clean pass.
 - Hypothesis: With the Haiku decider at effort medium instead of xhigh, run.wall_s of the mixed setting falls by at least 300 s.
 - Input `todo-app` (idea, sha256 f384a752a2cb): A to-do list web app for me and my partner that also works on the train without a connection
@@ -44,6 +44,12 @@ Known confounds:
 
 | run | variant | end | clean pass | cost USD | wall s | looping factor | note |
 |---|---|---|---|---|---|---|---|
+| effort-decider-mixed.xhigh.1 | xhigh | closed: operating | yes | 5.675 | 3032 | 1.583 |  |
+| effort-decider-mixed.xhigh.2 | xhigh | closed: operating | yes | 3.143 | 1913 | 1.75 |  |
+| effort-decider-mixed.xhigh.3 | xhigh | closed: operating | yes | 4.122 | 3677 | 1.5 |  |
+| effort-decider-mixed.medium.1 | medium | closed: operating | yes | 2.471 | 1424 | 1.917 |  |
+| effort-decider-mixed.medium.2 | medium | closed: operating | no | 3.078 | 1831 | 1.75 |  |
+| effort-decider-mixed.medium.3 | medium | closed: operating | yes | 3.095 | 2191 | 1.583 |  |
 
 ## Per variant
 
@@ -51,45 +57,55 @@ Median [min, max] (n) over the ended runs.
 
 | | xhigh | medium |
 |---|---|---|
-| runs listed | 0 | 0 |
-| ended | 0 | 0 |
-| clean passes | 0 | 0 |
-| `run.cost_usd` | - | - |
-| `run.llm_calls` | - | - |
-| `run.decider_calls` | - | - |
-| `run.wall_s` | - | - |
-| `run.driver_s` | - | - |
-| `run.real_takes` | - | - |
-| `run.rework_takes` | - | - |
-| `run.looping_factor` | - | - |
-| `run.first_pass_yield` | - | - |
-| `run.rework_cost_usd` | - | - |
-| `run.furthest_stage_index` | - | - |
-| `run.findings_raised` | - | - |
-| `run.waiting_on_person_s` | - | - |
-| `run.clean` | - | - |
+| runs listed | 3 | 3 |
+| ended | 3 | 3 |
+| clean passes | 3 | 2 |
+| `run.cost_usd` | 4.1218 [3.1431, 5.6753] (3) | 3.0783 [2.4709, 3.0949] (3) |
+| `run.llm_calls` | 24 [24, 24] (3) | 26 [23, 27] (3) |
+| `run.decider_calls` | 16 [15, 20] (3) | 17 [17, 19] (3) |
+| `run.wall_s` | 3032 [1913, 3677] (3) | 1831 [1424, 2191] (3) |
+| `run.driver_s` | 1690 [1062, 2682] (3) | 1556 [1161, 1952] (3) |
+| `run.real_takes` | 125 [117, 128] (3) | 130 [121, 134] (3) |
+| `run.rework_takes` | 55 [47, 58] (3) | 60 [51, 66] (3) |
+| `run.looping_factor` | 1.583 [1.5, 1.75] (3) | 1.75 [1.583, 1.917] (3) |
+| `run.first_pass_yield` | 0.667 [0.667, 0.667] (3) | 0.75 [0.75, 0.75] (3) |
+| `run.rework_cost_usd` | 0.9952 [0.7895, 1.9405] (3) | 0.8463 [0.2009, 0.9645] (3) |
+| `run.furthest_stage_index` | 7 [7, 7] (3) | 7 [7, 7] (3) |
+| `run.findings_raised` | 12 [10, 13] (3) | 11 [9, 12] (3) |
+| `run.waiting_on_person_s` | 0 [0, 0] (3) | 0 [0, 0] (3) |
+| `run.clean` | 1 [1, 1] (3) | 1 [0, 1] (3) |
 
 ## Loops
 
 Per variant, over the ended runs: of the writer and approval nodes taken again at least once, the three with the highest median looping factor; and the three edges with the highest loop cost.
 
-- xhigh (n 0):
-  - no node taken again, no edge
-- medium (n 0):
-  - no node taken again, no edge
+- xhigh (n 3):
+  - `direction/vision.write` (llm-writer): looping factor median 4 (max 5, n 3), rework takes 9, rework cost 0.052 USD
+  - `story/change.implement` (llm-writer): looping factor median 2 (max 2, n 3), rework takes 7, rework cost 2.383 USD
+  - `spec/spec.author` (llm-writer): looping factor median 2 (max 3, n 3), rework takes 4, rework cost 0.462 USD
+  - `story: merge.approve:rejected -> change.implement` (approval): count 3 in 2 runs, loop cost 1.627 USD, loop driver 374 s
+  - `story: finding@story -> intake` (finding): count 13 in 3 runs, loop cost 1.401 USD, loop driver 372 s
+  - `story: change.review:rejected -> change.implement` (check): count 2 in 1 runs, loop cost 0.443 USD, loop driver 155 s
+- medium (n 3):
+  - `direction/vision.write` (llm-writer): looping factor median 6 (max 8, n 3), rework takes 15, rework cost 0.082 USD
+  - `direction/roadmap.write` (llm-writer): looping factor median 3 (max 4, n 3), rework takes 6, rework cost 0.038 USD
+  - `direction/vision.approve` (approval): looping factor median 3 (max 4, n 3), rework takes 6, rework cost 0 USD
+  - `story: change.review:rejected -> change.implement` (check): count 4 in 2 runs, loop cost 1.233 USD, loop driver 472 s
+  - `story: finding@story -> intake` (finding): count 5 in 2 runs, loop cost 0.531 USD, loop driver 867 s
+  - `direction: finding@vision -> intake` (finding): count 11 in 3 runs, loop cost 0.169 USD, loop driver 398 s
 
 ## Verdict
 
-inconclusive: too few ended runs with the metric: xhigh 0 and medium 0, the rule needs 3 each.
+inconclusive: the ranges overlap (median difference -1201): no effect is claimed.
 
 Primary metric `run.wall_s` (decrease, at least 300.0):
 
-- xhigh: n 0, median null, range [null, null]
-- medium: n 0, median null, range [null, null]
-- guard `run.delivered`: unknown (worsening -)
-- guard `run.cost_usd`: unknown (worsening -)
-- guard `run.decider_calls`: unknown (worsening -)
-- guard `run.rework_takes`: unknown (worsening -)
+- xhigh: n 3, median 3032.0, range [1913.0, 3677.0]
+- medium: n 3, median 1831.0, range [1424.0, 2191.0]
+- guard `run.delivered`: holds (worsening 0)
+- guard `run.cost_usd`: holds (worsening -1.043)
+- guard `run.decider_calls`: holds (worsening 1)
+- guard `run.rework_takes`: holds (worsening 5)
 - recommendation: run more
 
 ## Facts

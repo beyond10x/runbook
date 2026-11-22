@@ -7,12 +7,85 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch and goals; bindings, fixture cases and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the CI change classifier and the planning store.
     cmds:
-      - for c in driver watch goals; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
+      - task: check:ci-paths
+      - task: check:cycles-suite
+      - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
       - scripts/check-bindings.sh
       - scripts/evaluate-cases.sh
       - task: plan
+
+  check:ci-paths:
+    silent: true
+    desc: "Feed the change classifier of .github/workflows/pages.yml one file list per case: planning, docs-site, code, mixed, empty."
+    cmds:
+      - |
+        set -eu
+        step=$(awk '
+          /- name: Classify the changed files$/ { f = 1; next }
+          f && !r && /run: \|$/ { r = 1; i = match($0, /[^ ]/); next }
+          r && /^ *$/ { print ""; next }
+          r { j = match($0, /[^ ]/); if (j <= i) exit; print substr($0, i + 2) }
+        ' .github/workflows/pages.yml)
+        test -n "$step" || { echo "no classifier step in .github/workflows/pages.yml"; exit 1; }
+        fail=0 n=0
+        while IFS='|' read -r want files; do
+          n=$((n + 1))
+          got=$(printf '%s' "$files" | tr ' ' '\n' | CHANGED_FILES= GITHUB_OUTPUT=/dev/stdout bash -c "$step" | sed -n 's/^class=//p')
+          if [ "$got" = "$want" ]; then echo "ok   $want <- ${files:-(none)}"; else echo "FAIL $want <- ${files:-(none)}: got ${got:-nothing}"; fail=1; fi
+        done <<'CASES'
+        planning|.engineering/planning/story/x.md
+        planning|.engineering/planning/project.yaml
+        planning|README.md AGENTS.md docs/driver.md ui/README.md
+        docs-site|website/docs/index.md
+        docs-site|website/src/pages/index.tsx
+        docs-site|CHANGELOG.md
+        docs-site|docs/releases/0.2.1.md
+        docs-site|experiments/INDEX.md experiments/releases.yaml
+        docs-site|docs/progress.json docs/img/progress.svg docs/check-output.txt
+        docs-site|.engineering/planning/story/x.md README.md website/docs/run-it.md
+        code|driver/src/main.rs
+        code|Taskfile.yml
+        code|.github/workflows/pages.yml
+        code|docs/img/other.svg
+        code|README.md driver/src/lib.rs
+        code|website/docs/index.md scripts/run-trial.sh
+        planning|docs/x.md
+        code|instructions/x.md
+        code|instructions/golden/decider/x.md README.md
+        code|bindings/tools/llm-node.sh
+        code|bindings/PENDING.md
+        code|cycles/suite.yaml
+        code|views/sdc.view.json
+        code|
+        CASES
+        echo "$n cases"
+        exit $fail
+
+  check:cycles-suite:
+    silent: true
+    desc: "Hold cycles/suite.yaml equal to the expected and pending arrays of scripts/run-finding-cycles.sh: same cycle ids, same state, no duplicate id (state unlisted: a cycle the script runs outside both arrays, not compared)."
+    cmds:
+      - |
+        set -eu
+        script=scripts/run-finding-cycles.sh
+        suite=${CYCLES_SUITE:-cycles/suite.yaml}
+        want=$(grep -Pzo '(?:expected|pending)\+?=\([^)]*\)' "$script" | tr '\0' '\n' | awk '
+          /^(expected|pending)\+?=\(/ { st = ($0 ~ /^pending/) ? "pending" : "expected"; sub(/^[a-z]+\+?=\(/, ""); open = 1 }
+          open { line = $0; done = (line ~ /\)/); sub(/\).*/, "", line); n = split(line, w, " "); for (i = 1; i <= n; i++) print w[i] " " st; if (done) open = 0 }
+        ' | sort)
+        got=$(yq '.cycles[] | select(.state != "unlisted") | .id + " " + .state' "$suite" | sort)
+        dup=$(yq '.cycles[].id' "$suite" | sort | uniq -d)
+        test -n "$want" || { echo "no cycle arrays found in $script"; exit 1; }
+        fail=0
+        missing=$(printf '%s\n' "$want" | grep -vxF "$got" || true)
+        extra=$(printf '%s\n' "$got" | grep -vxF "$want" || true)
+        if [ -n "$missing" ]; then echo "in $script, not in $suite (id state):"; echo "$missing"; fail=1; fi
+        if [ -n "$extra" ]; then echo "in $suite, not in $script (id state):"; echo "$extra"; fail=1; fi
+        if [ -n "$dup" ]; then echo "duplicate ids in $suite:"; echo "$dup"; fail=1; fi
+        echo "$(printf '%s\n' "$want" | wc -l) cycles in the script, $(printf '%s\n' "$got" | wc -l) in the suite"
+        exit $fail
 
   check:protocols:
     desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).
@@ -36,11 +109,11 @@ tasks:
       - SDC_SITE_FIXTURES=tests/fixtures/ledger npx docusaurus build --out-dir build-fixture
 
   docs:test:
-    desc: "Smoke test of the built site: every page at 1440 and 390 px in both themes, axe, internal links, the fixture build. Playwright serves build/ on 127.0.0.1:7591 and build-fixture/ on 7592 for the run only (SDC_DOCS_SITE_PORT, SDC_DOCS_FIXTURE_PORT move them)."
+    desc: "Smoke test of the built site: every page at 1440 and 390 px in both themes, axe, internal links, the fixture build. Playwright serves build/ on 127.0.0.1:7591 and build-fixture/ on 7592 for the run only (SDC_DOCS_SITE_PORT, SDC_DOCS_FIXTURE_PORT move them). Four workers, 60 s per test, 120 s for the run, the ten slowest tests printed; run it as `slot --tokens 4 task docs:test`."
     dir: website
     cmds:
       - npx playwright install chromium
-      - npx playwright test --workers=2
+      - npx playwright test --workers=4
 
   docs:
     desc: Check the site data is current, build the site and run its smoke test.
@@ -63,6 +136,30 @@ tasks:
           grep -A1 '^name = "sdc-' "$f" | grep -qx 'version = "{{.VERSION}}"' || { echo "$f is not at {{.VERSION}}"; exit 1; }
         done
         grep -q '"version": "{{.VERSION}}"' ui/package.json || { echo "ui/package.json is not at {{.VERSION}}"; exit 1; }
+        for f in plugin/.claude-plugin/plugin.json plugin/.codex-plugin/plugin.json; do
+          grep -q '"version": "{{.VERSION}}"' "$f" || { echo "$f is not at {{.VERSION}}"; exit 1; }
+        done
         grep -q '^## \[{{.VERSION}}\] - ' CHANGELOG.md || { echo "CHANGELOG.md has no entry for {{.VERSION}}"; exit 1; }
         test -s docs/releases/{{.VERSION}}.md || { echo "docs/releases/{{.VERSION}}.md is missing"; exit 1; }
       - task: plan
+
+  ci:watch:
+    desc: "Wait for the forge runs of one commit of beyond10x/runbook and exit non-zero unless every run succeeded: task ci:watch SHA=<commit>."
+    requires:
+      vars: [SHA]
+    env:
+      SHA: '{{.SHA}}'
+    cmds:
+      - |
+        set -eu
+        printf '%s' "$SHA" | grep -qE '^[0-9a-f]{40}$' || { echo "SHA must be a full 40-character commit id"; exit 1; }
+        runs=$(gh run list --repo beyond10x/runbook --commit "$SHA" --limit 100 --json databaseId --jq '.[].databaseId')
+        test -n "$runs" || { echo "no workflow runs for $SHA in beyond10x/runbook"; exit 1; }
+        fail=0
+        for id in $runs; do
+          gh run watch "$id" --repo beyond10x/runbook --exit-status > /dev/null || true
+          conclusion=$(gh run view "$id" --repo beyond10x/runbook --json conclusion --jq .conclusion)
+          echo "run $id: ${conclusion:-unknown}"
+          case "$conclusion" in success | skipped) ;; *) fail=1 ;; esac
+        done
+        exit $fail

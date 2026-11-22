@@ -58,7 +58,9 @@ make_bindings() {
   bd=$scratch/bind-$1
   rm -rf "$bd"
   cp -r "$examples" "$bd"
-  sed -i -e "s#{dir}/../../../protocol#$protocols#g" -e "s#$sdc/protocol/#$protocols/#g" "$bd"/*.bindings.json
+  sed -i -e "s#{dir}/../../../protocol#$protocols#g" -e "s#$sdc/protocol/#$protocols/#g" \
+    -e "s#{dir}/../../../bindings/tools/#$sdc/bindings/tools/#g" \
+    -e "s#{dir}/../../target/#$sdc/driver/target/#g" "$bd"/*.bindings.json
   case $1 in
     spec-noop) setargv sdc-spec spec.author "[\"$adv\",\"noop\"]" ;;
     spec-junk) setargv sdc-spec spec.author "[\"$adv\",\"junk\",\"spec\",\"system.yaml\"]" ;;

@@ -12,7 +12,9 @@ export default defineConfig({
   testMatch: '*.spec.ts',
   outputDir: 'test-results',
   timeout: 60_000,
-  reporter: [['list']],
+  globalTimeout: 120_000,
+  fullyParallel: true,
+  reporter: [['list'], ['./tests/slowest-reporter.ts']],
   projects: [
     {name: 'site', testMatch: ['smoke.spec.ts', 'pitch.spec.ts'], use: {baseURL: site}},
     {name: 'navigation', testMatch: 'navigation.spec.ts', use: {baseURL: site}},

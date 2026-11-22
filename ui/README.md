@@ -160,6 +160,31 @@ URL parameters for links: `source`, `case` (path below the store, for example
 `IDEA-1/children/IDEA-1.intake`), `node` (for example `claim:dissection.valid`), `at` (event seq),
 `tab`, `reads=1`, `drawer=1`.
 
+## The view file: one inspector, any runbook
+
+What the page knows about one runbook, and cannot read from the case store, is data the runbook
+ships: `views/sdc.view.json` for SDC (format `runbook.view/1`). `node server.mjs --view FILE`
+serves another one; without `--view` the server takes `views/sdc.view.json` of the checkout when
+it exists; `--no-view` runs without one. The page reads it from `/api/view` (`null` without one).
+Three tables:
+
+- `phases`: `stages` (names, in order), `items` (`id`, `stage`, `label`, `short`, `protocol`, the
+  `claims` that make the phase, `doc` for the tooltip, `has_source`, `root_outcome`) and `absent`
+  (a stage shown with a note while no case of `protocol_pattern` exists, the "Ticket" row of SDC).
+- `file_kinds`: `rules` (a `match` regular expression, optional `flags`, a `class` of planning, spec,
+  direction, decision or code, a `kind`, or `$basename`; the first rule that matches wins) and
+  `artifacts` (an artifact name of the protocols to its class).
+- `tool_owners`: the programs an act needs on the server's PATH: `always`, `driver` (an act that
+  starts the driver), `continue` (the whole run), and per `tools` entry (`argv0`, matched on the
+  binding's program) the `needs` of each `subcommands` entry (`match` on the first argument).
+
+Without a view the page still works: one stage "Protocols" with one phase per protocol found in the
+store, every file labelled by its path (class code), and only the driver and canon binaries checked.
+`test/view.spec.mjs` runs a second runbook (`test/second-runbook.mjs`, protocol `triage.ticket`) with no
+view and with a two-phase one (ports 7621 and 7622, `SDC_UI_VIEW_PORT`). What still reads SDC names in
+code, not data: the parsers of the direction and intake files by kind (`web/meaning.js`) and the
+scope-answer and amend actions of the Decisions drawer (`decisions.mjs`).
+
 ## Where "now" comes from
 
 - In flight: a case's `action_started` without a later `action_finished` (driver `main.rs`).

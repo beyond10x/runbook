@@ -194,6 +194,34 @@ fn a_rejected_approval_is_one_approval_edge_and_a_looping_factor_of_two() {
 }
 
 #[test]
+fn an_approval_taken_by_rule_is_a_decision_by_rule_and_no_decider_call() {
+    let run = scratch("rule").join("run-r");
+    root(&run, Some("operating"));
+    settings(&run, "claude-haiku-5-5");
+    let rule = json!({"principal": "rule:autopilot", "rule": "program-checks", "approval": "sdc.direction/context.approve",
+        "checks": [{"claim": "context.valid", "check": "context.check", "evidence": "e0004-context.check"}]});
+    jsonl(&run.join("decisions.jsonl"), &[
+        json!({"time": at_whole(1), "case": "IDEA-1.direction", "type": "approval", "class": "approval", "action": "context.approve",
+            "decision": "approve", "principal": "rule:autopilot", "model": null, "adapter": "rule", "cost_usd": 0, "duration_ms": null,
+            "valid": true, "cites": ["e0004-context.check"], "rule": rule}),
+        json!({"time": at_whole(2), "case": "IDEA-1.direction", "type": "approval", "class": "approval", "action": "vision.approve",
+            "decision": "approve", "principal": "decider:model", "model": "claude-haiku-5-5", "cost_usd": 0.02, "duration_ms": 41000, "valid": true}),
+    ]);
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    let d = &doc["decisions"]["by_class"]["approval"];
+    assert_eq!((d["by_rule"].as_u64(), d["asked"].as_u64(), d["approved"].as_u64(), d["calls"].as_u64()), (Some(1), Some(1), Some(1), Some(1)), "{d}");
+    assert_eq!(doc["decisions"]["by_action"]["approval/context.approve"]["by_rule"], 1);
+    assert_eq!(doc["decisions"]["by_action"]["approval/context.approve"]["calls"], 0);
+    let m = &doc["metrics"];
+    assert_eq!((m["decider_calls"].as_u64(), m["decisions_by_rule"].as_u64()), (Some(1), Some(1)), "{m}");
+    assert!(close(&m["decider_cost_usd"], 0.02) && close(&m["decider_s"], 41.0), "{m}");
+    // Both figures are comparable metrics of a group of runs.
+    let flat = Command::new(env!("CARGO_BIN_EXE_sdc-run-metrics")).arg(&run).output().unwrap();
+    assert!(String::from_utf8_lossy(&flat.stdout).contains("by rule"), "{}", String::from_utf8_lossy(&flat.stdout));
+}
+
+#[test]
 fn a_check_sends_the_writer_back_and_a_not_called_run_is_no_take() {
     let run = scratch("spec").join("run-s");
     root(&run, None);
@@ -222,6 +250,28 @@ fn a_check_sends_the_writer_back_and_a_not_called_run_is_no_take() {
     assert_eq!(m["end"], "stopped: writer_spent in IDEA-1.x");
     assert_eq!((m["clean"].as_bool(), m["reopens"].as_u64(), m["forced"].as_u64(), m["finished"].as_bool()), (Some(false), Some(1), Some(1), Some(true)));
     assert_eq!(m["llm_calls"], Value::Null, "no llm-calls.jsonl: not recorded, never 0");
+}
+
+#[test]
+fn a_run_refused_by_its_postcondition_is_its_own_retry_kind() {
+    // change.implement's first run is refused by its requirement coverage postcondition (no
+    // evidence, `refused` on action_finished); the second, sent back by it, passes; tests.run passes.
+    let run = scratch("refused").join("run-r");
+    root(&run, None);
+    let effects = [("change.implement", "write"), ("tests.run", "read")];
+    let mut c = CaseW::new(run.join("store/IDEA-1/children/IDEA-1.s"), "sdc.story", &effects, &[]);
+    c.take("change.implement", true, &[], 5, "0", "", None, None, None);
+    let last = c.events.len() - 1;
+    c.events[last]["refused"] = json!({"kind": "requirement_coverage", "result": "refused", "exit": "1", "log": "b1", "subject_revision": "t2"});
+    c.take("change.implement", true, &["requirement_coverage"], 5, "0", "implementation_change", None, None, None);
+    c.take("tests.run", false, &[], 1, "0", "conformance_run", Some("passed"), None, None);
+    c.finish(None);
+    let (code, doc, err) = metrics(&run);
+    assert_eq!(code, 0, "{err}");
+    let n = node(&doc, "story/change.implement");
+    assert_eq!(n["retries_by_cause"], json!({"requirement_coverage:refused": 1}));
+    let e = edge(&doc, "story: requirement_coverage:refused -> change.implement");
+    assert_eq!((e["kind"].as_str(), e["count"].as_u64()), (Some("check"), Some(1)));
 }
 
 #[test]

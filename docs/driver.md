@@ -341,7 +341,7 @@ What the driver must check before a tool result counts as evidence:
 
 ## LLM executor (2026-11-21)
 
-Every agent node binds `argv: ["{dir}/tools/llm-node.sh", "<action>"]` plus an `llm` object:
+Every agent node binds `argv: ["{dir}/../../../bindings/tools/llm-node.sh", "<action>"]` plus an `llm` object:
 `model` (`claude-haiku-5-5`), `max_turns`, `max_budget_usd`, optional `operations`, and `stub`
 (the `sdc-tool.sh` subcommand that writes the fixed draft). Agent nodes: `idea.dissect`,
 `questions.write`, `questions.answer`, `requirements.normalise` (intake); `context.default`,
@@ -512,7 +512,8 @@ this pipeline: a finding stays with `SDC_DECIDER`, code review is the reviewer n
 of class REVIEW (`SDC_LLM_MODEL_REVIEW`) by `llm-node.sh change.review`, producer `llm-review`,
 which the story bindings list as independent (`different_principal`): the implementer is
 `llm-node`. A fresh session with no implementer context and read-only operations; the model
-replies only through the response schema, never by writing a file. Its adapter is the review
+replies only through the response schema, never by writing a file (with `SDC_REVIEW_MODE=facts`,
+one request with no tools: "Facts review" below). Its adapter is the review
 class's own (`sdc-reply adapters`): `SDC_REVIEW_ADAPTER`, else `claude-cli` when `SDC_LLM_ADAPTER`
 is `metaharness` (which has no response-schema option), else `SDC_LLM_ADAPTER`. `run-trial.sh`
 checks at start that every class in `schema_reply` (`tools/node-classes.json`) is on an adapter
@@ -543,7 +544,95 @@ rejection exits 1 with only its `sdc.rejection/1` on stdout (approval `change.re
 through `retry_when: {code_review: [rejected]}` as `in/rejection.json`. The bound is
 `change.implement`'s `max_runs` 3 per arrival, shared with failed conformance runs: the third
 rejection ends `writer_spent` with `sent_back` naming `change.review`. Cycles `review-reject-once`,
-`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`).
+`review-invalid`, `review-spent` (fixture adapter, `SDC_REVIEW_REPLIES`). Since
+`story:implement-cites-requirements` the review also gets `in/coverage.json`, the implementer's
+coverage document (read-only, below), when the change tree holds one; schema and verdict rules are
+unchanged.
+
+**Requirement coverage** (2026-11-21, `story:implement-cites-requirements`). In the nine runs of
+`baseline-0.1.0` the review sent the build back 10 times, 4 of them for an offline requirement the
+story covers that was not built (`experiments/baseline-0.1.0/losses.md`, on `exp/improve-1`). Such
+a gap is sent back by a program before `tests.run` and the review. All of it is behind the run
+switch `SDC_IMPLEMENT_COVERAGE=on` (default `off`, recorded as `implement_coverage` in
+`run-settings.jsonl`; `docs/improving.md`, "Run switches"), for the session implementer only:
+off, `change.implement` asks for no coverage document, the postcondition names the switch
+(`"switch": "SDC_IMPLEMENT_COVERAGE"`, skipped unless it is `on`), and the review gets no
+`in/coverage.json`, as on main (cycle `implement-coverage-default`). On:
+
+- Reply. `change.implement` replies, besides its change, with a coverage document: per requirement
+  the story carries (the review's story requirements, `sdc-reply coverage`, given to the node as
+  `in/story-requirements.json`), `{id, status: built, at: [{file, line}], test}` or `{id, status:
+  not_built, reason}`. The schema is `sdc-reply coverage --schema` (request `json_schema`; an
+  adapter without a schema option, metaharness, gets it in the prompt and the node writes
+  `out/coverage.json`). `sdc-reply check-coverage --shape` checks the reply against it; an invalid
+  one is asked again with the reason, in the same run with the files under `out/` kept
+  (`SDC_COVERAGE_RETRIES`, default 2, each a model call with its own line in the call log); still
+  invalid: exit 2 with `coverage_invalid` in the step log, nothing applied, fed back by R9. A
+  valid reply goes to `impl/.sdc/coverage.json`, inside the revision it describes (`.sdc/` is left
+  out of the review's copy and diff).
+- Check. The binding's `postcondition` `{argv, kind: requirement_coverage, timeout_s, switch}` is run by
+  `sdc-drive` right after a run of the writer that exited 0 and was called, before anything else:
+  `sdc-reply check-coverage --tree impl` (`SDC_CASE_DIR`, `SDC_CASE`). It refuses (exit 1) when an
+  id of the story is missing, named twice or `not_built`, a cited file is not in the tree, a cited
+  line is outside its file, or a named test is no `#[test]` function of the tree's Rust sources
+  (outside `target/` and `.sdc/`); the output names each fault by requirement id and ends
+  `refused requirements: <ids>`. Exit 0: the step goes on and records `implementation_change`.
+  Any other exit: a program error (126).
+- Refusal. A refused run records no evidence; its `action_finished` carries `refused: {kind,
+  result: refused, exit, log, subject_revision}`. `change.built` stays unknown for the new
+  revision, so `tests.run` is not admissible and `change.implement` runs again. While the
+  subject is still at that revision, the refusal is due like a failed check's record
+  (`own_refusal` in `src/main.rs`): it is in `SDC_FEEDBACK` (so `in/feedback.md` holds
+  `## requirement_coverage = refused` and the check's output), in `retry_of`, and it is counted
+  under its own kind against `max_runs` (3) and the backstop (R7). The third refusal ends the run
+  `writer_spent`, kind `requirement_coverage`, `sent_back` naming the postcondition.
+  `sdc-run-metrics` labels such a retry `requirement_coverage:refused`.
+- Protocol. No rule changed: the check is the implement action's own post-condition and its
+  refusal the action's recorded result, not a Canon fact, so `simulate` does not see it (as R9).
+- Stub. The stub implementer (and the fixture adapter without a scripted reply) writes
+  `sdc-reply coverage-stub`: every requirement built at the first line of the first Rust source,
+  exercised by the first test; a tree fixture's own `.sdc/coverage.json` wins. The fixture
+  adapter takes `SDC_COVERAGE_REPLIES` (`{"rounds": [...]}` by call, a list by
+  `coverage_attempt`). Cycles `coverage-complete`, `coverage-not-built`, `coverage-line-outside`,
+  `coverage-test-missing`, `coverage-spent`, `coverage-reply-retry`.
+- Limit. The check proves that the cited lines and tests exist, not that they build the
+  requirement: a node that cites lines that exist but do not build it passes, and the review is
+  still the only judge of that.
+
+**Facts review** (`story:review-minimal-facts`, `SDC_REVIEW_MODE=facts`; off by default until the
+record `review-minimal-facts` holds, `docs/improving.md` "Run switches"). The review is one request
+with no tools (`operations` empty, `max_turns` 4; the claude-cli adapter passes `--tools ""` and no
+allow list), and its input is
+one document, `in/review.md`, built by `sdc-reply review-inputs` and pasted into the prompt: the
+story's acceptance lines (the summary and an `## Acceptance` section), the requirements it delivers
+(`spec/traces.json`: a covered command, or a view or actor of a covered command's domain; without a
+trace, `spec_domains`; id and text), the requirements no story covers (findings of kind `outside`,
+never a reason to reject), the covered commands' IR entries, the build constraints
+(`build-constraints.yaml`) when the tree has them, the test summary of the conformance run that
+passed on the revision under review (the run's header line, scenario counts, unit-test totals and
+the names of failing scenarios and tests, not the log; sdc.story revision 7 admits `change.review`
+only after `tests.pass`; without that log the node records nothing), the diff against `mainline/`
+(empty tree for the first story; a file the change creates keeps its header only) and the full text
+of only the files the diff touches, with line numbers, then a listing of every other product file
+(`## Product files not in the diff`: path, size in bytes and, for a source file, the names it
+declares at top level, so that an absent service worker or route is seen without reading a file).
+The items come from one rule per language (`top_level_items`: Rust, JavaScript and TypeScript, Python,
+Go, shell declarations at column 0, plus registered routes such as `GET /tasks` and `addEventListener`
+names); a page, a manifest or a document has path and size only. The listing's lines with sizes and
+items stop at 4096 bytes, the files after that are paths only; build output, `.sdc`, `.git` and
+`node_modules` are not listed. No file text beyond the touched files, no other story, no gate log.
+A finding's `at` is a line of a changed file (`impl/<path>:<line>`), or a file by path alone
+(`impl/<path>`) when the file is listed or changed; a line of a file that is not shown is refused.
+For something missing the reviewer cites a listed file by path, or the line of a changed file where it
+belongs. Beside the document, `in/` holds what the programs check with (`scope.json`,
+`uncovered.json`, `change.diff`, the touched files under `impl/`, `listing.json`). `review-inputs` prints `document_bytes` and each call line of `llm-calls.jsonl` carries
+it as `input_bytes`: the size is recorded per call. The session review gets the whole tree and
+the whole diff, 108 to 119 KB per call in `baseline-0.1.0`, and reads them with `Read` over up to
+12 turns; whether the smaller input keeps its decisions is the record `review-minimal-facts`
+(*not yet observed*). Its reply schema admits `at: impl/<path>[:<line>]`; `check-review` takes a
+listed or changed file by path and writes `listed` in each citation. `run-settings.jsonl` records
+`review_mode`. Cycles `review-minimal-input`, `review-real-path-facts` (switch on) and
+`review-mode-default` (unset: the session review of main's recording).
 
 **A rejected approval** (2026-11-21, `autonomy-levels.md` § 3.4). Under autopilot `run-trial.sh`
 writes the rejection beside the decider record (`sdc.rejection/1`: approval, case, subject,
@@ -592,6 +681,47 @@ root through any outcome that requires no decision as `rule:autopilot` (`sdc-dri
 `status.json`) and asks the decider nothing. Children were never asked: the driver closes a
 terminable child with one legitimate outcome in its round. Below A5 the decider still closes
 `operating` (class close, `autonomy-levels.md` § 3.2).
+
+**Approvals by program** (`story:decider-program-approvals`, 2026-11-21). The decider's baseline
+stopped nothing on these approvals (25 of 25 approved), each of them guarded by a check that is a
+program. With `SDC_RULE_APPROVALS=on` (off by default), under A5, `context.approve`, `roadmap.approve` and `release.publish` are taken by
+`rule:autopilot`, with no decider call, when the program check guarding each recorded a passing
+result for the exact revision being approved; otherwise the decider is asked as before. The
+mapping is data, `driver/examples/sdc/rule-ends.json` (`approvals.<action>.by_rule`: the claim and
+the check that settles it), checked by `sdc-check-routes` against the bindings and protocols (a
+guard that is not a bound, non-manual, non-LLM program action producing that claim's evidence is
+finding `rule-guard`):
+
+| Approval | Claim | Program check |
+|---|---|---|
+| `context.approve` | `context.valid` | `context.check` |
+| `roadmap.approve` | `roadmap.valid` | `roadmap.validate` |
+| `release.publish` | `gate.passed`, `release.built`, `release.accepted` | `spec.gate`, `release.build`, `acceptance.run` |
+
+`vision.approve` has no program check (its precondition holds context claims only and the vision
+is an LLM writer's artifact), so it is left out and stays with the decider. Merge approval, scope
+answers, finding decisions and upstream amendments are untouched, as is the requester path
+(`SDC_REQUESTER_DECIDER`).
+
+`sdc-reply rule-approval` decides: it reads the claims from the request and re-reads the evidence
+on disk (kind, subject, result `valid`/`passed`, `subject_revision` equal to the case's current
+revision, id ending in `-<check>`, not in the position's `excluded_evidence`, upstream revisions
+current). It takes nothing when any of that fails or when the approval was rejected earlier in the
+case, and `run-trial.sh` then asks the decider; the declined reason is on the decision line
+(`rule_declined`). A taken approval is a `decisions.jsonl` line with principal `rule:autopilot`,
+`kind: rule`, `model: null`, `cost_usd: 0`, `rule: program-checks`, `cites` = the evidence ids and
+the full record under `rule` (rule, approval, each check with its evidence id, kind, result,
+subject and revision); the evidence's producer is `rule:autopilot`. The request and result are
+kept under `<run>/rule-approvals/`, never under `decider/`.
+
+The rule is off by default until the experiment `decider-program-approvals` holds
+(`docs/improving.md`, "Run switches"): unset or `SDC_RULE_APPROVALS=off`, every approval is asked of
+the decider as before; `SDC_RULE_APPROVALS=on` turns the rule on. The setting is `rule_approvals`
+(`on`|`off`) in `run-settings.jsonl`, and an experiment record varies it (`LAUNCH`). Below A5 the rule is never consulted. `sdc-run-metrics` counts a rule's approval as
+a decision by rule (`decisions.by_class.*.by_rule`, run `decisions_by_rule`), not as a decider call
+(`decider_calls`, `decider_cost_usd`, new `decider_s`). Cycles: `rule-approvals`,
+`rule-approvals-check-failed`, `rule-approvals-revision-changed`, `rule-approvals-off`,
+`rule-approvals-a3`, `rule-approvals-default` (`scripts/run-finding-cycles.sh`).
 
 **Keep-going** (D142, 2026-11-21, trial and eval runs only: `scripts/run-trial.sh <run>
 --autopilot --keep-going`; refused without `--autopilot`). Where autopilot stops with a cause,
@@ -668,6 +798,95 @@ above 0 is printed as `FAILED`. Under `--autopilot` a stop the decider cannot ta
 `rule:autopilot` with a `cause` (`decision_not_takeable`, `rejected_without_rework_path`, `rework_spent`,
 `decider_budget_spent`, `writer_spent`, `stuck`, …) and a reason that names the action, the cause,
 the case and the fix it waits on; the interval before a `rule:` stop is not counted in L7.
+
+**Replies under a schema, and the free-form exceptions** (AGENTS.md, the operator, 2026-11-21).
+A model call whose output is a data document is made with a response schema, and a program checks
+the reply against it; an invalid reply is asked again with the check's error at most twice, then
+fails with a named cause. Under a schema: the decider (`sdc-reply schema`), `change.review`
+(`--type review`, cause `review_invalid`), `run.unstick` (`reply-schema.json`), `bug.dissect`
+(`sdc-bugfix schema dissection`), and `change.implement` in request mode (below: the envelope).
+Free-form, the only exceptions, each a writer whose output is code or prose that a check reads
+afterwards:
+
+| node | output | checked by |
+|---|---|---|
+| `change.implement` (session mode, the default) | the product tree `impl/`, written in the session | `tests.run`, `change.review`, `merge.approve` |
+| `change.implement` (request mode) | the reply's envelope is schema-checked (`sdc-reply implement-run`); each file's `content` is free text | as above |
+| `test.reproduce`, `change.fix` | a test file and `repro.json`; the fixed tree | `repro.run`, `tests.run`, `gate.run` (`docs/bugfix.md`) |
+| `spec.author` | the ESS sources `spec/` | `spec.validate`, `spec.compile`, `spec.trace` |
+| `vision.write`, `roadmap.write` | Markdown bodies (and a small JSON beside each) | `roadmap.validate`, the approvals |
+| `idea.dissect`, `questions.write`, `questions.answer`, `requirements.normalise`, `context.default`, `plan.decompose` | YAML or JSON files written in the session | `dissection.check`, `questions.check`, `requirements.check`, `context.check`, `plan.validate`, `plan.cover` |
+
+The last row is free-form only until `story:structured-request-nodes` puts those nodes under a
+schema.
+
+**Implement as one request** (2026-11-21, `story:implement-one-request`, `SDC_IMPLEMENT_MODE`).
+`SDC_IMPLEMENT_MODE=session` (the default) runs `change.implement` as before: a session with file
+tools over `in/` and `out/impl/`. `SDC_IMPLEMENT_MODE=request` makes it one request per call, with
+no tool, through `sdc-reply implement-run` (`driver/src/bin/sdc-reply/implement.rs`); any other
+value is refused at start (exit 64). `run-trial.sh` records `implement_mode` in
+`run-settings.jsonl` and, in request mode, the implement class's adapter under `adapters.implement`;
+`sdc-experiment` launches it as the setting `implement_mode`.
+
+- **Input** (`assemble`, written to the call's `prompt.md`, with `implement-inputs.json` naming
+  every section's bytes and every file inlined or listed): the story file; the requirements it
+  delivers with id and text, and its acceptance lines (the rule of `review-inputs`); from the
+  compiled IR only its covered commands with their outcomes, the views its requirements trace to
+  and the views of its commands' domains, and the entities, events, errors and types those name;
+  the run's `build-constraints.yaml` when present, else the session task's build rules; the product
+  tree (rule below); `findings.yaml`; on a rework the failed checks' logs (`in/feedback.md`, as in
+  session mode) and the rejection's reasons with the rework cap. The node reads nothing.
+- **Which files of `impl/`**: all product files (no `target/`, no hidden entry), ranked: named in
+  the story's text; this story's change (absent from or different in `mainline/`, which the
+  epic's earlier stories merged; for a first story, no `mainline/`, that is the whole tree); a
+  crate root file (`Cargo.toml`, `src/lib.rs`, `src/main.rs`, `README.md`, `Taskfile.yml`); a file
+  an earlier story merged and this one has not touched. In that order a file is inlined while the
+  inlined text stays within 64,000 bytes (`INLINE_CAP`); the rest, and any file that is not UTF-8,
+  is listed by path and size only. On the stub fixture (one story covering five commands): the
+  first build's prompt is 17,017 bytes with an empty tree (the specification 12,458 of it, one
+  compact JSON line per declaration, a type reference written as its name); the rework after the
+  failed test (cycle `implement-request-tests-rework`) inlines all six files of
+  `fixtures/test-failure/impl.0`, 4,543 bytes, with 2,429 bytes of feedback: 24,267 bytes.
+- **Reply** (`sdc-reply schema --type implement`): `{files: [{path, content}], note, findings,
+  remaining}`, every key required. `files` holds the complete text of every file written or
+  replaced; a file not listed stays as it is. `check_reply` checks the envelope (keys, types, a
+  finding's six fields, `default` one of 2 to 4 `options`) and every path (`confine`): relative to
+  `impl/`, no `..`, not absolute, no backslash, no empty or `.` segment, no hidden entry, not
+  `target/`. `write_files` checks every path again and refuses one that runs through a symlink or a
+  file before writing any, then writes into the call's `out/impl/` (a copy of `work/impl`); the
+  existing apply step copies that into `work/impl`, a new revision. `findings` go to
+  `out/findings.yaml` and through `sdc-findings promote` as in session mode.
+- **Requests per call**: one, as a rule. An invalid reply (or a failed request, or none) is asked
+  again with the check's error, at most twice per call (`MAX_RETRIES`); still invalid, the call
+  exits 2 with `implement_reply_invalid` and writes nothing. A valid reply that lists paths in
+  `remaining` (it would not fit the output limit) is written, then one continuation request asks
+  for exactly those paths, with the facts again and the written files shown; at most two
+  (`MAX_CONTINUATIONS`), then `implement_reply_incomplete`. A continuation reply must write or
+  list again every path asked. Never an open tool loop. Each request has its own record
+  (`req-<k>/`: request, prompt, response, the adapter's event stream); the call's `response.json`
+  sums cost, turns and usage, `events.jsonl` joins the streams (so `sdc-run-timeline` counts every
+  API request), `requests.jsonl` has one line per request, and the call's `llm-calls.jsonl` line
+  carries `implement_mode`, `requests`, `continuations`, `reply_retries` and `cause`.
+- **Rework routes** stay: a failed check or a rejection (`retry_when`) and a call that failed
+  (R9) start a new call, whose single request carries the feedback and the current files. A call
+  that ended `implement_reply_invalid` counts as a failed run; when its runs are spent the autopilot
+  stop's cause is `implement_reply_invalid` (or `implement_reply_incomplete`), naming the call.
+- **Adapters**: the implement class's adapter is `SDC_IMPLEMENT_ADAPTER`, else `claude-cli` when
+  `SDC_LLM_ADAPTER` is `metaharness`, else `SDC_LLM_ADAPTER` (`sdc-reply adapters`, as the
+  review's). `claude-cli` takes it: `--json-schema` with the reply schema (the CLI validates and
+  asks again on a mismatch), `--tools ""` (no tool), the prompt on stdin (a prompt of up to 64 KB
+  of files plus the facts passes the 128 KiB limit of one argv string), and
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS` from the request's `max_output_tokens` (32,000); `max_turns` 3.
+  `metaharness` has no response-schema option: request mode on it is refused at start. The fixture
+  adapter answers with the stub tree packed as a reply (`sdc-reply implement-pack`) or
+  `SDC_IMPLEMENT_REPLIES`; stub and dry call no model (dry assembles the prompt, then runs the
+  stub). Wherever the adapter enforces the schema, the program check runs on every reply.
+- Cycles `implement-request-build`, `-tests-rework`, `-review-rework`, `-invalid-retry`,
+  `-invalid-named`, `-path-escape`; unit tests in `implement.rs`. Experiment record
+  `experiments/implement-one-request.yaml`.
+- Not verified with a model: whether `claude -p --json-schema` with `--tools ""` answers in one API
+  request, and what it does when a reply reaches the output limit (`structured_output` missing is
+  treated as an invalid reply).
 
 **Where another model source plugs in** (not built):
 
@@ -808,6 +1027,43 @@ reproduces the source's calls, and a node the source never called has no recorde
 `run-settings.jsonl` records it as `replay.unstick` (`on`, `why`). To try `run.unstick` on a
 recording without such a call: `--set unstick=on --on-divergence live`.
 
+## Instructions
+
+The text a model is told is in files under `instructions/`, outside the tools and outside the
+binding's program (the operator, 2026-11-21: "The instruction should come from the outside and not
+be inside this driver binding"; `story:instructions-as-files`).
+
+- `instructions/<action>.md`: the task of each of the 14 agent actions (`idea.dissect` ...
+  `change.fix`), and `<action>.<part>.md` for the parts an action has: `.inputs.md` (the notes
+  that describe its extra inputs, one per line), `.coverage.md`, `.facts.md` and the like.
+- `instructions/shared/`: the frame every prompt has (`frame.md`: preamble, inputs, task, closing)
+  and the paragraphs added to a task (findings, rework, ticket constraints, the retry after a
+  refused reply).
+- `instructions/decider/`: the decider's and the requester's prompts (`model.md`, `requester.md`)
+  and the fragments they are made of.
+- A variable part is a placeholder `{{name}}` (lower case and `_`). The tool fills each placeholder
+  from a value it computes, in one pass; a placeholder without a value, or a missing file, is a
+  program error (exit 126). So is a path that is not `instructions/<...>.md` or has a `..` segment.
+
+A binding names the files of its action in the `llm` object, `instructions`: `task` is required, the
+other keys name the parts the action has.
+
+```json
+"llm": {"model": "claude-haiku-5-5", "max_turns": 15, "max_budget_usd": 0.5, "instructions": {"task": "instructions/idea.dissect.md"}, "stub": [...]}
+```
+
+`llm-node.sh` reads the paths from `SDC_LLM_NODE` (the binding's `llm` object); it has no table of
+paths. The shared frame and the decider's files are found by directory. The tools locate
+`instructions/` by walking up from their own directory (`repo_root`), so it holds wherever the tools
+directory sits. `bindings/*.yaml` (`loom.bindings/1`) names no instruction file; the line in
+`bindings/PENDING.md` says what brings it.
+
+The prompt each action and decider writes is held byte for byte by `driver/tests/bugfix_prompt.rs`
+against `instructions/golden/` (40 prompts on stub inputs, among them the retry texts, the writer's own failure and a case with no gate command; a golden no test reads and an instruction file no golden reaches fail `bugfix_prompt`; `SDC_BLESS_PROMPTS=1 cargo test --test
+bugfix_prompt` rewrites them, after a change of an instruction that is meant). Not in files: the
+text `sdc-reply implement-run` writes for `SDC_IMPLEMENT_MODE=request` (Rust), and the heading lines
+of `in/feedback.md`, which is a record of check results.
+
 ## Action-to-tool bindings
 
 One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direction`,
@@ -815,7 +1071,7 @@ One file per protocol in `driver/examples/sdc/`: `sdc`, `sdc-intake`, `sdc-direc
 name, produced kind and placed artifact is checked against the compiled protocol by
 `scripts/check-bindings.sh`. Unbound on purpose: `context.change` (a person's edit),
 `spec.reuse`, `spec.reconstruct`, `release.rollback`. Tools are subcommands of
-`driver/examples/sdc/tools/sdc-tool.sh`; agent nodes run `tools/llm-node.sh` (see "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
+`bindings/tools/sdc-tool.sh`; agent nodes run `tools/llm-node.sh` (see "LLM executor"), whose stub mode runs the `stub-*` subcommands, each writing
 a fixed draft from `fixtures/` (or a fixed `aep plan artifact new` call) and producing no
 evidence, except `spec.author`'s `spec_source=authored`, which records which action wrote it.
 
@@ -840,7 +1096,7 @@ evidence, except `spec.author`'s `spec_source=authored`, which records which act
 | plan | `plan.decompose` | `llm-node.sh`: proposal → `aep plan artifact new story`, `scope --add`, `move --to active` (epic, story) | revises `plan` |
 | plan | `plan.validate`, `plan.scope`, `plan.status` | `aep plan artifact validate --strict`; `waves --kind story` with 0 unassessed; `list` all active | `valid`, `scoped`, `active` |
 | plan | `plan.cover` | every compiled command named by exactly one story file | `covered` |
-| story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`) | `implementation_change` |
+| story | `change.implement` | `llm-node.sh` (stub: fixed `impl/`), then its `postcondition` `sdc-reply check-coverage --tree impl` (see "Requirement coverage") | `implementation_change`; nothing when the postcondition refuses |
 | story, release | `tests.run`, `acceptance.run` | `story-tests impl` (story: `conform-run impl`, then `impl-gate impl`, see "Interim story gate"), `conform-run release` (release): `ess verify conform run --strict` against `billing` for the billing spec, else `interpreted` plus the tree's `slot task check` (gap 16) | `passed`/`failed` |
 | story | `merge.approve` | manual (`argv: ["true"]`), taken by `approve --capability change.merge --action merge.approve`, `--result rejected --reasons <file>` for a rejection | `merge_approval` approved or rejected |
 | story | `change.merge` | copy `impl/` to `mainline/` (once `merge.approved`) | `merge_record` |
