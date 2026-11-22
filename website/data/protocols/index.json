@@ -960,7 +960,7 @@
     },
     {
       "path": "protocol/simulate/CANON_REV",
-      "sha256": "c18c2d3b21aa3cf9862dfa41f26593ec4a35f08e491b4605a446d75af56716a5"
+      "sha256": "405579bd7b91e2cf22f5ef6cc7573d51939e25eacd2c68edf00e65dbf86ebe1b"
     },
     {
       "path": "protocol/simulate/sdc-bugfix.txt",
