@@ -54,7 +54,7 @@ A `DecisionRequest` holds:
   the free answer), and one sentence on how. `idea` was added because the decider cites dissection
   items (`d1` to `d4`); `goals` for the requester side (`requester.md` § 2).
 - **Who decides**: the run's autonomy level (A0 to A5), the decision class (13 request classes,
-  the rows of `autonomy-levels.md:244-256`; the `escalation` row is not a request class, see
+  the rows of `autonomy-levels.md:245-257`; the `escalation` row is not a request class, see
   Escalate below), the **holder** for that class at that level, the eligible principals (handed
   in by the host), and whose inbox it is in (`addressed_to`).
 - **The decision**: option, or for a question request a free answer (`decided_answer`; both of
@@ -82,7 +82,7 @@ Commands: `Request`, `Recommend`, `Decide`, `TakeRecommendation`, `RecordProduce
 `DecisionRequests` (everything).
 
 Escalate moves an existing request; it never opens one. It sets the holder to P, the cell of the
-`escalation` row (`autonomy-levels.md:257`), so a decider can no longer decide it. From a decider
+`escalation` row (`autonomy-levels.md:258`), so a decider can no longer decide it. From a decider
 or a rule (holders D→P, R, R∧D→P) it is an escalation, and under R∧D→P the decider's veto. Under
 P and P+ it is a person passing the request on to someone else, also from Escalated; a P+
 request becomes P, which has the same guards, and keeps its recommendation.
@@ -93,7 +93,7 @@ as input (`at`, `decided_at`); neither reads a clock. Both are refused (`NotDue`
 
 ### Who decides: the holder
 
-The run's level and the request's class give the holder (`autonomy-levels.md:242-257`; per-run
+The run's level and the request's class give the holder (`autonomy-levels.md:243-258`; per-run
 overrides and the order of holders `:297-320`). The request stores the holder; the guards read it,
 not the level.
 
@@ -111,7 +111,7 @@ Under a final holder (`decider_final`, `rule_and_decider_final`) a decider resul
 missing, failed, or withheld by the grounding check decides the denying option, or ends the run
 where no option denies; `escalation_suppressed` records the cause. A rule verdict withheld by the
 grounding check under `rule_and_decider` counts as no recommendation and the request goes to a
-person; under `rule_and_decider_final` the run ends (`autonomy-levels.md:277-282`).
+person; under `rule_and_decider_final` the run ends (`autonomy-levels.md:279-284`).
 
 A listed person may decide whatever the holder (lowering is always allowed, `:311`). Silence
 taking a strong default is not in `autonomy-levels.md`; it is kept as a person-facing option and
@@ -231,7 +231,7 @@ still ids, not `evidence_record` grounds.
   or `Escalate`; under D* an escalation is suppressed and `best` is decided. The escalation reuse
   of lines 139-143 of the trial script becomes rule 4, keyed by `question_key`. Each decided request is one
   `decisions.jsonl` line, which KPI H2 (`kpis.md:128`), R8 (`kpis.md:92`) and R21/R22
-  (`autonomy-levels.md:499-500`) count and `beyond10x/decider` can learn from.
+  (`autonomy-levels.md:503-504`) count and `beyond10x/decider` can learn from.
 - **UI inbox** (`ui/decisions.mjs`, `ui/README.md:42-51`). The inbox is
   `OpenDecisionsForPrincipal(operator)`: per request the question, the options with cost and
   consequence, the recommendation with its strength, and each ground as a link that opens the
@@ -293,7 +293,7 @@ The operator, 2026-11-21: Commission is no longer a repository of its own; it mo
 - **Loom** (runtime; holds Commission's `AuthorityProvider` and suspension, `loom/AGENTS.md:28-32`,
   `:314-330`):
   - the types (`sdc.decision`, moved from `sdc/ess/`) and the resolver: preset ⊕ overrides ⊕
-    admitted ceilings into one holder per class (`autonomy-levels.md:297-320`);
+    admitted ceilings into one holder per class (`autonomy-levels.md:299-322`);
   - in Loom a decision class is an identifier validated against the classes document the host
     passes in; `budget_overrun` and `limit_hit` are Loom built-ins. The `escalation` row of the
     class table is not a request class: Escalate moves the existing request, and the row gives

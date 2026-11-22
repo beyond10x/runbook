@@ -12,7 +12,7 @@ Each item says what, why (with the file that shows it), and whether a Canon stor
 1. **Authority grants bound to a case revision and a principal.**
    `canon-authority/1` has only `capability` and `decision` (`documents.md:116-121`);
    `canon-decisions/1` already has `principal` and `case_revision` (`documents.md:140-148`).
-   Today a grant given at spec r1 still holds at r2 (`sdc/docs/driver.md:110-112`).
+   Today a grant given at spec r1 still holds at r2 (`sdc/docs/driver.md:146-148`).
    Related draft story: `capability-scope` (status: draft). Land both in one story (inferred).
 
 2. **Usefulness in `canon-decision/1`.** Per admissible action: does some kind it may produce lack

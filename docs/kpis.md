@@ -333,4 +333,4 @@ Notes:
   (`docs/autonomy-levels.md:358-375`).
 - A limit change during a run is the event `limits_changed` (who, old, new), taken by a person or
   a rule and read at the next admission; it is never retroactive, and no LLM raises a limit
-  (`docs/autonomy-levels.md:271-272`). The KPIs report each interval under the limit then in force.
+  (`docs/autonomy-levels.md:273-274`). The KPIs report each interval under the limit then in force.

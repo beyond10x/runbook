@@ -186,7 +186,7 @@ nothing finished, every start a reconcile). Flow KPIs: `docs/kpis.md` § 5.
   an orphan and is filed into `intake` as a finding.
 - Tunable during a run: a change is the recorded event `limits_changed` (who, old, new), by a
   person or a rule, read at the next admission and never retroactive. No LLM raises a limit
-  (`docs/autonomy-levels.md:271-272`).
+  (`docs/autonomy-levels.md:273-274`).
 - The WIP limit is an eval variable: a sweep (1, 2, 4, 8) over the standard suite picks the
   default per level (`docs/kpis.md` F17).
 
@@ -301,10 +301,10 @@ Rules:
 
 | Entry | Lands in | Then |
 |---|---|---|
-| idea text | `intake` of the area's case | routed as idea → `ideas.dispatch` → `sdc` (today's path, `autonomy-levels.md:416`) |
-| ticket ref | `intake`, text scanned before any agent reads it (`autonomy-levels.md:417`) | routed as idea, bug or story draft |
+| idea text | `intake` of the area's case | routed as idea → `ideas.dispatch` → `sdc` (today's path, `autonomy-levels.md:418`) |
+| ticket ref | `intake`, text scanned before any agent reads it (`autonomy-levels.md:419`) | routed as idea, bug or story draft |
 | planning-store id (`story:x`, `epic:y`) | `intake` as a reference | story: filed to the wave queue if `active`, else to the activation decision; epic: a `sdc.epic` case at the stage its facts make true |
-| "continue where you left off" | no new entry | re-evaluate the area's case and every open child; facts decide the stage (`docs/phases.md:3-6`); today `--continue <run>` (`autonomy-levels.md:418`) |
+| "continue where you left off" | no new entry | re-evaluate the area's case and every open child; facts decide the stage (`docs/phases.md:3-6`); today `--continue <run>` (`autonomy-levels.md:420`) |
 | adopt a repository | first `intake` revision = "reverse-engineer this area" | § 4.2 |
 
 ### 4.2 Intake changes
