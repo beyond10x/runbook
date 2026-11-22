@@ -4905,6 +4905,89 @@
       "tree": "da86a8f7b81fb5be09c06d19b062e790a6950ada",
       "tree_note": "tag 0.4.1 at main da86a8f: 0.4.0 (5955f82) with the merges of the loom-run fix, ESS 0.97.3, the reference check, the two evaluation tools reading a Loom run, the UI test children and the preparation",
       "version": "0.4.1"
+    },
+    {
+      "changes": [
+        {
+          "commit": "6a809a4",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run makes the run in this process with Loom as a library and the command loom-run is gone"
+        },
+        {
+          "commit": "af4059d",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook test runs a loom.tree-suite/1 file through Loom's suite runner in process"
+        },
+        {
+          "commit": "6bdb085",
+          "effect": "none",
+          "experiment": null,
+          "line": "the model, rule and requester decider run inside the runner and start only the adapter program"
+        },
+        {
+          "commit": "92a12f3",
+          "effect": "none",
+          "experiment": null,
+          "line": "all fourteen model nodes of the bindings start sdc-node; llm-node.sh serves the old driver only"
+        },
+        {
+          "commit": "ad5286e",
+          "effect": "none",
+          "experiment": null,
+          "line": "sdc-experiment run starts a run only with runbook run and refuses a variant of the old driver"
+        },
+        {
+          "commit": "3073dac",
+          "effect": "none",
+          "experiment": null,
+          "line": "runbook run --dry, --bugfix, --bugfix-ticket, --goals, --watch and --conformance observe are built; the replay options are refused"
+        },
+        {
+          "commit": "0484566",
+          "effect": "none",
+          "experiment": null,
+          "line": "Loom 5b3142c7 and Canon 0.11.0 are linked as libraries, and the daemon can run through Loom with serve --runtime loom"
+        }
+      ],
+      "date": "2026-11-22",
+      "experiments": [],
+      "id": "0.5.0",
+      "kind": "release",
+      "label": "0.5.0",
+      "limits": [
+        "No run has used this tree and the release claims no measured change; it rests on the operator's word (approval-record:release-0-5-0), not on the standing rule of docs/releasing.md.",
+        "The replay options of runbook run, runbook canon, the inspector, routing by autonomy level and the Loom pin 70b0e6e0 are on a branch and not in this release; the old driver is still in the tree and no parity verdict between it and Loom exists."
+      ],
+      "settings": [],
+      "totals": {
+        "clean_passes": 0,
+        "conformance": {
+          "agreement": null,
+          "agreement_of": 0,
+          "contradicted": 0,
+          "d": 0,
+          "f": 0,
+          "held": 0,
+          "k": 0,
+          "n": 0,
+          "no_figure": 0,
+          "node_cost_runs": 0,
+          "node_cost_usd": null,
+          "not_observed": 0,
+          "p": 0,
+          "u": 0,
+          "unknown": 0
+        },
+        "ended": 0,
+        "not_ended": 0,
+        "rate": null,
+        "small_n": true
+      },
+      "tree": "44e05a37d6c44266849231212b75efabda0bee54",
+      "tree_note": "tag 0.5.0 at main 44e05a3: 0.4.1 (da86a8f) with the merges of the runner on the Loom engine (runbook run in process, runbook test, the decider and every model node in Rust, the options of the old launcher but the replay), the record of 0.4.1 and the preparation",
+      "version": "0.5.0"
     }
   ],
   "format": "sdc.progress/1",
@@ -5839,7 +5922,7 @@
   "sources": [
     {
       "path": "experiments/releases.yaml",
-      "sha256": "cd89edf43f44f26d106cf455ded8866cc6491a50d56ec865ca0ffaded6bd0085"
+      "sha256": "2aea11f471e53595663366957fe240f96e54bed0eaff32a82d147d0e6d9fd629"
     },
     {
       "path": "experiments/baseline-0.1.0.yaml",
