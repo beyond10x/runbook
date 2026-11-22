@@ -2,7 +2,7 @@ import {renderGraph} from './graph.js';
 import {renderExplain} from './explain.js';
 import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates, esc} from './lenses.js';
 import {setView} from './view.js';
-import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
+import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS, protocolRevisionOf, claimsRecorded, CLAIMS_NOT_RECORDED} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
 import {nowState, renderNow, renderNowBar, activePhases, graphLive, renderChanges, renderDiff, fmtDur, fmtAgo, STUB_NOTE} from './now.js';
@@ -203,6 +203,12 @@ document.addEventListener('keydown', (ev) => {
   }
 }, true);
 
+// the case header's line: protocol, protocol revision (only when the run says one), case revision (only when there is one), evidence
+function headParts(c, ev) {
+  const rev = protocolRevisionOf(c), crev = ev?.explanation?.computed_from?.case?.revision || c.case.revision;
+  return [esc(c.case.protocol), rev != null ? `protocol r${esc(rev)}` : '', crev != null && crev !== '' ? `case ${esc(crev)}` : '', `${Object.keys(c.evidence).length} evidence records`].filter(Boolean).join(' · ');
+}
+
 function render() {
   const src = S.sources[S.src];
   // the run picker (D-009): the header button names the run and its state; the open panel lists the runs
@@ -256,12 +262,12 @@ function render() {
   // an end-to-end test with a stand-in for the person: its numbers are not eval numbers
   patch($('#kpis'), renderKpis(S.kpis, now) + (standIn(S.run?.settings) ? '<span class="k-standin" data-key="kstand" title="run-settings.jsonl: stand_in true. A stand-in took the person’s part; these values do not count as an evaluation.">not eval numbers</span>' : ''));
   S.feed = feedItems(cases, S.liveData, S.inbox?.history, S.facts);
-  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present));
+  patch($('#feed'), renderFeed(S.feed, S.feedCls, now, !!S.liveData?.fs?.present, cases.some((x) => x.parts?.loom)));
   patch($('#tree'), renderTree(cases, ns, now));
   const last = lastSeq(c);
   const at = S.atSeq ?? last;
   const st = caseState(c);
-  patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(c.id)}</span><span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>${S.atSeq != null ? `<span class="pill past">past · event ${at} of ${last}</span>` : ''}</div><div class="gt-sub">${esc(c.case.protocol)} · protocol r${esc(c.ir?.protocol?.revision)} · case ${esc(ev?.explanation?.computed_from?.case?.revision || c.case.revision)} · ${Object.keys(c.evidence).length} evidence records</div>`);
+  patch($('#gtitle'), `<div class="gt-main"><span class="gt-id">${esc(c.id)}</span><span class="pill st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>${S.atSeq != null ? `<span class="pill past">past · event ${at} of ${last}</span>` : ''}</div><div class="gt-sub">${headParts(c, ev)}</div>`);
   if (c.ir) {
     const host = $('#graph');
     const live = graphLive(ns, c);
@@ -307,7 +313,7 @@ function renderTree(cases, st, now) {
     const guides = Array.from({length: x.depth}, (_, i) => `<span class="guide" style="left:${16 + i * 16}px"></span>`).join('');
     return `<div data-key="c:${esc(x.rel)}" class="case${x.rel === S.sel ? ' sel' : ''}" data-case="${esc(x.rel)}" style="padding-left:${16 + x.depth * 16}px">${guides}
       <div class="cn"><span class="sdot st-${st.state}" data-v="${st.state}"></span><span class="cid">${esc(name)}</span>${run.has(x) ? `<span class="cst st-running k-${run.get(x).kind}" data-v="${esc(st.label)}" title="${esc(st.label)}"><i class="cst-spin"></i>${run.get(x).since != null ? `<span class="tk" data-since="${run.get(x).since}">${fmtDur(now - run.get(x).since)}</span>` : 'running'}</span>` : x === stopCase ? `<span class="cst st-stopped" data-v="stopped" title="${esc(st.label)} when the run was stopped">stopped</span>` : `<span class="cst st-${st.state}" data-v="${esc(st.label)}">${esc(st.label)}</span>`}</div>
-      <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span><span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span></div></div>`;
+      <div class="cp"><span class="proto">${esc((x.case.protocol || '').replace(/^sdc\.?/, '') || 'root')}</span>${claimsRecorded(x) ? `<span class="bar"><i style="width:${claims.length ? (100 * t) / claims.length : 0}%"></i></span><span class="cnt">${t}/${claims.length}</span>` : `<span class="cnt nr-cnt" title="${CLAIMS_NOT_RECORDED}">claims not recorded</span>`}</div></div>`;
   }).join('');
 }
 

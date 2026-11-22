@@ -1,7 +1,7 @@
 // Explanation panel: Canon's own explanation (canon-decision/1 `explanation`) for one node,
 // followed down to the evidence records, the event that produced each, and the revision that
 // excluded it.
-import {caseState, actorOf, ACTOR_LABEL, producerEvent, supersedingRevision, predicateText, claimHistory, seqOfEvidence} from './model.js';
+import {caseState, actorOf, ACTOR_LABEL, producerEvent, supersedingRevision, predicateText, claimHistory, seqOfEvidence, protocolRevisionOf} from './model.js';
 import {esc} from './lenses.js';
 import {autopilot, runSettings, actorLabel, principalOf} from './principal.js';
 
@@ -106,7 +106,7 @@ function intro(c, ev) {
   const st = caseState(c);
   const waiting = (st.state === 'awaiting_authority' || st.state === 'awaiting_person') && Array.isArray(st.next)
     ? st.next.filter((n) => n && n.command).map((n) => `<div class="next"><div class="nx1">${autopilot(runSettings()) ? '<span class="badge-h b-decider">DECIDER</span>' : '<span class="badge-h b-person">YOU</span>'}<b class="mono">${esc(n.action)}</b><span class="muted">${esc(st.label)}</span></div><div class="nx2">${esc(n.decides || '')}</div><pre class="cmd">${esc(n.command)}</pre></div>`).join('') : '';
-  return waiting + `<div class="ehead"><span class="kind">case</span> <b>${esc(c.id)}</b> <span class="muted">${esc(c.case?.protocol)} r${esc(c.ir?.protocol?.revision)}</span></div>
+  return waiting + `<div class="ehead"><span class="kind">case</span> <b>${esc(c.id)}</b> <span class="muted">${esc(c.case?.protocol)}${protocolRevisionOf(c) != null ? ` r${esc(protocolRevisionOf(c))}` : ''}</span></div>
   <p>${esc(c.ir?.protocol?.description)}</p>
   ${cf ? `<p class="muted">This picture is the stored canon-decision/1 computed at ${esc(cf.at)} from case revision ${esc(cf.case?.revision)}, ${cf.evidence?.length} evidence records, ${cf.authority?.length} authority entries, ${cf.decisions?.length} decisions (Canon ${esc(cf.semantics?.canon)}).</p>` : ''}
   <div class="learn"><b>How to read the graph.</b> Programs and LLMs run <i>actions</i>. A program's exit code becomes a <i>canon-evidence/1</i> record about one artifact at one revision. A <i>claim</i> is TRUE only while a record about the <u>current</u> revision supports it; when an artifact is revised, older records are set aside (<i>excluded</i>), so the claim falls back to UNKNOWN. An LLM action (purple) writes only an artifact: it never produces evidence itself. Actions are admissible when the claims they read hold; outcomes become legitimate when the claims they require are TRUE. Click any node for Canon's explanation down to the records.</div>`;

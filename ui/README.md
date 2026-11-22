@@ -114,15 +114,23 @@ Open http://127.0.0.1:7490/. Pick the run in the header (the run picker). Or, fr
   class and says so; its diff is the record. The Now band and the Changes tab show the same meaning
   for each change. A run without `fs/changes.jsonl` shows what the store still says: each artifact
   revision with its action (the content of a revision is not recorded), the AEP transitions from
-  the final front matter, and the decisions.
+  the final front matter, and the decisions. A run of `runbook run` without `fs/changes.jsonl` (started
+  without `--watch`, `docs/cli.md`) says "Changes were not recorded for this run" and names `--watch`,
+  which records every file change of the run in `<run>/fs/changes.jsonl`; "Nothing" is said only when
+  that file exists and is empty.
 - **Changes** (right panel tab): every file change of the run from `fs/changes.jsonl`
   (docs/fs-changes.md), on a time strip and grouped by the action that made it, with the tool call
   and the attribution basis (`exact`: inside one driver action; `inferred`: matched to one agent
   tool call by time; `call`: in an agent or decider call's directory outside any action). A late
   `sdc.fs-attribution/1` line supplies the tool of an earlier change. Click a file for its
   syntax-highlighted diff (Rust, TS/JS, YAML, JSON, Markdown, shell, TOML); ← and → step through.
-- **Phase strip** (top): the SDC phases of `docs/phases.md`, each derived from Canon claims of the
-  case tree, never from a stored phase. Click a phase to open the claim that holds it back.
+- **Phase strip** (top): the phases of the runbook's view (the SDC phases of `docs/phases.md` for the SDC
+  runbook), each derived from Canon claims of the
+  case tree, never from a stored phase. Click a phase to open the claim that holds it back. A run of
+  `runbook run` writes no `evaluations/*.json` and no claim count, so for it the strip, the case tree and
+  the Metrics tile say "claims not recorded for this run" in place of a count; a count shows only when
+  evaluations exist. The case header and the event list show the protocol revision of the `opened`
+  event, and no "r" when the event has none.
 - **Case tree** (left): every case and its state (open, running, awaiting a person or authority,
   stuck, ended with an outcome).
 - **Graph** (centre): the selected case's protocol. Artifacts → actions → evidence kinds → claims

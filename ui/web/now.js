@@ -551,6 +551,7 @@ export function renderNowBar(st) {
 
 // ---- file changes of the run ----------------------------------------------------------------------
 export function renderChanges(live, cases, onlyCase, now = Date.now()) {
+  if (!live?.fs?.present && cases.some((x) => x.parts?.loom)) return `<div class="sect">File changes</div><p class="muted">File changes were not recorded for this run: it was started without <code>--watch</code>. <code>runbook run … --watch</code> records every file change of the run in <code>fs/changes.jsonl</code> (docs/fs-changes.md).</p>`;
   if (!live?.fs?.present) return `<div class="sect">File changes</div><p class="muted">No <code>fs/changes.jsonl</code> in the run directory yet. The recorder (<code>sdc-watch</code>, docs/fs-changes.md) writes one line per effective change, with the command that made it.</p>`;
   const list = live.fs.changes.filter((x) => !onlyCase || x.attribution?.case === onlyCase);
   if (!list.length) return `<div class="sect">File changes</div><p class="muted">No change recorded${onlyCase ? ` in ${esc(onlyCase)}` : ''} yet.</p>`;
