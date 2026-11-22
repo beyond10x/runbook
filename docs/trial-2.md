@@ -1,5 +1,7 @@
 # Trial 2: an ambiguity found late, and how the cycle repairs itself
 
+This is the report of a trial as it was made. The programs it names (`sdc-drive`, `scripts/run-trial.sh`, `scripts/run-finding-cycles.sh`, `bindings/tools/llm-node.sh`, `bindings/tools/decider.sh`) are deleted (`story:driver-runtime-removed`); the runtime is Loom's (`docs/loom-run.md`).
+
 Goal (the operator, 2026-11-21): see how the protocols behave, and repair themselves, when an ambiguity
 is discovered on the road and was not defined upfront. The more is defined upfront, or decided
 by an agent on the way, the fewer human interventions; the KPIs optimise for fewer interventions
