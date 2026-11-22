@@ -115,8 +115,38 @@ through:
   inside the suite's directory.
 - Approvals of person actions are `decide:` entries in `defaults`, bound to the principal
   `person:owner`.
-- Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are the
-  `fixtures:` member of a cycle, which the pinned Loom does not run yet.
+- Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are seeds
+  too, in the layout below. Loom has no `fixtures:` member and will not get one.
+
+### The layout of `.stub/`
+
+A bound program under Loom gets `PATH` and `LOOM_*` only, so what a cycle scripts reaches
+`bindings/tools/llm-node.sh` as files of the workspace. The tool reads the layout only under Loom and
+only when `.stub/` exists, in one block that sets the variables of the old driver; a variable
+already set wins, a run without `.stub/` is unchanged. Text and YAML only, no shell in the data. An
+unknown key or file name is refused (exit 64).
+
+| file | the old variable | what it holds |
+|---|---|---|
+| `.stub/finding.yaml`, `.stub/finding-2.yaml` | `SDC_STUB_FINDINGS` | the findings the stub raises, as before |
+| `.stub/` (the directory) | `SDC_STUB_FIXTURES` | the fixture directory: trees such as `billing-spec.0`, files such as `plan-stories.json`, as before |
+| `.stub/settings.yaml`, key `adapter` | `SDC_LLM_ADAPTER` | `fixture` (the fixture adapter beside the tool), `dry`, `stub`, or an adapter program |
+| key `nodes` | `SDC_LLM_NODES` | a list of node names that go to the adapter; every other node runs its stub |
+| key `review_adapter` | `SDC_REVIEW_ADAPTER` | as `adapter`, for the review class |
+| keys `review_mode`, `implement_mode`, `implement_coverage` | `SDC_REVIEW_MODE`, `SDC_IMPLEMENT_MODE`, `SDC_IMPLEMENT_COVERAGE` | the value as text (quote `"on"`) |
+| `.stub/replies/review.yaml` | `SDC_REVIEW_REPLIES` | the reviews the fixture adapter answers |
+| `.stub/replies/implement.yaml` | `SDC_IMPLEMENT_REPLIES` | the replies of the implementer in request mode (`stub` is the stub tree) |
+| `.stub/replies/coverage.yaml` | `SDC_COVERAGE_REPLIES` | the coverage documents of the implementer |
+| `.stub/replies/fixture-stub.yaml` | `SDC_FIXTURE_STUB` | a node name to `[fixture, artifact]` for a node whose stub is another subcommand |
+
+A reply file is YAML of the same shape as the JSON the variable held: a mapping `rounds:` whose
+n-th member is the reply of the n-th earlier rejection or call, the last one after that; a member
+that is a list is taken by the attempt inside the call (a reply refused by a program check is
+asked again with the reason, and the next list member answers). A review reply is
+`{decision, summary, findings}`; a coverage reply is `{requirements: [{id, status, at, test|reason}]}`.
+The seeds are in `cycles/seeds/stub/`: `settings/<name>.yaml` and `replies/<name>.yaml`, composed
+per cycle (`{from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}`). They are written by
+hand from the old entries; no recording of a model call is a seed.
 
 ### Totals and time
 
@@ -156,14 +186,14 @@ cycles would have to share an opened tree (the format has no member for it).
 | scope-answer | pending | stops at `scope.answer` of `root.intake`: a program on a person action's approval is in Loom's drafting, no story id yet |
 | scope-changed | pending | same: `scope.answer` as a program on a person action's approval |
 | intake-decision | pending | same: `scope.answer` as a program on a person action's approval |
-| review-reject-once | pending | scripted model replies: waits for story:engine-agents-section (`fixtures`) |
-| review-minimal-input | pending | same, story:engine-agents-section |
-| review-invalid | pending | same, story:engine-agents-section |
-| review-spent | pending | same, story:engine-agents-section |
-| spec-own-default | pending | same, story:engine-agents-section |
-| plan-in-project | pending | same, story:engine-agents-section |
-| spec-interp-unsupported | pending | same, story:engine-agents-section |
-| replay-sibling | pending | story:engine-agents-section (`fixtures`) and story:tree-replay-command (`replay`) |
+| review-reject-once | pending | the scripted reviews are seeded (`.stub/`) and the run stops at `change.review`, exit 4: `change.review has no inputs: no conformance run recorded on change revision none`; the node's inputs (`sdc-reply review-inputs`) read the driver's case directory, which Loom gives no program (story:bound-agent-node) |
+| review-minimal-input | pending | same stop (exit 4), with `review_mode: facts` |
+| review-invalid | pending | same stop (exit 4); the two old checks pass for that reason and not for the scripted reply, and the added `refused-for-the-cited-line` fails |
+| review-spent | pending | same stop: no rejection is recorded (expected 3, found 0) |
+| spec-own-default | converted | the one model call is a line of `.sdc/llm/calls.jsonl`; the absent `writer_spent` is no `Stopped` event of the case |
+| plan-in-project | converted | the project is a seed `.engineering/project.yaml` (a hand-written `development.standard` file) |
+| spec-interp-unsupported | converted | the refusal's scenario and reason are read from the second author call's `in/feedback.md`; the synthesize exits are `[1, 0]` |
+| replay-sibling | pending | needs the `replay` step (story:tree-replay-command); its scripted replies are seeds now, the replay is not there |
 | pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the format has no member for it |
 
 ### Re-drive entries (9)

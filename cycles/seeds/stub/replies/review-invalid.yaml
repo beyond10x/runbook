@@ -1,0 +1,5 @@
+rounds:
+  - decision: rejected
+    summary: fixture
+    findings:
+      - {kind: violation, at: "impl/README.md:9999", violates: r1, says: "fixture: a line that does not exist"}

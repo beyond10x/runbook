@@ -1,0 +1,7 @@
+rounds:
+  - requirements:
+      - {id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}
+      - {id: r2, status: not_built, reason: "fixture: the email is not sent yet"}
+  - requirements:
+      - {id: r1, status: built, at: [{file: src/lib.rs, line: 1}], test: create_invoice}
+      - {id: r2, status: built, at: [{file: src/lib.rs, line: 2}], test: send_email}
