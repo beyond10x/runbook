@@ -7,9 +7,10 @@ tasks:
       - aep plan artifact validate
 
   check:
-    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the CI change classifier and the planning store.
+    desc: Build, test and lint driver, watch, goals and runbook; bindings, fixture cases, the CI change classifier, the ESS specification and its generated output, and the planning store.
     cmds:
       - task: check:ci-paths
+      - task: check:ess-generated
       - task: check:cycles-suite
       - for c in driver watch goals runbook; do (cd "$c" && cargo build --locked && cargo test --locked && cargo clippy --locked --all-targets -- -D warnings) || exit 1; done
       - scripts/check-bindings.sh
@@ -86,6 +87,13 @@ tasks:
         if [ -n "$dup" ]; then echo "duplicate ids in $suite:"; echo "$dup"; fail=1; fi
         echo "$(printf '%s\n' "$want" | wc -l) cycles in the script, $(printf '%s\n' "$got" | wc -l) in the suite"
         exit $fail
+
+  check:ess-generated:
+    desc: Validate the ESS specification in ess/ and check that its committed JSON Schema and OpenAPI output is current.
+    cmds:
+      - ess specify validate --path ess
+      - ess generate --path ess --kind schema --schema-id-base https://sdc.invalid/ --out ess/generated/schema --check
+      - ess generate --path ess --kind openapi --out ess/generated/openapi --check
 
   check:protocols:
     desc: Compile and simulate the nine protocols (about 12 minutes; run it in the background).
