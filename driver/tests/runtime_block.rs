@@ -90,9 +90,9 @@ fn a_file_without_a_runtime_block_is_refused() {
 #[test]
 fn a_member_without_provided_by_is_refused() {
     let r = refused_after("noprov", |v| {
-        v["runtime"]["provided_by"].as_object_mut().unwrap().remove("backstop");
+        v["runtime"]["provided_by"].as_object_mut().unwrap().remove("cap_per_kind");
     });
-    assert_refused(r, &["backstop", "provided_by"]);
+    assert_refused(r, &["cap_per_kind", "provided_by"]);
 }
 
 #[test]
@@ -115,9 +115,9 @@ fn an_unknown_member_of_the_runtime_is_refused() {
 #[test]
 fn a_provided_by_value_of_no_known_form_is_refused() {
     let r = refused_after("form", |v| {
-        v["runtime"]["provided_by"]["backstop"] = json!("pending: docs/loom-bindings.md:106");
+        v["runtime"]["provided_by"]["cap_per_kind"] = json!("pending: docs/loom-bindings.md:106");
     });
-    assert_refused(r, &["backstop", "loom:", "runner:", "absent:"]);
+    assert_refused(r, &["cap_per_kind", "loom:", "runner:", "absent:"]);
 }
 
 #[test]
@@ -144,25 +144,26 @@ fn the_unedited_block_is_read_and_exits_0() {
 #[test]
 fn a_provided_by_value_with_the_prefix_and_nothing_after_it_is_refused() {
     for v in ["loom: ", "runner: ", "absent: "] {
-        let (code, out, err) = run_with("emptyval", |e| e["runtime"]["provided_by"]["backstop"] = json!(v));
+        let (code, out, err) = run_with("emptyval", |e| e["runtime"]["provided_by"]["capped_effects"] = json!(v));
         assert_eq!(code, 2, "{v:?} accepted:\n{out}{err}");
     }
 }
 
 #[test]
 fn a_loom_value_with_no_file_and_line_is_refused() {
-    let (code, out, err) = run_with("nofileline", |e| e["runtime"]["provided_by"]["backstop"] = json!("loom: nothing in particular"));
+    let (code, out, err) = run_with("nofileline", |e| e["runtime"]["provided_by"]["capped_effects"] = json!("loom: nothing in particular"));
     assert_eq!(code, 2, "accepted:\n{out}{err}");
+    assert!(err.contains("capped_effects") && err.contains("file:line"), "{err}");
 }
 
 #[test]
 fn a_member_of_the_wrong_type_is_refused() {
     for (member, value) in [
-        ("backstop", json!("8")),
+        ("rejection_is_arrival", json!("8")),
         ("capped_effects", json!("write")),
         ("cap_per_kind", json!("false")),
         ("capped_effects", json!(["bogus"])),
-        ("backstop", json!(-3)),
+        ("own_failure_fed_back", json!(-3)),
     ] {
         let (code, out, err) = run_with("wrongtype", |e| e["runtime"][member] = value.clone());
         assert_eq!(code, 2, "{member}={value} accepted (exit {code}):\n{out}{err}");
@@ -172,11 +173,11 @@ fn a_member_of_the_wrong_type_is_refused() {
 #[test]
 fn two_refusals_at_once_are_both_named() {
     let (code, out, err) = run_with("two", |e| {
-        e["runtime"]["provided_by"].as_object_mut().unwrap().remove("backstop");
+        e["runtime"]["provided_by"].as_object_mut().unwrap().remove("rejection_logs_fed_back");
         e["runtime"]["provided_by"]["cap_per_kind"] = json!("nothing");
     });
     assert_eq!(code, 2, "{out}{err}");
-    assert!(err.contains("backstop") && err.contains("cap_per_kind"), "only one is named:\n{err}");
+    assert!(err.contains("rejection_logs_fed_back") && err.contains("cap_per_kind"), "only one is named:\n{err}");
 }
 
 #[test]
@@ -193,4 +194,50 @@ fn a_refusal_prints_no_route_and_names_the_file() {
 fn a_member_that_says_it_is_present_while_provided_by_says_absent_is_refused() {
     let (code, out, err) = run_with("contradict", |e| e["runtime"]["cap_per_kind"] = json!(true));
     assert_eq!(code, 2, "cap_per_kind true next to `absent:` accepted:\n{out}{err}");
+}
+
+#[test]
+fn a_member_that_says_it_is_absent_while_provided_by_says_who_holds_it_is_refused() {
+    for who in ["loom: a reason, x.rs:1", "runner: a reason"] {
+        let (code, out, err) = run_with("contradict-false", |e| {
+            e["runtime"]["rejection_logs_fed_back"] = json!(false);
+            e["runtime"]["provided_by"]["rejection_logs_fed_back"] = json!(who);
+        });
+        assert_eq!(code, 2, "false next to {who:?} accepted:\n{out}{err}");
+        assert!(err.contains("rejection_logs_fed_back") && err.contains("lacks"), "{err}");
+    }
+}
+
+#[test]
+fn an_empty_capped_effects_next_to_loom_and_a_full_one_next_to_absent_are_refused() {
+    let (code, out, err) = run_with("contradict-list", |e| e["runtime"]["capped_effects"] = json!([]));
+    assert_eq!(code, 2, "empty list next to `loom:` accepted:\n{out}{err}");
+    let (code, out, err) = run_with("contradict-list2", |e| {
+        e["runtime"]["provided_by"]["capped_effects"] = json!("absent: nothing caps, x.rs:1");
+    });
+    assert_eq!(code, 2, "a list next to `absent:` accepted:\n{out}{err}");
+}
+
+#[test]
+fn every_refusal_is_named_on_its_own_line() {
+    let (code, out, err) = run_with("lines", |e| {
+        e["runtime"]["provided_by"]["capped_effects"] = json!("loom: ");
+        e["runtime"]["provided_by"]["cap_per_kind"] = json!("loom: no file or line");
+        e["runtime"]["own_failure_fed_back"] = json!("yes");
+        e["runtime"]["rejection_is_arrival"] = json!(true);
+        e["runtime"]["bogus"] = json!(true);
+    });
+    assert_eq!(code, 2, "{out}{err}");
+    assert!(out.is_empty(), "{out}");
+    for (name, word) in [
+        ("capped_effects", "nothing after"),
+        ("cap_per_kind", "file:line"),
+        ("own_failure_fed_back", "true or false"),
+        ("rejection_is_arrival", "absent"),
+        ("bogus", "not one the check knows"),
+    ] {
+        let hits = err.lines().filter(|l| l.contains(name) && l.contains(word)).count();
+        assert_eq!(hits, 1, "`{name}` / `{word}` is named on {hits} lines:\n{err}");
+    }
+    assert!(err.lines().all(|l| l.starts_with("sdc-check-routes: ")), "{err}");
 }

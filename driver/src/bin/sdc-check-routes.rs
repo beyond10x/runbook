@@ -19,7 +19,9 @@
 //!
 //!   sdc-check-routes [--root <repository>] [--doc <markdown>]
 //!
-//! Exit 0 with no finding, 1 with findings. With `--doc`, the findings must equal the fenced
+//! Exit 0 with no finding, 1 with findings, 2 when a file is refused (the `runtime` block of the
+//! rule ends is unreadable: every reason is named on stderr, one line each, and nothing is
+//! printed on stdout). With `--doc`, the findings must equal the fenced
 //! block under the heading "## Check output" of that file, line by line: exit 0 when they do,
 //! 1 (with a diff) when they do not, so a fix that removes a finding must remove its line too.
 use serde_json::Value;
@@ -279,50 +281,113 @@ fn doc_block(doc: &str) -> Option<Vec<String>> {
     Some(body[..end].lines().map(String::from).filter(|l| !l.is_empty()).collect())
 }
 
-/// The members of the `runtime` block the check knows: five it reads, and `backstop`, the runs an
-/// action gets when its binding names no `max_runs`.
-const RUNTIME_MEMBERS: [&str; 6] = [
+/// The members of the `runtime` block the check knows: `capped_effects` (a list of effect names)
+/// and four flags.
+const RUNTIME_MEMBERS: [&str; 5] = [
     "capped_effects",
     "cap_per_kind",
-    "backstop",
     "rejection_is_arrival",
     "own_failure_fed_back",
     "rejection_logs_fed_back",
 ];
 
+/// The effects an action of a protocol has: the names `capped_effects` may list.
+const EFFECTS: [&str; 3] = ["read", "write", "external"];
+
 /// The forms of a `provided_by` value: who holds the capability in a run of `runbook run`.
 const PROVIDED_BY_FORMS: [&str; 3] = ["loom: ", "runner: ", "absent: "];
 
-/// Why the `runtime` block cannot be read as a whole, if it cannot: no block (the old key
-/// `driver` gets the word that it was renamed), a member the check does not know, a member
-/// without a `provided_by` entry, an entry for a member that is not there, or an entry that is
-/// not of the form `loom: <what>, <file:line>`, `runner: ...` or `absent: ...`.
-fn runtime_refusal(ends: &Value) -> Result<(), String> {
+/// True when `text` holds a `file:line` reference: a token `path:N` or `path:N-M`.
+fn has_file_line(text: &str) -> bool {
+    text.split(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(' || c == ')')
+        .any(|t| t.rsplit_once(':').is_some_and(|(f, n)| !f.is_empty() && !n.is_empty() && n.split('-').count() <= 2 && n.split('-').all(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))))
+}
+
+/// Every reason the `runtime` block cannot be read as a whole, one string each (empty when it can
+/// be). The check refuses (exit 2, nothing printed before it) on any of these:
+///
+/// - no block `runtime` (the old key `driver` gets the word that it was renamed), or no
+///   `provided_by` object in it;
+/// - a member the check does not know, or a member without a `provided_by` entry, or an entry for
+///   a member that is not there;
+/// - a member of the wrong type: `capped_effects` must be a list of the effects `read`, `write`,
+///   `external`; every other member must be a boolean;
+/// - a `provided_by` value that is not `loom: <what>, <file:line>`, `runner: <what>` or
+///   `absent: <what>`: an unknown prefix, nothing after the prefix, or a `loom:` value without
+///   a `file:line`;
+/// - a member that contradicts its entry. A flag is `true` when the runtime holds the capability
+///   (`loom:` or `runner:`) and `false` when it does not (`absent:`), and `capped_effects` is
+///   non-empty on the same terms. No member can rightly be `false` next to `loom:` or `runner:`:
+///   `false` says the run has not got it, and then the entry says `absent:` and names why.
+fn runtime_refusals(ends: &Value) -> Vec<String> {
     let Some(rt) = ends["runtime"].as_object() else {
-        return Err(if ends.get("driver").is_some() {
+        return vec![if ends.get("driver").is_some() {
             "the block `driver` was renamed `runtime`: rename it and add `provided_by`".into()
         } else {
             "has no block `runtime` (members and `provided_by`, who holds each in a run of `runbook run`)".into()
-        });
+        }];
     };
-    let by = rt.get("provided_by").and_then(Value::as_object).ok_or("`runtime` has no `provided_by` object")?;
-    for k in rt.keys().filter(|k| k.as_str() != "provided_by") {
+    let mut errs = Vec::new();
+    let by = rt.get("provided_by").and_then(Value::as_object);
+    if by.is_none() {
+        errs.push("`runtime` has no `provided_by` object".to_string());
+    }
+    let empty = serde_json::Map::new();
+    let by = by.unwrap_or(&empty);
+    for (k, v) in rt.iter().filter(|(k, _)| k.as_str() != "provided_by") {
         if !RUNTIME_MEMBERS.contains(&k.as_str()) {
-            return Err(format!("`runtime` member {k} is not one the check knows ({})", RUNTIME_MEMBERS.join(", ")));
+            errs.push(format!("`runtime` member {k} is not one the check knows ({})", RUNTIME_MEMBERS.join(", ")));
+            continue;
         }
-        if !by.contains_key(k) {
-            return Err(format!("`runtime` member {k} has no entry in `provided_by`"));
+        if !by.is_empty() && !by.contains_key(k) {
+            errs.push(format!("`runtime` member {k} has no entry in `provided_by`"));
+        }
+        // held: whether the member says the runtime holds the capability; None when mistyped
+        let held = if k == "capped_effects" {
+            match v.as_array().map(|a| a.iter().map(|e| e.as_str().filter(|e| EFFECTS.contains(e))).collect::<Option<Vec<_>>>()) {
+                Some(Some(list)) => Some(!list.is_empty()),
+                _ => {
+                    errs.push(format!("`runtime` member {k} is not a list of effects ({}): {v}", EFFECTS.join(", ")));
+                    None
+                }
+            }
+        } else {
+            let b = v.as_bool();
+            if b.is_none() {
+                errs.push(format!("`runtime` member {k} is not true or false: {v}"));
+            }
+            b
+        };
+        let Some(who) = by.get(k).and_then(Value::as_str) else { continue };
+        let Some(held) = held else { continue };
+        let says_absent = who.starts_with("absent: ");
+        if held && says_absent {
+            errs.push(format!("`runtime` member {k} says the runtime holds it ({v}) and `provided_by` says absent"));
+        }
+        if !held && PROVIDED_BY_FORMS[..2].iter().any(|f| who.starts_with(f)) {
+            errs.push(format!("`runtime` member {k} says the runtime lacks it ({v}) and `provided_by` says who holds it"));
         }
     }
     for (k, who) in by {
         if !rt.contains_key(k) {
-            return Err(format!("`provided_by` names {k}, which is not a member of `runtime`"));
+            errs.push(format!("`provided_by` names {k}, which is not a member of `runtime`"));
         }
-        if !who.as_str().is_some_and(|w| PROVIDED_BY_FORMS.iter().any(|f| w.starts_with(f))) {
-            return Err(format!("`provided_by` {k} is not `loom: ...`, `runner: ...` or `absent: ...`: {who}"));
+        let Some(w) = who.as_str() else {
+            errs.push(format!("`provided_by` {k} is not a string: {who}"));
+            continue;
+        };
+        let Some(form) = PROVIDED_BY_FORMS.iter().find(|f| w.starts_with(**f)) else {
+            errs.push(format!("`provided_by` {k} is not `loom: ...`, `runner: ...` or `absent: ...`: {who}"));
+            continue;
+        };
+        let rest = &w[form.len()..];
+        if rest.trim().is_empty() {
+            errs.push(format!("`provided_by` {k} has nothing after `{}`: {who}", form.trim_end()));
+        } else if *form == "loom: " && !has_file_line(rest) {
+            errs.push(format!("`provided_by` {k} is `loom:` with no file:line (`loom: <what>, <file:line>`): {who}"));
         }
     }
-    Ok(())
+    errs
 }
 
 fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
@@ -345,7 +410,10 @@ fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
         protocols.push(Protocol { name, ir, bindings: read(&bp)? });
     }
     let ends = read(&ex.join("rule-ends.json"))?;
-    runtime_refusal(&ends).map_err(|e| format!("driver/examples/sdc/rule-ends.json: {e}"))?;
+    let refusals = runtime_refusals(&ends);
+    if !refusals.is_empty() {
+        return Err(refusals.iter().map(|e| format!("driver/examples/sdc/rule-ends.json: {e}")).collect::<Vec<_>>().join("\n"));
+    }
     Ok((protocols, read(&ex.join("decision-classes.json"))?, ends))
 }
 
@@ -373,7 +441,7 @@ fn main() -> ExitCode {
     let (protocols, classes, ends) = match load(&root) {
         Ok(x) => x,
         Err(e) => {
-            eprintln!("sdc-check-routes: {e}");
+            e.lines().for_each(|l| eprintln!("sdc-check-routes: {l}"));
             return ExitCode::from(2);
         }
     };
