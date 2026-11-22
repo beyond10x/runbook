@@ -76,6 +76,7 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
         Way::Library => (Identity::Library { commit: library::COMMIT }, Some(library::prepare(args.confinement)?)),
     };
     check_name(&args.run)?;
+    super::bugfix::check(args)?;
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
     let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     let given = settings::normalise(&settings::read(&args.settings)?, args)?;
@@ -273,6 +274,7 @@ impl Runner<'_> {
         let root_file = bindings_copy::materialise(&self.args.bindings, &self.bindings_dir, root_name, &self.settings, self.login_link.as_deref())?;
         self.answers = Answers::load(&self.bindings_dir)?;
         std::fs::write(self.workspace.join("idea.yaml"), runbook::engine::layout::idea_document(&self.args.intake)).map_err(|e| format!("the idea file: {e}"))?;
+        super::bugfix::seed(self.args, &self.workspace, &self.env)?;
         let copies = self.run_dir.join("protocols");
         std::fs::create_dir_all(&copies).map_err(|e| format!("{}: {e}", copies.display()))?;
         for (_, file) in protocols {

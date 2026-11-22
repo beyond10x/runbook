@@ -82,10 +82,11 @@ fn a_policy_that_is_not_one_is_a_usage_error() {
 }
 
 #[test]
-fn bugfix_and_bugfix_ticket_are_accepted_and_refused_until_built() {
+fn bugfix_and_bugfix_ticket_are_accepted_and_refused_for_what_they_name_that_is_not_there() {
     let root = scratch("bugfix");
-    refused(&root, &["--bugfix", "seed"], "--bugfix is not built yet");
-    refused(&root, &["--bugfix-ticket", "ticket.yaml"], "--bugfix-ticket is not built yet");
+    refused(&root, &["--bugfix", "seed"], "--bugfix needs a seed directory, not 'seed'");
+    refused(&root, &["--bugfix-ticket", "ticket.yaml"], "--bugfix-ticket needs a ticket file (sdc.ticket/1), not 'ticket.yaml'");
+    refused(&root, &["--bugfix", "seed", "--bugfix-ticket", "ticket.yaml"], "--bugfix and --bugfix-ticket are two ways to seed one case: give one");
 }
 
 #[test]

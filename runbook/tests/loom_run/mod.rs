@@ -1,4 +1,5 @@
 mod answers;
+mod bugfix;
 mod core;
 mod decider;
 mod decisions;
