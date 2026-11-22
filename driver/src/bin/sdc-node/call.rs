@@ -3,7 +3,7 @@
 
 use crate::nodes::{self, Inputs};
 use crate::ordjson::{NumLit, Ov};
-use crate::util::{chomp, now_utc, cp_r, rm_rf, run_cmd, run_to_file, Exit, Out, R};
+use crate::util::{chomp, now_utc, cp_r, rm_rf, run_cmd, Exit, Out, R};
 use crate::{yaml, Ctx};
 use serde::Serialize;
 use std::fs;
@@ -41,6 +41,12 @@ pub struct Request<'a> {
     pub json_schema: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub review_attempt: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub implement_mode: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coverage_attempt: Option<usize>,
 }
 
 /// The pretty JSON text of `v` with a trailing newline, as `jq` writes a file.
@@ -77,7 +83,7 @@ fn count_dirs(dir: &Path, suffix: &str) -> usize {
 }
 
 /// The last `n` lines of `bytes`, as `tail -n` keeps them.
-fn tail_lines(bytes: &[u8], n: usize) -> &[u8] {
+pub fn tail_lines(bytes: &[u8], n: usize) -> &[u8] {
     let body = bytes.strip_suffix(b"\n").unwrap_or(bytes);
     let mut seen = 0;
     for (i, b) in body.iter().enumerate().rev() {
@@ -167,7 +173,8 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
             append_task(c, &mut task, "instructions/shared/constraints.md", &[("constraints", &constraints.join("\n"))])?;
         }
     }
-    if c.raises() {
+    // (One request inlines findings.yaml itself and asks for findings in the reply.)
+    if c.raises() && !c.request_mode {
         if work.join("findings.yaml").is_file() {
             inp.input("findings.yaml");
         }
@@ -208,11 +215,12 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         feedback = true;
     }
 
+    let mut rework_limit = String::new();
     if let Some(rej) = &c.rejection {
         let doc = fs::read_to_string(rej).ok().and_then(|t| Ov::parse(&t).ok()).unwrap_or(Ov::Null);
         let show = |k: &str| doc.get(k).map(Ov::raw).unwrap_or_else(|| "null".to_string());
         let ends = fs::read_to_string(c.set.root.join("driver/examples/sdc/rule-ends.json")).ok().and_then(|t| Ov::parse(&t).ok());
-        let rework_limit = ends.as_ref().and_then(|e| e.get("rework_limit")).map(Ov::raw).unwrap_or_default();
+        rework_limit = ends.as_ref().and_then(|e| e.get("rework_limit")).map(Ov::raw).unwrap_or_default();
         let _ = fs::copy(rej, cwd.join("in/rejection.json"));
         let notes = c.render(
             "instructions/shared/rework.inputs.md",
@@ -228,22 +236,27 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
     }
 
     let prompt = rec.join("prompt.md");
-    let preamble = c.render(if c.facts() { "instructions/shared/preamble-facts.md" } else { "instructions/shared/preamble.md" }, &[("node", &c.node)])?;
-    let closing = if c.node == "change.review" {
-        match built.review.as_ref().and_then(|r| r.doc.as_ref()) {
-            // The review input's exact bytes, the trailing newline kept: the file ends the paragraph.
-            Some(doc) => {
-                let text = String::from_utf8_lossy(&fs::read(doc).unwrap_or_default()).into_owned();
-                c.render("instructions/shared/closing-review-facts.md", &[("review_doc", &text)])?
+    // One request: the program that makes it writes the prompt, the whole input.
+    if !c.request_mode {
+        let preamble = c.render(if c.facts() { "instructions/shared/preamble-facts.md" } else { "instructions/shared/preamble.md" }, &[("node", &c.node)])?;
+        let closing = if c.node == "change.review" {
+            match built.review.as_ref().and_then(|r| r.doc.as_ref()) {
+                // The review input's exact bytes, the trailing newline kept: the file ends the paragraph.
+                Some(doc) => {
+                    let text = String::from_utf8_lossy(&fs::read(doc).unwrap_or_default()).into_owned();
+                    c.render("instructions/shared/closing-review-facts.md", &[("review_doc", &text)])?
+                }
+                None => c.render("instructions/shared/closing-review.md", &[])?,
             }
-            None => c.render("instructions/shared/closing-review.md", &[])?,
-        }
-    } else {
-        c.render(if c.rejection.is_some() { "instructions/shared/closing-rework.md" } else { "instructions/shared/closing.md" }, &[])?
-    };
-    let input_list = if inp.list.is_empty() { "- ".to_string() } else { chomp(&inp.list.iter().map(|i| format!("- {i}\n")).collect::<String>()).to_string() };
-    let frame = c.render("instructions/shared/frame.md", &[("preamble", &preamble), ("inputs", &input_list), ("task", &task), ("closing", &closing)])?;
-    let _ = fs::write(&prompt, format!("{frame}\n"));
+        } else if c.coverage {
+            c.render(if c.rejection.is_some() { "instructions/shared/closing-coverage-rework.md" } else { "instructions/shared/closing-coverage.md" }, &[])?
+        } else {
+            c.render(if c.rejection.is_some() { "instructions/shared/closing-rework.md" } else { "instructions/shared/closing.md" }, &[])?
+        };
+        let input_list = if inp.list.is_empty() { "- ".to_string() } else { chomp(&inp.list.iter().map(|i| format!("- {i}\n")).collect::<String>()).to_string() };
+        let frame = c.render("instructions/shared/frame.md", &[("preamble", &preamble), ("inputs", &input_list), ("task", &task), ("closing", &closing)])?;
+        let _ = fs::write(&prompt, format!("{frame}\n"));
+    }
 
     // The model and the reasoning effort: the binding's, else the class default.
     let model = c.set.cfg.model.clone().unwrap_or_else(|| "claude-haiku-5-5".to_string());
@@ -254,6 +267,11 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         // The facts review makes one request without a tool and at most 4 turns, whatever the binding gives.
         operations.clear();
         max_turns = NumLit("4".into());
+    }
+    if c.request_mode {
+        // No operation and a turn cap for the CLI's own schema re-prompt, whatever the binding gives.
+        operations.clear();
+        max_turns = NumLit("3".into());
     }
     let max_budget = c.set.cfg.max_budget_usd.clone().unwrap_or_else(|| NumLit("1".into()));
     let case_dir = std::env::var("SDC_CASE_DIR").unwrap_or_default();
@@ -272,32 +290,46 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         max_budget_usd: &max_budget,
         json_schema: built.schema.as_ref().map(|s| s.display().to_string()),
         review_attempt: None,
+        implement_mode: c.request_mode.then_some("request"),
+        max_output_tokens: c.request_mode.then_some(32000),
+        coverage_attempt: None,
     };
     let request = rec.join("request.json");
     let _ = fs::write(&request, pretty(&req));
     if c.node == "change.review" {
         return crate::review::call(c, rec_root, rec, cwd, attempt, &built, &mut req, feedback);
     }
-
-    // The adapter.
-    let started = now_utc(false);
-    let response = rec.join("response.json");
-    let _ = fs::remove_file(rec.join("structured-output.json"));
-    let acode = run_to_file(Command::new(&c.adapter_bin).arg(&request), &response);
-    if fs::metadata(&response).map_or(true, |m| m.len() == 0) {
-        let _ = fs::write(&response, "{}\n");
+    if c.request_mode {
+        return crate::implement::request_call(c, rec_root, rec, cwd, attempt, &built, &req, feedback, &rework_limit);
     }
-    let res = fs::read_to_string(&response).ok().and_then(|t| Ov::parse(&t).ok());
+
+    // The adapter, and for a coverage document the check of its reply and the asking again.
+    let started = now_utc(false);
+    let calls = crate::implement::session_calls(c, rec_root, rec, cwd, attempt, &started, &mut req, &built, feedback)?;
+    let acode = calls.acode;
+    let res = fs::read_to_string(rec.join("response.json")).ok().and_then(|t| Ov::parse(&t).ok());
     let reason = |key: &str| res.as_ref().and_then(|r| r.get(key)).cloned().unwrap_or(Ov::Null);
 
-    let code;
+    let mut code;
     if c.adapter == "dry" {
         code = c.run_stub(&mut Out::inherit());
+        if code == 0 && !c.coverage_stub() {
+            code = 126;
+        }
         if code == 0 {
             c.post("", &mut Out::append(&rec.join("apply.log")))?;
         }
+    } else if acode == 0 && calls.invalid {
+        code = 2;
+        let err = fs::read_to_string(rec.join("coverage-check.err")).unwrap_or_default();
+        let call = rec.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default();
+        let msg = c.render(
+            "instructions/shared/node.coverage.invalid.md",
+            &[("node", &c.node), ("attempts", &(calls.tries + 1).to_string()), ("call", &call), ("reason", chomp(&err))],
+        )?;
+        Out::inherit().line(msg.as_bytes());
     } else if acode == 0 {
-        code = apply(c, built.out, rec, cwd)?;
+        code = apply(c, built.out, rec, cwd, &calls.reply)?;
         if code != 0 {
             let head = c.render("instructions/shared/node.not-applied.md", &[("node", &c.node), ("code", &code.to_string())])?;
             Out::inherit().line(head.as_bytes());
@@ -332,27 +364,44 @@ fn body(c: &Ctx, rec_root: &Path, rec: &Path, cwd: &Path, attempt: usize) -> R<i
         let msg = c.render("instructions/shared/node.call-exit.md", &[("node", &c.node), ("code", &acode.to_string()), ("reason", chomp(&why))])?;
         Out::inherit().line(msg.as_bytes());
     }
+    if c.coverage && code == 0 && c.adapter != "dry" {
+        code = crate::implement::refuse_uncovered(c);
+    }
     log_call(c, rec_root, rec, attempt, &started, &req, built.out, acode, code, feedback, None);
     Ok(code)
 }
 
-/// Copies back only the declared output.
-fn apply(c: &Ctx, out: &str, rec: &Path, cwd: &Path) -> R<i32> {
+/// Copies back only the declared output. `coverage` is the checked coverage document of a
+/// `change.implement` that replies with one.
+pub fn apply(c: &Ctx, out: &str, rec: &Path, cwd: &Path, coverage: &Path) -> R<i32> {
     let work = &c.work;
     let log = rec.join("apply.log");
     let mut sink = Out::truncate(&log);
     if let Some(code) = crate::store::apply(c, cwd, &mut sink)? {
         return Ok(code);
     }
-    Ok(apply_copy(c, out, rec, cwd, work, &mut sink))
+    Ok(apply_copy(c, out, rec, cwd, work, coverage, &mut sink))
 }
 
 /// The nodes whose output is a plain copy back.
-fn apply_copy(c: &Ctx, out: &str, rec: &Path, cwd: &Path, work: &Path, sink: &mut Out) -> i32 {
+fn apply_copy(c: &Ctx, out: &str, rec: &Path, cwd: &Path, work: &Path, coverage: &Path, sink: &mut Out) -> i32 {
     let copy_back = |from: &Path, to: &Path| -> bool {
         rm_rf(to).is_ok() && to.parent().is_none_or(|p| fs::create_dir_all(p).is_ok()) && cp_r(from, to).is_ok()
     };
     match c.node.as_str() {
+        "change.implement" if c.coverage => {
+            // The tree, then the checked coverage document inside it (part of the revision it describes).
+            if !cwd.join("out/impl").is_dir() {
+                return 1;
+            }
+            if !copy_back(&cwd.join("out/impl"), &work.join("impl")) || fs::create_dir_all(work.join("impl/.sdc")).is_err() {
+                return 1;
+            }
+            let doc = fs::read_to_string(coverage).ok().and_then(|t| Ov::parse(&t).ok());
+            let text = doc.as_ref().map(pretty).unwrap_or_default();
+            let wrote = fs::write(work.join("impl/.sdc/coverage.json"), text).is_ok();
+            if doc.is_some() && wrote { 0 } else { 2 }
+        }
         "bug.dissect" => {
             // The reply under the response schema, when the adapter had one, else the written file.
             let mut f: PathBuf = cwd.join("out/bug-dissection.json");

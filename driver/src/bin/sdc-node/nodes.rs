@@ -177,6 +177,7 @@ pub fn build(c: &Ctx, rec: &Path, cwd: &Path, inp: &mut Inputs) -> R<Built> {
             Ok(Built::new("aep", None, c.render_part("task", &[("epic", &c.names().0)])?))
         }
         "change.review" => crate::review::inputs(c, rec, cwd, inp),
+        "change.implement" => crate::implement::inputs(c, rec, cwd, inp),
         "test.reproduce" => {
             for i in ["bug.yaml", "bug-dissection.json", "impl"] {
                 inp.input(i);

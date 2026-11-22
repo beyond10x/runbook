@@ -1,7 +1,8 @@
 //! `sdc-node`, the Rust program for the seven plain nodes (idea.dissect, questions.write,
-//! requirements.normalise, spec.author, test.reproduce, bug.dissect, change.fix) and for the nodes
-//! of the planning store and of the review (vision.write, roadmap.write, plan.decompose,
-//! context.default, questions.answer, change.review), against the shell code of
+//! requirements.normalise, spec.author, test.reproduce, bug.dissect, change.fix), for the nodes
+//! of the planning store, of the review and of the implementer (vision.write, roadmap.write,
+//! plan.decompose, context.default, questions.answer, change.review, change.implement in session,
+//! coverage and request mode), against the shell code of
 //! `bindings/tools/llm-node.sh` that did the same under Loom.
 //!
 //! The script dispatches these names to the program; `SDC_NODE_SHELL=1` (read only here) keeps
@@ -251,6 +252,7 @@ fn pair(name: &str, s: &Start, setup: &dyn Fn(&Path)) -> (Run, Run) {
     same(name, &a, &b);
     (a, b)
 }
+
 
 fn nothing(_: &Path) {}
 
@@ -595,6 +597,9 @@ fn make_adapter(root: &Path, name: &str, body: &str) {
 
 fn adapters(root: &Path) {
     let make = |name: &str, body: &str| make_adapter(root, name, body);
+    let caps = "[ \"$1\" = --capabilities ] && { echo '{\"json_schema\":true}'; exit 0; }\n";
+    make("req-api-error", &format!("{caps}printf '{{\"terminal_reason\":\"api_error\",\"api_error_status\":529}}\\n'\nexit 1\n"));
+    make("req-exits", &format!("{caps}printf '{{\"error\":\"the model stopped\"}}\\n'\nexit 3\n"));
     make("api-error", "printf '{\"terminal_reason\":\"api_error\",\"api_error_status\":529}\\n'\nexit 1\n");
     make("api-error-bare", "printf '{\"terminal_reason\":\"api_error\"}\\n'\nexit 1\n");
     make("exits", "printf '{\"error\":\"the model stopped\"}\\n'\nexit 3\n");
@@ -697,7 +702,7 @@ fn a_stub_setting_that_does_not_exist_is_refused_the_same() {
 }
 
 #[test]
-fn the_script_hands_its_thirteen_names_to_the_program_unless_sdc_node_shell_is_set() {
+fn the_script_hands_its_fourteen_names_to_the_program_unless_sdc_node_shell_is_set() {
     let base = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("node-parity/dispatch");
     let _ = fs::remove_dir_all(&base);
     fs::create_dir_all(base.join("bin")).unwrap();
@@ -714,12 +719,12 @@ fn the_script_hands_its_thirteen_names_to_the_program_unless_sdc_node_shell_is_s
         let o = c.stdin(Stdio::null()).output().unwrap();
         String::from_utf8_lossy(&o.stdout).into_owned()
     };
-    for node in NODES.iter().chain(STORE_NODES.iter()) {
+    for node in NODES.iter().chain(STORE_NODES.iter()).chain(["change.implement"].iter()) {
         let out = run(false, node);
         assert!(out.starts_with(&format!("program {node} --tools-dir ")) && out.trim_end().ends_with("--model m"), "{node}: {out}");
     }
     assert!(!run(true, "idea.dissect").starts_with("program"), "SDC_NODE_SHELL keeps the script's code");
-    assert!(!run(false, "change.implement").starts_with("program"), "a node outside the thirteen stays in the script");
+    assert!(!run(false, "idea.dissect-not").starts_with("program"), "a name outside the fourteen stays in the script");
 }
 
 // ---- the nodes of the planning store ------------------------------------------------------------
@@ -1161,6 +1166,283 @@ fn a_review_mode_that_is_none_is_refused_the_same() {
     assert_eq!(r.code, Some(126), "{r:#?}");
 }
 
+// ---- change.implement -------------------------------------------------------------------------
+
+const IMPLEMENT_SETTINGS: &str = "adapter: fixture\nnodes: [change.implement]\n";
+const IMPLEMENT_STORY: &str = "---\nformat: aep.planning-md/3\nid: story:list\nkind: story\nstatus: active\ntitle: List\nsummary: covers billing.invoice.CreateInvoice billing.email.SendEmail\n---\n# List\n";
+const IMPLEMENT_IR: &str = r#"{"commands":{"billing.invoice.CreateInvoice":{},"billing.email.SendEmail":{}}}"#;
+
+/// A seed file of the cycles: the stub settings or replies a cycle case starts from.
+fn seed(rel: &str) -> String {
+    fs::read_to_string(repo().join("cycles/seeds/stub").join(rel)).unwrap_or_else(|_| panic!("no seed {rel}"))
+}
+
+/// The story that carries two requirements, and the adapters of the failure cases.
+fn implement_story(root: &Path) {
+    let work = root.join("work");
+    put(&work, "aep/story/list.md", IMPLEMENT_STORY);
+    put(&work, ".sdc/gate/ir.json", IMPLEMENT_IR);
+    adapters(root);
+}
+
+struct Implement<'a> {
+    settings: String,
+    replies: Option<(&'a str, String)>,
+    extra: Vec<&'a str>,
+    env: Vec<(&'a str, &'a str)>,
+    story: bool,
+    more: Option<&'a dyn Fn(&Path)>,
+}
+
+fn implement<'a>(settings: &str) -> Implement<'a> {
+    Implement { settings: settings.to_string(), replies: None, extra: vec![], env: vec![], story: true, more: None }
+}
+
+impl<'a> Implement<'a> {
+    fn replies(mut self, name: &'a str, r: String) -> Self {
+        self.replies = Some((name, r));
+        self
+    }
+    fn with(mut self, extra: &[&'a str]) -> Self {
+        self.extra = extra.to_vec();
+        self
+    }
+    fn env(mut self, env: &[(&'a str, &'a str)]) -> Self {
+        self.env = env.to_vec();
+        self
+    }
+    fn no_story(mut self) -> Self {
+        self.story = false;
+        self
+    }
+    fn more(mut self, f: &'a dyn Fn(&Path)) -> Self {
+        self.more = Some(f);
+        self
+    }
+    fn run(self, name: &str) -> Run {
+        let s = start("change.implement").case("sdc.billing.list").with(&self.extra).env(&self.env);
+        let (_, r) = pair(&format!("implement-{name}"), &s, &|root| {
+            if self.story {
+                implement_story(root);
+            } else {
+                adapters(root);
+            }
+            if !self.settings.is_empty() {
+                put(&root.join("work"), ".stub/settings.yaml", &self.settings);
+            }
+            if let Some((n, t)) = &self.replies {
+                put(&root.join("work"), &format!(".stub/replies/{n}.yaml"), t);
+            }
+            if let Some(f) = self.more {
+                f(root);
+            }
+        });
+        r
+    }
+}
+
+const IMPL: &str = ".sdc/llm/001-change.implement";
+const COVERAGE_ON: [(&str, &str); 1] = [("SDC_IMPLEMENT_COVERAGE", "on")];
+const REQUEST_ON: [(&str, &str); 1] = [("SDC_IMPLEMENT_MODE", "request")];
+
+#[test]
+fn change_implement_on_dry_assembles_the_prompt_and_runs_the_stub_the_same() {
+    let r = implement("").with(&["--adapter", "dry"]).run("dry");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{IMPL}/prompt.md")) && r.stderr.contains("would run: metaharness"), "{r:#?}");
+}
+
+#[test]
+fn change_implement_on_the_fixture_adapter_the_same() {
+    let r = implement(IMPLEMENT_SETTINGS).run("fixture");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{IMPL}/response.json")), "{r:#?}");
+}
+
+#[test]
+fn change_implement_on_the_stub_calls_no_model_the_same() {
+    let r = implement("").run("stub");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(!r.files.keys().any(|k| k.starts_with(".sdc/llm/")), "{r:#?}");
+}
+
+#[test]
+fn change_implement_on_the_stub_writes_a_coverage_document_the_same() {
+    let r = implement("").env(&COVERAGE_ON).run("stub-coverage");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files.contains_key("impl/.sdc/coverage.json"), "{r:#?}");
+}
+
+#[test]
+fn change_implement_on_the_stub_with_no_story_requirements_stops_the_same() {
+    let r = implement("").env(&COVERAGE_ON).no_story().run("stub-coverage-no-story");
+    assert_ne!(r.code, Some(0), "{r:#?}");
+}
+
+#[test]
+fn change_implement_takes_the_tree_of_a_failing_fixture_the_same() {
+    let tree = repo().join("cycles/seeds/fixtures/test-failure");
+    let r = implement(&seed("settings/implement.yaml")).more(&|root: &Path| copy_dir(&tree, &root.join("work/.stub"))).run("test-failure");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+}
+
+#[test]
+fn a_failing_test_reaches_the_writer_as_feedback_the_same() {
+    let log = |root: &Path| {
+        put(root, "check.log", "fixture-failure: the second email of an account counts 2\n");
+        put(root, "feedback.json", &json!([{"kind": "tests", "result": "fail", "action": "tests.run", "exit": 1, "log": format!("{}/check.log", root.display())}]).to_string());
+    };
+    let r = implement("").with(&["--adapter", "dry"]).env(&FEEDBACK_ENV).more(&log).run("feedback-tests");
+    assert!(r.files[&format!("{IMPL}/cwd/in/feedback.md")].contains("fixture-failure: the second email of an account counts 2"), "{r:#?}");
+}
+
+#[test]
+fn a_rejection_reaches_change_implement_the_same() {
+    let r = implement("").with(&["--adapter", "dry"]).env(&FEEDBACK_ENV).more(&rejection_files("change.approve", "change")).run("rejected");
+    assert!(r.files.contains_key(&format!("{IMPL}/cwd/in/rejection.json")), "{r:#?}");
+}
+
+#[test]
+fn a_coverage_document_is_asked_for_on_dry_the_same() {
+    let r = implement("").with(&["--adapter", "dry"]).env(&COVERAGE_ON).run("dry-coverage");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{IMPL}/cwd/in/story-requirements.json")), "{r:#?}");
+}
+
+#[test]
+fn a_complete_coverage_document_passes_the_same() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-complete.yaml")).run("coverage-complete");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+}
+
+#[test]
+fn a_coverage_document_that_names_a_requirement_not_built_sends_the_writer_back_the_same() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-not-built.yaml")).run("coverage-not-built");
+    assert_eq!(r.code, Some(8), "{r:#?}");
+    assert!(r.stdout.contains("- r2: not built: fixture: the email is not sent yet"), "{r:#?}");
+}
+
+#[test]
+fn a_coverage_line_outside_its_file_sends_the_writer_back_the_same() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-line-outside.yaml")).run("coverage-line-outside");
+    assert_eq!(r.code, Some(8), "{r:#?}");
+    assert!(r.stdout.contains("- r2: src/lib.rs:999 is outside src/lib.rs"), "{r:#?}");
+}
+
+#[test]
+fn a_coverage_test_that_does_not_exist_sends_the_writer_back_the_same() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-test-missing.yaml")).run("coverage-test-missing");
+    assert_eq!(r.code, Some(8), "{r:#?}");
+    assert!(r.stdout.contains("no #[test] function of that name in the test sources"), "{r:#?}");
+}
+
+#[test]
+fn an_invalid_coverage_reply_is_asked_again_with_the_reason_the_same() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-reply-retry.yaml")).run("coverage-retry");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{IMPL}/coverage.try1.json")), "{r:#?}");
+    assert!(r.files[&format!("{IMPL}/prompt.md")].contains("Your coverage document was refused by the program check: invalid coverage reply: entry 1 (r1): built needs `at`"), "{r:#?}");
+    assert_eq!(r.files[".sdc/llm/calls.jsonl"].lines().count(), 2, "{r:#?}");
+}
+
+#[test]
+fn a_coverage_reply_that_stays_invalid_ends_with_the_coverage_invalid_line_the_same() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-reply-retry.yaml")).env(&[("SDC_COVERAGE_RETRIES", "0"), ("SDC_IMPLEMENT_COVERAGE", "on")]).run("coverage-invalid");
+    assert!(r.stdout.contains("coverage_invalid: the coverage document stayed invalid after 1 attempt(s)"), "{r:#?}");
+}
+
+#[test]
+fn a_coverage_run_without_story_requirements_cannot_run_the_same() {
+    let r = implement(IMPLEMENT_SETTINGS).env(&COVERAGE_ON).no_story().run("coverage-no-story");
+    assert_eq!(r.code, Some(126), "{r:#?}");
+    assert!(r.stdout.contains("no story requirements") || r.stderr.contains("no story requirements"), "{r:#?}");
+}
+
+#[test]
+fn a_coverage_session_whose_api_ended_exits_75_the_same() {
+    let r = implement("").with(&["--adapter", "{root}/adapters/api-error"]).env(&COVERAGE_ON).run("coverage-api");
+    assert_eq!(r.code, Some(75), "{r:#?}");
+}
+
+#[test]
+fn change_implement_in_request_mode_on_dry_assembles_the_request_the_same() {
+    let r = implement("").with(&["--adapter", "dry"]).env(&REQUEST_ON).run("request-dry");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files[&format!("{IMPL}/prompt.md")].contains("you have no tools, nothing to read"), "{r:#?}");
+}
+
+#[test]
+fn change_implement_in_request_mode_makes_one_request_the_same() {
+    let r = implement(&seed("settings/implement-request.yaml")).run("request-build");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    let calls = &r.files[".sdc/llm/calls.jsonl"];
+    assert!(calls.contains("\"implement_mode\":\"request\"") && calls.contains("\"requests\":1"), "{r:#?}");
+    assert!(r.files.contains_key(&format!("{IMPL}/reply-schema.json")), "{r:#?}");
+}
+
+#[test]
+fn a_failing_test_reaches_the_request_the_same() {
+    let tree = repo().join("cycles/seeds/fixtures/test-failure");
+    let log = |root: &Path| {
+        copy_dir(&tree, &root.join("work/.stub"));
+        put(root, "check.log", "fixture-failure: the second email of an account counts 2\n");
+        put(root, "feedback.json", &json!([{"kind": "tests", "result": "fail", "action": "tests.run", "exit": 1, "log": format!("{}/check.log", root.display())}]).to_string());
+    };
+    let r = implement(&seed("settings/implement-request.yaml")).env(&FEEDBACK_ENV).more(&log).run("request-feedback");
+    assert!(r.files[&format!("{IMPL}/prompt.md")].contains("fixture-failure: the second email of an account counts 2"), "{r:#?}");
+}
+
+#[test]
+fn a_rejection_reaches_the_request_and_replaces_the_readme_the_same() {
+    let r = implement(&seed("settings/implement-request-review.yaml"))
+        .replies("implement", seed("replies/implement-review-rework.yaml").replacen("  - stub\n", "", 1))
+        .env(&FEEDBACK_ENV)
+        .more(&rejection_files("change.approve", "change"))
+        .run("request-rejected");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files["impl/README.md"].contains("cargo run -- 8080"), "{r:#?}");
+}
+
+#[test]
+fn an_invalid_request_reply_is_asked_again_the_same() {
+    let r = implement(&seed("settings/implement-request.yaml")).replies("implement", seed("replies/implement-invalid-retry.yaml")).run("request-invalid-retry");
+    assert_eq!(r.code, Some(0), "{r:#?}");
+    assert!(r.files[&format!("{IMPL}/req-2/prompt.md")].contains("The program check refused it: `files` is empty"), "{r:#?}");
+}
+
+#[test]
+fn a_request_reply_that_stays_invalid_writes_nothing_the_same() {
+    let r = implement(&seed("settings/implement-request.yaml")).replies("implement", seed("replies/implement-invalid-named.yaml")).run("request-invalid-named");
+    assert_ne!(r.code, Some(0), "{r:#?}");
+    assert_eq!(r.files["impl/src/lib.rs"], r.files["mainline/src/lib.rs"], "{r:#?}");
+}
+
+#[test]
+fn a_request_reply_with_a_path_outside_the_tree_is_refused_the_same() {
+    let r = implement(&seed("settings/implement-request.yaml")).replies("implement", seed("replies/implement-path-escape.yaml")).run("request-path-escape");
+    assert!(r.files[&format!("{IMPL}/req-2/prompt.md")].contains("path \"../escape.rs\": leaves the product tree"), "{r:#?}");
+}
+
+#[test]
+fn a_request_whose_api_ended_exits_75_the_same() {
+    let r = implement("").with(&["--adapter", "{root}/adapters/req-api-error"]).env(&REQUEST_ON).run("request-api");
+    assert_eq!(r.code, Some(75), "{r:#?}");
+    assert!(r.stdout.contains("could not run"), "{r:#?}");
+}
+
+#[test]
+fn a_request_that_recorded_nothing_ends_with_its_line_the_same() {
+    let r = implement("").with(&["--adapter", "{root}/adapters/req-exits"]).env(&REQUEST_ON).run("request-exits");
+    assert_ne!(r.code, Some(0), "{r:#?}");
+    assert!(r.stdout.contains("recorded nothing (call llm/001-change.implement"), "{r:#?}");
+}
+
+#[test]
+fn a_session_whose_adapter_exits_ends_with_its_reason_the_same() {
+    let r = implement("").with(&["--adapter", "{root}/adapters/exits"]).run("session-exits");
+    assert_eq!(r.code, Some(3), "{r:#?}");
+}
+
 // ---- goldens ----------------------------------------------------------------------------------
 
 fn compare(group: &str, name: &str, text: &str) {
@@ -1318,7 +1600,7 @@ fn every_step_log_golden_is_read_by_a_test() {
     let want = [
         "not-called.questions", "not-called.findings", "not-called.derived", "not-applied", "api-ended", "call-exit", "rework.stub", "rework.stub.person",
         "review.no-inputs", "review.call-failed", "review.approved", "review.api", "review.nothing-recorded", "review.invalid", "review.unreadable",
-        "answer.scope-changed",
+        "answer.scope-changed", "coverage.invalid", "implement.api-ended", "implement.nothing-recorded",
     ];
     assert_eq!(names, want.map(String::from).into_iter().collect(), "a golden no test reads, or a log line with no golden");
 }
@@ -1422,4 +1704,74 @@ fn the_prompt_of_change_review_on_facts_carries_the_review_input_the_same() {
     // the program build the real one, and `prompt` asserts they agree.
     let p = review_prompt("review-facts", &nothing, "facts");
     assert!(p.contains("## Requirements this story delivers") && p.contains("### impl/tests/last_page.rs (8 lines)"), "{p}");
+}
+
+/// The prompt of `change.implement` in Loom mode, on the story of two requirements.
+fn implement_prompt(name: &str, more: &dyn Fn(&Path), env: &[(&str, &str)]) -> String {
+    prompt(name, "change.implement", &|root| {
+        implement_story(root);
+        more(root);
+    }, env)
+}
+
+/// The goldens of the coverage prompts were written when the old driver's stand-in answered
+/// `sdc-reply`; their schema and refusal reason are the stand-in's. The real ones are put back.
+fn stand_in(text: &str) -> String {
+    let real = Regex::new(r#"Schema: \{.*\}\n"#).unwrap();
+    let t = real.replace(text, "Schema: {\"type\":\"object\",\"properties\":{\"requirements\":{\"type\":\"array\"}}}\n").into_owned();
+    Regex::new(r"refused by the program check: .*\n").unwrap().replace(&t, "refused by the program check: requirement r1 is not answered\n").into_owned()
+}
+
+const REJECTION_ONE: &str = r#"{"format":"sdc.rejection/1","approval":"change.approve","revision":"abc123","principal":"person:reviewer","count":1,"reasons":["The refusal of an empty title is missing."],"subject":"change"}"#;
+
+fn rejected_once(root: &Path) {
+    put(root, "rejection.json", REJECTION_ONE);
+    put(root, "feedback.json", &json!([{"kind": "approval", "result": "rejected", "action": "change.approve", "exit": 6, "log": format!("{}/rejection.json", root.display())}]).to_string());
+}
+
+#[test]
+fn the_prompt_of_change_implement_is_its_golden_byte_for_byte() {
+    compare("llm-node", "change.implement", &implement_prompt("implement", &nothing, &[]));
+}
+
+#[test]
+fn the_prompt_of_change_implement_with_a_coverage_document_is_its_golden_byte_for_byte() {
+    compare("llm-node", "change.implement.coverage", &stand_in(&implement_prompt("implement-coverage", &nothing, &[("SDC_IMPLEMENT_COVERAGE", "on"), ("SDC_COVERAGE_RETRIES", "0")])));
+}
+
+#[test]
+fn the_prompt_of_change_implement_sent_back_is_its_golden_byte_for_byte() {
+    compare("llm-node", "change.implement.rework", &implement_prompt("implement-rework", &rejected_once, &FEEDBACK_ENV));
+}
+
+#[test]
+fn the_prompt_of_change_implement_sent_back_with_a_coverage_document_is_its_golden_byte_for_byte() {
+    let p = implement_prompt("implement-rework-coverage", &rejected_once, &[("SDC_FEEDBACK", "{root}/feedback.json"), ("SDC_IMPLEMENT_COVERAGE", "on"), ("SDC_COVERAGE_RETRIES", "0")]);
+    compare("llm-node", "change.implement.rework-coverage", &stand_in(&p));
+}
+
+#[test]
+fn the_prompt_of_change_implement_asked_again_is_its_golden_byte_for_byte() {
+    let p = implement_prompt("implement-coverage-retry", &nothing, &[("SDC_IMPLEMENT_COVERAGE", "on"), ("SDC_COVERAGE_RETRIES", "1")]);
+    compare("llm-node", "change.implement.coverage-retry", &stand_in(&p));
+}
+
+#[test]
+fn the_coverage_invalid_line_is_its_golden_byte_for_byte() {
+    let r = implement(&seed("settings/implement-coverage.yaml")).replies("coverage", seed("replies/coverage-reply-retry.yaml")).env(&[("SDC_COVERAGE_RETRIES", "0"), ("SDC_IMPLEMENT_COVERAGE", "on")]).run("log-coverage-invalid");
+    compare("node-log", "coverage.invalid", &r.stdout);
+}
+
+#[test]
+fn the_implement_api_ended_line_is_its_golden_byte_for_byte() {
+    let r = implement("").with(&["--adapter", "{root}/adapters/req-api-error"]).env(&REQUEST_ON).run("log-implement-api");
+    assert!(!r.stdout.is_empty(), "{r:#?}");
+    compare("node-log", "implement.api-ended", &r.stdout);
+}
+
+#[test]
+fn the_implement_nothing_recorded_line_is_its_golden_byte_for_byte() {
+    let r = implement("").with(&["--adapter", "{root}/adapters/req-exits"]).env(&REQUEST_ON).run("log-implement-nothing");
+    assert!(!r.stdout.is_empty(), "{r:#?}");
+    compare("node-log", "implement.nothing-recorded", &r.stdout);
 }

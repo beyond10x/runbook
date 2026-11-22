@@ -64,7 +64,7 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   # keeps this script's own code for them.
   case $node in
     idea.dissect|questions.write|requirements.normalise|spec.author|test.reproduce|bug.dissect|change.fix|\
-    vision.write|roadmap.write|plan.decompose|context.default|questions.answer|change.review)
+    vision.write|roadmap.write|plan.decompose|context.default|questions.answer|change.review|change.implement)
       [[ -n ${SDC_NODE_SHELL:-} ]] || exec "$(sibling sdc-node)" "$node" --tools-dir "$here" "${@:2}" ;;
   esac
   SDC_ARGS=$(cat)
@@ -939,10 +939,12 @@ if [[ $implement_mode == request ]]; then
     0)
       cat "$rec/implement-run.out"
       apply > "$rec/apply.log" 2>&1; code=$?
-      [[ $code == 0 ]] || { echo "llm-node: $node: the output was not applied (exit $code):"; tail -n 20 "$rec/apply.log"; }
+      [[ $code == 0 ]] || { render step_log "$shared/node.not-applied.md" node="$node" code="$code"; echo "$step_log"; tail -n 20 "$rec/apply.log"; }
       [[ $code == 0 ]] && post "$([[ -f $cwd/out/findings.yaml ]] && echo "$cwd/out/findings.yaml")" >> "$rec/apply.log" 2>&1 ;;
-    75) echo "llm-node: $node could not run: $(cat "$rec/implement-run.out"); nothing applied, resume later" ;;
-    *) echo "llm-node: $node recorded nothing (call llm/$(basename "$rec"), adapter $adapter): $(cat "$rec/implement-run.out")" ;;
+    75) render step_log "$shared/node.implement.api-ended.md" node="$node" reason="$(cat "$rec/implement-run.out")"; echo "$step_log" ;;
+    *) render step_log "$shared/node.implement.nothing-recorded.md" node="$node" call="$(basename "$rec")" adapter="$adapter" \
+         reason="$(cat "$rec/implement-run.out")"
+       echo "$step_log" ;;
   esac
   log_call
   exit $code
@@ -954,7 +956,8 @@ if [[ $adapter == dry ]]; then
   [[ $code == 0 ]] && post "" >> "$rec/apply.log" 2>&1
 elif [[ $acode == 0 && -n $coverage_invalid ]]; then
   code=2
-  echo "llm-node: $node: coverage_invalid: the coverage document stayed invalid after $((try + 1)) attempt(s) (call llm/$(basename "$rec")), nothing applied: $(cat "$rec/coverage-check.err")"
+  render step_log "$shared/node.coverage.invalid.md" node="$node" attempts="$((try + 1))" call="$(basename "$rec")" reason="$(cat "$rec/coverage-check.err")"
+  echo "$step_log"
 elif [[ $acode == 0 ]]; then
   apply > "$rec/apply.log" 2>&1; code=$?
   # Why it was not applied goes into the step's log, which the next run reads (R9 above).

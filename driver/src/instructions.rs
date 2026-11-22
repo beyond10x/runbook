@@ -13,8 +13,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// The repository root: the nearest directory above the running binary that holds `instructions/`.
+/// The repository root: the one `SDC_INSTRUCTIONS_ROOT` names (`sdc-node` sets it from its tools
+/// directory), else the nearest directory above the running binary that holds `instructions/`.
 pub fn root() -> Result<PathBuf, String> {
+    if let Some(r) = std::env::var_os("SDC_INSTRUCTIONS_ROOT").filter(|r| !r.is_empty()) {
+        return Ok(PathBuf::from(r));
+    }
     let exe = std::env::current_exe().map_err(|e| format!("the instruction files were not found: {e}"))?;
     exe.ancestors()
         .skip(1)

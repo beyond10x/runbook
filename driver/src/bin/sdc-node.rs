@@ -1,9 +1,9 @@
 //! sdc-node: the model step of a case under Loom, for the plain nodes (`idea.dissect`,
 //! `questions.write`, `requirements.normalise`, `spec.author`, `test.reproduce`, `bug.dissect`,
 //! `change.fix`) and the nodes of the planning store (`vision.write`, `roadmap.write`,
-//! `plan.decompose`, `context.default`, `questions.answer`) and of the review (`change.review`).
-//! It is the Loom mode of `bindings/tools/llm-node.sh` in Rust; the script hands these nodes to
-//! it. `change.implement` is still the script's.
+//! `plan.decompose`, `context.default`, `questions.answer`), of the review (`change.review`) and
+//! the implementer (`change.implement`, in session, coverage and request mode). It is the Loom
+//! mode of `bindings/tools/llm-node.sh` in Rust; the script hands these nodes to it.
 //!
 //! ```text
 //! sdc-node <node> [--tools-dir <dir>] [--model m] [--max-turns n] [--max-budget-usd u]
@@ -23,6 +23,8 @@
 mod call;
 #[path = "sdc-node/findings.rs"]
 mod findings;
+#[path = "sdc-node/implement.rs"]
+mod implement;
 #[path = "sdc-node/nodes.rs"]
 mod nodes;
 #[path = "sdc-node/ordjson.rs"]
@@ -67,12 +69,19 @@ pub struct Ctx {
     pub effort: Option<String>,
     /// The rejection document of an approval of this writer's output, when the feedback has one.
     pub rejection: Option<PathBuf>,
+    /// `change.implement` makes one request (`SDC_IMPLEMENT_MODE=request`) instead of a session.
+    pub request_mode: bool,
+    /// `change.implement` replies with a coverage document (`SDC_IMPLEMENT_COVERAGE=on`, session).
+    pub coverage: bool,
 }
 
 impl Ctx {
     fn new(node: &str, set: Setup) -> Ctx {
         let work = std::env::current_dir().unwrap_or_default();
         let repo_root = set.here.ancestors().find(|d| d.join("instructions").is_dir()).map_or_else(|| PathBuf::from("/"), Path::to_path_buf);
+        // The library that assembles the implement request finds its instruction files from here,
+        // not from beside the binary.
+        std::env::set_var("SDC_INSTRUCTIONS_ROOT", &repo_root);
         Ctx {
             node: node.to_string(),
             set,
@@ -83,6 +92,8 @@ impl Ctx {
             class: String::new(),
             effort: None,
             rejection: None,
+            request_mode: false,
+            coverage: false,
         }
     }
 
@@ -140,6 +151,18 @@ impl Ctx {
         run_cmd(Command::new(self.set.here.join("sdc-tool.sh")).args(args), out)
     }
 
+    /// The adapter of a schema-reply class (the library's `adapters`); a refusal is a program error.
+    fn schema_adapter(&self, class: &str) -> R<String> {
+        let (found, refused) = sdc_tools::reply::adapters::adapters(&self.set.here, &|k| std::env::var(k).ok());
+        match found[class]["adapter"].as_str().filter(|a| !a.is_empty()) {
+            Some(a) if refused.is_empty() => Ok(a.to_string()),
+            _ => {
+                let why: Vec<String> = refused.iter().map(|r| format!("refused: {r}")).collect();
+                Err(die(format!("llm-node: {} could not run: {}", self.node, why.join("\n")), 126))
+            }
+        }
+    }
+
     /// Everything before the call's record directory. `Some(code)` ends the run there.
     fn before_call(&mut self) -> R<Option<i32>> {
         // aep records who moved an artifact: the acting principal, the run's principal when it is a
@@ -160,15 +183,9 @@ impl Ctx {
         // The review's reply is a data document under a response schema, so its class has its own
         // adapter (the library's `adapters`).
         if self.node == "change.review" {
-            let (found, refused) = sdc_tools::reply::adapters::adapters(&self.set.here, &|k| std::env::var(k).ok());
-            match found["review"]["adapter"].as_str().filter(|a| !a.is_empty()) {
-                Some(a) if refused.is_empty() => self.adapter = a.to_string(),
-                _ => {
-                    let why: Vec<String> = refused.iter().map(|r| format!("refused: {r}")).collect();
-                    return Err(die(format!("llm-node: {} could not run: {}", self.node, why.join("\n")), 126));
-                }
-            }
+            self.adapter = self.schema_adapter("review")?;
         }
+        let mut modes = Vec::new();
         for (var, default, allowed) in [
             ("SDC_IMPLEMENT_MODE", "session", ["session", "request"]),
             ("SDC_REVIEW_MODE", "session", ["session", "facts"]),
@@ -178,6 +195,14 @@ impl Ctx {
             if !allowed.contains(&v.as_str()) {
                 return Err(die(format!("llm-node: {} could not run: {var}={v} is neither {} nor {}", self.node, allowed[0], allowed[1]), 126));
             }
+            modes.push(v);
+        }
+        // change.implement as one request: its reply is the files under a response schema, so its
+        // class has its own adapter too. The coverage document belongs to the session implementer.
+        self.request_mode = self.node == "change.implement" && modes[0] == "request";
+        self.coverage = self.node == "change.implement" && !self.request_mode && modes[2] == "on";
+        if self.request_mode {
+            self.adapter = self.schema_adapter("implement")?;
         }
         if let Some(nodes) = env_set("SDC_LLM_NODES") {
             if !format!(" {nodes} ").contains(&format!(" {} ", self.node)) {
@@ -202,7 +227,10 @@ impl Ctx {
         self.class = class;
 
         if self.adapter == "stub" {
-            let code = self.run_stub(&mut Out::inherit());
+            let mut code = self.run_stub(&mut Out::inherit());
+            if code == 0 && !self.coverage_stub() {
+                code = 126;
+            }
             if code == 0 {
                 self.post("", &mut Out::inherit())?;
             }
