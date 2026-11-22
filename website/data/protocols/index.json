@@ -849,7 +849,7 @@
     },
     {
       "path": "driver/examples/sdc/sdc-bugfix.bindings.json",
-      "sha256": "9ab6d63063bfb87ccff54ed13da9526b56b03672b21db6d3c042f449fc847e37"
+      "sha256": "4d9022f7af2ea59cc57142aebda244fd4e6f7addd77f5d05cf11d278e1167cca"
     },
     {
       "path": "driver/examples/sdc/sdc-direction.bindings.json",

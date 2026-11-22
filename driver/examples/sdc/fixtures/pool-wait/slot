@@ -1,9 +1,10 @@
 #!/bin/sh
-# A build pool that never starts a test job, for the finding cycle `pool-wait` (scripts/run-finding-
+# A build pool that never starts a test job, for the finding cycles `pool-wait`, `bugfix-pool-wait` and `bugfix-over-time` (scripts/run-finding-
 # cycles.sh). Put first on PATH with POOL_FAKE_DIR (a directory for its state) and POOL_REAL_SLOT
 # (the real slot, for every command that is not a test run). `slot cargo test ...` and
 # `slot task ...` print slot's own `queued` line and stay queued; `slot status` lists them as
-# queued and `slot cancel <id>` records the cancel. Nothing here talks to the real pool for them.
+# queued and `slot cancel <id>` records the cancel. With POOL_FAKE=overtime a test job ends at once with
+# exit 124, the pool's run-limit kill. Nothing here talks to the real pool for them.
 d=${POOL_FAKE_DIR:?POOL_FAKE_DIR names the state directory}
 case ${1:-} in
   status)
@@ -23,5 +24,9 @@ n=$(( $(cat "$d/count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$d/count"
 : > "$d/job.$n"
 echo "$*" >> "$d/jobs"
+if [ "${POOL_FAKE:-never}" = overtime ]; then
+  echo "slot: job $n ended at its run limit" >&2
+  exit 124
+fi
 echo "slot: job $n queued for 1 slot(s): 0 free, 3 request(s) ahead" >&2
 exec sleep 600
