@@ -14,6 +14,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {scrubReasons} from './scrub.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(process.argv[2] || path.join(here, '../../runs/trial-todo-1'));
@@ -21,8 +22,8 @@ const OUT = path.join(here, 'recorded/trial-todo-1-slim');
 if (!fs.existsSync(path.join(SRC, 'store'))) { console.error(`slim-source.mjs: missing run directory ${SRC}`); process.exit(2); }
 const HOME = process.env.HOME;
 const user = new RegExp(`\\b${path.basename(HOME).replace(/[^\w-]/g, '')}\\b`, 'g');
-// the operator is named by role, never by name
-const clean = (t) => t.split(SRC).join('@SRC@').split(HOME + '/').join('~/').replace(/\/home\/[^/\s"'<>\\]+\//g, '~/').replace(user, 'operator');
+// the operator is named by role, never by name (a reason that opens with a name and a date: test/scrub.mjs)
+const clean = (t) => scrubReasons(t.split(SRC).join('@SRC@').split(HOME + '/').join('~/').replace(/\/home\/[^/\s"'<>\\]+\//g, '~/').replace(user, 'operator'));
 const TEXT = /\.(json|jsonl|ya?ml|md|txt)$/;
 
 fs.rmSync(OUT, {recursive: true, force: true});
