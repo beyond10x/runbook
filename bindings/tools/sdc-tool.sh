@@ -259,7 +259,7 @@ spec_conform() {
 }
 
 case $1 in
-  ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
+  ess|ess-gate|spec-validate|spec-compile|spec-synthesize|spec-trace|plan-cover|plan-cover-shape) need ess ;;
   conform-run|story-tests|story-tests-run|impl-gate) need ess slot ;;
   stub-vision|stub-roadmap|stub-decompose|roadmap-validate|list-epics|list-stories|plan-validate|plan-scope|plan-status) need aep ;;
 esac
@@ -610,6 +610,8 @@ scope-answer)
 consistency) findings consistency ;;
 # --- sdc.bugfix (docs/bugfix.md): its checks are the driver crate's sdc-bugfix binary -----------
 bugfix) shift; bugfix "$@" ;;
+# --- ess itself, as `runbook run --conformance observe` runs it: the release this script pins
+ess) shift; ess "$@" ;;
 stub-repro) "$here/sdc-tool.sh" stub-tree "$2" repro && bugfix repro-install ;;
 *) echo "unknown tool $1" >&2; exit 64 ;;
 esac

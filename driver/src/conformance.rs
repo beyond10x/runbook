@@ -988,10 +988,15 @@ pub fn target_triple() -> String {
 }
 
 pub struct Ess {
+    /// A program to run ess through (`sdc-tool.sh`) or the binary itself.
     pub path: PathBuf,
     pub version: String,
     pub sha256: String,
     pub source: &'static str,
+    /// Arguments that come before ess's own (`ess` for `sdc-tool.sh`); empty for the binary.
+    pub prefix: Vec<String>,
+    /// The directory to start it in; none: the caller's.
+    pub cwd: Option<PathBuf>,
 }
 
 /// The cache path of the pinned binary: `$SDC_ESS_CACHE`, else `$XDG_CACHE_HOME/sdc/ess`, else
@@ -1035,5 +1040,5 @@ pub fn resolve_ess(pin_path: &Path) -> Result<Ess, (&'static str, String)> {
     if version != format!("ess {}", s(&pin["version"])) {
         return Err(("ess_pin_mismatch", format!("{} says {version:?}, the pin is {}", path.display(), s(&pin["version"]))));
     }
-    Ok(Ess { path, version: s(&pin["version"]).to_string(), sha256: got, source })
+    Ok(Ess { path, version: s(&pin["version"]).to_string(), sha256: got, source, prefix: vec![], cwd: None })
 }

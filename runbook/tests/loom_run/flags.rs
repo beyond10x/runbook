@@ -99,12 +99,13 @@ fn watch_is_accepted_and_refused_until_built() {
 }
 
 #[test]
-fn conformance_observe_is_refused_until_built_and_off_is_not() {
+fn conformance_observe_and_off_are_both_built_and_a_third_mode_is_a_usage_error() {
     let root = scratch("conformance");
-    refused(&root, &["--conformance", "observe"], "--conformance observe is not built yet");
-    let o = run(&root, &["--conformance", "off"]);
-    let err = String::from_utf8_lossy(&o.stderr).into_owned();
-    assert!(!err.contains("not built yet"), "{err}");
+    for mode in ["observe", "off"] {
+        let o = run(&root, &["--conformance", mode]);
+        let err = String::from_utf8_lossy(&o.stderr).into_owned();
+        assert!(!err.contains("not built yet"), "{mode}: {err}");
+    }
     let o = run(&root, &["--conformance", "maybe"]);
     assert_ne!(o.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&o.stderr).contains("--conformance"));

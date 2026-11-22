@@ -179,7 +179,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
     }
     // A setting that has no counterpart under Loom stays refused, and the refusal names the key.
     for (k, v) in [("implement_mode", "x"), ("review_mode", "x"), ("efforts.writer.effort", "low"), ("flags.dry", "true"), ("flags.recorded", "true"),
-        ("conformance", "observe"), ("rule_approvals", "x"), ("free.model", "m")] {
+        ("rule_approvals", "x"), ("free.model", "m")] {
         let mut f = fixed();
         f.push((k.to_string(), v.to_string()));
         write_record(&d, &record_with(&f, "null", "planned", ("", "")));
@@ -187,7 +187,7 @@ fn a_loom_record_is_checked_and_a_missing_or_old_setting_is_refused_by_name() {
         assert_eq!(code, 1, "{k}: {out}");
         assert!(out.contains(&format!("{k} is refused for a loom variant")), "{k}: {out}");
         // The settings that wait for a port of `runbook run` say so.
-        if ["flags.dry", "flags.recorded", "conformance"].contains(&k) {
+        if ["flags.dry", "flags.recorded"].contains(&k) {
             assert!(out.contains("`runbook run` "), "{k}: {out}");
         }
     }
@@ -324,6 +324,33 @@ fn run_print_gives_each_run_its_unit_and_the_exact_loom_run_command() {
     assert!(out.contains("\"autonomy\":\"A5\"") && out.contains("\"adapter\":\"metaharness\"") && out.contains("\"review\":{\"adapter\":\"claude-cli\"}"), "{out}");
     assert!(!out.contains("principal"), "the principal of the decider's answers is the runner's to derive: {out}");
     assert!(!launch.exists(), "--print wrote {}", launch.display());
+}
+
+#[test]
+fn the_conformance_setting_is_passed_to_runbook_run_and_a_bad_value_is_refused() {
+    let d = scratch("conformance");
+    let builds = fake_build(&d, 11, true);
+    let with = |value: &str| {
+        let mut f: Vec<_> = fixed().into_iter().filter(|(x, _)| x != "max_llm_calls").collect();
+        f.push(("conformance".to_string(), value.to_string()));
+        write_record(&d, &record_with(&f, COMMIT, "planned", ("", "")));
+        experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d)
+    };
+    let (code, out) = with("observe");
+    assert_eq!(code, 0, "{out}");
+    let runs: Vec<&str> = out.lines().filter(|l| l.contains(" run sdc --run ")).collect();
+    assert_eq!(runs.len(), 2, "{out}");
+    assert!(runs.iter().all(|l| l.ends_with("--max-wall-seconds 3600 --conformance observe")), "{out}");
+    let (code, out) = with("off");
+    assert_eq!(code, 0, "{out}");
+    assert!(out.lines().filter(|l| l.contains(" run sdc --run ")).all(|l| l.ends_with("--conformance off")), "{out}");
+    let (code, out) = with("maybe");
+    assert_ne!(code, 0, "{out}");
+    assert!(out.contains("conformance must be off or observe"), "{out}");
+    // without the setting the option is not passed
+    write_record(&d, &example(COMMIT));
+    let (_, out) = experiment(&["run", "lx", "--print", "--builds-dir", builds.to_str().unwrap(), "--runs-dir", "runs"], &d);
+    assert!(!out.contains("--conformance"), "{out}");
 }
 
 #[test]

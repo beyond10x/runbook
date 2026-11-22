@@ -143,7 +143,9 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     sinks.push(Box::new(RunDirWriter::open(&run_dir, &redacted)?));
     runner.sinks = sinks;
     let outcome = runner.drive(root_name, &protocols, &redacted);
-    Ok(runner.finish(outcome))
+    let outcome = runner.finish(outcome);
+    crate::loom_run::conformance::after_close(args, &run_dir, &outcome);
+    Ok(outcome)
 }
 
 fn file_sha256(path: &Path) -> Result<String, String> {

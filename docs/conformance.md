@@ -15,6 +15,15 @@ conformance: spec scenarios proven passed: 11 of 17 (lower bound); 2 failed; 4 n
 A run that was never measured prints no counts: `conformance: not measured (table_missing), 32
 scenarios`. `scripts/run-trial.sh` calls it after a close when `SDC_CONFORMANCE=observe` (off by default since 0.1.4, for its cost; an experiment record turns it on with the launch setting `conformance: observe`; skipped on a recorded
 re-drive, whose recording holds no table call).
+`runbook run --conformance observe` does the same after a run that ended closed (`off` is the
+default; a run that stopped, or a failure of the observation, changes no exit). The workspace is
+the run's `work/`, whatever the root case is called, and the code is the library the program is the
+command line of (`driver/src/conform.rs`, `runbook/src/loom_run/conformance.rs`). It runs ess
+through `bindings/tools/sdc-tool.sh ess`, which pins the release, not through the pinned binary
+below; the table node, `SDC_CONFORMANCE_TABLES` and the other `SDC_CONFORMANCE_*` variables are
+read from the runner's environment as the program reads them. A failure is written into
+`oracle.json` as `unknown` with its cause (`ess_missing` when the tool cannot run ess), or, when
+nothing can be written or no run closed, is one line on standard error.
 Writing the tables costs about 1 to 3 USD of node cost per observed product (0.82 to 2.99 USD on
 the six 0.1.0 baseline products, below).
 
