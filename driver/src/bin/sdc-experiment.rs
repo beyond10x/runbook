@@ -481,17 +481,16 @@ fn port_conformance(key: &str) -> Option<&'static str> {
     (key == "conformance").then_some("`runbook run` does not observe the product against the spec's suite yet")
 }
 
-/// The refusal of an input that is not an idea text: a `seed` input is a bug-fix case
-/// (`--bugfix`, `--bugfix-ticket`) that `runbook run` cannot open yet; the port removes this
-/// function.
-// port: bugfix
-fn port_bugfix(input_kind: Option<&str>) -> Option<&'static str> {
-    (input_kind == Some("seed")).then_some("`runbook run` has no --bugfix or --bugfix-ticket yet, so a seed input cannot start")
+/// The refusal of an input kind a loom variant cannot start from. A `seed` input is a bug-fix case
+/// that `runbook run --bugfix <seed directory>` opens (root `BUG-1` on `sdc-bugfix`); an `idea` input
+/// is the case `IDEA-1`.
+fn loom_input_refusal(input_kind: Option<&str>) -> Option<&'static str> {
+    (!matches!(input_kind, Some("idea" | "seed"))).then_some("a loom variant starts from an idea input")
 }
 
-/// The refusal of any other input kind of a loom variant.
-fn loom_input_refusal(input_kind: Option<&str>) -> Option<&'static str> {
-    port_bugfix(input_kind).or((input_kind != Some("idea")).then_some("a loom variant starts from an idea input"))
+/// The runbook a loom launch runs for the input: the bug-fix runbook for a `seed` input, else `sdc`.
+fn loom_runbook(input: &Y) -> &'static str {
+    if ystr(input, "kind") == Some("seed") { "sdc-bugfix" } else { "sdc" }
 }
 
 /// The problems of a `loom` variant's settings.
@@ -2106,9 +2105,10 @@ fn loom_runbook_bin(build: &Path) -> PathBuf {
 /// tree and the spend ledger shared by every run of the record.
 #[allow(clippy::too_many_arguments)]
 fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, String>, runs_dir: &Path, root: &str, files: &Path,
-             base: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, String> {
+             input: &Y, base: &dyn Fn(&str) -> Option<String>) -> Result<Vec<String>, String> {
     let g = |k: &str| settings.get(k).cloned().unwrap_or_default();
-    let mut v: Vec<String> = vec![loom_runbook_bin(build).display().to_string(), "run".into(), "sdc".into()];
+    let runbook = loom_runbook(input);
+    let mut v: Vec<String> = vec![loom_runbook_bin(build).display().to_string(), "run".into(), runbook.into()];
     // the library is no option: without `--loom` Loom is a library of the build; the binary is
     // `--loom` with its digest
     let in_process = loom_in_process(settings);
@@ -2125,7 +2125,10 @@ fn loom_argv(build: &Path, id: &str, name: &str, settings: &BTreeMap<String, Str
     add("--bindings", build.join("bindings").display().to_string());
     add("--protocols", build.join("protocol").display().to_string());
     add("--root-protocol", root.into());
-    add("--case", "IDEA-1".into());
+    add("--case", if runbook == "sdc-bugfix" { "BUG-1" } else { "IDEA-1" }.into());
+    if runbook == "sdc-bugfix" {
+        add("--bugfix", build.join(ystr(input, "seed").unwrap_or_default()).display().to_string());
+    }
     add("--intake", files.join("idea.yaml").display().to_string());
     add("--confinement", g("loom.confinement"));
     add("--settings", files.join("settings.json").display().to_string());
@@ -2167,22 +2170,22 @@ fn tree_file(build: &Path, commit: &str, rel: &str) -> Result<Option<String>, St
 const IN_PROCESS_RUN: &str = "runbook/src/loom_run/here.rs";
 
 /// What a `loom` launch reads from the record's tree: that it has the `runbook/` crate and the
-/// root protocol, `<id>@<revision>` of `protocol/sdc.protocol.yaml`, as `runbook run` is told
+/// root protocol, `<id>@<revision>` of `protocol/<runbook>.protocol.yaml` (`sdc`, or `sdc-bugfix` for a seed input), as `runbook run` is told
 /// to register it (a `.` in an id is a `-`, as Loom names a registration).
-fn loom_root_protocol(build: &Path, commit: &str) -> Result<String, String> {
+fn loom_root_protocol(build: &Path, commit: &str, runbook: &str) -> Result<String, String> {
     if tree_file(build, commit, "runbook/Cargo.toml")?.is_none() {
         return Err(format!("refused: tree_commit {commit} has no runbook/ crate (runbook/Cargo.toml): a loom run needs `runbook run` of that commit"));
     }
     if tree_file(build, commit, IN_PROCESS_RUN)?.is_none() {
         return Err(format!("refused: tree_commit {commit} has a runbook/ crate with no in-process `runbook run` ({IN_PROCESS_RUN} is missing): a loom run needs `runbook run` of that commit, an older build has only `runbook loom-run`"));
     }
-    let text = tree_file(build, commit, "protocol/sdc.protocol.yaml")?
-        .ok_or_else(|| format!("refused: tree_commit {commit} has no protocol/sdc.protocol.yaml, the root protocol of a run"))?;
-    let y: Y = serde_yaml::from_str(&text).map_err(|e| format!("refused: protocol/sdc.protocol.yaml of {commit}: {e}"))?;
+    let text = tree_file(build, commit, &format!("protocol/{runbook}.protocol.yaml"))?
+        .ok_or_else(|| format!("refused: tree_commit {commit} has no protocol/{runbook}.protocol.yaml, the root protocol of a run"))?;
+    let y: Y = serde_yaml::from_str(&text).map_err(|e| format!("refused: protocol/{runbook}.protocol.yaml of {commit}: {e}"))?;
     let p = y.get("protocol").cloned().unwrap_or(Y::Null);
     match (ystr(&p, "id"), p.get("revision").and_then(Y::as_u64)) {
         (Some(id), Some(rev)) => Ok(format!("{}@{rev}", id.replace('.', "-"))),
-        _ => Err(format!("refused: protocol/sdc.protocol.yaml of {commit} has no protocol.id and protocol.revision")),
+        _ => Err(format!("refused: protocol/{runbook}.protocol.yaml of {commit} has no protocol.id and protocol.revision")),
     }
 }
 
@@ -2449,7 +2452,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
     let base = |k: &str| std::env::var(k).ok();
     let any_loom = plan.iter().any(|p| p.variant.runner == "loom");
     // A `loom` record's tree must hold the runbook crate; its root protocol is read from the tree.
-    let loom_root = if any_loom { Some(loom_root_protocol(&build, &commit).map_err(|m| (1, m))?) } else { None };
+    let loom_root = if any_loom { Some(loom_root_protocol(&build, &commit, loom_runbook(&input)).map_err(|m| (1, m))?) } else { None };
     let run_plan = |p: &Planned, redact: bool| -> Result<RunPlan, String> {
         let s = &p.variant.settings;
         Ok(match p.variant.runner.as_str() {
@@ -2460,7 +2463,7 @@ fn launch(a: &LaunchArgs) -> Result<(), (u8, String)> {
                 }
                 let s = &s;
                 let files = loom_launch_dir(&builds, &id, &p.name);
-                let argv = loom_argv(&build, &id, &p.name, s, &runs_dir, loom_root.as_deref().unwrap_or_default(), &files, &base)?;
+                let argv = loom_argv(&build, &id, &p.name, s, &runs_dir, loom_root.as_deref().unwrap_or_default(), &files, &input, &base)?;
                 let settings = loom_settings_json(&p.name, s, redact, &base)?;
                 RunPlan { env: loom_env(&base, &build), argv, loom: Some(LoomFiles { dir: files, idea: loom_idea_yaml(&input), settings }) }
             }
