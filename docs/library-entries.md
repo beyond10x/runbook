@@ -15,8 +15,9 @@ States of a row:
   today.
 - `on a branch`: public at the named commit of the named branch; not in a tag. Whether `main` has it
   was not checked unless the row says so.
-- `requested`: not built. Either agreed with the neighbour session on 2026-11-22 (marked "agreed")
-  or planned in a story of that repository (named in the row; its status as the session reported it).
+- `requested`: not built. Agreed with the neighbour session on 2026-11-22 (marked "agreed"), or
+  planned in a story of that repository (named in the row; its status as the session reported it),
+  or asked of the session with no story id yet (marked "asked").
 - `not planned`: no story that is more than a draft and nothing agreed.
 - `not checked`: the answers do not cover it.
 
@@ -27,6 +28,7 @@ Commits the rows were read at. Paths are under `crates/` of that repository.
 | C | Canon | `wave/2026-11-21` | `7d1a28a20` | read, not run; also on `origin/wave/2026-11-21` |
 | H | Loom | plan tree `wave/2026-11-21-w7` | `50ddc47d` | in no tag and in no remote branch; the integration head of the same branch was `54204526` when Loom reported the parity path |
 | B | Loom | `impl/tree-run-command` | `c8ca4ad6` (base `5751f164`) | unmerged; holds `loom-tree` |
+| P | Loom | plan commit | `df62eaec` | holds the stories `concurrent-confined-runs`, `cancel-a-running-bound-program` and `per-run-program-path` (proposed); their `file:line` are copied from the stories and were not re-read in the code |
 | main | Loom | `origin/main` | `b4b5de28` | has no `tree` command |
 | 0.58.0 | Loom | tag | `1378f8fe` (2026-11-21, in `main`) | has neither `loom-tree` nor `loom-decision`; pins Canon `0.9.0` |
 
@@ -88,19 +90,23 @@ covers it. "Blocks" names stories of the epic.
 | L11 | decisions: list open requests for a principal, answer, take the recommendation | `b10x-loom-decision`: `open_decisions_for_principal(&S, &Principal)`, `decide(&mut S, Decide) -> Result<DecideOutcome, DecisionError>`, `take_recommendation`, trait `DecisionStore`, `InMemoryDecisionStore`. Not in `main` or `0.58.0` | H `decision/src/views.rs:56`, `apply.rs:400`, `apply.rs:517`, `store.rs:119`, `store.rs:193` | on a branch (`wave/2026-11-21-w7`) | |
 | L12 | a file-backed decision store | `FileDecisionStore::open(dir)` | `governor/src/file_decision.rs:108`, `:122` on `impl/decision-request-file-store` (commit not recorded) | on a branch (`impl/decision-request-file-store`) | |
 | L13 | a tree wait becomes a decision request; `loom_sdk::decisions` | Loom stories `tree-waits-open-decision-requests` and `decision-inbox-commands` (both proposed) | Loom story files | requested (Loom stories, proposed, not agreed; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (answer a decision), `run-in-process-and-cli-as-daemon-client` (`runbook decide`) |
-| L14 | cancel a run | a cancel handle of `run_tree`, checked between steps (agreed 2026-11-22, not built). The hook exists: `HostControl::host_stop(&mut self) -> Option<HostStop>` is asked before each step, and `--max-wall-seconds` maps to it (`tree-run-command` § Scope). `tree stop` is daemon-only (Loom story `tree-daemon`, draft) | H `commission/src/runtime.rs:641-648` | requested (agreed, not built; blocker `loom-library-entry`) | `engine-on-loom-library-entry`, `run-in-process-and-cli-as-daemon-client` (`runs cancel`) |
-| L15 | cancel a running bound program | a story after L19 (agreed 2026-11-22, not built). Today `run_child` and `ProgramEffects` take no cancel argument; only `spawn_child` returns a `ConfinedChild` with `signal()` | H `intake-slice/src/confinement.rs:643`, `intake-slice/src/confinement/child.rs:198`; run path `confinement.rs:78-103` | requested (agreed, not built; blocker `loom-library-entry`) | none yet: cancel in D and E takes effect at the next step boundary (see "Limits") |
+| L14 | cancel a run | a cancel handle of `run_tree`, checked between steps (agreed 2026-11-22, not built). The type is `Cancel`, defined in the intake slice and re-exported by `b10x-loom-tree` (L15). The hook exists: `HostControl::host_stop(&mut self) -> Option<HostStop>` is asked before each step, and `--max-wall-seconds` maps to it (`tree-run-command` § Scope). `tree stop` is daemon-only (Loom story `tree-daemon`, draft) | H `commission/src/runtime.rs:641-648` | requested (agreed, not built; blocker `loom-library-entry`) | `engine-on-loom-library-entry`, `run-in-process-and-cli-as-daemon-client` (`runs cancel`) |
+| L15 | cancel a running bound program | Loom story `cancel-a-running-bound-program` (proposed, Loom plan commit `df62eaec`; depends on `tree-run-command` and `concurrent-confined-runs`). `Cancel` in `b10x_loom_intake_slice::confinement`: `Cancel::new()`, `cancel(&self)`, `is_cancelled(&self) -> bool`, cloneable, not undoable; it is the handle `run_tree` takes and is re-exported by `b10x-loom-tree`. `ChildCommand::with_cancel(cancel)`, `ProgramEffects::with_cancel(self, cancel) -> Self`; `ProgramEffects::new` keeps its six parameters. A cancel ends a running program within about 7 s under either adapter: `linux` kills at the next read step (`READ_STEP` 1 s), `local` polls every 100 ms and kills the process group (at most `KILL_SETTLE`, 5 s). The step ends `Cancelled` (`Cancelled: action <action>: <detail>`, `ends_run: true`) with no evidence record, no result-table row, no blob and no retry; the observation is kept and counts against `budget.max_runs`. A cancel set before the start is refused before any driver open. The timeout path is unchanged. Today `run_child` and `ProgramEffects` take no cancel argument; only `spawn_child` returns a `ConfinedChild` with `signal()` | as cited in the story, not re-read: `intake-slice/src/confinement.rs:96-106`, `:746-761`, `:763-777`, `:825`, `intake-slice/src/confinement/engine.rs:570-585`, `bindings/src/program.rs:132-150`, `:177-434`, `:323-330`; today `confinement.rs:593-627`, `:643-669`, `confinement/child.rs:198`, `program.rs:264`, `:506` | requested (Loom story, proposed; ordered after the stub-cycle path, `per-run-program-path` and `concurrent-confined-runs`; blocker `loom-library-entry`) | none yet: cancel in D and E takes effect at the next step boundary and a running program ends at its timeout until this is built |
 | L16 | a confinement level per run | `EngineConfinement { adapter: Linux \| Local, local_reason, cgroup_root }` passed to `EngineRunner::open`. The CLI has `--confinement substrate\|local\|none` (`none` deprecated) and `--local-reason`, required for `local`. `local` is unconfined, run as the operator, and needs a non-blank reason. For bound programs `admit_bound_program_runner` refuses no runner (`NoRunner`) and a `local` runner whose reason is not exactly `UNCONFINED_FLAG_REASON` (`CommandUnconfined`); the fixed text stays (agreed 2026-11-22) | H `intake-slice/src/engine.rs:89-117`, `:205-219`; `intake-slice/src/bindings.rs:79-80`, `:382-401` (called from `bindings/src/program.rs:139`); `cli/src/lib.rs:786-790`, `:1001-1010` | on a branch (`wave/2026-11-21-w7`) | |
 | L17 | the list of levels | no function lists them. Planned in Loom drafts: `loom.engine/1` with `confinement: linux\|local` and `local_reason` read by `--engine` (`engine-configuration-document`); levels `local`, `linux`, `oci`, `pod` (`confinement-level-required`); `adapter: daemon` through `b10x-substrate-sdk` (`substrate-daemon-runner`) | Loom story files | not planned (drafts only) | `confinement-level-per-run` (`--list-confinement`) |
-| L18 | several runs in one process | each call gets its own store, workspace and catalog; the lock is per store (`tree.lock` and `tree.holder` with the process id, inside the store). A direct tree run is sequential | B `tree/src/open.rs:41-58`, `tree/src/lock.rs:14-18`, `:38` | on a branch (`impl/tree-run-command`), for runs that do not use the `linux` level at the same time (see L19) | |
-| L19 | several `linux`-confined runs in one process | a second tree is refused `CapabilityUnserved` while a launch runs under the same cgroup root, through a process-global map. Agreed 2026-11-22: a story for two `linux`-confined trees in one process, one cgroup root per run given by the embedder, ordered directly after the stub-cycle path | H `intake-slice/src/confinement.rs:381`, check `:509-518` | requested (agreed, not built; blockers `loom-library-entry`, `loom-confinement`) | `confinement-level-per-run`; `engine-on-loom-library-entry` once two runs overlap at the `linux` level |
+| L18 | several runs in one process | Loom story `concurrent-confined-runs` (proposed, Loom plan commit `df62eaec`). The form is one table of opened Substrate drivers for the whole process. Today every `SubstrateRunner` keeps its own `Drivers` map (a new `Arc::default()` per runner), so the second run's runner opens a second driver under the same cgroup root; opening a driver ends every confined run under that root, so the open is refused while the first run's launch runs. The table is keyed by the canonical cgroup root, the directory that holds the workspace and the `DriverEgress`; it holds each driver weakly, each runner keeps strong references, and a driver closes when the last runner that used it is dropped. Launches with an equal key share one driver and run side by side. A shared driver runs at most 16 executions at once and tracks 128. Not the form: one cgroup root per run, the form Runbook preferred and the Loom session first agreed. It fails in Substrate, whose probe proves `limits` only for a root that holds the calling process's own cgroup; one process sits in one leaf, so sibling roots per run hold no process and every run under them is refused `CgroupUndelegated`. Changing that is a change to Substrate, out of scope there. The caller's four duties: "What the daemon must do for confined runs". Separate store, workspace and catalog per call and a per-store lock (`tree.lock`, `tree.holder` with the process id) exist on B; a direct `tree run` is sequential | story: `intake-slice/src/confinement.rs:249-252`, `:422-427`, `:508-519`, `:274-278`, `:380-385`, `:401-419`, `:485-486`, `:3441-3462`; Substrate `crates/substrate-host/src/probe.rs:931-948` at rev `adfde402` (pinned by `intake-slice/Cargo.toml:30-31`) and `crates/substrate-host/src/lib.rs:529-530`; B `tree/src/open.rs:41-58`, `tree/src/lock.rs:14-18`, `:38` | requested (Loom story, proposed; blocker `loom-library-entry`, also `loom-confinement`) | `confinement-level-per-run`; `engine-on-loom-library-entry` once two runs overlap at the `linux` level |
+| L19 | a launch that needs another directory or another egress set while a launch runs under the same root | stays refused `CapabilityUnserved` with today's text under L18. Bound programs name no egress, so for them only the directory rule applies. Runbook asked Loom on 2026-11-22 for a follow-up story before agent nodes with egress run in the daemon: a launch waits for the driver, bounded by its timeout, or Substrate serves several drivers under one root | story `concurrent-confined-runs` § Outcome: `intake-slice/src/confinement.rs:512-518`, `intake-slice/src/bindings.rs:414-450` | requested (asked of the Loom session on 2026-11-22, no story id yet; blocker `loom-library-entry`) | none yet in the epic: needed before agent nodes with egress run in the daemon (L20, `driver-runtime-removed`) |
 | L20 | the agent executor and the decider configuration that replace `bindings/tools/llm-node.sh` and `decider.sh` | the six Loom answers do not cover it | none | not checked (see `upstream-blocker:loom-decider-per-class` and `bindings/PENDING.md`, "Agent nodes") | `driver-runtime-removed` |
 | L21 | the suite runner behind `runbook test` | `crates/loom-tree/src/suite/{decode,select,check,availability,run}.rs` with `decode_suite`, `evaluate_checks`, `run_suite`, `SUITE_AVAILABILITY` (all "inferred", `tree-suite-format` § Scope lines 431-463; no signatures). Each step runs through the function of its `tree` command, in process; `tree test` starts no `b10x-loom` process. `impl/tree-suite-format` holds only the generated `loom::tree` suite types (`1619e7b3`) and no runner | Loom story `tree-suite-format` (active), lines 58-62, 234, 250 | requested (Loom story, active, not built; blocker `loom-library-entry`) | `presets-embedded-and-runbook-test` |
 | L22 | Canon through one Loom crate, so Runbook names no `b10x-canon` dependency | a re-export of Canon in `loom-protocols` (agreed 2026-11-22). Today no crate has `pub use b10x_canon`; Canon types are public in Loom's API (`ProtocolEntry.model`, `check(.., &Protocol)`); only `loom_governor::gates` re-exports some types | H `protocols/src/lib.rs:60-65` | requested (agreed, not built; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (the form of `runbook/Cargo.toml`) |
+| L23 | the `PATH` of a run's bound programs | Loom story `per-run-program-path` (proposed, Loom plan commit `df62eaec`; depends on `tree-run-command` and `bound-program-contract`). The settings value `run_tree` takes gains `program_path: Option<String>` (directories separated by `:`) and `program_path_source` (`library` by default); the CLI gets `--program-path <dirs>`. Absent means the process `PATH`, as today. Every bound program and every `arguments_from` program of the run starts with it (`ProgramEffects::with_program_path`). The check is one public function of `b10x-loom-bindings`, `program_path(value, workspace, local) -> Result<ProgramPath, ProgramPathRefusal>`. Refused before any process starts and without a run-log line, as `ProgramPathUnusable` (a new reason of `loom.tree.TreeRefusalReason`): longer than 4096 bytes, an empty entry, an entry that is not absolute, has a `..` component or is not an existing directory. Under a runner that is not `local`, also refused: an entry reached through a symbolic link, an entry that is, holds or lies inside the run's workspace, and more than 4 entries outside the system view (`/usr`, `/bin`, `/lib`, `/lib64`); each such entry is mounted read-only at its own path, at most 4 (`ChildCommand::MAX_READ_ONLY_ROOTS`). The run log gets one `program path` line before the first step (`loom.runlog.ProgramPath`) with `source` (`command line`, `library` or `process`), `entries` (the count) and `sha256` (of the value as given, or of the process `PATH`); it holds no directory and no value | as cited in the story, not re-read: `bindings/src/child.rs:33-53`, `:47-70`, `bindings/src/program.rs:132-150`, `intake-slice/src/bindings.rs:75`, `:86`, `:414-450`, `intake-slice/src/confinement.rs:1233`, `:1242-1259`, `:1255`, `:1297-1306` | requested (Loom story, proposed; blocker `loom-library-entry`) | `engine-on-loom-library-entry` (Loom's reason: a daemon with several runbooks, each with its own tool directory, would otherwise put every directory on one process `PATH`) |
 
-Counts: 9 `on a branch` (L1, L3, L4, L8, L10, L11, L12, L16, L18), 10 `requested` (L2, L6, L7, L9,
-L13, L14, L15, L19, L21, L22), 2 `not planned` (L5, L17), 1 `not checked` (L20), 0 `exists`.
-L9 also has a narrower reading `on a branch`; it is counted once, as `requested`.
+Counts (23 rows): 8 `on a branch` (L1, L3, L4, L8, L10, L11, L12, L16), 12 `requested` (L2, L6,
+L7, L9, L13, L14, L15, L18, L19, L21, L22, L23), 2 `not planned` (L5, L17), 1 `not checked` (L20),
+0 `exists`. L9 also has a narrower reading `on a branch`; it is counted once, as `requested`.
+Three rows rest on Loom stories filed on 2026-11-22 (plan commit `df62eaec`, status proposed):
+`concurrent-confined-runs` (L18), `cancel-a-running-bound-program` (L15) and
+`per-run-program-path` (L23). L19 is asked, with no story id yet.
 
 ### Where the parity summary's members live
 
@@ -132,8 +138,9 @@ Still to merge into the integration branch, in order: `child-case-runtime`,
 head of `impl/tree-run-command` after it has merged the four; Loom names the sha. The integration
 branch already holds the Canon `0.10.0` pin, retry records, `LOOM_CASE`, artifact revisions, the
 program result table (`bindings/src/program.rs`), the default selector and the hash-chained run log.
-After that path, in this order (agreed 2026-11-22, not built): the story for two `linux`-confined
-trees in one process (L19), then the story for cancelling a running bound program (L15).
+After that path, in the order Loom set (2026-11-22, not built): `per-run-program-path` (L23) and
+`concurrent-confined-runs` (L18), then `cancel-a-running-bound-program` (L15), then
+`tree-waits-open-decision-requests` (L13).
 
 ## Dependency form and pin
 
@@ -195,21 +202,32 @@ trees in one process (L19), then the story for cancelling a running bound progra
 - One writer per tree: the lock is per store, in the store. A direct run is sequential; running
   several cases of one tree at once is the daemon's job in Loom (`tree-run-command` § Out of scope,
   line 358; `concurrent-cases-in-the-tree-daemon`, proposed), not a library call.
-- Process-global confinement map: at the `linux` level a second tree is refused `CapabilityUnserved`
-  while a launch runs under the same cgroup root (L19). Until L19 is built, Runbook runs at most one
-  `linux`-confined run at a time per process. `linux` needs a delegated cgroup v2, else
+- Process-global confinement state: at the `linux` level every runner keeps its own drivers, and a
+  second tree is refused `CapabilityUnserved` while a launch runs under the same cgroup root (L18).
+  Until L18 is built, Runbook runs at most one `linux`-confined run at a time per process. After
+  L18 (one driver table for the process, per-run cgroup roots do not work in Substrate) the daemon
+  follows "What the daemon must do for confined runs". `linux` needs a delegated cgroup v2, else
   `CgroupUndelegated` (`confinement.rs:501-506`); `local` goes through
   `substrate_host::confinement::open(AdapterRequest::Local)` (`engine.rs:111`). The text of the
   unconfined reason is fixed (`UNCONFINED_FLAG_REASON`); an embedder cannot choose another.
+- A launch that needs another directory or another egress set than the driver of a launch running
+  under the same root stays refused `CapabilityUnserved` after L18 (L19). Bound programs name no
+  egress, so for them only the directory rule applies. Runbook asked Loom on 2026-11-22 for a
+  follow-up story (a launch waits for the driver, bounded by its timeout, or Substrate serves
+  several drivers under one root): asked, no story id yet. It is needed before agent nodes with
+  egress run in the daemon.
 - Cancel is at step boundaries: the runtime asks `host_stop` before each step (L14). A bound program
   already running is not cancelled; it ends at its timeout, the binding's `timeout_seconds` (default
   60, `bindings/src/program.rs:215`), when Substrate ends the child and Loom sends `Signal::Kill`
-  after a drain margin (`confinement.rs:771`, `:808-820`) (L15).
+  after a drain margin (`confinement.rs:771`, `:808-820`). After L15 a cancel ends a running
+  program within about 7 s; the step ends `Cancelled` with no evidence record, no result-table row
+  and no retry.
 - Child processes go through `TestRunner::run_child`, which blocks to the end (`confinement.rs:78-103`).
   The only programs Loom starts are `git`, `ess`, `cargo` and the connectors program; it starts no
   `substrate` binary (no `Command::new("substrate…")` in any `crates/*/src`).
 - Environment read at run time: `PATH`, the only variable a bound program inherits
-  (`intake-slice/src/bindings.rs:75`, `:423`); `XDG_DATA_HOME` and `HOME` in `InstallStore::user`
+  (`intake-slice/src/bindings.rs:75`, `:423`; one `PATH` for the whole process until L23 gives each
+  run its own); `XDG_DATA_HOME` and `HOME` in `InstallStore::user`
   (`protocols/src/store.rs:23-36`; the CLI builds the catalog from it, a library caller does not
   have to); `PATH`, `HOME` and `SSH_AUTH_SOCK` for `git` (`protocols/src/git.rs:125-130`); the
   baseline variables (`confinement/engine.rs:712`); `RUSTUP_HOME`, `CARGO_HOME`, `HOME` and `PATH`
@@ -228,18 +246,46 @@ trees in one process (L19), then the story for cancelling a running bound progra
 - Canon: a check stops at 65536 states; no version rule for the public functions, so a Canon change
   can break a call; Runbook's tests of C1 to C6 are the detection.
 
+## What the daemon must do for confined runs
+
+Required by Loom's story `concurrent-confined-runs` (L18, proposed, not built) of a library caller
+that runs several `linux`-confined trees in one process. The four duties are the story's "What a
+library caller does":
+
+1. Run the process in a delegated cgroup v2 subtree with the process in a leaf below the root.
+   `prepare_delegated_cgroup` (`confinement.rs:3631-3641`) does this inside a scope that
+   `systemd-run --user --scope -p Delegate=yes` started.
+2. Give every run the same `cgroup_root` in `EngineConfinement`, or none (the discovered root,
+   `discover_cgroup_root`, `confinement.rs:3615-3628`).
+3. Give each run its own workspace directory, and make all these directories children of one
+   shared directory.
+4. Open one `EngineRunner` per run, or share one. Both work.
+
+Runbook's decisions that follow (2026-11-22, not built):
+
+- Workspaces are at `<state>/workspaces/<run>`, children of the one shared directory
+  `<state>/workspaces` (duty 3). Each run's store and logs are at `<state>/runs/<run>`. `<state>` is
+  `$XDG_STATE_HOME/runbook`.
+- The daemon passes no `cgroup_root` per run: it gives every run the same one, or none (duty 2).
+- The daemon's systemd unit sets `Delegate=yes` (duty 1). Started by hand, outside a delegated
+  scope, it re-executes itself under `systemd-run --user --scope -p Delegate=yes`.
+- The daemon opens one `EngineRunner` per run (duty 4).
+
+What stays refused, whatever the daemon does: a launch that needs another directory or another
+egress set than the running driver's (L19).
+
 ## What each `requested` row blocks
 
 | story | waits on |
 |---|---|
-| `story:engine-on-loom-library-entry` | L6, L7, L13, L14, L22; L2 in part; both upstream blockers; no Canon row is `requested` |
+| `story:engine-on-loom-library-entry` | L6, L7, L13, L14, L22, L23; L2 in part; L18 once two runs overlap at the `linux` level; both upstream blockers; no Canon row is `requested` |
 | `story:run-in-process-and-cli-as-daemon-client` | L6, L13, L14 |
 | `story:parity-run-on-loom` | L6, L9 |
-| `story:confinement-level-per-run` | L19; L17 is `not planned` and `--list-confinement` has no Loom list to print |
+| `story:confinement-level-per-run` | L18; L17 is `not planned` and `--list-confinement` has no Loom list to print |
 | `story:presets-embedded-and-runbook-test` | L21 |
-| `story:driver-runtime-removed` | L20 (not checked) |
+| `story:driver-runtime-removed` | L20 (not checked); L19 for agent nodes with egress (asked, no story id) |
 | `story:daemon-skeleton-on-a-runtime-trait` | none: it runs on a stub runtime |
-| L15 | no story yet requires it |
+| no story yet | L15: cancel in D and E works at step boundaries until it is built |
 
 ## Not done
 

@@ -27,7 +27,7 @@ scope:
   path: runbook/src/stub.rs
 - confidence: cited
   path: runbook/tests
-revision: 4
+revision: 5
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 ---
@@ -72,8 +72,12 @@ every route.
   accepted once, a second answer to the same request is refused with 409.
 - A session groups runs: two runs submitted into session `s1` and one into `s2` are listed per
   session and the session stream of `s1` carries only the events of its two runs.
-- A run's state is under `$XDG_STATE_HOME/runbook/runs/<id>`; after the daemon is stopped and
-  started again, `GET /v1/runs` lists the same runs with the same states.
+- A run's record (its store and logs) is under `$XDG_STATE_HOME/runbook/runs/<id>`, and the
+  directory for its workspace is `$XDG_STATE_HOME/runbook/workspaces/<id>`, a child of the one
+  shared directory `$XDG_STATE_HOME/runbook/workspaces` (the caller's duty of Loom's
+  `concurrent-confined-runs`, `docs/library-entries.md`, "What the daemon must do for confined
+  runs"); after the daemon is stopped and started again, `GET /v1/runs` lists the same runs with
+  the same states.
 - The conformance suite of `story:daemon-api-specified-in-ess` runs against the stub daemon and all
   its scenarios pass.
 - Budget: no test over 60 s and the test step within 120 s from job start; one daemon is started

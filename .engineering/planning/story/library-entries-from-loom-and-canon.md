@@ -14,7 +14,7 @@ scope:
   path: .engineering/planning/upstream-blocker
 - confidence: inferred
   path: docs/library-entries.md
-revision: 7
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:30Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
 - {from: "proposed", to: "active", at: "2026-11-22T01:47:31Z", actor: "human:operator", revision: 3, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
@@ -81,7 +81,7 @@ State of the acceptance statements on 2026-11-22, in the order above. The story 
   and `not checked`, not only the two the statement names; no row is `exists`, and the agent
   executor and decider configuration row is `not checked` (the Loom answers do not cover it).
 - Statement 2, met. Every `requested` row names an upstream blocker (`loom-library-entry`, and
-  `loom-confinement` for L19). Both blockers are updated with their rows. `loom-library-entry`
+  `loom-confinement` for L18). Both blockers are updated with their rows. `loom-library-entry`
   stays `open`. `canon-library-entry` stays `open` too: its six rows are `on a branch` (`7d1a28a20`),
   not `exists`, and were not checked at the Canon version Loom pins. `aep plan artifact list --kind
   upstream-blocker` prints both with their status.
