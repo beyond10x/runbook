@@ -1,0 +1,11 @@
+format: runbook.loom-run-answers/1
+answers:
+- action: scope.answer
+  on: ApproveAction
+  requests: [sdc-answers, requests, questions]
+  apply: [sdc-answers, apply, question, '{id}', '{answer}', '{principal}']
+  then: [tools/sdc-tool.sh, scope-answer, '{principal}']
+- action: amend.upstream
+  on: Handoff
+  requests: [sdc-answers, requests, findings]
+  apply: [sdc-answers, apply, finding, '{id}', '{answer}', '{principal}']
