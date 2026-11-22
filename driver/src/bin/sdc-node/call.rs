@@ -1,5 +1,5 @@
 //! One call: its record directory, the prompt, the request, the adapter, the apply step and the
-//! call log (lines 387-416, 600-736, 792-960 of `llm-node.sh`).
+//! call log.
 
 use crate::nodes::{self, Inputs};
 use crate::ordjson::{NumLit, Ov};

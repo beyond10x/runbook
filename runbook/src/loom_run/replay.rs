@@ -23,7 +23,8 @@
 //! The adapter finds its plan above its call's record directory (`replay/plan.json`), because the
 //! runner passes a bound program no environment. What the engine cannot give is refused by name
 //! when the settings are made: the driver's switches that are environment variables of its loop
-//! (`--set max_rejections`, `review_retries`, `unstick`) and the two caps that are options of the
+//! (`--set max_rejections`, `review_retries`; `--set unstick` is refused as a condition that no
+//! longer exists) and the two caps that are options of the
 //! runner (`--set max_llm_calls`, `max_wall_seconds`).
 
 use super::ports::{Ports, Refusal, USAGE};
@@ -176,8 +177,7 @@ fn read(path: &Path) -> Option<Value> {
 }
 
 /// The recorded settings of a re-drive: `replay` is what `sdc-replay settings` says (the source,
-/// the trees, the policy, the injections, the conditions, `unstick`), and `unstick` is its member,
-/// as the driver's run settings carried it.
+/// the trees, the policy, the injections, the conditions).
 pub fn mark(args: &Args, run_dir: &Path, mut recorded_settings: Value) -> Value {
     if recorded(args).is_none() {
         return recorded_settings;
@@ -186,7 +186,6 @@ pub fn mark(args: &Args, run_dir: &Path, mut recorded_settings: Value) -> Value 
     if let Some(o) = recorded_settings.as_object_mut() {
         match said {
             Ok(s) => {
-                o.insert("unstick".to_owned(), s["unstick"].clone());
                 o.insert("replay".to_owned(), s);
             }
             Err(e) => {

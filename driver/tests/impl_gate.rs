@@ -405,39 +405,3 @@ fn the_cycle_stand_in_keeps_a_queued_job_at_most_30_s_by_default() {
         .unwrap_or_else(|| panic!("no default in {line}"));
     assert!(secs <= 30, "default {secs} s in {line}");
 }
-
-/// A round whose `sdc-drive run` printed text (a step that stopped the run before its verdict) is
-/// reported with the program and its first line, not as jq's bare "parse error ... column 10".
-#[test]
-fn a_run_that_prints_no_json_is_reported_with_the_program_and_its_first_line() {
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("no-json-run");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let script = |name: &str, body: String| {
-        let p = dir.join(name);
-        fs::write(&p, body).unwrap();
-        fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
-        p
-    };
-    let canon = script("canon", "#!/bin/sh\necho 'canon stub'\n".into());
-    let drive = script(
-        "drive",
-        "#!/bin/bash\nwhile (($#)); do [[ $1 == --case-dir ]] && d=$2; shift; done\n[[ -d $d/work ]] || { mkdir -p \"$d/work\"; exit 0; }\n\
-         echo 'sdc-drive: `tests.run` could not run (exit 126, a program error): boom'; echo 'second line'; exit 2\n"
-            .into(),
-    );
-    let out = Command::new("bash")
-        .arg(root.join("scripts/run-full-cycle.sh"))
-        .args(["no-json", dir.join("store").to_str().unwrap()])
-        .env("CANON", canon)
-        .env("DRIVE", drive)
-        .env("RUNS", dir.join("runs"))
-        .output()
-        .unwrap();
-    let t = text(&out);
-    assert_eq!(out.status.code(), Some(5), "{t}");
-    assert!(t.contains("`sdc-drive run` printed no JSON (exit 2); its first line: sdc-drive: `tests.run` could not run"), "{t}");
-    assert!(!t.contains("jq: parse error"), "{t}");
-    assert!(!t.contains("second line"), "{t}");
-}

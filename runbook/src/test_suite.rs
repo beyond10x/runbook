@@ -1,6 +1,6 @@
 //! `runbook test <suite>`: the cycles of a `loom.tree-suite/1` file, run one after another through
 //! Loom's suite runner (`b10x_loom_tree::suite::run_suite`) in this process (`docs/cli.md`). It
-//! starts no `b10x-loom`, `canon` or `sdc-drive` process; only the bound programs run, started by
+//! starts no `b10x-loom` or `canon` process; only the bound programs run, started by
 //! Loom's runner, with `PATH` and `LOOM_*` and nothing else of this process's environment.
 
 use b10x_loom_tree::model::{CycleResult, SuiteReport, SuiteRefusalReason};

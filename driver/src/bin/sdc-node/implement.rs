@@ -1,4 +1,4 @@
-//! `change.implement`: its inputs and task (lines 521-542 of `llm-node.sh`), the coverage document
+//! `change.implement`: its inputs and task, the coverage document
 //! its reply carries and the asking again (lines 792-834), the stub's coverage document (lines
 //! 187-227), the call as one request (lines 903-931) and the check after the writer (lines
 //! 962-969). The requirements, the schema and the checks are the library's (`sdc_tools::reply`);

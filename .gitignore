@@ -2,7 +2,6 @@ target/
 node_modules/
 .claude/settings.local.json
 .engineering/drafts/
-.sdc-drive.lock
 runs/
 eval/runs/
 eval/reports/*-runs/

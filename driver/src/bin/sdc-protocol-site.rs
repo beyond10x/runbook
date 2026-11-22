@@ -1316,10 +1316,10 @@ outcomes:
         let ctx = Context { node_classes: [("w".to_string(), "writer".to_string())].into(), decision_classes: BTreeMap::new() };
         let p = parse_protocol("demo", "x", FIXTURE).unwrap();
         let a = Action { name: "w".into(), description: String::new(), effect: "write".into(), precondition: None, capabilities: vec![], produces: vec![], opens: None, arguments: vec![] };
-        let b = json!({"$independence": {"llm-review": []}, "w": {"argv": ["{dir}/../../../bindings/tools/llm-node.sh", "w"], "llm": {"model": "m", "operations": ["file.read"]}, "producer": "llm-review", "max_runs": 3}});
+        let b = json!({"$independence": {"llm-review": []}, "w": {"argv": ["sdc-node", "w"], "llm": {"model": "m", "operations": ["file.read"]}, "producer": "llm-review", "max_runs": 3}});
         assert_eq!(
             executor(&p, &a, Some(&b), &ctx),
-            json!({"kind": "model", "program": "llm-node.sh w", "node_class": "writer", "default_model": "m", "operations": ["file.read"], "producer": "llm-review", "independent": true, "max_runs": 3})
+            json!({"kind": "model", "program": "sdc-node w", "node_class": "writer", "default_model": "m", "operations": ["file.read"], "producer": "llm-review", "independent": true, "max_runs": 3})
         );
         let b = json!({"w": {"manual": true, "argv": ["true"]}});
         assert_eq!(executor(&p, &a, Some(&b), &ctx), json!({"kind": "person", "bound": true}));
