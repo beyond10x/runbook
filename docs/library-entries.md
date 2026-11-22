@@ -198,7 +198,7 @@ the record of what was asked.
 | L9 | exists: `status_json(&TreeStatus) -> Value` | `loom-tree/src/encode.rs:158` | slow lane only |
 | L10 | exists | `loom-tree/src/approve.rs:75` | yes |
 | L14 | exists as `cancel: Option<&AtomicBool>`, asked before each step only | `loom-tree/src/run.rs:126`, `:166` | yes |
-| L15 | not built: a running bound program is not stopped; a cancel set during one waits for it | `loom-tree/src/run.rs:166` | gap; the gate test `a_cancel_while_a_program_runs_ends_the_run_before_its_next_step` holds it |
+| L15 | exists at `23f1f4b3` (Loom commit `f9a80257`): a cancel ends a running bound program; at `5af3f9c2` it was not built and a cancel set during a program waited for it | `loom-tree/src/run.rs` | yes; the gate test `a_cancel_while_a_program_runs_ends_the_program_and_the_run_and_starts_no_later_step` holds it |
 | L16 | exists: `EngineConfinement`, `EngineRunner`, `ConfinementAdapter`, `UNCONFINED_FLAG_REASON` re-exported | `loom-tree/src/lib.rs:48-52` | yes, `local` under test, `linux` not |
 | L17 | not built: no function lists the levels; the engine decides them (`local`; `linux` where the process may delegate a cgroup) | none | yes |
 | L22 | not built: no `pub use b10x_canon`; Runbook names no Canon dependency and `Cargo.lock` has the tag `0.10.0` through Loom; it names three Loom crates (`b10x-loom-tree`, `b10x-loom-runlog`, `b10x-loom-protocols`) because `b10x-loom-tree` re-exports neither the line encoder nor `ProtocolCatalog` | `loom-tree/src/lib.rs:48-75` | yes |
@@ -288,12 +288,12 @@ Rows L1, L3, L5, L11 to L13, L18 to L21 and L23 were not used and their state wa
   `cancel-a-running-bound-program` and before `named-egress-per-action`, the first story that
   gives a tree step egress under Substrate. It is needed before agent nodes with egress run in the
   daemon.
-- Cancel is at step boundaries: the runtime asks `host_stop` before each step (L14). A bound program
-  already running is not cancelled; it ends at its timeout, the binding's `timeout_seconds` (default
-  60, `bindings/src/program.rs:215`), when Substrate ends the child and Loom sends `Signal::Kill`
-  after a drain margin (`confinement.rs:771`, `:808-820`). After L15 a cancel ends a running
-  program within about 7 s; the step ends `Cancelled` with no evidence record, no result-table row
-  and no retry.
+- Cancel is asked before each step: the runtime asks `host_stop` before each step (L14). At
+  `5af3f9c2` a bound program already running was not cancelled; it ended at its timeout, the
+  binding's `timeout_seconds` (default 60, `bindings/src/program.rs:215`), when Substrate ends the
+  child and Loom sends `Signal::Kill` after a drain margin (`confinement.rs:771`, `:808-820`). Since
+  L15 (`23f1f4b3`) a cancel ends a running program within about 7 s; the step ends `Cancelled` with
+  no evidence record, no result-table row and no retry.
 - Child processes go through `TestRunner::run_child`, which blocks to the end (`confinement.rs:78-103`).
   The only programs Loom starts are `git`, `ess`, `cargo` and the connectors program; it starts no
   `substrate` binary (no `Command::new("substrate…")` in any `crates/*/src`).

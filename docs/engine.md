@@ -62,9 +62,11 @@ cgroup it may delegate (`Engine::new`); anything else is refused before the stor
 
 ## Cancel and recover
 
-Cancel while waiting ends the run at once. Cancel while a program runs ends it at the next step
-boundary: Loom asks the cancel handle before each step only (`tree/src/run.rs:166`), and a running
-bound program is not stopped (row L15). The daemon shows `Cancelled` at once.
+Cancel while waiting ends the run at once. Cancel while a program runs ends the program too: the
+cancel handle reaches the running bound program (Loom commit `f9a80257`, "A cancel handle ends a
+running bound program"; row L15), no later step starts, and the run ends `Cancelled`. The daemon
+shows `Cancelled` at once. The gate test is
+`a_cancel_while_a_program_runs_ends_the_program_and_the_run_and_starts_no_later_step`.
 
 `recover` is always `Gone`: a run lives on one thread of one process, so a restarted daemon has no
 run, whatever the store holds. The daemon then ends it as `orphaned`. The store stays on disk;
@@ -74,9 +76,9 @@ is not built.
 
 ## Loom gaps seen
 
-All at `5af3f9c2`, paths under `crates/` of Loom unless given.
+All at `5af3f9c2`, paths under `crates/` of Loom unless given. A cancel ends a running program
+since `23f1f4b3`; the other entries were not looked at again at that pin.
 
-- Cancel stops no running program: `loom-tree/src/run.rs:166`.
 - `NextDecision` has no principal for a person action: `generated/rust/loom/src/tree.rs:102`,
   `loom-tree/src/person.rs:65`.
 - The principal Loom prints for a decision is not a member of `NextDecision`; it is only inside

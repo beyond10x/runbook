@@ -104,8 +104,8 @@ sources are paths below the suite file's own directory (Loom's rule).
   expected, <P> pending`, then `failed: <names>` when a cycle failed. A program's output never
   reaches these lines (Loom prints a found text as its length and digest).
 - Exit 0: every cycle that ran and is not pending is as expected. Exit 1: one is not, or SIGINT or
-  SIGTERM ended the run (they set Loom's cancel flag: the cycle that runs ends before its next step
-  and no further cycle runs; the line `cancelled` says so). Exit 2: refused before any cycle, with
+  SIGTERM ended the run (they set Loom's cancel flag: the cycle that runs ends, its running program
+  is ended and no later step starts, and no further cycle runs; the line `cancelled` says so). Exit 2: refused before any cycle, with
   Loom's reason and the member it names on standard error (`SuiteUnreadable`, `StepKindUnknown:
   cycles[0].steps[1].do`, `ScratchNotEmpty`, ...), or `--only` names no cycle of the file, or the
   confinement level is refused. Exit 64: a missing or malformed argument.
