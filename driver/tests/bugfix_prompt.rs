@@ -554,22 +554,21 @@ fn the_rust_binaries_hold_no_instruction_text() {
         }
         assert!(text.contains("instructions::render") || text.contains("text(\""), "{src} reads no instruction file");
     }
-    // `sdc-node` and the runner's decider took over from `llm-node.sh` and `decider.sh`, the two
-    // programs this guard held before: they are held to the same rule.
-    let mut sources = Vec::new();
-    program_sources(&manifest().join("src/bin/sdc-node"), &[], &mut sources);
-    sources.push((manifest().join("src/bin/sdc-node.rs"), fs::read_to_string(manifest().join("src/bin/sdc-node.rs")).unwrap()));
-    program_sources(&repo().join("runbook/src/loom_run/decider"), &["tests.rs", "requester_tests.rs", "golden.rs"], &mut sources);
+    // `sdc-node` and the runner (`runbook/src/loom_run/`, the decider and its sub-modules among them)
+    // took over from `llm-node.sh` and `decider.sh`, the two programs this guard held before: every
+    // Rust source of them is held to the same rule (see `guarded_sources`).
+    let sources = guarded_sources();
     assert!(lines.len() > 100 && sources.len() > 8, "found {} lines and {} sources", lines.len(), sources.len());
     for (p, text) in &sources {
         if let Some(l) = first_instruction_line_in(text, &lines) {
             panic!("{} holds instruction text: {l}", p.display());
         }
     }
-    // The scan can fail: the same source with one instruction line pasted into a string constant.
-    let (p, text) = &sources[0];
-    let mutant = format!("{text}\nconst PASTED: &str = \"{}\";\n", lines[0].replace('"', "\\\""));
-    assert!(first_instruction_line_in(&mutant, &lines).is_some(), "the scan misses a line pasted into {}", p.display());
+    // The scan can fail: a source of the set with one instruction line pasted into a string constant.
+    for (p, text) in [&sources[0], sources.iter().find(|(p, _)| p.ends_with("loom_run/decider.rs")).expect("the decider's module root is scanned")] {
+        let mutant = format!("{text}\nconst PASTED: &str = \"{}\";\n", lines[0].replace('"', "\\\""));
+        assert!(first_instruction_line_in(&mutant, &lines).is_some(), "the scan misses a line pasted into {}", p.display());
+    }
     // The lines above only find a copy of a line of a file. A heading or a note of a few words is
     // found in what the binary renders: the request-mode prompt of three calls (the specification
     // lacks the story's command and impl/ is empty; the tree is past the cap; every section).
@@ -632,14 +631,56 @@ fn first_instruction_line_in(text: &str, lines: &[String]) -> Option<String> {
     lines.iter().find(|l| text.contains(l.as_str())).cloned()
 }
 
-/// The `.rs` files under `dir` (but the file names in `skip`), with their text.
-fn program_sources(dir: &Path, skip: &[&str], out: &mut Vec<(PathBuf, String)>) {
-    for e in fs::read_dir(dir).unwrap() {
-        let p = e.unwrap().path();
+/// Test code may hold instruction text on purpose (a fixture of what a prompt says). The rule: a
+/// file named `tests.rs`, `golden.rs` or `*_tests.rs` is test code, and so is everything from an
+/// inline `#[cfg(test)]` module on (the attribute line followed by a `mod name {` line).
+fn is_test_file(p: &Path) -> bool {
+    let n = p.file_name().unwrap().to_string_lossy();
+    n == "tests.rs" || n == "golden.rs" || n.ends_with("_tests.rs")
+}
+
+fn without_inline_test_module(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let cut = (0..lines.len().saturating_sub(1))
+        .find(|&i| lines[i].trim() == "#[cfg(test)]" && lines[i + 1].trim_start().starts_with("mod ") && lines[i + 1].trim_end().ends_with('{'));
+    lines[..cut.unwrap_or(lines.len())].join("\n")
+}
+
+/// Every `.rs` file under `dir` that is not test code, with its non-test text, found by walking.
+fn program_sources(dir: &Path, out: &mut Vec<(PathBuf, String)>) {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+    entries.sort();
+    for p in entries {
         if p.is_dir() {
-            program_sources(&p, skip, out);
-        } else if p.extension().is_some_and(|x| x == "rs") && !skip.iter().any(|s| p.file_name().unwrap() == *s) {
-            out.push((p.clone(), fs::read_to_string(&p).unwrap()));
+            program_sources(&p, out);
+        } else if p.extension().is_some_and(|x| x == "rs") && !is_test_file(&p) {
+            out.push((p.clone(), without_inline_test_module(&fs::read_to_string(&p).unwrap())));
         }
     }
 }
+
+/// The Rust sources of the programs that replaced `llm-node.sh` and `decider.sh`: `sdc-node` (its
+/// file and its directory) and the runner's `loom_run` module tree, which holds the decider (its
+/// module root `decider.rs` and `decider/`). A new file is in the set without an edit here.
+fn guarded_sources() -> Vec<(PathBuf, String)> {
+    let mut sources = Vec::new();
+    let node = manifest().join("src/bin/sdc-node.rs");
+    sources.push((node.clone(), fs::read_to_string(&node).unwrap()));
+    program_sources(&manifest().join("src/bin/sdc-node"), &mut sources);
+    program_sources(&repo().join("runbook/src/loom_run"), &mut sources);
+    sources
+}
+
+/// The set the guard scans takes in the decider's module root and its sub-modules, and leaves out
+/// its test code.
+#[test]
+fn the_guard_scans_the_decider_module_root_and_leaves_out_test_code() {
+    let sources = guarded_sources();
+    let scanned = |rel: &str| sources.iter().any(|(p, _)| *p == repo().join(rel));
+    assert!(scanned("runbook/src/loom_run/decider.rs"), "the decider's module root is not scanned");
+    assert!(scanned("runbook/src/loom_run/decider/requester.rs"), "a sub-module of the decider is not scanned");
+    assert!(!scanned("runbook/src/loom_run/decider/tests.rs") && !scanned("runbook/src/loom_run/decider/golden.rs"), "test code is scanned");
+    assert_eq!(without_inline_test_module("a\n#[cfg(test)]\nmod t {\nb\n}\n"), "a");
+    assert_eq!(without_inline_test_module("a\n#[cfg(test)]\nmod t;\nb\n"), "a\n#[cfg(test)]\nmod t;\nb");
+}
+

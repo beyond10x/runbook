@@ -744,6 +744,36 @@ fn the_real_claude_cli_adapter_finds_the_login_under_the_environment_the_decider
     assert!(matches!(verdict, Verdict::CannotDecide { .. }), "a call with no login must not answer: {verdict:?}");
 }
 
+/// Not the eight files the case above names, but every file under the run
+/// directory after the real adapter ran with a login: none holds the login path.
+#[test]
+fn no_file_under_the_run_directory_holds_the_login_path() {
+    let w = world("adv-claude-login-walk", "#!/bin/sh\n");
+    let real = repository_root().join("bindings/tools/llm-adapter-claude-cli.sh");
+    let bin = w.run.join("standin-bin");
+    write_exe(&bin.join("claude"), STANDIN_CLAUDE);
+    let mut s = settings(&w, json!({"adapter": real.display().to_string(), "retries": 0}));
+    s["login_file"] = json!(w.login.display().to_string());
+    let env = vec![("PATH".to_owned(), format!("{}:{SYSTEM_PATH}", bin.display()))];
+    let decider = from_settings(&s).unwrap();
+    let verdict = ask_with(decider.as_ref(), &w, &approve_action(&w), 250_000, &env);
+    assert!(matches!(verdict, Verdict::Answer { .. }), "{verdict:?}");
+    let secret = w.login.display().to_string();
+    let mut stack = vec![w.run.clone()];
+    let mut holders = Vec::new();
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if std::fs::read(&p).is_ok_and(|b| String::from_utf8_lossy(&b).contains(&secret)) {
+                holders.push(p.strip_prefix(&w.run).unwrap().display().to_string());
+            }
+        }
+    }
+    assert!(holders.is_empty(), "files that hold the login path: {holders:?}");
+}
+
 // --- the rule decider --------------------------------------------------------------------------------
 
 #[test]

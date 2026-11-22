@@ -1956,3 +1956,42 @@ fn check_fails_a_row_whose_state_is_none_of_the_four() {
     edit(&co, "docs/cycles-suite.md", "| pool-wait | held in part by a Rust test |", "| pool-wait | dropped with the driver |");
     assert_eq!(check(&w, &co).status.code(), Some(0));
 }
+
+/// The near misses of a state word. Each is a finding, none passes.
+#[test]
+fn check_fails_every_near_miss_of_a_state_word() {
+    let w = World::new("adv-check-state-near-miss");
+    let co = text_copy(&w);
+    let mut cur = "| pool-wait | dropped with the driver |".to_string();
+    for bad in [
+        "Dropped with the driver",
+        "DROPPED WITH THE DRIVER",
+        "dropped with the driver.",
+        "dropped with the driver (all of it)",
+        "**dropped with the driver**",
+        "`dropped with the driver`",
+        "dropped  with the driver",
+        "dropped\u{a0}with the driver",
+        "",
+        "dropped with the driver, held by a Rust test",
+    ] {
+        let next = format!("| pool-wait | {bad} |");
+        edit(&co, "docs/cycles-suite.md", &cur, &next);
+        let o = check(&w, &co);
+        assert_eq!(o.status.code(), Some(1), "state {bad:?} passed:\n{}", stdout(&o));
+        cur = next;
+    }
+}
+
+/// A row cut to one cell has no state, so the entry has no row.
+#[test]
+fn check_fails_a_row_cut_to_one_cell() {
+    let w = World::new("adv-check-state-one-cell");
+    let co = text_copy(&w);
+    let p = co.join("docs/cycles-suite.md");
+    let t = std::fs::read_to_string(&p).unwrap();
+    let cut: Vec<String> = t.lines().map(|l| if l.starts_with("| pool-wait |") { "| pool-wait |".to_string() } else { l.to_string() }).collect();
+    std::fs::write(&p, cut.join("\n") + "\n").unwrap();
+    let o = check(&w, &co);
+    assert_finding(&o, "docs/cycles-suite.md", &["pool-wait", "no row"]);
+}

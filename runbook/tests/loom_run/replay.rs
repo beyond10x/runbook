@@ -194,8 +194,7 @@ fn replay_reject_nearest_reuses_the_recorded_reply_for_the_rework_and_stops_stuc
     assert!(stopped["replay"]["calls"]["reused"].as_u64().unwrap() >= 1, "{stopped}");
     assert_eq!(stopped["replay"]["label"], "re-driven: with reused replies");
     let last = r.lines("run-settings.jsonl").pop().unwrap();
-    assert_eq!(last["unstick"]["on"], false, "{last}");
-    assert_eq!(last["replay"]["unstick"]["on"], false, "{last}");
+    assert!(last.get("unstick").is_none() && last["replay"].get("unstick").is_none(), "{last}");
 }
 
 /// Suite entry `replay-timeout`. The exit is the timeout of the virtual clock; what the old driver

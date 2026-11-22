@@ -739,15 +739,8 @@ fn parse_sets(sets: &[String], tools: &Path) -> R<Sets> {
     let cls = classes(tools);
     for s in sets {
         let (k, v) = s.split_once('=').ok_or(format!("--set {s}: expected <condition>=<value>"))?;
-        // run.unstick in the re-driven run: off unless the source called it (see prepare);
-        // `unstick=on` with `--on-divergence live` tries it on a recording that has no such call.
         if k == "unstick" {
-            if v != "on" && v != "off" {
-                return Err(format!("--set {s}: unstick is on or off"));
-            }
-            recorded.insert(k.to_string(), json!(v));
-            env.insert("SDC_UNSTICK".into(), json!(v));
-            continue;
+            return Err(unstick_refusal(&format!("--set {s}")));
         }
         let n: u64 = v.parse().map_err(|_| format!("--set {s}: the value is a whole number"))?;
         recorded.insert(k.to_string(), json!(n));
@@ -771,7 +764,7 @@ fn parse_sets(sets: &[String], tools: &Path) -> R<Sets> {
                     "decider_retries" => "SDC_DECIDER_RETRIES",
                     "review_retries" => "SDC_REVIEW_RETRIES",
                     "max_wall_seconds" => "SDC_MAX_WALL_SECONDS",
-                    _ => return Err(format!("--set {s}: unknown condition (max_runs.<node|class>, timeout.<node|class|action>, max_llm_calls, max_decider_calls, max_rejections, decider_retries, review_retries, max_wall_seconds; unstick=on|off)")),
+                    _ => return Err(format!("--set {s}: unknown condition (max_runs.<node|class>, timeout.<node|class|action>, max_llm_calls, max_decider_calls, max_rejections, decider_retries, review_retries, max_wall_seconds)")),
                 };
                 env.insert(var.into(), json!(v));
             }
@@ -885,19 +878,6 @@ fn prepare(
     if let Some(c) = source_tree {
         src_tree = json!({"commit": c, "dirty": null, "checkout": src_tree["checkout"], "stated": true});
     }
-    // run.unstick: a replay reproduces the source's calls, and a node the source never called has
-    // no recorded reply, so it is off unless the source called it; `--set unstick=on|off` decides
-    // otherwise. The setting goes into run-settings (`replay.unstick`).
-    let src_unstick = src.calls.iter().any(|c| c["name"] == "run.unstick" || c["node"] == "run.unstick")
-        || (!src.packed && fs::read_dir(src.path.join("unstick")).is_ok_and(|mut d| d.next().is_some()));
-    let unstick = match conditions.get("unstick").and_then(Value::as_str) {
-        Some(v) => json!({"on": v == "on", "why": format!("--set unstick={v}")}),
-        None if src_unstick => json!({"on": true, "why": "the source has run.unstick calls"}),
-        None => {
-            env.insert("SDC_UNSTICK".into(), json!("off"));
-            json!({"on": false, "why": "the source has no run.unstick call: it has no recorded reply"})
-        }
-    };
     let tree = git_tree(&tree_dir);
     let same = match (src_tree["commit"].as_str(), tree["commit"].as_str()) {
         (Some(a), Some(b)) => Some((a.starts_with(b) || b.starts_with(a)) && tree["dirty"] != true),
@@ -911,7 +891,6 @@ fn prepare(
         "tree": tree, "same_tree": same, "out": out.display().to_string(),
         "policy": policy, "live": {"adapter": live_adapter, "bin": live_bin, "cap": live_cap},
         "injections": faults, "conditions": conditions, "take_recorded": take, "tools": tools.display().to_string(),
-        "unstick": unstick,
     });
     let mut plan = plan;
     plan["first_line"] = json!(first_line(&plan));
@@ -942,7 +921,7 @@ fn loom_settings(last: &Value, exe: &Path, actions: &Map<String, Value>, conditi
             "max_llm_calls" | "max_wall_seconds" => {
                 return Err(format!("--set {k}: under `runbook run` it is the option --{}, which also bounds the re-drive: give the option", k.replace('_', "-")));
             }
-            "max_rejections" | "review_retries" | "unstick" => {
+            "max_rejections" | "review_retries" => {
                 return Err(format!("--set {k}: the engine has no setting for it (the driver's switch is an environment variable of its loop, and `runbook run` passes no environment to a bound program)"));
             }
             _ if k.starts_with("max_runs.") || k.starts_with("timeout.") => {}
@@ -1048,8 +1027,22 @@ fn ctx() -> R<Ctx> {
     ctx_at(Path::new(&p))
 }
 
+/// The refusal of the condition `unstick`, which names `from` (a `--set` or a plan file): the step
+/// it switched is gone, so nothing reads it.
+fn unstick_refusal(from: &str) -> String {
+    format!("{from}: unstick is no longer a condition of a re-drive (the step it switched was removed with the old driver)")
+}
+
+/// The refusal of a recorded plan that names `unstick` (as a condition or as its own member).
+fn plan_refusal(plan: &Value, plan_path: &Path) -> Option<String> {
+    (plan["conditions"].get("unstick").is_some() || plan.get("unstick").is_some()).then(|| unstick_refusal(&format!("the plan {}", plan_path.display())))
+}
+
 fn ctx_at(plan_path: &Path) -> R<Ctx> {
     let plan = read_json(plan_path)?;
+    if let Some(refusal) = plan_refusal(&plan, plan_path) {
+        return Err(refusal);
+    }
     let out = PathBuf::from(plan["out"].as_str().unwrap_or(""));
     let calls = read_json(&out.join("replay/index.json"))?["calls"].as_array().cloned().unwrap_or_default();
     Ok(Ctx { plan, out, calls })
@@ -1628,7 +1621,7 @@ fn settings(out: &Path) -> R<Value> {
     Ok(json!({"source": plan["source"]["name"], "source_tree": plan["source"]["tree"], "tree": plan["tree"],
         "same_tree": plan["same_tree"], "policy": plan["policy"], "live": plan["live"]["adapter"], "live_cap": plan["live"]["cap"],
         "injections": plan["injections"].as_array().map(|a| a.iter().map(|f| f["spec"].clone()).collect::<Vec<_>>()),
-        "conditions": plan["conditions"], "take_recorded": plan["take_recorded"], "unstick": plan["unstick"], "clock": "virtual"}))
+        "conditions": plan["conditions"], "take_recorded": plan["take_recorded"], "clock": "virtual"}))
 }
 
 // --- pack ----------------------------------------------------------------------------------------
@@ -1782,11 +1775,18 @@ mod tests {
     }
 
     #[test]
-    fn set_unstick_is_on_or_off() {
+    fn the_condition_unstick_is_refused_by_name_in_a_set_and_in_a_plan() {
         let tools = Path::new("/nonexistent");
-        let (_, env, rec) = parse_sets(&["unstick=on".to_string()], tools).unwrap();
-        assert_eq!((env["SDC_UNSTICK"].as_str(), rec["unstick"].as_str()), (Some("on"), Some("on")));
-        assert!(parse_sets(&["unstick=1".to_string()], tools).is_err());
+        for v in ["on", "off", "1"] {
+            let e = parse_sets(&[format!("unstick={v}")], tools).unwrap_err();
+            assert!(e.contains(&format!("--set unstick={v}")) && e.contains("no longer a condition"), "{e}");
+        }
+        let p = Path::new("replay/plan.json");
+        for plan in [json!({"out": "/x", "conditions": {"unstick": "on"}}), json!({"out": "/x", "unstick": {"on": false}})] {
+            let e = plan_refusal(&plan, p).expect("a plan that names unstick is refused");
+            assert!(e.contains("no longer a condition") && e.contains("replay/plan.json"), "{e}");
+        }
+        assert!(plan_refusal(&json!({"out": "/x", "conditions": {"max_runs.implement": 2}}), p).is_none());
     }
 
     #[test]
