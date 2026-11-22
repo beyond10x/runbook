@@ -19,5 +19,8 @@ sha2 = "0.10"
 uuid = { version = "1", default-features = false, features = ["v7", "std"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "net", "signal", "macros", "sync", "time"] }
 futures-util = { version = "0.3", default-features = false }
+b10x-loom-tree = { git = "https://github.com/beyond10x/loom", rev = "5af3f9c210272999f815baa7a41ad4513fe6c81c" }
+b10x-loom-runlog = { git = "https://github.com/beyond10x/loom", rev = "5af3f9c210272999f815baa7a41ad4513fe6c81c" }
+b10x-loom-protocols = { git = "https://github.com/beyond10x/loom", rev = "5af3f9c210272999f815baa7a41ad4513fe6c81c" }
 
 [workspace]

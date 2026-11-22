@@ -42,6 +42,17 @@ tasks:
       - cd driver && cargo build --locked
       - cd runbook && cargo test --locked --test cli the_stub_cycle_on_the_real_loom -- --ignored
 
+  test:engine-real:
+    desc: "Slow lane of runbook/: the sdc stub cycle through the daemon over the in-process Loom engine (runbook::engine) on the repository's own protocols and bindings, confinement local, no model call, every approval scripted; then `runbook parity summarize` of its tree status against the driver summary (printed, not asserted). Needs RUNBOOK_ENGINE_WORK (a directory outside the repository); builds the driver for the bound programs; takes minutes, run it in the background."
+    requires:
+      vars: [RUNBOOK_ENGINE_WORK]
+    env:
+      RUNBOOK_ENGINE_WORK: "{{.RUNBOOK_ENGINE_WORK}}"
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked
+      - cd runbook && PATH="$PWD/../driver/target/debug:$PATH" cargo test --locked --test cli the_stub_cycle_through_the_engine -- --ignored --nocapture
+
   test:driver:
     silent: true
     dir: driver

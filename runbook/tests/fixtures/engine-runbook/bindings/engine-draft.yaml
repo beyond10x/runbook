@@ -11,6 +11,16 @@ actions:
       argv: [tools/draft-write.sh]
     retry_when:
       draft_review: [rejected]
+  - action: draft.check
+    executor:
+      kind: program
+      argv: [tools/draft-check.sh]
+    evidence:
+      - kind: draft_check
+        subject: draft
+        producer: draft-check
+        from: exit
+        results: {"0": valid, "*": invalid}
   - action: draft.review
     executor:
       kind: person

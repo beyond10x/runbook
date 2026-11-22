@@ -2,7 +2,8 @@
 
 use crate::api::{self, auth};
 use crate::commands::{Config, Daemon};
-use crate::runtime::Confinement;
+use crate::engine::Engine;
+use crate::runtime::{Confinement, Runtime};
 use crate::stub::StubRuntime;
 use clap::Args;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -27,6 +28,14 @@ pub struct ServeArgs {
     /// A directory of runbooks a submit may name besides the presets.
     #[arg(long, value_name = "DIR")]
     pub runbook_dir: Option<PathBuf>,
+    /// The runtime runs take: `stub` (scripted, nothing is executed) or `loom` (Loom's library
+    /// entry in this process, `docs/engine.md`).
+    #[arg(long, value_name = "RUNTIME", default_value = "stub", value_parser = ["loom", "stub"])]
+    pub runtime: String,
+    /// The runbook home the Loom runtime reads a runbook from: a directory with `protocol/` and
+    /// `bindings/`. Default: the asset root (`RUNBOOK_HOME`, an install, or the checkout).
+    #[arg(long, value_name = "DIR")]
+    pub runbook_home: Option<PathBuf>,
     /// The weakest confinement level the daemon takes for a run.
     #[arg(long, value_name = "LEVEL", default_value = "linux", value_parser = ["local", "linux"])]
     pub min_confinement: String,
@@ -83,17 +92,22 @@ pub fn prepare(args: &ServeArgs, env: &Env, presets: &[&str]) -> Result<Prepared
         .ok_or_else(|| format!("--listen {}: no address", args.listen))?;
     auth::check_listen(&addr, token.as_deref())?;
     let floor = Confinement::parse(&args.min_confinement).ok_or_else(|| format!("--min-confinement {}: not a level", args.min_confinement))?;
-    let stub = StubRuntime::new();
-    for name in presets {
-        stub.script(name, StubRuntime::demo_script());
-    }
-    let cfg = Config {
-        state_dir: state_dir(args, env)?,
-        confinement_floor: floor,
-        context_roots: args.context_root.clone(),
-        runbook_dir: args.runbook_dir.clone(),
+    let state = state_dir(args, env)?;
+    let (runtime, runbook_dir): (Arc<dyn Runtime>, Option<PathBuf>) = if args.runtime == "loom" {
+        let home = args.runbook_home.clone().ok_or("--runtime loom needs a runbook home: give --runbook-home, set RUNBOOK_HOME, or run inside a checkout")?;
+        if !home.join("protocol").is_dir() || !home.join("bindings").is_dir() {
+            return Err(format!("--runbook-home {}: holds no protocol/ and bindings/ directories", home.display()));
+        }
+        (Arc::new(Engine::new(home, state.clone())), None)
+    } else {
+        let stub = StubRuntime::new();
+        for name in presets {
+            stub.script(name, StubRuntime::demo_script());
+        }
+        (Arc::new(stub), args.runbook_dir.clone())
     };
-    let daemon = Daemon::start(cfg, Arc::new(stub)).map_err(|e| format!("state directory: {e}"))?;
+    let cfg = Config { state_dir: state, confinement_floor: floor, context_roots: args.context_root.clone(), runbook_dir };
+    let daemon = Daemon::start(cfg, runtime).map_err(|e| format!("state directory: {e}"))?;
     Ok(Prepared { addr, token, daemon })
 }
 
@@ -126,7 +140,11 @@ pub fn run(args: ServeArgs, presets: &[&str]) -> ExitCode {
     let served = runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| format!("cannot listen on {addr}: {e}"))?;
         let bound = listener.local_addr().map_err(|e| e.to_string())?;
-        eprintln!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed");
+        if args.runtime == "loom" {
+            eprintln!("runbook: this daemon runs the Loom runtime: runs execute through Loom in this process");
+        } else {
+            eprintln!("runbook: this daemon runs the stub runtime: runs are scripted and nothing is executed");
+        }
         println!("runbook: listening on http://{bound}");
         let extra = args.mcp.then(|| crate::mcp::router(daemon.clone()));
         api::serve_extra(listener, daemon.clone(), token.as_deref(), api::Streams::default(), extra, shutdown_signal()).await.map_err(|e| e.to_string())

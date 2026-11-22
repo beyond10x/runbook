@@ -9,3 +9,4 @@ mod conformance;
 mod mcp;
 mod cli_client;
 mod engine;
+mod engine_slow;
