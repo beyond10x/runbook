@@ -2,7 +2,7 @@
 //! into the command layer: a command is `POST /daemon/commands/<name>` with a JSON body, a view is
 //! `GET /daemon/views/<name>` with its parameters in the query.
 
-use super::{json_response, refusal};
+use super::json_response;
 use crate::commands::{AnswerDecision, CancelRun, CloseSession, Daemon, Fault, OpenSession, Outcome, SubmitRun};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
@@ -44,26 +44,48 @@ fn parse<T: DeserializeOwned>(body: &[u8]) -> Result<T, Fault> {
     serde_json::from_slice(body).map_err(|e| Fault::Invalid(format!("the body is not a valid input of the command: {e}")))
 }
 
-fn fault(f: Fault) -> Response {
-    match f {
-        Fault::Invalid(message) => refusal(StatusCode::BAD_REQUEST, "bad request", &message),
-        Fault::Internal(message) => refusal(StatusCode::INTERNAL_SERVER_ERROR, "internal error", &message),
+/// What a route answers before it is an HTTP response: the status, the JSON body and the `Location`
+/// of a submit. The MCP tools (`crate::mcp`) call `command_answer` and `view_answer` and carry this
+/// body unchanged.
+pub struct Answer {
+    pub status: StatusCode,
+    pub body: Value,
+    pub location: Option<String>,
+}
+
+impl Answer {
+    pub fn into_response(self) -> Response {
+        let mut response = json_response(self.status, &self.body);
+        if let Some(v) = self.location.and_then(|l| HeaderValue::from_str(&l).ok()) {
+            response.headers_mut().insert(header::LOCATION, v);
+        }
+        response
     }
 }
 
-fn outcome(o: Outcome) -> Response {
-    let mut response = json_response(StatusCode::from_u16(o.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), &o.body());
-    if let Some(run_id) = &o.run_id {
-        // The answer of a submit names the run in the event it publishes; a replay has no run in its
-        // body, so the first run is also named here.
-        if let Ok(v) = HeaderValue::from_str(&format!("{}?run_id={run_id}", view_path("run"))) {
-            response.headers_mut().insert(header::LOCATION, v);
-        }
+fn refused(status: StatusCode, what: &str, message: &str) -> Answer {
+    Answer { status, body: json!({"refused": what, "message": message}), location: None }
+}
+
+fn fault(f: Fault) -> Answer {
+    match f {
+        Fault::Invalid(message) => refused(StatusCode::BAD_REQUEST, "bad request", &message),
+        Fault::Internal(message) => refused(StatusCode::INTERNAL_SERVER_ERROR, "internal error", &message),
     }
-    response
+}
+
+fn outcome(o: Outcome) -> Answer {
+    // The answer of a submit names the run in the event it publishes; a replay has no run in its
+    // body, so the first run is also named in the `Location`.
+    let location = o.run_id.as_ref().map(|run_id| format!("{}?run_id={run_id}", view_path("run")));
+    Answer { status: StatusCode::from_u16(o.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR), body: o.body(), location }
 }
 
 pub fn command(name: &str, daemon: &Daemon, body: &[u8]) -> Response {
+    command_answer(name, daemon, body).into_response()
+}
+
+pub fn command_answer(name: &str, daemon: &Daemon, body: &[u8]) -> Answer {
     let reply = match name {
         "open-session" => parse::<OpenSession>(body).and_then(|i| daemon.open_session(i)),
         "close-session" => parse::<CloseSession>(body).and_then(|i| daemon.close_session(i)),
@@ -99,6 +121,10 @@ pub fn wants_stream(headers: &HeaderMap) -> bool {
 
 /// The page form of a view. An event view asked as a stream is `sse::answer`, chosen before this.
 pub fn view(name: &str, daemon: &Daemon, query: &HashMap<String, String>) -> Response {
+    view_answer(name, daemon, query).into_response()
+}
+
+pub fn view_answer(name: &str, daemon: &Daemon, query: &HashMap<String, String>) -> Answer {
     let rows: Result<Vec<Value>, Fault> = (|| {
         Ok(match name {
             "runs" => daemon.runs(),
@@ -117,7 +143,7 @@ pub fn view(name: &str, daemon: &Daemon, query: &HashMap<String, String>) -> Res
         })
     })();
     match rows {
-        Ok(rows) => json_response(StatusCode::OK, &json!({"rows": rows})),
+        Ok(rows) => Answer { status: StatusCode::OK, body: json!({"rows": rows}), location: None },
         Err(f) => fault(f),
     }
 }
