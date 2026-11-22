@@ -98,8 +98,9 @@ const TOOLS: [&str; 4] = [
 
 const PROGRAMS: [&str; 14] =
     ["canon", "bash", "jq", "yq", "git", "claude", "aep", "ess", "task", "slot", "cargo", "cargo-clippy", "rustfmt", "node"];
-const HELPERS: [&str; 9] = [
+const HELPERS: [&str; 10] = [
     "sdc-drive",
+    "sdc-node",
     "sdc-findings",
     "sdc-bugfix",
     "sdc-decision-request",
