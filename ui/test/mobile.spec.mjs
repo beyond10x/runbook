@@ -1,6 +1,6 @@
 // The phone findings of round R-03 (ux/findings/UXF-016 to UXF-026), one test each, at the gating phone
-// size 390x844 (decision D-006). Self-contained: one server of its own on port 7532
-// (SDC_UI_MOBILE_PORT) over runs played by test/fixture-run.mjs into SDC_UI_FIXTURE_DIR (default
+// size 390x844 (decision D-006). Self-contained: one server of its own (test/serve.mjs:
+// a port the kernel gives) over runs played by test/fixture-run.mjs into SDC_UI_FIXTURE_DIR (default
 // test/fixtures/runs)/mobile-runs: person (waiting on a person, writable), stopped (stopped on purpose,
 // a failed waiting KPI) and decider (a decider deciding, with file changes). They play from the
 // committed slim copy when runs/ is absent, so the suite runs on a fresh checkout.
@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun, fixtureSource} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 import {horizontalOverflow, smallTargets, smallText, coveredControls, alwaysVisibleAcross, withinOneScroll, sheetProblems} from '../ux/core/phone.mjs';
 import {axeViolations, truncatedWithoutValue} from '../ux/core/contract.mjs';
 
@@ -18,8 +19,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const runs = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'mobile-runs');
-const port = Number(process.env.SDC_UI_MOBILE_PORT || 7532);
-const base = `http://127.0.0.1:${port}`;
+let base;
 const PHONE = {width: 390, height: 844};
 const TARGETS = 'button, a[href], select, input:not([type=hidden]), textarea, summary, [role=button], [role=tab], label.switch, [data-goto], [data-case], [data-feed], [data-seq], [data-tab], #graph [data-id]';
 const ALWAYS = {state: ['#nowbar .nb-state'], step: ['#nowbar .nb-step'], decisions: ['#decbtn']};
@@ -36,7 +36,7 @@ test.beforeEach(async ({page}, info) => {
 test.afterAll(() => srv?.kill());
 test.beforeAll(async ({}, info) => {
   if (info.project.name !== 'wide') return;
-  test.setTimeout(120000);
+  test.setTimeout(60000);
   for (const s of Object.keys(SRC)) needRun(fixtureSource(s), `mobile.spec.mjs (fixture source of ${s})`, test);
   fs.rmSync(runs, {recursive: true, force: true});
   fs.mkdirSync(runs, {recursive: true});
@@ -44,9 +44,7 @@ test.beforeAll(async ({}, info) => {
     const r = spawnSync('node', ['test/fixture-run.mjs', s, path.join(runs, s), '1000'], {cwd: ui, encoding: 'utf8'});
     if (r.status !== 0) throw new Error(`fixture ${s}: ${r.stderr}`);
   }
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_MOBILE_PORT`);
-  srv = spawn(process.execPath, ['server.mjs', '--port', String(port), '--principal', 'operator', '--write-only', path.join(runs, 'person', 'store'), ...Object.keys(SRC).map((s) => path.join(runs, s, 'store'))], {cwd: ui, stdio: 'ignore'});
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((x) => setTimeout(x, 100)); } }
+  ({url: base, proc: srv} = await startServer(['--principal', 'operator', '--write-only', path.join(runs, 'person', 'store'), ...Object.keys(SRC).map((s) => path.join(runs, s, 'store'))]));
 });
 
 async function open(page, s) {

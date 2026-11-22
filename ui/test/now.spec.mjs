@@ -1,7 +1,7 @@
 // The "now" band against runs that are happening: test/fixture-run.mjs plays four scenarios out of
 // a recorded run into SDC_UI_FIXTURE_DIR (default test/fixtures/runs/<project>), and this file starts
-// its own server over them on port 7496 (wide) / 7497 (laptop), SDC_UI_NOW_PORT to move. The agent
-// test plays on a shared clock (test/shared-clock.mjs) with a second server on 7498 / 7499.
+// its own server over them (test/serve.mjs: a port the kernel gives). The agent test plays on a
+// shared clock (test/shared-clock.mjs) with a second server of its own.
 // Screenshots: screenshots/<project>-now-*.png.
 import {test, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
@@ -10,20 +10,18 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needRun} from './need-run.mjs';
 import {sharedClock} from './shared-clock.mjs';
+import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const procs = [];
-let base, dir, port;
+let base, dir;
 
 test.beforeAll(async ({}, info) => {
   needRun(path.resolve(process.env.SDC_UI_FIXTURE_SOURCE || path.join(ui, '../runs/trial-todo-1')), 'now.spec.mjs (fixture source)', test);
   needRun(path.resolve(ui, '../runs/trial-todo-1/store'), 'now.spec.mjs', test);
-  const k = info.project.name === 'wide' ? 0 : 1;
-  port = Number(process.env.SDC_UI_NOW_PORT || 7496) + k;
   dir = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), info.project.name);
-  base = `http://127.0.0.1:${port}`;
   fs.mkdirSync(dir, {recursive: true});
   const run = (args) => { const p = spawn('node', args, {cwd: ui, stdio: 'ignore'}); procs.push(p); return p; };
   const person = run(['test/fixture-run.mjs', 'person', path.join(dir, 'person')]);
@@ -32,8 +30,9 @@ test.beforeAll(async ({}, info) => {
   for (const s of ['agent', 'two', 'decider']) fs.rmSync(path.join(dir, s), {recursive: true, force: true});
   // sources 5 to 7: runs with a step started and never finished, written without a live driver
   for (const s of ['gone', 'gone-nofile', 'legacy']) await new Promise((r) => run(['test/fixture-run.mjs', s, path.join(dir, s)]).on('exit', r));
-  run(['server.mjs', '--port', String(port), ...stores, path.resolve(ui, '../runs/trial-todo-1/store'), ...['gone', 'gone-nofile', 'legacy'].map((s) => path.join(dir, s, 'store'))]);
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+  const srv = await startServer([...stores, path.resolve(ui, '../runs/trial-todo-1/store'), ...['gone', 'gone-nofile', 'legacy'].map((s) => path.join(dir, s, 'store'))]);
+  base = srv.url;
+  procs.push(srv.proc);
 });
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
 
@@ -48,8 +47,9 @@ test('one agent in flight: action, model, live progress, elapsed time, files', a
   // until it shows, never by waiting a duration, so the machine's load cannot make it late. The
   // clock starts two minutes back, so the times the player writes are past ones for the tests after.
   const clock = sharedClock(path.join(dir, 'agent-clock'), Date.now() - 120000);
-  const clockBase = `http://127.0.0.1:${port + 2}`;
-  procs.push(spawn('node', ['server.mjs', '--port', String(port + 2), path.join(dir, 'agent', 'store')], {cwd: ui, stdio: 'ignore', env: clock.env}));
+  const clockSrv = await startServer([path.join(dir, 'agent', 'store')], {env: clock.env});
+  procs.push(clockSrv.proc);
+  const clockBase = clockSrv.url;
   await clock.serve(clockBase);
   const fx = await clock.play(() => play('agent', '1.5', clock.env));
   await clock.prepare(page);
@@ -306,10 +306,9 @@ test('a call is in progress by status.json when there is one, by an empty respon
 test('changes recorded by sdc-watch', async ({page}, info) => {
   const run = process.env.SDC_UI_WATCH_RUN;
   test.skip(!run, 'needs SDC_UI_WATCH_RUN');
-  const port = Number(process.env.SDC_UI_NOW_PORT || 7496) + 4 + (info.project.name === 'wide' ? 0 : 1);
-  procs.push(spawn('node', ['server.mjs', '--port', String(port), path.join(run, 'store')], {cwd: ui, stdio: 'ignore'}));
-  const url = `http://127.0.0.1:${port}`;
-  for (let i = 0; i < 50; i++) { try { await fetch(url + '/api/sources'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+  const watched = await startServer([path.join(run, 'store')]);
+  procs.push(watched.proc);
+  const url = watched.url;
   const errors = errorsOf(page);
   const recs = fs.readFileSync(path.join(run, 'fs', 'changes.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.format === 'sdc.fs-change/1');
   await page.goto(url + '/?case=IDEA-1/children/IDEA-1.todolist/children/IDEA-1.todolist.storage&tab=changes');

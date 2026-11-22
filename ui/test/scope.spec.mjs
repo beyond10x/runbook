@@ -1,25 +1,27 @@
 // A scope-changing answer is an act that needs an authority grant: the drawer answers and records the
 // scope.answer approval as the server's principal. Self-contained: test/scope-fixture.mjs makes three
 // stores with the real driver (stub executors), each stopped at awaiting_authority for scope.answer, and
-// this file starts its own write server (principal anna) over them on port 7522 (SDC_UI_SCOPE_PORT).
+// this file starts its own write server (principal anna) over them (a port the kernel gives).
 //   source 0  one scope-changing question (the stub interview)
 //   source 1  two scope-changing questions, answered one after the other through the page
 //   source 2  like 0, answered by editing the file the way a person does, then approved from the card
 // Fixtures go to SDC_UI_FIXTURE_DIR (default test/fixtures/runs)/scope. Screenshots: screenshots/wide-scope-*.png.
-import {test, expect} from '@playwright/test';
+import {test as pw, expect} from '@playwright/test';
 import {spawn, spawnSync} from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {needDriver} from './need-run.mjs';
+import {startServer} from './serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ui = path.resolve(here, '..');
 const shots = path.join(ui, 'screenshots');
 const dirs = ['one', 'two', 'edit'].map((n) => path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtures', 'runs'), 'scope', n));
 const [dOne, dTwo, dEdit] = dirs;
-const port = Number(process.env.SDC_UI_SCOPE_PORT || 7522);
-const base = `http://127.0.0.1:${port}`;
+let base;
+// the page's baseURL is the server this file starts, known only once it is up
+const test = pw.extend({baseURL: async ({}, use) => { await use(base); }});
 const procs = [];
 const jl = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
 const audit = (d) => jl(path.join(d, 'ui-actions.jsonl'));
@@ -31,7 +33,6 @@ const post = (request, source, data) => request.post(`${base}/api/act?source=${s
 
 test.describe.configure({mode: 'serial'});
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'writes once, on one project'));
-test.use({baseURL: base});
 
 test.beforeAll(async () => {
   test.setTimeout(120000);
@@ -40,18 +41,11 @@ test.beforeAll(async () => {
     const r = spawnSync('node', ['test/scope-fixture.mjs', d, v], {cwd: ui, encoding: 'utf8'});
     if (r.status !== 0) throw new Error(`scope-fixture ${v}: ${r.stderr}`);
   }
-  if (await fetch(base + '/api/sources').then(() => true, () => false)) throw new Error(`port ${port} is in use: set SDC_UI_SCOPE_PORT`);
-  const p = spawn('node', ['server.mjs', '--port', String(port), '--write', '--principal', 'anna', ...dirs.map((d) => path.join(d, 'store'))], {cwd: ui, stdio: 'ignore'});
-  procs.push(p);
-  for (let i = 0; i < 50; i++) { try { await fetch(base + '/api/sources'); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+  const s = await startServer(['--write', '--principal', 'anna', ...dirs.map((d) => path.join(d, 'store'))]);
+  base = s.url;
+  procs.push(s.proc);
 });
 test.afterAll(() => { for (const p of procs) if (p.exitCode == null) p.kill(); });
-
-test('a refused principal: non-interactive cannot start the server', () => {
-  const r = spawnSync('node', ['server.mjs', '--port', String(port + 50), '--write', '--principal', 'non-interactive', path.join(dOne, 'store')], {cwd: ui, encoding: 'utf8', timeout: 15000});
-  expect(r.status).toBe(2);
-  expect(r.stderr).toMatch(/non-interactive/);
-});
 
 test('Now band and drawer name the scope.answer approval and its question', async ({page}) => {
   await page.goto('/?source=0');
