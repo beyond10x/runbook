@@ -1,0 +1,10 @@
+requirements:
+  - id: r1
+    text: Add a task
+    spec_domains: [todo.task]
+  - id: r2
+    text: Sync the list
+    spec_domains: [todo.sync]
+meta:
+  owner: someone
+  tags: [b, a]

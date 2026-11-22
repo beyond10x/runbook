@@ -227,7 +227,7 @@ under Loom"); a pending read takes the driver's default under Loom. The first co
 | `sdc-bugfix.rs:1382` | `PATH` | unchanged: Loom gives `PATH` | done |
 | `sdc-findings.rs:1435` | `SDC_STUB_REFUSE_DECISION` (stub cycles) | the default: none | pending: N3 |
 | `sdc-findings.rs:1552` | `SDC_CONSISTENCY_RULES` | unchanged: both tools pass `--rules` | done |
-| `sdc-reply.rs:310-314` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `llm-node.sh` exports `--adapter`; the class adapters take their defaults | pending: N9 |
+| `reply/adapters.rs` | `SDC_<CLASS>_ADAPTER`, `SDC_LLM_ADAPTER` | `llm-node.sh` exports `--adapter`; the class adapters take their defaults | pending: N9 |
 
 Variables beyond `PATH` read under `set -u` (checked 2026-11-22, `story:tool-texts-and-paths`):
 
