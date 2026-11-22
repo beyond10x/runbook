@@ -58,6 +58,8 @@ enum Cmd {
     Decide(runbook::client::DecideArgs),
     /// Make one run of a case tree through `b10x-loom` (a child process) under a spend ledger and caps; writes a run directory.
     LoomRun(loom_run::Args),
+    /// Run the cycles of a `loom.tree-suite/1` file through Loom's suite runner in this process; exit 1 when a cycle is not as expected, 2 when the suite is refused.
+    Test(runbook::test_suite::Args),
     /// Compare a run under the old driver with a run under Loom: summarize, compare, approvals.
     Parity {
         #[command(subcommand)]
@@ -140,6 +142,10 @@ fn main() -> ExitCode {
             runbook::serve::run(args, &list::ROOT_RUNBOOKS)
         }
         Cmd::LoomRun(args) => loom_run::command(args),
+        Cmd::Test(args) => {
+            let protocols = assets::Lookup::from_process().locate().map(|a| a.protocol_dir());
+            runbook::test_suite::command(args, protocols)
+        }
     }
 }
 

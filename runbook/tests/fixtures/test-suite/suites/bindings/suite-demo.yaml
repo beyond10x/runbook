@@ -1,0 +1,20 @@
+format: loom.bindings/1
+protocol: suite-demo@1
+program_root: bindings
+artifacts:
+  note: note.txt
+actions:
+  - action: note.write
+    executor:
+      kind: program
+      argv: [tools/note-write.sh]
+  - action: note.check
+    executor:
+      kind: program
+      argv: [tools/note-check.sh]
+    evidence:
+      - kind: note_check
+        subject: note
+        producer: note-check
+        from: exit
+        results: {"0": valid, "*": invalid}

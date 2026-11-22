@@ -1,0 +1,29 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-demo@1
+  bindings: bindings/suite-demo.yaml
+cycles:
+  - name: writes-a-note
+    expect:
+      exit: 0
+      outcome: written
+      checks:
+        - {check: contains, name: the-note, select: [{doc: {in: work, path: note.txt}}], is: hello}
+  - name: reads-a-seed
+    seed: [{from: seeds/greeting.txt, to: greeting.txt}]
+    expect:
+      exit: 0
+      outcome: written
+      checks:
+        - {check: contains, name: the-greeting, select: [{doc: {in: work, path: note.txt}}], is: good day}
+  - name: pauses
+    seed: [{from: seeds/greeting.txt, to: greeting.txt}, {from: seeds/pause.txt, to: pause.txt}]
+    expect:
+      exit: 0
+      outcome: written
+  - name: later
+    pending: true
+    expect:
+      exit: 0
+      checks:
+        - {check: contains, name: not-yet, select: [{doc: {in: work, path: note.txt}}], is: goodbye}

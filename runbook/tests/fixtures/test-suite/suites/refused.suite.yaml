@@ -1,0 +1,8 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-demo@1
+  bindings: bindings/suite-demo.yaml
+cycles:
+  - name: rewinds
+    steps: [{do: open}, {do: rewind}]
+    expect: {exit: 0}

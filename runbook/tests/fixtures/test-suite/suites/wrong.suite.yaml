@@ -1,0 +1,15 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: suite-demo@1
+  bindings: bindings/suite-demo.yaml
+cycles:
+  - name: writes-a-note
+    expect:
+      exit: 0
+      outcome: written
+  - name: wrong-on-purpose
+    expect:
+      exit: 0
+      outcome: written
+      checks:
+        - {check: contains, name: the-note-says-goodbye, select: [{doc: {in: work, path: note.txt}}], is: goodbye}

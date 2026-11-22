@@ -78,6 +78,47 @@ goes to standard error, with the error's code and message as the daemon's body g
 The views answer `200` with no row for an unknown run; `runs show` and `runs events` turn that into
 exit 66 (`no such run`).
 
+## `runbook test`
+
+```
+runbook test <suite file> [--scratch <dir>] [--only <name>[,<name>...]] --confinement <local|substrate>
+```
+
+Runs the cycles of a `loom.tree-suite/1` file one after another through Loom's suite runner
+(`b10x_loom_tree::suite::run_suite`), in this process (`runbook/src/test_suite.rs`). It is not a
+client of a daemon. No `b10x-loom`, `canon` or `sdc-drive` process is started; the process tree of a
+run holds `runbook` and the bound programs, and a bound program gets `PATH` and `LOOM_*` from Loom
+and nothing of this process's environment. The protocols are the files of the asset root's
+`protocol/` directory (`RUNBOOK_HOME`, else the checkout). The suite's seeds, bindings and suite
+sources are paths below the suite file's own directory (Loom's rule).
+
+- `--confinement` is required, has no default and is passed on unchanged. Loom's suite runner takes
+  no cgroup root, so `substrate` is refused with exit 2 (`ConfinementRefused: CgroupUndelegated`);
+  `local` runs the programs unconfined, declared insecure.
+- Output, one line per cycle when it ends, in Loom's words: `<name>: as expected (<s> s)`,
+  `<name>: FAILED: <check> (<kind>, <reason>): expected <value>, found <number, name, or length and
+  digest> (<s> s)`, `<name>: pending, still failing: ...`, `<name>: pending, passing (<s> s)`, `<name>:
+  pending, waits for story:<id> (<kind>)`. Then `ten slowest:` (seconds and name) and `<N> of <M> as
+  expected, <P> pending`, then `failed: <names>` when a cycle failed. A program's output never
+  reaches these lines (Loom prints a found text as its length and digest).
+- Exit 0: every cycle that ran and is not pending is as expected. Exit 1: one is not, or SIGINT or
+  SIGTERM ended the run (they set Loom's cancel flag: the cycle that runs ends before its next step
+  and no further cycle runs; the line `cancelled` says so). Exit 2: refused before any cycle, with
+  Loom's reason and the member it names on standard error (`SuiteUnreadable`, `StepKindUnknown:
+  cycles[0].steps[1].do`, `ScratchNotEmpty`, ...), or `--only` names no cycle of the file, or the
+  confinement level is refused. Exit 64: a missing or malformed argument.
+- `--scratch <dir>` is absent or empty (Loom refuses otherwise) and is never removed. Without it the
+  directory is new under `$XDG_RUNTIME_DIR/runbook/`, else under `$XDG_STATE_HOME/runbook/` (or
+  `~/.local/state/runbook/`), never under `/tmp`. It is removed when the exit code is 0; otherwise
+  it is kept and the last line, `scratch kept: <dir>`, names it. Cycle `n` works in `<dir>/<n>/`
+  (`store/`, `work/`).
+- `--only` runs the named cycles in suite order, nothing else. Loom's runner takes a file, not a
+  list, so the command writes the selected cycles to `.runbook-test-only-<pid>.suite.yaml` beside
+  the suite (its seeds are paths relative to that directory) and removes it when the run ends.
+
+Tests: `runbook/tests/test_suite/mod.rs` over `runbook/tests/fixtures/test-suite/` (POSIX sh
+programs).
+
 ## Open
 
 - The in-process `runbook run` (without `--detach`), which `story:engine-on-loom-library-entry`
