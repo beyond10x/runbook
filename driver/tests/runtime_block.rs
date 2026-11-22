@@ -1,0 +1,132 @@
+//! The `runtime` block of `driver/examples/sdc/rule-ends.json` and the way `sdc-check-routes`
+//! reads it: a file the check cannot read as a whole is refused with a message that names the
+//! member, and the live tree prints one capability line per member and exits 0.
+
+use serde_json::{json, Value};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for e in fs::read_dir(from).unwrap().flatten() {
+        let (p, q) = (e.path(), to.join(e.file_name()));
+        if p.is_dir() {
+            copy_dir(&p, &q);
+        } else {
+            fs::copy(&p, &q).unwrap();
+        }
+    }
+}
+
+/// A scratch root under `driver/target/` holding what `sdc-check-routes` reads.
+fn scratch_root(tag: &str) -> PathBuf {
+    let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join(format!("runtime_block_{tag}_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    copy_dir(&root().join("protocol/compiled"), &d.join("protocol/compiled"));
+    copy_dir(&root().join("driver/examples/sdc"), &d.join("driver/examples/sdc"));
+    fs::create_dir_all(d.join("docs")).unwrap();
+    fs::copy(root().join("docs/reject-routes.md"), d.join("docs/reject-routes.md")).unwrap();
+    d
+}
+
+fn ends_path(d: &Path) -> PathBuf {
+    d.join("driver/examples/sdc/rule-ends.json")
+}
+
+fn run_routes(d: &Path) -> (i32, String, String) {
+    let o = Command::new(env!("CARGO_BIN_EXE_sdc-check-routes"))
+        .arg("--root")
+        .arg(d)
+        .arg("--doc")
+        .arg(d.join("docs/reject-routes.md"))
+        .output()
+        .unwrap();
+    (o.status.code().unwrap_or(-1), String::from_utf8_lossy(&o.stdout).into(), String::from_utf8_lossy(&o.stderr).into())
+}
+
+/// Runs the check on a copy of the tree whose rule ends `edit` has changed.
+fn refused_after(tag: &str, edit: impl FnOnce(&mut Value)) -> (i32, String, String) {
+    let d = scratch_root(tag);
+    let p = ends_path(&d);
+    let mut v: Value = serde_json::from_str(&fs::read_to_string(&p).unwrap()).unwrap();
+    edit(&mut v);
+    fs::write(&p, serde_json::to_string_pretty(&v).unwrap()).unwrap();
+    let r = run_routes(&d);
+    let _ = fs::remove_dir_all(&d);
+    r
+}
+
+fn assert_refused(r: (i32, String, String), names: &[&str]) {
+    let (code, out, err) = r;
+    assert_eq!(code, 2, "exit 2 (the file cannot be read):\nstdout:\n{out}\nstderr:\n{err}");
+    assert!(!out.contains("routes:") && !out.contains("capability "), "nothing is printed before the refusal:\n{out}");
+    for n in names {
+        assert!(err.contains(n), "the message names `{n}`:\n{err}");
+    }
+}
+
+#[test]
+fn the_old_key_driver_is_refused_and_called_renamed() {
+    let r = refused_after("oldkey", |v| {
+        let rt = v.as_object_mut().unwrap().remove("runtime").unwrap();
+        v.as_object_mut().unwrap().insert("driver".into(), rt);
+    });
+    assert_refused(r, &["runtime", "driver", "renamed"]);
+}
+
+#[test]
+fn a_file_without_a_runtime_block_is_refused() {
+    let r = refused_after("noruntime", |v| {
+        v.as_object_mut().unwrap().remove("runtime");
+    });
+    assert_refused(r, &["runtime"]);
+}
+
+#[test]
+fn a_member_without_provided_by_is_refused() {
+    let r = refused_after("noprov", |v| {
+        v["runtime"]["provided_by"].as_object_mut().unwrap().remove("backstop");
+    });
+    assert_refused(r, &["backstop", "provided_by"]);
+}
+
+#[test]
+fn a_provided_by_entry_for_a_member_that_is_not_there_is_refused() {
+    let r = refused_after("orphan", |v| {
+        v["runtime"]["provided_by"]["ghost"] = json!("loom: nothing, x.rs:1");
+    });
+    assert_refused(r, &["ghost", "provided_by"]);
+}
+
+#[test]
+fn an_unknown_member_of_the_runtime_is_refused() {
+    let r = refused_after("unknown", |v| {
+        v["runtime"]["bogus_member"] = json!(true);
+        v["runtime"]["provided_by"]["bogus_member"] = json!("loom: nothing, x.rs:1");
+    });
+    assert_refused(r, &["bogus_member"]);
+}
+
+#[test]
+fn a_provided_by_value_of_no_known_form_is_refused() {
+    let r = refused_after("form", |v| {
+        v["runtime"]["provided_by"]["backstop"] = json!("pending: docs/loom-bindings.md:106");
+    });
+    assert_refused(r, &["backstop", "loom:", "runner:", "absent:"]);
+}
+
+#[test]
+fn the_live_tree_prints_one_capability_line_per_member_and_exits_0() {
+    let d = scratch_root("live");
+    let (code, out, err) = run_routes(&d);
+    let ends: Value = serde_json::from_str(&fs::read_to_string(ends_path(&d)).unwrap()).unwrap();
+    let _ = fs::remove_dir_all(&d);
+    let members = ends["runtime"].as_object().unwrap().len() - 1;
+    assert_eq!(code, 0, "{out}{err}");
+    assert_eq!(out.lines().filter(|l| l.starts_with("capability ")).count(), members, "{out}");
+}

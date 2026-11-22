@@ -18,5 +18,6 @@ mod reply_bytes;
 mod run_compare;
 mod run_metrics;
 mod run_timeline;
+mod runtime_block;
 mod sdc_node;
 mod unreferenced;

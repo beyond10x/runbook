@@ -252,7 +252,7 @@ not an error.
   from the shared `work/`; others take `revisions` (`epic: "{name}"`), else `none`.
 - On opening, the parent gets one `case_outcome` record per child: `child_case`, `result: open`,
   `subject` = the `case_open` subject, `subject_revision` = the parent's revision of that subject
-  at the moment the child was opened, `observed_at` = `--at`, `producer: runbook`.
+  at the moment the child was opened, `observed_at` = `--at`, `producer: loom-child-case` (a run of `runbook run`: the constant `CHILD_OUTCOME_PRODUCER`, `crates/loom-governor/src/children.rs:26` of Loom `70b0e6e0`; `runbook` is the producer of the `*_opened` records of the open actions).
 - Superseded convention, still what this driver does (coordinator, 2026-11-20). Rule from
   2026-11-21, given to Loom for its child-case runtime and to Canon's story child-outcome-revision:
   the terminal record's `subject_revision` is the revision the child's outcome was computed

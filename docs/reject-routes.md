@@ -167,13 +167,33 @@ After `impl/review-node` merges, the check will report `inert-cap` and `unrecord
 This block is the check's output on this branch. `fix/attempt5-close` removes the first line.
 
 ```text
+shared-cap sdc.bugfix change.fix: 2 retry kinds share max_runs 3
+own-failure sdc.bugfix bug.dissect: a failed run's log does not reach its next run
+own-failure sdc.bugfix change.fix: a failed run's log does not reach its next run
+own-failure sdc.bugfix test.reproduce: a failed run's log does not reach its next run
+shared-cap sdc.direction context.default: reworks after a rejected context_approval count against max_runs 3
+shared-cap sdc.direction roadmap.write: reworks after a rejected roadmap_approval count against max_runs 3
+shared-cap sdc.direction vision.write: reworks after a rejected vision_approval count against max_runs 3
+own-failure sdc.direction context.default: a failed run's log does not reach its next run
+own-failure sdc.direction roadmap.write: a failed run's log does not reach its next run
+own-failure sdc.direction vision.write: a failed run's log does not reach its next run
 negative-result sdc.epic spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+own-failure sdc.intake idea.dissect: a failed run's log does not reach its next run
+own-failure sdc.intake questions.answer: a failed run's log does not reach its next run
+own-failure sdc.intake questions.write: a failed run's log does not reach its next run
+own-failure sdc.intake requirements.normalise: a failed run's log does not reach its next run
 negative-result sdc.plan spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+shared-cap sdc.plan plan.decompose: 4 retry kinds share max_runs 3
+own-failure sdc.plan plan.decompose: a failed run's log does not reach its next run
 negative-result sdc.release acceptance.run release_conformance=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
 negative-result sdc.release release.observe health_observation=unhealthy: no writer's retry_when names it, no rule end covers it, no outcome or write follows
 negative-result sdc.release spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
+shared-cap sdc.spec spec.author: 6 retry kinds share max_runs 4
+own-failure sdc.spec spec.author: a failed run's log does not reach its next run
 negative-result sdc.story spec.gate ess_gate=failed: no writer's retry_when names it, no rule end covers it, no outcome or write follows
-inert-cap sdc.story change.review: max_runs 3 on a node with effect read, which the driver does not cap
+shared-cap sdc.story change.implement: 2 retry kinds share max_runs 3
+shared-cap sdc.story change.implement: reworks after a rejected merge_approval count against max_runs 3
+own-failure sdc.story change.implement: a failed run's log does not reach its next run
 unrecorded-exit sdc.story change.review: an exit its results do not map records nothing, and the case ends stuck
 no-reject-route sdc/close:operating (close): the decider is asked and its reject has no route
 rework-limit sdc.direction/context.approve (context): rejection 3 ends in the stop rework_spent, no end by rule

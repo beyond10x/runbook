@@ -12,7 +12,7 @@
 //!   not-handed       a `retry_when` result whose producer's log does not reach the writer
 //!   own-failure      an LLM writer whose failed run's log does not reach its next run
 //!   shared-cap       one `max_runs` shared by different retry kinds, or by reworks
-//!   inert-cap        a `max_runs` on a node the driver does not cap
+//!   inert-cap        a `max_runs` on a node the runtime does not cap
 //!   unrecorded-exit  an LLM observation with exits its `results` do not map (no record: stuck)
 //!   rework-limit     an approval with no end after its last rework
 //!   no-reject-route  a decision class whose reject has no route
@@ -166,7 +166,7 @@ fn check(protocols: &[Protocol], classes: &Value, ends: &Value) -> Vec<String> {
             }
             // inert-cap
             if b.get("max_runs").is_some() && !capped.contains(&effect(a).as_str()) {
-                f.push(format!("inert-cap {} {a}: max_runs {} on a node with effect {}, which the driver does not cap", p.name, b["max_runs"], effect(a)));
+                f.push(format!("inert-cap {} {a}: max_runs {} on a node with effect {}, which the runtime does not cap", p.name, b["max_runs"], effect(a)));
             }
             // unrecorded-exit
             if is_llm_node(b) && effect(a) != "write" && !kinds_of(b).is_empty() && b["results"].get("*").is_none() {
@@ -279,6 +279,52 @@ fn doc_block(doc: &str) -> Option<Vec<String>> {
     Some(body[..end].lines().map(String::from).filter(|l| !l.is_empty()).collect())
 }
 
+/// The members of the `runtime` block the check knows: five it reads, and `backstop`, the runs an
+/// action gets when its binding names no `max_runs`.
+const RUNTIME_MEMBERS: [&str; 6] = [
+    "capped_effects",
+    "cap_per_kind",
+    "backstop",
+    "rejection_is_arrival",
+    "own_failure_fed_back",
+    "rejection_logs_fed_back",
+];
+
+/// The forms of a `provided_by` value: who holds the capability in a run of `runbook run`.
+const PROVIDED_BY_FORMS: [&str; 3] = ["loom: ", "runner: ", "absent: "];
+
+/// Why the `runtime` block cannot be read as a whole, if it cannot: no block (the old key
+/// `driver` gets the word that it was renamed), a member the check does not know, a member
+/// without a `provided_by` entry, an entry for a member that is not there, or an entry that is
+/// not of the form `loom: <what>, <file:line>`, `runner: ...` or `absent: ...`.
+fn runtime_refusal(ends: &Value) -> Result<(), String> {
+    let Some(rt) = ends["runtime"].as_object() else {
+        return Err(if ends.get("driver").is_some() {
+            "the block `driver` was renamed `runtime`: rename it and add `provided_by`".into()
+        } else {
+            "has no block `runtime` (members and `provided_by`, who holds each in a run of `runbook run`)".into()
+        });
+    };
+    let by = rt.get("provided_by").and_then(Value::as_object).ok_or("`runtime` has no `provided_by` object")?;
+    for k in rt.keys().filter(|k| k.as_str() != "provided_by") {
+        if !RUNTIME_MEMBERS.contains(&k.as_str()) {
+            return Err(format!("`runtime` member {k} is not one the check knows ({})", RUNTIME_MEMBERS.join(", ")));
+        }
+        if !by.contains_key(k) {
+            return Err(format!("`runtime` member {k} has no entry in `provided_by`"));
+        }
+    }
+    for (k, who) in by {
+        if !rt.contains_key(k) {
+            return Err(format!("`provided_by` names {k}, which is not a member of `runtime`"));
+        }
+        if !who.as_str().is_some_and(|w| PROVIDED_BY_FORMS.iter().any(|f| w.starts_with(f))) {
+            return Err(format!("`provided_by` {k} is not `loom: ...`, `runner: ...` or `absent: ...`: {who}"));
+        }
+    }
+    Ok(())
+}
+
 fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
     let ex = root.join("driver/examples/sdc");
     let mut protocols = Vec::new();
@@ -298,7 +344,9 @@ fn load(root: &Path) -> Result<(Vec<Protocol>, Value, Value), String> {
         let name = ir["protocol"].as_str().map(String::from).unwrap_or_else(|| stem.replacen('-', ".", 1));
         protocols.push(Protocol { name, ir, bindings: read(&bp)? });
     }
-    Ok((protocols, read(&ex.join("decision-classes.json"))?, read(&ex.join("rule-ends.json"))?))
+    let ends = read(&ex.join("rule-ends.json"))?;
+    runtime_refusal(&ends).map_err(|e| format!("driver/examples/sdc/rule-ends.json: {e}"))?;
+    Ok((protocols, read(&ex.join("decision-classes.json"))?, ends))
 }
 
 /// One line per member of the `runtime` block of the rule ends, naming who holds it in a run of
@@ -421,7 +469,7 @@ mod tests {
             "not-handed t.p doc.write: retry_when doc_review=rejected, but the log of doc.review does not reach it",
             "shared-cap t.p doc.write: 2 retry kinds share max_runs 3",
             "own-failure t.p doc.write: a failed run's log does not reach its next run",
-            "inert-cap t.p doc.check: max_runs 3 on a node with effect read, which the driver does not cap",
+            "inert-cap t.p doc.check: max_runs 3 on a node with effect read, which the runtime does not cap",
         ];
         for w in want {
             assert!(f.iter().any(|l| l == w), "missing {w} in {f:?}");
