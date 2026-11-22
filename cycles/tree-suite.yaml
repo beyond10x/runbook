@@ -434,3 +434,104 @@ cycles:
           select: [{files: {in: work, glob: ".sdc/llm/001-change.implement/prompt.md"}}, {follow: file}, {as: text}]
           where: {".": {contains: "Your coverage document was refused by the program check: invalid coverage reply: entry 1 (r1): built needs `at`"}}
         - {check: count, name: two-call-lines, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}, {where: {action: change.implement}}], is: 2}
+
+  - name: implement-request-build
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-request.yaml, to: .stub/settings.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: one-request-call, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}, {where: {action: change.implement, implement_mode: request, requests: 1, reply_retries: 0, continuations: 0, applied_exit: 0}}], is: 1}
+        - check: some
+          name: no-tools-in-the-prompt
+          select: [{files: {in: work, glob: ".sdc/llm/001-change.implement/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {contains: "you have no tools, nothing to read"}}
+        - {check: equals, name: reply-schema-members, select: [{files: {in: work, glob: ".sdc/llm/001-change.implement/reply-schema.json"}}, {follow: file}, {as: json}, {path: required}], is: [files, note, findings, remaining]}
+        - {check: equals, name: first-story-tree, select: [{files: {in: work, glob: ".sdc/llm/001-change.implement/implement-inputs.json"}}, {follow: file}, {as: json}, {path: tree.first_story}], is: true}
+
+  - name: implement-request-tests-rework
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/test-failure, to: .stub}, {from: seeds/stub/settings/implement-request.yaml, to: .stub/settings.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: two-request-calls, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}, {where: {action: change.implement, requests: 1}}], is: 2}
+        - check: some
+          name: failing-test-in-the-second-request
+          select: [{files: {in: work, glob: ".sdc/llm/002-change.implement/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {contains: "fixture-failure: the second email of an account counts 2"}}
+        - check: some
+          name: current-files-in-the-second-request
+          select: [{files: {in: work, glob: ".sdc/llm/002-change.implement/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {matches: "(?m)^### impl/tests/billing.rs"}}
+        - check: none
+          name: no-pool-line-in-the-second-request
+          select: [{files: {in: work, glob: ".sdc/llm/002-change.implement/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {matches: "(?m)^slot: job "}}
+
+  - name: implement-request-review-rework
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-request-review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-rejected-approved.yaml, to: .stub/replies/review.yaml}, {from: seeds/stub/replies/implement-review-rework.yaml, to: .stub/replies/implement.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: two-request-calls, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}, {where: {action: change.implement, requests: 1}}], is: 2}
+        - check: some
+          name: rejection-in-the-second-request
+          select: [{files: {in: work, glob: ".sdc/llm/*-change.implement/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {contains: "fixture: the README names no command to run the service"}}
+        - check: some
+          name: readme-replaced
+          select: [{doc: {in: work, path: impl/README.md}}, {as: text}]
+          where: {".": {contains: "cargo run -- 8080"}}
+
+  - name: implement-request-invalid-retry
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-request.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/implement-invalid-retry.yaml, to: .stub/replies/implement.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: one-call-two-requests, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}, {where: {action: change.implement, requests: 2, reply_retries: 1}}], is: 1}
+        - check: some
+          name: refusal-in-the-second-request
+          select: [{files: {in: work, glob: ".sdc/llm/001-change.implement/req-2/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {contains: "The program check refused it: `files` is empty"}}
+
+  - name: implement-request-invalid-named
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-request.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/implement-invalid-named.yaml, to: .stub/replies/implement.yaml}]
+    expect:
+      exit: 4
+      checks:
+        - {check: some, name: three-requests-per-call, select: [{doc: {in: work, path: ".sdc/llm/calls.jsonl"}}, {as: jsonl}], where: {action: change.implement, requests: 3, reply_retries: 2, cause: implement_reply_invalid}}
+        - {check: count, name: nothing-written, select: [{files: {in: work, glob: "impl/src/lib.rs"}}], is: 0}
+
+  - name: implement-request-path-escape
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-request.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/implement-path-escape.yaml, to: .stub/replies/implement.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - check: some
+          name: escape-refused
+          select: [{files: {in: work, glob: ".sdc/llm/001-change.implement/req-2/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {contains: "path \"../escape.rs\": leaves the product tree"}}
+        - {check: count, name: nothing-outside-impl, select: [{files: {in: work, glob: "**/escape.rs"}}], is: 0}
+
+  - name: coverage-complete
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/implement-coverage-review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/coverage-complete.yaml, to: .stub/replies/coverage.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: implemented-once, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement}}], is: 1}
+        - check: some
+          name: review-read-the-coverage
+          select: [{files: {in: work, glob: ".sdc/llm/*-change.review/prompt.md"}}, {follow: file}, {as: text}]
+          where: {".": {matches: "(?m)^- in/coverage.json \\(read-only"}}
+
+  - name: review-invalid-named
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/stub/settings/review.yaml, to: .stub/settings.yaml}, {from: seeds/stub/replies/review-invalid.yaml, to: .stub/replies/review.yaml}]
+    expect:
+      exit: 4
+      checks:
+        - check: some
+          name: stop-names-the-review
+          select: [{files: {in: work, glob: ".sdc/llm/*-change.review/review-check.err"}}, {follow: file}, {as: text}]
+          where: {".": {contains: "9999"}}
