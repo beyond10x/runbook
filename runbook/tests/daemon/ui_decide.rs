@@ -146,7 +146,9 @@ fn the_page_keeps_the_token_in_memory_and_writes_no_markup() {
     }
     // a command carries the bearer and JSON, and never the cookie
     assert!(js.contains("authorization") && js.contains("application/json") && js.contains("credentials: 'omit'"), "the command's headers");
-    assert!(js.contains("/daemon/commands/answer-decision") && js.contains("/daemon/views/open-decisions"));
+    assert!(js.contains("/daemon/commands/answer-decision"));
+    let source = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/web/source.js")).unwrap();
+    assert!(source.contains("/daemon/views/open-decisions"), "the open decisions are read from the daemon's view");
     assert!(js.contains("textContent"), "daemon text reaches the page as a text node");
 }
 

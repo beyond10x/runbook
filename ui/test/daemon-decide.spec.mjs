@@ -75,7 +75,7 @@ function watch(page, {allow401 = false} = {}) {
 // the commands the page sends
 function commands(page) {
   const sent = [];
-  page.on('request', (r) => { if (r.method() === 'POST') sent.push(r); });
+  page.on('request', (r) => { if (r.method() === 'POST' && new URL(r.url()).pathname.startsWith('/daemon/commands/')) sent.push(r); });
   return sent;
 }
 
@@ -117,7 +117,7 @@ test('a run that waits shows its open decisions, and an answer from the page end
   await expect(first).toContainText('Approve the release plan');
   await expect(first.locator('button[data-answer="A"]')).toContainText('yes');
   await expect(first.locator('button[data-answer="B"]')).toContainText('no');
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'none');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'none');
   await expect(page.locator('#dd-token')).toBeHidden();
 
   await page.locator('#dd-by').fill('page-reader');
@@ -161,7 +161,7 @@ test('with a token the page asks for it once, a wrong token shows the daemon\'s 
   const id = await waiting(s, 'Approve with a token');
   await enter(page, s);
   await drawer(page, id);
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'needed');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'needed');
   await expect(page.locator('#dd-token')).toBeVisible();
   await page.locator('#dd-by').fill('guarded-reader');
 
@@ -176,7 +176,7 @@ test('with a token the page asks for it once, a wrong token shows the daemon\'s 
   await expect(page.locator('#dd-msg')).toContainText('401');
   await expect(page.locator('#dd-msg')).toContainText('bearer token is required');
   await expect(page.locator('#dd-token')).toHaveValue('');
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'needed');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'needed');
   await page.waitForTimeout(2500);
   expect(sent).toHaveLength(1);
   expect(await open(s, id)).toHaveLength(2);
@@ -186,7 +186,7 @@ test('with a token the page asks for it once, a wrong token shows the daemon\'s 
   await page.locator('#dd-token').fill(s.token);
   await choose(page, 0, 'A');
   await expect(page.locator('#drawer .dcard')).toHaveCount(1);
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'held');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'held');
   await expect(page.locator('#dd-token')).toBeHidden();
   await choose(page, 0, 'B');
   await expect(page.locator('#drawer .dcard')).toHaveCount(0);
@@ -209,16 +209,17 @@ test('after a reload the page can read, and a command asks for the token again b
   const id = await waiting(s, 'Approve after a reload');
   await enter(page, s);
   await drawer(page, id);
+  await page.locator('#dd-by').fill('before-reload');
   await page.locator('#dd-token').fill(s.token);
   await choose(page, 0, 'A');
   await expect(page.locator('#drawer .dcard')).toHaveCount(1);
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'held');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'held');
   expect(sent).toHaveLength(1);
 
   await page.reload();
   await expect(page.locator('#live')).toHaveClass(/\bon\b/);
   await drawer(page, id, 1);
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'needed');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'needed');
   await expect(page.locator('#dd-token')).toBeVisible();
   await page.locator('#dd-by').fill('after-reload');
   await choose(page, 0, 'B');
@@ -242,7 +243,7 @@ test('the token is in no cookie, no storage, not in the URL, the history state o
   await page.locator('#dd-token').fill(s.token);
   await choose(page, 0, 'A');
   await expect(page.locator('#drawer .dcard')).toHaveCount(1);
-  await expect(page.locator('#dd')).toHaveAttribute('data-token', 'held');
+  await expect(page.locator('#dd-who')).toHaveAttribute('data-token', 'held');
   // a command was sent with the token, so the page holds it now
   await expect.poll(async () => (await open(s, id)).length).toBe(1);
 
@@ -292,8 +293,10 @@ test.describe('on a phone', () => {
     await enter(page, s);
     await drawer(page, id);
     await expect(card(page, 0)).toContainText('Approve on a phone');
-    const box = await card(page, 0).locator('button[data-answer="A"]').boundingBox();
-    expect(box.x + box.width).toBeLessThanOrEqual(PHONE.width);
+    // the drawer slides in (a .3 s transition): wait for it to settle before measuring
+    const button = card(page, 0).locator('button[data-answer="A"]');
+    await expect.poll(async () => { const b = await button.boundingBox(); return b.x + b.width; }).toBeLessThanOrEqual(PHONE.width);
+    const box = await button.boundingBox();
     expect(box.height).toBeGreaterThanOrEqual(24);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.locator('#dd-by').fill('phone');

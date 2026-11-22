@@ -20,6 +20,34 @@ pub struct Ask {
     pub options: Vec<Value>,
 }
 
+/// `{run}` and `{intake}` in a text of an ask are the run's id and intake; every other text stays.
+fn fill(text: &str, request: &StartRequest) -> String {
+    text.replace("{run}", &request.run_id).replace("{intake}", &request.intake)
+}
+
+fn fill_value(v: &Value, request: &StartRequest) -> Value {
+    match v {
+        Value::String(s) => Value::String(fill(s, request)),
+        Value::Array(a) => Value::Array(a.iter().map(|x| fill_value(x, request)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), fill_value(x, request))).collect()),
+        other => other.clone(),
+    }
+}
+
+impl Ask {
+    /// The ask of one run: the request id must be unique per daemon, so a script that runs twice names it with `{run}`.
+    fn filled(&self, request: &StartRequest) -> Ask {
+        Ask {
+            request_id: fill(&self.request_id, request),
+            case_id: self.case_id.clone(),
+            action: self.action.clone(),
+            capability: self.capability.clone(),
+            question: fill(&self.question, request),
+            options: self.options.iter().map(|o| fill_value(o, request)).collect(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Step {
     /// Emit a run-log record with a kind and a body.
@@ -81,6 +109,27 @@ impl StubRuntime {
         ])
     }
 
+    /// The script `runbook serve` gives the preset `stub-decision`: two decision requests at once (the
+    /// question is the run's intake), a wait until both are answered, a record and the outcome
+    /// `approved`. It is the stub's way to hold a run in `WaitingOnDecision` for a client to answer.
+    pub fn decision_script() -> Script {
+        let option = |letter: &str, does: &str| serde_json::json!({"letter": letter, "does": does, "cost": "none", "consequence": {"admits": [], "blocks": []}});
+        let ask = |n: u8, question: &str| Ask {
+            request_id: format!("{{run}}-q{n}"),
+            case_id: "case-1".into(),
+            action: "stub.approve".into(),
+            capability: "approve".into(),
+            question: question.into(),
+            options: vec![option("A", "yes: {intake}"), option("B", "no: {intake}")],
+        };
+        Script::new(vec![
+            Step::Emit { kind: "stub.note".into(), body: serde_json::json!({"note": "scripted run of the stub runtime, waiting on two decisions"}) },
+            Step::Ask(vec![ask(1, "{intake}"), ask(2, "Second look: {intake}")]),
+            Step::Emit { kind: "stub.answered".into(), body: serde_json::json!({"note": "both decisions were answered"}) },
+            Step::End("approved".into()),
+        ])
+    }
+
     fn sleep(&self, ms: u64, cancel: &AtomicBool) -> bool {
         let until = Instant::now() + Duration::from_millis(ms);
         while Instant::now() < until {
@@ -92,18 +141,20 @@ impl StubRuntime {
         !cancel.load(Ordering::SeqCst)
     }
 
-    fn ask(&self, run_id: &str, asks: &[Ask], sink: &dyn EventSink, cancel: &AtomicBool) -> bool {
+    fn ask(&self, request: &StartRequest, asks: &[Ask], sink: &dyn EventSink, cancel: &AtomicBool) -> bool {
+        let run_id = request.run_id.as_str();
         let (tx, rx) = channel::<String>();
         self.answers.lock().unwrap().insert(run_id.to_string(), tx);
+        let asks: Vec<Ask> = asks.iter().map(|a| a.filled(request)).collect();
         let mut pending: HashSet<String> = asks.iter().map(|a| a.request_id.clone()).collect();
         for a in asks {
             sink.decision_requested(DecisionRequest {
-                request_id: a.request_id.clone(),
-                case_id: a.case_id.clone(),
-                action: a.action.clone(),
-                capability: a.capability.clone(),
-                question: a.question.clone(),
-                options: a.options.clone(),
+                request_id: a.request_id,
+                case_id: a.case_id,
+                action: a.action,
+                capability: a.capability,
+                question: a.question,
+                options: a.options,
             });
         }
         let mut go_on = true;
@@ -166,7 +217,7 @@ impl Runtime for StubRuntime {
                     }
                 }
                 Step::Ask(asks) => {
-                    if !self.ask(&request.run_id, asks, sink, cancel) {
+                    if !self.ask(&request, asks, sink, cancel) {
                         return Ok(Finish::Cancelled);
                     }
                 }
