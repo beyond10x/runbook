@@ -171,8 +171,8 @@ runbook serve --principal person:<id>|agent:<id> [--listen ADDR] [--state-dir DI
               [--token-file FILE] [--ui] [--mcp]
 ```
 
-In this version the runtime behind the daemon is a stub: a run is scripted, it records one note
-and ends, and nothing is executed. One preset waits: the runbook `stub-decision` raises two decision
+The runtime behind the daemon is a stub unless `--runtime loom` is given (`docs/engine.md`): on the
+stub a run is scripted, it records one note and ends, and nothing is executed. One preset waits: the runbook `stub-decision` raises two decision
 requests at once (the question is the run's intake, the options are A and B), waits until both are
 answered, records `stub.answered` and ends `approved`; it is how a client or the web page is tried
 against a run in `WaitingOnDecision`. The daemon says so on standard error when it starts. It prints

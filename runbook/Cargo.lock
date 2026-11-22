@@ -1576,7 +1576,7 @@ dependencies = [
 
 [[package]]
 name = "runbook"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "axum",
  "b10x-canon",
@@ -1669,7 +1669,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "sdc-drive"
-version = "0.4.1"
+version = "0.5.0"
 dependencies = [
  "clap",
  "regex",

@@ -110,11 +110,16 @@ Recorded runs (`runs/`) are not in this repository. Agents: [AGENTS.md](AGENTS.m
 ## Status
 
 A prototype. No interface is stable. Releases are source releases at bare-version tags such as
-`0.4.1`; nothing is published to crates.io. The latest is 0.4.1 (2026-11-22).
+`0.5.0`; nothing is published to crates.io. The latest is 0.5.0 (2026-11-22).
 
 - Notes per release: [CHANGELOG.md](CHANGELOG.md), [docs/releases/](docs/releases/) and
   [docs/releasing.md](docs/releasing.md).
-- New in 0.4.1 over 0.4.0 (nothing is unreleased): a fix (a model step of `runbook loom-run` that
+- New in 0.5.0 over 0.4.1 (nothing is unreleased): `runbook run <runbook>` runs a case in process on
+  the Loom engine and the command `runbook loom-run` is gone, `runbook test <suite>` runs a tree
+  suite, the decider and every model node are Rust programs, and `sdc-experiment run` starts runs
+  only with `runbook run`; the replay options of `runbook run` are refused and no measured run has
+  used this tree ([docs/releases/0.5.0.md](docs/releases/0.5.0.md)).
+- New in 0.4.1 over 0.4.0: a fix (a model step of `runbook loom-run` that
   started no adapter costs nothing), the ESS specification and the product checks on ESS 0.97.3 with
   the daemon's synthesized suite committed, the reference check `sdc-check-unreferenced`, the two
   evaluation tools reading a loom-run directory, and UI test children that end with their parent; no
