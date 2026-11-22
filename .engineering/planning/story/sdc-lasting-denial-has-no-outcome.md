@@ -28,7 +28,7 @@ scope:
   path: protocol/sdc-intake.protocol.yaml
 revision: 3
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T10:50:31Z", actor: "human:timo", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T10:50:31Z", actor: "human:operator", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: sdc-lasting-denial-has-no-outcome
 

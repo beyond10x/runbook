@@ -11,7 +11,7 @@ relations:
 - decomposes: initiative:roadmap
 revision: 3
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:34Z", actor: "human:timo", revision: 2}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:34Z", actor: "human:operator", revision: 2}
 ---
 # Epic: flow-limits
 

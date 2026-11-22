@@ -13,15 +13,15 @@ target_language:
 platform:
   value: Linux server process with a web browser client
   status: changed
-  reason: "Timo, 2026-11-21, a server-like application that runs as a daemon; the user works in the browser."
+  reason: "The operator, 2026-11-21, a server-like application that runs as a daemon; the user works in the browser."
 kind:
   value: service
   status: accepted
-  reason: "Timo, 2026-11-21, a server-like application running as a daemon."
+  reason: "The operator, 2026-11-21, a server-like application running as a daemon."
 deployment:
   value: a daemon serving the web UI and a JSON API; several instances can run side by side, each on its own port and data file
   status: changed
-  reason: "Timo, 2026-11-21, a daemon that can run multiple instances at the same time."
+  reason: "The operator, 2026-11-21, a daemon that can run multiple instances at the same time."
 licence:
   value: MIT
   status: changed
@@ -29,4 +29,4 @@ licence:
 implementation_language:
   value: Rust, edition 2021, standard library only
   status: changed
-  reason: 'Timo, 2026-11-21: the whole ecosystem is Rust, so the daemon is written in Rust.'
+  reason: 'The operator, 2026-11-21: the whole ecosystem is Rust, so the daemon is written in Rust.'

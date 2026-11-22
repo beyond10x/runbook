@@ -29,7 +29,7 @@ scope:
   path: scripts/run-trial.sh
 revision: 3
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T10:34:41Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T10:34:41Z", actor: "human:operator", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: bugfix-cycle
 

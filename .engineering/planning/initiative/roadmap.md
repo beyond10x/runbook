@@ -9,7 +9,7 @@ tags:
 - roadmap
 revision: 2
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T02:33:30Z", actor: "human:timo", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T02:33:30Z", actor: "human:operator", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Initiative: roadmap
 

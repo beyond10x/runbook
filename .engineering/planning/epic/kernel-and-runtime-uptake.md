@@ -9,7 +9,7 @@ relations:
 - decomposes: initiative:roadmap
 revision: 2
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:timo", revision: 2}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:35Z", actor: "human:operator", revision: 2}
 ---
 # Epic: kernel-and-runtime-uptake
 

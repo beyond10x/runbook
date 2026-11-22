@@ -20,7 +20,7 @@ scope:
   path: driver/src/bin/sdc-wave-integrate.rs
 revision: 8
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:timo", revision: 4}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:operator", revision: 4}
 ---
 # Story: orchestrate-wave-integrate
 

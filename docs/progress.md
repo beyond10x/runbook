@@ -21,6 +21,7 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.1.4](#014) | release | 2026-11-21 | `7bbdee6` | no experiment yet | no run | - | - |
 | [0.2.0](#020) | release | 2026-11-21 | `6cde564` | no experiment yet | no run | - | - |
 | [0.2.1](#021) | release | 2026-11-21 | `99f5617` | no experiment yet | no run | - | - |
+| [0.3.0](#030) | release | 2026-11-22 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -353,6 +354,32 @@ Tested by: no experiment yet. No run used this tree, so there is no figure for i
 Limits of this measurement:
 
 - No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+
+## 0.3.0
+
+Release, 2026-11-22. Tree: not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation.
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `be5eafa` | the tools run under Loom's program contract and moved to bindings/tools/, the driver unchanged | no run metric affected |
+| `622819b` | the instructions of the agent nodes and the decider are files under instructions/, 40 golden prompts | not measured: no experiment has tested this change |
+| `eae2cca` | Canon 0.10.0 is pinned and every script checks it | no run metric affected |
+| `ea5f0e0` | change.implement as one request behind SDC_IMPLEMENT_MODE, session by default | not measured: no experiment has tested this change |
+| `2e51628` | context, roadmap and release approvals taken by program checks behind SDC_RULE_APPROVALS, off by default | not measured: no experiment has tested this change |
+| `57ec6f9` | change.review on the smallest fact set behind SDC_REVIEW_MODE, session by default | not measured: no experiment has tested this change |
+| `5c2a55f` | change.implement cites its requirements behind SDC_IMPLEMENT_COVERAGE, off by default | not measured: no experiment has tested this change |
+| `f82aa7c` | the tools run ess 0.96.0 whatever ess is on PATH | no run metric affected |
+| `b6f7225` | the runbook command with doctor, list and --version | no run metric affected |
+| `dd3766b` | the bug-fix runbook starts from a ticket and works on a repository of any language | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- The four switches are registered in experiment records that have no run.
 
 ## Experiments in no entry
 

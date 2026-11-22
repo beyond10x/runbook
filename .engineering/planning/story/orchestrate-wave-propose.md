@@ -16,7 +16,7 @@ scope:
   path: driver/examples/sdc/tools/llm-node.sh
 revision: 5
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:timo", revision: 3}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:operator", revision: 3}
 ---
 # Story: orchestrate-wave-propose
 

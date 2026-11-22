@@ -14,7 +14,7 @@ scope:
   path: driver/src/bin/sdc-forge-ci.rs
 revision: 5
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T02:25:42Z", actor: "human:timo", revision: 5, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T02:25:42Z", actor: "human:operator", revision: 5, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: forge-ci-evidence
 

@@ -16,7 +16,7 @@ scope:
   path: driver/src/bin/sdc-backlog-survey.rs
 revision: 7
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:timo", revision: 3}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:operator", revision: 3}
 ---
 # Story: orchestrate-backlog-survey
 

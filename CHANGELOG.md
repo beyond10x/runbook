@@ -7,6 +7,14 @@ bare-version tags (`docs/releasing.md`).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-22
+
+The bindings move onto Loom's program contract and the instructions of the model's calls become
+files, Canon 0.10.0 is pinned, and four changes to what a run does arrive behind switches that are
+off by default. The `runbook` command, the `runbook` plugin, the bug-fix runbook on a ticket and on
+any language, a view file for the run inspector and a list of the finding cycles as data are new.
+The longer note is `docs/releases/0.3.0.md`.
+
 ### Added
 
 - `driver/canon-pin.json` pins Canon 0.10.0: every script resolves one binary (`CANON`, else the cached pinned install) and refuses another `canon --version`, none builds or enters a Canon checkout (`CANON_DIR` and the `$HOME` default are gone), and `runbook doctor` compares the version with the pin (`story:canon-0-10-0-pin`).
@@ -22,7 +30,7 @@ bare-version tags (`docs/releasing.md`).
 - The instructions of the 14 agent actions and of the decider are files under `instructions/`
   (`instructions/<action>.md`, `instructions/shared/`, `instructions/decider/`, `{{name}}`
   placeholders), named by `llm.instructions` in each JSON binding; `llm-node.sh` and `decider.sh`
-  only read and fill them, and `driver/tests/bugfix_prompt.rs` holds all 36 prompts byte for byte
+  only read and fill them, and `driver/tests/bugfix_prompt.rs` holds all 40 prompts byte for byte
   against `instructions/golden/` (`story:instructions-as-files`, `docs/driver.md`, "Instructions").
 - `change.implement` as one request (`story:implement-one-request`), behind the run setting
   `SDC_IMPLEMENT_MODE=session|request` (default `session`, recorded as `implement_mode` in
@@ -141,7 +149,8 @@ bare-version tags (`docs/releasing.md`).
   `implement-coverage-default` re-drives main's stub recording with the switch unset.
 - The approval record of 0.2.1 and the ledger tree of 0.2.1 (99f5617) (`db85df0`).
 - CI: a change of only planning or prose files passes `Documentation validation` without building or testing, and deploys nothing; a docs-site change skips the `sdc-protocol-site` unit tests (`story:ci-planning-only-skip`).
-- Docs tests: the Playwright step ends within 120 s (59 s for 108 tests with four workers, was over 120 s for 126), 60 s per test, ten slowest tests printed (`story:docs-test-budget`).
+- Docs tests: the Playwright step ends within 120 s (49.7 s for 54 tests with four workers on the release tree, the slowest 10.0 s; it was over 120 s before the budget story), 60 s per test, ten slowest tests printed (`story:docs-test-budget`).
+- The three crates, their lock files, `ui/package.json` and the plugin manifests are at 0.3.0; `runbook/Cargo.toml` stays at 0.1.4.
 
 ### Fixed
 

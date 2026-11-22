@@ -12,7 +12,7 @@ relations:
 - decomposes: initiative:roadmap
 revision: 2
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T03:16:34Z", actor: "human:timo", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T03:16:34Z", actor: "human:operator", revision: 2, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Epic: live-view
 

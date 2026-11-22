@@ -672,12 +672,26 @@
     }
   ],
   "release": {
-    "date": "2026-11-21",
-    "notes": "docs/releases/0.2.1.md",
-    "tag": "0.2.1",
-    "version": "0.2.1"
+    "date": "2026-11-22",
+    "notes": "docs/releases/0.3.0.md",
+    "tag": "0.3.0",
+    "version": "0.3.0"
   },
   "releases": [
+    {
+      "date": "2026-11-22",
+      "limits": [
+        "Every limit of 0.2.1 stands: three runs per setting and tree; the story's `tests.run` repeats the interpreted suite; the conformance observation is off by default; the binaries, environment names and protocol ids still say `sdc`; the driver's runtime parts are a temporary copy of what the Loom runtime must provide.",
+        "The YAML bindings are not run by anything yet; the driver runs the JSON files.",
+        "`runbook --version` prints 0.1.4: the `runbook` crate is not among the files of the release version.",
+        "The Go, Python, Java, npm and make rows of the bug-fix runbook's marker-file table are not tested.",
+        "No experiment has tested the four switches."
+      ],
+      "notes": "docs/releases/0.3.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.3.0/docs/releases/0.3.0.md",
+      "summary": "The first minor release after the naming of Runbook. The bindings now run under Loom's program contract as well as under the driver, the model's instructions are files, Canon 0.10.0 is pinned, and four changes to what a run does are merged behind switches that are off by default. The `runbook` command, the `runbook` plugin and the run inspector's view file are new, the bug-fix runbook takes a ticket and a repository in any language, and the local gate now equals the forge. A source release at tag `0.3.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their commits. Read `docs/releases/0.2.1.md` for the release this one follows.",
+      "version": "0.3.0"
+    },
     {
       "date": "2026-11-21",
       "limits": [
@@ -787,7 +801,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "bfc33da942f2c838532269a4c74cbddf260a81629e74f3bd2a77805d92a8f091"
+      "sha256": "fb444d133fb0db9f142710813d664b2e7f47df1c7cb6c1bc6442ffed8f6a4a99"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -824,6 +838,10 @@
     {
       "path": "docs/releases/0.2.1.md",
       "sha256": "2cd139fd0bee25b41610fb898d79b73918022c2e85a2f53073042cf2bfaaeaf1"
+    },
+    {
+      "path": "docs/releases/0.3.0.md",
+      "sha256": "ca622b88f066e1f914b889ab32d5396276cf35e4ea6efe6308e2a46c1491f128"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",

@@ -21,7 +21,7 @@ scope:
   path: protocol/sdc-orchestrate.protocol.yaml
 revision: 4
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:timo", revision: 4}
+- {from: "draft", to: "proposed", at: "2026-11-21T01:30:36Z", actor: "human:operator", revision: 4}
 ---
 # Story: orchestrate-protocol-adopt
 

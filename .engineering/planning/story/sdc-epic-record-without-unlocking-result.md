@@ -25,7 +25,7 @@ scope:
   path: protocol/sdc-epic.protocol.yaml
 revision: 5
 transitions:
-- {from: "draft", to: "proposed", at: "2026-11-21T09:20:29Z", actor: "human:timo", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
+- {from: "draft", to: "proposed", at: "2026-11-21T09:20:29Z", actor: "human:operator", revision: 3, executor: "agent:sdc-planning", correlation: "operator-standing-acceptance-2026-11-21"}
 ---
 # Story: sdc-epic-record-without-unlocking-result
 

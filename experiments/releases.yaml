@@ -349,3 +349,46 @@ entries:
     effect: none
   limits:
   - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
+- id: 0.3.0
+  kind: release
+  version: 0.3.0
+  label: 0.3.0
+  short: Loom tools, 4 switches
+  date: 2026-11-22
+  tree: null
+  tree_note: not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation
+  experiments: []
+  changes:
+  - commit: be5eafa
+    line: the tools run under Loom's program contract and moved to bindings/tools/, the driver unchanged
+    effect: none
+  - commit: 622819b
+    line: the instructions of the agent nodes and the decider are files under instructions/, 40 golden prompts
+    effect: unmeasured
+  - commit: eae2cca
+    line: Canon 0.10.0 is pinned and every script checks it
+    effect: none
+  - commit: ea5f0e0
+    line: change.implement as one request behind SDC_IMPLEMENT_MODE, session by default
+    effect: unmeasured
+  - commit: 2e51628
+    line: context, roadmap and release approvals taken by program checks behind SDC_RULE_APPROVALS, off by default
+    effect: unmeasured
+  - commit: 57ec6f9
+    line: change.review on the smallest fact set behind SDC_REVIEW_MODE, session by default
+    effect: unmeasured
+  - commit: 5c2a55f
+    line: change.implement cites its requirements behind SDC_IMPLEMENT_COVERAGE, off by default
+    effect: unmeasured
+  - commit: f82aa7c
+    line: the tools run ess 0.96.0 whatever ess is on PATH
+    effect: none
+  - commit: b6f7225
+    line: the runbook command with doctor, list and --version
+    effect: none
+  - commit: dd3766b
+    line: the bug-fix runbook starts from a ticket and works on a repository of any language
+    effect: none
+  limits:
+  - 'No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.'
+  - The four switches are registered in experiment records that have no run.
