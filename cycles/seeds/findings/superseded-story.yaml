@@ -1,0 +1,11 @@
+node: change.implement
+rounds:
+  - - key: superseded-story-1
+      type: contradiction
+      cites: [q3, r1]
+      says: q3 and r1 keep the invoices in Postgres, but this build must use only the standard library with no network and take a data file argument, so no Postgres client can be used.
+      options:
+        - store the invoices in the data file (standard library only)
+        - implement the Postgres wire protocol by hand
+      default: store the invoices in the data file (standard library only)
+      scope_changing: false

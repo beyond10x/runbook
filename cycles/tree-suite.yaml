@@ -1,0 +1,270 @@
+format: loom.tree-suite/1
+defaults:
+  protocol: sdc@8
+  bindings: bindings/sdc.yaml
+  seed: [{from: seeds/idea.yaml, to: idea.yaml}]
+  decide:
+    - {take: approve, capability: owner.approve, principal: "person:owner", times: any, optional: true}
+    - {take: approve, capability: change.merge, principal: "person:owner", times: any, optional: true}
+    - {take: approve, capability: release.approve, principal: "person:owner", times: any, optional: true}
+    - {take: close, case: ".", outcome: operating, times: any, optional: true}
+cycles:
+  - name: stub-cycle
+    expect:
+      exit: 0
+      outcome: operating
+
+  - name: finding-agent
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/spec-agent.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 0
+      outcome: operating
+
+  - name: finding-person-stop
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/spec-person.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 3
+
+  - name: offline-sync
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/offline-sync, to: .stub}]
+    expect:
+      exit: 0
+      checks:
+        - {check: none, name: no-offline-hosted, select: [{doc: {in: work, path: findings.yaml}}, {as: text}], where: {".": {contains: offline-hosted}}}
+        - {check: equals, name: deployment-kept, select: [{doc: {in: work, path: context.yaml}}, {path: deployment.value}], is: "a hosted web server reachable over the internet"}
+
+  - name: story-spent
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/story-spent.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 4
+      checks:
+        - {check: count, name: implemented-three-times, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement, exit: 0}}], is: 3}
+
+  - name: superseded-answer
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/superseded-spec.yaml, to: .stub/finding.yaml}, {from: seeds/findings/superseded-story.yaml, to: .stub/finding-2.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: equals, name: q3-superseded, select: [{doc: {in: work, path: questions.yaml}}, {path: "questions[id=q3].status"}], is: superseded}
+        - {check: equals, name: q3-by-q4, select: [{doc: {in: work, path: questions.yaml}}, {path: "questions[id=q3].superseded_by"}], is: q4}
+        - {check: matches, name: q4-answer, select: [{doc: {in: work, path: questions.yaml}}, {path: "questions[id=q4].answer"}], regex: "data file"}
+        - {check: contains, name: r1-cites-q4, select: [{doc: {in: work, path: requirements.yaml}}, {path: "requirements[id=r1].cites"}], is: q4}
+        - {check: lacks, name: r1-lacks-q3, select: [{doc: {in: work, path: requirements.yaml}}, {path: "requirements[id=r1].cites"}], is: q3}
+        - {check: not_matches, name: r1-no-postgres, select: [{doc: {in: work, path: requirements.yaml}}, {path: "requirements[id=r1].text"}], regex: "Postgres|q3"}
+
+  - name: spec-duplicate
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/spec-duplicate.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: finding-added-once, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[*].says"}, {where: {".": {matches: "cancelled invoice"}}}], is: 1}
+        - {check: count, name: spec-written-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.author}}], is: 2}
+
+  - name: trace-gap
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/trace-gap, to: .stub}]
+    expect:
+      exit: 0
+      outcome: operating
+      checks:
+        - {check: equals, name: r3-resolved, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=p-trace-r3].status"}], is: resolved}
+        - {check: equals, name: r3-by-agent, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=p-trace-r3].decided_by"}], is: agent}
+        - {check: equals, name: r3-says, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=p-trace-r3].says"}], is: "r3: traces to no behaviour (cites billing.audit, which declares no command)"}
+        - {check: count, name: spec-written-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.author}}], is: 2}
+        - check: contains
+          name: last-trace-counts
+          select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.trace}}, {pick: last}, {follow: blob}]
+          is: "3 traced to behaviour, 0 constraint, 0 dropped, 0 untraced"
+
+  - name: trace-constraint
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/trace-constraint, to: .stub}]
+    expect:
+      exit: 0
+      checks:
+        - {check: none, name: no-trace-finding, select: [{doc: {in: work, path: findings.yaml}}, {as: text}], where: {".": {contains: p-trace}}}
+        - check: some
+          name: a-trace-counts-the-constraint
+          select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.trace}}, {follow: blob}, {as: text}]
+          where: {".": {contains: "2 traced to behaviour, 1 constraint (r3), 0 dropped, 0 untraced"}}
+
+  - name: spec-review-rework
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/spec-review-reject, to: .stub}]
+    expect:
+      exit: 0
+      outcome: operating
+      checks:
+        - {check: count, name: spec-written-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.author}}], is: 2}
+
+  - name: finding-program
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/storage-conflict, to: .stub}]
+    expect:
+      exit: 0
+      outcome: operating
+
+  - name: offline-decision
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/offline-decision, to: .stub}]
+    expect:
+      exit: 3
+      checks:
+        - {check: equals, name: needs-person, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=\"p-offline-hosted-context.deployment\"].status"}], is: needs_person}
+        - {check: matches, name: basis-q3, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=\"p-offline-hosted-context.deployment\"].basis"}], regex: "decision q3"}
+        - {check: matches, name: basis-both-sides, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=\"p-offline-hosted-context.deployment\"].basis"}], regex: "both sides"}
+        - {check: equals, name: deployment-kept, select: [{doc: {in: work, path: context.yaml}}, {path: deployment.value}], is: "a hosted web server reachable over the internet"}
+
+  - name: finding-person
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/spec-person.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 0
+      outcome: operating
+
+  - name: story-decision
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/story-rounds.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: fresh-allowance-four-runs, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement}}], is: 4}
+
+  - name: story-late-person
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/story-late-person.yaml, to: .stub/finding.yaml}]
+    expect:
+      exit: 0
+      outcome: operating
+
+  - name: trace-gap-drop
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/trace-gap-drop, to: .stub}]
+    expect:
+      exit: 0
+      checks:
+        - {check: equals, name: r3-resolved, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=p-trace-r3].status"}], is: resolved}
+        - {check: equals, name: r3-once-sent-back, select: [{doc: {in: work, path: findings.yaml}}, {path: "findings[id=p-trace-r3].attempts"}], is: 1}
+        - {check: equals, name: r3-dropped, select: [{doc: {in: work, path: requirements.yaml}}, {path: "requirements[id=r3].behaviour"}], is: dropped}
+        - check: contains
+          name: last-trace-drops
+          select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.trace}}, {pick: last}, {follow: blob}]
+          is: "1 dropped (r3), 0 untraced"
+
+  - name: trace-constraint-decided
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/trace-gap-drop, to: .stub}]
+    expect:
+      exit: 0
+      checks:
+        - {check: equals, name: r3-constraint, select: [{doc: {in: work, path: requirements.yaml}}, {path: "requirements[id=r3].behaviour"}], is: constraint}
+        - check: contains
+          name: last-trace-counts-the-constraint
+          select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.trace}}, {pick: last}, {follow: blob}]
+          is: "1 constraint (r3), 0 dropped, 0 untraced"
+
+  - name: scope-answer
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/scope-question, to: .stub}]
+    decide:
+      - {take: approve, case: billing, action: scope.answer, principal: "person:owner", optional: true}
+    expect:
+      exit: 0
+      outcome: operating
+
+  - name: scope-changed
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/scope-question, to: .stub}]
+    decide:
+      - {take: approve, case: billing, action: scope.answer, principal: "person:owner", optional: true}
+    expect:
+      exit: 0
+      checks:
+        - {check: equals, name: q2-changed, select: [{doc: {in: work, path: questions.yaml}}, {path: "questions[id=q2].status"}], is: changed}
+        - {check: equals, name: q2-answer, select: [{doc: {in: work, path: questions.yaml}}, {path: "questions[id=q2].answer"}], is: "the billing clerk or the customer, before it is paid"}
+        - {check: equals, name: q2-by-person, select: [{doc: {in: work, path: questions.yaml}}, {path: "questions[id=q2].answered_by"}], is: "person:owner"}
+        - check: before
+          name: normalise-after-answer
+          select: [{log: {case: billing, event: ActionFinished}}]
+          first: {action: scope.answer}
+          then: {action: requirements.normalise, exit: 0}
+
+  - name: intake-decision
+    pending: true
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/fixtures/scope-question, to: .stub}, {from: seeds/findings/intake-person.yaml, to: .stub/finding.yaml}]
+    decide:
+      - {take: approve, case: billing, action: scope.answer, principal: "person:owner", optional: true}
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: questions-written-once, select: [{log: {case: intake, event: ActionFinished}}, {where: {action: questions.write}}], is: 1}
+
+  - name: review-reject-once
+    pending: true
+    fixtures: review-reject-once
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: implemented-twice, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.implement}}], is: 2}
+        - {check: sequence, name: rejected-then-approved, select: [{records: {case: billing.invoices, kind: code_review}}, {path: result}], is: [rejected, approved]}
+        - {check: all, name: reviewed-by-llm, select: [{records: {case: billing.invoices, kind: code_review}}], where: {producer: llm-review}}
+
+  - name: review-minimal-input
+    pending: true
+    fixtures: review-minimal-input
+    expect:
+      exit: 0
+
+  - name: review-invalid
+    pending: true
+    fixtures: review-invalid
+    expect:
+      exit: 4
+      checks:
+        - {check: count, name: reviewed-once, select: [{log: {case: billing.invoices, event: ActionFinished}}, {where: {action: change.review}}], is: 1}
+        - {check: count, name: no-review-record, select: [{records: {case: billing.invoices, kind: code_review}}], is: 0}
+
+  - name: review-spent
+    pending: true
+    fixtures: review-spent
+    expect:
+      exit: 4
+      checks:
+        - {check: count, name: three-rejections, select: [{records: {case: billing.invoices, kind: code_review}}, {where: {result: rejected}}], is: 3}
+
+  - name: spec-own-default
+    pending: true
+    fixtures: spec-own-default
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}]
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: spec-written-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.author}}], is: 2}
+
+  - name: plan-in-project
+    pending: true
+    fixtures: plan-in-project
+    expect:
+      exit: 0
+      checks:
+        - {check: count, name: decomposed-once, select: [{log: {case: billing.plan, event: ActionFinished}}, {where: {action: plan.decompose}}], is: 1}
+        - {check: none, name: no-decompose-failure, select: [{log: {case: billing.plan, event: ActionFinished}}, {where: {action: plan.decompose}}], where: {exit: {not_equals: 0}}}
+
+  - name: spec-interp-unsupported
+    pending: true
+    fixtures: spec-interp-unsupported
+    expect:
+      exit: 0
+      outcome: operating
+      checks:
+        - {check: count, name: spec-written-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.author}}], is: 2}
+        - {check: count, name: synthesized-twice, select: [{log: {case: billing.spec, event: ActionFinished}}, {where: {action: spec.synthesize}}], is: 2}
+
+  - name: replay-sibling
+    pending: true
+    fixtures: replay-sibling
+    seed: [{from: seeds/idea.yaml, to: idea.yaml}, {from: seeds/findings/story-second.yaml, to: .stub/finding.yaml}]
+    steps:
+      - {do: open}
+      - {do: run, exit: 3}
+      - {do: replay, name: replayed}
+    expect:
+      checks:
+        - {check: all, name: every-case-matches, select: [{step: replayed}, {path: "cases[*]"}], where: {state_matches_log: true, decision_matches_log: true}}

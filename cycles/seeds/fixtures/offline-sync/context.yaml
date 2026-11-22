@@ -1,0 +1,8 @@
+audience: {value: billing clerks of one company, status: default}
+source_language: {value: en, status: default}
+target_language: {value: en, status: default}
+platform: {value: web browsers, status: default}
+kind: {value: service, status: default}
+deployment: {value: a hosted web server reachable over the internet, status: default}
+offline: {value: 'yes: the browser client keeps a local copy of the drafts and syncs when connected', status: default, reason: drafts are written on the road}
+licence: {value: proprietary, status: default}

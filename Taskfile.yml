@@ -54,6 +54,15 @@ tasks:
       - cd driver && cargo build --locked
       - cd runbook && PATH="$PWD/../driver/target/debug:$PATH" cargo test --locked --test cli the_stub_cycle_through_the_engine -- --ignored --nocapture
 
+  test:cycles-loom:
+    desc: "Slow lane: the finding cycles of cycles/tree-suite.yaml through `runbook test` (Loom's run_suite in the runbook process), confinement local, no model call. Builds the driver binaries and runbook first. Prints one line per cycle, the ten slowest and `N of M as expected, P pending`. ONLY=<name>[,<name>...] runs named cycles. Start it in the background, not under `slot`: it waits on the bound programs (docs/cycles-suite.md)."
+    env:
+      SLOT_TIMEOUT: 30m
+    cmds:
+      - cd driver && cargo build --locked --bins
+      - cd runbook && cargo build --locked --bin runbook
+      - RUNBOOK_HOME="$PWD" runbook/target/debug/runbook test cycles/tree-suite.yaml --confinement local {{if .ONLY}}--only {{.ONLY}}{{end}}
+
   test:driver:
     silent: true
     dir: driver

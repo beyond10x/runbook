@@ -37,6 +37,8 @@
 #   --instructions <json>  the `llm` object's instructions: {"task": "<file>", ...}
 #   --adapter <a>  SDC_LLM_ADAPTER        --principal <p>  SDC_PRINCIPAL
 #   --stub-fixtures <dir>  SDC_STUB_FIXTURES    --stub-counter <dir>  SDC_STUB_COUNTER
+#   a workspace directory .stub (seeded by a suite cycle): SDC_STUB_FIXTURES, and its finding.yaml
+#   and finding-2.yaml as SDC_STUB_FINDINGS, when the options and the variables above are not set
 #   --claude-credentials <file>  SDC_CLAUDE_CREDENTIALS, the login of the claude-cli and of the metaharness
 #                    adapter (each copies it into a private directory for its call: a config home, a
 #                    HOME; without it they read CLAUDE_CONFIG_DIR or HOME, which Loom does not give)
@@ -89,6 +91,13 @@ if [[ -n ${LOOM_CASE:-} ]]; then
   [[ -n ${opt[--principal]:-} ]] && export SDC_PRINCIPAL=${opt[--principal]}
   [[ -n ${opt[--stub-fixtures]:-} ]] && export SDC_STUB_FIXTURES=${opt[--stub-fixtures]}
   [[ -n ${opt[--stub-counter]:-} ]] && export SDC_STUB_COUNTER=${opt[--stub-counter]}
+  # A suite cycle's seeds (cycles/tree-suite.yaml): the workspace directory .stub is the stub's
+  # fixture directory, and .stub/finding.yaml, .stub/finding-2.yaml are the findings the stub
+  # raises (the old SDC_STUB_FIXTURES, SDC_STUB_FINDINGS). Absent, the tool runs as before.
+  if [[ -d $PWD/.stub ]]; then
+    [[ -n ${SDC_STUB_FIXTURES:-} ]] || export SDC_STUB_FIXTURES=$PWD/.stub
+    [[ -n ${SDC_STUB_FINDINGS:-} ]] || export SDC_STUB_FINDINGS=$PWD/.stub/finding.yaml:$PWD/.stub/finding-2.yaml
+  fi
   [[ -n ${opt[--claude-credentials]:-} ]] && export SDC_CLAUDE_CREDENTIALS=${opt[--claude-credentials]}
   # The retry records as the driver's SDC_FEEDBACK: kind, result, subject and the log, here the
   # tail Loom keeps of the cited blob, written beside the document's copy under .sdc/loom-feedback/.

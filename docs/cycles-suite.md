@@ -87,3 +87,67 @@ not selected neither runs nor is counted.
 
 A cycle added to the script stands in its own `if sel <name>; then` ... `fi` block, and one that
 reads another cycle's output gets an entry in `needs`.
+
+## The same cycles as a Loom tree suite: `cycles/tree-suite.yaml`
+
+`runbook test cycles/tree-suite.yaml --confinement local` runs the file in the `runbook` process
+(Loom's `run_suite`, format `loom.tree-suite/1`); the run holds `runbook` and the bound programs
+only. `task test:cycles-loom` runs it. `cycles/suite.yaml` and `scripts/run-finding-cycles.sh` stay as
+they are until the table below has no `pending` and no `not converted` left.
+
+Every entry of `cycles/suite.yaml` is in one of three states:
+
+- **converted**: a cycle in `cycles/tree-suite.yaml`, run through `runbook test`, as expected.
+- **pending**: a cycle in the file marked `pending: true`. A cycle whose step or member the pinned
+  Loom does not run yet prints `pending, waits for story:<id>`; a cycle that runs prints
+  `pending, still failing: <difference>`, which is the evidence that the mark is right, and
+  `pending, passing` when it can move to converted.
+- **not converted**: not in the file; the class says which kind of Loom story it needs.
+
+How the environment switches of the old driver are said in the file, with no environment passed
+through:
+
+- Fixture directories and the `SDC_STUB_FINDINGS` list are seeds into `.stub/` of the workspace
+  (`.stub/finding.yaml`, `.stub/finding-2.yaml`, the rest of the directory is the fixture
+  directory); `bindings/tools/llm-node.sh` reads that directory when it runs under Loom.
+- Seeds are copies in `cycles/seeds/`: Loom refuses a seed that is a symbolic link.
+- `cycles/bindings` is a symbolic link to `../bindings`, because the suite's `bindings:` path stays
+  inside the suite's directory.
+- Approvals of person actions are `decide:` entries in `defaults`, bound to the principal
+  `person:owner`.
+- Scripted replies of a model node (`SDC_*_REPLIES`, `SDC_LLM_ADAPTER`, `SDC_LLM_NODES`) are the
+  `fixtures:` member of a cycle, which the pinned Loom does not run yet.
+
+### Full-cycle entries (29)
+
+| entry | state | reason |
+|---|---|---|
+| stub-cycle | converted | |
+| finding-agent | converted | |
+| finding-person-stop | converted | |
+| offline-sync | converted | the absence of a finding is `check: none` with a `where`, because an absent file selects no value |
+| story-spent | converted | the run count is the `change.implement` runs that ended with exit 0 (3); a fourth action finishes with no exit when the allowance is spent |
+| superseded-answer | converted | |
+| spec-duplicate | converted | |
+| trace-gap | converted | |
+| trace-constraint | converted | |
+| spec-review-rework | converted | |
+| finding-program | pending | stops at the `amend.upstream` handoff, exit 3: waits for story:handoff-when-a-program-decides |
+| offline-decision | pending | same stop at the handoff: waits for story:handoff-when-a-program-decides |
+| finding-person | pending | the person's decision is written into `findings.yaml` between two runs; the suite has no step that writes a workspace file (gap, no Loom story yet) |
+| story-decision | pending | same: a person's decision written into `findings.yaml` between two runs (gap) |
+| story-late-person | pending | same (gap) |
+| trace-gap-drop | pending | same (gap) |
+| trace-constraint-decided | pending | same (gap) |
+| scope-answer | pending | stops at `scope.answer` of `root.intake`: a program on a person action's approval is in Loom's drafting, no story id yet |
+| scope-changed | pending | same: `scope.answer` as a program on a person action's approval |
+| intake-decision | pending | same: `scope.answer` as a program on a person action's approval |
+| review-reject-once | pending | scripted model replies: waits for story:engine-agents-section (`fixtures`) |
+| review-minimal-input | pending | same, story:engine-agents-section |
+| review-invalid | pending | same, story:engine-agents-section |
+| review-spent | pending | same, story:engine-agents-section |
+| spec-own-default | pending | same, story:engine-agents-section |
+| plan-in-project | pending | same, story:engine-agents-section |
+| spec-interp-unsupported | pending | same, story:engine-agents-section |
+| replay-sibling | pending | story:engine-agents-section (`fixtures`) and story:tree-replay-command (`replay`) |
+| pool-wait | not converted | class: environment of a bound program (a stand-in `slot` first on `PATH`); the format has no member for it |
