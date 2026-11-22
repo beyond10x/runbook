@@ -16,10 +16,10 @@ const root = path.join(process.env.SDC_UI_FIXTURE_DIR || path.join(here, 'fixtur
 test.beforeEach(({}, info) => test.skip(info.project.name !== 'wide', 'pure functions: one project is enough'));
 
 const ERR = 'story:access is draft; a story may move to: proposed, archived';
-const bindings = {$artifacts: {findings: 'findings.yaml'}, 'plan.decompose': {argv: ['llm-node.sh', 'plan.decompose'], llm: {model: 'claude-haiku-5-5'}, max_runs: 3}, 'amend.upstream': {argv: ['sdc-tool.sh', 'amend', 'plan']}};
+const bindings = {$artifacts: {findings: 'findings.yaml'}, 'plan.decompose': {argv: ['agent-node', 'plan.decompose'], llm: {model: 'claude-haiku-5-5'}, max_runs: 3}, 'amend.upstream': {argv: ['sdc-tool.sh', 'amend', 'plan']}};
 const run = (n, exit) => [{event: 'action_started', action: 'plan.decompose'}, {event: 'action_finished', action: 'plan.decompose', exit, log: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'}];
 const events = (fails) => [{event: 'opened'}, ...Array.from({length: fails}, (_, i) => run(i, '1')).flat(),
-  {event: 'awaiting_person', next: [{action: 'amend.upstream', command: 'sdc-drive run', decides: 'decide the open findings'}]}].map((e, i) => ({seq: i, at: '2026-11-21T01:33:53Z', ...e}));
+  {event: 'awaiting_person', next: [{action: 'amend.upstream', command: 'a-runner run', decides: 'decide the open findings'}]}].map((e, i) => ({seq: i, at: '2026-11-21T01:33:53Z', ...e}));
 
 function makeCase(findingStatus, fails) {
   fs.rmSync(root, {recursive: true, force: true});

@@ -93,7 +93,7 @@ export const scenarios = [
   {name: 'decider', fixture: 'decider', speed: 3,
     truth: {running: [], waiting: {action: 'roadmap.approve', who: 'Decider', detail: 'claude-haiku-5-5', holder: 'Decider claude-haiku-5-5'}, completion: 'waiting'},
     tasks: ['name who decides, for which action']},
-  {name: 'person', fixture: 'person', anchor: true, write: true,
+  {name: 'person', fixture: 'person', anchor: true, decide: true,
     truth: {running: [], waiting: {action: 'context.approve', who: you, holder: you, say: 'Waiting on you: nothing runs until this is decided'}, completion: 'waiting'},
     tasks: ['find why the run waits and take the decision']},
   {name: 'closed', store: path.join(RUNS, 'trial-todo-1/store'),

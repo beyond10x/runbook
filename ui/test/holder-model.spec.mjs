@@ -15,9 +15,10 @@ const ir = {protocol: {id: 'sdc.direction', revision: 1}, actions: {'context.app
 const bindings = {'context.approve': {argv: ['true'], subject: 'context', produces: 'context_approval'}};
 const mk = (events, extra = {}) => ({id: 'IDEA-1.direction', rel: 'd', tree: 'T', depth: 1, parent: 'IDEA-1', ir, bindings, case: {protocol: 'sdc.direction', artifacts: {context: {revision: 't2a77fb422aa60348'}}},
   evidence: {}, evaluations: {}, times: {1: 1000}, events: events.map((e, i) => ({seq: i, at: '2026-11-21T01:23:55Z', ...e})), ...extra});
-const next = [{action: 'context.approve', command: 'sdc-drive --case-dir /s approve --at "$(date)" --capability owner.approve --principal operator', decides: 'approve context revision t2a77fb422aa60348 (read /s/work/context.yaml)'}];
+const next = [{action: 'context.approve', command: 'a-runner --case-dir /s approve --at "$(date)" --capability owner.approve --principal operator', decides: 'approve context revision t2a77fb422aa60348 (read /s/work/context.yaml)'}];
 const waiting = mk([{event: 'opened'}, {event: 'awaiting_authority', next}]);
-const noDriver = {records: [], drivers: {T: {file: false, alive: false, lock_alive: false, observed: true}}};
+const notLive = {records: [], liveness: {state: 'history', why: 'a case store of the old driver: nothing runs it'}};
+const unknownLive = {records: [], liveness: {state: 'unknown', why: 'the runner writes no record of a live process'}};
 const reject = {at: '2026-11-21T01:26:40Z', principal: 'decider:haiku', case: 'IDEA-1.direction', what: 'context.approve', revision: 't2a77fb422aa60348', decision: 'reject', model: 'claude-haiku-5-5',
   reasons: ["The context's deployment is 'on the user's own machine', but requirement r4 fixes the deployment as a hosted web server.", 'The deployment amendment only settles offline use.']};
 const context = {
@@ -27,34 +28,34 @@ const context = {
   licence: {value: 'Proprietary', status: 'default', reason: 'No input names a licence.'},
 };
 
-test('UXF-010: a wait, a stop and the end are said in words; with no driver attached the clocks stand at the last event', () => {
-  let st = nowState([waiting], noDriver, {decisions: []}, 5000);
+test('UXF-010: a wait, a stop and the end are said in words; with no way to tell the run is live the clocks stand at the last event', () => {
+  let st = nowState([waiting], notLive, {decisions: []}, 5000);
   expect(st.idle).toEqual({t: 1000});
   let html = renderNow(st, 5000);
   expect(html).toContain('Waiting on you: nothing runs until this is decided');
-  expect(html).toMatch(/no driver attached, last activity [\d: APM]+/);
+  expect(html).toMatch(/not live, last activity [\d: APM]+/);
   // the KPI clock ends at the last event, not at now
   const kp = computeKpis([waiting], {decisions: []}, [], st, 9000);
   expect(kp[0].live).toBe(null);
   expect(kp[0].sub.live).toBe(null);
-  // a driver attached (its lock pid runs): the clock runs, nothing said about the driver's absence
-  st = nowState([waiting], {records: [], drivers: {T: {file: false, alive: false, lock_alive: true, lock_pid: 7, observed: true}}}, {decisions: []}, 5000);
-  expect(st.idle).toBe(null);
-  expect(renderNow(st, 5000)).not.toContain('no driver attached');
+  // a run whose liveness is unknown says so, and its clock stands as well
+  st = nowState([waiting], unknownLive, {decisions: []}, 5000);
+  expect(st.idle).toEqual({t: 1000});
+  expect(renderNow(st, 5000)).toMatch(/live state unknown, last activity [\d: APM]+/);
   const stuck = mk([{event: 'opened'}, {event: 'stuck', next: []}], {times: {1: 2000}});
-  const s = renderNow(nowState([stuck], noDriver, null, 5000), 5000);
+  const s = renderNow(nowState([stuck], notLive, null, 5000), 5000);
   expect(s).toMatch(/Stopped: stuck since [\d: APM]+.*no step is admissible/);
-  expect(s).toContain('no driver attached');
+  expect(s).toContain('not live');
   const closed = mk([{event: 'opened'}, {event: 'terminable', next: []}, {event: 'terminated', outcome: 'operating'}], {parent: null, depth: 0});
-  const cst = nowState([closed], noDriver, null, 5000);
+  const cst = nowState([closed], notLive, null, 5000);
   expect(cst.idle).toBe(null);
   const c = renderNow(cst, 5000);
   expect(c).toContain('Closed');
-  expect(c).not.toContain('no driver attached');
+  expect(c).not.toContain('last activity');
 });
 
 test('UXF-011: every open decision says who holds it, how long it waits and what taking it does', () => {
-  let st = nowState([waiting], noDriver, {decisions: []}, 5000);
+  let st = nowState([waiting], notLive, {decisions: []}, 5000);
   expect(st.waiting[0].holder).toMatchObject({who: 'person', label: 'You (operator)'});
   expect(st.waiting[0].holder.note).toMatch(/decider setting is not recorded/);
   let html = renderNow(st, 5000);
@@ -62,10 +63,10 @@ test('UXF-011: every open decision says who holds it, how long it waits and what
   expect(html).toContain('You (operator)');
   expect(html).toContain('Approving records owner.approve for context @ t2a77fb42');
   // the decider refused it: the person holds it, and the card says why
-  st = nowState([waiting], noDriver, {decisions: [reject]}, 5000);
+  st = nowState([waiting], notLive, {decisions: [reject]}, 5000);
   expect(st.waiting[0].holder.note).toMatch(/^the decider \(claude-haiku-5-5\) refused it: The context's deployment/);
   // a decider call in progress holds it, with its progress
-  st = nowState([waiting], {...noDriver, records: [{kind: 'decider', rel: 'decider/002-context.approve', case: 'IDEA-1.direction', action: 'context.approve', started: 1200, model: 'claude-haiku-5-5', turns: 3}]}, {decisions: [reject]}, 5000);
+  st = nowState([waiting], {...notLive, records: [{kind: 'decider', rel: 'decider/002-context.approve', case: 'IDEA-1.direction', action: 'context.approve', started: 1200, model: 'claude-haiku-5-5', turns: 3}]}, {decisions: [reject]}, 5000);
   expect(st.waiting[0].holder).toMatchObject({who: 'decider', label: 'Decider claude-haiku-5-5'});
   html = renderNow(st, 5000);
   expect(html).toContain('Decider claude-haiku-5-5');
@@ -85,7 +86,7 @@ test('UXF-012: one decision over several fields lists them, with each field’s 
   expect(d.fields).toMatchObject({deployment: 'decider would change this', audience: 'decider kept this'});
   expect(deciderPerField(f, {decision: 'approve', reasons: ['Consistent with the requirements.']}).whole).toBe('approved as a whole');
   // the Now band's waiting card names one decision and its fields
-  const st = nowState([waiting], noDriver, {decisions: []}, 5000);
+  const st = nowState([waiting], notLive, {decisions: []}, 5000);
   const html = renderNow(st, 5000, [{kind: 'approve', case: 'IDEA-1.direction', action: 'context.approve', artifact: {json: context}}]);
   expect(html).toContain('1 decision over 4 fields');
   expect(html).toContain('2 default, 1 accepted, 1 changed');
@@ -97,7 +98,7 @@ const settings = (kind, model = null) => ({format: 'sdc.run-settings/1', decider
 const stopped = {at: '1970-01-01T00:00:04Z', by: 'operator', reason: 'looking at the context', verdict_at_stop: 'awaiting_authority', case: 'IDEA-1.direction'};
 
 test('the settings record says who holds a decision, in place of "not recorded"', () => {
-  const at = (s) => nowState([waiting], noDriver, {decisions: [], settings: s}, 5000).waiting[0].holder;
+  const at = (s) => nowState([waiting], notLive, {decisions: [], settings: s}, 5000).waiting[0].holder;
   expect(at(settings('haiku', 'claude-haiku-5-5'))).toMatchObject({who: 'decider', label: 'Decider claude-haiku-5-5'});
   expect(at(settings('haiku', 'claude-haiku-5-5')).note).toMatch(/run-settings\.jsonl, escalate stop/);
   expect(at(settings('approve'))).toMatchObject({who: 'rule', label: 'Rule (approve)'});
@@ -105,15 +106,15 @@ test('the settings record says who holds a decision, in place of "not recorded"'
   expect(at(settings('model', 'claude-opus-5-5'))).toMatchObject({who: 'decider', label: 'Decider claude-opus-5-5'});
   for (const k of ['model', 'haiku', 'approve', 'person']) expect(at(settings(k)).note).not.toMatch(/not recorded/);
   // a decider holds it: no Decide control, the head names the decider
-  const html = renderNow(nowState([waiting], noDriver, {decisions: [], settings: settings('haiku', 'claude-haiku-5-5')}, 5000), 5000);
+  const html = renderNow(nowState([waiting], notLive, {decisions: [], settings: settings('haiku', 'claude-haiku-5-5')}, 5000), 5000);
   expect(html).toContain('Held by the decider: it decides when the run continues');
   expect(html).not.toContain('Decide</button>');
   // the decider's own decision on it still wins (it refused or escalated: the person holds it)
-  expect(nowState([waiting], noDriver, {decisions: [reject], settings: settings('haiku')}, 5000).waiting[0].holder.who).toBe('person');
+  expect(nowState([waiting], notLive, {decisions: [reject], settings: settings('haiku')}, 5000).waiting[0].holder.who).toBe('person');
 });
 
 test('a stopped run: said in the past tense, no Decide control, the KPI clock ends at the stop', () => {
-  const st = nowState([waiting], noDriver, {decisions: [], settings: settings('haiku', 'claude-haiku-5-5'), stopped}, 4000);
+  const st = nowState([waiting], notLive, {decisions: [], settings: settings('haiku', 'claude-haiku-5-5'), stopped}, 4000);
   expect(st.mode).toBe('stopped');
   const html = renderNow(st, 4000);
   expect(html).toMatch(/Stopped by operator at [\d: APM]+: looking at the context/);
@@ -129,7 +130,7 @@ test('a stopped run: said in the past tense, no Decide control, the KPI clock en
   expect(kp[0].fail.stops.map((s) => [s.c.id, s.actions, s.ms])).toEqual([['IDEA-1.direction', ['context.approve'], 3000]]);
   expect(renderKpis(kp, 9000)).toContain('data-goto="d" data-seq="1"');
   // without the file nothing changes
-  expect(nowState([waiting], noDriver, {decisions: []}, 4000).mode).toBe('waiting');
+  expect(nowState([waiting], notLive, {decisions: []}, 4000).mode).toBe('waiting');
 });
 
 test('who a principal is: a person only for a person principal', () => {
@@ -146,13 +147,13 @@ test('who a principal is: a person only for a person principal', () => {
   expect(principalOf('operator')).toMatchObject({kind: 'person', legacy: true});
   // autopilot (autonomy A5): the holder is the decider, the head never "waiting on you"
   const auto = {...settings('haiku', 'claude-haiku-5-5'), autonomy: 'A5'};
-  const st = nowState([waiting], noDriver, {decisions: [], settings: auto}, 5000);
+  const st = nowState([waiting], notLive, {decisions: [], settings: auto}, 5000);
   expect(st.waiting[0].holder).toMatchObject({who: 'decider', label: 'Decider claude-haiku-5-5', autopilot: true});
   const html = renderNow(st, 5000);
   expect(html).toContain('No decision is pending: the decider takes the next one when the run continues');
   expect(html).not.toMatch(/\bperson\b|Waiting on you|You \(/i);
   // even after the decider escalated
-  expect(nowState([waiting], noDriver, {decisions: [{...reject, decision: 'escalate'}], settings: auto}, 5000).waiting[0].holder.who).toBe('decider');
+  expect(nowState([waiting], notLive, {decisions: [{...reject, decision: 'escalate'}], settings: auto}, 5000).waiting[0].holder.who).toBe('decider');
 });
 
 test('waiting on a person: only the spans a person held; neutral when a person holds the decisions', () => {
@@ -162,13 +163,11 @@ test('waiting on a person: only the spans a person held; neutral when a person h
   const run = (kind) => ({decisions: [], settings: kind ? settings(kind, 'claude-haiku-5-5') : null});
   const stops = personStops([c], run('haiku'), 100000, null);
   expect(stops.map((s) => [s.seq, s.ms, s.open])).toEqual([[4, 30000, true]]);
-  const attached = {records: [], drivers: {T: {file: false, alive: false, lock_alive: true, lock_pid: 7, observed: true}}};
-  const kp = (kind, live = attached) => computeKpis([c], run(kind), [], nowState([c], live, run(kind), 100000), 100000)[0];
-  expect(kp('haiku').fail.stops).toHaveLength(1);
-  expect(kp('person').fail).toBe(null);
-  expect(kp(null).fail).toBe(null);
-  expect(kp('person').sub.text).toBe('0:30');
-  // no driver attached: the open wait ends at the last event
-  expect(kp('person', noDriver).sub.text).toBe('0:00');
-  expect(renderKpis([kp('haiku')], 100000)).toContain('should be 0');
+  // the open wait runs to now when the Now state has no standing clock; the page sets one when nothing says the run is live
+  const kp = (kind, hold = false) => { const ns = nowState([c], notLive, run(kind), 100000); return computeKpis([c], run(kind), [], hold ? {...ns, idle: null} : ns, 100000)[0]; };
+  expect(kp('haiku', true).fail.stops).toHaveLength(1);
+  expect(kp('person', true).fail).toBe(null);
+  expect(kp(null, true).fail).toBe(null);
+  expect(kp('person', true).sub.text).toBe('0:30');
+  expect(kp('person').sub.text).toBe('0:00');
 });

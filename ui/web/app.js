@@ -1,7 +1,7 @@
 import {renderGraph} from './graph.js';
 import {renderExplain} from './explain.js';
 import {renderPhases, renderAutonomy, renderSecurity, renderMetrics, phaseStates, esc} from './lenses.js';
-import {setView, scopeAnswer} from './view.js';
+import {setView} from './view.js';
 import {caseState, evalAt, evalEventAt, lastSeq, describeEvent, EVENT_CLASS} from './model.js';
 import {patch} from './morph.js';
 import {renderDrawer} from './inbox.js';
@@ -21,7 +21,7 @@ const PHONE = matchMedia(window.SDC_PHONE);
 const S = {sources: [], src: Number(q0.get('source') || 0), meta: null, cases: new Map(), run: null,
   sel: null, node: null, atSeq: null, tab: q0.get('tab') || (() => { try { return localStorage.getItem('sdc-ui.tab'); } catch { return null; } })() || 'explain', zoom: 1, fit: true, showReads: false,
   scopeCase: false, follow: true, live: 'connecting', lastChange: null, exists: true,
-  inbox: {items: [], write: false, principal: null}, drawer: q0.get('drawer') === '1', form: {}, editing: null, busy: null, results: {}, proc: null, dirty: false, toast: null,
+  inbox: {items: []}, drawer: q0.get('drawer') === '1',
   liveData: null, offset: 0, diff: null,
   // the right panel: a rail of tab names until a tab is opened; remembered across loads
   panel: q0.get('tab') || q0.get('node') ? true : !PHONE.matches && localStorage.getItem('sdc-ui.panel') === 'open', feedCls: localStorage.getItem('sdc-ui.feed') || '', facts: null, kpis: null, feed: []};
@@ -66,7 +66,7 @@ async function loadTree(only) {
   for (const c of t.cases) S.cases.set(c.rel, c);
   for (const k of Array.from(S.cases.keys())) if (!t.present.includes(k)) S.cases.delete(k);
 }
-async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); if (S.run?.proc) S.proc = S.run.proc; setRunSettings(S.run?.settings); }
+async function loadRun() { S.frozenAt = null; S.run =await api(`/api/run?source=${S.src}`).catch(() => null); setRunSettings(S.run?.settings); }
 async function loadLive() { const t = Date.now(); const d = await api(`/api/live?source=${S.src}`).catch(() => null); if (d) { S.liveData = d; S.offset = d.now - (t + Date.now()) / 2; } if (d && !d.fs?.present) await loadFacts(); }
 // without fs/changes.jsonl the feed reads the planning artifacts' front matter (an older server has no /api/workfacts)
 async function loadFacts() { S.facts = await api(`/api/workfacts?source=${S.src}`).catch(() => ({files: []})); }
@@ -337,7 +337,7 @@ function renderEvents(c, at) {
 
 function renderDecisions() {
   const n = S.inbox.items.length;
-  const tag = S.inbox.tag || (S.inbox.write ? `Canon decides · the driver records · you decide as ${S.inbox.principal}` : 'Canon decides · the driver records · this page only reads');
+  const tag = S.inbox.tag || 'Canon decides · the run records · this page only reads';
   // the header may cut it (a stub run's label takes its room): the title keeps it readable
   if ($('#tagline').textContent !== tag) { $('#tagline').textContent = tag; $('#tagline').title = tag; }
   const btn = $('#decbtn');
@@ -350,8 +350,6 @@ function renderDecisions() {
     if (daemon) renderDaemonDrawer(S, $('#drawer')); else patch($('#drawer'), renderDrawer(S));
     // a phone scrolls the list with the keyboard too (axe scrollable-region-focusable)
     if (PHONE.matches) $('#drawer .dr-list')?.setAttribute('tabindex', '0');
-    const pl = $('#proclog');
-    if (pl) pl.scrollTop = pl.scrollHeight;
   }
   // focus follows the work: opening the drawer moves focus to its first decision control, closing it
   // back to the control that opened it
@@ -361,48 +359,12 @@ function renderDecisions() {
     first?.focus({preventScroll: false});
   } else if (!S.drawer && S.drawerWas && S.drawerFrom?.isConnected) S.drawerFrom.focus({preventScroll: true});
   S.drawerWas = S.drawer;
-  const t = $('#toast');
-  t.className = S.toast ? `show ${S.toast.ok ? 'ok' : 'bad'}` : '';
-  if (S.toast) patch(t, esc(S.toast.text));
-}
-
-async function doAct(kind, el) {
-  const item = S.inbox.items.find((i) => i.id === el.dataset.item);
-  let body;
-  if (kind === 'approve') body = {kind, rel: item.rel, action: item.action, revision: item.revision, sha: item.artifact?.sha};
-  else if (kind === 'answer') {
-    const key = `q:${item.rel}:${item.qid}`;
-    const pick = S.form[`${key}:pick`] ?? item.default;
-    body = {kind, rel: item.rel, qid: item.qid, sha: item.sha, revision: item.revision, answer: pick === '__other' ? (S.form[`${key}:other`] || '').trim() : pick};
-  } else if (kind === 'context') {
-    const key = `ctx:${item.rel}:${el.dataset.field}`;
-    const cur = item.artifact?.json?.[el.dataset.field]?.value;
-    body = {kind, rel: item.rel, field: el.dataset.field, value: (S.form[`${key}:value`] ?? cur ?? '').trim(), note: (S.form[`${key}:note`] || '').trim(), sha: item.artifact?.sha, revision: item.revision};
-  } else body = {kind: 'continue'};
-  const id = item?.id || 'continue';
-  S.busy = id;
-  schedule();
-  let r;
-  try {
-    r = await fetch(`/api/act?source=${S.src}`, {method: 'POST', headers: {'content-type': 'application/json', 'x-sdc-ui': '1'}, body: JSON.stringify(body)}).then((x) => x.json());
-  } catch (e) { r = {ok: false, error: String(e)}; }
-  S.busy = null;
-  const msg = {approve: `Approved ${item?.subject || ''} ${item?.revision || ''}`, answer: `Answered ${item?.qid}${r.approved ? ` as ${r.answered_by} · ${item.approval?.capability || scopeAnswer()?.action} approved` : ''}`, context: `Changed ${body.field}`, continue: `Started ${String(r.argv?.[0] || 'the run').split('/').pop()} (pid ${r.pid})`}[kind];
-  S.results[id] = r.ok ? {ok: true, msg, output: r.output} : {ok: false, error: r.error || 'refused', output: r.output};
-  S.toast = r.ok ? {ok: true, text: msg + (kind !== 'continue' ? ' · Continue run when you are done deciding' : '')} : {ok: false, text: r.error || 'refused'};
-  clearTimeout(S.toastT);
-  S.toastT = setTimeout(() => { S.toast = null; schedule(); }, 6000);
-  if (r.ok) { if (kind !== 'continue') S.dirty = true; else S.dirty = false; S.editing = null; }
-  await loadInbox();
-  if (kind === 'continue') await loadRun();
-  schedule();
 }
 
 function renderRun() {
   const r = S.run;
-  const live = S.proc?.tail?.length ? `<div class="sect">Continue run · ${esc(S.proc.name)} <span class="muted">${S.proc.running ? 'running' : `exited ${esc(S.proc.exit)}`}</span></div><pre class="proc">${esc(S.proc.tail.slice(-200).join('\n'))}</pre>` : '';
-  if (!r || !r.hasLog) return live + `<p class="muted">No run.log next to the store (${esc(r?.runDir)}).</p>`;
-  return live + `<div class="sect">run.log <span class="muted">${esc(r.runDir)}</span></div>${r.console ? `<pre class="pred">${esc(r.console)}</pre>` : ''}
+  if (!r || !r.hasLog) return `<p class="muted">No run.log next to the store (${esc(r?.runDir)}).</p>`;
+  return `<div class="sect">run.log <span class="muted">${esc(r.runDir)}</span></div>${r.console ? `<pre class="pred">${esc(r.console)}</pre>` : ''}
     <div class="cmds">${r.commands.map((c, i) => `<details data-key="cmd${i}" class="cmdrow"><summary><span class="n">${i + 1}</span><code>${esc(c.cmd.replace(/--case-dir \S+/, (m) => (m.length > 60 ? '--case-dir …' + m.slice(-40) : m)))}</code>${c.verdict ? `<span class="pill">${esc(c.verdict)}</span>` : ''}<span class="muted">exit ${esc(c.exit)}</span></summary><pre class="pred">${esc(c.out)}</pre></details>`).join('')}</div>`;
 }
 
@@ -503,11 +465,6 @@ document.addEventListener('click', async (ev) => {
     return render();
   }
   if (t.closest('#drclose') || t.id === 'scrim') { S.drawer = false; return render(); }
-  const actEl = t.closest('[data-act]');
-  if (actEl && !actEl.disabled) { ev.preventDefault(); return doAct(actEl.dataset.act, actEl); }
-  const editEl = t.closest('[data-edit]');
-  if (editEl && !editEl.disabled) { S.editing = editEl.dataset.edit; return render(); }
-  if (t.closest('[data-cancel]')) { S.editing = null; return render(); }
   const node = t.closest('[data-id]');
   if (node && t.closest('#graph')) { S.node = S.node === node.dataset.id ? null : node.dataset.id; if (S.node) openPanel('explain'); return render(); }
   const a = t.closest('a,[data-case],[data-seq],[data-phase],[data-tab],[data-node]');
@@ -544,12 +501,6 @@ document.addEventListener('click', async (ev) => {
 });
 document.addEventListener('input', (ev) => {
   if (ev.target.id === 'scrub') return setIdx(Number(ev.target.value));
-  const f = ev.target.dataset?.form;
-  if (f) {
-    S.form[f] = ev.target.value;
-    if (/:other$/.test(f)) S.form[f.replace(/:other$/, ':pick')] = '__other';
-    if (ev.target.type === 'radio' || /:other$/.test(f)) schedule();
-  }
 });
 document.addEventListener('change', async (ev) => {
   const id = ev.target.id;
@@ -634,22 +585,8 @@ function connect() {
     drain();
   });
   es.onerror = () => { S.live = 'reconnecting'; schedule(); };
-  es.addEventListener('proc', (m) => {
-    const d = JSON.parse(m.data);
-    if (d.source !== S.src) return;
-    S.proc = S.proc && S.proc.name === d.name && S.proc.running ? S.proc : {name: d.name, running: true, exit: null, tail: []};
-    S.proc.tail = [...(S.proc.tail || []), ...d.lines].slice(-400);
-    schedule();
-  });
-  es.addEventListener('procend', (m) => {
-    const d = JSON.parse(m.data);
-    if (d.source !== S.src || !S.proc) return;
-    S.proc.running = false; S.proc.exit = d.exit;
-    pending.full = true; drain();
-  });
   // a run that appeared under --runs, a run stopped or resumed, or one that started or ended: the run picker follows
   es.addEventListener('sources', () => { pending.sources = true; drain(); });
-  es.addEventListener('act', (m) => { if (JSON.parse(m.data).source === S.src) { pending.run = true; drain(); } });
 }
 
 (async () => {

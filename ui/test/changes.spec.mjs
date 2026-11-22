@@ -96,7 +96,7 @@ test('KPI strip: five KPIs, "not recorded" where the run has none, each links to
   // the fixture has decisions.jsonl and no llm-calls.jsonl
   await expect(page.locator('#kpis .k-cost .k-p', {hasText: 'work'}).locator('.k-nr')).toHaveText('not recorded');
   await expect(page.locator('#kpis .k-cost .k-p', {hasText: 'decider'})).toContainText('$0.004');
-  // no driver attached (nothing is played): elapsed stands at the last event, it does not tick
+  // nothing says the run is live (nothing is played): elapsed stands at the last event, it does not tick
   await expect(page.locator('#kpis .k-time .k-v [data-since]')).toHaveCount(0);
   const t = page.locator('#kpis .k-time .k-v');
   const v1 = await t.textContent();

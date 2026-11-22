@@ -1,6 +1,6 @@
 // One server per viewport project over the adapter's scenarios: played fixture runs (the driver bot)
 // in ux/out/fixtures/<viewport>/, recorded runs as they are. The person scenario's store is
-// writable (--write-only), so the screen-only user can take the decision on a copy.
+// not acted on (the inspector reads; the decision is only shown, with the line on where it is answered).
 //
 // The measurement is deterministic (decision D-005): the server, the fixture player and the page
 // share one clock (vclock.mjs, page.clock) that only the loop moves, STEP_MS per step from T0; the
@@ -80,8 +80,7 @@ export async function start(viewport, slot = 'loop') {
     stores.push(path.join(dir, s.name, 'store'));
     if (s.fixture === 'person' || s.fixture === 'changes') await new Promise((r) => spawn('node', ['test/fixture-run.mjs', s.fixture, path.join(dir, s.name)], {cwd: UI, stdio: 'ignore', env}).on('exit', r));
   }
-  const person = scenarios.find((s) => s.write);
-  const srv = spawn('node', ['server.mjs', '--port', String(port), '--principal', 'ux-bot', '--write-only', path.join(dir, person.name, 'store'), ...stores], {cwd: UI, stdio: ['ignore', 'pipe', 'pipe'], env});
+  const srv = spawn('node', ['server.mjs', '--port', String(port), ...stores], {cwd: UI, stdio: ['ignore', 'pipe', 'pipe'], env});
   procs.push(srv);
   const base = await serverUp(srv, viewport);
 
