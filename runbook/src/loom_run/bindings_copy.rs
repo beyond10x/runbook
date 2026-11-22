@@ -6,9 +6,6 @@
 //! The YAML is edited structurally (`serde_yaml::Value`), never by text replacement. A file that no
 //! setting touches is copied byte for byte.
 
-// Nothing calls this yet: R1's loop wires it (interfaces.md). Remove the allow with that change.
-#![allow(dead_code)]
-
 use crate::loom_run::decider;
 use serde_json::Value;
 use serde_yaml::{Mapping, Value as Yaml};
@@ -23,6 +20,9 @@ pub const SETTINGS_KEYS: [&str; 8] = ["login_file", "autonomy", "decider", "adap
 pub const ROLES: [&str; 4] = ["writer", "implement", "review", "other"];
 const ROLE_KEYS: [&str; 3] = ["model", "max_turns", "max_budget_usd"];
 const ADAPTERS: [&str; 2] = ["metaharness", "claude-cli"];
+/// What a checkout holds beside `bindings/` that the tools of the copy read from their root
+/// (`$here/../..`): the instruction files, the fixtures and the rule file of the driver.
+const COMPANIONS: [&str; 2] = ["instructions", "driver/examples"];
 /// The program of a model node.
 const MODEL_TOOL: &str = "llm-node.sh";
 /// The person action whose answer the decider cannot give (a question; see the decisions page).
@@ -125,9 +125,11 @@ fn read_plan(settings: &Value) -> Result<Plan, String> {
 /// `settings` to the copy; returns the root bindings file `dst/<root_protocol_name>.yaml` that
 /// `tree open --bindings` is given.
 ///
-/// Besides `dst`, two things are made beside it, because the tools find their root two levels
+/// Besides `dst`, things are made beside it, because the tools find their root two levels
 /// above their own directory (`dst/tools/..` is `dst`, its parent is the run directory):
-/// `<dst>/../instructions` (a copy of `<src>/../instructions`, when that exists) and, when the
+/// `<dst>/../instructions` and `<dst>/../driver/examples` (copies of `<src>/../instructions` and
+/// `<src>/../driver/examples`, when they exist: the fixtures and `rule-ends.json` the tools read)
+/// and, when the
 /// settings name a login file, the link `<dst>/../login` to it; the link's path is what the
 /// `--claude-credentials` option of the model nodes holds. An unknown key in `settings` is refused
 /// by name before anything is written. The login file's path is in no error and no return value.
@@ -141,13 +143,19 @@ pub fn materialise(src: &Path, dst: &Path, root_protocol_name: &str, settings: &
     if plan.login.is_some() && std::fs::symlink_metadata(beside.join("login")).is_ok() {
         return Err(format!("{}: exists", beside.join("login").display()));
     }
-    let instructions_src = src.parent().map(|p| p.join("instructions")).filter(|p| p.is_dir());
-    if instructions_src.is_some() && beside.join("instructions").exists() {
-        return Err(format!("{}: exists", beside.join("instructions").display()));
+    let companions: Vec<(PathBuf, PathBuf)> = COMPANIONS
+        .iter()
+        .filter_map(|rel| {
+            let from = src.parent()?.join(rel);
+            from.is_dir().then(|| (from, beside.join(rel)))
+        })
+        .collect();
+    if let Some((_, to)) = companions.iter().find(|(_, to)| to.exists()) {
+        return Err(format!("{}: exists", to.display()));
     }
     copy_dir(src, &dst)?;
-    if let Some(from) = &instructions_src {
-        copy_dir(from, &beside.join("instructions"))?;
+    for (from, to) in &companions {
+        copy_dir(from, to)?;
     }
     let login_argument = match &plan.login {
         None => None,
@@ -173,7 +181,11 @@ fn copy_dir(src: &Path, dst: &Path) -> Result<(), String> {
         let from = entry.path();
         let to = dst.join(entry.file_name());
         let kind = entry.file_type().map_err(|e| format!("{}: {e}", from.display()))?;
-        if kind.is_dir() {
+        if kind.is_symlink() {
+            // A link stays a link: the fixtures hold links to directories and to programs.
+            let target = std::fs::read_link(&from).map_err(|e| format!("{}: {e}", from.display()))?;
+            std::os::unix::fs::symlink(&target, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+        } else if kind.is_dir() {
             copy_dir(&from, &to)?;
         } else {
             std::fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;

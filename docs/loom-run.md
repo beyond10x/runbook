@@ -12,7 +12,7 @@ runbook loom-run --run <name> --runs-dir <dir> --loom <b10x-loom> --loom-sha256 
   --spend-ledger <file> --cap-micro-usd <n> --max-llm-calls <n> --max-wall-seconds <n>
 ```
 
-Every option is required and none has a default. `--confinement` is passed unchanged to every
+Every option is required and none has a default. The settings file has one format, `runbook.loom-run-settings/1` (`docs/loom-run-settings.md`). `--confinement` is passed unchanged to every
 `tree run` (`local` is unconfined and declared insecure; `substrate` is Substrate's linux adapter).
 
 ## What it does
@@ -54,9 +54,14 @@ last 1500 characters of its standard error in `outcome.json`; the runner does no
 A denied decision that comes back (same case, action, revision and text) ends the run as `denied`
 (exit 9) without asking the decider again. An approved decision that comes back is an `error`.
 
-The decider is chosen from `settings.json` key `decider` (see `runbook/src/loom_run/decider.rs`).
-With no `decider` key every decision ends the run as `stopped: decider`. `{"kind": "scripted",
-"answers": [...]}` is the test double the tests use.
+The decider is chosen from the settings key `decider` (`docs/loom-run-settings.md`; what each kind
+answers is in `docs/loom-run-decisions.md`). With no `decider` key every decision ends the run as
+`stopped: decider`. `{"kind": "scripted", "answers": [...]}` is the test double the tests use. For
+the kinds `model` and `rule` the runner sets `decider.program` to `bindings/tools/decider.sh` of the
+run's own copy and, for `model`, finds `sdc-reply` on its `PATH` when `decider.reply_bin` is not
+given; `jq`, `yq` and `rsync` have to be on that `PATH` too (`decider.sh` exits 127 without them and
+the run ends as `stopped: decider`). The bindings copy is made by `bindings_copy::materialise` with
+the settings as read, before `tree open`, and Loom is given the root file it returns.
 
 ## The environment of the child
 

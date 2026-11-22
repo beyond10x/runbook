@@ -6,13 +6,10 @@ use std::path::Path;
 
 /// What the decider is given for one entry of `decisions[]`.
 #[derive(Debug)]
-#[allow(dead_code)] // the fields are read by the deciders of `decider.rs`, built by unit R2
 pub struct DecisionRequest<'a> {
     /// The entry of `decisions[]`, unchanged (case, capability, action, kind, path, revision,
     /// subject, command, decides).
     pub decision: &'a Value,
-    /// The run's settings, as read (the login file's path included).
-    pub settings: &'a Value,
     /// The run directory.
     pub run_dir: &'a Path,
     /// The workspace of the tree (the run directory's `work`).

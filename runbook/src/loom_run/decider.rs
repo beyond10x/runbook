@@ -6,9 +6,6 @@
 //! `ApproveAction` or `Approve` is an approval; everything else (a question, a finding, `Close`,
 //! `Handoff`, an unknown kind) ends in `CannotDecide` naming why.
 
-// Nothing calls this yet: R1's loop wires it (interfaces.md). Remove the allow with that change.
-#![allow(dead_code)]
-
 use crate::loom_run::decide::{DecisionRequest, Decider, RefusingDecider, ScriptedDecider, Verdict};
 use serde_json::{json, Map, Value};
 use std::io::Read;

@@ -53,7 +53,7 @@ impl World {
 
     /// Writes the settings file with the login file named and `extra` merged in.
     pub fn settings(&self, extra: &Value) {
-        let mut v = json!({"login_file": self.login_path().display().to_string(), "principal": "person:owner"});
+        let mut v = json!({"login_file": self.login_path().display().to_string()});
         for (k, x) in extra.as_object().unwrap() {
             v[k] = x.clone();
         }
@@ -147,17 +147,20 @@ pub fn spent(world: &World) -> u64 {
     v["spent_micro_usd"].as_u64().unwrap()
 }
 
-fn code(o: &Output) -> i32 {
+pub fn code(o: &Output) -> i32 {
     o.status.code().unwrap_or(-1)
 }
 
-fn stderr(o: &Output) -> String {
+pub fn stderr(o: &Output) -> String {
     String::from_utf8_lossy(&o.stderr).into_owned()
 }
 
 fn grep_tree(dir: &Path, needle: &str, hits: &mut Vec<PathBuf>) {
     for e in std::fs::read_dir(dir).unwrap() {
         let p = e.unwrap().path();
+        if std::fs::symlink_metadata(&p).unwrap().file_type().is_symlink() {
+            continue;
+        }
         if p.is_dir() {
             grep_tree(&p, needle, hits);
         } else if std::fs::read(&p).map(|b| b.windows(needle.len()).any(|w| w == needle.as_bytes())).unwrap_or(false) {
@@ -206,12 +209,13 @@ fn a_full_run_writes_the_settings_and_no_login_path_or_content() {
     let dir = w.run_dir("r1");
     let settings: Value = serde_json::from_str(&std::fs::read_to_string(dir.join("settings.json")).unwrap()).unwrap();
     assert_eq!(settings["login_file"], "named");
-    assert_eq!(settings["principal"], "person:owner");
     for needle in [w.login_path().display().to_string(), "LOGIN-FILE-MARKER-4711".to_owned(), "loginhome".to_owned()] {
         let mut hits = Vec::new();
         grep_tree(&dir, &needle, &mut hits);
         assert!(hits.is_empty(), "{needle} found in {hits:?}");
     }
+    // The one place the path is: the link the bindings copy makes for the model nodes.
+    assert_eq!(std::fs::read_link(dir.join("login")).unwrap(), w.login_path());
 }
 
 // 3. the environment of the child
@@ -592,6 +596,20 @@ fn the_end_stores_tree_status_and_tree_verify() {
 }
 
 #[test]
+fn an_error_before_the_tree_is_opened_keeps_its_own_reason_and_runs_no_verify() {
+    let w = World::new("early");
+    w.one_decision_tree();
+    w.scripted_approve();
+    std::fs::remove_file(w.root.join("bindings/sdc.yaml")).unwrap();
+    let o = w.run(&w.args("r1", 1_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    let outcome = w.outcome("r1");
+    assert_eq!(outcome["outcome"], "error");
+    assert!(outcome["reason"].as_str().unwrap().contains("the root bindings file is missing"), "{outcome}");
+    assert!(!w.run_dir("r1").join("tree-verify.json").exists());
+}
+
+#[test]
 fn a_failing_tree_verify_makes_the_outcome_an_error() {
     let w = World::new("verify");
     w.one_decision_tree();
@@ -706,7 +724,7 @@ fn the_protocol_files_are_copied_into_the_run_directory_before_tree_open() {
     let w = World::new("protocopy");
     w.one_decision_tree();
     w.scripted_approve();
-    w.fake.hook("tree_open", "default", "mkdir -p \"$store\"\nls protocols > \"$D/protocols-at-open\"\n");
+    w.fake.hook("tree_open", "default", "mkdir -p \"$store\" && echo {} > \"$store/tree.json\"\nls protocols > \"$D/protocols-at-open\"\n");
     let o = w.run(&w.args("r1", 1_000_000));
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     for name in ["sdc.protocol.yaml", "sdc-intake.protocol.yaml"] {

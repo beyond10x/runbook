@@ -63,7 +63,10 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     }
     check_name(&args.run)?;
     let (root_name, _) = args.root_protocol.split_once('@').filter(|(n, r)| !n.is_empty() && !r.is_empty()).ok_or("--root-protocol is not name@revision")?;
-    let settings_value = settings::read(&args.settings)?;
+    let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
+    let given = settings::normalise(&settings::read(&args.settings)?, args)?;
+    let mut settings_value = given.clone();
+    settings::fill_decider(&mut settings_value, &run_dir, std::env::var_os("PATH").as_deref())?;
     let decider = match decide::scripted_from_settings(&settings_value) {
         Some(d) => d?,
         None => decider::from_settings(&settings_value)?,
@@ -75,13 +78,12 @@ pub fn run_with(args: &Args, clock: &dyn Clock, cancel: &AtomicBool) -> Result<O
     if !args.bindings.is_dir() {
         return Err(format!("--bindings {} is not a directory", args.bindings.display()));
     }
-    let run_dir = std::path::absolute(args.runs_dir.join(&args.run)).map_err(|e| format!("--runs-dir: {e}"))?;
     if run_dir.exists() {
         return Err(format!("the run directory {} exists", run_dir.display()));
     }
     std::fs::create_dir_all(&args.runs_dir).map_err(|e| format!("--runs-dir: {e}"))?;
     std::fs::create_dir(&run_dir).map_err(|e| format!("the run directory {}: {e}", run_dir.display()))?;
-    let redacted = settings::with_run(&settings::redacted(&settings_value), args, &sha);
+    let redacted = settings::with_run(&settings::redacted(&given), args, &sha);
     let mut sinks: Vec<Box<dyn EventSink>> = Vec::new();
     let mut runner = Runner {
         args,
@@ -405,7 +407,6 @@ impl Runner<'_> {
             let verdict = {
                 let request = DecisionRequest {
                     decision: &decision,
-                    settings: &self.settings,
                     run_dir: &self.run_dir,
                     workspace: &self.workspace,
                     budget_micro_usd: reservation.micro_usd,
@@ -444,14 +445,14 @@ impl Runner<'_> {
     /// as it stands after `tree verify`.
     fn finish(&mut self, outcome: Outcome) -> Outcome {
         let mut outcome = outcome;
-        if self.store.exists() && outcome != Outcome::StoppedSignal {
+        if self.store.join("tree.json").exists() && outcome != Outcome::StoppedSignal {
             let never = AtomicBool::new(false);
-            let deadline = self.clock.now_secs().saturating_add(120);
             let clock = self.clock;
             let store = ["--store".to_owned(), self.store.display().to_string()];
             let call = |words: &[&str]| {
                 let mut argv: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
                 argv.extend(store.iter().cloned());
+                let deadline = clock.now_secs().saturating_add(120);
                 child::run(&self.args.loom, &argv, &self.env, &self.run_dir, &never, deadline, &|| clock.now_secs())
             };
             let status = call(&["tree", "status"]);
@@ -470,7 +471,7 @@ impl Runner<'_> {
                             stderr_tail: tail_of(&s.stderr),
                         };
                     }
-                    if ve != 0 {
+                    if ve != 0 && !matches!(outcome, Outcome::Error { .. } | Outcome::LoomFailed { .. }) {
                         outcome = Outcome::Error { reason: format!("tree verify exited {ve} (the run had ended: {})", outcome.label()) };
                     }
                     (se, ve)
@@ -568,7 +569,7 @@ fn command_argv(words: &[String], approve: bool, principal: Option<&str>) -> (Ve
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
+#[allow(dead_code)] // fake.rs is shared with the integration binary; this unit test uses part of it
 #[path = "../../tests/loom_run/fake.rs"]
 mod fake;
 

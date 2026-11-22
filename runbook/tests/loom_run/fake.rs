@@ -101,7 +101,7 @@ impl Fake {
     pub fn open_ok(&self) -> &Fake {
         self.answer("protocols_add", "default", "installed\n", 0);
         self.answer("tree_open", "default", "{\"root\":\"r\"}\n", 0);
-        self.hook("tree_open", "default", "mkdir -p \"$store\"\n");
+        self.hook("tree_open", "default", "mkdir -p \"$store\" && echo {} > \"$store/tree.json\"\n");
         self.answer("tree_status", "default", "{\"cases\":[],\"format\":\"loom.tree-status/1\"}\n", 0);
         self.answer("tree_verify", "default", "{\"cases\":1}\n", 0);
         self

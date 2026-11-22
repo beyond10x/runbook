@@ -93,7 +93,7 @@ the settings with `serde_yaml`, structurally, to the copy. The committed `bindin
 written (a test copies a read-only source and compares bytes). A file no setting touches is copied
 byte for byte; a file one touches is re-serialised (comments are not kept). All 66 bindings are
 in the copy; a test counts them before and after and compares every member except the rewritten
-ones. Beside `dst` it puts `instructions/` (the tools find it two directories above their own) and,
+ones. Beside `dst` it puts `instructions/` and `driver/examples/` (the tools read their root, two directories above their own: the instruction files, the fixtures and `rule-ends.json`) and,
 when a login file is named, the link `login`. An unknown settings key, at any level, is refused by
 name before anything is written.
 

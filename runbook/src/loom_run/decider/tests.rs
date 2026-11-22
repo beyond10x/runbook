@@ -73,8 +73,8 @@ fn env_with_path() -> Vec<(String, String)> {
     vec![("PATH".to_owned(), SYSTEM_PATH.to_owned())]
 }
 
-fn ask_with(decider: &dyn Decider, w: &World, settings: &Value, decision: &Value, budget: u64, env: &[(String, String)]) -> Verdict {
-    decider.decide(&DecisionRequest { decision, settings, run_dir: &w.run, workspace: &w.work, budget_micro_usd: budget, child_env: env })
+fn ask_with(decider: &dyn Decider, w: &World, _settings: &Value, decision: &Value, budget: u64, env: &[(String, String)]) -> Verdict {
+    decider.decide(&DecisionRequest { decision, run_dir: &w.run, workspace: &w.work, budget_micro_usd: budget, child_env: env })
 }
 
 fn ask(w: &World, settings: &Value, decision: &Value, budget: u64) -> Verdict {

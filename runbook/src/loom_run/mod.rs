@@ -186,11 +186,6 @@ impl Outcome {
     }
 }
 
-/// The text of the error of a part that is declared and not built yet.
-pub fn not_built(what: &str) -> String {
-    format!("not built: {what}")
-}
-
 /// `runbook loom-run`.
 pub fn command(args: Args) -> ExitCode {
     match run_loop::run(&args) {

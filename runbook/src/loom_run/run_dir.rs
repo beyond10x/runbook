@@ -257,7 +257,7 @@ fn load_facts(run_dir: &Path) -> HashMap<String, ProtocolFacts> {
 /// One line of a case's run log the projection uses.
 #[derive(Clone, Debug)]
 enum LineEvent {
-    Opened { protocol: String },
+    Opened,
     Finished { action: String, exit: i64, evidence: Vec<String>, principal: Option<String> },
     Terminated { outcome: String },
 }
@@ -290,7 +290,7 @@ fn read_runlog(store: &Path, case: &str) -> Option<CaseLog> {
         match v["kind"].as_str().unwrap_or("") {
             "CaseOpened" => {
                 log.protocol = v["protocol"].as_str().unwrap_or("").to_string();
-                log.lines.push(Line { seq, at, event: LineEvent::Opened { protocol: log.protocol.clone() } });
+                log.lines.push(Line { seq, at, event: LineEvent::Opened });
             }
             "AuthorityRecorded" => {
                 if v["decision"] == "Allow" {
@@ -681,7 +681,7 @@ impl RunDirWriter {
             for l in &log.lines {
                 let w = self.seen.get(&(id.clone(), l.seq)).copied().unwrap_or(window);
                 match &l.event {
-                    LineEvent::Opened { .. } => {
+                    LineEvent::Opened => {
                         let rev: Value = revision.parse::<i64>().map_or_else(|_| json!(revision), |n| json!(n));
                         emit(&mut events, &mut observed, json!({"event": "opened", "at": l.at, "protocol": {"id": protocol_id, "revision": rev}}), w.0 * 1000);
                     }

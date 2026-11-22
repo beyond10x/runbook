@@ -24,7 +24,7 @@ scope:
   path: runbook/tests/cli.rs
 - confidence: cited
   path: runbook/tests/loom_run
-revision: 4
+revision: 5
 ---
 # Story: runbook-loom-run-command
 
@@ -128,3 +128,50 @@ Tests: `runbook/tests/loom_run/run_dir.rs`; page: `docs/loom-run-directory.md`.
   (request 5 of unit R3): the writer reads the model from the settings or the cost record.
 - `runbook parity summarize --run-dir <dir>` as one option (request 6) is nobody's in this wave: the
   two-option form works.
+
+## The decider and the bindings copy (unit R2, `rb3-loom-run-decider`)
+
+Page: `docs/loom-run-decisions.md`; tests: `runbook/src/loom_run/decider/tests.rs` and
+`runbook/src/loom_run/bindings_copy/tests.rs`.
+
+- The page holds the decisions table: per driver decision kind the inputs, the allowed answers,
+  whether it is a `decisions[]` entry at Loom `2c0a6f48`, and what a run does; kinds Loom cannot ask
+  are listed as "not reachable through `tree` today". Check: `grep -c 'Not reachable through'
+  docs/loom-run-decisions.md` is 3 or more.
+- `decider::from_settings` starts the bindings copy's `decider.sh` with a self-built environment
+  (`PATH`, `HOME`, `SDC_*` only), the per-call budget as `SDC_DECIDER_MAX_BUDGET_USD`, a timeout that
+  ends the process group, and answers `CannotDecide` for anything missing, unparsable or with an exit
+  other than 0. Check: `cargo test --locked --bin runbook loom_run::decider`.
+- Autonomy below A5 ends in `CannotDecide {reason: "reserved for a person: ..."}`; at A5 the decider
+  answers as `decider:model`. Check: `only_autonomy_a5_lets_the_decider_answer`.
+- The call limit (`decider.max_calls`) ends the run's decisions with `CannotDecide`; `escalate: final`
+  takes `best`, `stop` waits for a person. Check: the `call_limit` and `escalate` tests.
+- `bindings_copy::materialise` rewrites the copy only (principal of the decider's person steps, model,
+  turns and budget per role, adapter, `--claude-credentials`), keeps all 66 bindings, never writes
+  the committed `bindings/*.yaml`, refuses an unknown settings key by name, and never holds the login
+  file's path in a result. Check: `cargo test --locked --bin runbook loom_run::bindings_copy`.
+- The copy loads in the pinned `b10x-loom` (`tree open`): slow-lane check by hand, documented in
+  `docs/loom-run-decisions.md` under "Checks".
+
+## The three together (integration, unit R1)
+
+Page: `docs/loom-run-settings.md`; tests: `runbook/tests/loom_run/decider.rs` and `settings.rs`.
+
+- One settings format, `runbook.loom-run-settings/1`: `docs/loom-run-settings.md` lists every key the
+  loop, the decider and the bindings copy read, its type and default, and what `sdc-experiment run`
+  writes today and must change ("R4 must change"). Check: test
+  `the_file_r4_writes_today_is_refused_for_the_decider_kind_it_does_not_name`.
+- A settings member that repeats an option (`loom.sha256`, `loom.confinement`, `loom.cap_micro_usd`,
+  `max_llm_calls`, `max_wall_seconds`, `run`, `format`) must agree with it, or the run is refused
+  naming the member. Check: `a_member_that_repeats_an_option_must_agree_with_it_and_is_refused_by_name`.
+- A run with two model steps and an approval answered by the model decider (a fake `decider.sh` in the
+  bindings copy) ends delivered, with a run directory the writer made (`run-settings.jsonl`,
+  `llm-calls.jsonl`, `decisions.jsonl`, `rounds.jsonl`, `status.json`): test
+  `two_model_steps_and_an_approval_by_the_model_decider_end_delivered_with_the_run_directory`.
+- A run stopped by the spend cap writes `run-stopped.json` with cause `spend_cap` and no `status.json`:
+  test `a_run_with_the_model_decider_is_stopped_by_the_spend_cap_and_the_directory_says_so`.
+- A decider that cannot decide stops the run as `stopped: decider`, books nothing for the decision and
+  leaves no decision line: test
+  `a_decider_that_escalates_stops_the_run_for_a_person_and_books_nothing_for_it`.
+- A rejection runs the printed command with `--deny`: test
+  `a_rejection_by_the_model_decider_runs_the_printed_command_with_deny`.

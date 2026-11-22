@@ -330,6 +330,27 @@ fn a_missing_root_file_is_refused_and_the_instructions_come_along() {
     assert!(dir.path().join("run/instructions/decider").is_dir());
 }
 
+#[test]
+fn the_fixtures_of_the_driver_come_along_and_a_link_in_them_stays_a_link() {
+    let dir = Dir::new("r2-copy-links");
+    let checkout = dir.path().join("checkout");
+    std::fs::create_dir_all(checkout.join("bindings")).unwrap();
+    std::fs::write(checkout.join("bindings/sdc.yaml"), "actions: []\n").unwrap();
+    std::fs::create_dir_all(checkout.join("driver/examples/sdc/fixtures/real-dir")).unwrap();
+    std::fs::write(checkout.join("driver/examples/sdc/fixtures/real-dir/a.txt"), "a\n").unwrap();
+    std::fs::write(checkout.join("driver/examples/sdc/rule-ends.json"), "{}\n").unwrap();
+    std::os::unix::fs::symlink("real-dir", checkout.join("driver/examples/sdc/fixtures/dir-link")).unwrap();
+    std::os::unix::fs::symlink("nowhere", checkout.join("driver/examples/sdc/fixtures/broken-link")).unwrap();
+    let dst = dir.path().join("run/bindings");
+    std::fs::create_dir_all(dst.parent().unwrap()).unwrap();
+    materialise(&checkout.join("bindings"), &dst, "sdc", &json!({})).unwrap();
+    let fixtures = dir.path().join("run/driver/examples/sdc/fixtures");
+    assert!(dir.path().join("run/driver/examples/sdc/rule-ends.json").is_file());
+    assert_eq!(std::fs::read_link(fixtures.join("dir-link")).unwrap(), Path::new("real-dir"));
+    assert_eq!(std::fs::read_link(fixtures.join("broken-link")).unwrap(), Path::new("nowhere"));
+    assert_eq!(std::fs::read_to_string(fixtures.join("dir-link/a.txt")).unwrap(), "a\n");
+}
+
 /// Slow lane: `cargo test --locked --bin runbook -- --ignored loads_in_loom` with
 /// `RUNBOOK_LOOM_BIN` naming the pinned `b10x-loom`. The committed tests never need that binary.
 #[test]
