@@ -1,0 +1,83 @@
+format: sdc.experiment/1
+id: parity-loom-strong-3
+kind: prospective
+status: complete
+created: 2026-11-22
+title: The to-do idea in the strong setting through Loom, against the three driver runs of release-0.1.2 (third record, the decider's answers declared in bindings/tools/answers.yaml)
+purpose: 'Registered hypothesis, written before the runs: with the decider''s answers declared in bindings/tools/answers.yaml (scope.answer, amend.upstream), the runs through Loom get past scope.answer, where all three runs of parity-loom-strong-2 stopped (decider_cannot_decide in IDEA-1.intake), and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). What counts against it: a run that stops at a decision the answers file declares, or an end outside the tolerance. It is the evaluation run of that story. This record follows parity-loom-strong-2, which stays as the evidence of its three stops and is not edited.'
+inputs:
+- name: todo-app
+  kind: idea
+  text: A to-do list web app for me and my partner that also works on the train without a connection
+  sha256: f384a752a2cb73d09a81c5fc845058149fe3799552e67ec3ad0064c687cc78c4
+tree_commit: e7dfa4b582bd1af703ad454eff96d97b3860314f
+fixed:
+  loom.bin: ~/.local/state/runbook/loom/5af3f9c2/b10x-loom
+  loom.sha256: 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2
+  loom.confinement: local
+  loom.cap_micro_usd: 18630000
+  decider.kind: model
+  decider.escalate: final
+  decider.max_decider_calls: '40'
+  decider.adapter: claude-cli
+  adapter: metaharness
+  autonomy: A5
+  max_llm_calls: '150'
+  max_wall_seconds: '5400'
+  review.adapter: claude-cli
+variants:
+- id: strong
+  runner: loom
+  settings:
+    models.writer.model: claude-sonnet-5-5
+    models.implement.model: claude-sonnet-5-5
+    models.review.model: claude-sonnet-5-5
+    models.other.model: claude-sonnet-5-5
+    decider.model: claude-opus-5-5
+  runs:
+  - parity-loom-strong-3.strong.1
+  - parity-loom-strong-3.strong.2
+  - parity-loom-strong-3.strong.3
+runs_per_variant: 3
+pass_rule: clean-delivery
+decision_rule:
+  rule: descriptive
+  text: 'Hypothesis: with the decider''s answers declared in bindings/tools/answers.yaml, the runs through Loom get past scope.answer and end like the three driver runs of the strong setting of release-0.1.2, within the tolerance of story:parity-run-on-loom. The record has one variant, so sdc-experiment reports it as descriptive and decides nothing; the verdict is read against the tolerance in the story, run by run: each quality measure of a Loom run lies within the range of the three driver runs (experiments/release-0.1.2/report.md, strong), and the members the story lists as equal are equal. Counts against the hypothesis: a run that stops at a decision the answers file declares, or an end outside the tolerance. Every end counts; no run is repaired, reopened or forced. A run that falls outside is reported as such. This record follows parity-loom-strong-2, whose three runs stopped at scope.answer.'
+launch:
+  max_parallel: 3
+  stagger_s: 30
+cost_estimate: 'From the three driver runs of the strong setting: 4.46, 4.70 and 4.82 USD, 13.97 USD for three, and 5.50 [5.43, 6.19] USD per run in the baseline of release-0.1.0 (16.5 USD for three at the median, 18.6 USD at the maximum). The cap of the three runs is what is left of the approved 20.00 USD: 19.63 USD, after the 0.37 USD of parity-loom-strong-2 (loom.cap_micro_usd is the stop line the launcher uses, 18.63 USD); the ledger refuses a call that would pass it. About 20 to 40 minutes a run at 3 runs at a time (driver runs: 886 to 1108 s).'
+known_confounds:
+- key: runtime
+  note: the runs go through Loom with `runbook loom-run`, the driver runs through sdc-drive and run-trial.sh; that is what the experiment tests, so it is not held equal.
+- key: confinement
+  note: --confinement local, the runs are not confined; the driver runs were not either.
+- key: unstick
+  note: the driver runs of release-0.1.2 ran with run.unstick on (an Opus unstick that an unstuck run counts against clean); a Loom run has no unstick, a run that stops stays stopped.
+- key: decider
+  note: the model decider is the one of bindings/tools/decider.sh through the claude-cli adapter in both runtimes; its answers reach Loom as printed decision commands with a named result and the reasons of a rejection as a file, and now also through the answers file bindings/tools/answers.yaml and the helper sdc-answers (scope.answer, amend.upstream), which the second record did not have.
+- key: canon
+  note: every run uses the canon binary on the login's PATH at run time, which no record pins; release-0.1.2 had the same confound.
+- key: tree
+  note: the tree is main with the daemon merged (e7dfa4b58); the driver runs of release-0.1.2 ran on the tree of that release (72a3eef).
+links:
+- 'experiments/parity-loom-strong-2.yaml: the second record; its three runs stopped at decider_cannot_decide in IDEA-1.intake (scope.answer), after 0.37 USD'
+- 'experiments/release-0.1.2.yaml: the three driver runs of the strong setting this record is compared with'
+- 'story:parity-run-on-loom: the tolerance and the acceptance of the evaluation run'
+- 'approval-record:operator-decision-parity-runs-more-2026-11-22: the approval of these three runs from the 19.63 USD left'
+- 'approval-record:operator-decision-parity-runs-spend-2026-11-22 and approval-record:operator-decision-parity-runs-unconfined-2026-11-22: the two earlier approvals, the cap of 20 USD in total and the conditions'
+facts:
+- Loom commit 5af3f9c2 (b10x-loom 0.58.0), binary sha256 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2; it names every-printed-decision-command-runs and person-action-records-a-named-result (the two conditions of the approval).
+- 'The model login is named at start time only: sdc-experiment run parity-loom-strong-3 --login-file <login file>; no record, log or report names its path.'
+- 'Spend: the approved cap is 20.00 USD in total. parity-loom-strong-2 spent 0.37 USD (ledger 366257 micro-USD in 9 entries), so 19.63 USD are left. The ledger is per record id (runs/parity-loom-strong-3.loom-spend.json) and starts empty, so the cap of this record is what is left: 19.63 USD, and loom.cap_micro_usd is the stop line, 18.63 USD (18630000 micro-USD).'
+- 'The fix: the decider''s answers are declared in bindings/tools/answers.yaml (scope.answer on ApproveAction, amend.upstream on Handoff), each with the command that lists the requests, the command that applies an answer and the command that follows; the runs reach them through sdc-answers on the PATH of the runs. The three runs of parity-loom-strong-2 stopped at scope.answer without it.'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 3
+    id: strong
+    listed: 3
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'

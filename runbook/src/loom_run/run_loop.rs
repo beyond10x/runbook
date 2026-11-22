@@ -358,7 +358,9 @@ impl Runner<'_> {
     /// Reads what the step spent and books it. A cost that cannot be read books the whole
     /// reservation (the most the call could spend) and fails the run closed, except for a call that
     /// ended with an exit other than 0 (and 126, 127, 75): the reservation is booked for it and the
-    /// run goes on, as the driver's does (the step's retry rule decides, `cost.rs`).
+    /// run goes on, as the driver's does (the step's retry rule decides, `cost.rs`). A call
+    /// directory in which no adapter was started costs nothing: the reservation is released (a
+    /// commit of 0, no ledger entry) and an event notes the call and its exit.
     fn book_step(&mut self, reservation: &Reservation) -> Result<(), Halt> {
         match self.reader.read_new(&self.workspace) {
             Ok(cost) => {
@@ -375,6 +377,11 @@ impl Runner<'_> {
                 for mut record in cost.unknown {
                     record["cost_unknown"] = Value::Bool(true);
                     self.emit(Event::CostedCall { source: CostSource::Step, cost_micro_usd: reservation.micro_usd, record })?;
+                }
+                for note in cost.no_call {
+                    let call = note.get("call").and_then(Value::as_str).unwrap_or("?").to_owned();
+                    let exit = note.get("exit").and_then(Value::as_i64).unwrap_or(-1);
+                    self.emit(Event::NoModelCall { call, exit })?;
                 }
                 Ok(())
             }

@@ -265,6 +265,13 @@ then the `writer_spent` verdict), and only the exits 126, 127, 75, 69 and 124 of
   run goes on; repeated failures run into the spend cap and end as `stopped: spend cap`.
 - A call with exit 126, 127 or 75, a call with exit 0 and no cost, and a call directory with no line
   end the run as `error`, with the reservation booked.
+- A call directory with no line and no `request.json`, whose `status.json` names an exit, is no call:
+  `llm-node.sh` writes `request.json` before every start of an adapter, so the step ended before
+  any adapter started. It costs nothing, its reservation is released, the event `no_model_call` (note
+  `step, no model call made`, the call's name and the exit) is written to `events.jsonl`, and the run
+  goes on with what Loom says of the step. A directory with `request.json`, or without a `status.json`
+  that names an exit, stays as the previous item says. The decider's calls do not pass the cost
+  reader and are unchanged.
 - The reason of such an end is `model step <action>: adapter <adapter> exited <code>: <first line of
   the adapter's stderr>`: the first non-empty line of `adapter-stderr.txt`, else `stderr.txt`, of the
   call directory, the home prefix replaced by `~`, cut at 300 characters, `(no stderr)` when empty.

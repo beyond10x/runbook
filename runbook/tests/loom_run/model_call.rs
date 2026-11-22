@@ -122,3 +122,106 @@ fn a_failed_call_with_a_cost_is_booked_at_that_cost_and_the_run_goes_on() {
     assert_eq!(code(&o), 0, "{}", stderr(&o));
     assert_eq!(spent(&w), 250_000);
 }
+
+/// A `tree_run` hook: the call directory of a step that ended before it started an adapter, with
+/// the files `llm-node.sh` writes before that point and `status` as the text of its `status.json`
+/// (no `status.json` when `None`). `request` adds the `request.json` that is written just before
+/// the adapter starts.
+fn bare_call_hook(status: Option<&str>, request: bool) -> String {
+    let mut hook = String::from(
+        "w=work/.sdc/llm; d=$w/001-change.review; mkdir -p \"$d/cwd\"\n\
+printf '%s' 'made-up check text' > \"$d/review-check.err\"\n\
+printf '%s' '{\"document_bytes\":1}' > \"$d/review-inputs.json\"\n",
+    );
+    if let Some(status) = status {
+        hook.push_str(&format!("printf '%s' '{status}' > \"$d/status.json\"\n"));
+    }
+    if request {
+        hook.push_str("printf '%s' '{}' > \"$d/request.json\"\n");
+    }
+    hook
+}
+
+const FAILED_STATUS: &str = r#"{"format":"sdc.call-status/1","state":"failed","pid":1,"started_at":"2026-01-01T00:00:00.000Z","finished_at":"2026-01-01T00:00:00.030Z","exit":2}"#;
+const RUNNING_STATUS: &str = r#"{"format":"sdc.call-status/1","state":"running","pid":1,"started_at":"2026-01-01T00:00:00.000Z"}"#;
+
+fn events_of(w: &World, name: &str) -> Vec<Value> {
+    let text = std::fs::read_to_string(w.run_dir("r1").join("events.jsonl")).unwrap();
+    text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).filter(|e| e["event"] == name).collect()
+}
+
+fn ledger_reserved(w: &World) -> Value {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(w.ledger()).unwrap()).unwrap();
+    v["reserved"].clone()
+}
+
+#[test]
+fn a_step_that_ended_before_any_adapter_costs_nothing_and_does_not_end_the_run() {
+    let w = World::new("no-call");
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.hook("tree_run", "1", &bare_call_hook(Some(FAILED_STATUS), false));
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(w.fake.calls_of(&["tree", "run"]).len(), 2, "the run did not go on after the step");
+    let outcome = w.outcome("r1");
+    assert_eq!(outcome["outcome"], "ended", "{outcome}");
+    assert_eq!((outcome["spent_micro_usd"].as_u64(), outcome["llm_calls"].as_u64()), (Some(0), Some(0)), "{outcome}");
+    assert_eq!(spent(&w), 0, "no model call, nothing booked");
+    assert_eq!(ledger_reserved(&w), serde_json::json!({}), "the reservation is released");
+    let notes = events_of(&w, "no_model_call");
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!((notes[0]["call"].as_str(), notes[0]["exit"].as_i64()), (Some("001-change.review"), Some(2)), "{}", notes[0]);
+    assert_eq!(notes[0]["note"], "step, no model call made");
+    assert!(events_of(&w, "costed_call").is_empty());
+    assert!(!w.run_dir("r1").join("llm-calls.jsonl").exists() || std::fs::read_to_string(w.run_dir("r1").join("llm-calls.jsonl")).unwrap().trim().is_empty());
+}
+
+#[test]
+fn a_directory_with_a_request_and_no_cost_record_books_its_reservation_and_ends_the_run() {
+    let w = World::new("no-call-request");
+    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.hook("tree_run", "default", &bare_call_hook(Some(FAILED_STATUS), true));
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert!(reason_of(&w).starts_with("model step change.review: model call 001-change.review has no cost record"), "{}", reason_of(&w));
+    assert_eq!(spent(&w), 1_000_000);
+    assert!(events_of(&w, "no_model_call").is_empty());
+}
+
+#[test]
+fn a_directory_without_a_status_file_stays_cost_unknown() {
+    let w = World::new("no-call-nostatus");
+    w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    w.fake.hook("tree_run", "default", &bare_call_hook(None, false));
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert!(reason_of(&w).contains("has no cost record"), "{}", reason_of(&w));
+    assert_eq!(spent(&w), 1_000_000);
+    assert!(events_of(&w, "no_model_call").is_empty());
+}
+
+#[test]
+fn a_directory_whose_status_has_no_exit_stays_cost_unknown() {
+    for status in [RUNNING_STATUS, "not json"] {
+        let w = World::new("no-call-running");
+        w.fake.answer("tree_run", "default", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+        w.fake.hook("tree_run", "default", &bare_call_hook(Some(status), false));
+        let o = w.run(&w.args("r1", 5_000_000));
+        assert_eq!(code(&o), 1, "{}", stderr(&o));
+        assert_eq!(spent(&w), 1_000_000, "{status}");
+    }
+}
+
+#[test]
+fn a_no_call_directory_beside_a_costed_call_books_only_the_costed_call() {
+    let w = World::new("no-call-beside");
+    w.fake.answer("tree_run", "1", &tree_run_json("BudgetSpent", 1, Some("the run took its 1 steps"), "[]"), 5);
+    let both = format!("{}{}", bare_call_hook(Some(FAILED_STATUS), false), failed_call_hook(1, "0.25", "the model said no"));
+    w.fake.hook("tree_run", "1", &both);
+    w.fake.answer("tree_run", "2", &tree_run_json("Terminal", 1, Some("operating"), "[]"), 0);
+    let o = w.run(&w.args("r1", 5_000_000));
+    assert_eq!(code(&o), 0, "{}", stderr(&o));
+    assert_eq!(spent(&w), 250_000);
+    assert_eq!(events_of(&w, "no_model_call").len(), 1);
+}

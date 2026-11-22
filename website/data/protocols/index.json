@@ -673,11 +673,27 @@
   ],
   "release": {
     "date": "2026-11-22",
-    "notes": "docs/releases/0.3.1.md",
-    "tag": "0.3.1",
-    "version": "0.3.1"
+    "notes": "docs/releases/0.4.0.md",
+    "tag": "0.4.0",
+    "version": "0.4.0"
   },
   "releases": [
+    {
+      "date": "2026-11-22",
+      "limits": [
+        "The daemon runs cases on its stub runtime only; the engine that runs a case on Loom inside the daemon is not in this release.",
+        "`runbook loom-run` needs a `b10x-loom` binary built from a Loom commit that is not published.",
+        "No parity verdict between the driver and Loom exists: the three runs of `parity-loom-strong-2` stopped at `scope.answer` before the answers file existed (0.136, 0.116 and 0.114 USD, 59, 48 and 46 s, furthest stage `intake`).",
+        "The driver and its scripts are still the default runner of every experiment record.",
+        "The full set of finding cycles was not run on this tree; the last full runs were on `8bddf508` and `b44f99b9b` (126 of 127 expected cycles as expected, `pool-wait` failed; fixed in `4133330ac`, not run again in full; `docs/releases/0.3.1.md`, \"Checks\").",
+        "The nine runs of `experiments/release-0.3.1.yaml` are running and have no result yet.",
+        "Every limit of 0.3.1 that this note does not change stands, among them that under Loom the exits 69 and 70 are recorded as `failed` and that the comparison of the stub cycle covers no run with a model."
+      ],
+      "notes": "docs/releases/0.4.0.md",
+      "notes_url": "https://github.com/beyond10x/runbook/blob/0.4.0/docs/releases/0.4.0.md",
+      "summary": "A minor release of 0.3.1, the same day. It adds two things that run: the Runbook daemon (`runbook serve`) on a stub runtime, and `runbook loom-run`, which runs one case on a pinned `b10x-loom` binary. A source release at tag `0.4.0`; nothing is published to crates.io and no interface is stable. `CHANGELOG.md` lists the changes with their sources. Read `docs/releases/0.3.1.md` for the release this one follows.",
+      "version": "0.4.0"
+    },
     {
       "date": "2026-11-22",
       "limits": [
@@ -816,7 +832,7 @@
   "sources": [
     {
       "path": "CHANGELOG.md",
-      "sha256": "02ad063d5d795799b83e5c64966d8db16ffe4a811e928d6ee400f968894c19a6"
+      "sha256": "e30f92d43005a1921cbc2ff233a8a2db0f9f3c75723e78f42403fa4e2f56f6a4"
     },
     {
       "path": "bindings/tools/node-classes.json",
@@ -861,6 +877,10 @@
     {
       "path": "docs/releases/0.3.1.md",
       "sha256": "1c861dd274f2e35f0d7cda1c2f5966192e04e59ca1ac69f2f1e6c75f1511bc20"
+    },
+    {
+      "path": "docs/releases/0.4.0.md",
+      "sha256": "5ae2b6675f6cdb9085e9b60f98e53c66dae44b96dcee6812ad4e831e87568747"
     },
     {
       "path": "driver/examples/sdc/decision-classes.json",
