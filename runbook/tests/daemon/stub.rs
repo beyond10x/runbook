@@ -191,3 +191,49 @@ fn a_cancel_ends_a_run_that_waits_on_a_decision() {
     rt.cancel("r1");
     assert_eq!(handle.join().unwrap(), Ok(Finish::Cancelled));
 }
+
+struct Keep(Arc<Mutex<Vec<DecisionRequest>>>);
+
+impl EventSink for Keep {
+    fn started(&self) {}
+    fn record(&self, _: &str, _: Value) {}
+    fn decision_requested(&self, request: DecisionRequest) {
+        self.0.lock().unwrap().push(request);
+    }
+    fn resumed(&self) {}
+}
+
+#[test]
+fn an_ask_is_filled_with_the_run_id_and_the_intake_so_that_two_runs_of_one_script_do_not_collide() {
+    let mut a = ask("{run}-q1");
+    a.question = "Approve: {intake}".to_string();
+    a.options = vec![json!({"letter": "A", "does": "yes to {intake}"})];
+    let rt = stub(vec![Step::Ask(vec![a]), Step::End("approved".into())]);
+    let seen: Arc<Mutex<Vec<DecisionRequest>>> = Arc::default();
+    let handles: Vec<_> = ["r1", "r2"]
+        .into_iter()
+        .map(|id| {
+            let (rt, seen) = (rt.clone(), seen.clone());
+            std::thread::spawn(move || {
+                let mut req = request(id, "book");
+                req.intake = format!("<i>{id}</i>");
+                rt.start(req, &Keep(seen), &AtomicBool::new(false))
+            })
+        })
+        .collect();
+    for _ in 0..2000 {
+        if seen.lock().unwrap().len() == 2 {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let mut got: Vec<(String, String, Value)> = seen.lock().unwrap().iter().map(|r| (r.request_id.clone(), r.question.clone(), r.options[0]["does"].clone())).collect();
+    got.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(got, [("r1-q1".into(), "Approve: <i>r1</i>".into(), json!("yes to <i>r1</i>")), ("r2-q1".into(), "Approve: <i>r2</i>".into(), json!("yes to <i>r2</i>"))]);
+    for id in ["r1", "r2"] {
+        assert_eq!(rt.answer(id, &format!("{id}-q1"), "A", "operator"), Ok(()));
+    }
+    for h in handles {
+        assert_eq!(h.join().unwrap(), Ok(Finish::Outcome("approved".into())));
+    }
+}
