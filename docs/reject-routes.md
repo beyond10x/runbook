@@ -158,8 +158,10 @@ standard output and names every reason on standard error, one line each. It refu
 - a member of the wrong type: `capped_effects` is a list of `read`, `write`, `external`; every
   other member is `true` or `false`;
 - a `provided_by` value with no known prefix, with nothing after the prefix, or a `loom:` value
-  with no `file:line` (a relative path with a file extension, a colon and a line or range of
-  lines: `crates/x/src/y.rs:740`, `retry.rs:4-8`; a web address is none);
+  with no `file:line` (a relative path ending in `rs`, `toml`, `md`, `yaml`, `yml`, `json` or
+  `sh`, a colon and a line or range of lines: `crates/x/src/y.rs:740`, `retry.rs:4-8`; a web
+  address or a host name with a port is none). This checks the form only: it does not open the
+  file at the pinned commit;
 - a member that contradicts its entry: `true` (a non-empty `capped_effects`) next to `absent:`, or
   `false` (an empty list) next to `loom:` or `runner:`. No member can rightly be `false` next to
   `loom:` or `runner:`: `false` says the run has not got it, and then the entry says `absent:` and

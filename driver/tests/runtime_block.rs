@@ -283,3 +283,15 @@ fn a_host_name_with_a_port_is_not_a_file_and_line() {
     let (code, out, err) = run_with("host", |e| e["runtime"]["provided_by"]["capped_effects"] = json!("loom: see example.com:443"));
     assert_eq!(code, 2, "a host and a port read as a file and a line:\n{out}{err}");
 }
+
+#[test]
+fn a_cite_has_one_of_the_listed_source_extensions() {
+    for ext in ["rs", "toml", "md", "yaml", "yml", "json", "sh"] {
+        let (code, out, err) = run_with("ext-ok", |e| e["runtime"]["provided_by"]["capped_effects"] = json!(format!("loom: x, crates/a/b.{ext}:740")));
+        assert_eq!(code, 0, "a cite of a .{ext} file is refused:\n{out}{err}");
+    }
+    for who in ["loom: x.com:443", "loom: x.io:1", "loom: x.txt:3"] {
+        let (code, out, err) = run_with("ext-no", |e| e["runtime"]["provided_by"]["capped_effects"] = json!(who));
+        assert_eq!(code, 2, "{who:?} accepted:\n{out}{err}");
+    }
+}
