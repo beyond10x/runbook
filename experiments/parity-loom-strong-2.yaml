@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: parity-loom-strong-2
 kind: prospective
-status: planned
+status: complete
 created: 2026-11-22
 title: The to-do idea in the strong setting through Loom, against the three driver runs of release-0.1.2 (second record, replaces parity-loom-strong)
 purpose: 'Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story. This record replaces parity-loom-strong, whose three runs ended in their first model step before any model call (the metaharness adapter found no login under Loom); that record stays as the evidence of the attempt and is not edited.'
@@ -68,3 +68,13 @@ facts:
 - 'The model login is named at start time only: sdc-experiment run parity-loom-strong-2 --login-file <login file>; no record, log or report names its path.'
 - The spend of the three runs is booked through the shared ledger runs/parity-loom-strong-2.loom-spend.json (one ledger per record id, so it starts empty); cap 20.00 USD, stop line 19.00 USD. The ledger of the replaced record booked 6.00 USD of reservations for steps of unknown cost and no money was spent, so the approved cap of 20.00 USD has not been used.
 - 'The tree is the fix: the metaharness adapter gives metaharness the login in a private HOME for its call (and the claude-cli adapter its config home) in the private directory of the runner, never in the run directory, and a model call that fails without a cost is booked at its reservation and the run goes on, with a reason that names the action, the adapter, the exit and the first line of the adapter stderr.'
+result:
+  computed_by: sdc-experiment report
+  variants:
+  - clean_passes: 0
+    ended: 3
+    id: strong
+    listed: 3
+    without_summary: []
+  verdict: descriptive
+  why: 'no hypothesis: the record describes its runs and decides nothing'
