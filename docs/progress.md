@@ -21,7 +21,8 @@ Every figure counts runs of one input, `todo-app` (sha256 `f384a752a2cb`), start
 | [0.1.4](#014) | release | 2026-11-21 | `7bbdee6` | no experiment yet | no run | - | - |
 | [0.2.0](#020) | release | 2026-11-21 | `6cde564` | no experiment yet | no run | - | - |
 | [0.2.1](#021) | release | 2026-11-21 | `99f5617` | no experiment yet | no run | - | - |
-| [0.3.0](#030) | release | 2026-11-22 | not tagged yet | no experiment yet | no run | - | - |
+| [0.3.0](#030) | release | 2026-11-22 | `ae7a697` | no experiment yet | no run | - | - |
+| [0.3.1](#031) | release | 2026-11-22 | not tagged yet | no experiment yet | no run | - | - |
 
 Settings (a run is in a setting when its record's settings have every value of `match`):
 
@@ -357,7 +358,7 @@ Limits of this measurement:
 
 ## 0.3.0
 
-Release, 2026-11-22. Tree: not tagged yet; 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation.
+Release, 2026-11-22. Tree: `ae7a697` (tag 0.3.0 at main ae7a697: 0.2.1 (99f5617) with the merges of queue 15 and of wave rb1 and the preparation).
 
 What changed:
 
@@ -378,8 +379,36 @@ Tested by: no experiment yet. No run used this tree, so there is no figure for i
 
 Limits of this measurement:
 
-- No run has used this tree: the baseline on it (n of at least 3 per setting) is still the first step of the improvement loop.
+- The registration runs of 0.3.0 were stopped after 8 of 9 had started (record release-0.3.0, status abandoned): the test step waited in the shared build pool and was recorded as a failed run, so the runs measured the queue. 0.3.0 has no registration numbers; they are made on 0.3.1.
 - The four switches are registered in experiment records that have no run.
+
+## 0.3.1
+
+Release, 2026-11-22. Tree: not tagged yet; 0.3.0 (ae7a697) with the merges of waves rb2 and rb3, the record of the stopped runs and the preparation.
+
+What changed:
+
+| commit | change | effect on run metrics |
+|---|---|---|
+| `5a4ba7f` | a story step that got no build slot is not a failed test run; 3 tries, then pool_wait_spent; a job the pool ends at its limit is run_over_time | not measured: no experiment has tested this change |
+| `8bddf50` | the bug-fix tool does the same for repro.run, tests.run and gate.run | not measured: no experiment has tested this change |
+| `f795462` | runbook check reads a checkout's text layout | no run metric affected |
+| `f242962` | the cycle script runs named cycles with --only | no run metric affected |
+| `357f218` | one driver test binary, 60 s per test, 120 s per step; the UI step the same, beside it in task check | no run metric affected |
+| `fc6d565` | check-protocols compares digests with a committed ledger and ends in under a minute | no run metric affected |
+| `77550ba` | the prompts of sdc-reply implement-run, sdc-conform and sdc-unstick are instruction files, byte-identical | no run metric affected |
+| `2dc0f48` | the feedback and requester texts are instruction files | no run metric affected |
+| `f9b38d6` | bindings name the registrations of their protocol files and program_root | no run metric affected |
+| `7eb1a52` | runbook parity compares a driver run with a Loom run; the first comparison of stub-cycle is equal | no run metric affected |
+| `42cb7ba` | the ESS domain sdc.daemon and its generated API; the daemon itself is not built | no run metric affected |
+| `a3e48ca` | the registration runs of 0.3.0 stopped, record release-0.3.0 abandoned | no run metric affected |
+
+Tested by: no experiment yet. No run used this tree, so there is no figure for it.
+
+Limits of this measurement:
+
+- The registration runs of 0.3.1 are registered under a record that is added after the tag; until then no run has used this tree.
+- Under Loom the exits 69 and 70 of the pool wait are recorded as failed until its loader has exits; the UI and runbook parity do not know pool_wait_spent and run_over_time.
 
 ## Experiments in no entry
 
