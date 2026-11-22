@@ -90,6 +90,54 @@ An event's `kind` is open text, the `kind` of the runtime's run-log line; events
 itself have a kind that starts with `runbook.` (`runbook.submitted`, `runbook.cancel-requested`,
 `runbook.start-failed`).
 
+## Running the daemon
+
+```
+runbook serve [--listen ADDR] [--state-dir DIR] [--context-root DIR]... [--runbook-dir DIR]
+              [--min-confinement local|linux] [--token-file FILE]
+```
+
+In this version the runtime behind the daemon is a stub: a run is scripted, it asks one question
+and ends, and nothing is executed. The daemon says so on standard error when it starts. It prints
+`runbook: listening on http://127.0.0.1:<port>` on standard output and runs until SIGINT or SIGTERM.
+Event streams (`Accept: text/event-stream`) are answered `406` with a body that names the next part
+of the story; the three event views are JSON pages only.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--listen` | `127.0.0.1:7430` | Address to bind. Port 0 picks a free port; the line above names it. |
+| `--state-dir` | `$XDG_STATE_HOME/runbook`, else `~/.local/state/runbook` | Where the daemon keeps its record. |
+| `--context-root` | none | A directory a run's `context_path` may lie under; repeatable. With none, any `context_path` is refused. |
+| `--runbook-dir` | `protocol/` of the located checkout or install | Where a submit may find a runbook besides `sdc` and `sdc-bugfix`. |
+| `--min-confinement` | `linux` | The weakest level a submit may ask for; a weaker one is refused `BelowConfinementFloor`. The level is stored with the run; nothing is confined yet. |
+| `--token-file` | none | File that holds the bearer token. |
+
+Token. With a token, every route, an unknown one included, answers `401` unless the request has
+`Authorization: Bearer <token>`. The token comes from `--token-file` or from the environment value
+`RUNBOOK_TOKEN`, the file first. A trailing newline is dropped. The daemon compares in constant
+time, and it never logs or echoes the token. A token file that is readable by others (any bit of
+`o+rwx`) is refused at start, exit 1, with the mode in the message: `chmod 600` it. Without a token
+the daemon listens on loopback only: a listen address that is not loopback and no token exit 1
+before anything is bound or written.
+
+Limits. A body over 6 MiB + 64 KiB is refused `413` before it is read whole (the intake is at most
+1,048,576 bytes; JSON writes a control character as six). Answers outside the specification have the
+body `{"refused": <what>, "message": <why>}`: `400` for a body or query the daemon cannot read, `401`,
+`404` for an unknown route, `405` for the wrong method, `406`, `413`.
+
+State directory:
+
+| Path | Holds |
+|---|---|
+| `daemon.lock` | Held while a daemon runs on the directory; a second daemon exits 1 with "in use by another daemon". |
+| `journal.jsonl` | Every change of state as one JSON line, appended and flushed; replayed at start. It is the truth; a run killed mid-way is read back in its last state. |
+| `runs/<run_id>/` | The run's own record, written by the runtime. |
+| `workspaces/<run_id>/` | The run's workspace; a `context_path` is copied here, symbolic links are not followed. |
+
+After a restart a run that was `Submitted` and never started becomes `FailedToStart` (event
+`runbook.start-failed`); a run that was `Running` or `WaitingOnDecision` stays so and gets the event
+`runbook.orphaned`, because the stub runtime cannot resume it.
+
 ## Outside the language
 
 - SSE. ESS 0.96.0 has no construct for a server-sent event stream; the three views above are the

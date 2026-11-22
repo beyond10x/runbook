@@ -2,7 +2,7 @@
 format: aep.planning-md/3
 id: story:daemon-skeleton-on-a-runtime-trait
 kind: story
-status: proposed
+status: active
 title: Daemon skeleton on a runtime trait with a stub runtime
 summary: runbook serve keeps many runs behind the specified API and SSE with resume, on a stub runtime, with the loopback and token floor.
 tags:
@@ -27,9 +27,10 @@ scope:
   path: runbook/src/stub.rs
 - confidence: cited
   path: runbook/tests
-revision: 6
+revision: 8
 transitions:
 - {from: "draft", to: "proposed", at: "2026-11-22T01:47:32Z", actor: "human:operator", revision: 2, executor: "agent:plan-onebin", correlation: "operator-requirement-2026-11-22-one-binary"}
+- {from: "proposed", to: "active", at: "2026-11-22T05:12:16Z", actor: "human:operator", revision: 7}
 ---
 # Story: daemon-skeleton-on-a-runtime-trait
 
@@ -104,3 +105,53 @@ subcommand in `main.rs`), `runbook/Cargo.toml` (an HTTP server crate), `runbook/
 `Taskfile.yml`. Shared files with the later stories are `runbook/src/main.rs` and
 `runbook/Cargo.toml`: C lands before D to H, which add their own modules and one registration line
 each.
+
+## Part C1
+
+Branch `impl/daemon-skeleton`: runtime trait and stub (`runtime.rs`, `stub.rs`), state and journal
+(`state.rs`), the command layer (`commands.rs`), HTTP and `runbook serve` (`api/`, `serve.rs`).
+All tests are in `runbook/tests/` (modules `daemon::stub`, `daemon::state`, `daemon::commands`,
+`daemon::http`, `daemon::openapi`).
+
+Met by part C1, with the test that shows it:
+
+- Serve line and token floor: `serve_prints_the_bound_address_keeps_running_and_checks_the_token_of_the_file_or_the_environment`
+  (the printed address, 401 without the bearer and 200 with it, token file over environment),
+  `a_listen_address_that_is_not_loopback_needs_a_token_and_the_process_exits_1_at_once` (exit 1 within 2 s),
+  `a_token_file_that_others_can_read_is_refused_and_the_message_names_the_mode`,
+  `a_token_is_checked_by_one_middleware_on_every_route` (command, view and unknown routes).
+- Submit, list, show, cancel, second cancel `RunAlreadyEnded`: `one_round_trip_per_client_command`,
+  `one_round_trip_per_view`, `a_cancel_moves_the_run_to_cancelled_and_a_second_cancel_is_refused`.
+- Open decision and one answer: `a_decision_is_answered_once_and_the_run_goes_on`,
+  `a_second_answer_is_refused_and_names_the_reason_the_specification_orders_first`.
+- Sessions: `sessions_group_runs_and_their_events`.
+- Record, workspace and restart: `the_record_and_the_workspace_are_children_of_the_state_directory`,
+  `after_a_restart_the_views_list_the_same_runs_with_the_same_states`,
+  `without_a_state_dir_the_record_is_under_xdg_state_home_runbook`.
+- Intake in bytes: `the_intake_limit_is_counted_in_bytes`,
+  `the_intake_limit_holds_over_http_and_the_body_limit_is_a_little_over_what_a_valid_submit_needs`.
+- `ContextOutsideRoots` and `NoSuchRunbook`: `a_context_outside_the_roots_is_refused_also_through_a_link_and_through_dots`,
+  `a_runbook_is_known_by_the_runtime_table_or_the_runbook_directory`.
+- Every route of the document and no other: `the_server_has_the_routes_of_the_openapi_document_and_no_others`;
+  every refusal of every client command: `every_refusal_of_every_client_command_has_a_trigger_and_the_specification_s_name`.
+- Event views as a stream are 406 and name part C2: `an_event_view_asked_as_a_stream_is_406_and_names_the_next_part`.
+
+Waits for later parts:
+
+- SSE with `Last-Event-ID` and the stream routes (the three event views are JSON pages here).
+- 401 on the UI route (there is no UI route yet).
+- The conformance suite against the stub daemon.
+- The budget runner: the 60 s kill of a test and the ten slowest tests printed by the step. No test
+  here is over 5 s alone; one daemon is started per test in process at a measured cost
+  (`starting_a_server_costs_milliseconds`), not once per run.
+
+Gaps in `ess/domains/daemon.yaml`, listed and not changed:
+
+- Line 801-824: the guards of `answer-decision` check the run's state before the request's, so the
+  second answer to the only open request of a run (which has resumed or ended) is `RunNotWaiting`;
+  `DecisionAlreadyAnswered` is reached only while another request keeps the run waiting.
+- Line 884 (`EndRun`) and the runtime-side commands: no command ends or fails a run from outside the
+  runtime, so after a restart a run that was `Running` or `WaitingOnDecision` keeps its state and gets
+  the event `runbook.orphaned`.
+- Line 492: `intake.count` counts characters, the handler counts bytes (line 139 says 1 MiB).
+- Lines 520-531: `already-submitted` says the answer is the first run, but its event `SubmitReplayed` carries only the idempotency key; the id of the first run is given in the `Location` header only.
