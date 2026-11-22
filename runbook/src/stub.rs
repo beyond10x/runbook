@@ -20,9 +20,15 @@ pub struct Ask {
     pub options: Vec<Value>,
 }
 
-/// `{run}` and `{intake}` in a text of an ask are the run's id and intake; every other text stays.
+/// The most characters of the intake the stub puts into one text it makes: a script that names `{intake}`
+/// several times must not multiply an intake of a megabyte into every answer of the daemon.
+pub const INTAKE_CHARS: usize = 200;
+
+/// `{run}` and `{intake}` in a text of an ask are the run's id and the first `INTAKE_CHARS` characters of
+/// its intake (cut at a character boundary, no marker); every other text stays.
 fn fill(text: &str, request: &StartRequest) -> String {
-    text.replace("{run}", &request.run_id).replace("{intake}", &request.intake)
+    let intake: String = request.intake.chars().take(INTAKE_CHARS).collect();
+    text.replace("{run}", &request.run_id).replace("{intake}", &intake)
 }
 
 fn fill_value(v: &Value, request: &StartRequest) -> Value {

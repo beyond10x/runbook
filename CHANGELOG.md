@@ -20,6 +20,7 @@ bare-version tags (`docs/releasing.md`).
 
 ### Changed
 
+- `answer-decision` refuses an `answered_by` longer than 200 characters with `400`, like `client` and `idempotency_key` (the specification says it as the type `sdc.daemon.AnswererLabel`, `docs/daemon-api.md`), and the stub runtime puts at most the first 200 characters of the intake into each text it makes, so that one intake of 1 MiB no longer fills the `open-decisions` answer of `stub-decision`.
 - `runbook serve` refuses to start with a token shorter than 32 bytes (exit 1; the message names the minimum and `--token-file`, never the token); a client takes the token it was given (`docs/daemon-api.md`, "Running the daemon").
 - The specification of the daemon (`ess/domains/daemon.yaml`) now says what the daemon does: `SubmitRun` writes the run's first event (`runbook.submitted`, sequence 1, so the runtime's first record is sequence 2), and `CancelRun` and `EndOrphanedRun` withdraw the run's Open decision requests in the same step (an answer to one is `DecisionWithdrawn`); all 12 scenarios of the daemon now pass against the running daemon and on the interpreted target, where 6 failed against the daemon before (`docs/daemon-api.md`; `story:daemon-synthesized-suite-has-no-refusal`, part C4).
 
