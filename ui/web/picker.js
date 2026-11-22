@@ -12,6 +12,10 @@ import {fmtDur, fmtAgo} from './now.js';
 export const isStub = (s) => s?.program?.kind === 'stub';
 const words = (x) => String(x || '').replace(/_/g, ' ');
 
+// How a closed run ended: good (a check), bad (a cross) or neutral (a diamond, no colour of judgement). The server
+// classes it (server.mjs runSummary: the run's own `delivered`, else the view's good_outcomes, else neutral); a
+// server of an earlier version sends only `delivered`.
+const endOf = (r) => r.end ?? (r.delivered ? 'good' : 'bad');
 // the state of a run: a class for its shape, the word in a row, the short word in the header button
 export function runState(s) {
   const r = s?.run || {};
@@ -20,8 +24,9 @@ export function runState(s) {
   if (r.state === 'running') return {cls: 'run', text: 'running', short: 'running'};
   if (r.state === 'unknown') return {cls: 'idle', text: 'live state unknown', short: 'unknown'};
   if (r.state === 'stopped') return {cls: 'stop', text: `stopped · ${words(r.cause) || `by ${r.stopBy || 'someone'}`}`, short: 'stopped'};
-  if (r.state === 'closed' && r.delivered) return {cls: 'ok', text: `closed · ${words(r.outcome) || 'delivered'}`, short: 'closed'};
-  if (r.state === 'closed') return {cls: 'bad', text: `closed · not delivered${r.outcome && !/^not.delivered$/.test(r.outcome) ? ` (${words(r.outcome)})` : ''}`, short: 'not delivered'};
+  if (r.state === 'closed' && endOf(r) === 'good') return {cls: 'ok', text: `closed · ${words(r.outcome) || 'delivered'}`, short: 'closed'};
+  if (r.state === 'closed' && endOf(r) === 'bad') return {cls: 'bad', text: `closed · not delivered${r.outcome && !/^not.delivered$/.test(r.outcome) ? ` (${words(r.outcome)})` : ''}`, short: 'not delivered'};
+  if (r.state === 'closed') return {cls: 'end', text: `ended${r.outcome ? `: ${words(r.outcome)}` : ''}`, short: 'ended'};
   return {cls: 'idle', text: 'not running', short: 'not running'};
 }
 const mark = (st, text = st.text) => `<span class="pk-mk m-${st.cls}"><i aria-hidden="true"></i><span class="pk-mt">${esc(text)}</span></span>`;
@@ -43,7 +48,7 @@ const hay = (s) => [s.name, runState(s).text, s.run?.outcome, s.run?.cause, s.ru
   ...exps(s).map((e) => `${e.id} ${e.variant || ''}`)].map(words).join(' ').toLowerCase();
 const recentFirst = (a, b) => lastOf(b) - lastOf(a) || a.name.localeCompare(b.name);
 // an experiment's head: its purpose, its variants with their number of runs, and how many of its ended runs
-// passed clean (closed and delivered, nothing forced or unstuck), over all its real runs whatever the search
+// passed clean (closed with a good end, nothing forced or unstuck), over all its real runs whatever the search
 function expHead(id, all) {
   const runs = all.map((s) => ({s, e: exps(s).find((e) => e.id === id)})).filter((x) => x.e);
   const e0 = runs[0]?.e || {};
@@ -52,7 +57,7 @@ function expHead(id, all) {
   const counts = [...n.values()];
   const variants = counts.length > 1 && counts.every((c) => c === counts[0]) ? `${counts.length} variants × ${counts[0]}` : [...n].map(([v, c]) => `${v} ×${c}`).join(' · ');
   const ended = runs.filter(({s}) => s.run?.state === 'closed' || s.run?.state === 'stopped');
-  const clean = ended.filter(({s}) => s.run.state === 'closed' && s.run.delivered && !s.run.forced && !s.run.unstuck).length;
+  const clean = ended.filter(({s}) => s.run.state === 'closed' && endOf(s.run) === 'good' && !s.run.forced && !s.run.unstuck).length;
   return {id, purpose: e0.purpose || e0.title || null, variants, passes: `${clean} clean ${clean === 1 ? 'pass' : 'passes'} of ${ended.length} ended`, last: Math.max(0, ...runs.map(({s}) => lastOf(s)))};
 }
 // the groups shown: running now; then the recent runs, by experiment when any run belongs to one (each a
@@ -118,7 +123,7 @@ function row(s, {id, cur, act, now, inExp}) {
   if (r.calls != null) bits.push(`<span title="${r.work ?? 0} work calls, ${r.decider ?? 0} decider calls">${r.calls} calls</span>`);
   if (r.setting) bits.push(`<span class="pk-set" title="models (run-settings.jsonl)">${esc(r.setting)}</span>`);
   for (const [k, n] of [['reopens', r.reopens], ['forced', r.forced], ['unstuck', r.unstuck]]) if (n) bits.push(`<span class="pk-n" title="status.json: ${k}">${n} ${k === 'reopens' && n === 1 ? 'reopen' : k}</span>`);
-  const title = [s.name, st.text, isStub(s) ? 'stub run: canned content, not a model\'s work' : '', r.setting].filter(Boolean).join(' · ');
+  const title = [s.name, st.text, r.state === 'closed' ? r.endWhy : '', isStub(s) ? 'stub run: canned content, not a model\'s work' : '', r.setting].filter(Boolean).join(' · ');
   return `<div role="option" id="${id}" class="pk-row${act ? ' act' : ''}" data-key="${id}" data-pick="${s.index}" aria-selected="${cur ? 'true' : 'false'}" title="${esc(title)}">`
     + `<div class="pk-r1"><span class="pk-rn">${esc(s.name)}</span>${isStub(s) ? '<span class="pk-stub">stub</span>' : ''}${expTag(s, inExp)}${mark(st)}</div>`
     + `<div class="pk-r2">${bits.join('<span class="pk-sep" aria-hidden="true"> · </span>') || '<span>nothing recorded yet</span>'}</div></div>`;
