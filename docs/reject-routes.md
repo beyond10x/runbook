@@ -196,10 +196,9 @@ After `impl/review-node` merges, the check will report `inert-cap` and `unrecord
 
 ## Check output
 
-This block is the check's output on this branch: 36 findings (13 `own-failure`, 8 `shared-cap`,
-6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`
-and `unrecorded-exit`). `fix/attempt5-close` removes the line `no-reject-route sdc/close:operating
-(close)`.
+This block is the findings the check prints (`sdc-check-routes --root .`, exit 1): 36 (13 `own-failure`,
+8 `shared-cap`, 6 `negative-result`, 4 `rework-limit`, 3 `no-reject-route`, 1 each of `not-handed`
+and `unrecorded-exit`). With `--doc docs/reject-routes.md` it prints `routes: 36 findings, all listed`.
 
 ```text
 shared-cap sdc.bugfix change.fix: 2 retry kinds share max_runs 3
