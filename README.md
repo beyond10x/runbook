@@ -73,11 +73,18 @@ The skills and what each needs: [plugin/README.md](plugin/README.md).
 
 ## Try it
 
-Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`): the scripts build `runbook` once and run `runbook canon <subcommand>`; no `canon` binary is installed,
-Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`.
+Canon is a library of the `runbook` crate (the pin is `runbook/Cargo.lock`); no `canon` binary is
+installed. It needs Rust, `jq`, `yq`, and Node 22 for the live view in `ui/`. Build `runbook` and
+the programs it runs once, in the repository root:
 
-The dry run uses a stub idea and stub executors that write the artifacts, prints every LLM command
-and runs none, with scripted approvals:
+```console
+(cd driver && cargo build --locked --bins)
+(cd runbook && cargo build --locked --bin runbook)
+```
+
+The dry run uses an idea text you give it (`--intake`) and stub executors that write the
+artifacts, prints every LLM command and runs none, with scripted approvals. It is `runbook run`
+(the binary is `runbook/target/debug/runbook`, or `runbook` when it is on `PATH`):
 
 ```console
 runbook run sdc --dry --intake <idea file> --run trial-dry --runs-dir runs --settings <settings.json> \
@@ -93,7 +100,7 @@ The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and
 | `protocol/` | The eight SDC protocols and `sdc-bugfix` |
 | `cases/` | Fixture cases with expected decisions, run by `scripts/evaluate-cases.sh` |
 | `driver/` | The Rust crate `sdc-tools`: the programs the bindings run and the tools around runs, with the tool bindings in `driver/examples/sdc/` ([docs/driver.md](docs/driver.md)) |
-| `runbook/` | `runbook`, the command people type: `doctor`, `list` and `--version` so far |
+| `runbook/` | `runbook`, the command people type: `run`, `runs`, `decide`, `test`, `check`, `serve`, `mcp`, `doctor`, `list`, `parity`, `canon` ([docs/cli.md](docs/cli.md), [docs/loom-run.md](docs/loom-run.md)) |
 | `watch/` | `sdc-watch`: file changes of a run |
 | `goals/` | `sdc-goals`: checks of `sdc.goals/1` documents ([docs/requester.md](docs/requester.md)) |
 | `ui/` | A live web view of a run |
@@ -102,7 +109,7 @@ The options are in [docs/loom-run.md](docs/loom-run.md). The scripted checks and
 | `experiments/` | Experiment records, run summaries and reports |
 | `website/` | The documentation site; its protocol data is written by `sdc-protocol-site` |
 | `docs/` | Design notes, results and release notes |
-| `scripts/` | Check, evaluate and trial scripts |
+| `scripts/` | Check and evaluate scripts |
 | `plugin/`, `.claude-plugin/` | The `runbook` plugin (the skills `workflow-builder`, `harden` and `record`) and its marketplace |
 | `.engineering/planning/` | The planning store (AEP) |
 
