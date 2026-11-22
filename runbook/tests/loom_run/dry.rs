@@ -415,6 +415,7 @@ impl Inproc {
         std::fs::create_dir_all(root.join("runs")).unwrap();
         copy_tree(&repo().join("runbook/tests/fixtures/engine-runbook"), &root.join("fx"));
         std::fs::write(root.join("idea.yaml"), "text: a note on tea\n").unwrap();
+        super::decider::install_routing_table_at(&root.join("fx"));
         std::fs::write(root.join("settings.json"), "{}").unwrap();
         Inproc { root }
     }

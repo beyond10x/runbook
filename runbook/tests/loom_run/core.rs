@@ -46,6 +46,7 @@ impl World {
         fake.open_ok();
         let w = World { root, fake };
         w.settings(&json!({}));
+        super::decider::install_routing_table(&w);
         w
     }
 

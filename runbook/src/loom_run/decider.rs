@@ -264,17 +264,16 @@ impl NativeDecider {
     /// `question` or `finding`) on `action`. `Ok(false)`: the decider takes it. `Ok(true)`: a rule
     /// takes it (the close of the root case at A5: `rule:autopilot`, no decider call). `Err`: it
     /// stays with a person, with the reason. A5 gives every decision to the decider except that
-    /// close. Below A5 only a class the table gives to `decider` is taken; any other holder, a class
-    /// the table does not know and a table that cannot be read are a person's.
+    /// close. Below A5 only a class the table gives to `decider` is taken; any other holder and a
+    /// class the table does not know are a person's. At every level, A5 included, the table is
+    /// loaded first, and a table that cannot be read is a person's: no rule and no model decides
+    /// without it.
     fn route(&self, level: &str, run_dir: &Path, kind: &str, action: &str, outcome: Option<&str>) -> Result<bool, String> {
         let load = || Routing::load(run_dir).map_err(|e| format!("reserved for a person: autonomy {level}: the table of who decides cannot be used ({e}), so a person decides"));
-        if level == AUTONOMY_DECIDES {
-            return match outcome.filter(|_| kind == "close") {
-                None => Ok(false),
-                Some(outcome) => Ok(load()?.closes_by_rule(level, outcome)),
-            };
-        }
         let routing = load()?;
+        if level == AUTONOMY_DECIDES {
+            return Ok(outcome.filter(|_| kind == "close").is_some_and(|outcome| routing.closes_by_rule(level, outcome)));
+        }
         let class = routing.class_of(kind, action);
         match routing.holder(level, &class) {
             Some("decider") => Ok(false),

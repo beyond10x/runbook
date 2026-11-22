@@ -546,9 +546,6 @@ fn a_table_that_is_missing_or_unusable_is_a_person_s_at_every_level_for_every_cl
             let mut decision = close_decision();
             decision["outcome"] = json!("operating");
             for d in [&approve_action(&w), &decision] {
-                if level == "A5" && d["kind"] == "ApproveAction" {
-                    continue;
-                }
                 let why = reason(ask(&w, &s, d, 250_000));
                 assert!(why.starts_with("reserved for a person") && why.contains("a person decides") && why.contains("autonomy-levels.json"), "{what} {level}: {why}");
             }
