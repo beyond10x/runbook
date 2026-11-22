@@ -58,3 +58,7 @@ With no `decider` key every decision ends the run as `stopped: decider`. `{"kind
 ## The environment of the child
 
 The child gets a built environment (`env_clear`, then these three), never the runner's:
+
+| Variable | Value |
+|---|---|
+| `PATH` | the runner's `PATH` |
