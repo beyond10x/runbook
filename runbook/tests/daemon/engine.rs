@@ -88,6 +88,11 @@ impl Rig {
         let dir = scratch(tag);
         let home = dir.join("home");
         copy_tree(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/engine-runbook"), &home);
+        // A person step is answered as the principal its binding names: here, the daemon's.
+        let binding = home.join("bindings/engine-draft.yaml");
+        let text = std::fs::read_to_string(&binding).unwrap();
+        assert!(text.contains("principal: reviewer"));
+        std::fs::write(&binding, text.replace("principal: reviewer", &format!("principal: {}", super::PRINCIPAL))).unwrap();
         std::fs::create_dir_all(dir.join("ctx")).unwrap();
         let engine = Arc::new(Engine::with_levels(home.clone(), dir.join("state"), levels));
         let mut rig = Rig { dir, home, levels: levels.to_vec(), engine, d: None };
@@ -96,7 +101,7 @@ impl Rig {
     }
 
     fn config(&self) -> Config {
-        Config { state_dir: self.dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![self.dir.join("ctx")], runbook_dir: None }
+        Config { state_dir: self.dir.join("state"), confinement_floor: Confinement::Local, context_roots: vec![self.dir.join("ctx")], runbook_dir: None, principal: super::PRINCIPAL.into() }
     }
 
     fn d(&self) -> &Daemon {
@@ -308,6 +313,28 @@ fn every_run_log_line_reaches_the_record_unchanged() {
     reported.sort();
     assert!(!logged.is_empty());
     assert_eq!(reported, logged);
+}
+
+#[test]
+fn the_engine_acts_as_the_daemons_principal_and_never_as_the_label_a_client_types() {
+    let rig = Rig::new("engine-principal", &[Confinement::Local]);
+    let run = rig.submit();
+    let review = rig.wait_review(&run);
+    rig.answer(&run, &review, "performed", "person:someone-else");
+    rig.settle(&run, &[]);
+    assert_eq!(rig.row(&run)["outcome"], "delivered");
+    // The run's record in Loom's store: the run logs, the cases and the observations (who acted).
+    let mut log = String::new();
+    for e in std::fs::read_dir(rig.store(&run)).unwrap().flatten() {
+        if e.path().is_file() && !e.file_name().to_string_lossy().ends_with(".lock") {
+            log.push_str(&std::fs::read_to_string(e.path()).unwrap());
+        }
+    }
+    let actors = log.matches(&format!("\"{}\"", super::PRINCIPAL)).count();
+    assert!(actors >= 2, "the daemon's principal acts in the run's store: {actors} times");
+    assert!(!log.contains("someone-else"), "the typed label reached the run's store");
+    let answered = rig.d().decisions_of_run(&run).into_iter().filter(|d| d["answered_by"] == "person:someone-else").count();
+    assert_eq!(answered, 1, "the label stays in the daemon's record of the answer");
 }
 
 #[test]

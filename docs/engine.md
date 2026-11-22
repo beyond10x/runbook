@@ -12,7 +12,8 @@ and verify, the runner of a level) is one module, `runbook/src/engine/calls.rs`,
 and by `runbook loom-run --in-process` (`docs/loom-run.md`, "The two ways to Loom"); there is no
 second copy.
 
-`runbook serve --runtime loom|stub` selects it. `stub` stays the default: a runtime that starts
+`runbook serve --principal <person:id | agent:id> --runtime loom|stub` selects it (`--principal` is
+required with either runtime). `stub` stays the default: a runtime that starts
 programs is not made the default before the daemon's Host and Origin check exists (decision of the
 coordinator, 2026-11-22). `--runbook-home DIR` (default: the asset root) is the directory with
 `protocol/` and `bindings/`; a runbook `name` is `protocol/<name>.protocol.yaml` with
@@ -48,7 +49,9 @@ the printed `command` is neither parsed nor run.
 A refused answer (the daemon has committed it already) is asked again as a new request that quotes
 Loom's refusal. A decision that lacks the member its call needs is unanswerable: its request says
 so and names the kind and Loom's `file:line`; the run waits for a cancel. The answering principal is
-the daemon's `answered_by`; a person action needs the binding's principal, which `NextDecision` does
+the daemon's own, the one `runbook serve --principal <person:id | agent:id>` was started with (required,
+no default); the `answered_by` label a client types stays in the daemon's record of the answer and
+never reaches Loom. A person action needs the binding's principal, which `NextDecision` does
 not carry (Loom `tree/src/person.rs:65`).
 
 ## Confinement
