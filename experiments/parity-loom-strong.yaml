@@ -1,7 +1,7 @@
 format: sdc.experiment/1
 id: parity-loom-strong
 kind: prospective
-status: planned
+status: abandoned
 created: 2026-11-22
 title: The to-do idea in the strong setting through Loom, against the three driver runs of release-0.1.2
 purpose: 'Registered hypothesis, written before the runs: the runs through Loom end like the three driver runs of the strong setting of release-0.1.2, within the tolerance written in story:parity-run-on-loom ("Tolerance, written before the Loom runs"). It is the evaluation run of that story.'
@@ -34,7 +34,10 @@ variants:
     models.review.model: claude-sonnet-5-5
     models.other.model: claude-sonnet-5-5
     decider.model: claude-opus-5-5
-  runs: []
+  runs:
+  - parity-loom-strong.strong.1
+  - parity-loom-strong.strong.2
+  - parity-loom-strong.strong.3
 runs_per_variant: 3
 pass_rule: clean-delivery
 decision_rule:
@@ -63,3 +66,7 @@ facts:
 - Loom commit 5af3f9c2 (b10x-loom 0.58.0), binary sha256 074a9e8691addf521b8d843c796bcc363eb42a6ca9cea8359b65b33f083b49e2; it names every-printed-decision-command-runs and person-action-records-a-named-result (the two conditions of the approval).
 - 'The model login is named at start time only: sdc-experiment run parity-loom-strong --login-file <login file>; no record, log or report names its path.'
 - The spend of the three runs is booked through the shared ledger runs/parity-loom-strong.loom-spend.json; cap 20.00 USD, stop line 19.00 USD.
+stopped:
+  at: 2026-11-22T10:20:13Z
+  by: agent:sdc-experiment
+  reason: 'all three runs ended in their first model step (idea.dissect) without a model call: the metaharness adapter got no login under Loom''s program environment (no HOME); bindings pass the login path to the claude-cli adapter only'
